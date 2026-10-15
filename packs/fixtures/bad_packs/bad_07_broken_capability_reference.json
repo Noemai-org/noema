@@ -1,0 +1,837 @@
+{
+  "pack_id": "bad_07_broken_capability_reference",
+  "name": "Noema Fintech Pack v1",
+  "domain": "FINTECH",
+  "version": "fintech@1.0.0",
+  "policy": {
+    "policy_id": "fin.pol",
+    "policy_version": "fin.pol@3.1",
+    "precedence_ladder": [
+      "LEGAL_REGULATORY",
+      "SECURITY_FRAUD",
+      "CORE_INTEGRITY",
+      "BUSINESS_RULES",
+      "USER_PREFERENCE"
+    ],
+    "default_action": "DENY",
+    "max_dispute_amount_kobo": 500000000,
+    "rules": [
+      {
+        "id": "rule_dedupe_cases",
+        "description": "Never open a duplicate case for the same transaction in the same epoch",
+        "enforcement": "STRICT"
+      },
+      {
+        "id": "rule_routing_allowlist",
+        "description": "Escalation queues must strictly belong to the routing allowlist",
+        "enforcement": "STRICT"
+      },
+      {
+        "id": "rule_revalidation_required",
+        "description": "Pre-write revalidation of subject resource status is mandatory",
+        "enforcement": "STRICT"
+      }
+    ]
+  },
+  "trust_profiles": {
+    "default": {
+      "profile_id": "tp_fintech_default",
+      "max_evidence_age_seconds": 300,
+      "freshness_sla_seconds": 300,
+      "confidence_threshold": 0.85,
+      "requires_confirmation_on_r3": true
+    },
+    "escalated": {
+      "profile_id": "tp_fintech_escalated",
+      "max_evidence_age_seconds": 60,
+      "freshness_sla_seconds": 60,
+      "confidence_threshold": 0.95,
+      "requires_confirmation_on_r3": true
+    }
+  },
+  "intent_classes": {
+    "TRANSFER_FUNDS": {
+      "intent_type": "TRANSFER_FUNDS",
+      "read_write_class": "WRITE",
+      "description": "The Actor wants to move funds from one financial resource to another (Prohibited in POC).",
+      "required_slots": [
+        "source_account",
+        "destination_account",
+        "amount",
+        "currency"
+      ],
+      "allowed_outcomes": []
+    },
+    "VERIFY_TRANSACTION": {
+      "intent_type": "VERIFY_TRANSACTION",
+      "read_write_class": "READ",
+      "description": "The Actor wants to establish whether a transaction occurred or has a particular status.",
+      "required_slots": [
+        "transaction_id"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.transaction.verified"
+      ]
+    },
+    "DISPUTE_TRANSACTION": {
+      "intent_type": "DISPUTE_TRANSACTION",
+      "read_write_class": "GOVERNANCE",
+      "description": "The Actor wants to challenge a transaction.",
+      "required_slots": [
+        "transaction_id",
+        "dispute_reason"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.exception.case_opened"
+      ]
+    },
+    "RECOVER_FUNDS": {
+      "intent_type": "RECOVER_FUNDS",
+      "read_write_class": "WRITE",
+      "description": "The Actor wants funds recovered after a financial problem.",
+      "required_slots": [
+        "transaction_id"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.exception.case_opened"
+      ]
+    },
+    "VIEW_PAYMENT_STATUS": {
+      "intent_type": "VIEW_PAYMENT_STATUS",
+      "read_write_class": "READ",
+      "description": "The Actor wants to view the status of a payment.",
+      "required_slots": [
+        "payment_reference"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.transaction.verified"
+      ]
+    },
+    "VIEW_TRANSFER_STATUS": {
+      "intent_type": "VIEW_TRANSFER_STATUS",
+      "read_write_class": "READ",
+      "description": "The Actor wants to view the status of a transfer.",
+      "required_slots": [
+        "transfer_reference"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.transaction.verified"
+      ]
+    },
+    "SELECT_BENEFICIARY": {
+      "intent_type": "SELECT_BENEFICIARY",
+      "read_write_class": "READ",
+      "description": "The Actor wants to select or resolve a beneficiary.",
+      "required_slots": [
+        "beneficiary_identifier"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.transaction.verified"
+      ]
+    },
+    "REQUEST_REFUND": {
+      "intent_type": "REQUEST_REFUND",
+      "read_write_class": "WRITE",
+      "description": "The Actor requests a refund (routed via escalation case).",
+      "required_slots": [
+        "transaction_id",
+        "refund_reason"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.exception.case_opened"
+      ]
+    },
+    "REPORT_UNAUTHORIZED_TRANSACTION": {
+      "intent_type": "REPORT_UNAUTHORIZED_TRANSACTION",
+      "read_write_class": "GOVERNANCE",
+      "description": "The Actor reports an unauthorized transaction.",
+      "required_slots": [
+        "transaction_id"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.exception.case_opened",
+        "fin.outcome.complaint.logged"
+      ]
+    },
+    "INVESTIGATE_EXCEPTION": {
+      "intent_type": "INVESTIGATE_EXCEPTION",
+      "read_write_class": "READ",
+      "description": "The Actor wants to investigate a transaction exception.",
+      "required_slots": [
+        "account_number"
+      ],
+      "allowed_outcomes": [
+        "fin.outcome.transaction.verified",
+        "fin.outcome.exception.case_opened"
+      ]
+    }
+  },
+  "evidence_sources": {
+    "fin.src.tushe_ledger": {
+      "source_id": "fin.src.tushe_ledger",
+      "name": "Tushe Core Banking & Ledger",
+      "freshness_sla_seconds": 300,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    },
+    "fin.src.case_system": {
+      "source_id": "fin.src.case_system",
+      "name": "Tushe Dispute Case Management",
+      "freshness_sla_seconds": 60,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    }
+  },
+  "routing_allowlist": [
+    "PAYMENTS_OPERATIONS",
+    "DISPUTES",
+    "FRAUD_REVIEW",
+    "SETTLEMENT_OPS"
+  ],
+  "reason_codes": [
+    "PROHIBITED_CAPABILITY",
+    "AMBIGUOUS_COUNTERPARTY",
+    "DECLINED_BY_APPROVER",
+    "POLICY_VERSION_MISMATCH",
+    "INSUFFICIENT_EVIDENCE",
+    "STALE_EVIDENCE",
+    "NONE"
+  ],
+  "outcomes": {
+    "fin.outcome.exception.case_opened": {
+      "outcome_id": "fin.outcome.exception.case_opened",
+      "description": "An escalation case was successfully registered and queued",
+      "verification_source": "fin.src.case_system"
+    },
+    "fin.outcome.complaint.logged": {
+      "outcome_id": "fin.outcome.complaint.logged",
+      "description": "A formal regulatory complaint reference was assigned",
+      "verification_source": "fin.src.case_system"
+    },
+    "fin.outcome.transaction.verified": {
+      "outcome_id": "fin.outcome.transaction.verified",
+      "description": "Authoritative ledger evidence confirms transaction status",
+      "verification_source": "fin.src.tushe_ledger"
+    },
+    "fin.outcome.evidence.recorded": {
+      "outcome_id": "fin.outcome.evidence.recorded",
+      "description": "Evidence fragment was durably appended to case dossier",
+      "verification_source": "fin.src.case_system"
+    },
+    "fin.outcome.escalation.routed": {
+      "outcome_id": "fin.outcome.escalation.routed",
+      "description": "Case ownership was assigned to an authorized queue",
+      "verification_source": "fin.src.case_system"
+    }
+  },
+  "capabilities": {
+    "fin.cap.lookup_transaction": {
+      "capability_id": "fin.cap.lookup_transaction",
+      "business_meaning": "Look up single transaction details from core ledger",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "single_record_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.lookup_account": {
+      "capability_id": "fin.cap.lookup_account",
+      "business_meaning": "Look up customer account balance and state",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "single_account_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.lookup_transaction_history": {
+      "capability_id": "fin.cap.lookup_transaction_history",
+      "business_meaning": "Look up transaction history for account within time window",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "account_history_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.query_switch_status": {
+      "capability_id": "fin.cap.query_switch_status",
+      "business_meaning": "Query national payment switch transaction status",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "switch_status_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.query_settlement_status": {
+      "capability_id": "fin.cap.query_settlement_status",
+      "business_meaning": "Query interbank settlement status for transaction",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "settlement_status_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.lookup_beneficiary": {
+      "capability_id": "fin.cap.lookup_beneficiary",
+      "business_meaning": "Resolve beneficiary name and account status",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "beneficiary_read",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.reconcile_transaction_state": {
+      "capability_id": "fin.cap.reconcile_transaction_state",
+      "business_meaning": "Reconcile internal ledger, switch, and beneficiary lifecycles",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "internal_calculation",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": false
+    },
+    "fin.cap.evaluate_sla_status": {
+      "capability_id": "fin.cap.evaluate_sla_status",
+      "business_meaning": "Evaluate SLA elapsed time against dispute thresholds",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "internal_calculation",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "prohibited": false
+    },
+    "fin.cap.create_escalation_case": {
+      "capability_id": "fin.cap.create_escalation_case",
+      "business_meaning": "Open one escalation case for an investigated transaction exception",
+      "risk_class": "R2_non_monetary_write",
+      "side_effect_class": "CREATES_RECORD",
+      "blast_radius": "one case on one transaction for one principal",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [
+        "subject_resource.status",
+        "open_cases"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "LOW",
+        "regulatory": "LOW",
+        "access": "NONE",
+        "operational": "LOW",
+        "irreversibility": "COMPENSABLE"
+      },
+      "expected_outcome": "fin.outcome.exception.case_opened",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "recovery": [
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "ESCALATE"
+      ],
+      "prohibited": false
+    },
+    "fin.cap.log_complaint_reference": {
+      "capability_id": "fin.cap.log_complaint_reference",
+      "business_meaning": "Log formal regulatory complaint reference for customer escalation",
+      "risk_class": "R3_regulatory_write",
+      "side_effect_class": "CREATES_RECORD",
+      "blast_radius": "regulatory complaint record",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [
+        "case_status",
+        "existing_complaint_reference"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "LOW",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "LOW",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.complaint.logged",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "recovery": [
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "ESCALATE"
+      ],
+      "prohibited": false
+    },
+    "fin.cap.route_to_internal_owner": {
+      "capability_id": "fin.cap.route_to_internal_owner",
+      "business_meaning": "Assign case to an allowlisted operational queue",
+      "risk_class": "R2_non_monetary_write",
+      "side_effect_class": "UPDATES_RECORD",
+      "blast_radius": "case routing queue",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [
+        "case_status",
+        "current_queue"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "LOW",
+        "access": "NONE",
+        "operational": "LOW",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.escalation.routed",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "recovery": [
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "ESCALATE"
+      ],
+      "prohibited": false
+    },
+    "fin.cap.record_investigation_evidence": {
+      "capability_id": "fin.cap.record_investigation_evidence",
+      "business_meaning": "Append cryptographic evidence hash and snapshot reference to case dossier",
+      "risk_class": "R1_append_only",
+      "side_effect_class": "APPENDS_RECORD",
+      "blast_radius": "case evidence dossier",
+      "concurrency_control": "NONE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [
+        "case_status"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "LOW",
+        "access": "NONE",
+        "operational": "LOW",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.evidence.recorded",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "recovery": [
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "ESCALATE"
+      ],
+      "prohibited": false
+    },
+    "fin.cap.transfer_funds": {
+      "capability_id": "fin.cap.transfer_funds",
+      "business_meaning": "Execute direct monetary debit or credit",
+      "risk_class": "R4_monetary_write",
+      "side_effect_class": "MUTATES_FINANCIAL_STATE",
+      "blast_radius": "monetary funds",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": true
+    },
+    "fin.cap.reverse_transaction": {
+      "capability_id": "fin.cap.reverse_transaction",
+      "business_meaning": "Execute direct monetary reversal",
+      "risk_class": "R4_monetary_write",
+      "side_effect_class": "MUTATES_FINANCIAL_STATE",
+      "blast_radius": "monetary funds",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": true
+    },
+    "fin.cap.adjust_balance": {
+      "capability_id": "fin.cap.adjust_balance",
+      "business_meaning": "Adjust ledger balance directly",
+      "risk_class": "R4_monetary_write",
+      "side_effect_class": "MUTATES_FINANCIAL_STATE",
+      "blast_radius": "account balance",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": true
+    },
+    "fin.cap.initiate_refund": {
+      "capability_id": "fin.cap.initiate_refund",
+      "business_meaning": "Initiate direct merchant or payment refund",
+      "risk_class": "R4_monetary_write",
+      "side_effect_class": "MUTATES_FINANCIAL_STATE",
+      "blast_radius": "monetary funds",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.transaction.verified",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.tushe_ledger"
+      },
+      "prohibited": true
+    },
+    "fin.cap.close_or_resolve_case": {
+      "capability_id": "fin.cap.close_or_resolve_case",
+      "business_meaning": "Mark dispute case as resolved or closed",
+      "risk_class": "R2_non_monetary_write",
+      "side_effect_class": "TERMINATES_LIFECYCLE",
+      "blast_radius": "dispute resolution status",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "MEDIUM",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.exception.case_opened",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.case_system"
+      },
+      "prohibited": true
+    },
+    "fin.cap.modify_sla_or_regulatory_clock": {
+      "capability_id": "fin.cap.modify_sla_or_regulatory_clock",
+      "business_meaning": "Modify SLA countdown or regulatory reporting timer",
+      "risk_class": "R3_regulatory_write",
+      "side_effect_class": "MUTATES_TEMPORAL_AUDIT",
+      "blast_radius": "regulatory SLA compliance",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.complaint.logged",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.case_system"
+      },
+      "prohibited": true
+    },
+    "fin.cap.edit_or_delete_evidence": {
+      "capability_id": "fin.cap.edit_or_delete_evidence",
+      "business_meaning": "Edit or delete an immutable evidence record",
+      "risk_class": "R3_regulatory_write",
+      "side_effect_class": "MUTATES_AUDIT_TRAIL",
+      "blast_radius": "forensic audit trail",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.evidence.recorded",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.case_system"
+      },
+      "prohibited": true
+    },
+    "fin.cap.downgrade_case_priority": {
+      "capability_id": "fin.cap.downgrade_case_priority",
+      "business_meaning": "Demote case priority or severity",
+      "risk_class": "R2_non_monetary_write",
+      "side_effect_class": "MUTATES_GOVERNANCE_PRIORITY",
+      "blast_radius": "case triage priority",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "MEDIUM",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "MEDIUM",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.escalation.routed",
+      "verification": {
+        "method": "none",
+        "source": "fin.src.case_system"
+      },
+      "prohibited": true
+    }
+  },
+  "action_graph": {
+    "nodes": [
+      {
+        "node_id": "node_lookup_tx",
+        "capability_id": "fin.cap.lookup_transaction",
+        "stage": "EVIDENCE_GATHERING",
+        "preconditions": []
+      },
+      {
+        "node_id": "node_lookup_acc",
+        "capability_id": "fin.cap.lookup_account",
+        "stage": "EVIDENCE_GATHERING",
+        "preconditions": []
+      },
+      {
+        "node_id": "node_reconcile",
+        "capability_id": "fin.cap.reconcile_transaction_state",
+        "stage": "ANALYSIS",
+        "preconditions": [
+          "node_lookup_tx"
+        ]
+      },
+      {
+        "node_id": "node_evaluate_sla",
+        "capability_id": "fin.cap.evaluate_sla_status",
+        "stage": "ANALYSIS",
+        "preconditions": [
+          "node_reconcile"
+        ]
+      },
+      {
+        "node_id": "node_create_case",
+        "capability_id": "fin.cap.create_escalation_case",
+        "stage": "EXECUTION",
+        "preconditions": [
+          "node_reconcile"
+        ]
+      },
+      {
+        "node_id": "node_record_evidence",
+        "capability_id": "fin.cap.record_investigation_evidence",
+        "stage": "EXECUTION",
+        "preconditions": [
+          "node_create_case"
+        ]
+      },
+      {
+        "node_id": "node_route_owner",
+        "capability_id": "fin.cap.route_to_internal_owner",
+        "stage": "EXECUTION",
+        "preconditions": [
+          "node_create_case"
+        ]
+      },
+      {
+        "node_id": "node_log_complaint",
+        "capability_id": "fin.cap.log_complaint_reference",
+        "stage": "EXECUTION",
+        "preconditions": [
+          "node_create_case",
+          "node_evaluate_sla"
+        ]
+      },
+      {
+        "node_id": "node_broken_ref",
+        "capability_id": "fin.cap.non_existent_capability",
+        "stage": "ANALYSIS",
+        "preconditions": []
+      }
+    ],
+    "edges": [
+      {
+        "from": "node_lookup_tx",
+        "to": "node_reconcile"
+      },
+      {
+        "from": "node_reconcile",
+        "to": "node_evaluate_sla"
+      },
+      {
+        "from": "node_reconcile",
+        "to": "node_create_case"
+      },
+      {
+        "from": "node_create_case",
+        "to": "node_record_evidence"
+      },
+      {
+        "from": "node_create_case",
+        "to": "node_route_owner"
+      },
+      {
+        "from": "node_create_case",
+        "to": "node_log_complaint"
+      },
+      {
+        "from": "node_evaluate_sla",
+        "to": "node_log_complaint"
+      }
+    ]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "pack_id": "telecom_conformance_v1",
+  "name": "Telecom Conformance Pack",
+  "domain": "TELECOM",
+  "version": "telecom@1.0.0",
+  "policy": {
+    "policy_id": "tel.pol",
+    "policy_version": "tel.pol@1.0",
+    "precedence_ladder": ["REGULATORY", "SUBSCRIBER_PROTECTION", "NETWORK_INTEGRITY"],
+    "default_action": "DENY",
+    "rules": []
+  },
+  "trust_profiles": {
+    "default": {
+      "profile_id": "tp_telecom_default",
+      "max_evidence_age_seconds": 600,
+      "freshness_sla_seconds": 600,
+      "confidence_threshold": 0.80,
+      "requires_confirmation_on_r3": true
+    }
+  },
+  "intent_classes": {
+    "QUERY_SIM_STATUS": {
+      "intent_type": "QUERY_SIM_STATUS",
+      "read_write_class": "READ",
+      "description": "Check if a subscriber SIM is active or barred.",
+      "required_slots": ["msisdn"],
+      "allowed_outcomes": ["tel.outcome.sim.verified"]
+    }
+  },
+  "evidence_sources": {
+    "tel.src.hlr": {
+      "source_id": "tel.src.hlr",
+      "name": "Home Location Register",
+      "freshness_sla_seconds": 600,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    }
+  },
+  "routing_allowlist": ["NETWORK_OPERATIONS"],
+  "reason_codes": ["NONE", "SUBSCRIBER_NOT_FOUND"],
+  "outcomes": {
+    "tel.outcome.sim.verified": {
+      "outcome_id": "tel.outcome.sim.verified",
+      "description": "SIM status verified from HLR",
+      "verification_source": "tel.src.hlr"
+    }
+  },
+  "capabilities": {
+    "tel.cap.lookup_sim": {
+      "capability_id": "tel.cap.lookup_sim",
+      "business_meaning": "Look up SIM status in HLR",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "single_subscriber",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "tel.outcome.sim.verified",
+      "verification": { "method": "independent_read", "source": "tel.src.hlr" },
+      "prohibited": false
+    }
+  },
+  "action_graph": {
+    "nodes": [
+      {
+        "node_id": "node_lookup_sim",
+        "capability_id": "tel.cap.lookup_sim",
+        "stage": "EVIDENCE_GATHERING",
+        "preconditions": []
+      }
+    ],
+    "edges": []
+  }
+}
