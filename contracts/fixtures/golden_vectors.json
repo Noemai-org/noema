@@ -114,6 +114,91 @@
         }
       ],
       "expected_evidence_set_hash": "sha256:85f7407496250253e53b326daa8e96960b8a338eaf8c04782f0d0507a648b48c"
+    },
+    {
+      "name": "single_item",
+      "input": [
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected_evidence_set_hash": "sha256:47dfb81eb6a8175a50e80698b3fa944350b08eeb301d48ecb2fa7651cca67f3b"
+    },
+    {
+      "name": "sort_key_is_evidence_id",
+      "input": [
+        {
+          "evidence_id": "evd_02_switch",
+          "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "evidence_id": "evd_01_ledger",
+          "payload_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ],
+      "expected_evidence_set_hash": "sha256:15fd16c042481a7a3a366578ecc90be5eca5e255cd1d8d47ea68b33f97398177"
+    }
+  ],
+  "evidence_set_hash_negative_vectors": [
+    {
+      "name": "duplicate_evidence_id",
+      "input": [
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      ],
+      "expected": "reject",
+      "reason": "an evidence_id appears more than once"
+    },
+    {
+      "name": "payload_hash_uppercase_hex",
+      "input": [
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      ],
+      "expected": "reject",
+      "reason": "payload_hash must be sha256: followed by 64 lowercase hex characters"
+    },
+    {
+      "name": "payload_hash_without_prefix",
+      "input": [
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected": "reject",
+      "reason": "payload_hash lacks the sha256: prefix"
+    },
+    {
+      "name": "payload_hash_63_hex_characters",
+      "input": [
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected": "reject",
+      "reason": "payload_hash has 63 hex characters instead of 64"
+    },
+    {
+      "name": "empty_evidence_id",
+      "input": [
+        {
+          "evidence_id": "",
+          "payload_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "expected": "reject",
+      "reason": "evidence_id is empty"
     }
   ],
   "binding_hash_vectors": [

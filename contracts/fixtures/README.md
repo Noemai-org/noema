@@ -1,0 +1,39 @@
+# Golden vectors (`golden_vectors.json`)
+
+Cross-language fixtures for task CON-04: Go and Python must each compute every vector below with byte-identical results, in CI. Everything in the file is **synthetic**: the identifiers, the amounts and the signing key are test values, never real data or real keys.
+
+The construction of each family is written here so that nobody has to infer it from a value. The authority is the PERD, [`docs/poc/perd/`](https://github.com/Noemai-org/docs/blob/main/docs/poc/perd/README.md) in `Noemai-org/docs`, version 1.6 or later; this page only points to it. If this page and the PERD disagree, the PERD wins.
+
+## Common pieces
+
+- **JCS** is RFC 8785 canonical JSON: keys sorted, no insignificant whitespace, UTF-8, strings escaped as RFC 8785 says. The fixtures use only objects, arrays, strings, integers, booleans and null.
+- **`sha256:`** hashes are written `"sha256:"` followed by the 64 lowercase hex characters of the SHA-256 digest.
+- **`LP(x)`** is a 4-byte big-endian length followed by the UTF-8 bytes of `x`. It is the one length-prefix primitive of the file (PERD §27.2).
+
+## Families
+
+| Family in the file | Construction | PERD |
+|---|---|---|
+| `jcs_vectors` | `expected_jcs` is the JCS of `input`; `expected_sha256` is `sha256:` plus the SHA-256 of those UTF-8 bytes | REQ-INT-001 (RFC 8785 JCS) |
+| `intent_hash_vectors` | `intent_hash` = SHA-256 of the JCS of the whole Intent Object in `input` | §20.6, REQ-INT-001 |
+| `plan_hash_vectors` | `plan_hash` = SHA-256 of the JCS of the plan (the array in `input`) | §26, REQ-PLN-002 |
+| `evidence_set_hash_vectors` | `evidence_set_hash` = `sha256:` plus SHA-256 of `‖ LP(evidence_id) ‖ LP(payload_hash)` over the items sorted by the UTF-8 bytes of `evidence_id`; `payload_hash` is the full string with its `sha256:` prefix; no separators. The empty set hashes to SHA-256 of zero bytes | §21.3, REQ-CTX-004 |
+| `evidence_set_hash_negative_vectors` | Each input must be **rejected** (`"expected": "reject"`, with the reason): a duplicate or empty `evidence_id`, or a `payload_hash` that is not `sha256:` plus 64 lowercase hex characters. No hash is computed for them | §21.3 step 2, REQ-CTX-004 |
+| `binding_hash_vectors` | `binding_hash` = SHA-256 of the JCS of the object with exactly `principal_id`, `intent_hash`, `capability_id`, `target_ref`, `params_hash`, `evidence_set_hash`, `plan_hash` and `policy_version` | §23, REQ-TRU-009 |
+| `idempotency_key_vectors` | `"idk_v1_"` plus the hex SHA-256 of `LP(tenant_id) ‖ LP(principal_id) ‖ LP(transaction_id) ‖ LP(logical_action) ‖ LP(reason_code) ‖ LP(policy_scope) ‖ LP(logical_resolution_epoch)` | §27.2 |
+| `grant_signing_vectors` | `expected_sig.value` is the lowercase hex HMAC-SHA-256 of the UTF-8 bytes of `expected_jcs` (the JCS of the grant, which carries no `sig`), keyed with the bytes of `secret_hex`; `key_id` names the key | §23, REQ-TRU-008 |
+
+### Notes on `evidence_set_hash`
+
+- Sorting is by `evidence_id`, never by `payload_hash`. In `unsorted_evidence_items` both orders happen to agree, so only `sort_key_is_evidence_id` detects an implementation that sorts by the wrong key: sorted by `payload_hash`, it gives `sha256:98bbe9364a2cd31858d6bd63773c9b576d061ad0f04ee4c32aec4df9b0f9b93f` instead of the stated value.
+- Reordering the input never changes the hash.
+- The empty set has a defined hash, but that is a fact about the function, not a permission: Trust never issues a grant over an empty evidence set (REQ-CTX-004).
+- The first two `evidence_set_hash_vectors` and every other family are unchanged from the port of the 14 October work; `single_item`, `sort_key_is_evidence_id` and the negative fixtures were added under DEC-2026-10-16 (contract and pack clarifications) C1.
+
+## Re-checking the file
+
+```
+python3 -I tools/check_vectors.py contracts/fixtures/golden_vectors.json
+```
+
+`tools/check_vectors.py` is a standard-library reference check, written from the PERD text and not from this file. It prints one PASS or FAIL line per vector and exits 0 only if every vector matches. It is a check on the fixtures, not production code and not a substitute for the Go and Python implementations, which CON-04 requires. Its `jcs` helper covers only the value types listed above, and it sorts keys by code point, which equals RFC 8785's UTF-16 order for every key in this file.
