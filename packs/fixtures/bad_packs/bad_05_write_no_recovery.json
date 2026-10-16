@@ -167,16 +167,30 @@
     }
   },
   "evidence_sources": {
-    "fin.src.tushe_ledger": {
-      "source_id": "fin.src.tushe_ledger",
-      "name": "Tushe Core Banking & Ledger",
+    "fin.src.core_ledger": {
+      "source_id": "fin.src.core_ledger",
+      "name": "Core banking ledger",
+      "freshness_sla_seconds": 300,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    },
+    "fin.src.switch": {
+      "source_id": "fin.src.switch",
+      "name": "Payment switch",
+      "freshness_sla_seconds": 300,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    },
+    "fin.src.settlement": {
+      "source_id": "fin.src.settlement",
+      "name": "Settlement system",
       "freshness_sla_seconds": 300,
       "authoritative": true,
       "endpoint_type": "REST"
     },
     "fin.src.case_system": {
       "source_id": "fin.src.case_system",
-      "name": "Tushe Dispute Case Management",
+      "name": "Case management system",
       "freshness_sla_seconds": 60,
       "authoritative": true,
       "endpoint_type": "REST"
@@ -194,10 +208,14 @@
     "DECLINED_BY_APPROVER",
     "POLICY_VERSION_MISMATCH",
     "INSUFFICIENT_EVIDENCE",
-    "STALE_EVIDENCE",
-    "NONE"
+    "STALE_EVIDENCE"
   ],
   "outcomes": {
+    "fin.outcome.exception.status_explained": {
+      "outcome_id": "fin.outcome.exception.status_explained",
+      "description": "The customer was given an explanation of the transaction status that is bound to verified evidence",
+      "verification_source": "fin.src.core_ledger"
+    },
     "fin.outcome.exception.case_opened": {
       "outcome_id": "fin.outcome.exception.case_opened",
       "description": "An escalation case was successfully registered and queued",
@@ -211,7 +229,7 @@
     "fin.outcome.transaction.verified": {
       "outcome_id": "fin.outcome.transaction.verified",
       "description": "Authoritative ledger evidence confirms transaction status",
-      "verification_source": "fin.src.tushe_ledger"
+      "verification_source": "fin.src.core_ledger"
     },
     "fin.outcome.evidence.recorded": {
       "outcome_id": "fin.outcome.evidence.recorded",
@@ -245,7 +263,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": false
     },
@@ -269,7 +287,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": false
     },
@@ -293,7 +311,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": false
     },
@@ -317,7 +335,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.switch"
       },
       "prohibited": false
     },
@@ -341,7 +359,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.settlement"
       },
       "prohibited": false
     },
@@ -365,7 +383,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": false
     },
@@ -389,7 +407,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "independent_read",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": false
     },
@@ -557,7 +575,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "none",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": true
     },
@@ -581,7 +599,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "none",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": true
     },
@@ -605,7 +623,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "none",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": true
     },
@@ -629,7 +647,7 @@
       "expected_outcome": "fin.outcome.transaction.verified",
       "verification": {
         "method": "none",
-        "source": "fin.src.tushe_ledger"
+        "source": "fin.src.core_ledger"
       },
       "prohibited": true
     },
