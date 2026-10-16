@@ -1,0 +1,83 @@
+{
+  "pack_id": "insurance_conformance_v1",
+  "name": "Insurance Conformance Pack",
+  "domain": "INSURANCE",
+  "version": "insurance@1.0.0",
+  "policy": {
+    "policy_id": "ins.pol",
+    "policy_version": "ins.pol@1.0",
+    "precedence_ladder": ["STATUTORY", "POLICY_HOLDER_RIGHTS", "UNDERWRITING"],
+    "default_action": "DENY",
+    "rules": []
+  },
+  "trust_profiles": {
+    "default": {
+      "profile_id": "tp_insurance_default",
+      "max_evidence_age_seconds": 1800,
+      "freshness_sla_seconds": 1800,
+      "confidence_threshold": 0.85,
+      "requires_confirmation_on_r3": true
+    }
+  },
+  "intent_classes": {
+    "QUERY_POLICY_COVERAGE": {
+      "intent_type": "QUERY_POLICY_COVERAGE",
+      "read_write_class": "READ",
+      "description": "Check coverage limit for policy.",
+      "required_slots": ["policy_number"],
+      "allowed_outcomes": ["ins.outcome.coverage.verified"]
+    }
+  },
+  "evidence_sources": {
+    "ins.src.policy_db": {
+      "source_id": "ins.src.policy_db",
+      "name": "Policy Administration System",
+      "freshness_sla_seconds": 1800,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    }
+  },
+  "routing_allowlist": ["CLAIMS_TRIAGE"],
+  "reason_codes": ["NONE", "POLICY_LAPSED"],
+  "outcomes": {
+    "ins.outcome.coverage.verified": {
+      "outcome_id": "ins.outcome.coverage.verified",
+      "description": "Policy coverage verified from Policy DB",
+      "verification_source": "ins.src.policy_db"
+    }
+  },
+  "capabilities": {
+    "ins.cap.lookup_policy": {
+      "capability_id": "ins.cap.lookup_policy",
+      "business_meaning": "Look up active policy details",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "single_policy",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "ins.outcome.coverage.verified",
+      "verification": { "method": "independent_read", "source": "ins.src.policy_db" },
+      "prohibited": false
+    }
+  },
+  "action_graph": {
+    "nodes": [
+      {
+        "node_id": "node_lookup_policy",
+        "capability_id": "ins.cap.lookup_policy",
+        "stage": "EVIDENCE_GATHERING",
+        "preconditions": []
+      }
+    ],
+    "edges": []
+  }
+}

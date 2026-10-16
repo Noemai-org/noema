@@ -1,0 +1,202 @@
+{
+  "description": "Cross-language golden vectors for Noema POC (CON-04)",
+  "version": "1.0",
+  "jcs_vectors": [
+    {
+      "name": "simple_unordered_keys",
+      "input": {
+        "z": 10,
+        "a": "first",
+        "m": true
+      },
+      "expected_jcs": "{\"a\":\"first\",\"m\":true,\"z\":10}",
+      "expected_sha256": "sha256:da6edbde46e8c997f6f6ce65ea368a372870e047fdf7fffe11b5964d6643f683"
+    },
+    {
+      "name": "nested_structures",
+      "input": {
+        "metadata": {
+          "active": true,
+          "null_val": null,
+          "count": 42
+        },
+        "tags": [
+          "gamma",
+          "alpha",
+          "beta"
+        ],
+        "author": "Noema Core"
+      },
+      "expected_jcs": "{\"author\":\"Noema Core\",\"metadata\":{\"active\":true,\"count\":42,\"null_val\":null},\"tags\":[\"gamma\",\"alpha\",\"beta\"]}",
+      "expected_sha256": "sha256:2982d812723880b2439ff743477f2047a9a3bfd5242a6c81b427d39873e1c2cc"
+    },
+    {
+      "name": "escaping_and_unicode",
+      "input": {
+        "html": "<button class=\"primary\">Save & Continue</button>",
+        "currency": "\u20a620,000",
+        "quote": "He said, \"Hello!\" and \\escaped\\",
+        "emoji": "\ud83d\ude80"
+      },
+      "expected_jcs": "{\"currency\":\"\u20a620,000\",\"emoji\":\"\ud83d\ude80\",\"html\":\"<button class=\\\"primary\\\">Save & Continue</button>\",\"quote\":\"He said, \\\"Hello!\\\" and \\\\escaped\\\\\"}",
+      "expected_sha256": "sha256:96839ddaa7785cde8a4df7aee3c3e91f266fe64e759bb35e5cd2e2ac8ddcb267"
+    }
+  ],
+  "intent_hash_vectors": [
+    {
+      "name": "valid_transfer_dispute_intent",
+      "input": {
+        "id": "int_01HXYZ789",
+        "version": "1.0",
+        "domain": "fintech",
+        "intent_type": "investigate_exception",
+        "status": "VALIDATED",
+        "parameters": {
+          "account_number": "0123456789",
+          "amount_minor_units": 500000,
+          "currency": "NGN",
+          "dispute_reason": "UNRECOGNIZED_DEBIT"
+        },
+        "fact_statuses": {
+          "account_number": "VERIFIED",
+          "amount_minor_units": "KNOWN",
+          "currency": "KNOWN",
+          "dispute_reason": "KNOWN"
+        }
+      },
+      "expected_jcs": "{\"domain\":\"fintech\",\"fact_statuses\":{\"account_number\":\"VERIFIED\",\"amount_minor_units\":\"KNOWN\",\"currency\":\"KNOWN\",\"dispute_reason\":\"KNOWN\"},\"id\":\"int_01HXYZ789\",\"intent_type\":\"investigate_exception\",\"parameters\":{\"account_number\":\"0123456789\",\"amount_minor_units\":500000,\"currency\":\"NGN\",\"dispute_reason\":\"UNRECOGNIZED_DEBIT\"},\"status\":\"VALIDATED\",\"version\":\"1.0\"}",
+      "expected_intent_hash": "sha256:aa9006d0dd157dc7143809e0a8fa189df91700c2ba5cf081ee87ab487cea85f2"
+    }
+  ],
+  "plan_hash_vectors": [
+    {
+      "name": "two_step_escalation_plan",
+      "input": [
+        {
+          "step": 1,
+          "action": "fin.action.query_ledger",
+          "capability_id": "fin.cap.query_account_balance",
+          "target_ref": "fin.account:0123456789",
+          "read_only": true
+        },
+        {
+          "step": 2,
+          "action": "fin.action.create_case",
+          "capability_id": "fin.cap.create_escalation_case",
+          "target_ref": "fin.transaction:TX_998822",
+          "read_only": false
+        }
+      ],
+      "expected_jcs": "[{\"action\":\"fin.action.query_ledger\",\"capability_id\":\"fin.cap.query_account_balance\",\"read_only\":true,\"step\":1,\"target_ref\":\"fin.account:0123456789\"},{\"action\":\"fin.action.create_case\",\"capability_id\":\"fin.cap.create_escalation_case\",\"read_only\":false,\"step\":2,\"target_ref\":\"fin.transaction:TX_998822\"}]",
+      "expected_plan_hash": "sha256:c528974c4485e47df7edd813f601e84fab6de5904f101daa9c7358fb81a9ee38"
+    }
+  ],
+  "evidence_set_hash_vectors": [
+    {
+      "name": "empty_evidence_set",
+      "input": [],
+      "expected_evidence_set_hash": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "unsorted_evidence_items",
+      "input": [
+        {
+          "evidence_id": "evd_03_transaction",
+          "payload_hash": "sha256:cccc333322221111cccc333322221111cccc333322221111cccc333322221111"
+        },
+        {
+          "evidence_id": "evd_01_account",
+          "payload_hash": "sha256:aaaa111122223333aaaa111122223333aaaa111122223333aaaa111122223333"
+        },
+        {
+          "evidence_id": "evd_02_kyc",
+          "payload_hash": "sha256:bbbb222233334444bbbb222233334444bbbb222233334444bbbb222233334444"
+        }
+      ],
+      "expected_evidence_set_hash": "sha256:85f7407496250253e53b326daa8e96960b8a338eaf8c04782f0d0507a648b48c"
+    }
+  ],
+  "binding_hash_vectors": [
+    {
+      "name": "standard_confirmation_binding",
+      "input": {
+        "capability_id": "fin.cap.create_escalation_case",
+        "evidence_set_hash": "sha256:5be098765be098765be098765be098765be098765be098765be098765be09876",
+        "intent_hash": "sha256:9f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a8123",
+        "params_hash": "sha256:c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567",
+        "plan_hash": "sha256:d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122",
+        "policy_version": "fin.pol@3.2",
+        "principal_id": "usr_88213",
+        "target_ref": "fin.transaction:TX88213"
+      },
+      "expected_jcs": "{\"capability_id\":\"fin.cap.create_escalation_case\",\"evidence_set_hash\":\"sha256:5be098765be098765be098765be098765be098765be098765be098765be09876\",\"intent_hash\":\"sha256:9f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a8123\",\"params_hash\":\"sha256:c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567\",\"plan_hash\":\"sha256:d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122\",\"policy_version\":\"fin.pol@3.2\",\"principal_id\":\"usr_88213\",\"target_ref\":\"fin.transaction:TX88213\"}",
+      "expected_binding_hash": "sha256:afa46c5d3d30b9bf1375820b2bc041e2a0b66cfec86c5c8335d44fc62fe187af"
+    }
+  ],
+  "idempotency_key_vectors": [
+    {
+      "name": "standard_dispute_epoch_0",
+      "input": {
+        "tenant_id": "ten_acme_corp",
+        "principal_id": "usr_88213",
+        "transaction_id": "tx_998822",
+        "logical_action": "fin.action.dispute",
+        "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED",
+        "policy_scope": "fin.pol",
+        "logical_resolution_epoch": "0"
+      },
+      "expected_idempotency_key": "idk_v1_3df771ed82afada94c2eb1e6a27b98f061f67c67e7440b6b9f8b30892ad85176"
+    },
+    {
+      "name": "escalation_epoch_1",
+      "input": {
+        "tenant_id": "ten_acme_corp",
+        "principal_id": "usr_88213",
+        "transaction_id": "tx_998822",
+        "logical_action": "fin.action.escalate_fraud",
+        "reason_code": "REPEATED_DISPUTE_PATTERN",
+        "policy_scope": "fin.pol",
+        "logical_resolution_epoch": "1"
+      },
+      "expected_idempotency_key": "idk_v1_5f0c9cf9f071be488f7b9c6801deae3be42919629a7f3ec5e58d42423fa18793"
+    }
+  ],
+  "grant_signing_vectors": [
+    {
+      "name": "valid_decision_grant_hmac",
+      "key_id": "trust-2026-10",
+      "secret_hex": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "grant": {
+        "schema_version": "1.0",
+        "grant_id": "grt_3K9",
+        "decision_id": "dec_8R4",
+        "principal_id": "usr_88213",
+        "intent_hash": "sha256:9f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a8123",
+        "capability_id": "fin.cap.create_escalation_case",
+        "target_ref": "fin.transaction:TX88213",
+        "params_hash": "sha256:c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567",
+        "evidence_set_hash": "sha256:5be098765be098765be098765be098765be098765be098765be098765be09876",
+        "plan_hash": "sha256:d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122",
+        "plan_step": 2,
+        "target_versions": [
+          {
+            "resource_ref": "fin.case_scope:TX88213",
+            "source": "fin.src.case_system",
+            "version_token": "v_17"
+          }
+        ],
+        "policy_version": "fin.pol@3.2",
+        "pack_version": "fintech@1.0.0",
+        "not_before": "2026-10-01T09:48:00Z",
+        "expires_at": "2026-10-01T09:58:00Z",
+        "nonce": "n_6c1a",
+        "single_use": true
+      },
+      "expected_jcs": "{\"capability_id\":\"fin.cap.create_escalation_case\",\"decision_id\":\"dec_8R4\",\"evidence_set_hash\":\"sha256:5be098765be098765be098765be098765be098765be098765be098765be09876\",\"expires_at\":\"2026-10-01T09:58:00Z\",\"grant_id\":\"grt_3K9\",\"intent_hash\":\"sha256:9f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a8123\",\"nonce\":\"n_6c1a\",\"not_before\":\"2026-10-01T09:48:00Z\",\"pack_version\":\"fintech@1.0.0\",\"params_hash\":\"sha256:c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567\",\"plan_hash\":\"sha256:d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122\",\"plan_step\":2,\"policy_version\":\"fin.pol@3.2\",\"principal_id\":\"usr_88213\",\"schema_version\":\"1.0\",\"single_use\":true,\"target_ref\":\"fin.transaction:TX88213\",\"target_versions\":[{\"resource_ref\":\"fin.case_scope:TX88213\",\"source\":\"fin.src.case_system\",\"version_token\":\"v_17\"}]}",
+      "expected_sig": {
+        "key_id": "trust-2026-10",
+        "value": "97e8a71d00cd7e1bc8d00af672cbf22cf970c96435501aa5c8c88d7d860beab5"
+      }
+    }
+  ]
+}

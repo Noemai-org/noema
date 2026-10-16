@@ -1,0 +1,83 @@
+{
+  "pack_id": "healthcare_conformance_v1",
+  "name": "Healthcare Admin Conformance Pack",
+  "domain": "HEALTHCARE_ADMIN",
+  "version": "healthcare@1.0.0",
+  "policy": {
+    "policy_id": "health.pol",
+    "policy_version": "health.pol@1.0",
+    "precedence_ladder": ["PATIENT_PRIVACY", "CLINICAL_SAFETY", "ADMIN_BILLING"],
+    "default_action": "DENY",
+    "rules": []
+  },
+  "trust_profiles": {
+    "default": {
+      "profile_id": "tp_health_default",
+      "max_evidence_age_seconds": 3600,
+      "freshness_sla_seconds": 3600,
+      "confidence_threshold": 0.90,
+      "requires_confirmation_on_r3": true
+    }
+  },
+  "intent_classes": {
+    "QUERY_APPOINTMENT_SLOT": {
+      "intent_type": "QUERY_APPOINTMENT_SLOT",
+      "read_write_class": "READ",
+      "description": "Check available specialist appointment slots.",
+      "required_slots": ["specialty", "facility_id"],
+      "allowed_outcomes": ["health.outcome.slot.verified"]
+    }
+  },
+  "evidence_sources": {
+    "health.src.ehr": {
+      "source_id": "health.src.ehr",
+      "name": "Electronic Health Record System",
+      "freshness_sla_seconds": 3600,
+      "authoritative": true,
+      "endpoint_type": "REST"
+    }
+  },
+  "routing_allowlist": ["SCHEDULING_DESK"],
+  "reason_codes": ["NONE", "SLOT_UNAVAILABLE"],
+  "outcomes": {
+    "health.outcome.slot.verified": {
+      "outcome_id": "health.outcome.slot.verified",
+      "description": "Available clinic slot verified from EHR",
+      "verification_source": "health.src.ehr"
+    }
+  },
+  "capabilities": {
+    "health.cap.lookup_slots": {
+      "capability_id": "health.cap.lookup_slots",
+      "business_meaning": "Look up open clinic slots",
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "clinic_calendar",
+      "concurrency_control": "NONE",
+      "retry_safety": "NATIVE_IDEMPOTENT",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "LOW",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "health.outcome.slot.verified",
+      "verification": { "method": "independent_read", "source": "health.src.ehr" },
+      "prohibited": false
+    }
+  },
+  "action_graph": {
+    "nodes": [
+      {
+        "node_id": "node_lookup_slots",
+        "capability_id": "health.cap.lookup_slots",
+        "stage": "EVIDENCE_GATHERING",
+        "preconditions": []
+      }
+    ],
+    "edges": []
+  }
+}
