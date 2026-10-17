@@ -48,3 +48,16 @@ func TestOnlyGetIsAllowed(t *testing.T) {
 		t.Fatalf("POST /healthz = %d, want 405", rec.Code)
 	}
 }
+
+// PLT-04: the container health check probes /healthz of a running core.
+func TestProbeHealth(t *testing.T) {
+	srv := httptest.NewServer(newMux(notReady))
+	defer srv.Close()
+	if err := probeHealth(strings.TrimPrefix(srv.URL, "http://")); err != nil {
+		t.Fatalf("probe of a live core failed: %v", err)
+	}
+	srv.Close()
+	if err := probeHealth(strings.TrimPrefix(srv.URL, "http://")); err == nil {
+		t.Fatal("probe of a stopped core must fail")
+	}
+}

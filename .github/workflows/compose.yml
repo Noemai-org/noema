@@ -1,0 +1,19 @@
+# Compose stack and connection-test matrix (PLT-04; REQ-OPS-001).
+name: compose
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: make up
+      - run: docker compose -f deploy/compose/docker-compose.yml --profile dev ps
+      - run: make net-matrix
+      - run: make bench-smoke
+      - if: always()
+        run: make reset
