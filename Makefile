@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint up reset bench-smoke contracts-validate
+.PHONY: build test lint arch-lint up reset bench-smoke contracts-validate
 
 build:
 	docker build -t noema-core:dev services/core
@@ -16,6 +16,9 @@ lint:
 	cd services/core && test -z "$$(gofmt -l .)" && go vet ./...
 	cd services/model && ../../.venv/bin/python -m mypy
 	cd ui && npm run typecheck
+
+arch-lint:
+	python3 -I tools/lint/run.py
 
 up:
 	@echo "not yet: PLT-04"; exit 1
