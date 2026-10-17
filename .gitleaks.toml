@@ -1,0 +1,11 @@
+# gitleaks configuration (PLT-02). Default rules stay on.
+[extend]
+useDefault = true
+
+# The golden vectors hold public SHA-256 digests (synthetic test data, not credentials). The
+# generic-api-key rule matches their high-entropy hex. The exemption is limited to this one
+# file and this one rule.
+[[allowlists]]
+description = "Public SHA-256 digests in the golden vectors"
+targetRules = ["generic-api-key"]
+paths = ['''contracts/fixtures/golden_vectors\.json''']

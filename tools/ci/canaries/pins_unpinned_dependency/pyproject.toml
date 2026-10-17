@@ -1,0 +1,5 @@
+# Canary: a direct dependency without an exact pin. check_pins.py must fail on this tree.
+[project]
+name = "canary"
+version = "0.0.0"
+dependencies = ["fastapi>=0.100"]
