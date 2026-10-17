@@ -21,6 +21,25 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 
 ## C-2 · Money and core enums
 
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `money.v1.json` | §43.1 | §20.1 | REQ-API-001, REQ-DATA-002 | Integer minor units, 0 to 9007199254740991 (M1 to M4); `Quantity` keeps `value` and `unit` (M2, M8) |
+| `enums.v1.json` (extended) | §43.1 to §43.5, §13.1 | §23.1, §23.3 | REQ-API-001, REQ-TRU-001 | Nineteen distinct named types; 17 of them are compared with `state-registry.md` by the drift guard (OD-P-10) |
+
+Other files: `currencies.json` (the one exponent table, NGN = 2; M1) and `state-registry.md` (vendored copy of the normative registry, see its header).
+
+M10 rows and where they are proven. Fixtures here cover the schema-level rows. The rest need code that does not exist yet:
+
+| M10 row | Where |
+|---|---|
+| accept `0`, `1`, `2000000`, `9007199254740991` | `fixtures/valid/money/` (this PR) |
+| reject `9007199254740992`, `-1`, `2000000.0`, `2e6`, `"2000000"`, `null`, currency missing, currency not in table, exponent conflict | `fixtures/invalid/money/` (this PR) |
+| Go and Python decoders also reject the float literals | CON-03 (codegen) and CON-04 (vectors) |
+| lexicon `"20k"` to `2000000`, `"₦50,000"` to `5000000` | UND-05 |
+| `1234.567` NGN rejected at an adapter | the Tushe adapter task |
+| addition crossing the ceiling, NGN plus another currency | the money arithmetic code (M6) |
+| a JCS hash over `9007199254740991` identical in Go and Python | CON-04 |
+
 ## C-3 · Input, Intent Object, clarification
 
 ## C-4 · Decision Record, Decision Grant, confirmation

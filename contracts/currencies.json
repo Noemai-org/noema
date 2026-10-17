@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "description": "The one versioned table of currency minor-unit exponents (DEC-2026-10-16 money-and-value-lists M1). Core code never hard-codes an exponent. NGN only for the POC.",
+  "currencies": {
+    "NGN": {
+      "exponent": 2,
+      "name": "Nigerian naira"
+    }
+  }
+}

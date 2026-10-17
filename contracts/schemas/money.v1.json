@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/money.v1.json",
+  "title": "Money and quantity",
+  "description": "Currency amounts are integer counts of the currency's minor unit, 0 to 2^53-1 (DEC-2026-10-16 money-and-value-lists M1 to M4). There is no minor_units flag and no sign: direction is a separate field. NGN 20,000.00 is 2000000. The exponent lives in contracts/currencies.json and is never a field of a document.",
+  "$defs": {
+    "MinorAmount": {
+      "description": "An integer count of a minor unit. JSON Schema 'integer' with the M3 bounds, never 'number'. The validator treats a literal written with a decimal point or exponent (2000000.0, 2e6) as not an integer; Go and Python decoders must do the same (M4).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "CurrencyCode": {
+      "description": "ISO 4217 code present in contracts/currencies.json. The validator fails when this list and the table differ.",
+      "type": "string",
+      "enum": [
+        "NGN"
+      ]
+    },
+    "Money": {
+      "type": "object",
+      "properties": {
+        "amount_minor": {
+          "$ref": "#/$defs/MinorAmount"
+        },
+        "currency": {
+          "$ref": "#/$defs/CurrencyCode"
+        }
+      },
+      "required": [
+        "amount_minor",
+        "currency"
+      ],
+      "additionalProperties": false
+    },
+    "PackUnit": {
+      "description": "A non-currency unit declared by a pack, with its own integer scale (M8). Core never assumes a Quantity is money.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*\\.unit\\.[a-z][a-z0-9_]*$"
+    },
+    "Quantity": {
+      "description": "The SoT-fixed Quantity slot value: 'value' and 'unit'. When unit is a currency, value is in minor units (M2).",
+      "type": "object",
+      "properties": {
+        "value": {
+          "$ref": "#/$defs/MinorAmount"
+        },
+        "unit": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/CurrencyCode"
+            },
+            {
+              "$ref": "#/$defs/PackUnit"
+            }
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
