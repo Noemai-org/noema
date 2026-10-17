@@ -1,0 +1,9 @@
+{
+  "message_with_account_number.json": "pattern",
+  "tool_call_smuggled.json": "additionalProperties",
+  "unverified_but_all_achieved.json": "anyOf",
+  "verified_missing.json": "required",
+  "verified_with_no_verdicts.json": "minItems",
+  "verified_with_unknown_verdict.json": "const",
+  "wrong_type.json": "const"
+}

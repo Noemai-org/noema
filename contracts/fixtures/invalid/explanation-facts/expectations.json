@@ -1,0 +1,11 @@
+{
+  "action_verdict_done.json": "enum",
+  "carries_policy_threshold.json": "additionalProperties",
+  "fact_status_ambiguous.json": "enum",
+  "fact_without_as_of.json": "required",
+  "inferred_without_rule.json": "required",
+  "known_listed_as_unknown.json": "not",
+  "known_with_rule.json": "not",
+  "unmasked_account_number.json": "pattern",
+  "unsupported_locale.json": "enum"
+}

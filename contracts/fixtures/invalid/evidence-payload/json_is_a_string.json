@@ -1,0 +1,6 @@
+{
+  "payload_ref": "blob_evr_77",
+  "json": "OPEN",
+  "raw_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "sensitivity": "S3_financial_pii"
+}

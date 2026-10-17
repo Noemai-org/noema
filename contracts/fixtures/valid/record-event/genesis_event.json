@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "event_id": "recev_1001",
+  "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "written_by": "UNDERSTANDING",
+  "event_type": "INPUT_RECEIVED",
+  "object_ref": "req_01J9X3",
+  "at": "2026-10-01T09:48:00.410Z"
+}

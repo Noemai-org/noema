@@ -1,0 +1,12 @@
+{
+  "RecordEventType__lowercase.json": "enum",
+  "free_text_field.json": "additionalProperties",
+  "hash_all_zero.json": "not",
+  "id_with_sot_example_prefix.json": "pattern",
+  "kind_on_other_event.json": "not",
+  "prev_hash_missing.json": "required",
+  "security_event_without_kind.json": "required",
+  "superseded_status_event.json": "enum",
+  "unknown_event_type.json": "enum",
+  "unknown_security_kind.json": "enum"
+}

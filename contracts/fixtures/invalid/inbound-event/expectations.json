@@ -1,0 +1,8 @@
+{
+  "event_type_upper_case.json": "pattern",
+  "missing_event_id.json": "required",
+  "missing_source.json": "required",
+  "negative_sequence.json": "minimum",
+  "payload_is_text.json": "type",
+  "verdict_field_smuggled.json": "additionalProperties"
+}
