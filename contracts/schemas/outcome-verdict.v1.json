@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/outcome-verdict.v1.json",
+  "title": "Outcome Verdict",
+  "description": "SoT §43.4 and PERD REQ-VER-003. Produced by Outcome from evidence it read itself, never from Trust's snapshot (INV-04). ACHIEVED needs a true predicate result and at least one evidence read; NOT_ACHIEVED needs a false one; a watch exists exactly on PENDING_EXTERNAL (INV-28). Any verdict except ACHIEVED creates a RecoveryRequest to Trust, in the same transaction (a database constraint, not a schema rule). 'Done' may be said to a person only on ACHIEVED (SoT §18.4).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "verdict_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/VerdictId"
+    },
+    "receipt_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ReceiptId"
+    },
+    "outcome_definition": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "evidence_reads": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/EvidenceId"
+      },
+      "uniqueItems": true
+    },
+    "predicate_result": {
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verdict": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict"
+    },
+    "verified_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "explanation_ref": {
+      "oneOf": [
+        {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ExplanationId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "watch": {
+      "type": "object",
+      "properties": {
+        "watch_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/WatchId"
+        },
+        "next_check_at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "deadline_at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "triggers": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "watch_id",
+        "next_check_at",
+        "deadline_at",
+        "triggers"
+      ],
+      "additionalProperties": false
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "verdict_id",
+    "receipt_id",
+    "outcome_definition",
+    "evidence_reads",
+    "predicate_result",
+    "verdict",
+    "verified_at",
+    "sig"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "PENDING_EXTERNAL"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "watch"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "watch"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "ACHIEVED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "predicate_result": {
+            "const": true
+          },
+          "evidence_reads": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "NOT_ACHIEVED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "predicate_result": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

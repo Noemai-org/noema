@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/recovery-request.v1.json",
+  "title": "Recovery request",
+  "description": "PERD REQ-VER-003: every verdict other than ACHIEVED creates one, addressed to Trust. Trust evaluates it as a fresh evaluation; neither Execution nor Outcome may start a write (INV-15, REQ-RCV-001). 'reason' is an upper-case code such as POSTCONDITION_UNVERIFIED; no value set is defined, so only the shape is fixed.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "recovery_request_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecoveryRequestId"
+    },
+    "verdict_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/VerdictId"
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/EvidenceId"
+      },
+      "uniqueItems": true
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "created_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "recovery_request_id",
+    "verdict_id",
+    "reason",
+    "evidence_refs",
+    "attempt_count",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

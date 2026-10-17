@@ -1,0 +1,11 @@
+{
+  "acknowledged_without_ack.json": "type",
+  "attempt_zero.json": "minimum",
+  "key_with_sha256_prefix_inside.json": "pattern",
+  "key_wrong_version.json": "pattern",
+  "missing_grant.json": "required",
+  "state_succeeded.json": "enum",
+  "state_synthetic_transaction.json": "enum",
+  "unknown_with_ack.json": "type",
+  "unsigned.json": "required"
+}

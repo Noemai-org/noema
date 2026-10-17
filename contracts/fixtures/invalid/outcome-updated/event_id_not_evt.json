@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "event_id": "ver_01J9XA",
+  "event_type": "outcome.updated",
+  "correlation_id": "corr_4c21f9",
+  "intent_id": "int_01J9X3",
+  "verdict_id": "ver_9P0",
+  "verdict": "ACHIEVED",
+  "summary": "Your dispute case was opened for the NGN 20,000.00 transfer at 07:12.",
+  "occurred_at": "2026-10-01T09:48:36Z",
+  "sig": {
+    "key_id": "tenant-webhook-1",
+    "value": "c2ln"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "achieved_with_false_predicate.json": "const",
+  "achieved_without_reads.json": "minItems",
+  "duplicate_reads.json": "uniqueItems",
+  "not_achieved_with_true_predicate.json": "const",
+  "pending_without_watch.json": "required",
+  "trust_snapshot_as_read.json": "pattern",
+  "unknown_field.json": "additionalProperties",
+  "unsigned.json": "required",
+  "verdict_succeeded.json": "enum",
+  "watch_on_achieved.json": "not"
+}

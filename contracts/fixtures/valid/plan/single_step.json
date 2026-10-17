@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "graph_version": "1.0.0",
+  "intent_node": "fin.payments.exception.investigate",
+  "steps": [
+    {
+      "step": 0,
+      "node_id": "fin.node.lookup_transaction",
+      "capability_id": "fin.cap.lookup_transaction",
+      "params": {
+        "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED",
+        "priority": 2,
+        "owner_queue": "PAYMENTS_OPERATIONS"
+      },
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "expected_postconditions": [
+        "exists(case where case.subject == subject_resource)"
+      ]
+    }
+  ]
+}

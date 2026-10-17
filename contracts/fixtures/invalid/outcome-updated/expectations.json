@@ -1,0 +1,8 @@
+{
+  "carries_tenant_id.json": "additionalProperties",
+  "event_id_not_evt.json": "pattern",
+  "missing_signature.json": "required",
+  "summary_with_account_number.json": "pattern",
+  "verdict_unknown_value.json": "enum",
+  "wrong_event_type.json": "const"
+}
