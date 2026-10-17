@@ -1,0 +1,7 @@
+tests
+.venv
+**/__pycache__
+**/README.md
+requirements-dev.lock
+pyproject.toml
+.git

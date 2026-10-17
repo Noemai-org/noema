@@ -1,0 +1,39 @@
+# UI CI (PLT-01). Builds and tests ui/ only. No GitHub Environment is needed: the UI holds no secret.
+name: ui
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(ui/|\.github/workflows/ui\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - if: steps.changed.outputs.run == 'true'
+        working-directory: ui
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm run build
+      - if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-ui:ci ui
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "no ui change; nothing to build"
