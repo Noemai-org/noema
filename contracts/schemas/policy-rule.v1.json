@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/policy-rule.v1.json",
+  "title": "Policy rule",
+  "description": "PERD §23.4 PolicyRule. Precedence is a fixed property of the engine: class order SAFETY > PROHIBITION > TENANT_SECURITY > REGULATORY > WORKFLOW > DEFAULT, then within the winning class REJECT > ESCALATE > CONFIRM > WAIT > PERMIT.",
+  "type": "object",
+  "properties": {
+    "rule_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "SAFETY",
+        "PROHIBITION",
+        "TENANT_SECURITY",
+        "REGULATORY",
+        "WORKFLOW",
+        "DEFAULT"
+      ]
+    },
+    "evaluation_time": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/EvaluationTime"
+    },
+    "applies_to": {
+      "description": "Capability IDs or intent nodes.",
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "condition": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+    },
+    "effect": {
+      "type": "string",
+      "enum": [
+        "REJECT",
+        "ESCALATE",
+        "CONFIRM",
+        "WAIT",
+        "PERMIT"
+      ]
+    },
+    "reason_code": {
+      "description": "A core reason code or a pack code. Membership is checked by packcheck against the core list and the pack catalogue.",
+      "type": "string",
+      "minLength": 1
+    },
+    "params": {
+      "description": "For example approver_requirement or wait_seconds. Values are integers or strings; there are no floats in policy parameters.",
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "integer",
+          "boolean"
+        ]
+      }
+    }
+  },
+  "required": [
+    "rule_id",
+    "class",
+    "evaluation_time",
+    "applies_to",
+    "condition",
+    "effect",
+    "reason_code"
+  ],
+  "additionalProperties": false
+}

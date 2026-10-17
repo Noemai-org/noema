@@ -8,6 +8,7 @@
 /packs/                     @OladiranOlatunde
 /tools/lint/                @OladiranOlatunde
 /.github/                   @OladiranOlatunde
+/tools/contracts/          @OladiranOlatunde
 /deploy/compose/            @OladiranOlatunde
 /tools/ci/                  @OladiranOlatunde
 /.gitleaks.toml             @OladiranOlatunde

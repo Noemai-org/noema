@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/pack.v1.json",
+  "title": "Vertical pack",
+  "description": "SoT §15.5: everything Noema needs to serve one vertical, and no code. Loaded as data, never imported (SoT §51). Cross-references (every ID used exists; risk against consequence; predicates type-check) are checked by packcheck (PCK-02). Not defined here and left open: the action graph beyond SoT §43.9, lexicon and explanation-template content, and benchmark seed cases.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "pack_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Vertical"
+    },
+    "pack_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "intent_nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/intent-node.v1.json"
+      },
+      "minItems": 1
+    },
+    "trust_profiles": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/trust-profile.v1.json"
+      },
+      "minItems": 1
+    },
+    "outcome_definitions": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/outcome-definition.v1.json"
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/capability-descriptor.v1.json"
+      }
+    },
+    "evidence_sources": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/evidence-source.v1.json"
+      }
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "policy_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.noema.invalid/policy-rule.v1.json"
+          }
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "rules"
+      ],
+      "additionalProperties": false
+    },
+    "clocks": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/clock.v1.json"
+      }
+    },
+    "reason_catalogue": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/reason-catalogue-entry.v1.json"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pack_id",
+    "pack_version",
+    "name",
+    "intent_nodes",
+    "trust_profiles",
+    "outcome_definitions",
+    "capabilities",
+    "evidence_sources",
+    "policy",
+    "clocks",
+    "reason_catalogue"
+  ],
+  "additionalProperties": false
+}

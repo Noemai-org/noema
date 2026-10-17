@@ -1,0 +1,6 @@
+{
+  "capability_id": "fin.cap.transfer_funds",
+  "business_meaning": "Move funds (prohibited in the POC)",
+  "risk_class": "PROHIBITED",
+  "prohibited": true
+}

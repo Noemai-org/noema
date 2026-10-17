@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/intent-object.v1.json",
+  "title": "Intent Object",
+  "description": "SoT §43.1 and PERD §20.1. Produced by Understanding; vertical-agnostic (pack node references and abstract slot types only). Immutable once admitted: a change creates a new version with 'supersedes'. The principal is copied from the authenticated session, never extracted from text or model output (INV-12). Unknown fields are rejected at the schema gate. Whether intent_node and the slot names exist in the loaded pack is checked by the gate against the pack, not by this schema.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "intent_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/IntentId"
+    },
+    "version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+    },
+    "supersedes": {
+      "oneOf": [
+        {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/IntentRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "created_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "principal": {
+      "type": "object",
+      "properties": {
+        "principal_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
+        },
+        "principal_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "authn_ref": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SessionId"
+        },
+        "asserted_by": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      },
+      "required": [
+        "principal_id",
+        "principal_type",
+        "authn_ref",
+        "asserted_by"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Mode"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "text",
+            "voice"
+          ]
+        },
+        "locale_detected": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+          }
+        },
+        "asr_confidence": {
+          "oneOf": [
+            {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "raw_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "mode",
+        "channel",
+        "locale_detected",
+        "asr_confidence",
+        "raw_ref"
+      ],
+      "additionalProperties": false
+    },
+    "pack": {
+      "type": "object",
+      "properties": {
+        "pack_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Vertical"
+        },
+        "pack_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+        }
+      },
+      "required": [
+        "pack_id",
+        "pack_version"
+      ],
+      "additionalProperties": false
+    },
+    "intent_node": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "slots": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+      },
+      "additionalProperties": {
+        "$ref": "https://contracts.noema.invalid/intent-slot.v1.json#/$defs/Slot"
+      }
+    },
+    "ambiguity_flags": {
+      "description": "Upper-case flags. The SoT shows COUNTERPARTY_MULTIPLE_MATCH and PERD §20.3 [REC] lists eleven; the registry does not enumerate them, so only the shape is fixed. Every material ambiguity is flagged (PLAT-FR-02).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "desired_outcome_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "status": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/IntentStatus"
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "intent_id",
+    "version",
+    "supersedes",
+    "tenant_id",
+    "correlation_id",
+    "created_at",
+    "principal",
+    "source",
+    "pack",
+    "intent_node",
+    "slots",
+    "ambiguity_flags",
+    "desired_outcome_refs",
+    "status",
+    "sig"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "description": "version 1 supersedes nothing; a later version names its predecessor.",
+      "if": {
+        "properties": {
+          "version": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "supersedes": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "supersedes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

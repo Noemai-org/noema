@@ -1,0 +1,11 @@
+{
+  "rule_id": "fin.pol.case.dedupe",
+  "class": "WORKFLOW",
+  "evaluation_time": "AT_WILL",
+  "applies_to": [
+    "fin.cap.create_escalation_case"
+  ],
+  "condition": "no_open_case(subject_resource, logical_resolution_epoch)",
+  "effect": "PERMIT",
+  "reason_code": "fin.reason.no_duplicate_case"
+}

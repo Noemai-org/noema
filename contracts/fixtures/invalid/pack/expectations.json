@@ -1,0 +1,7 @@
+{
+  "legacy_intent_class_label.json": "pattern",
+  "missing_clocks.json": "required",
+  "no_intent_nodes.json": "minItems",
+  "pack_version_not_semver.json": "pattern",
+  "unknown_top_level_field.json": "additionalProperties"
+}

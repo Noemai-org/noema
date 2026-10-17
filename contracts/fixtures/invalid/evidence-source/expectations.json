@@ -1,0 +1,4 @@
+{
+  "missing_authority.json": "required",
+  "zero_freshness.json": "minimum"
+}

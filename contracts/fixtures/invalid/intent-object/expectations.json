@@ -1,0 +1,18 @@
+{
+  "amount_in_major_units_as_float.json": "oneOf",
+  "amount_over_ceiling.json": "oneOf",
+  "created_at_not_utc.json": "pattern",
+  "lowercase_ambiguity_flag.json": "pattern",
+  "principal_missing.json": "required",
+  "principal_with_extra_key.json": "additionalProperties",
+  "resolved_slot_without_ref.json": "oneOf",
+  "signature_missing.json": "required",
+  "slot_name_uppercase.json": "pattern",
+  "status_inadmissible.json": "enum",
+  "status_superseded.json": "enum",
+  "unknown_field.json": "additionalProperties",
+  "unknown_mode.json": "enum",
+  "version_1_with_supersedes.json": "type",
+  "version_2_without_supersedes.json": "type",
+  "version_zero.json": "minimum"
+}

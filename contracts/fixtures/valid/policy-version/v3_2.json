@@ -1,0 +1,33 @@
+{
+  "policy_id": "fin.pol",
+  "version": "3.2",
+  "status": "ACTIVE",
+  "effective_from": "2026-10-01T00:00:00Z",
+  "published_at": "2026-09-30T12:00:00Z",
+  "published_by": "usr_founder",
+  "checksum": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "rules": [
+    {
+      "rule_id": "fin.pol.case.dedupe",
+      "class": "WORKFLOW",
+      "evaluation_time": "AT_DECISION",
+      "applies_to": [
+        "fin.cap.create_escalation_case"
+      ],
+      "condition": "no_open_case(subject_resource, logical_resolution_epoch)",
+      "effect": "PERMIT",
+      "reason_code": "fin.reason.no_duplicate_case"
+    },
+    {
+      "rule_id": "fin.pol.prohibit.transfer",
+      "class": "PROHIBITION",
+      "evaluation_time": "AT_DECISION",
+      "applies_to": [
+        "fin.cap.transfer_funds"
+      ],
+      "condition": "true",
+      "effect": "REJECT",
+      "reason_code": "PROHIBITED_CAPABILITY"
+    }
+  ]
+}

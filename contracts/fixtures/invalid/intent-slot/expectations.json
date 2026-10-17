@@ -1,0 +1,11 @@
+{
+  "SlotStatus__superseded.json": "enum",
+  "Slot__quantity_major_unit_float.json": "oneOf",
+  "Slot__quantity_over_ceiling.json": "oneOf",
+  "Slot__ref_on_unresolved_slot.json": "const",
+  "Slot__resolved_without_ref.json": "not",
+  "Slot__status_unknown.json": "oneOf",
+  "Slot__timeref_window_of_three.json": "oneOf",
+  "Slot__unknown_key.json": "oneOf",
+  "Slot__unknown_type.json": "oneOf"
+}

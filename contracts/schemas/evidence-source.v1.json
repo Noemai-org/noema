@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/evidence-source.v1.json",
+  "title": "Evidence source descriptor",
+  "description": "SoT §15.5 item 5 and PERD §21.4: what a source system is authoritative for, and its expected freshness. A trust profile may tighten the freshness limit, never loosen it. IDs are vendor-free.",
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "freshness_sla_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "authoritative_for": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "corroborating_for": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "never_authoritative_for": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "sensitivity": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "source_id",
+    "display_name",
+    "freshness_sla_seconds",
+    "authoritative_for",
+    "corroborating_for",
+    "sensitivity"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,28 @@
+{
+  "profile_id": "fin.trust.exception.read_and_case",
+  "risk_class": "R2_non_monetary_write",
+  "authority": {
+    "principal_must_own": [
+      "subject_resource"
+    ],
+    "roles_allowed": [
+      "customer",
+      "ops_agent"
+    ]
+  },
+  "policy_templates": [
+    "fin.pol.case.dedupe"
+  ],
+  "clocks": [
+    "fin.clock.ng.nip_dispute_72h"
+  ],
+  "approvals": [],
+  "prohibited_capabilities": [
+    "fin.cap.transfer_funds"
+  ],
+  "evidence_required": [
+    "fin.src.core_ledger"
+  ],
+  "max_evidence_age_seconds": 0,
+  "data_sensitivity": "S3_financial_pii"
+}

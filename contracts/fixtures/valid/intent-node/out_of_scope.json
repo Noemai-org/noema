@@ -1,0 +1,13 @@
+{
+  "node_id": "fin.meta.out_of_scope",
+  "pack": "fin",
+  "pack_version": "1.0.0",
+  "parent": null,
+  "display_name": "Anything the pack does not cover",
+  "slots": [],
+  "trust_profile": null,
+  "outcome_definitions": [],
+  "examples": [
+    "SYNTHETIC: what is the weather?"
+  ]
+}

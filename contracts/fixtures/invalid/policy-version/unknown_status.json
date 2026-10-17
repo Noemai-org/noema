@@ -1,0 +1,19 @@
+{
+  "policy_id": "fin.pol",
+  "version": "3.2",
+  "status": "PUBLISHED",
+  "effective_from": "2026-10-01T00:00:00Z",
+  "rules": [
+    {
+      "rule_id": "fin.pol.case.dedupe",
+      "class": "WORKFLOW",
+      "evaluation_time": "AT_DECISION",
+      "applies_to": [
+        "fin.cap.create_escalation_case"
+      ],
+      "condition": "no_open_case(subject_resource, logical_resolution_epoch)",
+      "effect": "PERMIT",
+      "reason_code": "fin.reason.no_duplicate_case"
+    }
+  ]
+}

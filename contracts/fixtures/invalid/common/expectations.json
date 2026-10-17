@@ -1,0 +1,11 @@
+{
+  "GrantId__wrong_prefix.json": "pattern",
+  "Hash__no_prefix.json": "pattern",
+  "Hash__uppercase_hex.json": "pattern",
+  "Id__unknown_shape.json": "pattern",
+  "IntentRef__no_version.json": "pattern",
+  "Ratio__over_one.json": "maximum",
+  "RecordEventId__sot_example_prefix.json": "pattern",
+  "ResourceRef__no_kind.json": "pattern",
+  "Timestamp__offset_not_z.json": "pattern"
+}

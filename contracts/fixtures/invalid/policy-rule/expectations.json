@@ -1,0 +1,6 @@
+{
+  "bad_evaluation_time.json": "enum",
+  "effect_override.json": "enum",
+  "float_param.json": "type",
+  "unknown_class.json": "enum"
+}

@@ -10,3 +10,4 @@ __pycache__/
 .mypy_cache/
 .pytest_cache/
 services/core/bin/
+.venv-contracts/

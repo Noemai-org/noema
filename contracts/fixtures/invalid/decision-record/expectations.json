@@ -1,0 +1,21 @@
+{
+  "allow_with_clarification.json": "not",
+  "allow_with_failed_layer.json": "not",
+  "allow_with_reevaluate_at.json": "not",
+  "authority_layer_missing.json": "required",
+  "authority_overridden.json": "enum",
+  "clarify_without_clarification.json": "required",
+  "duplicate_reason_codes.json": "uniqueItems",
+  "intent_hash_uppercase.json": "pattern",
+  "limit_set_by_unknown.json": "enum",
+  "negative_evidence_age.json": "minimum",
+  "outcome_ready.json": "enum",
+  "pack_code_wrong_shape.json": "oneOf",
+  "pack_version_without_pack.json": "pattern",
+  "reason_code_classification.json": "oneOf",
+  "reason_code_none.json": "oneOf",
+  "reject_without_reason.json": "minItems",
+  "signature_missing.json": "required",
+  "unknown_field.json": "additionalProperties",
+  "wait_without_reevaluate_at.json": "required"
+}

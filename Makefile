@@ -38,4 +38,7 @@ bench-smoke:
 	python3 -I benchmark/smoke.py
 
 contracts-validate:
-	@echo "not yet: CON-01"; exit 1
+	python3 -m venv .venv-contracts
+	.venv-contracts/bin/pip install -q --require-hashes -r tools/contracts/requirements.lock
+	.venv-contracts/bin/python tools/contracts/validate.py
+	.venv-contracts/bin/python -m unittest discover -s tools/contracts -p 'test_*.py'

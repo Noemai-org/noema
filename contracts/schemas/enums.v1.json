@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/enums.v1.json",
+  "title": "Core value lists",
+  "description": "Closed value lists of /contracts v1. Each list is a distinct named type (OD-P-10): a value of one list is never valid for another. contracts/state-registry.md is the vendored copy of the single normative home, docs/engineering/state-registry.md; tools/contracts/validate.py fails when this file and the copy differ in any way (DEC-2026-10-16 money-and-value-lists §2.4).",
+  "$defs": {
+    "RetrySafety": {
+      "description": "SoT §43.8. NONE is never retried automatically (INV-24).",
+      "type": "string",
+      "enum": [
+        "NATIVE_IDEMPOTENT",
+        "QUERYABLE_BY_KEY",
+        "NONE"
+      ]
+    },
+    "ConcurrencyControl": {
+      "description": "SoT §43.8. With CONDITIONAL_WRITE every write passes the grant's version tokens (INV-27).",
+      "type": "string",
+      "enum": [
+        "CONDITIONAL_WRITE",
+        "NONE"
+      ]
+    },
+    "ConsequenceLevel": {
+      "description": "SoT §43.8, for financial, customer, regulatory, access and operational.",
+      "type": "string",
+      "enum": [
+        "NONE",
+        "LOW",
+        "HIGH"
+      ]
+    },
+    "Irreversibility": {
+      "description": "SoT §43.8.",
+      "type": "string",
+      "enum": [
+        "REVERSIBLE",
+        "COMPENSABLE",
+        "IRREVERSIBLE"
+      ]
+    },
+    "EvaluationTime": {
+      "description": "SoT §15.3. AT_DECISION is the default. The policy author sets it; Trust never infers it.",
+      "type": "string",
+      "enum": [
+        "AT_DECISION",
+        "AT_ADMISSION"
+      ]
+    },
+    "IntentStatus": {
+      "description": "Intent Object status. EXTRACTED then VALIDATED or REJECTED_AT_GATE, set once at the gate. SUPERSEDED was removed: supersession is derived from the 'supersedes' link (money-and-value-lists §2.1). Only VALIDATED crosses into Trust.",
+      "type": "string",
+      "enum": [
+        "EXTRACTED",
+        "VALIDATED",
+        "REJECTED_AT_GATE"
+      ]
+    },
+    "DecisionOutcome": {
+      "description": "Decision Record outcome: exactly one per decision (SoT §13.1). A Decision Grant is issued only on ALLOW.",
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "CLARIFY",
+        "CONFIRM",
+        "WAIT",
+        "ESCALATE",
+        "REJECT",
+        "UNKNOWN"
+      ]
+    },
+    "AuthorityResult": {
+      "description": "Result of one authority layer (technical, policy, business). OVERRIDDEN was removed (money-and-value-lists §2.2): nobody can override the business layer.",
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_EVALUATED"
+      ]
+    },
+    "CoreReasonCode": {
+      "description": "The 17 core (tier 1) reason codes, a closed list. The last three are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue.",
+      "type": "string",
+      "enum": [
+        "PROHIBITED_CAPABILITY",
+        "AMBIGUOUS_COUNTERPARTY",
+        "DECLINED_BY_APPROVER",
+        "POLICY_VERSION_MISMATCH",
+        "INSUFFICIENT_EVIDENCE",
+        "STALE_EVIDENCE",
+        "INTENT_INVALID",
+        "UNAUTHENTICATED",
+        "WRITES_DISABLED",
+        "OUT_OF_SCOPE",
+        "NOT_AUTHORIZED",
+        "NOT_FOUND_OR_NOT_AUTHORIZED",
+        "PLAN_INVALID",
+        "NO_PERMITTING_RULE",
+        "RATE_LIMITED",
+        "INTERNAL_ERROR",
+        "MODE_NOT_ENABLED"
+      ]
+    },
+    "LimitSetBy": {
+      "description": "Which limit set the effective freshness limit (SoT §43.2).",
+      "type": "string",
+      "enum": [
+        "SOURCE",
+        "TRUST_PROFILE",
+        "PROFILE_OVERRIDE"
+      ]
+    },
+    "ApproverRequirement": {
+      "description": "SELF, MAKER_CHECKER, or ROLE:<role> (SoT §43.2a).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "SELF",
+            "MAKER_CHECKER"
+          ]
+        },
+        {
+          "type": "string",
+          "pattern": "^ROLE:[a-z][a-z0-9_]*$"
+        }
+      ]
+    },
+    "ConfirmationResponse": {
+      "description": "An approver's response. ACCEPT leads to a fresh Trust evaluation, never straight to a grant.",
+      "type": "string",
+      "enum": [
+        "ACCEPT",
+        "DECLINE"
+      ]
+    },
+    "ConfirmationTerminalState": {
+      "description": "Terminal state of a confirmation request that was not answered in time.",
+      "type": "string",
+      "enum": [
+        "EXPIRED"
+      ]
+    },
+    "FactStatus": {
+      "description": "Status of an evidence item (SoT §43.5). A missing record is UNAVAILABLE or UNKNOWN, never a negative fact (INV-19).",
+      "type": "string",
+      "enum": [
+        "KNOWN",
+        "INFERRED",
+        "AMBIGUOUS",
+        "UNAVAILABLE",
+        "STALE",
+        "CONTRADICTORY",
+        "UNKNOWN",
+        "UNAUTHORIZED"
+      ]
+    },
+    "ExecutionState": {
+      "description": "Execution Receipt state. Execution never writes SUCCEEDED (that word belongs to Outcome). Not the synthetic transaction state EXECUTION_OUTCOME_UNKNOWN (OD-P-10).",
+      "type": "string",
+      "enum": [
+        "DISPATCHED",
+        "ACKNOWLEDGED",
+        "OUTCOME_UNKNOWN",
+        "REJECTED_BY_TARGET",
+        "REJECTED_STALE_VERSION",
+        "FAILED_TERMINAL"
+      ]
+    },
+    "Verdict": {
+      "description": "Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust.",
+      "type": "string",
+      "enum": [
+        "ACHIEVED",
+        "NOT_ACHIEVED",
+        "PARTIALLY_ACHIEVED",
+        "PENDING_EXTERNAL",
+        "UNKNOWN",
+        "COMPENSATED"
+      ]
+    },
+    "FindingSeverity": {
+      "description": "Benchmark finding severity (SoT §38.3). Not a data sensitivity class (OD-P-10).",
+      "type": "string",
+      "enum": [
+        "S0",
+        "S1",
+        "S2",
+        "S3"
+      ]
+    },
+    "DataSensitivity": {
+      "description": "Data sensitivity class, for example S3_financial_pii. The SoT gives examples only, so the shape is constrained, not the list. Distinct from FindingSeverity (OD-P-10).",
+      "type": "string",
+      "pattern": "^S[0-9]_[a-z][a-z0-9_]*$"
+    },
+    "Mode": {
+      "description": "Deployment mode (SoT §16). The POC builds Mode 1 only; a MODE_2 proposal is rejected at runtime with MODE_NOT_ENABLED (REQ-TRU-011).",
+      "type": "string",
+      "enum": [
+        "MODE_1",
+        "MODE_2"
+      ]
+    }
+  }
+}

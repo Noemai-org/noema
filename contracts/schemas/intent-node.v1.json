@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/intent-node.v1.json",
+  "title": "Intent node",
+  "description": "SoT §15.3 Intent node, with DEC-2026-10-16 contract-and-pack-clarifications C2: a pack has few nodes (the fintech pack has two); question types and requested remedies are slots, never nodes.",
+  "type": "object",
+  "properties": {
+    "node_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "pack": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Vertical"
+    },
+    "pack_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+    },
+    "parent": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "type": {
+            "description": "PERD §20.1 slot types.",
+            "type": "string",
+            "enum": [
+              "Resource",
+              "Quantity",
+              "Party",
+              "TimeRef",
+              "Reference"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "resource_kind": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "candidate_search"
+            ]
+          },
+          "vocabulary": {
+            "description": "For a Reference slot: the closed pack vocabulary (for example question_type, PERD §20.4).",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "references": {
+            "description": "For a Reference slot whose values are registry IDs (for example requested_remedy).",
+            "type": "string",
+            "enum": [
+              "capability"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "required"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "disambiguation": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "ranked_candidates"
+          ]
+        },
+        "auto_resolve_margin": {
+          "description": "A ratio in [0, 1]; a score margin, not money.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "max_candidates_before_escalate": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "strategy",
+        "auto_resolve_margin",
+        "max_candidates_before_escalate"
+      ],
+      "additionalProperties": false
+    },
+    "lexicon_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "trust_profile": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "outcome_definitions": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "examples": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "node_id",
+    "pack",
+    "pack_version",
+    "display_name",
+    "slots",
+    "trust_profile",
+    "outcome_definitions",
+    "examples"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/outcome-definition.v1.json",
+  "title": "Outcome definition",
+  "description": "SoT §15.3 Outcome definition, field for field. The success predicate is written in the SoT §43.7 language; it never calls a model.",
+  "type": "object",
+  "properties": {
+    "outcome_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "intent_nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "success_predicate": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+    },
+    "intermediate_states": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "terminal_states": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "settle_window_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "verification_sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "source",
+          "priority"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "compensation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "explanation_templates": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "sla": {
+      "type": "object",
+      "properties": {
+        "clock": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+        }
+      },
+      "required": [
+        "clock"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "outcome_id",
+    "intent_nodes",
+    "success_predicate",
+    "intermediate_states",
+    "terminal_states",
+    "settle_window_seconds",
+    "verification_sources",
+    "compensation",
+    "explanation_templates"
+  ],
+  "additionalProperties": false
+}

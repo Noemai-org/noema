@@ -1,0 +1,283 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "fin",
+  "pack_version": "1.0.0",
+  "name": "SYNTHETIC test pack",
+  "intent_nodes": [],
+  "trust_profiles": [
+    {
+      "profile_id": "fin.trust.exception.read_and_case",
+      "risk_class": "R2_non_monetary_write",
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "customer",
+          "ops_agent"
+        ]
+      },
+      "policy_templates": [
+        "fin.pol.case.dedupe"
+      ],
+      "clocks": [
+        "fin.clock.ng.nip_dispute_72h"
+      ],
+      "approvals": [],
+      "prohibited_capabilities": [
+        "fin.cap.transfer_funds"
+      ],
+      "evidence_required": [
+        "fin.src.core_ledger"
+      ],
+      "max_evidence_age_seconds": 300,
+      "data_sensitivity": "S3_financial_pii"
+    }
+  ],
+  "outcome_definitions": [
+    {
+      "outcome_id": "fin.outcome.exception.case_opened",
+      "intent_nodes": [
+        "fin.payments.exception.investigate"
+      ],
+      "success_predicate": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])",
+      "intermediate_states": [
+        "CASE_SUBMITTED"
+      ],
+      "terminal_states": [
+        "ACHIEVED",
+        "NOT_ACHIEVED"
+      ],
+      "settle_window_seconds": 30,
+      "verification_sources": [
+        {
+          "source": "fin.src.case_system",
+          "priority": 1
+        }
+      ],
+      "compensation": "none_required",
+      "explanation_templates": [
+        "fin.expl.case_opened"
+      ],
+      "sla": {
+        "clock": "fin.clock.ng.nip_dispute_72h"
+      }
+    }
+  ],
+  "capabilities": [
+    {
+      "capability_id": "fin.cap.lookup_transaction",
+      "business_meaning": "SYNTHETIC test capability fin.cap.lookup_transaction",
+      "input_schema": "schemas/fin/lookup_transaction.v1.json",
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "customer",
+          "ops_agent"
+        ]
+      },
+      "policy_templates": [
+        "fin.pol.case.dedupe"
+      ],
+      "risk_class": "R0_read",
+      "side_effect_class": "NONE",
+      "blast_radius": "one record for one principal",
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "case_system.find_by_idempotency_key"
+      },
+      "retry_safety": "NONE",
+      "concurrency_control": "NONE",
+      "revalidation_reads": [
+        "subject_resource.status"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "NONE",
+        "regulatory": "NONE",
+        "access": "NONE",
+        "operational": "NONE",
+        "irreversibility": "REVERSIBLE"
+      },
+      "expected_outcome": "fin.outcome.exception.case_opened",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
+      },
+      "prohibited": false
+    },
+    {
+      "capability_id": "fin.cap.create_escalation_case",
+      "business_meaning": "SYNTHETIC test capability fin.cap.create_escalation_case",
+      "input_schema": "schemas/fin/create_escalation_case.v1.json",
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "customer",
+          "ops_agent"
+        ]
+      },
+      "policy_templates": [
+        "fin.pol.case.dedupe"
+      ],
+      "risk_class": "R2_non_monetary_write",
+      "side_effect_class": "CREATES_RECORD",
+      "blast_radius": "one record for one principal",
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "case_system.find_by_idempotency_key"
+      },
+      "retry_safety": "QUERYABLE_BY_KEY",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "revalidation_reads": [
+        "subject_resource.status"
+      ],
+      "consequence_profile": {
+        "financial": "NONE",
+        "customer": "LOW",
+        "regulatory": "LOW",
+        "access": "NONE",
+        "operational": "LOW",
+        "irreversibility": "COMPENSABLE"
+      },
+      "expected_outcome": "fin.outcome.exception.case_opened",
+      "verification": {
+        "method": "independent_read",
+        "source": "fin.src.case_system"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "ESCALATE"
+      ],
+      "compensation": "none_required",
+      "audit": [
+        "DECISION_MADE",
+        "GRANT_SPENT",
+        "RECEIPT",
+        "VERDICT"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
+      },
+      "prohibited": false
+    },
+    {
+      "capability_id": "fin.cap.transfer_funds",
+      "business_meaning": "Move funds (prohibited in the POC)",
+      "risk_class": "PROHIBITED",
+      "prohibited": true
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source_id": "fin.src.core_ledger",
+      "display_name": "Core ledger",
+      "freshness_sla_seconds": 300,
+      "authoritative_for": [
+        "debit_posted"
+      ],
+      "corroborating_for": [],
+      "never_authoritative_for": [
+        "switch_result"
+      ],
+      "sensitivity": "S3_financial_pii"
+    },
+    {
+      "source_id": "fin.src.case_system",
+      "display_name": "Case system",
+      "freshness_sla_seconds": 60,
+      "authoritative_for": [
+        "case.status"
+      ],
+      "corroborating_for": [],
+      "sensitivity": "S3_financial_pii"
+    }
+  ],
+  "policy": {
+    "policy_id": "fin.pol",
+    "version": "3.2",
+    "rules": [
+      {
+        "rule_id": "fin.pol.case.dedupe",
+        "class": "WORKFLOW",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "fin.cap.create_escalation_case"
+        ],
+        "condition": "no_open_case(subject_resource, logical_resolution_epoch)",
+        "effect": "PERMIT",
+        "reason_code": "fin.reason.no_duplicate_case"
+      },
+      {
+        "rule_id": "fin.pol.prohibit.transfer",
+        "class": "PROHIBITION",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "fin.cap.transfer_funds"
+        ],
+        "condition": "true",
+        "effect": "REJECT",
+        "reason_code": "PROHIBITED_CAPABILITY"
+      }
+    ]
+  },
+  "clocks": [
+    {
+      "clock_id": "fin.clock.ng.nip_dispute_72h",
+      "anchor_event": "complaint_logged",
+      "duration_seconds": 259200,
+      "label": "SYNTHETIC"
+    }
+  ],
+  "reason_catalogue": [
+    {
+      "code": "fin.reason.no_duplicate_case",
+      "meaning": "An open case already exists for this transaction",
+      "produced_by": "POLICY_RULE"
+    }
+  ]
+}

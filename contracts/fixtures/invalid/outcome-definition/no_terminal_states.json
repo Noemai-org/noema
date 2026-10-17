@@ -1,0 +1,25 @@
+{
+  "outcome_id": "fin.outcome.exception.case_opened",
+  "intent_nodes": [
+    "fin.payments.exception.investigate"
+  ],
+  "success_predicate": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])",
+  "intermediate_states": [
+    "CASE_SUBMITTED"
+  ],
+  "terminal_states": [],
+  "settle_window_seconds": 30,
+  "verification_sources": [
+    {
+      "source": "fin.src.case_system",
+      "priority": 1
+    }
+  ],
+  "compensation": "none_required",
+  "explanation_templates": [
+    "fin.expl.case_opened"
+  ],
+  "sla": {
+    "clock": "fin.clock.ng.nip_dispute_72h"
+  }
+}

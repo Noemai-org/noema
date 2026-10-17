@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/clock.v1.json",
+  "title": "Clock definition",
+  "description": "A regulatory or SLA clock referenced by trust profiles and outcome definitions (SoT §15.3 'clocks', PERD §23.5). Anchor event and duration are data; EVALUATE_SLA_STATUS derives started_at, deadline_at and phase from them. SYNTHETIC configuration until validated by counsel (SoT §50.2, AGENT-25).",
+  "type": "object",
+  "properties": {
+    "clock_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "anchor_event": {
+      "type": "string",
+      "minLength": 1
+    },
+    "duration_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "label": {
+      "type": "string",
+      "enum": [
+        "SYNTHETIC",
+        "VALIDATED"
+      ]
+    }
+  },
+  "required": [
+    "clock_id",
+    "anchor_event",
+    "duration_seconds",
+    "label"
+  ],
+  "additionalProperties": false
+}

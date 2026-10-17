@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/policy-version.v1.json",
+  "title": "Policy version",
+  "description": "PERD §23.4 PolicyVersion. Publishing a version voids every unspent grant of an earlier version (INV-26).",
+  "type": "object",
+  "properties": {
+    "policy_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "DRAFT",
+        "ACTIVE",
+        "RETIRED"
+      ]
+    },
+    "effective_from": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "published_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "published_by": {
+      "type": "string",
+      "minLength": 1
+    },
+    "checksum": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "rules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/policy-rule.v1.json"
+      },
+      "minItems": 1
+    }
+  },
+  "required": [
+    "policy_id",
+    "version",
+    "status",
+    "effective_from",
+    "rules"
+  ],
+  "additionalProperties": false
+}

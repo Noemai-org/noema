@@ -1,0 +1,84 @@
+"""The drift guard must fail on every kind of difference (money-and-value-lists §2.4).
+
+Each test mutates a copy in memory, never the files, and requires check_lists or check_money to report it.
+"""
+import copy
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import drift  # noqa: E402
+from validate import load_schemas  # noqa: E402
+
+SCHEMAS = load_schemas()
+ENUMS = SCHEMAS["enums.v1.json"]
+REGISTRY = drift.REGISTRY.read_text(encoding="utf-8")
+
+
+class DriftGuard(unittest.TestCase):
+    def test_clean_tree_passes(self):
+        self.assertEqual(drift.check_lists(ENUMS, REGISTRY), [])
+        self.assertEqual(drift.check_money(SCHEMAS, REGISTRY), [])
+
+    def test_value_added_to_the_registry(self):
+        mutated = REGISTRY.replace("`ALLOW`, `CLARIFY`", "`ALLOW`, `PROCEED`, `CLARIFY`", 1)
+        self.assertNotEqual(mutated, REGISTRY)
+        self.assertTrue(any("DecisionOutcome" in p for p in drift.check_lists(ENUMS, mutated)))
+
+    def test_value_removed_from_the_registry(self):
+        mutated = REGISTRY.replace("`EXPIRED`", "`NONE_SUCH`", 1)
+        self.assertTrue(any("ConfirmationTerminalState" in p for p in drift.check_lists(ENUMS, mutated)))
+
+    def test_value_renamed_in_the_schema(self):
+        changed = copy.deepcopy(ENUMS)
+        changed["$defs"]["Verdict"]["enum"][0] = "ACHEIVED"
+        self.assertTrue(any("Verdict" in p for p in drift.check_lists(changed, REGISTRY)))
+
+    def test_value_added_to_the_schema(self):
+        changed = copy.deepcopy(ENUMS)
+        changed["$defs"]["ExecutionState"]["enum"].append("SUCCEEDED")
+        self.assertTrue(any("ExecutionState" in p for p in drift.check_lists(changed, REGISTRY)))
+
+    def test_core_reason_code_removed_from_the_schema(self):
+        changed = copy.deepcopy(ENUMS)
+        changed["$defs"]["CoreReasonCode"]["enum"].remove("MODE_NOT_ENABLED")
+        self.assertTrue(any("CoreReasonCode" in p for p in drift.check_lists(changed, REGISTRY)))
+
+    def test_list_without_a_registry_row(self):
+        changed = copy.deepcopy(ENUMS)
+        changed["$defs"]["Invented"] = {"type": "string", "enum": ["A"]}
+        self.assertTrue(any("Invented" in p for p in drift.check_lists(changed, REGISTRY)))
+
+    def test_registry_row_without_a_list(self):
+        changed = copy.deepcopy(ENUMS)
+        del changed["$defs"]["FactStatus"]
+        self.assertTrue(any("FactStatus" in p for p in drift.check_lists(changed, REGISTRY)))
+
+    def test_currency_table_and_schema_differ(self):
+        changed = copy.deepcopy(SCHEMAS)
+        changed["money.v1.json"]["$defs"]["CurrencyCode"]["enum"].append("USD")
+        self.assertTrue(any("currencies.json" in p for p in drift.check_money(changed, REGISTRY)))
+
+    def test_amount_ceiling_changed(self):
+        changed = copy.deepcopy(SCHEMAS)
+        changed["money.v1.json"]["$defs"]["MinorAmount"]["maximum"] = 9007199254740992
+        self.assertTrue(any("MinorAmount" in p for p in drift.check_money(changed, REGISTRY)))
+
+    def test_amount_made_a_number(self):
+        changed = copy.deepcopy(SCHEMAS)
+        changed["money.v1.json"]["$defs"]["MinorAmount"]["type"] = "number"
+        self.assertTrue(any("MinorAmount" in p for p in drift.check_money(changed, REGISTRY)))
+
+    def test_every_core_enum_is_a_distinct_type(self):
+        """OD-P-10: no two lists may share the same set of values, or one could be assigned to the other."""
+        sets = {}
+        for name, definition in ENUMS["$defs"].items():
+            values = frozenset(drift.schema_values(definition))
+            if values:
+                self.assertNotIn(values, sets, f"{name} and {sets.get(values)} have identical values")
+                sets[values] = name
+
+
+if __name__ == "__main__":
+    unittest.main()

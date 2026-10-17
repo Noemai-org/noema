@@ -1,0 +1,5 @@
+{
+  "bad_risk_class.json": "pattern",
+  "missing_prohibitions.json": "required",
+  "zero_evidence_age.json": "minimum"
+}
