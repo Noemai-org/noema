@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": "GRANT_ALREADY_SPENT",
+    "message": "Account 0123456789 not found",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9",
+    "details": [
+      {
+        "field": "grant_id",
+        "issue": "already spent"
+      }
+    ]
+  }
+}

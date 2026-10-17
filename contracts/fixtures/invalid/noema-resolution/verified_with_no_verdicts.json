@@ -1,0 +1,12 @@
+{
+  "type": "noema.resolution",
+  "schema_version": "1.0",
+  "correlation_id": "corr_01J9X3",
+  "investigation_id": "inv_01J9X3",
+  "disposition": "ESCALATED",
+  "verdicts": [],
+  "case_ref": "CMP-2026-00001",
+  "owner_queue": "PAYMENTS_OPERATIONS",
+  "customer_message": "I've opened a case with the payments team. Please don't send the money again yet.",
+  "verified": true
+}

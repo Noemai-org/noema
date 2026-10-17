@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "source": "fin.src.switch",
+  "event_id": "evt-0001",
+  "delivery_id": "dlv-01J9XC",
+  "sequence": 41,
+  "event_type": "SETTLEMENT_UPDATED",
+  "occurred_at": "2026-10-01T09:50:00Z",
+  "received_at": "2026-10-01T09:50:02Z",
+  "payload": {
+    "transaction_ref": "TX88213",
+    "status": "SETTLED"
+  }
+}

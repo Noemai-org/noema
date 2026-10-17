@@ -1,0 +1,11 @@
+{
+  "ErrorCode__reason_code_not_error.json": "enum",
+  "message_with_account_number.json": "pattern",
+  "missing_correlation_id.json": "required",
+  "not_found_split_from_not_authorized.json": "enum",
+  "not_wrapped_in_error.json": "required",
+  "outcome_unknown_marked_retryable.json": "const",
+  "stack_trace_field.json": "additionalProperties",
+  "timeout_marked_not_retryable.json": "const",
+  "unknown_code.json": "enum"
+}
