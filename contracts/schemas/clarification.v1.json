@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/clarification.v1.json",
+  "title": "Clarification request",
+  "description": "PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked display name). No label has more than four consecutive digits. Whether labels can distinguish the options is checked by core (identical displayed details mean ESCALATE).",
+  "type": "object",
+  "properties": {
+    "clarification_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClarificationId"
+    },
+    "candidate_set_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CandidateSetId"
+    },
+    "candidate_set_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+    },
+    "slot": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+    },
+    "question_key": {
+      "description": "A pack template ID.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "options": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "properties": {
+          "option_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]{1,32}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+          }
+        },
+        "required": [
+          "option_id",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "allow_none": {
+      "type": "boolean",
+      "const": true
+    },
+    "expires_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "round": {
+      "description": "1-based. At most 2 rounds per slot (DEC-2026-10-17), then ESCALATE.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2
+    }
+  },
+  "required": [
+    "clarification_id",
+    "candidate_set_id",
+    "candidate_set_version",
+    "slot",
+    "question_key",
+    "options",
+    "allow_none",
+    "expires_at",
+    "round"
+  ],
+  "additionalProperties": false
+}

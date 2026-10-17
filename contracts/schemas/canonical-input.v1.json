@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/canonical-input.v1.json",
+  "title": "Canonical input",
+  "description": "PERD REQ-INP-001: every request, text or voice, is normalised to one CanonicalInput before any business logic. Produced by the Gateway in the model service from the authenticated request context. Unknown fields are rejected. Normalisation (NFC, trim) is the Gateway's job; the schema bounds the length. Downstream packages never read `channel` except Understanding and explanation rendering (REQ-INP-001).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "request_id": {
+      "description": "Client-supplied UUID, used for deduplication (REQ-INP-003).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "session_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SessionId"
+    },
+    "principal_ref": {
+      "description": "Opaque reference set by core from the session; never taken from the text (INV-12).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "text",
+        "voice"
+      ]
+    },
+    "mode": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Mode"
+    },
+    "text": {
+      "description": "Unicode NFC, trimmed, 1 to 2000 characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "locale_hint": {
+      "type": "string",
+      "pattern": "^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$"
+    },
+    "voice": {
+      "type": "object",
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "utterance_confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        },
+        "token_confidences": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+          }
+        },
+        "is_final": {
+          "description": "A non-final transcript is rejected for compilation (REQ-INP-001).",
+          "type": "boolean"
+        },
+        "audio_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "provider_id",
+        "model_version",
+        "utterance_confidence",
+        "token_confidences",
+        "is_final",
+        "audio_ref"
+      ],
+      "additionalProperties": false
+    },
+    "conversation_ref": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/InvestigationId"
+    },
+    "received_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    }
+  },
+  "required": [
+    "schema_version",
+    "request_id",
+    "correlation_id",
+    "tenant_id",
+    "session_id",
+    "principal_ref",
+    "channel",
+    "mode",
+    "text",
+    "received_at"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "channel": {
+        "const": "voice"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "voice"
+    ]
+  },
+  "else": {
+    "not": {
+      "required": [
+        "voice"
+      ]
+    }
+  }
+}

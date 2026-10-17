@@ -1,0 +1,32 @@
+{
+  "clarification_id": "clr_01J9X4",
+  "candidate_set_id": "cns_01J9X3",
+  "candidate_set_version": 1,
+  "slot": "subject_resource",
+  "question_key": "fin.q.which_transaction",
+  "options": [
+    {
+      "option_id": "opt_0",
+      "label": "NGN 0.00 at 00:00"
+    },
+    {
+      "option_id": "opt_1",
+      "label": "NGN 1.00 at 01:00"
+    },
+    {
+      "option_id": "opt_2",
+      "label": "NGN 2.00 at 02:00"
+    },
+    {
+      "option_id": "opt_3",
+      "label": "NGN 3.00 at 03:00"
+    },
+    {
+      "option_id": "opt_4",
+      "label": "NGN 4.00 at 04:00"
+    }
+  ],
+  "allow_none": true,
+  "expires_at": "2026-10-01T09:57:04Z",
+  "round": 1
+}
