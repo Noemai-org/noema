@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "grant_id": "grt_3K9",
+  "decision_id": "dec_8R4",
+  "principal_id": "usr_88213",
+  "intent_hash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "capability_id": [
+    "fin.cap.a",
+    "fin.cap.b"
+  ],
+  "target_ref": "fin.transaction:TX88213",
+  "params_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "evidence_set_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+  "plan_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "plan_step": 2,
+  "target_versions": [
+    {
+      "resource_ref": "fin.case_scope:TX88213",
+      "source": "fin.src.case_system",
+      "version_token": "v_17"
+    }
+  ],
+  "policy_version": "fin.pol@3.2",
+  "pack_version": "fintech@1.0.0",
+  "not_before": "2026-10-01T09:48:00Z",
+  "expires_at": "2026-10-01T09:58:00Z",
+  "nonce": "n_6c1a",
+  "single_use": true,
+  "sig": {
+    "key_id": "trust-2026-10",
+    "value": "c2ln"
+  }
+}

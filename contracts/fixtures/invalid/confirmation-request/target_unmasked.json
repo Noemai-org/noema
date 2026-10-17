@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "confirmation_request_id": "cfr_2Q8",
+  "decision_id": "dec_9F1",
+  "binding_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "approver_requirement": "SELF",
+  "display": {
+    "action": "Open a dispute case",
+    "target": "NGN 20,000.00 to account 0123456789",
+    "evidence_summary_ref": "evs_51A",
+    "policy_version": "fin.pol@3.2"
+  },
+  "expires_at": "2026-10-01T09:58:00Z",
+  "sig": {
+    "key_id": "trust-2026-10",
+    "value": "c2ln"
+  }
+}

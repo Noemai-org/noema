@@ -1,0 +1,6 @@
+{
+  "approver_from_text.json": "additionalProperties",
+  "approver_missing.json": "required",
+  "response_approve.json": "enum",
+  "response_expired.json": "enum"
+}

@@ -1,0 +1,8 @@
+{
+  "approver_any.json": "oneOf",
+  "binding_hash_short.json": "pattern",
+  "display_missing_policy_version.json": "required",
+  "target_unmasked.json": "pattern",
+  "unknown_field.json": "additionalProperties",
+  "unsigned.json": "required"
+}
