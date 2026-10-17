@@ -1,0 +1,187 @@
+# Noema POC topology (PLT-04; PERD §65.1, REQ-OPS-001). Local use only.
+# Start:  make up        Stop and destroy local state:  make reset
+# Profiles: dev, ci, bench, demo. The bench profile adds the hostility proxy and runner (ENV-09) and the
+# demo profile adds the reference partner listener; neither exists yet. The `netcheck` profile holds the
+# fixtures of the connection-test matrix (netcheck/matrix.py) and is never started by `make up`.
+name: noema-local
+
+x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
+x-model-networks: &model_networks [edge_net, svc_net, provider_egress]
+x-ui-networks: &ui_networks [edge_net]
+x-profiles: &run_profiles [dev, ci, bench, demo]
+x-python-image: &python_image python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+
+networks:
+  # Client traffic. Not internal, because the UI publishes a port to localhost through it.
+  edge_net: {}
+  # mTLS internal APIs between core and model.
+  svc_net:
+    internal: true
+  # Authoritative data and workflows.
+  data_net:
+    internal: true
+  # Enterprise access. Internal until the hostility proxy (ENV-09) provides the one allowlisted egress.
+  tushe_net:
+    internal: true
+  # Egress to model and speech providers. The model service is the only member.
+  provider_egress: {}
+  # Benchmark services only. Unreachable from core and model.
+  bench_net:
+    internal: true
+
+secrets:
+  postgres_superuser_password:
+    file: ./secrets/postgres_superuser_password
+  noema_core_password:
+    file: ./secrets/noema_core_password
+  temporal_password:
+    file: ./secrets/temporal_password
+
+volumes:
+  postgres_data: {}
+
+services:
+  postgres:
+    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    profiles: *run_profiles
+    networks: [data_net]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
+    secrets: [postgres_superuser_password, noema_core_password, temporal_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d noema"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  temporal:
+    # Temporal keeps its own `temporal` and `temporal_visibility` databases and its own role. Noema code
+    # never reads them (INV-30).
+    image: temporalio/auto-setup:1.29.7@sha256:f14912b699cf73015ad5c4fc18d522d4b014db90e794039214dfb7c022c2644f
+    profiles: *run_profiles
+    networks: [data_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_SEEDS: postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      SKIP_DB_CREATE: "true"
+    secrets: [temporal_password]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export POSTGRES_PWD="$$(cat /run/secrets/temporal_password)" && exec /etc/temporal/entrypoint.sh autosetup
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  core:
+    image: noema-core:dev
+    build:
+      context: ../../services/core
+    profiles: *run_profiles
+    networks: *core_networks
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      NOEMA_CORE_ADDR: ":8080"
+      NOEMA_DB_HOST: postgres
+      NOEMA_DB_NAME: noema
+      NOEMA_DB_USER: noema_core
+      NOEMA_DB_PASSWORD_FILE: /run/secrets/noema_core_password
+      NOEMA_TEMPORAL_ADDRESS: temporal:7233
+    secrets: [noema_core_password]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/core", "-healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  model:
+    image: noema-model:dev
+    build:
+      context: ../../services/model
+    profiles: *run_profiles
+    networks: *model_networks
+    environment:
+      NOEMA_MODEL_ADDR: ":8081"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).status == 200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  ui:
+    image: noema-ui:dev
+    build:
+      context: ../../ui
+    profiles: *run_profiles
+    networks: *ui_networks
+    depends_on:
+      core:
+        condition: service_healthy
+      model:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8082/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # ---- netcheck fixtures: connection-test matrix only (REQ-OPS-001) ----
+  # Sentinels listen on a network so the matrix can tell whether a service can reach it.
+  # Probes carry the same networks as the service they stand for (same YAML anchor); matrix.py checks that.
+  sentinel-tushe:
+    image: *python_image
+    profiles: [netcheck]
+    networks: [tushe_net]
+    command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
+    healthcheck: &sentinel_health
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9000), 2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+  sentinel-provider:
+    image: *python_image
+    profiles: [netcheck]
+    networks: [provider_egress]
+    command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
+    healthcheck: *sentinel_health
+  sentinel-bench:
+    image: *python_image
+    profiles: [netcheck]
+    networks: [bench_net]
+    command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
+    healthcheck: *sentinel_health
+  probe-core:
+    image: *python_image
+    profiles: [netcheck]
+    networks: *core_networks
+    volumes: ["./netcheck/probe.py:/probe.py:ro"]
+  probe-model:
+    image: *python_image
+    profiles: [netcheck]
+    networks: *model_networks
+    volumes: ["./netcheck/probe.py:/probe.py:ro"]
+  probe-ui:
+    image: *python_image
+    profiles: [netcheck]
+    networks: *ui_networks
+    volumes: ["./netcheck/probe.py:/probe.py:ro"]
