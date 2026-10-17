@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/confirmation-event.v1.json",
+  "title": "Confirmation event",
+  "description": "SoT §43.2a step 2: the approver's response through an authenticated channel. The approver's principal comes from authentication, never from text. ACCEPT leads to a fresh Trust evaluation, not to a grant. For MAKER_CHECKER the approver must differ from the requester; Trust checks that (REQ-TRU-009).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "confirmation_event_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationEventId"
+    },
+    "confirmation_request_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationRequestId"
+    },
+    "approver_principal_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
+    },
+    "response": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConfirmationResponse"
+    },
+    "channel": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "confirmation_event_id",
+    "confirmation_request_id",
+    "approver_principal_id",
+    "response",
+    "channel",
+    "at"
+  ],
+  "additionalProperties": false
+}

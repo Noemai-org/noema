@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/decision-grant.v1.json",
+  "title": "Decision Grant",
+  "description": "SoT §43.2 and PERD REQ-TRU-008. Issued only from an ALLOW Decision Record, one per write plan step. It binds principal, intent, one capability, one target, one parameter set, the evidence set, the plan step, target versions and policy and pack versions; any mismatch at execution time voids it (INV-03, INV-17). Single use is enforced by a unique constraint on spent grant IDs and nonces. HMAC-SHA-256 over the canonical JSON in the POC. 'The decision is ALLOW' and 'expires_at is after not_before' are checked by Trust and Execution.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "grant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/GrantId"
+    },
+    "decision_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/DecisionId"
+    },
+    "principal_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
+    },
+    "intent_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "capability_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "target_ref": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+    },
+    "params_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "evidence_set_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "plan_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "plan_step": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "target_versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "resource_ref": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+          },
+          "source": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "version_token": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "resource_ref",
+          "source",
+          "version_token"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "pack_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "not_before": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "expires_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "nonce": {
+      "description": "128-bit random from a CSPRNG (REQ-TRU-008); hex after the n_ prefix.",
+      "type": "string",
+      "pattern": "^n_[0-9a-f]{4,64}$"
+    },
+    "single_use": {
+      "type": "boolean",
+      "const": true
+    },
+    "confirmation_event_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationEventId"
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "grant_id",
+    "decision_id",
+    "principal_id",
+    "intent_hash",
+    "capability_id",
+    "target_ref",
+    "params_hash",
+    "evidence_set_hash",
+    "plan_hash",
+    "plan_step",
+    "target_versions",
+    "policy_version",
+    "pack_version",
+    "not_before",
+    "expires_at",
+    "nonce",
+    "single_use",
+    "sig"
+  ],
+  "additionalProperties": false
+}

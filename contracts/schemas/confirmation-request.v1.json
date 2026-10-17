@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/confirmation-request.v1.json",
+  "title": "Confirmation request",
+  "description": "SoT §43.2a. A CONFIRM decision never authorises anything by itself: it creates this request, bound to the exact action by binding_hash. Authenticated with HMAC in the POC (SoT §43). The terminal state on expiry is ConfirmationTerminalState.EXPIRED.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "confirmation_request_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationRequestId"
+    },
+    "decision_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/DecisionId"
+    },
+    "binding_hash": {
+      "description": "SHA-256 over the JCS of principal_id, intent_hash, capability_id, target_ref, params_hash, evidence_set_hash, plan_hash and policy_version (REQ-TRU-009).",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "approver_requirement": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ApproverRequirement"
+    },
+    "display": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "description": "Masked: no more than the last four digits of any number.",
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+        },
+        "evidence_summary_ref": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SnapshotId"
+        },
+        "policy_version": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+        }
+      },
+      "required": [
+        "action",
+        "target",
+        "evidence_summary_ref",
+        "policy_version"
+      ],
+      "additionalProperties": false
+    },
+    "expires_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "confirmation_request_id",
+    "decision_id",
+    "binding_hash",
+    "approver_requirement",
+    "display",
+    "expires_at",
+    "sig"
+  ],
+  "additionalProperties": false
+}

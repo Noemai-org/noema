@@ -1,0 +1,13 @@
+{
+  "decision_id_wrong_prefix.json": "pattern",
+  "expiry_missing.json": "required",
+  "grant_for_two_capabilities.json": "type",
+  "missing_evidence_set_hash.json": "required",
+  "missing_plan_hash.json": "required",
+  "negative_plan_step.json": "minimum",
+  "nonce_without_prefix.json": "pattern",
+  "not_single_use.json": "const",
+  "params_hash_without_prefix.json": "pattern",
+  "target_ref_without_kind.json": "pattern",
+  "unknown_field.json": "additionalProperties"
+}

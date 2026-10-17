@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "decision_id": "dec_7Q2",
+  "intent_id": "int_01J9X3",
+  "intent_hash": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+  "outcome": "CLARIFY",
+  "reason_codes": [
+    "AMBIGUOUS_COUNTERPARTY"
+  ],
+  "authority": {
+    "technical": "PASS",
+    "policy": "PASS",
+    "business": "NOT_EVALUATED"
+  },
+  "evidence_snapshot_id": "evs_51A",
+  "policy_version": "fin.pol@3.2",
+  "pack_version": "fintech@1.0.0",
+  "evidence_freshness": [
+    {
+      "source": "fin.src.settlement",
+      "age_seconds": 42,
+      "effective_limit_seconds": 300,
+      "limit_set_by": "TENANT"
+    }
+  ],
+  "clarification": {
+    "clarification_id": "clr_01J9X4",
+    "candidate_set_id": "cns_01J9X3",
+    "candidate_set_version": 1,
+    "slot": "subject_resource",
+    "question_key": "fin.q.which_transaction",
+    "options": [
+      {
+        "option_id": "opt_1",
+        "label": "NGN 20,000.00 at 07:12 to account ending 2144"
+      },
+      {
+        "option_id": "opt_2",
+        "label": "NGN 20,000.00 at 08:03 to account ending 8891"
+      }
+    ],
+    "allow_none": true,
+    "expires_at": "2026-10-01T09:57:04Z",
+    "round": 1
+  },
+  "evaluated_at": "2026-10-01T09:47:04.210Z",
+  "sig": {
+    "key_id": "trust-2026-10",
+    "value": "c2ln"
+  }
+}

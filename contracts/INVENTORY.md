@@ -53,6 +53,13 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 
 ## C-4 · Decision Record, Decision Grant, confirmation
 
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `decision-record.v1.json` | §43.2, §13.1 | §23.1, §23.3 (REQ-TRU-001) | REQ-TRU-001, REQ-TRU-010, REQ-AMB-001 | Seven outcomes; two-tier reason codes; `authority` results `PASS`, `FAIL`, `NOT_EVALUATED`; `disposition_decision_id` (SOT-C-04) |
+| `decision-grant.v1.json` | §43.2 | §23 (REQ-TRU-008) | REQ-TRU-008, REQ-EXE-001 | Single use; binds principal, intent, capability, target, params, evidence set, plan step, versions |
+| `confirmation-request.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Bound to the exact action by `binding_hash` |
+| `confirmation-event.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Approver identity from authentication; `ACCEPT` or `DECLINE` |
+
 ## C-5 · Plan, Receipt, Verdict, recovery
 
 ## C-6 · Evidence, snapshot, Record, explanation facts, inbound events, errors
