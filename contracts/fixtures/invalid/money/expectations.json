@@ -1,0 +1,16 @@
+{
+  "Money__boolean_amount.json": "type",
+  "Money__currency_missing.json": "required",
+  "Money__currency_not_in_table.json": "enum",
+  "Money__exponent_conflict.json": "additionalProperties",
+  "Money__exponent_literal.json": "type",
+  "Money__float_literal.json": "type",
+  "Money__major_unit_field.json": "required",
+  "Money__minor_units_flag.json": "additionalProperties",
+  "Money__negative.json": "minimum",
+  "Money__null_amount.json": "type",
+  "Money__over_ceiling.json": "maximum",
+  "Money__quoted_number.json": "type",
+  "Quantity__fractional_value.json": "type",
+  "Quantity__unknown_unit.json": "oneOf"
+}

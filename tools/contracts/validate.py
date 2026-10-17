@@ -12,7 +12,8 @@ What the default run checks:
   3. every document in fixtures/valid/<schema>/ is accepted and every one in fixtures/invalid/<schema>/
      is rejected, for the reason named in that folder's expectations.json;
   4. every schema has a row in contracts/INVENTORY.md and every row names an existing schema;
-  5. further checks registered in CHECKS (the enum drift check arrives with C-2).
+  5. the enum drift guard (drift.py): enums.v1.json against the vendored state-registry.md, and
+     money.v1.json against currencies.json.
 
 Documents are read strictly. NaN, Infinity and duplicate object keys are decoder errors. A number written
 with a decimal point or an exponent (2000000.0, 2e6) is kept as a float and is never an `integer`, because
@@ -200,7 +201,9 @@ def check_inventory(schemas: dict[str, dict]) -> list[str]:
     return problems
 
 
-CHECKS = []  # (label, callable(schemas, registry) -> list[str]); C-2 registers the drift check
+import drift  # noqa: E402  (sits next to this file)
+
+CHECKS = [("enum drift (state-registry.md, currencies.json)", drift.check)]  # (label, callable(schemas, registry) -> list[str])
 
 
 def run_all() -> int:
