@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint up down net-matrix reset bench-smoke contracts-validate
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate
 
 build:
 	docker build -t noema-core:dev services/core
@@ -18,6 +18,8 @@ lint:
 	cd ui && npm run typecheck
 
 COMPOSE := docker compose -f deploy/compose/docker-compose.yml --profile dev
+arch-lint:
+	python3 -I tools/lint/run.py
 
 up:
 	deploy/compose/secrets_local.sh

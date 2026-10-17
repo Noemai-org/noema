@@ -1,0 +1,6 @@
+# Canary: the model workflow references the core environment. check_env_refs.py must fail.
+name: model
+jobs:
+  model:
+    runs-on: ubuntu-24.04
+    environment: core-ci
