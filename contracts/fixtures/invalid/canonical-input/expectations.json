@@ -1,0 +1,11 @@
+{
+  "confidence_over_one.json": "maximum",
+  "empty_text.json": "minLength",
+  "missing_principal_ref.json": "required",
+  "request_id_not_uuid.json": "pattern",
+  "text_over_2000_chars.json": "maxLength",
+  "text_with_voice_block.json": "not",
+  "unknown_field.json": "additionalProperties",
+  "unknown_mode.json": "enum",
+  "voice_without_voice_block.json": "required"
+}

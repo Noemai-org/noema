@@ -42,6 +42,15 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 
 ## C-3 · Input, Intent Object, clarification
 
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `canonical-input.v1.json` | §14 | §19.3 | REQ-INP-001, REQ-INP-002 | PERD names the file `canonical_input.v1.json`; this repository uses kebab-case for every file |
+| `intent-slot.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-AMB-001 | Five abstract slot types; a RESOLVED slot has `resolved_ref` and only a RESOLVED slot has one |
+| `intent-object.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-INT-004 | Version 1 supersedes nothing; a later version names `intent_id@version`; money in minor units |
+| `clarification.v1.json` | §43.2 | §22.1 (REQ-AMB-004) | REQ-AMB-004, REQ-UI-002 | At most 4 options, no label with 5 or more consecutive digits, at most 2 rounds |
+
+`common.v1.json` gains one ID type per PERD §32.3 prefix (`IntentId`, `DecisionId`, `GrantId`, and so on), `IntentRef`, `ResourceRef`, `Ratio` and `PositiveInt`, so C-4 to C-6 add no change to it.
+
 ## C-4 · Decision Record, Decision Grant, confirmation
 
 ## C-5 · Plan, Receipt, Verdict, recovery

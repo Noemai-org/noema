@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "intent_id": "int_01J9X3",
+  "version": 1,
+  "supersedes": null,
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "created_at": "2026-10-01T09:47:03Z",
+  "principal": {
+    "principal_id": "usr_88213",
+    "principal_type": "end_user",
+    "authn_ref": "ses_7a1b",
+    "asserted_by": "enterprise_idp"
+  },
+  "source": {
+    "mode": "MODE_1",
+    "channel": "voice",
+    "locale_detected": [
+      "en-NG",
+      "pcm"
+    ],
+    "asr_confidence": 0.91,
+    "raw_ref": "rec_raw_01J9X3"
+  },
+  "pack": {
+    "pack_id": "fin",
+    "pack_version": "1.0.0"
+  },
+  "intent_node": "fin.payments.exception.investigate",
+  "slots": {
+    "subject_resource": {
+      "type": "Resource",
+      "status": "UNRESOLVED",
+      "candidates_ref": null
+    },
+    "amount": {
+      "type": "Quantity",
+      "value": 2000000,
+      "unit": "NGN",
+      "confidence": 0.97
+    },
+    "counterparty": {
+      "type": "Party",
+      "surface_form": "Tunde",
+      "confidence": 0.99
+    },
+    "when": {
+      "type": "TimeRef",
+      "surface_form": "this morning",
+      "window": [
+        "2026-10-01T05:00:00Z",
+        "2026-10-01T09:00:00Z"
+      ]
+    },
+    "Amount": {
+      "type": "Quantity",
+      "value": 2000000,
+      "unit": "NGN",
+      "confidence": 0.97
+    }
+  },
+  "ambiguity_flags": [
+    "COUNTERPARTY_MULTIPLE_MATCH"
+  ],
+  "desired_outcome_refs": [
+    "fin.outcome.exception.status_explained"
+  ],
+  "status": "VALIDATED",
+  "sig": {
+    "key_id": "und-2026-10",
+    "value": "c2lnbmF0dXJl"
+  }
+}

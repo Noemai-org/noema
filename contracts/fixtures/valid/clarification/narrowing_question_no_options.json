@@ -1,0 +1,11 @@
+{
+  "clarification_id": "clr_01J9X4",
+  "candidate_set_id": "cns_01J9X3",
+  "candidate_set_version": 1,
+  "slot": "subject_resource",
+  "question_key": "fin.q.which_transaction",
+  "options": [],
+  "allow_none": true,
+  "expires_at": "2026-10-01T09:57:04Z",
+  "round": 2
+}

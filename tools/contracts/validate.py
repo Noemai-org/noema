@@ -177,8 +177,7 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                 continue
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
-                reasons = {e.validator for e in errors} | {e.message for e in errors}
-                hit = any(expected == r or expected in r for r in reasons)
+                hit = expected in {r for e in errors for r in keywords(e)}
                 where = "schema"
             except ValueError as exc:
                 hit, where = expected == "decoder", "decoder"
@@ -190,6 +189,14 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
         for stale in sorted(set(expectations) - {f.name for f in invalid_files}):
             problems.append(f"invalid/{name}/expectations.json: names {stale}, which does not exist")
     return problems
+
+
+def keywords(error) -> set[str]:
+    """The failing keyword of an error and of every nested cause (a oneOf failure carries its branches)."""
+    found = {error.validator}
+    for cause in error.context or []:
+        found |= keywords(cause)
+    return found
 
 
 def check_inventory(schemas: dict[str, dict]) -> list[str]:

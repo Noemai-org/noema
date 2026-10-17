@@ -65,6 +65,138 @@
       "description": "An expression in the SoT §43.7 predicate language. Parsing and type-checking happen at pack load (packcheck), not here.",
       "type": "string",
       "minLength": 1
+    },
+    "RequestId": {
+      "type": "string",
+      "pattern": "^req_[0-9A-Za-z]{3,32}$",
+      "description": "Client-supplied request ID (a UUID in the canonical input, see CanonicalInput)."
+    },
+    "CorrelationId": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-Za-z]{3,32}$"
+    },
+    "TenantId": {
+      "type": "string",
+      "pattern": "^ten_[0-9A-Za-z]{3,32}$"
+    },
+    "SessionId": {
+      "type": "string",
+      "pattern": "^ses_[0-9A-Za-z]{3,32}$"
+    },
+    "InvestigationId": {
+      "type": "string",
+      "pattern": "^inv_[0-9A-Za-z]{3,32}$"
+    },
+    "IntentId": {
+      "type": "string",
+      "pattern": "^int_[0-9A-Za-z]{3,32}$"
+    },
+    "CandidateSetId": {
+      "type": "string",
+      "pattern": "^cns_[0-9A-Za-z]{3,32}$"
+    },
+    "ClarificationId": {
+      "type": "string",
+      "pattern": "^clr_[0-9A-Za-z]{3,32}$"
+    },
+    "EvidenceId": {
+      "type": "string",
+      "pattern": "^evr_[0-9A-Za-z]{3,32}$",
+      "description": "Evidence item ID."
+    },
+    "SnapshotId": {
+      "type": "string",
+      "pattern": "^evs_[0-9A-Za-z]{3,32}$",
+      "description": "Sealed context snapshot ID."
+    },
+    "ReconciliationId": {
+      "type": "string",
+      "pattern": "^rec_[0-9A-Za-z]{3,32}$",
+      "description": "State reconciliation result ID."
+    },
+    "DecisionId": {
+      "type": "string",
+      "pattern": "^dec_[0-9A-Za-z]{3,32}$"
+    },
+    "ConfirmationRequestId": {
+      "type": "string",
+      "pattern": "^cfr_[0-9A-Za-z]{3,32}$"
+    },
+    "ConfirmationEventId": {
+      "type": "string",
+      "pattern": "^cfe_[0-9A-Za-z]{3,32}$"
+    },
+    "PlanId": {
+      "type": "string",
+      "pattern": "^pln_[0-9A-Za-z]{3,32}$"
+    },
+    "GrantId": {
+      "type": "string",
+      "pattern": "^grt_[0-9A-Za-z]{3,32}$"
+    },
+    "IdempotencyKeyId": {
+      "type": "string",
+      "pattern": "^idk_[0-9A-Za-z]{3,32}$"
+    },
+    "ReceiptId": {
+      "type": "string",
+      "pattern": "^rcp_[0-9A-Za-z]{3,32}$"
+    },
+    "VerdictId": {
+      "type": "string",
+      "pattern": "^ver_[0-9A-Za-z]{3,32}$"
+    },
+    "WatchId": {
+      "type": "string",
+      "pattern": "^wat_[0-9A-Za-z]{3,32}$"
+    },
+    "RecoveryRequestId": {
+      "type": "string",
+      "pattern": "^rrq_[0-9A-Za-z]{3,32}$"
+    },
+    "ExplanationId": {
+      "type": "string",
+      "pattern": "^exp_[0-9A-Za-z]{3,32}$"
+    },
+    "OutcomeEventId": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-Za-z]{3,32}$",
+      "description": "ID of an outcome.updated event."
+    },
+    "RecordEventId": {
+      "type": "string",
+      "pattern": "^recev_[0-9A-Za-z]{3,32}$",
+      "description": "Record event ID. PERD §32.3 uses recev; the SoT §43.6 example shows rec_1001, which collides with the reconciliation prefix."
+    },
+    "MemoryId": {
+      "type": "string",
+      "pattern": "^mem_[0-9A-Za-z]{3,32}$"
+    },
+    "PrincipalId": {
+      "type": "string",
+      "pattern": "^usr_[0-9A-Za-z]{3,32}$",
+      "description": "Principal ID as asserted by the enterprise IdP session (SoT §43.1 example: usr_88213)."
+    },
+    "IntentRef": {
+      "description": "intent_id@version, the 'supersedes' link (PERD §20.1).",
+      "type": "string",
+      "pattern": "^int_[0-9A-Za-z]{3,32}@[0-9]+$"
+    },
+    "ResourceRef": {
+      "description": "A pack resource reference, <vertical>.<kind>:<id> (for example fin.transaction:TX88213).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$"
+    },
+    "Ratio": {
+      "description": "A confidence or ratio in [0, 1]. Never money.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "PositiveInt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
     }
   }
 }

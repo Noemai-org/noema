@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/intent-slot.v1.json",
+  "title": "Intent slot",
+  "description": "PERD §20.1 slot sub-schema [REC, within the shapes of SoT §43.1]. The five slot types are abstract; no industry fields. A slot is RESOLVED only with a resolved_ref, and a resolved_ref only appears on a RESOLVED slot (INV-06, REQ-AMB-005).",
+  "$defs": {
+    "SlotType": {
+      "type": "string",
+      "enum": [
+        "Resource",
+        "Quantity",
+        "Party",
+        "TimeRef",
+        "Reference"
+      ]
+    },
+    "SlotStatus": {
+      "description": "PERD §20.1 [REC]. state-registry §6 lists slot status as an example only, so this list is not compared with the registry.",
+      "type": "string",
+      "enum": [
+        "RESOLVED",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "ABSENT"
+      ]
+    },
+    "Slot": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ResourceSlot"
+        },
+        {
+          "$ref": "#/$defs/QuantitySlot"
+        },
+        {
+          "$ref": "#/$defs/PartySlot"
+        },
+        {
+          "$ref": "#/$defs/TimeRefSlot"
+        },
+        {
+          "$ref": "#/$defs/ReferenceSlot"
+        }
+      ]
+    },
+    "ResourceSlot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Resource"
+        },
+        "candidates_ref": {
+          "oneOf": [
+            {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CandidateSetId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolved_ref": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+        },
+        "status": {
+          "$ref": "#/$defs/SlotStatus"
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        }
+      },
+      "required": [
+        "type",
+        "status"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "required": [
+          "resolved_ref"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "RESOLVED"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "status": {
+            "not": {
+              "const": "RESOLVED"
+            }
+          }
+        }
+      }
+    },
+    "QuantitySlot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Quantity"
+        },
+        "value": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/MinorAmount"
+        },
+        "unit": {
+          "oneOf": [
+            {
+              "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/CurrencyCode"
+            },
+            {
+              "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/PackUnit"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/SlotStatus"
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        }
+      },
+      "required": [
+        "type",
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false
+    },
+    "PartySlot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Party"
+        },
+        "status": {
+          "$ref": "#/$defs/SlotStatus"
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        }
+      },
+      "required": [
+        "type",
+        "surface_form"
+      ],
+      "additionalProperties": false
+    },
+    "TimeRefSlot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "TimeRef"
+        },
+        "window": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+            },
+            {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+            }
+          ],
+          "items": false,
+          "minItems": 2
+        },
+        "status": {
+          "$ref": "#/$defs/SlotStatus"
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        }
+      },
+      "required": [
+        "type",
+        "surface_form"
+      ],
+      "additionalProperties": false
+    },
+    "ReferenceSlot": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "Reference"
+        },
+        "value": {
+          "description": "A vocabulary value or a registry ID, validated against the intent node by the schema gate.",
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "$ref": "#/$defs/SlotStatus"
+        },
+        "surface_form": {
+          "type": "string",
+          "minLength": 1
+        },
+        "confidence": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio"
+        }
+      },
+      "required": [
+        "type",
+        "value"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

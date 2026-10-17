@@ -1,0 +1,10 @@
+{
+  "five_options.json": "maxItems",
+  "label_with_five_digits.json": "pattern",
+  "label_with_full_account_number.json": "pattern",
+  "none_of_these_not_offered.json": "const",
+  "option_without_label.json": "required",
+  "round_three.json": "maximum",
+  "set_version_zero.json": "minimum",
+  "unknown_field.json": "additionalProperties"
+}
