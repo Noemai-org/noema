@@ -1,0 +1,11 @@
+{
+  "rule_id": "fin.pol.prohibit.transfer",
+  "class": "PROHIBITION",
+  "evaluation_time": "AT_DECISION",
+  "applies_to": [
+    "fin.cap.transfer_funds"
+  ],
+  "condition": "true",
+  "effect": "REJECT",
+  "reason_code": "PROHIBITED_CAPABILITY"
+}

@@ -1,0 +1,73 @@
+{
+  "capability_id": "fin.cap.create_escalation_case",
+  "business_meaning": "SYNTHETIC test capability fin.cap.create_escalation_case",
+  "input_schema": "schemas/fin/create_escalation_case.v1.json",
+  "preconditions": [
+    "subject_resource.status == RESOLVED"
+  ],
+  "authority": {
+    "principal_must_own": [
+      "subject_resource"
+    ],
+    "roles_allowed": [
+      "customer",
+      "ops_agent"
+    ]
+  },
+  "policy_templates": [
+    "fin.pol.case.dedupe"
+  ],
+  "risk_class": "R2_non_monetary_write",
+  "side_effect_class": "CREATES_RECORD",
+  "blast_radius": "one record for one principal",
+  "idempotency": {
+    "key_fields": [
+      "tenant_id",
+      "principal_id",
+      "logical_action"
+    ],
+    "lookup": "case_system.find_by_idempotency_key"
+  },
+  "retry_safety": "BEST_EFFORT",
+  "concurrency_control": "CONDITIONAL_WRITE",
+  "revalidation_reads": [
+    "subject_resource.status"
+  ],
+  "consequence_profile": {
+    "financial": "NONE",
+    "customer": "LOW",
+    "regulatory": "LOW",
+    "access": "NONE",
+    "operational": "LOW",
+    "irreversibility": "COMPENSABLE"
+  },
+  "expected_outcome": "fin.outcome.exception.case_opened",
+  "verification": {
+    "method": "independent_read",
+    "source": "fin.src.case_system"
+  },
+  "retry": {
+    "reads": "bounded_backoff",
+    "writes": "only_under_new_grant_after_verification"
+  },
+  "recovery": [
+    "VERIFY_BY_IDEMPOTENCY_KEY",
+    "ESCALATE"
+  ],
+  "compensation": "none_required",
+  "audit": [
+    "DECISION_MADE",
+    "GRANT_SPENT",
+    "RECEIPT",
+    "VERDICT"
+  ],
+  "limits": {
+    "rate_per_principal_per_hour": 5,
+    "timeout_ms": 3000,
+    "circuit_breaker": {
+      "error_rate": 0.5,
+      "window_s": 60
+    }
+  },
+  "prohibited": false
+}

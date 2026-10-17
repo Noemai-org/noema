@@ -1,0 +1,6 @@
+{
+  "Hash__no_prefix.json": "pattern",
+  "Hash__uppercase_hex.json": "pattern",
+  "Id__unknown_shape.json": "pattern",
+  "Timestamp__offset_not_z.json": "pattern"
+}

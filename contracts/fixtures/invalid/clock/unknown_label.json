@@ -1,0 +1,6 @@
+{
+  "clock_id": "fin.clock.ng.nip_dispute_72h",
+  "anchor_event": "complaint_logged",
+  "duration_seconds": 259200,
+  "label": "REAL"
+}

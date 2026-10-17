@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/trust-profile.v1.json",
+  "title": "Trust profile",
+  "description": "SoT §15.3 Trust profile, field for field.",
+  "type": "object",
+  "properties": {
+    "profile_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "risk_class": {
+      "description": "No canonical ladder is defined (state-registry §10, OD-P-09): R<n>_<name> as in SoT §15.3, or PROHIBITED.",
+      "type": "string",
+      "pattern": "^(R[0-9]_[a-z_]+|PROHIBITED)$"
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "principal_must_own": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "uniqueItems": true
+        },
+        "roles_allowed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "principal_must_own",
+        "roles_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "policy_templates": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "clocks": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "approvals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "prohibited_capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "evidence_required": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "max_evidence_age_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "data_sensitivity": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "profile_id",
+    "risk_class",
+    "authority",
+    "policy_templates",
+    "clocks",
+    "approvals",
+    "prohibited_capabilities",
+    "evidence_required",
+    "max_evidence_age_seconds",
+    "data_sensitivity"
+  ],
+  "additionalProperties": false
+}

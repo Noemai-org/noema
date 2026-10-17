@@ -27,4 +27,6 @@ bench-smoke:
 	@echo "not yet: PLT-04"; exit 1
 
 contracts-validate:
-	@echo "not yet: CON-01"; exit 1
+	python3 -m venv .venv-contracts
+	.venv-contracts/bin/pip install -q --require-hashes -r tools/contracts/requirements.lock
+	.venv-contracts/bin/python tools/contracts/validate.py

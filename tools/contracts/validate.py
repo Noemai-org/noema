@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Contracts validator (CON-01; SoT §43, DEC-2026-10-16 money-and-value-lists M4 and §2.4).
+
+  validate.py                       check every schema, every fixture and the inventory
+  validate.py --pack FILE           validate one pack file against pack.v1.json and list every error
+  validate.py --instance NAME FILE  validate one document against contracts/schemas/NAME.v1.json
+
+What the default run checks:
+  1. every schema is valid JSON Schema 2020-12, its $id matches its file name, every $ref resolves,
+     and every object type states additionalProperties;
+  2. money fields are integers with the M3 bounds, never `number` (M4);
+  3. every document in fixtures/valid/<schema>/ is accepted and every one in fixtures/invalid/<schema>/
+     is rejected, for the reason named in that folder's expectations.json;
+  4. every schema has a row in contracts/INVENTORY.md and every row names an existing schema;
+  5. further checks registered in CHECKS (the enum drift check arrives with C-2).
+
+Documents are read strictly. NaN, Infinity and duplicate object keys are decoder errors. A number written
+with a decimal point or an exponent (2000000.0, 2e6) is kept as a float and is never an `integer`, because
+JSON Schema alone would accept 2.0 as one (M4). Ratios such as 0.35 stay valid where the schema says `number`.
+"""
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+from jsonschema import Draft202012Validator
+from jsonschema.validators import extend
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT202012
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+CONTRACTS = ROOT / "contracts"
+SCHEMAS = CONTRACTS / "schemas"
+FIXTURES = CONTRACTS / "fixtures"
+INVENTORY = CONTRACTS / "INVENTORY.md"
+ID_BASE = "https://contracts.noema.invalid/"
+MAX_MINOR = 9007199254740991
+MONEY_NAME = re.compile(r"^(amount.*|.*_minor)$")
+
+
+class StrictJsonError(ValueError):
+    pass
+
+
+DecoderErrors = (ValueError,)  # StrictJsonError and json.JSONDecodeError are both ValueErrors
+
+
+class WireFloat(float):
+    """A number written with a decimal point or an exponent. Never an `integer`, even when it is whole."""
+
+
+def _is_integer(checker, instance):
+    return not isinstance(instance, (bool, WireFloat)) and isinstance(instance, int)
+
+
+StrictValidator = extend(Draft202012Validator, type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_integer))
+
+
+def _no_constant(text: str):
+    raise StrictJsonError(f"{text} is not valid JSON")
+
+
+def _no_duplicates(pairs):
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise StrictJsonError(f"duplicate object key {key!r}")
+        seen[key] = value
+    return seen
+
+
+def load_strict(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"), parse_float=WireFloat, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
+
+
+def load_schemas() -> dict[str, dict]:
+    return {p.name: load_strict(p) for p in sorted(SCHEMAS.glob("*.v1.json"))}
+
+
+def make_registry(schemas: dict[str, dict]) -> Registry:
+    registry = Registry()
+    for schema in schemas.values():
+        registry = registry.with_resource(schema["$id"], Resource.from_contents(schema, default_specification=DRAFT202012))
+    return registry
+
+
+def validator_for(name: str, schemas: dict[str, dict], registry: Registry, definition: str | None = None) -> Draft202012Validator:
+    """Validator for a schema, or for one of its $defs (a fixture named <Def>__<case>.json targets that definition)."""
+    schema = schemas[f"{name}.v1.json"]
+    if definition:
+        return StrictValidator({"$ref": f"{schema['$id']}#/$defs/{definition}"}, registry=registry)
+    return StrictValidator(schema, registry=registry)
+
+
+def target(name: str, path: Path, schemas: dict[str, dict], registry: Registry) -> Draft202012Validator:
+    definition = path.stem.split("__", 1)[0] if "__" in path.stem else None
+    return validator_for(name, schemas, registry, definition)
+
+
+def walk(node, path=""):
+    yield path, node
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from walk(value, f"{path}/{key}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from walk(value, f"{path}/{index}")
+
+
+def check_schemas(schemas: dict[str, dict], registry: Registry) -> list[str]:
+    problems = []
+    ids = set()
+    for filename, schema in schemas.items():
+        try:
+            Draft202012Validator.check_schema(schema)
+        except Exception as exc:  # noqa: BLE001 - report whatever the metaschema says
+            problems.append(f"{filename}: not a valid 2020-12 schema: {exc}")
+            continue
+        if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+            problems.append(f"{filename}: $schema must be 2020-12")
+        if schema.get("$id") != ID_BASE + filename:
+            problems.append(f"{filename}: $id {schema.get('$id')!r} does not match the file name")
+        if schema.get("$id") in ids:
+            problems.append(f"{filename}: duplicate $id")
+        ids.add(schema.get("$id"))
+        for where, node in walk(schema):
+            if not isinstance(node, dict):
+                continue
+            if "$ref" in node and isinstance(node["$ref"], str):
+                try:
+                    registry.resolver(base_uri=schema["$id"]).lookup(node["$ref"])
+                except Exception as exc:  # noqa: BLE001
+                    problems.append(f"{filename}{where}: $ref {node['$ref']} does not resolve ({type(exc).__name__})")
+            if node.get("type") == "object" and "properties" in node and "additionalProperties" not in node:
+                problems.append(f"{filename}{where}: object type without additionalProperties")
+            for prop, sub in (node.get("properties") or {}).items():
+                if MONEY_NAME.match(prop) and isinstance(sub, dict):
+                    if sub.get("type") != "integer" and "$ref" not in sub:
+                        problems.append(f"{filename}{where}/properties/{prop}: money field must be an integer (M4), found {sub.get('type')!r}")
+                    if sub.get("type") == "integer" and (sub.get("minimum") != 0 or sub.get("maximum") != MAX_MINOR):
+                        problems.append(f"{filename}{where}/properties/{prop}: money field must be bounded 0..{MAX_MINOR} (M3)")
+    return problems
+
+
+def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
+    problems = []
+    names = {f.removesuffix(".v1.json") for f in schemas}
+    for kind in ("valid", "invalid"):
+        base = FIXTURES / kind
+        for folder in sorted(p for p in base.iterdir() if p.is_dir()) if base.exists() else []:
+            if folder.name not in names:
+                problems.append(f"fixtures/{kind}/{folder.name}: no schema of that name")
+    for name in sorted(names):
+        valid_dir, invalid_dir = FIXTURES / "valid" / name, FIXTURES / "invalid" / name
+        valid_files = sorted(valid_dir.glob("*.json")) if valid_dir.exists() else []
+        invalid_files = sorted(f for f in invalid_dir.glob("*.json") if f.name != "expectations.json") if invalid_dir.exists() else []
+        if not valid_files:
+            problems.append(f"{name}: no valid fixture")
+        if not invalid_files:
+            problems.append(f"{name}: no invalid fixture")
+        for path in valid_files:
+            try:
+                errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+            except ValueError as exc:
+                problems.append(f"valid/{name}/{path.name}: decoder rejected a document that must be accepted: {exc}")
+                continue
+            for error in errors[:3]:
+                problems.append(f"valid/{name}/{path.name}: rejected at {'/'.join(map(str, error.absolute_path)) or '(root)'}: {error.message[:120]}")
+        expectations_path = invalid_dir / "expectations.json"
+        expectations = load_strict(expectations_path) if expectations_path.exists() else {}
+        for path in invalid_files:
+            expected = expectations.get(path.name)
+            if expected is None:
+                problems.append(f"invalid/{name}/{path.name}: no entry in expectations.json")
+                continue
+            try:
+                errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                reasons = {e.validator for e in errors} | {e.message for e in errors}
+                hit = any(expected == r or expected in r for r in reasons)
+                where = "schema"
+            except ValueError as exc:
+                hit, where = expected == "decoder", "decoder"
+                errors = [exc]
+            if not errors:
+                problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected")
+            elif not hit:
+                problems.append(f"invalid/{name}/{path.name}: rejected by the {where}, but not for the expected reason {expected!r}")
+        for stale in sorted(set(expectations) - {f.name for f in invalid_files}):
+            problems.append(f"invalid/{name}/expectations.json: names {stale}, which does not exist")
+    return problems
+
+
+def check_inventory(schemas: dict[str, dict]) -> list[str]:
+    if not INVENTORY.exists():
+        return ["contracts/INVENTORY.md is missing"]
+    rows = set(re.findall(r"^\|\s*`([a-z0-9-]+\.v1\.json)`\s*\|", INVENTORY.read_text(), re.M))
+    problems = [f"INVENTORY.md has no row for {f}" for f in sorted(set(schemas) - rows)]
+    problems += [f"INVENTORY.md names {f}, which does not exist" for f in sorted(rows - set(schemas))]
+    return problems
+
+
+CHECKS = []  # (label, callable(schemas, registry) -> list[str]); C-2 registers the drift check
+
+
+def run_all() -> int:
+    schemas = load_schemas()
+    registry = make_registry(schemas)
+    steps = [("schemas", lambda: check_schemas(schemas, registry)), ("fixtures", lambda: check_fixtures(schemas, registry)),
+             ("inventory", lambda: check_inventory(schemas))] + [(label, lambda f=fn: f(schemas, registry)) for label, fn in CHECKS]
+    failed = 0
+    for label, step in steps:
+        problems = step()
+        print(f"[{'FAIL' if problems else 'PASS'}] {label}")
+        for problem in problems:
+            print("    " + problem)
+        failed += bool(problems)
+    print(f"{len(schemas)} schemas")
+    return 1 if failed else 0
+
+
+def run_instance(name: str, file: Path) -> int:
+    schemas = load_schemas()
+    validator = validator_for(name, schemas, make_registry(schemas))
+    try:
+        document = load_strict(file)
+    except (StrictJsonError, ValueError) as exc:
+        print(f"decoder FAIL: {exc}")
+        return 1
+    errors = sorted(validator.iter_errors(document), key=lambda e: list(map(str, e.absolute_path)))
+    for error in errors:
+        print(f"{'/'.join(map(str, error.absolute_path)) or '(root)'}: [{error.validator}] {error.message[:200]}")
+    print(f"{file}: {len(errors)} error(s)")
+    return 1 if errors else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pack", type=Path)
+    parser.add_argument("--instance", nargs=2, metavar=("NAME", "FILE"))
+    args = parser.parse_args()
+    if args.pack:
+        return run_instance("pack", args.pack)
+    if args.instance:
+        return run_instance(args.instance[0], Path(args.instance[1]))
+    return run_all()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

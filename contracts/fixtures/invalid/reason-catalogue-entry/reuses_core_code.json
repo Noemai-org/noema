@@ -1,0 +1,5 @@
+{
+  "code": "PROHIBITED_CAPABILITY",
+  "meaning": "An open case already exists for this transaction",
+  "produced_by": "POLICY_RULE"
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/reason-catalogue-entry.v1.json",
+  "title": "Pack reason catalogue entry",
+  "description": "One pack reason code (DEC-2026-10-16 money-and-value-lists §2.3). The code is <vertical>.reason.<name>, so it can never equal an upper-case core code. packcheck also rejects a code outside the pack's own namespace.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*$"
+    },
+    "meaning": {
+      "type": "string",
+      "minLength": 1
+    },
+    "produced_by": {
+      "description": "Where the code is produced: a policy rule (T11) or the pack mappings for T10 or T12.",
+      "type": "string",
+      "enum": [
+        "POLICY_RULE",
+        "STATE_MAPPING",
+        "CLOCK_MAPPING"
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "meaning",
+    "produced_by"
+  ],
+  "additionalProperties": false
+}

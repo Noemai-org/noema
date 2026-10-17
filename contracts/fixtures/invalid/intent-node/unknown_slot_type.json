@@ -1,0 +1,67 @@
+{
+  "node_id": "fin.payments.exception.investigate",
+  "pack": "fin",
+  "pack_version": "1.0.0",
+  "parent": "fin.payments.exception",
+  "display_name": "Investigate a payment that did not arrive",
+  "slots": [
+    {
+      "name": "subject_resource",
+      "type": "Resource",
+      "resource_kind": "fin.transaction",
+      "required": true,
+      "resolution": "candidate_search"
+    },
+    {
+      "name": "amount",
+      "type": "Money",
+      "required": false
+    },
+    {
+      "name": "counterparty",
+      "type": "Party",
+      "required": false
+    },
+    {
+      "name": "when",
+      "type": "TimeRef",
+      "required": false
+    },
+    {
+      "name": "question_type",
+      "type": "Reference",
+      "required": true,
+      "vocabulary": [
+        "STATUS",
+        "WHY",
+        "RESEND_ADVICE",
+        "REVERSAL_STATUS",
+        "ESCALATION_REQUEST",
+        "CASE_STATUS",
+        "RECONSTRUCT"
+      ]
+    },
+    {
+      "name": "requested_remedy",
+      "type": "Reference",
+      "required": false,
+      "references": "capability"
+    }
+  ],
+  "disambiguation": {
+    "strategy": "ranked_candidates",
+    "auto_resolve_margin": 0.35,
+    "max_candidates_before_escalate": 4
+  },
+  "lexicon_refs": [
+    "fin.lex.en_ng"
+  ],
+  "trust_profile": "fin.trust.exception.read_and_case",
+  "outcome_definitions": [
+    "fin.outcome.exception.status_explained",
+    "fin.outcome.exception.case_opened"
+  ],
+  "examples": [
+    "SYNTHETIC: where is the 20k I sent this morning?"
+  ]
+}

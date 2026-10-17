@@ -1,0 +1,5 @@
+{
+  "code": "fin.reason.no_duplicate_case",
+  "meaning": "An open case already exists for this transaction",
+  "produced_by": "POLICY_RULE"
+}

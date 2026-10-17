@@ -1,0 +1,5 @@
+{
+  "missing_predicate.json": "required",
+  "no_terminal_states.json": "minItems",
+  "no_verification_source.json": "minItems"
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/enums.v1.json",
+  "title": "Core value lists",
+  "description": "Closed value lists of /contracts v1. Each list is a distinct named type (OD-P-10). docs/engineering/state-registry.md is the single normative home; tools/contracts/validate.py fails when this file and the registry differ (DEC-2026-10-16 money-and-value-lists §2.4).",
+  "$defs": {
+    "RetrySafety": {
+      "description": "SoT §43.8. NONE is never retried automatically (INV-24).",
+      "type": "string",
+      "enum": [
+        "NATIVE_IDEMPOTENT",
+        "QUERYABLE_BY_KEY",
+        "NONE"
+      ]
+    },
+    "ConcurrencyControl": {
+      "description": "SoT §43.8. With CONDITIONAL_WRITE every write passes the grant's version tokens (INV-27).",
+      "type": "string",
+      "enum": [
+        "CONDITIONAL_WRITE",
+        "NONE"
+      ]
+    },
+    "ConsequenceLevel": {
+      "description": "SoT §43.8, for financial, customer, regulatory, access and operational.",
+      "type": "string",
+      "enum": [
+        "NONE",
+        "LOW",
+        "HIGH"
+      ]
+    },
+    "Irreversibility": {
+      "description": "SoT §43.8.",
+      "type": "string",
+      "enum": [
+        "REVERSIBLE",
+        "COMPENSABLE",
+        "IRREVERSIBLE"
+      ]
+    },
+    "EvaluationTime": {
+      "description": "SoT §15.3. AT_DECISION is the default. The policy author sets it; Trust never infers it.",
+      "type": "string",
+      "enum": [
+        "AT_DECISION",
+        "AT_ADMISSION"
+      ]
+    }
+  }
+}

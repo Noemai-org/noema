@@ -1,0 +1,280 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/capability-descriptor.v1.json",
+  "title": "Capability descriptor",
+  "description": "SoT §43.8, field for field. A prohibited capability is registered with prohibited=true, rejects at Trust T4 and has no adapter (REQ-CAP-002). The cross-field rules of REQ-CAP-001 (risk against consequence, financial writes need CONDITIONAL_WRITE) are checked by packcheck.",
+  "type": "object",
+  "properties": {
+    "capability_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "business_meaning": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_schema": {
+      "description": "Pack-relative path of the parameter schema.",
+      "type": "string",
+      "minLength": 1
+    },
+    "preconditions": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+      }
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "principal_must_own": {
+          "type": "array",
+          "items": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "uniqueItems": true
+        },
+        "roles_allowed": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "principal_must_own",
+        "roles_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "policy_templates": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    },
+    "risk_class": {
+      "type": "string",
+      "pattern": "^(R[0-9]_[a-z_]+|PROHIBITED)$"
+    },
+    "side_effect_class": {
+      "description": "Example values in the SoT: CREATES_RECORD. No value set is defined, so the shape is constrained, not enumerated.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "blast_radius": {
+      "type": "string",
+      "minLength": 1
+    },
+    "idempotency": {
+      "type": "object",
+      "properties": {
+        "key_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "lookup": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "key_fields",
+        "lookup"
+      ],
+      "additionalProperties": false
+    },
+    "retry_safety": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/RetrySafety"
+    },
+    "concurrency_control": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConcurrencyControl"
+    },
+    "revalidation_reads": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "consequence_profile": {
+      "type": "object",
+      "properties": {
+        "financial": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConsequenceLevel"
+        },
+        "customer": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConsequenceLevel"
+        },
+        "regulatory": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConsequenceLevel"
+        },
+        "access": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConsequenceLevel"
+        },
+        "operational": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConsequenceLevel"
+        },
+        "irreversibility": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Irreversibility"
+        }
+      },
+      "required": [
+        "financial",
+        "customer",
+        "regulatory",
+        "access",
+        "operational",
+        "irreversibility"
+      ],
+      "additionalProperties": false,
+      "description": "Complete or the capability cannot be registered (AGENT-06)."
+    },
+    "expected_outcome": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+        }
+      },
+      "required": [
+        "method",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "retry": {
+      "type": "object",
+      "properties": {
+        "reads": {
+          "type": "string",
+          "minLength": 1
+        },
+        "writes": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "reads",
+        "writes"
+      ],
+      "additionalProperties": false
+    },
+    "recovery": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "compensation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "audit": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "rate_per_principal_per_hour": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "circuit_breaker": {
+          "type": "object",
+          "properties": {
+            "error_rate": {
+              "description": "A ratio in (0, 1]. Not money.",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "window_s": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "error_rate",
+            "window_s"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "rate_per_principal_per_hour",
+        "timeout_ms",
+        "circuit_breaker"
+      ],
+      "additionalProperties": false
+    },
+    "prohibited": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "capability_id",
+    "business_meaning",
+    "risk_class",
+    "prohibited"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "prohibited": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "description": "A prohibited capability declares nothing executable: no retry, concurrency, idempotency or verification."
+  },
+  "else": {
+    "required": [
+      "input_schema",
+      "preconditions",
+      "authority",
+      "policy_templates",
+      "side_effect_class",
+      "blast_radius",
+      "idempotency",
+      "retry_safety",
+      "concurrency_control",
+      "revalidation_reads",
+      "consequence_profile",
+      "expected_outcome",
+      "verification",
+      "retry",
+      "recovery",
+      "compensation",
+      "audit",
+      "limits"
+    ]
+  }
+}

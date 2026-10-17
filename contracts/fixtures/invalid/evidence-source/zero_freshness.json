@@ -1,0 +1,13 @@
+{
+  "source_id": "fin.src.core_ledger",
+  "display_name": "Core ledger",
+  "freshness_sla_seconds": 0,
+  "authoritative_for": [
+    "debit_posted"
+  ],
+  "corroborating_for": [],
+  "never_authoritative_for": [
+    "switch_result"
+  ],
+  "sensitivity": "S3_financial_pii"
+}

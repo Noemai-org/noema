@@ -1,0 +1,7 @@
+{
+  "consequence_level_medium.json": "enum",
+  "incomplete_consequence_profile.json": "required",
+  "unknown_field.json": "additionalProperties",
+  "unknown_retry_safety.json": "enum",
+  "write_without_retry_safety.json": "required"
+}
