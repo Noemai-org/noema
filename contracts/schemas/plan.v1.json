@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/plan.v1.json",
+  "title": "Plan",
+  "description": "PERD REQ-PLN-001 and SoT §43.9: an ordered list of steps chosen by the deterministic Planner from registered, non-prohibited capabilities. plan_hash = SHA-256(JCS(plan)), so this object holds no ID, timestamp, tenant or correlation field: identical planner inputs must give an identical hash (REQ-PLN-002). The stored plan row carries a pln_ ID outside this object. Params hold typed values only: strings, integers, booleans and null, never a float. That a capability is registered and not prohibited is checked by the Planner and by hash construction, which refuses an unregistered ID.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "graph_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+    },
+    "intent_node": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "node_id": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "capability_id": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "params": {
+            "type": "object",
+            "propertyNames": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+            },
+            "additionalProperties": {
+              "type": [
+                "string",
+                "integer",
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+            }
+          },
+          "expected_postconditions": {
+            "type": "array",
+            "items": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+            }
+          }
+        },
+        "required": [
+          "step",
+          "node_id",
+          "capability_id",
+          "params",
+          "preconditions",
+          "expected_postconditions"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "graph_version",
+    "intent_node",
+    "steps"
+  ],
+  "additionalProperties": false
+}

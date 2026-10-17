@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "verdict_id": "ver_9P0",
+  "receipt_id": "rcp_2M1",
+  "outcome_definition": "fin.outcome.exception.case_opened",
+  "evidence_reads": [],
+  "predicate_result": null,
+  "verdict": "UNKNOWN",
+  "verified_at": "2026-10-01T09:48:35Z",
+  "explanation_ref": "exp_4T",
+  "sig": {
+    "key_id": "outcome-2026-10",
+    "value": "c2ln"
+  }
+}

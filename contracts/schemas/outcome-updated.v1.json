@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/outcome-updated.v1.json",
+  "title": "outcome.updated event",
+  "description": "SoT §43.4a and PERD REQ-VER-005: the one callback per tenant. Delivery is at least once; event_id is the stable deduplication key. The summary is masked, built by template from verified facts only. Exactly the fields of the PERD table plus schema_version; tenant is implied by the endpoint the callback is registered on, so there is no tenant_id.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "event_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/OutcomeEventId"
+    },
+    "event_type": {
+      "const": "outcome.updated"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "intent_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/IntentId"
+    },
+    "verdict_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/VerdictId"
+    },
+    "verdict": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+    },
+    "occurred_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "correlation_id",
+    "intent_id",
+    "verdict_id",
+    "verdict",
+    "summary",
+    "occurred_at",
+    "sig"
+  ],
+  "additionalProperties": false
+}

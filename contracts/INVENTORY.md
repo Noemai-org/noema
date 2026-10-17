@@ -62,4 +62,12 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 
 ## C-5 · Plan, Receipt, Verdict, recovery
 
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `plan.v1.json` | §43.9 | §26 (REQ-PLN-001, REQ-PLN-002) | REQ-PLN-001, REQ-PLN-002 | The hashed object: no ID, time, tenant or correlation field, so identical inputs give an identical `plan_hash`; params are strings, integers, booleans or null |
+| `execution-receipt.v1.json` | §43.3 | §27 | REQ-EXE-002, REQ-EXE-005, REQ-EXE-006 | Never `SUCCEEDED`; `idk_v1_` plus 64 hex |
+| `outcome-verdict.v1.json` | §43.4 | §29 | REQ-VER-001, REQ-VER-003, REQ-VER-004 | `ACHIEVED` needs a true predicate and at least one read; a watch exists exactly on `PENDING_EXTERNAL` |
+| `outcome-updated.v1.json` | §43.4a | §29 (REQ-VER-005) | REQ-VER-005, REQ-API-006 | The PERD table plus `schema_version`; summary masked |
+| `recovery-request.v1.json` | §43.4 | §29 (REQ-VER-003) | REQ-VER-003, REQ-RCV-001 | Addressed to Trust only |
+
 ## C-6 · Evidence, snapshot, Record, explanation facts, inbound events, errors

@@ -1,0 +1,7 @@
+{
+  "addressed_to_execution.json": "additionalProperties",
+  "evidence_ref_is_snapshot.json": "pattern",
+  "missing_verdict.json": "required",
+  "negative_attempts.json": "minimum",
+  "reason_lowercase.json": "pattern"
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "recovery_request_id": "rrq_01J9XB",
+  "verdict_id": "ver_9P0",
+  "reason": "POSTCONDITION_UNVERIFIED",
+  "evidence_refs": [],
+  "attempt_count": 0,
+  "created_at": "2026-10-01T09:48:35Z"
+}
