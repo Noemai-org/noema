@@ -1,0 +1,41 @@
+# Core CI (PLT-01). Builds and tests services/core only. Environment: core-ci (DEC-2026-10-13 R3).
+# The workflow always triggers so the required check "core" always reports; the path filter runs inside the job.
+name: core
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    environment: core-ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|\.github/workflows/core\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
+      - if: steps.changed.outputs.run == 'true'
+        working-directory: services/core
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+          go build ./...
+      - if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-core:ci services/core
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "no services/core change; nothing to build"
