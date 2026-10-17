@@ -7,10 +7,13 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -19,6 +22,7 @@ const (
 	defaultAddr     = ":8080"
 	shutdownTimeout = 10 * time.Second
 	headerTimeout   = 5 * time.Second
+	probeTimeout    = 2 * time.Second
 )
 
 // readiness reports whether every dependency the core needs is available. The skeleton has no
@@ -51,11 +55,38 @@ func newMux(check readiness) *http.ServeMux {
 	return mux
 }
 
+// probeHealth asks a running core for /healthz. The image has no shell or curl, so the container
+// health check runs the binary itself with -healthcheck.
+func probeHealth(addr string) error {
+	host := addr
+	if strings.HasPrefix(host, ":") {
+		host = "127.0.0.1" + host
+	}
+	client := &http.Client{Timeout: probeTimeout}
+	resp, err := client.Get("http://" + host + "/healthz")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthz returned %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func main() {
+	healthcheck := flag.Bool("healthcheck", false, "probe /healthz of a running core and exit")
+	flag.Parse()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	addr := os.Getenv("NOEMA_CORE_ADDR")
 	if addr == "" {
 		addr = defaultAddr
+	}
+	if *healthcheck {
+		if err := probeHealth(addr); err != nil {
+			os.Exit(1)
+		}
+		return
 	}
 	srv := &http.Server{Addr: addr, Handler: newMux(notReady), ReadHeaderTimeout: headerTimeout}
 
