@@ -166,7 +166,7 @@
     "RecordEventId": {
       "type": "string",
       "pattern": "^recev_[0-9A-Za-z]{2,32}$",
-      "description": "Record event ID. PERD §32.3 uses recev; the SoT §43.6 example shows rec_1001, which collides with the reconciliation prefix."
+      "description": "Record event ID. PERD §32.3 uses recev (rec is the state-reconciliation prefix); the SoT §43.6 example was corrected to recev_1001 in SoT v1.9 (DEC-2026-10-18)."
     },
     "MemoryId": {
       "type": "string",

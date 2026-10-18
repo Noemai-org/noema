@@ -1,7 +1,11 @@
 {
   "addressed_to_execution.json": "additionalProperties",
+  "both_verdict_and_grant.json": "oneOf",
   "evidence_ref_is_snapshot.json": "pattern",
-  "missing_verdict.json": "required",
+  "grant_id_wrong_prefix.json": "pattern",
+  "grant_trigger_with_verdict_id.json": "oneOf",
   "negative_attempts.json": "minimum",
-  "reason_lowercase.json": "pattern"
+  "neither_verdict_nor_grant.json": "oneOf",
+  "reason_lowercase.json": "pattern",
+  "verdict_id_wrong_prefix.json": "pattern"
 }

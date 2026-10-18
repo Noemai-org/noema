@@ -21,7 +21,7 @@
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/GrantId"
     },
     "idempotency_key": {
-      "description": "idk_v1_ plus 64 lower-case hex (PERD §27.2). The SoT §43.3 example shows idk_v1_sha256:..., which the PERD, as adopted, replaces.",
+      "description": "idk_v1_ plus 64 lower-case hex (PERD §27.2). This is the form computed by contracts/fixtures/golden_vectors.json (checked by tools/contracts/test_gap_closure.py); SoT v1.9 shows the same form.",
       "type": "string",
       "pattern": "^idk_v1_[0-9a-f]{64}$"
     },

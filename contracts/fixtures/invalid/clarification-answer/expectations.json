@@ -1,0 +1,13 @@
+{
+  "answers_empty.json": "minProperties",
+  "clarification_id_missing.json": "required",
+  "extra_slot_beside_requested.json": "unknown_slot",
+  "free_field.json": "additionalProperties",
+  "principal_in_body.json": "additionalProperties",
+  "quantity_float_value.json": "oneOf",
+  "resolved_slot_without_ref.json": "oneOf",
+  "slot_name_upper_case.json": "pattern",
+  "unknown_slot_name.json": "unknown_slot",
+  "value_not_a_slot.json": "oneOf",
+  "value_of_unknown_slot_type.json": "oneOf"
+}

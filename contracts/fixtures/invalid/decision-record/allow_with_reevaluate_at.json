@@ -10,7 +10,7 @@
   "authority": {
     "technical": "PASS",
     "policy": "PASS",
-    "business": "NOT_EVALUATED"
+    "business": "PASS"
   },
   "evidence_snapshot_id": "evs_51A",
   "policy_version": "fin.pol@3.2",

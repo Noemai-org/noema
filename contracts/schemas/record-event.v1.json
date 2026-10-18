@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/record-event.v1.json",
   "title": "Record event",
-  "description": "SoT §43.6 and PERD §32.2. The Record is append-only and hash-chained per tenant (INV-11). Each power appends events about its own objects and cannot modify or delete. The first event of a tenant's chain has prev_hash of 64 zeros. The event_type list is the PERD §32.2 table plus seven types its requirements use but the table omits (marked in the description of RecordEventType). Hash correctness is checked by the chain verification job, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
+  "description": "SoT §43.6 and PERD §32.2. The Record is append-only and hash-chained per tenant (INV-11). Each power appends events about its own objects and cannot modify or delete. The first event of a tenant's chain has prev_hash of 64 zeros. The event_type list is the PERD §32.2 table (v1.9), described on RecordEventType. Hash correctness is checked by the chain verification job, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
   "$defs": {
     "RecordEventType": {
-      "description": "PERD §32.2 (53 types), then 7 used by PERD requirements but missing from that table: AUDIO_RETAINED, CONFIG_CHANGED, INBOUND_EVENT_RECEIVED, INTENT_SUPERSEDED, RECORD_ACCESSED, RESOLUTION_POSTED, STATE_CHANGED. [REC] until the table is completed.",
+      "description": "PERD §32.2 (53 types) plus four types that PERD requirements already use and that DEC-2026-10-18 adds to the table (PERD v1.9, Noemai-org/docs#14): AUDIO_RETAINED (REQ-VOI-004), INBOUND_EVENT_RECEIVED (REQ-API-008), RESOLUTION_POSTED (REQ-API-007), CONFIG_CHANGED (REQ-OPS-003). Not Record events, so not in this list: INTENT_SUPERSEDED (REQ-INT-004) and STATE_CHANGED (REQ-RES-004) are reasons carried by GRANT_VOIDED, and RECORD_ACCESSED (REQ-AUD-003) is written to the access log, not the chain.",
       "type": "string",
       "enum": [
         "INPUT_RECEIVED",
@@ -64,10 +64,7 @@
         "AUDIO_RETAINED",
         "CONFIG_CHANGED",
         "INBOUND_EVENT_RECEIVED",
-        "INTENT_SUPERSEDED",
-        "RECORD_ACCESSED",
-        "RESOLUTION_POSTED",
-        "STATE_CHANGED"
+        "RESOLUTION_POSTED"
       ]
     },
     "SecurityKind": {

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/clarification-answer.v1.json",
+  "title": "Clarification answer",
+  "description": "DEC-2026-10-18, derived from the clarification it answers (clarification.v1.json): the base fields every object carries plus clarification_id, and 'answers', a map from each slot name the clarification requested to a value that validates against that slot's type in the Intent Object schema (intent-slot.v1.json). Unknown slot names are rejected: this schema checks the shape (a slot name, a typed slot value); that every key is a slot the clarification requested is checked against the clarification itself by tools/contracts/validate.py and by core when it binds the answer (REQ-AMB-005). No other field is defined. Only the authenticated principal may answer (identity comes from the session, never from this object).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "clarification_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClarificationId"
+    },
+    "answers": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+      },
+      "additionalProperties": {
+        "$ref": "https://contracts.noema.invalid/intent-slot.v1.json#/$defs/Slot"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "clarification_id",
+    "answers"
+  ],
+  "additionalProperties": false
+}

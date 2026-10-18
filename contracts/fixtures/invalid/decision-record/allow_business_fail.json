@@ -9,8 +9,8 @@
   "reason_codes": [],
   "authority": {
     "technical": "PASS",
-    "policy": "FAIL",
-    "business": "NOT_EVALUATED"
+    "policy": "PASS",
+    "business": "FAIL"
   },
   "evidence_snapshot_id": "evs_51A",
   "policy_version": "fin.pol@3.2",
