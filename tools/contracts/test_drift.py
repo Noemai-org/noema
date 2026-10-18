@@ -21,6 +21,19 @@ class DriftGuard(unittest.TestCase):
         self.assertEqual(drift.check_lists(ENUMS, REGISTRY), [])
         self.assertEqual(drift.check_money(SCHEMAS, REGISTRY), [])
 
+    def test_record_event_types_equal_perd_32_2(self):
+        self.assertEqual(drift.check_record_event_types(SCHEMAS), [])
+
+    def test_record_event_type_added_to_the_schema(self):
+        changed = copy.deepcopy(SCHEMAS)
+        changed["record-event.v1.json"]["$defs"]["RecordEventType"]["enum"].append("RECORD_ACCESSED")
+        self.assertTrue(any("RECORD_ACCESSED" in p for p in drift.check_record_event_types(changed)))
+
+    def test_record_event_type_removed_from_the_schema(self):
+        changed = copy.deepcopy(SCHEMAS)
+        changed["record-event.v1.json"]["$defs"]["RecordEventType"]["enum"].remove("CONFIG_CHANGED")
+        self.assertTrue(any("CONFIG_CHANGED" in p for p in drift.check_record_event_types(changed)))
+
     def test_value_added_to_the_registry(self):
         mutated = REGISTRY.replace("`ALLOW`, `CLARIFY`", "`ALLOW`, `PROCEED`, `CLARIFY`", 1)
         self.assertNotEqual(mutated, REGISTRY)

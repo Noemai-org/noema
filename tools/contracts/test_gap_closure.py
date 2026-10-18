@@ -40,9 +40,11 @@ class IdempotencyKeyForm(unittest.TestCase):
     def test_every_golden_key_validates_in_a_receipt(self):
         gold = json.loads((FIXTURES / "golden_vectors.json").read_text())["idempotency_key_vectors"]
         self.assertGreaterEqual(len(gold), 2)
-        key_schema = SCHEMAS["execution-receipt.v1.json"]["properties"]["idempotency_key"]
+        receipt = json.loads((FIXTURES / "valid" / "execution-receipt" / "acknowledged.json").read_text())
+        validator = validator_for("execution-receipt", SCHEMAS, REGISTRY)
         for vector in gold:
-            self.assertRegex(vector["expected_idempotency_key"], key_schema["pattern"], vector["name"])
+            receipt["idempotency_key"] = vector["expected_idempotency_key"]
+            self.assertEqual([e.message for e in validator.iter_errors(receipt)], [], vector["name"])
 
     def test_the_old_sot_form_is_rejected(self):
         pattern = SCHEMAS["execution-receipt.v1.json"]["properties"]["idempotency_key"]["pattern"]
@@ -65,6 +67,14 @@ class ClarificationAnswerPairRule(unittest.TestCase):
             self.assertEqual(unrequested_slots(tmp / "a.json"), {"amount"})
             self.assertEqual(unrequested_slots(tmp / "b.json"), set())
             self.assertIsNone(unrequested_slots(tmp / "c.json"), "no companion clarification, no verdict")
+
+
+class GrantVoidReason(unittest.TestCase):
+    """INTENT_SUPERSEDED and STATE_CHANGED are GRANT_VOIDED reasons, not event types (DEC-2026-10-18)."""
+
+    def test_reason_values(self):
+        self.assertEqual(set(SCHEMAS["record-event.v1.json"]["$defs"]["GrantVoidReason"]["enum"]),
+                         {"INTENT_SUPERSEDED", "STATE_CHANGED", "POLICY_SUPERSEDED"})
 
 
 class RecordEventPrefix(unittest.TestCase):

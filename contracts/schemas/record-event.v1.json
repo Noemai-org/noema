@@ -79,6 +79,15 @@
         "CHAIN_BREAK"
       ]
     },
+    "GrantVoidReason": {
+      "type": "string",
+      "description": "Why a grant was voided; carried by GRANT_VOIDED only. INTENT_SUPERSEDED (PERD REQ-INT-004), STATE_CHANGED (REQ-RES-004) and POLICY_SUPERSEDED (REQ-TRU-005, US-08) are the values the PERD uses. They are not Record event types.",
+      "enum": [
+        "INTENT_SUPERSEDED",
+        "STATE_CHANGED",
+        "POLICY_SUPERSEDED"
+      ]
+    },
     "RecordEvent": {
       "type": "object",
       "properties": {
@@ -116,6 +125,9 @@
         },
         "at": {
           "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "reason": {
+          "$ref": "#/$defs/GrantVoidReason"
         }
       },
       "required": [
@@ -149,6 +161,27 @@
             "not": {
               "required": [
                 "kind"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "GRANT_VOIDED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "reason"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
               ]
             }
           }
