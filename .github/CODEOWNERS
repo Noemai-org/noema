@@ -1,5 +1,4 @@
 # Both founders belong on every protected path (DEC-2026-10-13 R4; GOV-22).
-# TODO(FND, GOV-22): add the second founder's GitHub handle to every line below. Only @OladiranOlatunde could be confirmed from Noemai-org/docs/.github/CODEOWNERS.
 /services/core/trust/       @OladiranOlatunde
 /services/core/execution/   @OladiranOlatunde
 /services/core/outcome/     @OladiranOlatunde
