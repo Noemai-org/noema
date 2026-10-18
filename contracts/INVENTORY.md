@@ -62,4 +62,25 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 
 ## C-5 · Plan, Receipt, Verdict, recovery
 
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `plan.v1.json` | §43.9 | §26 (REQ-PLN-001, REQ-PLN-002) | REQ-PLN-001, REQ-PLN-002 | The hashed object: no ID, time, tenant or correlation field, so identical inputs give an identical `plan_hash`; params are strings, integers, booleans or null |
+| `execution-receipt.v1.json` | §43.3 | §27 | REQ-EXE-002, REQ-EXE-005, REQ-EXE-006 | Never `SUCCEEDED`; `idk_v1_` plus 64 hex |
+| `outcome-verdict.v1.json` | §43.4 | §29 | REQ-VER-001, REQ-VER-003, REQ-VER-004 | `ACHIEVED` needs a true predicate and at least one read; a watch exists exactly on `PENDING_EXTERNAL` |
+| `outcome-updated.v1.json` | §43.4a | §29 (REQ-VER-005) | REQ-VER-005, REQ-API-006 | The PERD table plus `schema_version`; summary masked |
+| `recovery-request.v1.json` | §43.4 | §29 (REQ-VER-003) | REQ-VER-003, REQ-RCV-001 | Addressed to Trust only |
+
 ## C-6 · Evidence, snapshot, Record, explanation facts, inbound events, errors
+
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `evidence-item.v1.json` | §43.5 | §21.1 | REQ-CTX-001, REQ-CTX-002, REQ-CTX-005 | `read_at` and `effective_at` both required; `FactStatus` has no negative value (INV-19) |
+| `evidence-payload.v1.json` | §43.5 | §38.2 | REQ-CTX-001, REQ-DATA-001 | Normalised JSON plus raw hash; insert-only |
+| `context-snapshot.v1.json` | §14 | §21.3 | REQ-CTX-004 | `evidence_set_hash` per DEC-2026-10-16 C1; the empty set has the hash of zero bytes and no other set may |
+| `record-event.v1.json` | §43.6 | §32.2 | REQ-AUD-001, REQ-AUD-002 | 53 event types of the PERD table plus 7 it omits; `SECURITY_EVENT` needs a `kind` |
+| `explanation-facts.v1.json` | §18.4 | §31.2 | REQ-EXP-001, REQ-EXP-002 | Masked facts only; the model never sees policy, thresholds or raw evidence |
+| `inbound-event.v1.json` | §35.5 | §39.6 | REQ-API-008, REQ-CTX-005 | Smallest envelope the inbox rules need [REC]; payload is data |
+| `noema-resolution.v1.json` | §39 | §39.5 | REQ-API-007 | `verified` true exactly when every listed verdict is `ACHIEVED` and at least one is listed |
+| `errors.v1.json` | — | §39.1 | REQ-API-002 | 34 codes, retryability a property of the code; no stack traces, no digit runs |
+
+Not defined, for want of a field list in the PERD or SoT: the clarification answer (REQ-AMB-005), the explanation render result (`text`, `claims[]`, REQ-EXP-001), the action graph (SoT §43.9), the operational memory record, and the integration (adapter) contract and scenario/evaluation case of SoT §43.10. Each needs a decision before a schema.

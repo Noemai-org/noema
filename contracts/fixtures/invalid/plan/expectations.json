@@ -1,0 +1,10 @@
+{
+  "capability_not_a_pack_id.json": "pattern",
+  "carries_correlation_id.json": "additionalProperties",
+  "float_param.json": "type",
+  "graph_version_not_semver.json": "pattern",
+  "negative_step.json": "minimum",
+  "nested_param_object.json": "type",
+  "no_steps.json": "minItems",
+  "step_without_postconditions.json": "required"
+}

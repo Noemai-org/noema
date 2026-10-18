@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/noema-resolution.v1.json",
+  "title": "noema.resolution",
+  "description": "PERD §39.5: the one typed message the overlay posts to the host page when an interaction finishes. 'verified' is true exactly when at least one verdict is listed and every listed verdict is ACHIEVED. It carries no tool call, no raw evidence payload and nothing replayable as an instruction.",
+  "type": "object",
+  "properties": {
+    "type": {
+      "const": "noema.resolution"
+    },
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "investigation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/InvestigationId"
+    },
+    "disposition": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "verdict": {
+            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict"
+          }
+        },
+        "required": [
+          "outcome",
+          "verdict"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "case_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?![\\s\\S]*[0-9]{9})[\\s\\S]*$"
+    },
+    "owner_queue": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "customer_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+    },
+    "verified": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "type",
+    "schema_version",
+    "correlation_id",
+    "investigation_id",
+    "disposition",
+    "verdicts",
+    "customer_message",
+    "verified"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verified": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "verdicts": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "verdict": {
+                  "const": "ACHIEVED"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "verdicts": {
+            "anyOf": [
+              {
+                "maxItems": 0
+              },
+              {
+                "contains": {
+                  "properties": {
+                    "verdict": {
+                      "not": {
+                        "const": "ACHIEVED"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

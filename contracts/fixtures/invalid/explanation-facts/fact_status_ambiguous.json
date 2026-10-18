@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "correlation_id": "corr_4c21f9",
+  "locale": "pcm",
+  "facts": [
+    {
+      "fact_id": "f1",
+      "kind": "ledger.debit",
+      "fact_status": "AMBIGUOUS",
+      "value_masked": "debited NGN 20,000.00",
+      "source_label": "Core ledger",
+      "as_of": "2026-10-01T09:47:30Z"
+    },
+    {
+      "fact_id": "f2",
+      "kind": "switch.result",
+      "fact_status": "INFERRED",
+      "rule_id": "fin.rule.r2",
+      "value_masked": "no confirmation from the destination",
+      "source_label": "Reconciliation",
+      "as_of": "2026-10-01T09:47:31Z"
+    }
+  ],
+  "unknowns": [
+    {
+      "fact_id": "f3",
+      "kind": "beneficiary.credited",
+      "status": "UNAVAILABLE",
+      "why_code": "SOURCE_TIMEOUT"
+    }
+  ],
+  "actions": [
+    {
+      "capability_label": "Open a case",
+      "verdict": "ACHIEVED",
+      "case_ref_masked": "CMP-2026-…0001"
+    }
+  ],
+  "advice": [
+    "DO_NOT_RESEND"
+  ],
+  "next_steps": [
+    {
+      "kind": "WATCH",
+      "until": "2026-10-04T09:48:35Z"
+    }
+  ],
+  "template_ids": [
+    "fin.expl.case_opened"
+  ]
+}

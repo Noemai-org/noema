@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/record-event.v1.json",
+  "title": "Record event",
+  "description": "SoT §43.6 and PERD §32.2. The Record is append-only and hash-chained per tenant (INV-11). Each power appends events about its own objects and cannot modify or delete. The first event of a tenant's chain has prev_hash of 64 zeros. The event_type list is the PERD §32.2 table plus seven types its requirements use but the table omits (marked in the description of RecordEventType). Hash correctness is checked by the chain verification job, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
+  "$defs": {
+    "RecordEventType": {
+      "description": "PERD §32.2 (53 types), then 7 used by PERD requirements but missing from that table: AUDIO_RETAINED, CONFIG_CHANGED, INBOUND_EVENT_RECEIVED, INTENT_SUPERSEDED, RECORD_ACCESSED, RESOLUTION_POSTED, STATE_CHANGED. [REC] until the table is completed.",
+      "type": "string",
+      "enum": [
+        "INPUT_RECEIVED",
+        "INPUT_DEDUPLICATED",
+        "SESSION_VALIDATED",
+        "INTENT_PROPOSED",
+        "INTENT_ADMITTED",
+        "INTENT_REJECTED_AT_GATE",
+        "LEXICON_APPLIED",
+        "CANDIDATES_RESOLVED",
+        "CLARIFICATION_REQUESTED",
+        "CLARIFICATION_ANSWERED",
+        "CLARIFICATION_EXPIRED",
+        "EVIDENCE_READ",
+        "EVIDENCE_REFRESHED",
+        "CONTEXT_SNAPSHOT_SEALED",
+        "STATE_RECONCILED",
+        "CONTRADICTION_FREEZE_SET",
+        "CONTRADICTION_FREEZE_CLEARED",
+        "SLA_EVALUATED",
+        "POLICY_EVALUATED",
+        "DECISION_MADE",
+        "CONFIRMATION_REQUESTED",
+        "CONFIRMATION_RECEIVED",
+        "CONFIRMATION_EXPIRED",
+        "PLAN_CREATED",
+        "GRANT_ISSUED",
+        "GRANT_VOIDED",
+        "REVALIDATION_PASSED",
+        "REVALIDATION_FAILED",
+        "GRANT_SPENT",
+        "DISPATCH_ATTEMPTED",
+        "RECEIPT",
+        "CIRCUIT_STATE_CHANGED",
+        "VERIFICATION_READ",
+        "VERDICT",
+        "WATCH_CREATED",
+        "WATCH_CHECKED",
+        "WATCH_CLOSED",
+        "RECOVERY_REQUESTED",
+        "CALLBACK_DELIVERY_ATTEMPTED",
+        "CALLBACK_DELIVERED",
+        "CALLBACK_FAILED",
+        "EXPLANATION_RENDERED",
+        "EXPLANATION_BLOCKED",
+        "INVESTIGATION_STATE_CHANGED",
+        "INVESTIGATION_RESUMED",
+        "OPS_ALERT_RAISED",
+        "POLICY_PUBLISHED",
+        "PACK_LOADED",
+        "KILL_SWITCH_CHANGED",
+        "KEY_ROTATED",
+        "SECURITY_EVENT",
+        "PROVIDER_FAILOVER",
+        "MEMORY_OBSERVATION_RECORDED",
+        "AUDIO_RETAINED",
+        "CONFIG_CHANGED",
+        "INBOUND_EVENT_RECEIVED",
+        "INTENT_SUPERSEDED",
+        "RECORD_ACCESSED",
+        "RESOLUTION_POSTED",
+        "STATE_CHANGED"
+      ]
+    },
+    "SecurityKind": {
+      "type": "string",
+      "enum": [
+        "INJECTION_DETECTED",
+        "PRINCIPAL_OVERRIDE_ATTEMPT",
+        "SIGNATURE_INVALID",
+        "CROSS_SCOPE_ATTEMPT",
+        "REQUEST_ID_REUSED",
+        "IDEMPOTENCY_COLLISION",
+        "CHAIN_BREAK"
+      ]
+    },
+    "RecordEvent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "tenant_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+        },
+        "correlation_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+        },
+        "event_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecordEventId"
+        },
+        "prev_hash": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        },
+        "hash": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        },
+        "written_by": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "event_type": {
+          "$ref": "#/$defs/RecordEventType"
+        },
+        "kind": {
+          "$ref": "#/$defs/SecurityKind"
+        },
+        "object_ref": {
+          "type": "string",
+          "pattern": "^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$"
+        },
+        "at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "correlation_id",
+        "event_id",
+        "prev_hash",
+        "hash",
+        "written_by",
+        "event_type",
+        "object_ref",
+        "at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "SECURITY_EVENT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "kind"
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "hash": {
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/RecordEvent"
+}

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/evidence-item.v1.json",
+  "title": "Evidence item",
+  "description": "SoT §43.5 and PERD §21.1: one read through the Evidence Layer, with full provenance. read_at (retrieval time) and effective_at (event time) are both kept. A missing record is UNAVAILABLE or UNKNOWN, never a negative fact (INV-19). The customer's own claim is evidence with authority_class NONE and is never authoritative. Staleness is judged by the effective limit, the stricter of freshness_sla_seconds and the trust profile's limit, measured from read_at.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "evidence_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/EvidenceId"
+    },
+    "source": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "source_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "read_by": {
+      "description": "PERD §21.1 [REC].",
+      "type": "string",
+      "enum": [
+        "TRUST",
+        "OUTCOME",
+        "RESOLUTION",
+        "EXECUTION_REVALIDATION"
+      ]
+    },
+    "read_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "effective_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "freshness_sla_seconds": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+    },
+    "authority_class": {
+      "description": "AUTHORITATIVE_FOR:<fact>[,<fact>], CORROBORATING_FOR:<fact>, or NONE (a customer assertion). From the pack's evidence-source descriptors, never from adapter code.",
+      "type": "string",
+      "pattern": "^(AUTHORITATIVE_FOR:[a-z][a-z0-9_.]*(,[a-z][a-z0-9_.]*)*|CORROBORATING_FOR:[a-z][a-z0-9_.]*|NONE)$"
+    },
+    "resource_scope": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+    },
+    "principal_scope": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
+    },
+    "sensitivity": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DataSensitivity"
+    },
+    "fact_status": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FactStatus"
+    },
+    "payload_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "payload_ref": {
+      "description": "Points to the immutable evidence_payload row.",
+      "type": "string",
+      "pattern": "^[a-z]+_[A-Za-z0-9_]{2,64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "evidence_id",
+    "source",
+    "source_record_id",
+    "read_by",
+    "read_at",
+    "effective_at",
+    "freshness_sla_seconds",
+    "authority_class",
+    "resource_scope",
+    "principal_scope",
+    "sensitivity",
+    "fact_status",
+    "payload_hash",
+    "payload_ref"
+  ],
+  "additionalProperties": false
+}

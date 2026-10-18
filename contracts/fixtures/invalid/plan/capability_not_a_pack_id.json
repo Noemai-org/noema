@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "graph_version": "1.0.0",
+  "intent_node": "fin.payments.exception.investigate",
+  "steps": [
+    {
+      "step": 0,
+      "node_id": "fin.node.lookup_transaction",
+      "capability_id": "CREATE_ESCALATION_CASE",
+      "params": {
+        "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED",
+        "priority": 2,
+        "owner_queue": "PAYMENTS_OPERATIONS"
+      },
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "expected_postconditions": [
+        "exists(case where case.subject == subject_resource)"
+      ]
+    },
+    {
+      "step": 1,
+      "node_id": "fin.node.create_escalation_case",
+      "capability_id": "fin.cap.create_escalation_case",
+      "params": {
+        "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED",
+        "priority": 2,
+        "owner_queue": "PAYMENTS_OPERATIONS"
+      },
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "expected_postconditions": [
+        "exists(case where case.subject == subject_resource)"
+      ]
+    },
+    {
+      "step": 2,
+      "node_id": "fin.node.route_to_internal_owner",
+      "capability_id": "fin.cap.route_to_internal_owner",
+      "params": {
+        "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED",
+        "priority": 2,
+        "owner_queue": "PAYMENTS_OPERATIONS"
+      },
+      "preconditions": [
+        "subject_resource.status == RESOLVED"
+      ],
+      "expected_postconditions": [
+        "exists(case where case.subject == subject_resource)"
+      ]
+    }
+  ]
+}

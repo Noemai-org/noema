@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/explanation-facts.v1.json",
+  "title": "Explanation facts",
+  "description": "PERD §31.2: the only input to the customer renderer in the model service. Only masked facts cross the boundary: no policy, thresholds or raw evidence (REQ-EXP-001). Facts come only from KNOWN and INFERRED evidence (INFERRED names its rule) and from verdicts; anything else is an unknown. Explanation output is never consumed by trust, execution or outcome code (AGENT-05).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "locale": {
+      "type": "string",
+      "enum": [
+        "en-NG",
+        "pcm",
+        "yo",
+        "ha",
+        "ig"
+      ]
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.]*$"
+          },
+          "fact_status": {
+            "type": "string",
+            "enum": [
+              "KNOWN",
+              "INFERRED"
+            ]
+          },
+          "rule_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value_masked": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+          },
+          "source_label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "as_of": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+          }
+        },
+        "required": [
+          "fact_id",
+          "kind",
+          "fact_status",
+          "value_masked",
+          "source_label",
+          "as_of"
+        ],
+        "additionalProperties": false,
+        "if": {
+          "properties": {
+            "fact_status": {
+              "const": "INFERRED"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "rule_id"
+          ]
+        },
+        "else": {
+          "not": {
+            "required": [
+              "rule_id"
+            ]
+          }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fact_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.]*$"
+          },
+          "status": {
+            "allOf": [
+              {
+                "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FactStatus"
+              },
+              {
+                "not": {
+                  "const": "KNOWN"
+                }
+              }
+            ]
+          },
+          "why_code": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          }
+        },
+        "required": [
+          "fact_id",
+          "kind",
+          "status",
+          "why_code"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capability_label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "verdict": {
+            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict"
+          },
+          "case_ref_masked": {
+            "type": "string",
+            "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+          }
+        },
+        "required": [
+          "capability_label",
+          "verdict"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "advice": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "uniqueItems": true
+    },
+    "next_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "until": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "template_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "locale",
+    "facts",
+    "unknowns",
+    "actions",
+    "advice",
+    "next_steps",
+    "template_ids"
+  ],
+  "additionalProperties": false
+}
