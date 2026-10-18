@@ -1,0 +1,32 @@
+# pr-base-guard: every pull request must target the repository's default branch.
+#
+# Why: stacking a PR on another PR's branch is what stranded C-5 and C-6 (DEC-2026-10-18). A merge
+# into a non-main branch never touches main, so branch protection on main would not have caught it.
+#
+# Limits: it is a check, not a gate. Until branch protection is enabled, a red pr-base-guard is
+# never merged past (AGENTS.md section 11). It runs with the default read-only token and no secrets.
+# Branch protection replaces it once the GitHub plan allows it.
+name: pr-base-guard
+on:
+  pull_request:
+    # edited: retargeting a PR fires "edited" with a fresh payload; a plain re-run would replay the old base.
+    types: [opened, synchronize, reopened, edited]
+permissions:
+  contents: read
+jobs:
+  pr-base-guard:
+    name: pr-base-guard
+    runs-on: ubuntu-24.04
+    steps:
+      - name: The base branch must be the default branch
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          DEFAULT: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$BASE" != "$DEFAULT" ]; then
+            echo "::error::Every PR targets \`$DEFAULT\`. Stacking a PR on another PR's branch is what stranded C-5 and C-6 (see DEC-2026-10-18). Retarget this PR to \`$DEFAULT\`."
+            echo "Every PR targets \`$DEFAULT\`. Stacking a PR on another PR's branch is what stranded C-5 and C-6 (see DEC-2026-10-18). Retarget this PR to \`$DEFAULT\`."
+            echo "This PR targets \`$BASE\`."
+            exit 1
+          fi
+          echo "base is $DEFAULT: ok"
