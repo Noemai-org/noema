@@ -2,10 +2,13 @@
 name: safeguards
 on:
   pull_request:
+    # edited: a changed description re-runs the PR trace check.
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   checks:
     runs-on: ubuntu-24.04
@@ -27,8 +30,12 @@ jobs:
       - name: PR trace
         if: github.event_name == 'pull_request'
         env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 -I tools/ci/check_pr_trace.py
+          GH_TOKEN: ${{ github.token }}
+        # Read the live description, not the event payload: a re-run replays the payload of the
+        # original event, so an edited description would never be seen.
+        run: |
+          body="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""')"
+          PR_BODY="$body" python3 -I tools/ci/check_pr_trace.py
       - name: Canaries (each check must fail for its own reason)
         run: python3 -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"
   images:
