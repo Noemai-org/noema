@@ -1,0 +1,364 @@
+{
+ "docs_push_14": {
+  "repo": "Noemai-org/docs",
+  "before": "b362c416152b1958309d7eb8a6fc505cb83c634e",
+  "after": "7d5b2fabdc4d81d09a5a12a49e186d4fdc8de635",
+  "commits": [
+   {
+    "sha": "7d5b2fabdc4d81d09a5a12a49e186d4fdc8de635",
+    "parents": [
+     "b362c416152b1958309d7eb8a6fc505cb83c634e",
+     "c69ea153e7c56d80fb79a4bd24dc828646973f09"
+    ],
+    "subject": "Merge pull request #14 from Noemai-org/docs/con01-gap-closure",
+    "author": "Noemai Systems",
+    "date": "2026-10-19T11:09:15+01:00"
+   },
+   {
+    "sha": "c69ea153e7c56d80fb79a4bd24dc828646973f09",
+    "parents": [
+     "29fc3e59b9c5b18b556a5f598a638378ded0405a"
+    ],
+    "subject": "DEC-2026-10-18: record the STALE reading; add pr-base-guard and main-merge-audit; AGENTS.md enforcement rule",
+    "author": "Claude",
+    "date": "2026-10-18T15:13:08+00:00"
+   },
+   {
+    "sha": "29fc3e59b9c5b18b556a5f598a638378ded0405a",
+    "parents": [
+     "a8e22b3a1c3ca9a3bca6c1527e8b1b51c9bafc87"
+    ],
+    "subject": "DEC-2026-10-18: add ui_publish_net to PERD v1.9 \u00a765.1 (PLT-04 follow-up)",
+    "author": "Claude",
+    "date": "2026-10-18T14:34:20+00:00"
+   },
+   {
+    "sha": "a8e22b3a1c3ca9a3bca6c1527e8b1b51c9bafc87",
+    "parents": [
+     "562ed92722f607d85843a9c32f33d96f49020c08"
+    ],
+    "subject": "CON-01 gap closure (DEC-2026-10-18): SoT v1.9, PERD v1.9 and the decision record",
+    "author": "Claude",
+    "date": "2026-10-18T13:39:07+00:00"
+   },
+   {
+    "sha": "562ed92722f607d85843a9c32f33d96f49020c08",
+    "parents": [
+     "b362c416152b1958309d7eb8a6fc505cb83c634e",
+     "de3ef2cf7c378ef8a4463eeb8d5818d405ed39e6"
+    ],
+    "subject": "Land the docs stack on main: SoT v1.8, PERD v1.8, plan v1.8 and DEC-2026-10-16/17",
+    "author": "Claude",
+    "date": "2026-10-18T13:37:14+00:00"
+   },
+   {
+    "sha": "de3ef2cf7c378ef8a4463eeb8d5818d405ed39e6",
+    "parents": [
+     "d208c9f5259c5557f8343e6db046b4392bc1d2e8"
+    ],
+    "subject": "D13: closure of every open decision (DEC-2026-10-17): SoT v1.8, PERD v1.8, plan v1.8",
+    "author": "Claude",
+    "date": "2026-10-17T00:27:41+00:00"
+   },
+   {
+    "sha": "d208c9f5259c5557f8343e6db046b4392bc1d2e8",
+    "parents": [
+     "d69880a17040c978367d02f16a901c4e8398735d",
+     "40028a1e5bba8107d35b4f0a1435daf50d3181d6"
+    ],
+    "subject": "Merge pull request #12 from Noemai-org/claude/peaceful-mendel-lenchk-d12-money-lists",
+    "author": "Noemai Systems",
+    "date": "2026-10-16T20:32:31+01:00"
+   },
+   {
+    "sha": "40028a1e5bba8107d35b4f0a1435daf50d3181d6",
+    "parents": [
+     "995e2ff35c80eee31e888eb1791d4bb55719bdf2",
+     "d69880a17040c978367d02f16a901c4e8398735d"
+    ],
+    "subject": "Merge remote-tracking branch 'origin/claude/peaceful-mendel-lenchk-pr8-tidy' into claude/peaceful-mendel-lenchk-d12-money-lists",
+    "author": "Claude",
+    "date": "2026-10-16T19:13:07+00:00"
+   },
+   {
+    "sha": "995e2ff35c80eee31e888eb1791d4bb55719bdf2",
+    "parents": [
+     "b7c9e3ebca40fee2ba0d4c28530ed78126aee503"
+    ],
+    "subject": "D12: money in integer minor units and the contract value lists (DEC-2026-10-16 money-and-value-lists)",
+    "author": "Claude",
+    "date": "2026-10-16T19:11:57+00:00"
+   },
+   {
+    "sha": "d69880a17040c978367d02f16a901c4e8398735d",
+    "parents": [
+     "f1dcad2bf811fcc35704e30f90e2c04891765db9",
+     "55448fef9c94cac25361f256501ab1be0f399665"
+    ],
+    "subject": "Merge pull request #9 from Noemai-org/claude/peaceful-mendel-lenchk-d9-perd-v16",
+    "author": "Noemai Systems",
+    "date": "2026-10-16T19:23:15+01:00"
+   },
+   {
+    "sha": "55448fef9c94cac25361f256501ab1be0f399665",
+    "parents": [
+     "ab25665fa6a28ac39f24d28f820ad9f0db8e6ab5",
+     "29c02cd0beefb9828deaecb01900504c863694e1"
+    ],
+    "subject": "Merge pull request #10 from Noemai-org/claude/peaceful-mendel-lenchk-d10-plan-v16",
+    "author": "Noemai Systems",
+    "date": "2026-10-16T19:21:54+01:00"
+   },
+   {
+    "sha": "29c02cd0beefb9828deaecb01900504c863694e1",
+    "parents": [
+     "1acabf81ca4bc19b026f074b75ce7ef8f121551c",
+     "b7c9e3ebca40fee2ba0d4c28530ed78126aee503"
+    ],
+    "subject": "Merge pull request #11 from Noemai-org/claude/peaceful-mendel-lenchk-d11-boundary-map",
+    "author": "Noemai Systems",
+    "date": "2026-10-16T19:21:08+01:00"
+   },
+   {
+    "sha": "b7c9e3ebca40fee2ba0d4c28530ed78126aee503",
+    "parents": [
+     "d8c64eb0de69875df3b4c54c3a575e0214b170ce",
+     "1acabf81ca4bc19b026f074b75ce7ef8f121551c"
+    ],
+    "subject": "Merge branch 'claude/peaceful-mendel-lenchk-d10-plan-v16' into claude/peaceful-mendel-lenchk-d11-boundary-map",
+    "author": "Claude",
+    "date": "2026-10-16T18:18:19+00:00"
+   },
+   {
+    "sha": "1acabf81ca4bc19b026f074b75ce7ef8f121551c",
+    "parents": [
+     "fdaf88fe84e1eeda4df613a6c11f0acaed972757"
+    ],
+    "subject": "D10: apply the settlement (F1 to F8): flow limit, BEN-17 split, G7 DoD wording, cut line",
+    "author": "Claude",
+    "date": "2026-10-16T18:18:17+00:00"
+   },
+   {
+    "sha": "fdaf88fe84e1eeda4df613a6c11f0acaed972757",
+    "parents": [
+     "e9b45cf4f83d5911c4f83b70102770b155db9b47",
+     "ab25665fa6a28ac39f24d28f820ad9f0db8e6ab5"
+    ],
+    "subject": "Merge branch 'claude/peaceful-mendel-lenchk-d9-perd-v16' into claude/peaceful-mendel-lenchk-d10-plan-v16",
+    "author": "Claude",
+    "date": "2026-10-16T18:17:00+00:00"
+   },
+   {
+    "sha": "ab25665fa6a28ac39f24d28f820ad9f0db8e6ab5",
+    "parents": [
+     "207802ab10544a296bb2acfe75528c4af3dae6f9"
+    ],
+    "subject": "D9: settle the open items in the decision record (C8 point 3 replaced; C10 added)",
+    "author": "Claude",
+    "date": "2026-10-16T18:16:58+00:00"
+   },
+   {
+    "sha": "d8c64eb0de69875df3b4c54c3a575e0214b170ce",
+    "parents": [
+     "e9b45cf4f83d5911c4f83b70102770b155db9b47"
+    ],
+    "subject": "D11: boundary map states the repository mapping is closed (DEC-2026-10-16 C7)",
+    "author": "Claude",
+    "date": "2026-10-16T17:54:42+00:00"
+   },
+   {
+    "sha": "e9b45cf4f83d5911c4f83b70102770b155db9b47",
+    "parents": [
+     "207802ab10544a296bb2acfe75528c4af3dae6f9"
+    ],
+    "subject": "D10: plan v1.6, tasks.csv and task cards (DEC-2026-10-16 C2, C3, C6, C8)",
+    "author": "Claude",
+    "date": "2026-10-16T17:53:16+00:00"
+   },
+   {
+    "sha": "207802ab10544a296bb2acfe75528c4af3dae6f9",
+    "parents": [
+     "f1dcad2bf811fcc35704e30f90e2c04891765db9"
+    ],
+    "subject": "D9: decision record contract-and-pack-clarifications and PERD v1.6 (DEC-2026-10-16 C1, C2)",
+    "author": "Claude",
+    "date": "2026-10-16T17:45:20+00:00"
+   },
+   {
+    "sha": "f1dcad2bf811fcc35704e30f90e2c04891765db9",
+    "parents": [
+     "e1dcaf00723e52483ecbd6917a765a16b3f5d101"
+    ],
+    "subject": "PR 8: triage excerpts carry no relative links (docs-consistency fix)",
+    "author": "Claude",
+    "date": "2026-10-16T06:38:25+00:00"
+   },
+   {
+    "sha": "e1dcaf00723e52483ecbd6917a765a16b3f5d101",
+    "parents": [
+     "a396cff8b5e899ae0659a103d7c02ecca0484dae"
+    ],
+    "subject": "PR 8: tidy-up - pointers, runbooks, CODEOWNERS, TODO triage, gate files, session file, daily notes",
+    "author": "Claude",
+    "date": "2026-10-16T06:38:12+00:00"
+   },
+   {
+    "sha": "a396cff8b5e899ae0659a103d7c02ecca0484dae",
+    "parents": [
+     "c059c84d3cb41551103577afd09264cea317fd59"
+    ],
+    "subject": "PR 7: contracts/ and packs/ leave docs (DEC-2026-10-16 E7, E12)",
+    "author": "Claude",
+    "date": "2026-10-16T06:32:42+00:00"
+   },
+   {
+    "sha": "c059c84d3cb41551103577afd09264cea317fd59",
+    "parents": [
+     "f003ff767a81431a16a34bc78b17dcfffd9fe3c2",
+     "67c795a817cd73ef7050dad42a0c36ec156559f1"
+    ],
+    "subject": "Merge branch 'claude/peaceful-mendel-lenchk-pr5-plan-v1.5' into claude/peaceful-mendel-lenchk-pr6-tushe-delta",
+    "author": "Claude",
+    "date": "2026-10-16T06:31:36+00:00"
+   },
+   {
+    "sha": "67c795a817cd73ef7050dad42a0c36ec156559f1",
+    "parents": [
+     "843900449df072db315f0f68724c5a61890e7d30"
+    ],
+    "subject": "PR 5: PCK-01 names all four packs (E7)",
+    "author": "Claude",
+    "date": "2026-10-16T06:31:34+00:00"
+   },
+   {
+    "sha": "f003ff767a81431a16a34bc78b17dcfffd9fe3c2",
+    "parents": [
+     "843900449df072db315f0f68724c5a61890e7d30"
+    ],
+    "subject": "PR 6: Tushe delta v1.2 and Tushe documentation",
+    "author": "Claude",
+    "date": "2026-10-16T06:26:30+00:00"
+   },
+   {
+    "sha": "843900449df072db315f0f68724c5a61890e7d30",
+    "parents": [
+     "3c862d653a7aa2fbd3b67b73adc8f47f57372812"
+    ],
+    "subject": "PR 5: the G0-N (TEN) record lives in the gate record, not in the Tushe folder",
+    "author": "Claude",
+    "date": "2026-10-16T06:24:31+00:00"
+   },
+   {
+    "sha": "3c862d653a7aa2fbd3b67b73adc8f47f57372812",
+    "parents": [
+     "f10fab23c007cbfe125cb1088f5adf28550448ab",
+     "e7a2547ce94e0bece33ca218ceaf45694ff39555"
+    ],
+    "subject": "Merge branch 'claude/peaceful-mendel-lenchk-pr4-perd-v1.5' into claude/peaceful-mendel-lenchk-pr5-plan-v1.5",
+    "author": "Claude",
+    "date": "2026-10-16T06:24:31+00:00"
+   },
+   {
+    "sha": "e7a2547ce94e0bece33ca218ceaf45694ff39555",
+    "parents": [
+     "bc0a083ce858fb1c05253fb1f52f0277e58e24b6"
+    ],
+    "subject": "PR 4: keep the TEN (G0-N) results out of the Tushe folder",
+    "author": "Claude",
+    "date": "2026-10-16T06:24:18+00:00"
+   },
+   {
+    "sha": "f10fab23c007cbfe125cb1088f5adf28550448ab",
+    "parents": [
+     "bc0a083ce858fb1c05253fb1f52f0277e58e24b6"
+    ],
+    "subject": "PR 5: plan v1.5 (new file; v1.4 frozen), tasks.csv, calendar, task cards",
+    "author": "Claude",
+    "date": "2026-10-16T06:23:14+00:00"
+   },
+   {
+    "sha": "bc0a083ce858fb1c05253fb1f52f0277e58e24b6",
+    "parents": [
+     "807b29f43b409923f91b9b95724210e84f0601fc"
+    ],
+    "subject": "PR 4: PERD v1.5 (new file; v1.4 frozen)",
+    "author": "Claude",
+    "date": "2026-10-16T06:11:12+00:00"
+   },
+   {
+    "sha": "807b29f43b409923f91b9b95724210e84f0601fc",
+    "parents": [
+     "3aeaa03f66ce4dad4120818222e86436ee12c3a6"
+    ],
+    "subject": "PR 3: decision batch - DEC-2026-10-16, five records Accepted, SoT v1.6",
+    "author": "Claude",
+    "date": "2026-10-16T06:08:50+00:00"
+   },
+   {
+    "sha": "3aeaa03f66ce4dad4120818222e86436ee12c3a6",
+    "parents": [
+     "c380f0e3a27556fff73ca72d99760bba47947d3a"
+    ],
+    "subject": "PR 2: re-point every link to Noemai-org; checker fails on retired-organisation URLs",
+    "author": "Claude",
+    "date": "2026-10-16T06:05:26+00:00"
+   },
+   {
+    "sha": "b362c416152b1958309d7eb8a6fc505cb83c634e",
+    "parents": [
+     "7a8ce4535297b45b4da558965bd7a09723b698e7"
+    ],
+    "subject": "Add @noemai-systems as code owners for documentation",
+    "author": "Noemai Systems",
+    "date": "2026-10-18T00:19:48+01:00"
+   }
+  ],
+  "_source": "git rev-list --parents before..after in a clone of the repository: SHAs, parents, subjects, authors and dates are real"
+ },
+ "noema_push_16": {
+  "repo": "Noemai-org/noema",
+  "before": "9cd4ca74e80924c3ea4972734d92c939452ec430",
+  "after": "0fcc15ecb54f6d007cd13125a1111bc74a742567",
+  "commits": [
+   {
+    "sha": "0fcc15ecb54f6d007cd13125a1111bc74a742567",
+    "parents": [
+     "9cd4ca74e80924c3ea4972734d92c939452ec430",
+     "76a41fcf244deac44ffb1a823c074a61d63e0181"
+    ],
+    "subject": "Merge pull request #16 from Noemai-org/plt04/compose-egress-and-governance",
+    "author": "Noemai Systems",
+    "date": "2026-10-19T11:21:38+01:00"
+   },
+   {
+    "sha": "76a41fcf244deac44ffb1a823c074a61d63e0181",
+    "parents": [
+     "8291cdf0b896ed0a021fe099e6fc3f0c2956d3e6"
+    ],
+    "subject": "GOV-22: pr-base-guard and main-merge-audit workflows; AGENTS.md enforcement rule",
+    "author": "Claude",
+    "date": "2026-10-18T15:13:06+00:00"
+   },
+   {
+    "sha": "8291cdf0b896ed0a021fe099e6fc3f0c2956d3e6",
+    "parents": [
+     "47cafd67c3abd46287390c23b836d3aaa4438cac"
+    ],
+    "subject": "PLT-04: close the internet gap in Compose; AGENTS.md pull-request rules",
+    "author": "Claude",
+    "date": "2026-10-18T13:48:49+00:00"
+   },
+   {
+    "sha": "9cd4ca74e80924c3ea4972734d92c939452ec430",
+    "parents": [
+     "47cafd67c3abd46287390c23b836d3aaa4438cac",
+     "0808e9d511f34b629643d333ed96a0890e77c6b9"
+    ],
+    "subject": "Merge pull request #15 from Noemai-org/con01/land-c5-c6",
+    "author": "Noemai Systems",
+    "date": "2026-10-19T11:15:59+01:00"
+   }
+  ],
+  "_source": "git rev-list --parents before..after in a clone of the repository: SHAs, parents, subjects, authors and dates are real"
+ }
+}
