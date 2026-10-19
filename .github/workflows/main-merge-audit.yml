@@ -10,9 +10,17 @@
 #                         request that targeted another branch);
 #   no_approval           the pull request has no approving review (the latest state of each reviewer
 #                         counts, so an approval followed by CHANGES_REQUESTED does not);
-#   author_approval_only  every approving review came from the pull request's own author.
-# Only accounts of type "User" can approve. One issue per commit, found by SHA among open and closed
-# issues labelled governance or governance-historical.
+#   author_approval_only  every approving review came from the pull request's own author;
+#   stale_approval        an independent approving review exists, but none was given on the head that was
+#                         merged (commits were pushed after the approval). The merged head is the second
+#                         parent of the merge commit, or the pull request's recorded head for a squash or
+#                         rebase merge; each review carries the commit it was given on.
+# WHO CAN SATISFY THE APPROVAL RULE. An approval counts only from an account of type "User" other than the
+# pull request's author. Apps and bots (account type "Bot") never count. Today that means:
+#   noemai-systems        (a User; approves the pull requests of OladiranOlatunde)
+#   OladiranOlatunde      (a User; only on pull requests they did not author)
+# One issue per commit, found by SHA among open and closed issues labelled governance or
+# governance-historical.
 #
 # The logic is in .github/scripts/main-merge-audit.js; the offline tests are in .github/tests/.
 # A workflow_dispatch run is a dry run: it evaluates the commit given as input and logs what it would do.
@@ -20,7 +28,6 @@
 # Known limits:
 #   - It reports after the fact. It cannot stop a merge.
 #   - Anyone with write access can still push to main.
-#   - Approvals are not checked against the head commit at merge time.
 #   - It is replaced by real branch protection once the GitHub plan allows it.
 # Until then a "governance" issue is resolved before the next merge (AGENTS.md section 11).
 name: main-merge-audit

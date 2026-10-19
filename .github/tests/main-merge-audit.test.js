@@ -86,7 +86,7 @@ function graph({ extra = [] } = {}) {
 }
 const pr = (number, author, mergeName, over = {}) => ({
   number, html_url: `https://github.com/${OWNER}/noema/pull/${number}`, user: { login: author, type: 'User' }, merged_at: '2026-10-02T00:00:00Z',
-  merge_commit_sha: sha(mergeName), base: { ref: BASE }, ...over,
+  merge_commit_sha: sha(mergeName), base: { ref: BASE }, head: { sha: sha('feature') }, ...over,
 });
 const rev = (login, state, over = {}) => ({ user: { login, type: 'User' }, state, commit_id: sha('feature'), ...over });
 const ctx = (before, after) => ({ owner: OWNER, repo: 'noema', base: BASE, cutoff: CUT, before: sha(before), after: sha(after) });
@@ -107,7 +107,7 @@ test('2. a merge of a PR approved only by its own author raises author_approval_
   const [d] = (await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions;
   assert.equal(d.action, 'issue');
   assert.equal(d.rule, 'author_approval_only');
-  assert.match(d.body, /Reviewers found: alice \(APPROVED\)/);
+  assert.match(d.body, /Reviewers found: alice \(APPROVED on [0-9a-f]{7}\)/);
   assert.match(d.body, /Mapped to the pull request by: merge_commit_sha/);
   assert.match(d.body, /author_approval_only/);
 });
@@ -242,7 +242,7 @@ test('9c. only a real account counts: an approval from a Bot does not satisfy th
   const f = fakeGithub({ commits: graph(), prs: [pr(7, 'alice', 'merge')], reviews: { 7: [rev('some-app[bot]', 'APPROVED', { user: { login: 'some-app[bot]', type: 'Bot' } })] } });
   const [d] = (await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions;
   assert.equal(d.rule, 'no_approval');
-  assert.match(d.body, /some-app\[bot\] \(APPROVED, Bot\)/);
+  assert.match(d.body, /some-app\[bot\] \(APPROVED on [0-9a-f]{7}, Bot\)/);
 });
 
 test('9d. a PR that merged into another branch does not count for an arrival on main', async () => {
@@ -260,6 +260,61 @@ test('9e. the lookup falls back to the associated-PRs endpoint, accepting only a
   // A PR that has the commit as its HEAD (not its merge commit) is not a mapping for the merge.
   const f2 = fakeGithub({ commits: graph(), associated: { [sha('merge')]: [pr(8, 'alice', 'feature')] }, reviews: { 8: [rev('bob', 'APPROVED')] } });
   assert.equal((await audit.auditPush(f2.github, ctx('tip', 'merge'))).decisions[0].rule, 'no_pull_request');
+});
+
+// ---- stale approvals ----------------------------------------------------------------------------------
+// root <- cutoff <- tip ; cutoff <- f1 <- f2 <- f3 ; merge = merge(tip, f3)
+function longBranch() {
+  const c = (name, parents) => ({ sha: sha(name), parents: parents.map(sha), author: 'someone', login: 'someone' });
+  return [c('merge', ['tip', 'f3']), c('f3', ['f2']), c('f2', ['f1']), c('f1', ['cutoff']), c('tip', ['cutoff']), c('cutoff', ['root']), c('root', [])];
+}
+
+test('S1. approved, then two commits pushed, then merged: stale_approval', async () => {
+  const f = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f1') })] } });
+  const [d] = (await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions;
+  assert.deepEqual([d.action, d.rule], ['issue', 'stale_approval']);
+  assert.match(d.body, /bob \(APPROVED on [0-9a-f]{7}\)/);
+  assert.match(d.body, /Head that was merged: .* \(second parent of the merge commit\)/);
+  assert.match(d.body, /stale_approval/);
+});
+
+test('S2. approved on the head that was merged is not stale', async () => {
+  const f = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f3') })] } });
+  const [d] = (await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions;
+  assert.equal(d.action, 'pass');
+  assert.equal(d.mergedHead.sha, sha('f3'));
+});
+
+test('S3. an approval on an old head followed by a re-approval on the new head passes; the other order does not apply (latest wins)', async () => {
+  const f = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f1') }), rev('bob', 'APPROVED', { commit_id: sha('f3') })] } });
+  assert.equal((await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions[0].action, 'pass');
+});
+
+test('S4. one fresh independent approval is enough even if another reviewer approved an old head', async () => {
+  const f = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f1') }), rev('carol', 'APPROVED', { commit_id: sha('f3') })] } });
+  const [d] = (await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions;
+  assert.equal(d.action, 'pass');
+  assert.deepEqual(d.approvers, ['carol']);
+});
+
+test('S5. a squash or rebase merge (one parent) is checked against the pull request head', async () => {
+  const c = (name, parents) => ({ sha: sha(name), parents: parents.map(sha), author: 'someone', login: 'someone' });
+  const commits = [c('squash', ['tip']), c('tip', ['cutoff']), c('cutoff', ['root']), c('root', [])];
+  const stale = fakeGithub({ commits, prs: [pr(7, 'alice', 'squash', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f1') })] } });
+  const [d] = (await audit.auditPush(stale.github, ctx('tip', 'squash'))).decisions;
+  assert.equal(d.rule, 'stale_approval');
+  assert.match(d.body, /Head that was merged: .* \(the pull request's recorded head \(single-parent merge\)\)/);
+  const fresh = fakeGithub({ commits, prs: [pr(7, 'alice', 'squash', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f3') })] } });
+  assert.equal((await audit.auditPush(fresh.github, ctx('tip', 'squash'))).decisions[0].action, 'pass');
+});
+
+test('S6. a stale approval is a different rule from never reviewed, and from author-only', async () => {
+  const stale = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('bob', 'APPROVED', { commit_id: sha('f1') })] } });
+  const none = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: {} });
+  const self = fakeGithub({ commits: longBranch(), prs: [pr(7, 'alice', 'merge', { head: { sha: sha('f3') } })], reviews: { 7: [rev('alice', 'APPROVED', { commit_id: sha('f3') })] } });
+  const rules = [];
+  for (const f of [stale, none, self]) rules.push((await audit.auditPush(f.github, ctx('tip', 'merge'))).decisions[0].rule);
+  assert.deepEqual(rules, ['stale_approval', 'no_approval', 'author_approval_only']);
 });
 
 // ---- run(): issues, dry run, label -------------------------------------------------------------------
@@ -300,16 +355,18 @@ test('a dry run with evaluate_reported evaluates a commit that already has an is
 });
 
 // ---- 10: the 23 real commits ----------------------------------------------------------------------
-// Each of the 23 commits that produced a governance issue on 2026-10-19, with the verdict assigned in the
-// diagnosis. role: 'arrival' = an arrival on main (audited); 'carried' = an ancestor carried in by that
-// arrival (never audited alone). verdict: why the issue as filed was wrong, or what remains true.
+// Each of the 23 commits that produced a governance issue on 2026-10-19, with what the fixed audit does with
+// it. role 'arrival': audited, and PASSES (the pull request was approved on the merged head). role 'carried':
+// not audited alone, because the arrival that carries it is what the pull request's review covers; the
+// outcome is the carrying arrival's outcome, never a skip that stands for a pass. 'historical' marks the
+// 15 commits of the stacked docs PRs #8 to #13: their own PRs had no approving review, and that gap is
+// tracked in the retrospective review issue, not dismissed.
 const REAL_23 = [
-  // docs, push of PR #14 (merge 7d5b2fa); issues docs#15 to docs#34
-  ['docs', '7d5b2fab', 'arrival', 'false positive'],
-  ['docs', 'c69ea153', 'carried', 'false positive'],
-  ['docs', '29fc3e59', 'carried', 'false positive'],
-  ['docs', 'a8e22b3a', 'carried', 'false positive'],
-  ['docs', '562ed927', 'carried', 'false positive'],
+  ['docs', '7d5b2fab', 'arrival', 'PASS (PR #14 approved on c69ea15, the merged head)'],
+  ['docs', 'c69ea153', 'carried', ''],
+  ['docs', '29fc3e59', 'carried', ''],
+  ['docs', 'a8e22b3a', 'carried', ''],
+  ['docs', '562ed927', 'carried', ''],
   ['docs', 'de3ef2cf', 'carried', 'historical'],
   ['docs', 'd208c9f5', 'carried', 'historical'],
   ['docs', '40028a1e', 'carried', 'historical'],
@@ -325,16 +382,15 @@ const REAL_23 = [
   ['docs', 'e9b45cf4', 'carried', 'historical'],
   ['docs', '207802ab', 'carried', 'historical'],
   ['docs', 'f1dcad2b', 'carried', 'historical'],
-  // noema, push of PR #16 (merge 0fcc15e); issues noema#18 to noema#20
-  ['noema', '0fcc15ec', 'arrival', 'false positive'],
-  ['noema', '76a41fcf', 'carried', 'false positive'],
-  ['noema', '8291cdf0', 'carried', 'false positive'],
+  ['noema', '0fcc15ec', 'arrival', 'PASS (PR #16 approved on 76a41fc, the merged head)'],
+  ['noema', '76a41fcf', 'carried', ''],
+  ['noema', '8291cdf0', 'carried', ''],
 ];
 
-test('10. the 23 real commits: one arrival per push passes, the other 21 are carried and never audited alone', async () => {
+test('10. the 23 real commits: the arrival passes on the merged head, every other commit is carried by it and is never skipped into a pass', async () => {
   assert.equal(REAL_23.length, 23);
-  const docs = realPush('docs_push_14', [DOCS_PR14], DOCS_REVIEWS);
-  const noema = realPush('noema_push_16', [NOEMA_PR16], NOEMA_REVIEWS);
+  const docs = realPush('docs_push_14', [{ ...DOCS_PR14, head: { sha: 'c69ea153e7c56d80fb79a4bd24dc828646973f09' } }], DOCS_REVIEWS);
+  const noema = realPush('noema_push_16', [{ ...NOEMA_PR16, head: { sha: '76a41fcf244deac44ffb1a823c074a61d63e0181' } }], NOEMA_REVIEWS);
   const results = {
     docs: await audit.auditPush(docs.github, { owner: OWNER, repo: 'docs', base: BASE, cutoff: DOCS_CUT, before: docs.fx.before, after: docs.fx.after }),
     noema: await audit.auditPush(noema.github, { owner: OWNER, repo: 'noema', base: BASE, cutoff: NOEMA_CUT, before: noema.fx.before, after: noema.fx.after }),
@@ -345,15 +401,19 @@ test('10. the 23 real commits: one arrival per push passes, the other 21 are car
     assert.ok(full, `${repo} ${prefix} is part of the real push`);
     if (role === 'arrival') {
       assert.ok(r.arrivals.includes(full), `${prefix} is the arrival`);
-      assert.equal(r.decisions.find((d) => d.sha === full).action, 'pass', `${prefix} is approved, so no issue`);
+      const d = r.decisions.find((x) => x.sha === full);
+      assert.equal(d.action, 'pass', `${prefix} is approved on the merged head, so no issue`);
+      assert.equal(d.mergedHead.sha, DOCS_REVIEWS[14] && repo === 'docs' ? 'c69ea153e7c56d80fb79a4bd24dc828646973f09' : '76a41fcf244deac44ffb1a823c074a61d63e0181');
     } else {
       assert.ok(r.carried.includes(full), `${prefix} is carried by the merge`);
       assert.ok(!r.decisions.some((d) => d.sha === full), `${prefix} is not evaluated on its own`);
     }
   }
+  // Nothing in these pushes was skipped: the only decisions are the two passes.
+  for (const repo of ['docs', 'noema']) assert.deepEqual(results[repo].decisions.map((d) => d.action), ['pass']);
   assert.equal(docs.created.length + noema.created.length, 0);
-  assert.equal(results.noema.arrivals.length, 1);
   assert.equal(results.noema.carried.length, 2);
+  assert.equal(results.docs.carried.length, 31);
 });
 
 // ---- the bug class that hid the first defect ------------------------------------------------------------

@@ -9,7 +9,7 @@
 //   - a direct push of N commits is N arrivals, and each one is checked.
 // Each arrival is skipped (and the skip is reported, never counted as a pass) when it is not after the
 // installation cutoff, or when an issue for it already exists. Otherwise it is mapped to a pull request
-// and one of three rules fires: no_pull_request, no_approval, author_approval_only.
+// and one of four rules fires: no_pull_request, no_approval, author_approval_only, stale_approval.
 
 const LABEL = 'governance';
 // Labels searched for an existing issue (open or closed), so a relabelled issue is never duplicated.
@@ -21,6 +21,7 @@ const RULES = {
   no_pull_request: 'no pull request merged into the default branch has this commit as its merge commit (a direct push)',
   no_approval: 'the pull request has no approving review',
   author_approval_only: "every approving review came from the pull request's own author",
+  stale_approval: 'the approving review was given on an earlier head than the commit that was merged (commits were pushed after the approval)',
 };
 
 function shortSha(sha) {
@@ -34,8 +35,10 @@ function titleFor(sha) {
 // Reviews -> who reviewed, who counts as an approver, and which rule (if any) fires.
 // Rule: the latest state of a reviewer decides; COMMENTED and PENDING do not change it. An approval
 // counts only from an account of type "User" (a real account) other than the pull request's author.
-// A later CHANGES_REQUESTED or DISMISSED from the same reviewer removes the approval.
-function evaluateReviews(reviews, authorLogin) {
+// A later CHANGES_REQUESTED or DISMISSED from the same reviewer removes the approval. An approval must
+// also have been given on the head that was merged: a review object carries the commit it was given on
+// (commit_id), and an approval on an earlier head is stale.
+function evaluateReviews(reviews, authorLogin, mergedHead) {
   const latest = new Map();
   for (const r of reviews) {
     if (!r.user || r.state === 'COMMENTED' || r.state === 'PENDING') continue;
@@ -44,10 +47,20 @@ function evaluateReviews(reviews, authorLogin) {
   const reviewers = [...latest.values()];
   const approvals = reviewers.filter((r) => r.state === 'APPROVED');
   const independent = approvals.filter((r) => r.type === 'User' && r.login !== authorLogin);
+  const fresh = independent.filter((r) => r.commit === mergedHead);
   let rule = null;
   if (approvals.length === 0) rule = 'no_approval';
   else if (independent.length === 0) rule = approvals.every((r) => r.login === authorLogin) ? 'author_approval_only' : 'no_approval';
-  return { reviewers, approvers: independent.map((r) => r.login), rule };
+  else if (fresh.length === 0) rule = 'stale_approval';
+  return { reviewers, approvers: fresh.map((r) => r.login), rule };
+}
+
+// The head the pull request actually merged. A merge commit has the merged head as its second parent,
+// which no later push can change; a squash or rebase merge has one parent, so the pull request's recorded
+// head is used (GitHub does not move the head of a closed pull request).
+function mergedHeadOf(commit, pr) {
+  if (commit.parents && commit.parents.length > 1) return { sha: commit.parents[1].sha, source: 'second parent of the merge commit' };
+  return { sha: pr.head.sha, source: "the pull request's recorded head (single-parent merge)" };
 }
 
 async function getAllPages(fn, params) {
@@ -113,9 +126,9 @@ function alreadyReported(issues, sha) {
   return issues.some((i) => i.title === titleFor(sha) || (i.body || '').includes(sha));
 }
 
-function renderIssue({ commit, pr, method, author, evaluation, rule, searched }) {
+function renderIssue({ commit, pr, method, author, evaluation, rule, searched, mergedHead }) {
   const reviewers = evaluation && evaluation.reviewers.length
-    ? evaluation.reviewers.map((r) => `${r.login} (${r.state}${r.type !== 'User' ? ', ' + r.type : ''})`).join(', ')
+    ? evaluation.reviewers.map((r) => `${r.login} (${r.state}${r.state === 'APPROVED' ? ' on ' + shortSha(r.commit || '0000000') : ''}${r.type !== 'User' ? ', ' + r.type : ''})`).join(', ')
     : 'none';
   return [
     `Commit: ${commit.html_url}`,
@@ -123,6 +136,7 @@ function renderIssue({ commit, pr, method, author, evaluation, rule, searched })
     `Mapped to the pull request by: ${pr ? method : `no pull request found (${searched})`}`,
     `Author: ${author}`,
     `Reviewers found: ${reviewers}`,
+    ...(mergedHead ? [`Head that was merged: ${shortSha(mergedHead.sha)} (${mergedHead.source})`] : []),
     '',
     'Rule that fired:',
     `- ${rule}: ${RULES[rule]}`,
@@ -150,11 +164,12 @@ async function decide(github, ctx, sha, issues) {
   }
   const { pr, method } = found;
   const reviews = await getAllPages((p) => github.rest.pulls.listReviews(p), { owner, repo, pull_number: pr.number });
-  const evaluation = evaluateReviews(reviews, pr.user.login);
-  if (!evaluation.rule) return { sha, action: 'pass', pr: pr.number, method, approvers: evaluation.approvers };
+  const mergedHead = mergedHeadOf(commit, pr);
+  const evaluation = evaluateReviews(reviews, pr.user.login, mergedHead.sha);
+  if (!evaluation.rule) return { sha, action: 'pass', pr: pr.number, method, approvers: evaluation.approvers, mergedHead };
   return {
     sha, action: 'issue', rule: evaluation.rule, pr: pr.number, method, title: titleFor(sha),
-    body: renderIssue({ commit, pr, method, author: pr.user.login, evaluation, rule: evaluation.rule, searched }),
+    body: renderIssue({ commit, pr, method, author: pr.user.login, evaluation, rule: evaluation.rule, searched, mergedHead }),
   };
 }
 
@@ -204,7 +219,7 @@ async function run({ github, context, core, cutoff }) {
   for (const d of result.decisions) {
     const where = d.pr ? `PR #${d.pr} via ${d.method}` : '';
     if (d.action === 'skip') core.info(`SKIPPED ${shortSha(d.sha)}: ${d.reason} (a skip, not a pass)`);
-    else if (d.action === 'pass') core.info(`PASS ${shortSha(d.sha)}: ${where}; approved by ${d.approvers.join(', ')}`);
+    else if (d.action === 'pass') core.info(`PASS ${shortSha(d.sha)}: ${where}; approved by ${d.approvers.join(', ')} on the merged head ${shortSha(d.mergedHead.sha)}`);
     else if (dryRun) core.info(`WOULD OPEN ISSUE "${d.title}" [${d.rule}]\n${d.body}`);
     else {
       if (opened === 0) await ensureLabel(github, { owner, repo });
