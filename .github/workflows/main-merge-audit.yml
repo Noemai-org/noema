@@ -1,21 +1,37 @@
-# main-merge-audit: raise an alarm when a commit reaches main without an independent approving review.
+# main-merge-audit: raise an alarm when an arrival on main has no independent approving review.
 #
-# For each pushed commit it finds the pull request the commit came from and opens a GitHub issue
-# (label "governance", title "Unreviewed merge to main: <short sha>") when any of these holds:
-#   no_pull_request      the commit has no associated pull request (a direct push to main);
-#   no_approval          the pull request has no approving review;
-#   author_approval_only every approving review came from the pull request's own author.
-# One issue per commit: a commit that already has one is skipped.
+# The unit of audit is an arrival on main, not a commit object. A pull request merged into main is one
+# arrival (its merge commit); the commits it carries were reviewed, or not, as part of that pull request
+# and are not audited one by one. A direct push of N commits is N arrivals. For each arrival the audit
+# finds the pull request (merge_commit_sha first, then the associated-pull-requests endpoint, accepting
+# only a pull request that merged INTO main with this commit as its merge commit) and opens a GitHub
+# issue (label "governance", title "Unreviewed merge to main: <short sha>") when any of these holds:
+#   no_pull_request       no such pull request exists (a direct push to main, or a merge from a pull
+#                         request that targeted another branch);
+#   no_approval           the pull request has no approving review (the latest state of each reviewer
+#                         counts, so an approval followed by CHANGES_REQUESTED does not);
+#   author_approval_only  every approving review came from the pull request's own author.
+# Only accounts of type "User" can approve. One issue per commit, found by SHA among open and closed
+# issues labelled governance or governance-historical.
+#
+# The logic is in .github/scripts/main-merge-audit.js; the offline tests are in .github/tests/.
+# A workflow_dispatch run is a dry run: it evaluates the commit given as input and logs what it would do.
 #
 # Known limits:
 #   - It reports after the fact. It cannot stop a merge.
 #   - Anyone with write access can still push to main.
+#   - Approvals are not checked against the head commit at merge time.
 #   - It is replaced by real branch protection once the GitHub plan allows it.
 # Until then a "governance" issue is resolved before the next merge (AGENTS.md section 11).
 name: main-merge-audit
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Dry run: a commit on main to evaluate as an arrival (nothing is opened)"
+        required: true
 permissions:
   contents: read
   issues: write
@@ -25,63 +41,18 @@ jobs:
     name: main-merge-audit
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           script: |
-            const { owner, repo } = context.repo;
-            const LABEL = "governance";
-            const commits = (context.payload.commits || []).map((c) => c.id);
-            if (commits.length === 0 && context.payload.head_commit) commits.push(context.payload.head_commit.id);
-
-            try {
-              await github.rest.issues.getLabel({ owner, repo, name: LABEL });
-            } catch (e) {
-              if (e.status !== 404) throw e;
-              await github.rest.issues.createLabel({ owner, repo, name: LABEL, color: "b60205", description: "A governance rule was bypassed" });
-            }
-            const existing = new Set(
-              (await github.paginate(github.rest.issues.listForRepo, { owner, repo, labels: LABEL, state: "all", per_page: 100 })).map((i) => i.title)
-            );
-
-            for (const sha of commits) {
-              const short = sha.slice(0, 7);
-              const title = `Unreviewed merge to main: ${short}`;
-              if (existing.has(title)) continue;
-
-              const commit = (await github.rest.repos.getCommit({ owner, repo, ref: sha })).data;
-              const prs = (await github.paginate(github.rest.repos.listPullRequestsForCommit, { owner, repo, commit_sha: sha, per_page: 100 }))
-                .filter((p) => p.merged_at && p.base.ref === context.payload.repository.default_branch);
-              const pr = prs[0];
-              const fired = [];
-              let author = pr ? pr.user.login : (commit.author ? commit.author.login : commit.commit.author.name);
-              let reviewers = [];
-              if (!pr) {
-                fired.push("no_pull_request: no pull request is associated with this commit (a direct push to main)");
-              } else {
-                const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
-                // The latest review state of each reviewer decides.
-                const latest = new Map();
-                for (const r of reviews) {
-                  if (r.user && r.state !== "COMMENTED" && r.state !== "PENDING") latest.set(r.user.login, r.state);
-                }
-                reviewers = [...latest].map(([login, state]) => `${login} (${state})`);
-                const approvers = [...latest].filter(([, state]) => state === "APPROVED").map(([login]) => login);
-                if (approvers.length === 0) fired.push("no_approval: the pull request has no approving review");
-                else if (approvers.every((login) => login === pr.user.login)) fired.push("author_approval_only: every approving review came from the pull request's own author");
-              }
-              if (fired.length === 0) continue;
-
-              const body = [
-                `Commit: ${commit.html_url}`,
-                `Pull request: ${pr ? pr.html_url : "none"}`,
-                `Author: ${author}`,
-                `Reviewers found: ${reviewers.length ? reviewers.join(", ") : "none"}`,
-                "",
-                "Rule(s) that fired:",
-                ...fired.map((f) => `- ${f}`),
-                "",
-                "Resolve this issue before the next merge. This audit reports after the fact and cannot stop a merge.",
-              ].join("\n");
-              const issue = await github.rest.issues.create({ owner, repo, title, body, labels: [LABEL] });
-              core.warning(`opened #${issue.data.number}: ${title}`);
-            }
+            // INSTALLATION CUTOFF. Only arrivals after this commit are audited. It is the tip of main just
+            // before this workflow first reached main (the merge of pull request #15). The arrival that
+            // installed the workflow, the merge of pull request #16, is itself audited. Everything earlier
+            // is covered by the historical review-gap record on Noemai-org/noema#7. This is not an
+            // amnesty; it is a fixed, checkable point.
+            const AUDIT_AFTER = {
+              sha: "9cd4ca74e80924c3ea4972734d92c939452ec430",
+              date: "2026-10-19T10:15:59Z",
+            };
+            const { run } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/main-merge-audit.js`);
+            await run({ github, context, core, cutoff: AUDIT_AFTER });
