@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/context-snapshot.v1.json",
+  "title": "Context snapshot",
+  "description": "PERD §21.3 and DEC-2026-10-16 contract-and-pack-clarifications C1: an immutable, sealed set of evidence IDs used by one Trust evaluation. evidence_set_hash covers only the (evidence_id, payload_hash) pairs, sorted by the UTF-8 bytes of evidence_id, length-prefixed (LP), SHA-256; the empty set hashes to the SHA-256 of zero bytes, which is a fact about the function, not a permission: Trust never issues a grant over an empty evidence set. Recomputing the hash from the stored rows must equal this value (nightly job). Adding evidence creates a new snapshot. The construction is checked by the golden vectors (CON-04), not by this schema.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "snapshot_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SnapshotId"
+    },
+    "evidence_ids": {
+      "description": "Sorted ascending by bytes, no duplicates (C1 step 8).",
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/EvidenceId"
+      },
+      "uniqueItems": true
+    },
+    "reconciliation": {
+      "type": "object",
+      "properties": {
+        "reconciliation_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ReconciliationId"
+        },
+        "classification": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        }
+      },
+      "required": [
+        "reconciliation_id",
+        "classification"
+      ],
+      "additionalProperties": false
+    },
+    "evidence_set_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "sealed_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "snapshot_id",
+    "evidence_ids",
+    "reconciliation",
+    "evidence_set_hash",
+    "sealed_at"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "evidence_ids": {
+        "maxItems": 0
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "evidence_set_hash": {
+        "const": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "evidence_set_hash": {
+        "not": {
+          "const": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    }
+  }
+}

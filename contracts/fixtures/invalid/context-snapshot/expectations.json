@@ -1,0 +1,8 @@
+{
+  "duplicate_evidence_id.json": "uniqueItems",
+  "empty_set_with_other_hash.json": "const",
+  "hash_uppercase.json": "pattern",
+  "items_with_the_empty_hash.json": "not",
+  "not_sealed.json": "required",
+  "reconciliation_missing.json": "required"
+}

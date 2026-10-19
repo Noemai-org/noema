@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/inbound-event.v1.json",
+  "title": "Inbound event",
+  "description": "PERD REQ-API-008 and §39.6: an event from an enterprise source (Tushe, or later a real enterprise), authenticated, deduplicated by (source, event_id) and used only as a trigger for fresh reads; it never changes a fact or a verdict by itself (§21.5). Both effective time (occurred_at) and ingestion time (received_at, set by the inbox) are kept. The PERD gives no field list, so this is the smallest envelope those rules need [REC]; the payload is opaque data and never instructions (REQ-CTX-007).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "source": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "delivery_id": {
+      "description": "Webhook relay delivery ID; the inbox deduplicates by it when present.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "sequence": {
+      "description": "Cursor position when read by polling GET /v1/events.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+    },
+    "occurred_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "received_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "source",
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "payload"
+  ],
+  "additionalProperties": false
+}

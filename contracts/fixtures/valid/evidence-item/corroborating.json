@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "evidence_id": "evr_77",
+  "source": "fin.src.case_system",
+  "source_record_id": "CASE-55012",
+  "read_by": "OUTCOME",
+  "read_at": "2026-10-01T09:48:34Z",
+  "effective_at": "2026-10-01T09:48:02Z",
+  "freshness_sla_seconds": 300,
+  "authority_class": "CORROBORATING_FOR:beneficiary.credited",
+  "resource_scope": "fin.transaction:TX88213",
+  "principal_scope": "usr_88213",
+  "sensitivity": "S3_financial_pii",
+  "fact_status": "KNOWN",
+  "payload_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "payload_ref": "blob_evr_77"
+}

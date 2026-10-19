@@ -1,0 +1,10 @@
+{
+  "payload_ref": "blob_evr_77",
+  "json": {
+    "status": "OPEN",
+    "amount_minor": 2000000,
+    "currency": "NGN"
+  },
+  "raw_hash": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "sensitivity": "S3_financial_pii"
+}

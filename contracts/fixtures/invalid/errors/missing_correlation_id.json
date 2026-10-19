@@ -1,0 +1,13 @@
+{
+  "error": {
+    "code": "GRANT_ALREADY_SPENT",
+    "message": "This action was already carried out.",
+    "retryable": false,
+    "details": [
+      {
+        "field": "grant_id",
+        "issue": "already spent"
+      }
+    ]
+  }
+}

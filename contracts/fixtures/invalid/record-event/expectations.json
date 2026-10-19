@@ -1,0 +1,18 @@
+{
+  "RecordEventType__lowercase.json": "enum",
+  "free_text_field.json": "additionalProperties",
+  "grant_voided_unknown_reason.json": "enum",
+  "grant_voided_without_reason.json": "required",
+  "hash_all_zero.json": "not",
+  "id_with_sot_example_prefix.json": "pattern",
+  "kind_on_other_event.json": "not",
+  "not_a_record_event_intent_superseded.json": "enum",
+  "not_a_record_event_record_accessed.json": "enum",
+  "not_a_record_event_state_changed.json": "enum",
+  "prev_hash_missing.json": "required",
+  "reason_on_other_event.json": "not",
+  "security_event_without_kind.json": "required",
+  "superseded_status_event.json": "enum",
+  "unknown_event_type.json": "enum",
+  "unknown_security_kind.json": "enum"
+}

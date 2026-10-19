@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "snapshot_id": "evs_51A",
+  "evidence_ids": [
+    "evr_01",
+    "evr_02",
+    "evr_03"
+  ],
+  "reconciliation": {
+    "reconciliation_id": "rec_01J9X5",
+    "classification": "EXECUTION_OUTCOME_UNKNOWN"
+  },
+  "evidence_set_hash": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+}

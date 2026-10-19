@@ -9,7 +9,8 @@ What the default run checks:
   1. every schema is valid JSON Schema 2020-12, its $id matches its file name, every $ref resolves,
      and every object type states additionalProperties;
   2. money fields are integers with the M3 bounds, never `number` (M4);
-  3. every document in fixtures/valid/<schema>/ is accepted and every one in fixtures/invalid/<schema>/
+  3. every document in fixtures/valid/<schema>/ is accepted (a clarification answer must also name only slots its
+     companion <name>.clarification.json requested; expectation 'unknown_slot') and every one in fixtures/invalid/<schema>/
      is rejected, for the reason named in that folder's expectations.json;
   4. every schema has a row in contracts/INVENTORY.md and every row names an existing schema;
   5. the enum drift guard (drift.py): enums.v1.json against the vendored state-registry.md, and
@@ -154,13 +155,19 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
                 problems.append(f"fixtures/{kind}/{folder.name}: no schema of that name")
     for name in sorted(names):
         valid_dir, invalid_dir = FIXTURES / "valid" / name, FIXTURES / "invalid" / name
-        valid_files = sorted(valid_dir.glob("*.json")) if valid_dir.exists() else []
-        invalid_files = sorted(f for f in invalid_dir.glob("*.json") if f.name != "expectations.json") if invalid_dir.exists() else []
+        valid_files = sorted(f for f in valid_dir.glob("*.json") if not f.name.endswith(".clarification.json")) if valid_dir.exists() else []
+        invalid_files = sorted(f for f in invalid_dir.glob("*.json") if f.name != "expectations.json" and not f.name.endswith(".clarification.json")) if invalid_dir.exists() else []
         if not valid_files:
             problems.append(f"{name}: no valid fixture")
         if not invalid_files:
             problems.append(f"{name}: no invalid fixture")
         for path in valid_files:
+            if name == "clarification-answer":
+                extra = unrequested_slots(path)
+                if extra is None:
+                    problems.append(f"valid/{name}/{path.name}: no {path.stem}.clarification.json beside it")
+                elif extra:
+                    problems.append(f"valid/{name}/{path.name}: names slots the clarification did not request: {sorted(extra)}")
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
             except ValueError as exc:
@@ -174,6 +181,16 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
             expected = expectations.get(path.name)
             if expected is None:
                 problems.append(f"invalid/{name}/{path.name}: no entry in expectations.json")
+                continue
+            if expected == "unknown_slot":
+                extra = unrequested_slots(path)
+                shape = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
+                if extra is None:
+                    problems.append(f"invalid/{name}/{path.name}: expects unknown_slot but has no {path.stem}.clarification.json beside it")
+                elif shape:
+                    problems.append(f"invalid/{name}/{path.name}: must be well formed and rejected only for its slot names, but the schema rejects it: {shape[0].message[:100]}")
+                elif not extra:
+                    problems.append(f"invalid/{name}/{path.name}: accepted, but must be rejected (it names no unrequested slot)")
                 continue
             try:
                 errors = list(target(name, path, schemas, registry).iter_errors(load_strict(path)))
@@ -189,6 +206,19 @@ def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
         for stale in sorted(set(expectations) - {f.name for f in invalid_files}):
             problems.append(f"invalid/{name}/expectations.json: names {stale}, which does not exist")
     return problems
+
+
+def unrequested_slots(answer_file: Path) -> set[str] | None:
+    """Slot names an answer carries that its clarification did not request (DEC-2026-10-18), or None without a companion.
+
+    A clarification answer is checked against the clarification it answers: <name>.json is the answer and
+    <name>.clarification.json the clarification beside it. Answers may name only the slot the clarification requested.
+    """
+    companion = answer_file.with_name(answer_file.stem + ".clarification.json")
+    if not companion.exists():
+        return None
+    requested = {load_strict(companion)["slot"]}
+    return set(load_strict(answer_file)["answers"]) - requested
 
 
 def keywords(error) -> set[str]:

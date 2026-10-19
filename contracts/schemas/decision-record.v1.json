@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/decision-record.v1.json",
   "title": "Decision Record",
-  "description": "SoT §43.2 and PERD REQ-TRU-001. Produced by Trust; exactly one of seven outcomes. Written durably before any grant (SoT §48). Rules carried by the schema: CLARIFY carries a clarification and no other outcome does; WAIT carries reevaluate_at and no other outcome does; every outcome except ALLOW names at least one reason code; an ALLOW cannot hold a failed authority layer. The fail-closed evaluation order, evidence freshness and policy precedence are Trust's behaviour, not the schema's. tenant_id and correlation_id are carried because SoT §43 requires them on every object.",
+  "description": "SoT §43.2 and PERD REQ-TRU-001. Produced by Trust; exactly one of seven outcomes. Written durably before any grant (SoT §48). Rules carried by the schema: CLARIFY carries a clarification and no other outcome does; WAIT carries reevaluate_at and no other outcome does; every outcome except ALLOW names at least one reason code; an ALLOW requires all three authority layers at PASS (DEC-2026-10-18; FAIL or NOT_EVALUATED on any layer makes it invalid, fail-closed). The fail-closed evaluation order, evidence freshness and policy precedence are Trust's behaviour, not the schema's. tenant_id and correlation_id are carried because SoT §43 requires them on every object.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -223,19 +223,13 @@
           "authority": {
             "properties": {
               "technical": {
-                "not": {
-                  "const": "FAIL"
-                }
+                "const": "PASS"
               },
               "policy": {
-                "not": {
-                  "const": "FAIL"
-                }
+                "const": "PASS"
               },
               "business": {
-                "not": {
-                  "const": "FAIL"
-                }
+                "const": "PASS"
               }
             }
           }

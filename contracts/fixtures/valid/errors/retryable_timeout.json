@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "TARGET_TIMEOUT",
+    "message": "The enterprise system did not answer in time.",
+    "retryable": true,
+    "correlation_id": "corr_4c21f9"
+  }
+}

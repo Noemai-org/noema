@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "event_id": "recev_1001",
+  "prev_hash": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "hash": "sha256:7777777777777777777777777777777777777777777777777777777777777777",
+  "written_by": "TRUST",
+  "event_type": "STATE_CHANGED",
+  "object_ref": "dec_8R4",
+  "at": "2026-10-01T09:48:00.410Z"
+}

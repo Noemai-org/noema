@@ -24,9 +24,9 @@
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
     },
     "Id": {
-      "description": "<prefix>_<body>. PERD §32.3 makes the body a ULID. The SoT examples (int_01J9X3, dec_7Q2) are illustrative and shorter, so the wire contract accepts 3 to 32 alphanumerics; ULID generation is the ID generator's job.",
+      "description": "<prefix>_<body>. PERD §32.3 makes the body a ULID. The SoT examples (int_01J9X3, dec_7Q2) are illustrative and shorter, so the wire contract accepts 2 to 32 alphanumerics; ULID generation is the ID generator's job.",
       "type": "string",
-      "pattern": "^[a-z]{2,6}_[0-9A-Za-z]{3,32}$"
+      "pattern": "^[a-z]{2,6}_[0-9A-Za-z]{2,32}$"
     },
     "Sig": {
       "type": "object",
@@ -68,119 +68,119 @@
     },
     "RequestId": {
       "type": "string",
-      "pattern": "^req_[0-9A-Za-z]{3,32}$",
+      "pattern": "^req_[0-9A-Za-z]{2,32}$",
       "description": "Client-supplied request ID (a UUID in the canonical input, see CanonicalInput)."
     },
     "CorrelationId": {
       "type": "string",
-      "pattern": "^corr_[0-9A-Za-z]{3,32}$"
+      "pattern": "^corr_[0-9A-Za-z]{2,32}$"
     },
     "TenantId": {
       "type": "string",
-      "pattern": "^ten_[0-9A-Za-z]{3,32}$"
+      "pattern": "^ten_[0-9A-Za-z]{2,32}$"
     },
     "SessionId": {
       "type": "string",
-      "pattern": "^ses_[0-9A-Za-z]{3,32}$"
+      "pattern": "^ses_[0-9A-Za-z]{2,32}$"
     },
     "InvestigationId": {
       "type": "string",
-      "pattern": "^inv_[0-9A-Za-z]{3,32}$"
+      "pattern": "^inv_[0-9A-Za-z]{2,32}$"
     },
     "IntentId": {
       "type": "string",
-      "pattern": "^int_[0-9A-Za-z]{3,32}$"
+      "pattern": "^int_[0-9A-Za-z]{2,32}$"
     },
     "CandidateSetId": {
       "type": "string",
-      "pattern": "^cns_[0-9A-Za-z]{3,32}$"
+      "pattern": "^cns_[0-9A-Za-z]{2,32}$"
     },
     "ClarificationId": {
       "type": "string",
-      "pattern": "^clr_[0-9A-Za-z]{3,32}$"
+      "pattern": "^clr_[0-9A-Za-z]{2,32}$"
     },
     "EvidenceId": {
       "type": "string",
-      "pattern": "^evr_[0-9A-Za-z]{3,32}$",
+      "pattern": "^evr_[0-9A-Za-z]{2,32}$",
       "description": "Evidence item ID."
     },
     "SnapshotId": {
       "type": "string",
-      "pattern": "^evs_[0-9A-Za-z]{3,32}$",
+      "pattern": "^evs_[0-9A-Za-z]{2,32}$",
       "description": "Sealed context snapshot ID."
     },
     "ReconciliationId": {
       "type": "string",
-      "pattern": "^rec_[0-9A-Za-z]{3,32}$",
+      "pattern": "^rec_[0-9A-Za-z]{2,32}$",
       "description": "State reconciliation result ID."
     },
     "DecisionId": {
       "type": "string",
-      "pattern": "^dec_[0-9A-Za-z]{3,32}$"
+      "pattern": "^dec_[0-9A-Za-z]{2,32}$"
     },
     "ConfirmationRequestId": {
       "type": "string",
-      "pattern": "^cfr_[0-9A-Za-z]{3,32}$"
+      "pattern": "^cfr_[0-9A-Za-z]{2,32}$"
     },
     "ConfirmationEventId": {
       "type": "string",
-      "pattern": "^cfe_[0-9A-Za-z]{3,32}$"
+      "pattern": "^cfe_[0-9A-Za-z]{2,32}$"
     },
     "PlanId": {
       "type": "string",
-      "pattern": "^pln_[0-9A-Za-z]{3,32}$"
+      "pattern": "^pln_[0-9A-Za-z]{2,32}$"
     },
     "GrantId": {
       "type": "string",
-      "pattern": "^grt_[0-9A-Za-z]{3,32}$"
+      "pattern": "^grt_[0-9A-Za-z]{2,32}$"
     },
     "IdempotencyKeyId": {
       "type": "string",
-      "pattern": "^idk_[0-9A-Za-z]{3,32}$"
+      "pattern": "^idk_[0-9A-Za-z]{2,32}$"
     },
     "ReceiptId": {
       "type": "string",
-      "pattern": "^rcp_[0-9A-Za-z]{3,32}$"
+      "pattern": "^rcp_[0-9A-Za-z]{2,32}$"
     },
     "VerdictId": {
       "type": "string",
-      "pattern": "^ver_[0-9A-Za-z]{3,32}$"
+      "pattern": "^ver_[0-9A-Za-z]{2,32}$"
     },
     "WatchId": {
       "type": "string",
-      "pattern": "^wat_[0-9A-Za-z]{3,32}$"
+      "pattern": "^wat_[0-9A-Za-z]{2,32}$"
     },
     "RecoveryRequestId": {
       "type": "string",
-      "pattern": "^rrq_[0-9A-Za-z]{3,32}$"
+      "pattern": "^rrq_[0-9A-Za-z]{2,32}$"
     },
     "ExplanationId": {
       "type": "string",
-      "pattern": "^exp_[0-9A-Za-z]{3,32}$"
+      "pattern": "^exp_[0-9A-Za-z]{2,32}$"
     },
     "OutcomeEventId": {
       "type": "string",
-      "pattern": "^evt_[0-9A-Za-z]{3,32}$",
+      "pattern": "^evt_[0-9A-Za-z]{2,32}$",
       "description": "ID of an outcome.updated event."
     },
     "RecordEventId": {
       "type": "string",
-      "pattern": "^recev_[0-9A-Za-z]{3,32}$",
-      "description": "Record event ID. PERD §32.3 uses recev; the SoT §43.6 example shows rec_1001, which collides with the reconciliation prefix."
+      "pattern": "^recev_[0-9A-Za-z]{2,32}$",
+      "description": "Record event ID. PERD §32.3 uses recev (rec is the state-reconciliation prefix); the SoT §43.6 example was corrected to recev_1001 in SoT v1.9 (DEC-2026-10-18)."
     },
     "MemoryId": {
       "type": "string",
-      "pattern": "^mem_[0-9A-Za-z]{3,32}$"
+      "pattern": "^mem_[0-9A-Za-z]{2,32}$"
     },
     "PrincipalId": {
       "type": "string",
-      "pattern": "^usr_[0-9A-Za-z]{3,32}$",
+      "pattern": "^usr_[0-9A-Za-z]{2,32}$",
       "description": "Principal ID as asserted by the enterprise IdP session (SoT §43.1 example: usr_88213)."
     },
     "IntentRef": {
       "description": "intent_id@version, the 'supersedes' link (PERD §20.1).",
       "type": "string",
-      "pattern": "^int_[0-9A-Za-z]{3,32}@[0-9]+$"
+      "pattern": "^int_[0-9A-Za-z]{2,32}@[0-9]+$"
     },
     "ResourceRef": {
       "description": "A pack resource reference, <vertical>.<kind>:<id> (for example fin.transaction:TX88213).",

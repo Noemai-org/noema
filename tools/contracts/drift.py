@@ -11,6 +11,7 @@ from pathlib import Path
 
 CONTRACTS = Path(__file__).resolve().parent.parent.parent / "contracts"
 REGISTRY = CONTRACTS / "state-registry.md"
+PERD_EVENT_TYPES = CONTRACTS / "perd-32-2-event-types.md"
 
 # registry row (start of the first cell) -> (enum definition, how to read the values cell)
 ROWS = {
@@ -112,6 +113,29 @@ def check_money(schemas: dict, registry_text: str) -> list[str]:
     return problems
 
 
+def perd_event_types(text: str) -> list[str]:
+    """Event type names in the PERD §32.2 table. SECURITY_EVENT{kind: ...} and AUDIO_RETAINED{consent_ref} count as their name."""
+    names = []
+    for line in text.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")] if line.startswith("|") else []
+        if len(cells) == 2 and cells[0] not in ("Group", "---"):
+            for item in cells[1].split(" · "):
+                names.append(re.sub(r"\{.*\}$", "", item.strip()))
+    return names
+
+
+def check_record_event_types(schemas: dict) -> list[str]:
+    """The schema's Record event types must be exactly the PERD §32.2 table (no more, no fewer, no duplicates)."""
+    want = perd_event_types(PERD_EVENT_TYPES.read_text(encoding="utf-8"))
+    have = schemas["record-event.v1.json"]["$defs"]["RecordEventType"]["enum"]
+    problems = []
+    if not want or len(want) != len(set(want)):
+        problems.append("PERD §32.2 extract is empty or lists an event type twice")
+    if sorted(want) != sorted(have):
+        problems.append(f"RecordEventType: PERD §32.2 {sorted(set(want) - set(have))} missing from the schema, schema {sorted(set(have) - set(want))} missing from PERD §32.2")
+    return problems
+
+
 def check(schemas: dict, _registry) -> list[str]:
     text = REGISTRY.read_text(encoding="utf-8")
-    return check_lists(schemas["enums.v1.json"], text) + check_money(schemas, text)
+    return check_lists(schemas["enums.v1.json"], text) + check_money(schemas, text) + check_record_event_types(schemas)

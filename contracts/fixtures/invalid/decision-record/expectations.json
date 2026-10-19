@@ -1,6 +1,11 @@
 {
+  "allow_business_fail.json": "const",
+  "allow_business_not_evaluated.json": "const",
+  "allow_policy_fail.json": "const",
+  "allow_policy_not_evaluated.json": "const",
+  "allow_technical_fail.json": "const",
+  "allow_technical_not_evaluated.json": "const",
   "allow_with_clarification.json": "not",
-  "allow_with_failed_layer.json": "not",
   "allow_with_reevaluate_at.json": "not",
   "authority_layer_missing.json": "required",
   "authority_overridden.json": "enum",

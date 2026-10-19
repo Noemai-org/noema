@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "receipt_id": "rcp_2M1",
+  "grant_id": "grt_3K9",
+  "idempotency_key": "idk_v1_3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E3E",
+  "logical_action": "fin.cap.create_escalation_case",
+  "attempt": 1,
+  "dispatched_at": "2026-10-01T09:48:01Z",
+  "transport_result": "TIMEOUT",
+  "external_ack": null,
+  "execution_state": "OUTCOME_UNKNOWN",
+  "sig": {
+    "key_id": "exec-2026-10",
+    "value": "c2ln"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/evidence-payload.v1.json",
+  "title": "Evidence payload",
+  "description": "PERD §38.2 evidence_payload: the normalised JSON an adapter produced, plus the hash of the raw response. Insert-only. Money inside the payload follows the money rules (integer minor units); the adapter validates that, the schema cannot see inside an adapter's JSON.",
+  "type": "object",
+  "properties": {
+    "payload_ref": {
+      "type": "string",
+      "pattern": "^[a-z]+_[A-Za-z0-9_]{2,64}$"
+    },
+    "json": {
+      "type": "object"
+    },
+    "raw_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "sensitivity": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DataSensitivity"
+    }
+  },
+  "required": [
+    "payload_ref",
+    "json",
+    "raw_hash",
+    "sensitivity"
+  ],
+  "additionalProperties": false
+}

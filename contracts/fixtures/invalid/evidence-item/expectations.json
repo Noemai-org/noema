@@ -1,0 +1,12 @@
+{
+  "authority_class_free_text.json": "pattern",
+  "carries_raw_payload.json": "additionalProperties",
+  "effective_at_missing.json": "required",
+  "fact_status_absent.json": "enum",
+  "freshness_zero.json": "minimum",
+  "not_credited_as_status.json": "enum",
+  "payload_hash_uppercase.json": "pattern",
+  "read_at_missing.json": "required",
+  "read_by_unknown.json": "enum",
+  "sensitivity_is_a_severity.json": "pattern"
+}
