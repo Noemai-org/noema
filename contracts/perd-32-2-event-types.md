@@ -1,4 +1,4 @@
-<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.9.md §32.2 (Event types) at docs commit a8e22b3 (open PR Noemai-org/docs#14, branch docs/con01-gap-closure). The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point the commit after docs#14 merges, and refresh it in a contracts pull request when the original changes. -->
+<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.9.md section 32.2 (Event types) at docs commit d03d54bffae03611defa31948f8d95f5f316b3b9. The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 ### 32.2 Event types
 

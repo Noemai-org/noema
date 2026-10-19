@@ -1,4 +1,4 @@
-<!-- Vendored copy of Noemai-org/docs docs/engineering/state-registry.md at commit de3ef2c (unmerged docs branch claude/peaceful-mendel-lenchk-d13-open-decisions). The docs original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Refresh it in a contracts pull request when the original changes. -->
+<!-- Copy of Noemai-org/docs docs/engineering/state-registry.md at docs commit d03d54bffae03611defa31948f8d95f5f316b3b9. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # State registry
 
