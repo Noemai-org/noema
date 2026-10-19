@@ -7,13 +7,18 @@ name: noema-local
 
 x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
 x-model-networks: &model_networks [edge_net, svc_net, provider_egress]
-x-ui-networks: &ui_networks [edge_net]
+x-ui-networks: &ui_networks [edge_net, ui_publish_net]
+x-model-no-egress-networks: &model_no_egress_networks [edge_net, svc_net]
 x-profiles: &run_profiles [dev, ci, bench, demo]
 x-python-image: &python_image python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
 
 networks:
-  # Client traffic. Not internal, because the UI publishes a port to localhost through it.
-  edge_net: {}
+  # Client traffic between ui, core and model (PERD §65.1). Internal: nothing on it has a route out.
+  edge_net:
+    internal: true
+  # The only way out for the UI: it publishes its port to localhost through this network. The UI is the
+  # only member, so core and model have no route out except the model's provider_egress.
+  ui_publish_net: {}
   # mTLS internal APIs between core and model.
   svc_net:
     internal: true
@@ -23,7 +28,8 @@ networks:
   # Enterprise access. Internal until the hostility proxy (ENV-09) provides the one allowlisted egress.
   tushe_net:
     internal: true
-  # Egress to model and speech providers. The model service is the only member.
+  # Egress to model and speech providers. The model service is the only member. This is the model's one
+  # intended route out (PERD §65.1); the core has no non-internal network at all.
   provider_egress: {}
   # Benchmark services only. Unreachable from core and model.
   bench_net:
@@ -170,18 +176,29 @@ services:
     networks: [bench_net]
     command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
     healthcheck: *sentinel_health
+  # host.docker.internal is the host: an address outside the stack, used by the egress rows of the matrix.
   probe-core:
     image: *python_image
     profiles: [netcheck]
     networks: *core_networks
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["./netcheck/probe.py:/probe.py:ro"]
   probe-model:
     image: *python_image
     profiles: [netcheck]
     networks: *model_networks
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes: ["./netcheck/probe.py:/probe.py:ro"]
+  # The model without provider_egress: proves that the model's only route out is provider_egress.
+  probe-model-no-egress:
+    image: *python_image
+    profiles: [netcheck]
+    networks: *model_no_egress_networks
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["./netcheck/probe.py:/probe.py:ro"]
   probe-ui:
     image: *python_image
     profiles: [netcheck]
     networks: *ui_networks
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes: ["./netcheck/probe.py:/probe.py:ro"]

@@ -12,7 +12,7 @@ The POC topology (PLT-04; PERD §65.1, REQ-OPS-001). Local use only.
 
 ## Networks
 
-`edge_net` (ui, core, model), `svc_net` (core, model), `data_net` (core, postgres, temporal), `tushe_net` (core), `provider_egress` (model only), `bench_net` (nobody yet; bench services only, unreachable from core and model). `svc_net`, `data_net`, `tushe_net` and `bench_net` are Docker-internal.
+`edge_net` (ui, core, model; PERD §65.1), `svc_net` (core, model), `data_net` (core, postgres, temporal), `tushe_net` (core), `provider_egress` (model only), `bench_net` (nobody yet; bench services only, unreachable from core and model). All of these except `provider_egress` are Docker-internal. One further network, `ui_publish_net`, has the UI as its only member: it is how the UI publishes its port to localhost, and it is the UI's only route out. It is not one of the six networks of PERD §65.1; it exists so that `edge_net` can be internal (see "Routes out").
 
 Profiles: `dev`, `ci`, `bench`, `demo` all start the same five services for now. The hostility proxy and runner (bench; ENV-09) and the reference partner listener (demo) join later. `netcheck` holds the matrix fixtures and is never started by `make up`.
 
@@ -26,7 +26,15 @@ Postgres creates `noema` (owner `noema_core`, a role that is not a superuser and
 2. A probe that carries each service's networks tries every target. A target must be reachable exactly when a network is shared.
 3. The forbidden paths are repeated from inside the real model container.
 4. Database roles: `noema_core` is a plain role; neither the core's role nor Temporal's role can connect to the other's databases.
+5. Egress: the core and the model without `provider_egress` cannot reach an outside address; the UI still serves on its published port.
 
-## Limit to know
+## Routes out
 
-`edge_net` is not internal, because the UI publishes a port to localhost through it. Core and model are on it, so on a developer machine they have NAT egress through that network. The PERD's rule that the core has no provider path is enforced here by network membership, and in shared environments by the host firewall rules REQ-OPS-001 also requires.
+The only networks that are not Docker-internal are `provider_egress` (the model, for providers, PERD §65.1) and `ui_publish_net` (the UI, to publish its port). So:
+
+- the **core** has no route out at all;
+- the **model** reaches outside only through `provider_egress`;
+- the **UI** reaches outside only through `ui_publish_net`;
+- only the UI publishes a port, on `127.0.0.1:8082`.
+
+Step 5 of the matrix proves it: a listener on the host stands for an address outside the stack. The core, and a probe carrying the model's networks minus `provider_egress`, must not reach it; the model (through `provider_egress`) and the UI may. Shared environments still need the host firewall rules REQ-OPS-001 also requires.

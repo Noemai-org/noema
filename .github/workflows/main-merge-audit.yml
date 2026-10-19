@@ -1,0 +1,87 @@
+# main-merge-audit: raise an alarm when a commit reaches main without an independent approving review.
+#
+# For each pushed commit it finds the pull request the commit came from and opens a GitHub issue
+# (label "governance", title "Unreviewed merge to main: <short sha>") when any of these holds:
+#   no_pull_request      the commit has no associated pull request (a direct push to main);
+#   no_approval          the pull request has no approving review;
+#   author_approval_only every approving review came from the pull request's own author.
+# One issue per commit: a commit that already has one is skipped.
+#
+# Known limits:
+#   - It reports after the fact. It cannot stop a merge.
+#   - Anyone with write access can still push to main.
+#   - It is replaced by real branch protection once the GitHub plan allows it.
+# Until then a "governance" issue is resolved before the next merge (AGENTS.md section 11).
+name: main-merge-audit
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+jobs:
+  main-merge-audit:
+    name: main-merge-audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const LABEL = "governance";
+            const commits = (context.payload.commits || []).map((c) => c.id);
+            if (commits.length === 0 && context.payload.head_commit) commits.push(context.payload.head_commit.id);
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: LABEL });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+              await github.rest.issues.createLabel({ owner, repo, name: LABEL, color: "b60205", description: "A governance rule was bypassed" });
+            }
+            const existing = new Set(
+              (await github.paginate(github.rest.issues.listForRepo, { owner, repo, labels: LABEL, state: "all", per_page: 100 })).map((i) => i.title)
+            );
+
+            for (const sha of commits) {
+              const short = sha.slice(0, 7);
+              const title = `Unreviewed merge to main: ${short}`;
+              if (existing.has(title)) continue;
+
+              const commit = (await github.rest.repos.getCommit({ owner, repo, ref: sha })).data;
+              const prs = (await github.paginate(github.rest.repos.listPullRequestsForCommit, { owner, repo, commit_sha: sha, per_page: 100 }))
+                .filter((p) => p.merged_at && p.base.ref === context.payload.repository.default_branch);
+              const pr = prs[0];
+              const fired = [];
+              let author = pr ? pr.user.login : (commit.author ? commit.author.login : commit.commit.author.name);
+              let reviewers = [];
+              if (!pr) {
+                fired.push("no_pull_request: no pull request is associated with this commit (a direct push to main)");
+              } else {
+                const reviews = await github.paginate(github.rest.pulls.listReviews, { owner, repo, pull_number: pr.number, per_page: 100 });
+                // The latest review state of each reviewer decides.
+                const latest = new Map();
+                for (const r of reviews) {
+                  if (r.user && r.state !== "COMMENTED" && r.state !== "PENDING") latest.set(r.user.login, r.state);
+                }
+                reviewers = [...latest].map(([login, state]) => `${login} (${state})`);
+                const approvers = [...latest].filter(([, state]) => state === "APPROVED").map(([login]) => login);
+                if (approvers.length === 0) fired.push("no_approval: the pull request has no approving review");
+                else if (approvers.every((login) => login === pr.user.login)) fired.push("author_approval_only: every approving review came from the pull request's own author");
+              }
+              if (fired.length === 0) continue;
+
+              const body = [
+                `Commit: ${commit.html_url}`,
+                `Pull request: ${pr ? pr.html_url : "none"}`,
+                `Author: ${author}`,
+                `Reviewers found: ${reviewers.length ? reviewers.join(", ") : "none"}`,
+                "",
+                "Rule(s) that fired:",
+                ...fired.map((f) => `- ${f}`),
+                "",
+                "Resolve this issue before the next merge. This audit reports after the fact and cannot stop a merge.",
+              ].join("\n");
+              const issue = await github.rest.issues.create({ owner, repo, title, body, labels: [LABEL] });
+              core.warning(`opened #${issue.data.number}: ${title}`);
+            }
