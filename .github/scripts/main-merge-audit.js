@@ -138,7 +138,7 @@ async function decide(github, ctx, sha, issues) {
   if (sha === cutoff.sha) return { sha, action: 'skip', reason: 'before_cutoff' };
   const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${cutoff.sha}...${sha}` });
   if (cmp.data.status !== 'ahead') return { sha, action: 'skip', reason: 'before_cutoff' };
-  if (alreadyReported(issues, sha)) return { sha, action: 'skip', reason: 'already_reported' };
+  if (!ctx.ignoreReported && alreadyReported(issues, sha)) return { sha, action: 'skip', reason: 'already_reported' };
 
   const commit = (await github.rest.repos.getCommit({ owner, repo, ref: sha })).data;
   const found = await findPullRequest(github, { owner, repo, sha, base });
@@ -178,15 +178,18 @@ async function ensureLabel(github, { owner, repo }) {
 }
 
 // Entry point used by the workflow. A workflow_dispatch run is always a dry run: it evaluates the
-// commit given as input and logs what it would do, and never opens an issue.
+// commit given as input and logs what it would do, and never opens an issue. Its optional input
+// evaluate_reported=true evaluates a commit even though an issue for it exists, to show how it maps.
 async function run({ github, context, core, cutoff }) {
   const { owner, repo } = context.repo;
   const base = context.payload.repository.default_branch;
   let before;
   let after;
   let dryRun = false;
+  let ignoreReported = false;
   if (context.eventName === 'workflow_dispatch') {
     after = context.payload.inputs.sha;
+    ignoreReported = context.payload.inputs.evaluate_reported === 'true';
     before = (await github.rest.repos.getCommit({ owner, repo, ref: after })).data.parents[0].sha;
     dryRun = true;
   } else {
@@ -194,7 +197,7 @@ async function run({ github, context, core, cutoff }) {
     after = context.payload.after;
     if (!after || ZERO_SHA.test(after)) return { arrivals: [], carried: [], decisions: [] };
   }
-  const result = await auditPush(github, { owner, repo, base, cutoff, before, after });
+  const result = await auditPush(github, { owner, repo, base, cutoff, before, after, ignoreReported });
   core.info(`${dryRun ? 'DRY RUN. ' : ''}push ${shortSha(before)}...${shortSha(after)}: ${result.arrivals.length} arrival(s), ${result.carried.length} carried commit(s) not audited one by one`);
   if (result.note) core.info(result.note);
   let opened = 0;

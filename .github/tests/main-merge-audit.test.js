@@ -287,6 +287,18 @@ test('run as workflow_dispatch is a dry run: it logs what it would open and open
   assert.ok(q.logs.some((l) => /WOULD OPEN ISSUE "Unreviewed merge to main: .*" \[no_approval\]/.test(l)));
 });
 
+test('a dry run with evaluate_reported evaluates a commit that already has an issue, and still opens nothing', async () => {
+  const issue = { number: 1, title: audit.titleFor(sha('merge')), body: '', labels: ['governance'] };
+  const f = fakeGithub({ commits: graph(), prs: [pr(7, 'alice', 'merge')], reviews: { 7: [rev('bob', 'APPROVED')] }, issues: [issue] });
+  const q = quiet();
+  await audit.run({ github: f.github, context: runCtx('workflow_dispatch', { inputs: { sha: sha('merge'), evaluate_reported: 'true' } }), core: q.core, cutoff: CUT });
+  assert.ok(q.logs.some((l) => /^PASS .*PR #7 via merge_commit_sha.*approved by bob/.test(l)));
+  assert.equal(f.created.length, 0);
+  const q2 = quiet();
+  await audit.run({ github: f.github, context: runCtx('workflow_dispatch', { inputs: { sha: sha('merge'), evaluate_reported: 'false' } }), core: q2.core, cutoff: CUT });
+  assert.ok(q2.logs.some((l) => /SKIPPED .*already_reported/.test(l)));
+});
+
 // ---- 10: the 23 real commits ----------------------------------------------------------------------
 // Each of the 23 commits that produced a governance issue on 2026-10-19, with the verdict assigned in the
 // diagnosis. role: 'arrival' = an arrival on main (audited); 'carried' = an ancestor carried in by that

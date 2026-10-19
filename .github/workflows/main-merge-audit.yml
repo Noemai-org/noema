@@ -32,6 +32,10 @@ on:
       sha:
         description: "Dry run: a commit on main to evaluate as an arrival (nothing is opened)"
         required: true
+      evaluate_reported:
+        description: "Dry run: evaluate the commit even if an issue for it already exists (true or false)"
+        required: false
+        default: "false"
 permissions:
   contents: read
   issues: write
