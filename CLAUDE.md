@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs CLAUDE.md at commit de3ef2c (unmerged docs branch claude/peaceful-mendel-lenchk-d13-open-decisions). The docs original wins on any difference. Re-point to the merged commit once the docs stack lands. -->
+<!-- Copy of Noemai-org/docs CLAUDE.md at docs commit 7d5b2fabdc4d81d09a5a12a49e186d4fdc8de635. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 @AGENTS.md
 

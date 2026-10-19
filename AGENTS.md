@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at commit de3ef2c (unmerged docs branch claude/peaceful-mendel-lenchk-d13-open-decisions). The docs original wins on any difference. Re-point to the merged commit once the docs stack lands. The "Pull request shape" rules in section 11 (including the enforcement rule for `pr-base-guard` and `main-merge-audit`) were added by Noemai-org/docs#14 (DEC-2026-10-18). -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 7d5b2fabdc4d81d09a5a12a49e186d4fdc8de635. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -361,7 +361,7 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 
 - Every PR targets `main`. Never base a PR on another PR's branch. Dependent work goes into one PR as separate commits, or waits until its dependency merges.
 - Any PR that adds a top-level owned path adds its CODEOWNERS line in the same PR.
-- Before opening a PR, run the trace check locally against the PR body (`tools/ci/check_pr_trace.py`).
+- Before opening a PR, run the trace check locally against the PR body (`tools/ci/check_pr_trace.py` in the `noema` repository).
 - Until branch protection is enabled, `pr-base-guard` and `main-merge-audit` are the enforcement. A red `pr-base-guard` is never merged past, and a `governance` issue from `main-merge-audit` is resolved before the next merge.
 
 **Commits.** One logical change per commit. The message starts with the task ID (for example `EXE-02: …`). Include the attribution lines your environment requires. Never squash away the reasoning for a change without saying so in the PR.
