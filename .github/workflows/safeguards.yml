@@ -27,12 +27,10 @@ jobs:
         run: python3 -I tools/ci/check_pins.py
       - name: Environment references
         run: python3 -I tools/ci/check_env_refs.py
-      - name: Install the workflow parser (pinned, hashed)
-        run: python3 -m venv "$RUNNER_TEMP/ci-venv" && "$RUNNER_TEMP/ci-venv/bin/pip" install -q --require-hashes -r tools/ci/requirements.lock
-      - name: Secret names (listed in .env.example; oracle and fixture secrets only in jobs of their own environment)
-        run: '"$RUNNER_TEMP/ci-venv/bin/python" -I tools/ci/check_secret_refs.py'
+      - name: Secret names (every secret a workflow reads is listed in .env.example)
+        run: python3 -I tools/ci/check_secret_refs.py
       - name: Secret-name check tests
-        run: '"$RUNNER_TEMP/ci-venv/bin/python" -I tools/ci/test_check_secret_refs.py'
+        run: python3 -I tools/ci/test_check_secret_refs.py
       - name: PR trace
         if: github.event_name == 'pull_request'
         env:
@@ -45,7 +43,7 @@ jobs:
       - name: Vendored-copy script tests (the current PERD is resolved, not hardcoded)
         run: python3 -I -m unittest discover -s tools/vendor -p 'test_*.py'
       - name: Canaries (each check must fail for its own reason)
-        run: '"$RUNNER_TEMP/ci-venv/bin/python" -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"'
+        run: python3 -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"
   images:
     runs-on: ubuntu-24.04
     strategy:

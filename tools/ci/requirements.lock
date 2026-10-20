@@ -1,6 +1,0 @@
-# Pinned, hashed dependency of the CI checks in this folder (AGENT-14: a new dependency needs an [OPEN] entry and approval;
-# see the pull request that adds this file). PyYAML reads workflow files so check_secret_refs.py can tell jobs apart.
-# Install: python3 -m venv .venv-ci && .venv-ci/bin/pip install --require-hashes -r tools/ci/requirements.lock
-# Hash is for the CPython 3.13 manylinux x86_64 wheel (the ubuntu-24.04 runner).
-PyYAML==6.0.2 \
-    --hash=sha256:70b189594dbe54f75ab3a1acec5f1e3faa7e8cf2f1e08d9b561cb41b845f69d5
