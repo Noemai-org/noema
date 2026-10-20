@@ -1,0 +1,32 @@
+"""The predicate corpus (contracts/predicates/tests/corpus.json) against the Python reference parser. REQ-VER-002."""
+import json
+import sys
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import predicate  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+CORPUS = json.loads((ROOT / "contracts/predicates/tests/corpus.json").read_text())
+SCOPE = predicate.Scope.from_pack(CORPUS["scope"])
+
+
+class Corpus(unittest.TestCase):
+    def test_every_case(self):
+        for case in CORPUS["cases"]:
+            with self.subTest(case["id"]):
+                if "error" in case:
+                    with self.assertRaises(predicate.PredicateError) as caught:
+                        predicate.check(case["expr"], SCOPE)
+                    self.assertEqual(caught.exception.code, case["error"])
+                else:
+                    self.assertEqual(predicate.check(case["expr"], SCOPE)[0], case["result"])
+
+    def test_corpus_covers_every_error_code(self):
+        codes = {c["error"] for c in CORPUS["cases"] if "error" in c}
+        self.assertEqual(codes, {"SYNTAX", "UNKNOWN_NAME", "UNKNOWN_ENTITY", "UNKNOWN_FIELD", "UNKNOWN_ENUM_VALUE", "TYPE_MISMATCH", "NOT_BOOLEAN"})
+
+
+if __name__ == "__main__":
+    unittest.main()

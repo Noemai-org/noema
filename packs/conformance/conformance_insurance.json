@@ -257,5 +257,39 @@
       "meaning": "A pack rule permits the capability",
       "produced_by": "POLICY_RULE"
     }
-  ]
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "claim",
+      "source": "ins.src.claims",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "SUBMITTED",
+            "IN_REVIEW",
+            "APPROVED",
+            "REJECTED"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    },
+    "expected_status": {
+      "type": "Enum",
+      "values": [
+        "SUBMITTED",
+        "IN_REVIEW",
+        "APPROVED",
+        "REJECTED"
+      ]
+    }
+  }
 }

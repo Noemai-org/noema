@@ -1,0 +1,66 @@
+{
+  "graph_id": "fin.graph.escalate",
+  "graph_version": "1.0.0",
+  "applies_when": "subject_resource.status == 'RESOLVED'",
+  "nodes": [
+    {
+      "node_id": "create_escalation_case",
+      "kind": "WRITE",
+      "capability_id": "fin.cap.create_escalation_case",
+      "preconditions": [
+        "subject_resource.status == 'RESOLVED'",
+        "not exists(case where case.subject == subject_resource and case.epoch == logical_resolution_epoch and case.status in ['OPEN','ROUTED'])"
+      ],
+      "postconditions": [
+        "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])"
+      ],
+      "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "on_failure": "ESCALATE",
+      "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "escalation_ref": "HANDOFF"
+    },
+    {
+      "node_id": "record_investigation_evidence",
+      "kind": "WRITE",
+      "capability_id": "fin.cap.record_investigation_evidence",
+      "preconditions": [
+        "exists(case where case.id == case_id)",
+        "evidence_packet_hash != null"
+      ],
+      "postconditions": [
+        "exists(attachment where attachment.case == case_id and attachment.payload_hash == evidence_packet_hash)"
+      ],
+      "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "on_failure": "ESCALATE",
+      "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "escalation_ref": "CASE"
+    },
+    {
+      "node_id": "route_to_internal_owner",
+      "kind": "WRITE",
+      "capability_id": "fin.cap.route_to_internal_owner",
+      "preconditions": [
+        "exists(case where case.id == case_id)"
+      ],
+      "postconditions": [
+        "exists(case where case.id == case_id and case.owner_queue == planned_queue)"
+      ],
+      "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "on_failure": "ESCALATE",
+      "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "escalation_ref": "CASE"
+    }
+  ],
+  "edges": [
+    {
+      "node_id": "record_investigation_evidence",
+      "depends_on": "create_escalation_case",
+      "condition": null
+    },
+    {
+      "node_id": "route_to_internal_owner",
+      "depends_on": "record_investigation_evidence",
+      "condition": null
+    }
+  ]
+}

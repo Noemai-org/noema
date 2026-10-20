@@ -70,7 +70,7 @@
       "intent_nodes": [
         "tel.bundle.not_received.investigate"
       ],
-      "success_predicate": "bundle.status == 'PROVISIONED' or count(case where case.subject == subject_resource and case.kind == 'REFUND') == 1",
+      "success_predicate": "exists(bundle where bundle.id == subject_resource and bundle.status == 'PROVISIONED') or count(case where case.subject == subject_resource and case.kind == 'REFUND') == 1",
       "intermediate_states": [],
       "terminal_states": [
         "ACHIEVED",
@@ -192,5 +192,45 @@
       "meaning": "A pack rule permits the capability",
       "produced_by": "POLICY_RULE"
     }
-  ]
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "bundle",
+      "source": "tel.src.charging",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "PROVISIONED",
+            "PENDING",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    {
+      "entity": "case",
+      "source": "tel.src.charging",
+      "fields": {
+        "subject": {
+          "type": "Reference"
+        },
+        "kind": {
+          "type": "Enum",
+          "values": [
+            "REFUND",
+            "COMPLAINT"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    }
+  }
 }

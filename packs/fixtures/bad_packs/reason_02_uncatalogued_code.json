@@ -1,0 +1,13 @@
+{
+  "requirement": "DEC money-and-value-lists 2.3",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "reasons",
+  "expect_message_contains": "neither a core code",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/policy/rules/1/reason_code",
+      "value": "fin.reason.nope"
+    }
+  ]
+}

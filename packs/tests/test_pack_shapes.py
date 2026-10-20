@@ -87,7 +87,7 @@ class Fintech(unittest.TestCase):
         self.assertNotIn("NONE", json.dumps(self.pack["reason_catalogue"]))
 
     def test_no_legacy_fields_or_tuned_thresholds(self):  # AGENT-16
-        for legacy in ("domain", "version", "intent_classes", "routing_allowlist", "reason_codes", "outcomes", "action_graph"):
+        for legacy in ("domain", "version", "intent_classes", "reason_codes", "outcomes", "action_graph"):
             self.assertNotIn(legacy, self.pack)
         blob = json.dumps(self.pack)
         for legacy in ("confidence_threshold", "requires_confirmation_on_r3", "max_dispute_amount_kobo", "precedence_ladder",

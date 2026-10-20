@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-CAP-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "capability",
+  "expect_message_contains": "verification method",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/capabilities/8/verification/method",
+      "value": "none"
+    }
+  ]
+}

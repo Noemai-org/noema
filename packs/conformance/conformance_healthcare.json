@@ -73,7 +73,7 @@
       "intent_nodes": [
         "hc.appointment.reschedule"
       ],
-      "success_predicate": "exists(slot where slot.appointment == subject_resource and slot.status == 'CONFIRMED') and prior_authorisation.status == 'VALID'",
+      "success_predicate": "exists(slot where slot.appointment == subject_resource and slot.status == 'CONFIRMED') and exists(prior_authorisation where prior_authorisation.appointment == subject_resource and prior_authorisation.status == 'VALID')",
       "intermediate_states": [],
       "terminal_states": [
         "ACHIEVED",
@@ -257,5 +257,46 @@
       "meaning": "A pack rule permits the capability",
       "produced_by": "POLICY_RULE"
     }
-  ]
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "slot",
+      "source": "hc.src.scheduling",
+      "fields": {
+        "appointment": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "PROPOSED",
+            "CONFIRMED",
+            "CANCELLED"
+          ]
+        }
+      }
+    },
+    {
+      "entity": "prior_authorisation",
+      "source": "hc.src.scheduling",
+      "fields": {
+        "appointment": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "VALID",
+            "EXPIRED",
+            "REVOKED"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    }
+  }
 }

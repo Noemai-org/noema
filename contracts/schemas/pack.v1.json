@@ -112,10 +112,10 @@
       }
     },
     "predicate_variables": {
-      "description": "Typed names a predicate may use besides evidence entities, for example subject_resource or planned_queue.",
+      "description": "Typed names a predicate may use besides evidence entities, for example subject_resource or planned_queue. A dotted name (subject_resource.status) is one variable.",
       "type": "object",
       "propertyNames": {
-        "pattern": "^[a-z][a-z0-9_]*$"
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
       },
       "additionalProperties": {
         "$ref": "https://contracts.noema.invalid/evidence-descriptor.v1.json#/$defs/FieldType"

@@ -1,0 +1,13 @@
+{
+  "requirement": "DEC money-and-value-lists 2.3",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "reasons",
+  "expect_message_contains": "outside the pack namespace",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/reason_catalogue/0/code",
+      "value": "tel.reason.open_case_exists"
+    }
+  ]
+}

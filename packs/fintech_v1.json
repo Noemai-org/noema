@@ -112,7 +112,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "clocks": [
         "fin.clock.ng.nip_dispute_72h"
@@ -209,7 +210,7 @@
       "intent_nodes": [
         "fin.payments.exception.investigate"
       ],
-      "success_predicate": "case.owner_queue == planned_queue",
+      "success_predicate": "exists(case where case.id == case_id and case.owner_queue == planned_queue)",
       "intermediate_states": [],
       "terminal_states": [
         "ACHIEVED",
@@ -232,7 +233,7 @@
       "intent_nodes": [
         "fin.payments.exception.investigate"
       ],
-      "success_predicate": "exists(attachment where attachment.case == case and attachment.payload_hash == planned_payload_hash)",
+      "success_predicate": "exists(attachment where attachment.case == case_id and attachment.payload_hash == planned_payload_hash)",
       "intermediate_states": [],
       "terminal_states": [
         "ACHIEVED",
@@ -255,7 +256,7 @@
       "intent_nodes": [
         "fin.payments.exception.investigate"
       ],
-      "success_predicate": "count(complaint_ref where complaint_ref.subject == subject_resource and complaint_ref.epoch == epoch) == 1",
+      "success_predicate": "count(complaint_ref where complaint_ref.subject == subject_resource and complaint_ref.epoch == logical_resolution_epoch) == 1",
       "intermediate_states": [],
       "terminal_states": [
         "ACHIEVED",
@@ -317,7 +318,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -384,7 +386,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -451,7 +454,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -518,7 +522,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -585,7 +590,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -652,7 +658,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -683,7 +690,7 @@
     {
       "capability_id": "fin.cap.reconcile_transaction_state",
       "business_meaning": "Reconcile internal ledger, switch, and beneficiary lifecycles",
-      "risk_class": "R0_read",
+      "risk_class": "R0_internal",
       "side_effect_class": "NONE",
       "blast_radius": "internal_calculation",
       "concurrency_control": "NONE",
@@ -719,24 +726,32 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
           "tenant_id",
           "principal_id",
-          "logical_action"
+          "transaction_id",
+          "logical_action",
+          "reason_code",
+          "policy_scope",
+          "logical_resolution_epoch"
         ],
-        "lookup": "not_applicable"
+        "lookup": "case_system.find_by_idempotency_key"
       },
       "retry": {
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "none_required",
       "audit": [
-        "EVIDENCE_READ"
+        "DECISION_MADE",
+        "GRANT_SPENT",
+        "RECEIPT",
+        "VERDICT"
       ],
       "limits": {
         "rate_per_principal_per_hour": 5,
@@ -750,7 +765,7 @@
     {
       "capability_id": "fin.cap.evaluate_sla_status",
       "business_meaning": "Evaluate SLA elapsed time against dispute thresholds",
-      "risk_class": "R0_read",
+      "risk_class": "R0_internal",
       "side_effect_class": "NONE",
       "blast_radius": "internal_calculation",
       "concurrency_control": "NONE",
@@ -786,24 +801,32 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
           "tenant_id",
           "principal_id",
-          "logical_action"
+          "transaction_id",
+          "logical_action",
+          "reason_code",
+          "policy_scope",
+          "logical_resolution_epoch"
         ],
-        "lookup": "not_applicable"
+        "lookup": "case_system.find_by_idempotency_key"
       },
       "retry": {
         "reads": "bounded_backoff",
         "writes": "only_under_new_grant_after_verification"
       },
       "recovery": [],
-      "compensation": "not_applicable",
+      "compensation": "none_required",
       "audit": [
-        "EVIDENCE_READ"
+        "DECISION_MADE",
+        "GRANT_SPENT",
+        "RECEIPT",
+        "VERDICT"
       ],
       "limits": {
         "rate_per_principal_per_hour": 5,
@@ -846,8 +869,8 @@
       "prohibited": false,
       "input_schema": "schemas/fin/create_escalation_case.v1.json",
       "preconditions": [
-        "subject_resource.status == RESOLVED",
-        "no_open_case(subject_resource, logical_resolution_epoch)"
+        "subject_resource.status == 'RESOLVED'",
+        "not exists(case where case.subject == subject_resource and case.epoch == logical_resolution_epoch and case.status in ['OPEN','ROUTED'])"
       ],
       "authority": {
         "principal_must_own": [
@@ -863,7 +886,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -930,7 +954,7 @@
       "input_schema": "schemas/fin/log_complaint_reference.v1.json",
       "preconditions": [
         "exists(case where case.id == case_id)",
-        "no_complaint_ref(subject_resource, logical_resolution_epoch)"
+        "not exists(complaint_ref where complaint_ref.subject == subject_resource and complaint_ref.epoch == logical_resolution_epoch)"
       ],
       "authority": {
         "principal_must_own": [
@@ -946,7 +970,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1012,8 +1037,7 @@
       "prohibited": false,
       "input_schema": "schemas/fin/route_to_internal_owner.v1.json",
       "preconditions": [
-        "exists(case where case.id == case_id)",
-        "owner_queue in routing_allowlist"
+        "exists(case where case.id == case_id)"
       ],
       "authority": {
         "principal_must_own": [
@@ -1029,7 +1053,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1111,7 +1136,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1184,7 +1210,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1251,7 +1278,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1318,7 +1346,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1385,7 +1414,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1452,7 +1482,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1519,7 +1550,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1586,7 +1618,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1653,7 +1686,8 @@
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
         "fin.pol.default.permit_reads",
-        "fin.pol.default.permit_case_writes"
+        "fin.pol.default.permit_case_writes",
+        "fin.pol.default.permit_routing"
       ],
       "idempotency": {
         "key_fields": [
@@ -1808,9 +1842,23 @@
         "applies_to": [
           "fin.cap.create_escalation_case"
         ],
-        "condition": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED'])",
+        "condition": "exists(case where case.subject == subject_resource and case.epoch == logical_resolution_epoch and case.status in ['OPEN','ROUTED'])",
         "effect": "REJECT",
         "reason_code": "fin.reason.open_case_exists"
+      },
+      {
+        "rule_id": "fin.pol.default.permit_routing",
+        "class": "DEFAULT",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "fin.cap.route_to_internal_owner"
+        ],
+        "condition": "case_id != null",
+        "effect": "PERMIT",
+        "reason_code": "fin.reason.permitted",
+        "params": {
+          "owner_queue": "PAYMENTS_OPERATIONS"
+        }
       },
       {
         "rule_id": "fin.pol.regulatory.complaint_confirm",
@@ -1850,8 +1898,7 @@
         "evaluation_time": "AT_DECISION",
         "applies_to": [
           "fin.cap.create_escalation_case",
-          "fin.cap.record_investigation_evidence",
-          "fin.cap.route_to_internal_owner"
+          "fin.cap.record_investigation_evidence"
         ],
         "condition": "subject_resource.status == 'RESOLVED'",
         "effect": "PERMIT",
@@ -1903,5 +1950,190 @@
       "meaning": "The regulatory clock is breached",
       "produced_by": "CLOCK_MAPPING"
     }
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "transaction",
+      "source": "fin.src.core_ledger",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
+      "entity": "switch_event",
+      "source": "fin.src.switch",
+      "fields": {
+        "transaction": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
+      "entity": "settlement_record",
+      "source": "fin.src.settlement",
+      "fields": {
+        "transaction": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
+      "entity": "case",
+      "source": "fin.src.case_system",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "subject": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "OPEN",
+            "ROUTED",
+            "CLOSED"
+          ]
+        },
+        "created_by_intent": {
+          "type": "Reference"
+        },
+        "owner_queue": {
+          "type": "Reference"
+        },
+        "epoch": {
+          "type": "Integer"
+        }
+      }
+    },
+    {
+      "entity": "attachment",
+      "source": "fin.src.case_system",
+      "fields": {
+        "case": {
+          "type": "Reference"
+        },
+        "payload_hash": {
+          "type": "String"
+        }
+      }
+    },
+    {
+      "entity": "complaint_ref",
+      "source": "fin.src.case_system",
+      "fields": {
+        "subject": {
+          "type": "Reference"
+        },
+        "epoch": {
+          "type": "Integer"
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    },
+    "subject_resource.status": {
+      "type": "Enum",
+      "values": [
+        "RESOLVED",
+        "UNRESOLVED",
+        "AMBIGUOUS",
+        "ABSENT"
+      ]
+    },
+    "intent_id": {
+      "type": "Reference"
+    },
+    "case_id": {
+      "type": "Reference"
+    },
+    "logical_resolution_epoch": {
+      "type": "Integer"
+    },
+    "planned_queue": {
+      "type": "Reference"
+    },
+    "planned_payload_hash": {
+      "type": "String"
+    },
+    "evidence_packet_hash": {
+      "type": "String"
+    },
+    "classification": {
+      "type": "Enum",
+      "values": [
+        "SUCCESS_CONFIRMED",
+        "REJECTED_CONFIRMED",
+        "DEBIT_POSTED_CREDIT_UNCONFIRMED",
+        "SETTLEMENT_PENDING",
+        "REVERSAL_PENDING",
+        "REVERSED_CONFIRMED",
+        "POSSIBLE_DUPLICATE",
+        "PARTIAL",
+        "EXECUTION_OUTCOME_UNKNOWN",
+        "CONTRADICTORY_STATE",
+        "EVENT_ORDER_UNCERTAIN",
+        "INSUFFICIENT_EVIDENCE"
+      ]
+    },
+    "classification_used": {
+      "type": "Enum",
+      "values": [
+        "SUCCESS_CONFIRMED",
+        "REJECTED_CONFIRMED",
+        "DEBIT_POSTED_CREDIT_UNCONFIRMED",
+        "SETTLEMENT_PENDING",
+        "REVERSAL_PENDING",
+        "REVERSED_CONFIRMED",
+        "POSSIBLE_DUPLICATE",
+        "PARTIAL",
+        "EXECUTION_OUTCOME_UNKNOWN",
+        "CONTRADICTORY_STATE",
+        "EVENT_ORDER_UNCERTAIN",
+        "INSUFFICIENT_EVIDENCE"
+      ]
+    },
+    "classification_rederived": {
+      "type": "Enum",
+      "values": [
+        "SUCCESS_CONFIRMED",
+        "REJECTED_CONFIRMED",
+        "DEBIT_POSTED_CREDIT_UNCONFIRMED",
+        "SETTLEMENT_PENDING",
+        "REVERSAL_PENDING",
+        "REVERSED_CONFIRMED",
+        "POSSIBLE_DUPLICATE",
+        "PARTIAL",
+        "EXECUTION_OUTCOME_UNKNOWN",
+        "CONTRADICTORY_STATE",
+        "EVENT_ORDER_UNCERTAIN",
+        "INSUFFICIENT_EVIDENCE"
+      ]
+    },
+    "sla_phase": {
+      "type": "Enum",
+      "values": [
+        "NOT_STARTED",
+        "RUNNING",
+        "AT_RISK",
+        "BREACHED"
+      ]
+    }
+  },
+  "routing_allowlist": [
+    "PAYMENTS_OPERATIONS",
+    "DISPUTES",
+    "FRAUD_REVIEW",
+    "SETTLEMENT_OPS"
+  ],
+  "action_graph_files": [
+    "fintech/graph/g1_investigate.json",
+    "fintech/graph/g2_escalate.json",
+    "fintech/graph/g3_complaint.json"
   ]
 }
