@@ -122,5 +122,57 @@ class ExtractFollowsTheResolvedFile(DocsCheckout):
             self.assertIn("docs commit " + "e" * 40, out[target].splitlines()[0])
 
 
+class DriftCheck(DocsCheckout):
+    """--check --ignore-commit: content drift is reported, a moved docs commit alone is not (the drift guard's mode)."""
+
+    def setUp(self):
+        super().setUp()
+        self.perd("1.1")
+        self.readme(row("1.1", True))
+        self.root = tempfile.TemporaryDirectory()
+        self.addCleanup(self.root.cleanup)
+        self._root_before = rd.ROOT
+        rd.ROOT = Path(self.root.name)
+        self.addCleanup(setattr, rd, "ROOT", self._root_before)
+        self.commit("first")
+        self.assertEqual(self.run_main(), 0)  # vendor the copies at the first commit
+
+    def commit(self, message: str):
+        subprocess.check_call(["git", "-C", str(self.docs), "add", "-A"])
+        subprocess.check_call(["git", "-C", str(self.docs), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", message])
+
+    def run_main(self, *flags: str) -> int:
+        old = sys.argv
+        sys.argv = ["repoint_docs.py", "--docs", str(self.docs), *flags]
+        try:
+            return rd.main()
+        finally:
+            sys.argv = old
+
+    def test_a_new_docs_commit_with_the_same_content_is_not_drift(self):
+        (self.docs / "unrelated.txt").write_text("x\n", encoding="utf-8")
+        self.commit("unrelated")
+        self.assertEqual(self.run_main("--check"), 1)  # the header names another commit
+        self.assertEqual(self.run_main("--check", "--ignore-commit"), 0)
+
+    def test_a_changed_original_is_drift(self):
+        (self.docs / "AGENTS.md").write_text("agents changed\n", encoding="utf-8")
+        self.commit("change")
+        self.assertEqual(self.run_main("--check", "--ignore-commit"), 1)
+
+    def test_a_changed_event_table_is_drift(self):
+        path = self.docs / "docs/poc/perd/NOEMA_POC_PERD_v1.1.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("GRANT_ISSUED", "GRANT_MINTED"), encoding="utf-8")
+        self.commit("change")
+        self.assertEqual(self.run_main("--check", "--ignore-commit"), 1)
+
+    def test_a_missing_copy_is_drift(self):
+        (rd.ROOT / "AGENTS.md").unlink()
+        self.assertEqual(self.run_main("--check", "--ignore-commit"), 1)
+
+    def test_ignore_commit_without_check_is_refused(self):
+        self.assertEqual(self.run_main("--ignore-commit"), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

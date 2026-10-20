@@ -1,0 +1,30 @@
+# Vendored-docs drift guard (GOV-22). noema keeps copies of four files whose originals live in Noemai-org/docs, so CI
+# never needs cross-repository access. This workflow is the one place that does: it reads docs `main` and fails when a
+# copy no longer matches its original. The docs commit named in a copy's header is ignored (an unrelated docs commit is not
+# drift); the content is not. Fix: python3 tools/vendor/repoint_docs.py --docs <docs checkout at origin/main>
+name: docs-drift
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  drift:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Check out docs main (read-only token)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Noemai-org/docs
+          ref: main
+          path: docs-main
+          token: ${{ secrets.DOCS_READ_TOKEN }}
+      - name: Compare the vendored copies with docs main
+        run: python3 -I tools/vendor/repoint_docs.py --docs docs-main --check --ignore-commit
