@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/action-graph.v1.json",
+  "title": "Action Graph",
+  "description": "PERD \u00a724 and SoT \u00a743.9: pack data. Nodes are registered capabilities and evidence reads; edges are dependencies with a condition. Planner cannot create a node at runtime (INV-18). The PERD lists the node and edge fields but gives no value type for on_unknown, on_failure, recovery_ref or escalation_ref; the smallest safe types are chosen here from PERD \u00a730.1 and \u00a730.2 (open decision recorded in the T2 report). packcheck (REQ-AG-001) checks every reference, the types of every predicate, acyclicity, and that every WRITE node has both references.",
+  "type": "object",
+  "properties": {
+    "graph_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "graph_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+    },
+    "applies_when": {
+      "description": "When the Planner selects this graph: G1 always, G2 on ESCALATE with a resolved target, G3 when policy requires a complaint reference (PERD \u00a724).",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "READ",
+              "INTERNAL",
+              "WRITE"
+            ]
+          },
+          "capability_id": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "preconditions": {
+            "type": "array",
+            "items": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+            }
+          },
+          "postconditions": {
+            "type": "array",
+            "items": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Predicate"
+            }
+          },
+          "on_unknown": {
+            "$ref": "#/$defs/RecoveryAction"
+          },
+          "on_failure": {
+            "$ref": "#/$defs/RecoveryAction"
+          },
+          "recovery_ref": {
+            "description": "One of the capability's own recovery strategies (descriptor recovery[]); null for a node that does not write.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "escalation_ref": {
+            "description": "Where an unrecoverable node goes (PERD \u00a730.2): a case or a handoff; null for a node that does not write.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "CASE",
+              "HANDOFF",
+              null
+            ]
+          }
+        },
+        "required": [
+          "node_id",
+          "kind",
+          "capability_id",
+          "preconditions",
+          "postconditions",
+          "on_unknown",
+          "on_failure",
+          "recovery_ref",
+          "escalation_ref"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "node_id": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "depends_on": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+          },
+          "condition": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        },
+        "required": [
+          "node_id",
+          "depends_on",
+          "condition"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "graph_id",
+    "graph_version",
+    "applies_when",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RecoveryAction": {
+      "type": "string",
+      "enum": [
+        "RETRY_READ",
+        "VERIFY_BY_IDEMPOTENCY_KEY",
+        "RETRY_UNDER_NEW_GRANT",
+        "ESCALATE"
+      ],
+      "description": "PERD \u00a730.1 recovery types 1, 2, 3 and 5. Compensation (type 4) is not available in the POC."
+    }
+  }
+}

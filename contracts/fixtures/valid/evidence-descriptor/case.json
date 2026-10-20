@@ -1,0 +1,26 @@
+{
+  "entity": "case",
+  "source": "fin.src.case_system",
+  "fields": {
+    "id": {
+      "type": "Reference"
+    },
+    "subject": {
+      "type": "Reference"
+    },
+    "status": {
+      "type": "Enum",
+      "values": [
+        "OPEN",
+        "ROUTED",
+        "CLOSED"
+      ]
+    },
+    "created_at": {
+      "type": "Timestamp"
+    },
+    "owner_queue": {
+      "type": "Reference"
+    }
+  }
+}
