@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/clarification.v1.json",
   "title": "Clarification request",
-  "description": "PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked display name). No label has more than four consecutive digits. Whether labels can distinguish the options is checked by core (identical displayed details mean ESCALATE).",
+  "description": "PERD REQ-AMB-004. A CLARIFY decision carries this object. Labels are produced from pack templates by core, never by a model, and hold only user-verifiable details (amount, local time, last four digits, a masked display name). No label has more than four consecutive digits. Whether labels can distinguish the options is checked by core (identical displayed details mean ESCALATE). Added by DEC-2026-10-20 D4: an optional mode field, and an attribute field that ATTRIBUTE mode requires. Existing fields are unchanged and every earlier document stays valid.",
   "type": "object",
   "properties": {
     "clarification_id": {
@@ -58,6 +58,19 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 2
+    },
+    "mode": {
+      "description": "DEC-2026-10-20 D4. OPTIONS (the default when absent) lists the candidates; ATTRIBUTE asks by the one attribute whose values uniquely partition the candidate set, and names it. Chosen by core deterministically (maximum expected information gain, ties broken by the pack's fixed attribute order); never by a model.",
+      "type": "string",
+      "enum": [
+        "OPTIONS",
+        "ATTRIBUTE"
+      ],
+      "default": "OPTIONS"
+    },
+    "attribute": {
+      "description": "ATTRIBUTE mode only: the candidate attribute asked about. The option values are the options[] labels, each produced by core from the candidate's value for this attribute.",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
     }
   },
   "required": [
@@ -71,5 +84,36 @@
     "expires_at",
     "round"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "ATTRIBUTE"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "attribute"
+        ],
+        "properties": {
+          "options": {
+            "minItems": 2
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "required": [
+            "attribute"
+          ]
+        }
+      }
+    }
+  ]
 }

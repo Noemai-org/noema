@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/memory-observation.v1.json",
+  "title": "Memory observation",
+  "description": "PERD \u00a733: one append-only operational-memory row. Data, never authority (REQ-MEM-001); free text is never stored. The PERD fixes the envelope and says 'typed JSON, per a kind-specific schema' without listing any kind's fields, so `observation` is held to typed scalars only (codes, IDs, integers, booleans) until the owner of each kind supplies its field list. Open decision recorded in the T2 report (AGENT-02).",
+  "type": "object",
+  "properties": {
+    "memory_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/MemoryId"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "ADAPTER_BEHAVIOUR",
+        "FAILURE_PATTERN",
+        "RECOVERY_PATH",
+        "VERIFICATION_LATENCY",
+        "AMBIGUITY_PATTERN",
+        "REGRESSION_LINK"
+      ]
+    },
+    "subject_ref": {
+      "description": "An opaque reference to what the observation is about (a capability, source, intent node or case ID).",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "observation": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+          }
+        ]
+      }
+    },
+    "source_correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "observed_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "recorded_by": {
+      "description": "The power or tool that recorded it, as a code.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "benchmark_case_id": {
+      "description": "The benchmark case this observation produced (AGENT-23).",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)+$"
+    }
+  },
+  "required": [
+    "memory_id",
+    "kind",
+    "subject_ref",
+    "observation",
+    "source_correlation_id",
+    "observed_at",
+    "recorded_by",
+    "benchmark_case_id"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,39 @@
+{
+  "graph_id": "fin.graph.synthetic",
+  "graph_version": "1.0.0",
+  "applies_when": "true",
+  "nodes": [
+    {
+      "node_id": "lookup_transaction",
+      "kind": "READ",
+      "capability_id": "fin.cap.lookup_transaction",
+      "preconditions": [],
+      "postconditions": [],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "create_escalation_case",
+      "kind": "WRITE",
+      "capability_id": "fin.cap.create_escalation_case",
+      "preconditions": [
+        "subject_resource.status == 'RESOLVED'"
+      ],
+      "postconditions": [
+        "exists(case where case.subject == subject_resource)"
+      ],
+      "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "on_failure": "ESCALATE",
+      "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "escalation_ref": "HANDOFF"
+    }
+  ],
+  "edges": [
+    {
+      "node_id": "create_escalation_case",
+      "depends_on": "lookup_transaction"
+    }
+  ]
+}

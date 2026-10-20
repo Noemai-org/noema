@@ -1,0 +1,13 @@
+{
+  "missing_obligation.json": "minItems",
+  "duplicate_obligation.json": "uniqueItems",
+  "money_moving_case_credential.json": "const",
+  "read_credential_not_scoped.json": "const",
+  "third_credential.json": "maxItems",
+  "unknown_credential_kind.json": "const",
+  "listener_missing_event.json": "minItems",
+  "wrong_signature_header.json": "const",
+  "overlay_not_sandboxed.json": "const",
+  "resolution_message_renamed.json": "const",
+  "empty_read_sources.json": "minItems"
+}

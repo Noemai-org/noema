@@ -1,0 +1,23 @@
+{
+  "requirement": "REQ-CAP-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "capability",
+  "expect_message_contains": "CONDITIONAL_WRITE",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/capabilities/8/risk_class",
+      "value": "R4_monetary_write"
+    },
+    {
+      "op": "replace",
+      "path": "/capabilities/8/consequence_profile/financial",
+      "value": "LOW"
+    },
+    {
+      "op": "replace",
+      "path": "/capabilities/8/concurrency_control",
+      "value": "NONE"
+    }
+  ]
+}

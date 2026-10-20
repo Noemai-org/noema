@@ -1,0 +1,24 @@
+{
+  "graph_id": "fin.graph.complaint",
+  "graph_version": "1.0.0",
+  "applies_when": "case_id != null",
+  "nodes": [
+    {
+      "node_id": "log_complaint_reference",
+      "kind": "WRITE",
+      "capability_id": "fin.cap.log_complaint_reference",
+      "preconditions": [
+        "exists(case where case.id == case_id)",
+        "not exists(complaint_ref where complaint_ref.subject == subject_resource and complaint_ref.epoch == logical_resolution_epoch)"
+      ],
+      "postconditions": [
+        "count(complaint_ref where complaint_ref.subject == subject_resource and complaint_ref.epoch == logical_resolution_epoch) == 1"
+      ],
+      "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "on_failure": "ESCALATE",
+      "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY",
+      "escalation_ref": "CASE"
+    }
+  ],
+  "edges": []
+}

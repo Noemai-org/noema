@@ -6,5 +6,11 @@
   "option_without_label.json": "required",
   "round_three.json": "maximum",
   "set_version_zero.json": "minimum",
-  "unknown_field.json": "additionalProperties"
+  "unknown_field.json": "additionalProperties",
+  "attribute_mode_without_attribute.json": "required",
+  "attribute_with_options_mode.json": "not",
+  "attribute_without_mode.json": "not",
+  "unknown_mode.json": "enum",
+  "attribute_mode_one_option.json": "minItems",
+  "attribute_not_a_name.json": "pattern"
 }
