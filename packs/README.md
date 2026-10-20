@@ -1,7 +1,7 @@
 # Packs
 
-> Pre-PCK-01 port. Authoritative today: the 20 capability descriptors and the Action Graph. Being rewritten to SoT §15.3 shapes (DEC C2, C3): intent nodes, trust profiles, outcome definitions, evidence-source descriptors and policy rules. Do not build against those sections yet.
+The four packs are written in the SoT 15.3 shapes against the CON-01 pack schema (`contracts/schemas/pack.v1.json`): `fintech_v1.json` and the three conformance packs in `conformance/` (telecom, insurance, healthcare administration; SoT 15.4 cap: at most 3 intent nodes, 1 trust profile, 1 outcome definition, no adapters, no executed capabilities). PCK-01.
 
-Here, "DEC C2, C3" is [DEC-2026-10-16 (contract and pack clarifications)](https://github.com/Noemai-org/docs/blob/main/docs/decisions/DEC-2026-10-16-contract-and-pack-clarifications.md), items C2 and C3, once that record is merged in `Noemai-org/docs`; the rewrite is task PCK-01, with `packcheck` extended by PCK-02.
+All content is SYNTHETIC. Values the SoT or PERD give are used as given. Where a predicate names a field, the field vocabulary is not yet defined: predicates are parsed by `internal/predicate` (T6.1) and type-checked by `packcheck` (PCK-02), and stay unconfirmed until then.
 
-Packs are loaded as data, never imported as code (SoT §51). The files are `fintech_v1.json`, the three conformance packs in `conformance/`, and the eight crafted bad packs in `fixtures/bad_packs/`. Validate one with `python3 -I tools/packcheck.py validate <pack>`.
+Packs are loaded as data, never imported as code (SoT §51). The files are `fintech_v1.json`, the three conformance packs in `conformance/`, and the eight crafted bad packs in `fixtures/bad_packs/`. Shape tests: `python -m unittest discover -s packs/tests` (run by `make contracts-validate`).
