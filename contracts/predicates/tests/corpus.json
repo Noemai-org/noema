@@ -1,0 +1,351 @@
+{
+ "description": "Shared by tools/packcheck (Python) and internal/predicate (Go, T6.1). 'result' is the type the expression must have; 'error' is the code it must fail with. The scope uses the pack's evidence_descriptors and predicate_variables shapes. SYNTHETIC.",
+ "scope": {
+  "evidence_descriptors": [
+   {
+    "entity": "case",
+    "source": "fin.src.case_system",
+    "fields": {
+     "id": {
+      "type": "Reference"
+     },
+     "subject": {
+      "type": "Reference"
+     },
+     "status": {
+      "type": "Enum",
+      "values": [
+       "OPEN",
+       "ROUTED",
+       "CLOSED"
+      ]
+     },
+     "created_by_intent": {
+      "type": "Reference"
+     },
+     "owner_queue": {
+      "type": "Reference"
+     },
+     "epoch": {
+      "type": "Integer"
+     },
+     "created_at": {
+      "type": "Timestamp"
+     },
+     "note": {
+      "type": "String"
+     },
+     "escalated": {
+      "type": "Boolean"
+     }
+    }
+   },
+   {
+    "entity": "attachment",
+    "source": "fin.src.case_system",
+    "fields": {
+     "case": {
+      "type": "Reference"
+     },
+     "payload_hash": {
+      "type": "String"
+     }
+    }
+   }
+  ],
+  "predicate_variables": {
+   "subject_resource": {
+    "type": "Reference"
+   },
+   "subject_resource.status": {
+    "type": "Enum",
+    "values": [
+     "RESOLVED",
+     "UNRESOLVED",
+     "AMBIGUOUS",
+     "ABSENT"
+    ]
+   },
+   "intent_id": {
+    "type": "Reference"
+   },
+   "case_id": {
+    "type": "Reference"
+   },
+   "epoch": {
+    "type": "Integer"
+   },
+   "settle_window": {
+    "type": "Duration"
+   },
+   "planned_queue": {
+    "type": "Reference"
+   },
+   "evidence_packet_hash": {
+    "type": "String"
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "true_literal",
+   "expr": "true",
+   "result": "Boolean"
+  },
+  {
+   "id": "sot_case_opened",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "slot_status",
+   "expr": "subject_resource.status == 'RESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "not_exists",
+   "expr": "not exists(case where case.subject == subject_resource and case.epoch == epoch)",
+   "result": "Boolean"
+  },
+  {
+   "id": "not_in",
+   "expr": "not exists(case where case.status not in ['CLOSED'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "or_and_precedence",
+   "expr": "true or false and false",
+   "result": "Boolean"
+  },
+  {
+   "id": "parentheses",
+   "expr": "(true or false) and true",
+   "result": "Boolean"
+  },
+  {
+   "id": "count_compare",
+   "expr": "count(case where case.escalated == true) >= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "integer_arithmetic",
+   "expr": "count(case where true) + 1 == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "timestamp_minus_duration",
+   "expr": "exists(case where case.created_at > now() - 72h)",
+   "result": "Boolean"
+  },
+  {
+   "id": "timestamp_difference",
+   "expr": "exists(case where now() - case.created_at > settle_window)",
+   "result": "Boolean"
+  },
+  {
+   "id": "duration_literals",
+   "expr": "settle_window == 30s or settle_window == 2m or settle_window == 1h or settle_window == 1d",
+   "result": "Boolean"
+  },
+  {
+   "id": "null_test",
+   "expr": "exists(attachment where attachment.payload_hash != null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "reference_vs_string",
+   "expr": "exists(case where case.owner_queue == 'DISPUTES')",
+   "result": "Boolean"
+  },
+  {
+   "id": "reference_in_list",
+   "expr": "exists(case where case.owner_queue in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "string_field",
+   "expr": "exists(case where case.note == 'x')",
+   "result": "Boolean"
+  },
+  {
+   "id": "count_type",
+   "expr": "count(case where true)",
+   "result": "Integer"
+  },
+  {
+   "id": "now_type",
+   "expr": "now()",
+   "result": "Timestamp"
+  },
+  {
+   "id": "duration_type",
+   "expr": "now() - now()",
+   "result": "Duration"
+  },
+  {
+   "id": "integer_type",
+   "expr": "1 + 2",
+   "result": "Integer"
+  },
+  {
+   "id": "empty",
+   "expr": "",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "dangling_operator",
+   "expr": "true and",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "unbalanced",
+   "expr": "(true",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "unterminated_string",
+   "expr": "'abc",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "function_call",
+   "expr": "lookup(case)",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "assignment",
+   "expr": "subject_resource = 1",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "keyword_as_name",
+   "expr": "exists",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "unknown_variable",
+   "expr": "mystery == 1",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "entity_without_exists",
+   "expr": "case.status == 'OPEN'",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "unknown_entity",
+   "expr": "exists(ticket where true)",
+   "error": "UNKNOWN_ENTITY"
+  },
+  {
+   "id": "unknown_field",
+   "expr": "exists(case where case.colour == 'x')",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "field_of_a_variable",
+   "expr": "subject_resource.balance == 1",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "unknown_enum_value",
+   "expr": "exists(case where case.status == 'REOPENED')",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "unknown_enum_value_in_list",
+   "expr": "exists(case where case.status in ['OPEN','NEW'])",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "string_vs_integer",
+   "expr": "exists(case where case.note == 3)",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "integer_vs_reference",
+   "expr": "exists(case where case.id == 3)",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "order_on_strings",
+   "expr": "exists(case where case.note > 'a')",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "order_on_booleans",
+   "expr": "true > false",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "and_needs_boolean",
+   "expr": "1 and true",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "not_needs_boolean",
+   "expr": "not 1",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "timestamp_plus_timestamp",
+   "expr": "exists(case where case.created_at + now() > 1s)",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "integer_plus_duration",
+   "expr": "1 + 1s == 2",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "in_wrong_literal_type",
+   "expr": "exists(case where case.epoch in ['a'])",
+   "error": "TYPE_MISMATCH"
+  },
+  {
+   "id": "where_condition_not_boolean",
+   "expr": "exists(case where case.epoch)",
+   "error": "NOT_BOOLEAN"
+  },
+  {
+   "id": "integer_at_the_bound",
+   "expr": "9007199254740991 == count(case where true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "integer_past_the_bound",
+   "expr": "9007199254740992 == 1",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "duration_past_the_bound",
+   "expr": "settle_window == 9007199254740991d",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "digits_then_letters",
+   "expr": "5x == 5",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "chained_comparison",
+   "expr": "1 == 1 == true",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "escaped_quote",
+   "expr": "'it\\'s' == 'x'",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "nested_exists_sees_only_the_inner_entity",
+   "expr": "exists(case where exists(attachment where attachment.case == case.id))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "bound_entity_shadows_a_variable_of_the_same_name",
+   "expr": "exists(case where case.epoch == epoch)",
+   "result": "Boolean"
+  }
+ ]
+}

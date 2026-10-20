@@ -1,0 +1,12 @@
+{
+  "free_text_value.json": "oneOf",
+  "nested_object.json": "oneOf",
+  "array_value.json": "oneOf",
+  "float_value.json": "oneOf",
+  "empty_observation.json": "minProperties",
+  "unknown_kind.json": "enum",
+  "missing_benchmark_case.json": "required",
+  "unknown_field.json": "additionalProperties",
+  "bad_memory_id.json": "pattern",
+  "upper_case_key.json": "pattern"
+}

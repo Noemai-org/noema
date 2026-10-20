@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/evidence-descriptor.v1.json",
+  "title": "Evidence descriptor",
+  "description": "The typed fields of one evidence entity, so that predicates (SoT \u00a743.7) type-check at pack load: 'a predicate that references an unknown field fails pack validation'. Added by T2 under AGENT-02; the SoT and PERD name the check but give no field vocabulary. Open decision recorded in the T2 report.",
+  "type": "object",
+  "properties": {
+    "entity": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
+    },
+    "source": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+    },
+    "fields": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/FieldType"
+      }
+    }
+  },
+  "required": [
+    "entity",
+    "source",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "FieldType": {
+      "description": "A predicate value type. Reference is an opaque ID compared only for equality. Enum lists its values.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "String",
+            "Integer",
+            "Boolean",
+            "Timestamp",
+            "Duration",
+            "Reference",
+            "Enum"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "type": {
+            "const": "Enum"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "required": [
+          "values"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "values"
+          ]
+        }
+      }
+    }
+  }
+}

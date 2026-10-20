@@ -1,83 +1,302 @@
 {
-  "pack_id": "healthcare_conformance_v1",
-  "name": "Healthcare Admin Conformance Pack",
-  "domain": "HEALTHCARE_ADMIN",
-  "version": "healthcare@1.0.0",
-  "policy": {
-    "policy_id": "health.pol",
-    "policy_version": "health.pol@1.0",
-    "precedence_ladder": ["PATIENT_PRIVACY", "CLINICAL_SAFETY", "ADMIN_BILLING"],
-    "default_action": "DENY",
-    "rules": []
-  },
-  "trust_profiles": {
-    "default": {
-      "profile_id": "tp_health_default",
-      "max_evidence_age_seconds": 3600,
-      "freshness_sla_seconds": 3600,
-      "confidence_threshold": 0.90,
-      "requires_confirmation_on_r3": true
+  "schema_version": "1.0",
+  "pack_id": "hc",
+  "pack_version": "1.0.0",
+  "name": "Healthcare administration conformance pack (SYNTHETIC, ILLUSTRATIVE)",
+  "intent_nodes": [
+    {
+      "node_id": "hc.appointment.reschedule",
+      "pack": "hc",
+      "pack_version": "1.0.0",
+      "parent": null,
+      "display_name": "Reschedule an appointment",
+      "slots": [
+        {
+          "name": "subject_resource",
+          "type": "Resource",
+          "resource_kind": "hc.appointment",
+          "required": true,
+          "resolution": "candidate_search"
+        },
+        {
+          "name": "when",
+          "type": "TimeRef",
+          "required": false
+        }
+      ],
+      "disambiguation": {
+        "strategy": "ranked_candidates",
+        "auto_resolve_margin": 0.35,
+        "max_candidates_before_escalate": 4
+      },
+      "lexicon_refs": [],
+      "trust_profile": "hc.trust.appointment.read",
+      "outcome_definitions": [
+        "hc.outcome.appointment.rescheduled"
+      ],
+      "examples": [
+        "SYNTHETIC: move my appointment to Tuesday"
+      ]
     }
-  },
-  "intent_classes": {
-    "QUERY_APPOINTMENT_SLOT": {
-      "intent_type": "QUERY_APPOINTMENT_SLOT",
-      "read_write_class": "READ",
-      "description": "Check available specialist appointment slots.",
-      "required_slots": ["specialty", "facility_id"],
-      "allowed_outcomes": ["health.outcome.slot.verified"]
+  ],
+  "trust_profiles": [
+    {
+      "profile_id": "hc.trust.appointment.read",
+      "risk_class": "R0_read",
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "patient",
+          "delegate"
+        ]
+      },
+      "policy_templates": [
+        "hc.pol.default.permit_reads"
+      ],
+      "clocks": [],
+      "approvals": [],
+      "prohibited_capabilities": [
+        "hc.cap.cancel_prior_authorisation"
+      ],
+      "evidence_required": [
+        "hc.src.scheduling"
+      ],
+      "max_evidence_age_seconds": 600,
+      "data_sensitivity": "S4_health_admin"
     }
-  },
-  "evidence_sources": {
-    "health.src.ehr": {
-      "source_id": "health.src.ehr",
-      "name": "Electronic Health Record System",
-      "freshness_sla_seconds": 3600,
-      "authoritative": true,
-      "endpoint_type": "REST"
+  ],
+  "outcome_definitions": [
+    {
+      "outcome_id": "hc.outcome.appointment.rescheduled",
+      "intent_nodes": [
+        "hc.appointment.reschedule"
+      ],
+      "success_predicate": "exists(slot where slot.appointment == subject_resource and slot.status == 'CONFIRMED') and exists(prior_authorisation where prior_authorisation.appointment == subject_resource and prior_authorisation.status == 'VALID')",
+      "intermediate_states": [],
+      "terminal_states": [
+        "ACHIEVED",
+        "NOT_ACHIEVED"
+      ],
+      "settle_window_seconds": 30,
+      "verification_sources": [
+        {
+          "source": "hc.src.scheduling",
+          "priority": 1
+        }
+      ],
+      "compensation": "none_required",
+      "explanation_templates": [
+        "hc.expl.appointment_slot.v1"
+      ]
     }
-  },
-  "routing_allowlist": ["SCHEDULING_DESK"],
-  "reason_codes": ["NONE", "SLOT_UNAVAILABLE"],
-  "outcomes": {
-    "health.outcome.slot.verified": {
-      "outcome_id": "health.outcome.slot.verified",
-      "description": "Available clinic slot verified from EHR",
-      "verification_source": "health.src.ehr"
-    }
-  },
-  "capabilities": {
-    "health.cap.lookup_slots": {
-      "capability_id": "health.cap.lookup_slots",
-      "business_meaning": "Look up open clinic slots",
+  ],
+  "capabilities": [
+    {
+      "capability_id": "hc.cap.lookup_appointment",
+      "business_meaning": "Look up an appointment on the scheduling system",
       "risk_class": "R0_read",
       "side_effect_class": "NONE",
-      "blast_radius": "clinic_calendar",
+      "blast_radius": "one record for one principal",
       "concurrency_control": "NONE",
       "retry_safety": "NATIVE_IDEMPOTENT",
       "revalidation_reads": [],
       "consequence_profile": {
         "financial": "NONE",
         "customer": "NONE",
-        "regulatory": "LOW",
+        "regulatory": "NONE",
         "access": "NONE",
         "operational": "NONE",
         "irreversibility": "REVERSIBLE"
       },
-      "expected_outcome": "health.outcome.slot.verified",
-      "verification": { "method": "independent_read", "source": "health.src.ehr" },
-      "prohibited": false
-    }
-  },
-  "action_graph": {
-    "nodes": [
-      {
-        "node_id": "node_lookup_slots",
-        "capability_id": "health.cap.lookup_slots",
-        "stage": "EVIDENCE_GATHERING",
-        "preconditions": []
+      "expected_outcome": "hc.outcome.appointment.rescheduled",
+      "verification": {
+        "method": "independent_read",
+        "source": "hc.src.scheduling"
+      },
+      "prohibited": false,
+      "input_schema": "schemas/hc/lookup_appointment.v1.json",
+      "preconditions": [],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "hc.pol.default.permit_reads"
+      ],
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "not_applicable"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
       }
-    ],
-    "edges": []
+    },
+    {
+      "capability_id": "hc.cap.cancel_prior_authorisation",
+      "business_meaning": "Cancel a prior authorisation (never executed by Noema)",
+      "risk_class": "R3_regulatory_write",
+      "side_effect_class": "MUTATES_STATE",
+      "blast_radius": "one record for one principal",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "hc.outcome.appointment.rescheduled",
+      "verification": {
+        "method": "none_prohibited",
+        "source": "hc.src.scheduling"
+      },
+      "prohibited": true,
+      "input_schema": "schemas/hc/cancel_prior_authorisation.v1.json",
+      "preconditions": [],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "hc.pol.default.permit_reads"
+      ],
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "not_applicable"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
+      }
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source_id": "hc.src.scheduling",
+      "display_name": "Scheduling system",
+      "freshness_sla_seconds": 600,
+      "authoritative_for": [
+        "appointment_slot"
+      ],
+      "corroborating_for": [],
+      "never_authoritative_for": [
+        "customer_claim"
+      ],
+      "sensitivity": "S4_health_admin"
+    }
+  ],
+  "policy": {
+    "policy_id": "hc.pol",
+    "version": "1.0",
+    "rules": [
+      {
+        "rule_id": "hc.pol.default.permit_reads",
+        "class": "DEFAULT",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "hc.cap.lookup_appointment"
+        ],
+        "condition": "true",
+        "effect": "PERMIT",
+        "reason_code": "hc.reason.permitted"
+      }
+    ]
+  },
+  "clocks": [],
+  "reason_catalogue": [
+    {
+      "code": "hc.reason.permitted",
+      "meaning": "A pack rule permits the capability",
+      "produced_by": "POLICY_RULE"
+    }
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "slot",
+      "source": "hc.src.scheduling",
+      "fields": {
+        "appointment": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "PROPOSED",
+            "CONFIRMED",
+            "CANCELLED"
+          ]
+        }
+      }
+    },
+    {
+      "entity": "prior_authorisation",
+      "source": "hc.src.scheduling",
+      "fields": {
+        "appointment": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "VALID",
+            "EXPIRED",
+            "REVOKED"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    }
   }
 }

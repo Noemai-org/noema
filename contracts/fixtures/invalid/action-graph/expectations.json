@@ -1,0 +1,10 @@
+{
+  "unknown_node_kind.json": "enum",
+  "missing_on_unknown.json": "required",
+  "free_form_escalation_ref.json": "enum",
+  "free_form_recovery_action.json": "enum",
+  "edge_without_condition.json": "required",
+  "extra_node_field.json": "additionalProperties",
+  "no_nodes.json": "minItems",
+  "graph_version_not_semver.json": "pattern"
+}

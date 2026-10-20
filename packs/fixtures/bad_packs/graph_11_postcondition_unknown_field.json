@@ -1,0 +1,14 @@
+{
+  "requirement": "REQ-AG-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "predicate",
+  "expect_message_contains": "UNKNOWN_FIELD",
+  "patch": [
+    {
+      "file": "fintech/graph/g2_escalate.json",
+      "op": "replace",
+      "path": "/nodes/0/postconditions/0",
+      "value": "exists(case where case.colour == 'red')"
+    }
+  ]
+}

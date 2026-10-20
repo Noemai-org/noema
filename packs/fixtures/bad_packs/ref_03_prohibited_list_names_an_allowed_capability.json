@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-CAP-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "references",
+  "expect_message_contains": "registered as allowed",
+  "patch": [
+    {
+      "op": "add",
+      "path": "/trust_profiles/0/prohibited_capabilities/-",
+      "value": "fin.cap.lookup_transaction"
+    }
+  ]
+}

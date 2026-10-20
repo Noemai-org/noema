@@ -1,0 +1,15 @@
+{
+  "requirement": "REQ-CAP-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "capability",
+  "expect_message_contains": "no executable path",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/capabilities/12/recovery",
+      "value": [
+        "ESCALATE"
+      ]
+    }
+  ]
+}
