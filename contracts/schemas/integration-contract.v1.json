@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/integration-contract.v1.json",
+  "title": "Integration contract",
+  "description": "PERD \u00a739.5: what a partner builds and what Noema holds, kept deliberately small. Three obligations (embed the overlay, run one listener, issue two scoped credentials); the signed outbound events (\u00a739.7); and the one typed message the overlay posts, `noema.resolution`, which is defined in noema-resolution.v1.json and is referenced here, not repeated. The partner never grants a credential that can move money, and keeps no standing bulk data feed to Noema.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "partner": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Vertical"
+    },
+    "obligations": {
+      "description": "All three, exactly once.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "EMBED_OVERLAY",
+          "RUN_LISTENER",
+          "ISSUE_SCOPED_CREDENTIALS"
+        ]
+      },
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true
+    },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "passes_existing_session_token": {
+          "const": true
+        },
+        "sandboxed_context": {
+          "const": true
+        }
+      },
+      "required": [
+        "passes_existing_session_token",
+        "sandboxed_context"
+      ],
+      "additionalProperties": false
+    },
+    "listener": {
+      "type": "object",
+      "properties": {
+        "signature_header": {
+          "const": "Noema-Signature"
+        },
+        "deduplicates_by": {
+          "const": "event_id"
+        },
+        "signed_events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "confirmation.recorded",
+              "case.created",
+              "outcome.updated"
+            ]
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "signature_header",
+        "deduplicates_by",
+        "signed_events"
+      ],
+      "additionalProperties": false
+    },
+    "signature": {
+      "description": "Noema-Signature: t=<ts>,v1=<hex HMAC-SHA-256(secret, ts + \".\" + body)> [REC]. Delivery is at least once and event_id is stable across retries.",
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "const": "HMAC-SHA-256"
+        },
+        "signed_payload": {
+          "const": "timestamp, a dot, then the body"
+        },
+        "delivery": {
+          "const": "AT_LEAST_ONCE"
+        }
+      },
+      "required": [
+        "algorithm",
+        "signed_payload",
+        "delivery"
+      ],
+      "additionalProperties": false
+    },
+    "credentials": {
+      "description": "Exactly two: a read credential and a case-management credential.",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "READ"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "scoped_per_request_to_authenticated_customer": {
+                "const": true
+              }
+            },
+            "required": [
+              "kind",
+              "sources",
+              "scoped_per_request_to_authenticated_customer"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "CASE_MANAGEMENT"
+              },
+              "allowed_capabilities": {
+                "description": "Create, route, log complaint references, append evidence, and nothing else.",
+                "type": "array",
+                "items": {
+                  "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "can_move_money": {
+                "const": false
+              }
+            },
+            "required": [
+              "kind",
+              "allowed_capabilities",
+              "can_move_money"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "resolution_message": {
+      "description": "The overlay's one typed message to the host page. Defined by noema-resolution.v1.json.",
+      "const": "noema.resolution"
+    }
+  },
+  "required": [
+    "schema_version",
+    "partner",
+    "obligations",
+    "overlay",
+    "listener",
+    "signature",
+    "credentials",
+    "resolution_message"
+  ],
+  "additionalProperties": false
+}

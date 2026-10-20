@@ -1,0 +1,14 @@
+{
+  "memory_id": "mem_01J9X5",
+  "kind": "VERIFICATION_LATENCY",
+  "subject_ref": "fin.cap.create_escalation_case",
+  "observation": {
+    "samples": 12,
+    "p95_ms": 2800,
+    "within_settle_window": true,
+    "source": "fin.src.case_system"
+  },
+  "source_correlation_id": "corr_01J9X3",
+  "observed_at": "2026-10-20T09:30:00Z",
+  "recorded_by": "OUTCOME"
+}

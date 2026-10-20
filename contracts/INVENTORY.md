@@ -88,11 +88,15 @@ Not defined, for want of a field list in the PERD or SoT: the explanation render
 
 Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14). Each is enforced in a schema and covered by fixtures; `tools/contracts/test_gap_closure.py` covers what a schema cannot state (the retryable partition, the golden idempotency keys, the `recev` prefix, the Record event list).
 
-## T2 · Action Graph and evidence descriptors
+## T2 · Action Graph, evidence descriptors, memory observation and integration contract
 
 | Schema | SoT | PERD | Requirements | Notes |
 |---|---|---|---|---|
 | `action-graph.v1.json` | §43.9 | §24 | REQ-AG-001, REQ-AG-002, REQ-PLN-001 | Pack data. The PERD names the node fields but not the types of `on_unknown`, `on_failure`, `recovery_ref` and `escalation_ref`; smallest safe types chosen (PERD §30.1, §30.2) |
 | `evidence-descriptor.v1.json` | §43.7 | §21.4, §24 | REQ-AG-001 | Typed fields per evidence entity so predicates type-check at pack load. Not in the SoT or PERD; added under AGENT-02 |
+| `memory-observation.v1.json` | §35.1 | §33 | REQ-MEM-001, REQ-MEM-002 | The PERD lists the envelope fields only, not the fields of each kind; `observation` is held to typed scalars until each kind's owner supplies them (open decision) |
+| `integration-contract.v1.json` | §39 | §39.5, §39.7 | REQ-API-001, REQ-API-006, REQ-API-007 | The three partner obligations, two scoped credentials and signed events. `noema.resolution` is `noema-resolution.v1.json` (C-6), referenced by name |
 
 **Migration note (AGENT-15).** `pack.v1.json` gains four optional properties: `action_graph_files`, `routing_allowlist`, `evidence_descriptors` and `predicate_variables`. No existing property changes and no document valid before is invalid now, so the file stays `v1`. packcheck requires `evidence_descriptors` and `predicate_variables` when a pack holds any predicate.
+
+**Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
