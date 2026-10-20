@@ -1,0 +1,54 @@
+# The investigation state machine as data (PERD §28.2 [ADOPTED DEC-2026-10-17]; REQ-STM-001).
+# One row per allowed transition. Any transition not listed is illegal. The guards are checked in code, not here.
+# Restricted YAML: one flow mapping per line, so it can be read without a YAML library.
+# FROZEN is not an investigation state: it is a target-level flag (PERD §22.3, REQ-RES-002).
+# A new turn after COMPLETED or REJECTED starts a new linked investigation; that is not a transition of this one.
+# EXPLAINING_BLOCKED appears in the PERD only as the target of an arrow, with no definition and no exit ("-> fallback"):
+# open decision OD-P-60. Its row is here so every PERD arrow has a row.
+version: 1
+source: "PERD §28.2"
+states: [RECEIVED, INTERPRETING, REJECTED_AT_GATE, AWAITING_CLARIFICATION, EVALUATING, AWAITING_CONFIRMATION, WAITING, PLANNED, EXECUTING, AWAITING_VERIFICATION, AWAITING_EXTERNAL_OUTCOME, RECOVERING, BLOCKED_UNKNOWN, ESCALATING, EXPLAINING, EXPLAINING_BLOCKED, COMPLETED, ESCALATED, REJECTED, DORMANT, EXPIRED]
+transitions:
+  - {from: RECEIVED, to: INTERPRETING, on: "input accepted and deduplicated"}
+  - {from: INTERPRETING, to: AWAITING_CLARIFICATION, on: "an intent-level clarify via Trust"}
+  - {from: INTERPRETING, to: EVALUATING, on: "admitted"}
+  - {from: INTERPRETING, to: REJECTED_AT_GATE, on: "the schema gate failed"}
+  - {from: REJECTED_AT_GATE, to: INTERPRETING, on: "the next turn, at most 2 times"}
+  - {from: REJECTED_AT_GATE, to: ESCALATED, on: "handoff, after the retries"}
+  - {from: AWAITING_CLARIFICATION, to: INTERPRETING, on: "answer"}
+  - {from: AWAITING_CLARIFICATION, to: DORMANT, on: "inactivity"}
+  - {from: AWAITING_CLARIFICATION, to: ESCALATED, on: "round limit"}
+  - {from: EVALUATING, to: AWAITING_CLARIFICATION, on: "DECISION_MADE CLARIFY"}
+  - {from: EVALUATING, to: AWAITING_CONFIRMATION, on: "DECISION_MADE CONFIRM"}
+  - {from: EVALUATING, to: WAITING, on: "DECISION_MADE WAIT"}
+  - {from: EVALUATING, to: PLANNED, on: "GRANT_ISSUED"}
+  - {from: EVALUATING, to: EXPLAINING, on: "verdicts ready, or an ALLOW read"}
+  - {from: EVALUATING, to: ESCALATING, on: "DECISION_MADE ESCALATE"}
+  - {from: EVALUATING, to: REJECTED, on: "DECISION_MADE REJECT"}
+  - {from: EVALUATING, to: BLOCKED_UNKNOWN, on: "DECISION_MADE UNKNOWN"}
+  - {from: AWAITING_CONFIRMATION, to: EVALUATING, on: "ACCEPT"}
+  - {from: AWAITING_CONFIRMATION, to: REJECTED, on: "DECLINE"}
+  - {from: AWAITING_CONFIRMATION, to: EVALUATING, on: "EXPIRED; a fresh decision follows"}
+  - {from: WAITING, to: EVALUATING, on: "timer or triggering event"}
+  - {from: PLANNED, to: EXECUTING, on: "GRANT_SPENT"}
+  - {from: PLANNED, to: EVALUATING, on: "grant voided"}
+  - {from: EXECUTING, to: AWAITING_VERIFICATION, on: "any receipt"}
+  - {from: AWAITING_VERIFICATION, to: PLANNED, on: "next plan step"}
+  - {from: AWAITING_VERIFICATION, to: EXPLAINING, on: "all ACHIEVED"}
+  - {from: AWAITING_VERIFICATION, to: AWAITING_EXTERNAL_OUTCOME, on: "PENDING_EXTERNAL"}
+  - {from: AWAITING_VERIFICATION, to: RECOVERING, on: "any other verdict"}
+  - {from: AWAITING_EXTERNAL_OUTCOME, to: EXPLAINING, on: "ACHIEVED"}
+  - {from: AWAITING_EXTERNAL_OUTCOME, to: COMPLETED, on: "ACHIEVED"}
+  - {from: AWAITING_EXTERNAL_OUTCOME, to: RECOVERING, on: "deadline reached, verdict UNKNOWN"}
+  - {from: RECOVERING, to: EVALUATING, on: "a fresh Trust evaluation"}
+  - {from: BLOCKED_UNKNOWN, to: EVALUATING, on: "timer, at most 2 times"}
+  - {from: BLOCKED_UNKNOWN, to: ESCALATED, on: "handoff"}
+  - {from: ESCALATING, to: PLANNED, on: "action decisions"}
+  - {from: ESCALATING, to: ESCALATED, on: "case verified, or handoff"}
+  - {from: EXPLAINING, to: COMPLETED, on: "the disposition that applies"}
+  - {from: EXPLAINING, to: ESCALATED, on: "the disposition that applies"}
+  - {from: EXPLAINING, to: REJECTED, on: "the disposition that applies"}
+  - {from: EXPLAINING, to: EXPLAINING_BLOCKED, on: "explanation blocked; the PERD names no exit (open decision)"}
+  - {from: ESCALATED, to: AWAITING_EXTERNAL_OUTCOME, on: "a watch exists"}
+  - {from: DORMANT, to: INTERPRETING, on: "resume, with re-reads"}
+  - {from: DORMANT, to: EXPIRED, on: "72 hours without a resume"}

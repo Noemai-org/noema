@@ -14,6 +14,7 @@ The docs checkout must be clean and at the commit you want (normally origin/main
     CLAUDE.md                           <- CLAUDE.md
     contracts/state-registry.md         <- docs/engineering/state-registry.md
     contracts/perd-32-2-event-types.md  <- section 32.2 of the current PERD
+    services/core/orchestrator/perd-28-2-state-machine.md  <- section 28.2 of the current PERD
 
 The current PERD file is not named here: it is resolved from the docs checkout's docs/poc/perd/README.md,
 the row marked "**Current.**", so a PERD version bump needs no change to this script. Standard library only.
@@ -34,6 +35,8 @@ WHOLE_FILES = [
     ("contracts/state-registry.md", "docs/engineering/state-registry.md"),
 ]
 EXTRACT_TARGET = "contracts/perd-32-2-event-types.md"
+STATE_HEADING = "### 28.2 Investigation state machine"
+STATE_TARGET = "services/core/orchestrator/perd-28-2-state-machine.md"
 
 
 CURRENT_ROW = re.compile(r"^\|\s*\[`(NOEMA_POC_PERD_v[0-9.]+\.md)`\]\(([^)]+)\)\s*\|.*\*\*Current\.\*\*")
@@ -82,6 +85,16 @@ def event_table(perd_text: str, perd_file: str) -> str:
     return "\n".join(table)
 
 
+def state_section(perd_text: str, perd_file: str) -> str:
+    """Section 28.2 verbatim: its heading line up to, not including, the next ### heading."""
+    lines = perd_text.splitlines()
+    start = next((i for i, line in enumerate(lines) if line.startswith(STATE_HEADING)), None)
+    if start is None:
+        raise SystemExit(f"no heading '{STATE_HEADING}' in {perd_file}")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+    return "\n".join(lines[start:end]).rstrip("\n")
+
+
 def expected(docs: Path, commit: str) -> dict[str, str]:
     out = {}
     for target, source in WHOLE_FILES:
@@ -91,6 +104,10 @@ def expected(docs: Path, commit: str) -> dict[str, str]:
               f"The PERD original is normative; this copy exists so CI can compare /contracts against it without "
               f"cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->")
     out[EXTRACT_TARGET] = header + "\n\n" + EVENT_HEADING + "\n\n" + event_table((docs / perd_file).read_text(encoding="utf-8"), perd_file) + "\n"
+    state_header = (f"<!-- Vendored extract of Noemai-org/docs {perd_file} section 28.2 (Investigation state machine) at docs commit {commit}. "
+                    f"The PERD original is normative; this copy exists so a test can check transitions.yaml against it without "
+                    f"cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->")
+    out[STATE_TARGET] = state_header + "\n\n" + state_section((docs / perd_file).read_text(encoding="utf-8"), perd_file) + "\n"
     return out
 
 
