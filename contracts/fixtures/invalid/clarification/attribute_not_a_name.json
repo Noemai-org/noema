@@ -1,0 +1,22 @@
+{
+  "clarification_id": "clr_01J9X4",
+  "candidate_set_id": "cns_01J9X3",
+  "candidate_set_version": 1,
+  "slot": "subject_resource",
+  "question_key": "fin.q.which_transaction",
+  "options": [
+    {
+      "option_id": "opt_1",
+      "label": "NGN 20,000.00 at 07:12 to account ending 2144"
+    },
+    {
+      "option_id": "opt_2",
+      "label": "NGN 20,000.00 at 08:03 to account ending 8891"
+    }
+  ],
+  "allow_none": true,
+  "expires_at": "2026-10-01T09:57:04Z",
+  "round": 1,
+  "mode": "ATTRIBUTE",
+  "attribute": "Account Last4"
+}

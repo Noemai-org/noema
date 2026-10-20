@@ -1,58 +1,101 @@
 {
-  "pack_id": "telecom_conformance_v1",
-  "name": "Telecom Conformance Pack",
-  "domain": "TELECOM",
-  "version": "telecom@1.0.0",
-  "policy": {
-    "policy_id": "tel.pol",
-    "policy_version": "tel.pol@1.0",
-    "precedence_ladder": ["REGULATORY", "SUBSCRIBER_PROTECTION", "NETWORK_INTEGRITY"],
-    "default_action": "DENY",
-    "rules": []
-  },
-  "trust_profiles": {
-    "default": {
-      "profile_id": "tp_telecom_default",
+  "schema_version": "1.0",
+  "pack_id": "tel",
+  "pack_version": "1.0.0",
+  "name": "Telecom conformance pack (SYNTHETIC, ILLUSTRATIVE)",
+  "intent_nodes": [
+    {
+      "node_id": "tel.bundle.not_received.investigate",
+      "pack": "tel",
+      "pack_version": "1.0.0",
+      "parent": null,
+      "display_name": "Investigate a data bundle that was not received",
+      "slots": [
+        {
+          "name": "subject_resource",
+          "type": "Resource",
+          "resource_kind": "tel.bundle",
+          "required": true,
+          "resolution": "candidate_search"
+        },
+        {
+          "name": "when",
+          "type": "TimeRef",
+          "required": false
+        }
+      ],
+      "disambiguation": {
+        "strategy": "ranked_candidates",
+        "auto_resolve_margin": 0.35,
+        "max_candidates_before_escalate": 4
+      },
+      "lexicon_refs": [],
+      "trust_profile": "tel.trust.bundle.read",
+      "outcome_definitions": [
+        "tel.outcome.bundle.provisioned_or_case_exists"
+      ],
+      "examples": [
+        "SYNTHETIC: my 10GB bundle did not come in"
+      ]
+    }
+  ],
+  "trust_profiles": [
+    {
+      "profile_id": "tel.trust.bundle.read",
+      "risk_class": "R0_read",
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "tel.pol.default.permit_reads"
+      ],
+      "clocks": [],
+      "approvals": [],
+      "prohibited_capabilities": [],
+      "evidence_required": [
+        "tel.src.charging"
+      ],
       "max_evidence_age_seconds": 600,
-      "freshness_sla_seconds": 600,
-      "confidence_threshold": 0.80,
-      "requires_confirmation_on_r3": true
+      "data_sensitivity": "S3_subscriber_pii"
     }
-  },
-  "intent_classes": {
-    "QUERY_SIM_STATUS": {
-      "intent_type": "QUERY_SIM_STATUS",
-      "read_write_class": "READ",
-      "description": "Check if a subscriber SIM is active or barred.",
-      "required_slots": ["msisdn"],
-      "allowed_outcomes": ["tel.outcome.sim.verified"]
+  ],
+  "outcome_definitions": [
+    {
+      "outcome_id": "tel.outcome.bundle.provisioned_or_case_exists",
+      "intent_nodes": [
+        "tel.bundle.not_received.investigate"
+      ],
+      "success_predicate": "exists(bundle where bundle.id == subject_resource and bundle.status == 'PROVISIONED') or count(case where case.subject == subject_resource and case.kind == 'REFUND') == 1",
+      "intermediate_states": [],
+      "terminal_states": [
+        "ACHIEVED",
+        "NOT_ACHIEVED"
+      ],
+      "settle_window_seconds": 30,
+      "verification_sources": [
+        {
+          "source": "tel.src.charging",
+          "priority": 1
+        }
+      ],
+      "compensation": "none_required",
+      "explanation_templates": [
+        "tel.expl.bundle_provisioning_state.v1"
+      ]
     }
-  },
-  "evidence_sources": {
-    "tel.src.hlr": {
-      "source_id": "tel.src.hlr",
-      "name": "Home Location Register",
-      "freshness_sla_seconds": 600,
-      "authoritative": true,
-      "endpoint_type": "REST"
-    }
-  },
-  "routing_allowlist": ["NETWORK_OPERATIONS"],
-  "reason_codes": ["NONE", "SUBSCRIBER_NOT_FOUND"],
-  "outcomes": {
-    "tel.outcome.sim.verified": {
-      "outcome_id": "tel.outcome.sim.verified",
-      "description": "SIM status verified from HLR",
-      "verification_source": "tel.src.hlr"
-    }
-  },
-  "capabilities": {
-    "tel.cap.lookup_sim": {
-      "capability_id": "tel.cap.lookup_sim",
-      "business_meaning": "Look up SIM status in HLR",
+  ],
+  "capabilities": [
+    {
+      "capability_id": "tel.cap.lookup_bundle",
+      "business_meaning": "Look up a bundle on the charging system",
       "risk_class": "R0_read",
       "side_effect_class": "NONE",
-      "blast_radius": "single_subscriber",
+      "blast_radius": "one record for one principal",
       "concurrency_control": "NONE",
       "retry_safety": "NATIVE_IDEMPOTENT",
       "revalidation_reads": [],
@@ -64,20 +107,130 @@
         "operational": "NONE",
         "irreversibility": "REVERSIBLE"
       },
-      "expected_outcome": "tel.outcome.sim.verified",
-      "verification": { "method": "independent_read", "source": "tel.src.hlr" },
-      "prohibited": false
-    }
-  },
-  "action_graph": {
-    "nodes": [
-      {
-        "node_id": "node_lookup_sim",
-        "capability_id": "tel.cap.lookup_sim",
-        "stage": "EVIDENCE_GATHERING",
-        "preconditions": []
+      "expected_outcome": "tel.outcome.bundle.provisioned_or_case_exists",
+      "verification": {
+        "method": "independent_read",
+        "source": "tel.src.charging"
+      },
+      "prohibited": false,
+      "input_schema": "schemas/tel/lookup_bundle.v1.json",
+      "preconditions": [],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "tel.pol.default.permit_reads"
+      ],
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "not_applicable"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
       }
-    ],
-    "edges": []
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source_id": "tel.src.charging",
+      "display_name": "Charging system",
+      "freshness_sla_seconds": 600,
+      "authoritative_for": [
+        "bundle_provisioning_state"
+      ],
+      "corroborating_for": [],
+      "never_authoritative_for": [
+        "customer_claim"
+      ],
+      "sensitivity": "S3_subscriber_pii"
+    }
+  ],
+  "policy": {
+    "policy_id": "tel.pol",
+    "version": "1.0",
+    "rules": [
+      {
+        "rule_id": "tel.pol.default.permit_reads",
+        "class": "DEFAULT",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "tel.cap.lookup_bundle"
+        ],
+        "condition": "true",
+        "effect": "PERMIT",
+        "reason_code": "tel.reason.permitted"
+      }
+    ]
+  },
+  "clocks": [],
+  "reason_catalogue": [
+    {
+      "code": "tel.reason.permitted",
+      "meaning": "A pack rule permits the capability",
+      "produced_by": "POLICY_RULE"
+    }
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "bundle",
+      "source": "tel.src.charging",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "PROVISIONED",
+            "PENDING",
+            "FAILED"
+          ]
+        }
+      }
+    },
+    {
+      "entity": "case",
+      "source": "tel.src.charging",
+      "fields": {
+        "subject": {
+          "type": "Reference"
+        },
+        "kind": {
+          "type": "Enum",
+          "values": [
+            "REFUND",
+            "COMPLAINT"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    }
   }
 }

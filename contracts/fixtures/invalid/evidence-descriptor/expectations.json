@@ -1,0 +1,7 @@
+{
+  "unknown_field_type.json": "enum",
+  "enum_without_values.json": "required",
+  "values_on_a_non_enum.json": "not",
+  "lower_case_enum_value.json": "pattern",
+  "no_fields.json": "minProperties"
+}

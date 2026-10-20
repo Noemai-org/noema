@@ -1,0 +1,141 @@
+{
+  "graph_id": "fin.graph.investigate",
+  "graph_version": "1.0.0",
+  "applies_when": "true",
+  "nodes": [
+    {
+      "node_id": "lookup_transaction",
+      "kind": "READ",
+      "capability_id": "fin.cap.lookup_transaction",
+      "preconditions": [],
+      "postconditions": [
+        "exists(transaction where transaction.id == subject_resource)"
+      ],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "query_switch_status",
+      "kind": "READ",
+      "capability_id": "fin.cap.query_switch_status",
+      "preconditions": [],
+      "postconditions": [
+        "exists(switch_event where switch_event.transaction == subject_resource)"
+      ],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "query_settlement_status",
+      "kind": "READ",
+      "capability_id": "fin.cap.query_settlement_status",
+      "preconditions": [],
+      "postconditions": [
+        "exists(settlement_record where settlement_record.transaction == subject_resource)"
+      ],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "lookup_beneficiary",
+      "kind": "READ",
+      "capability_id": "fin.cap.lookup_beneficiary",
+      "preconditions": [],
+      "postconditions": [],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "lookup_account",
+      "kind": "READ",
+      "capability_id": "fin.cap.lookup_account",
+      "preconditions": [],
+      "postconditions": [],
+      "on_unknown": "ESCALATE",
+      "on_failure": "RETRY_READ",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "reconcile_transaction_state",
+      "kind": "INTERNAL",
+      "capability_id": "fin.cap.reconcile_transaction_state",
+      "preconditions": [],
+      "postconditions": [
+        "classification != null"
+      ],
+      "on_unknown": "ESCALATE",
+      "on_failure": "ESCALATE",
+      "recovery_ref": null,
+      "escalation_ref": null
+    },
+    {
+      "node_id": "evaluate_sla_status",
+      "kind": "INTERNAL",
+      "capability_id": "fin.cap.evaluate_sla_status",
+      "preconditions": [],
+      "postconditions": [
+        "sla_phase != null"
+      ],
+      "on_unknown": "ESCALATE",
+      "on_failure": "ESCALATE",
+      "recovery_ref": null,
+      "escalation_ref": null
+    }
+  ],
+  "edges": [
+    {
+      "node_id": "query_switch_status",
+      "depends_on": "lookup_transaction",
+      "condition": null
+    },
+    {
+      "node_id": "query_settlement_status",
+      "depends_on": "lookup_transaction",
+      "condition": null
+    },
+    {
+      "node_id": "lookup_beneficiary",
+      "depends_on": "lookup_transaction",
+      "condition": null
+    },
+    {
+      "node_id": "lookup_account",
+      "depends_on": "lookup_transaction",
+      "condition": null
+    },
+    {
+      "node_id": "reconcile_transaction_state",
+      "depends_on": "query_switch_status",
+      "condition": null
+    },
+    {
+      "node_id": "reconcile_transaction_state",
+      "depends_on": "query_settlement_status",
+      "condition": null
+    },
+    {
+      "node_id": "reconcile_transaction_state",
+      "depends_on": "lookup_beneficiary",
+      "condition": null
+    },
+    {
+      "node_id": "reconcile_transaction_state",
+      "depends_on": "lookup_account",
+      "condition": null
+    },
+    {
+      "node_id": "evaluate_sla_status",
+      "depends_on": "reconcile_transaction_state",
+      "condition": null
+    }
+  ]
+}

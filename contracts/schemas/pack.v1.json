@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/pack.v1.json",
   "title": "Vertical pack",
-  "description": "SoT §15.5: everything Noema needs to serve one vertical, and no code. Loaded as data, never imported (SoT §51). Cross-references (every ID used exists; risk against consequence; predicates type-check) are checked by packcheck (PCK-02). Not defined here and left open: the action graph beyond SoT §43.9, lexicon and explanation-template content, and benchmark seed cases.",
+  "description": "SoT \u00a715.5: everything Noema needs to serve one vertical, and no code. Loaded as data, never imported (SoT \u00a751). Cross-references (every ID used exists; risk against consequence; predicates type-check) are checked by packcheck (PCK-02). Not defined here and left open: lexicon and explanation-template content, and benchmark seed cases.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -84,6 +84,41 @@
       "type": "array",
       "items": {
         "$ref": "https://contracts.noema.invalid/reason-catalogue-entry.v1.json"
+      }
+    },
+    "action_graph_files": {
+      "description": "Graph files relative to the pack file's folder, each an action-graph.v1.json document (T2). The fintech graphs live in packs/fintech/graph/.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+(/[a-z0-9_]+)*\\.json$"
+      },
+      "uniqueItems": true
+    },
+    "routing_allowlist": {
+      "description": "The only queue IDs ROUTE_TO_INTERNAL_OWNER accepts (REQ-AG-002). Free-form destinations are not representable.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "evidence_descriptors": {
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/evidence-descriptor.v1.json"
+      }
+    },
+    "predicate_variables": {
+      "description": "Typed names a predicate may use besides evidence entities, for example subject_resource or planned_queue. A dotted name (subject_resource.status) is one variable.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      },
+      "additionalProperties": {
+        "$ref": "https://contracts.noema.invalid/evidence-descriptor.v1.json#/$defs/FieldType"
       }
     }
   },

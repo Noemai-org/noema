@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AG-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "routing",
+  "expect_message_contains": "not in the routing allowlist",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/policy/rules/2/params/owner_queue",
+      "value": "PAYROLL"
+    }
+  ]
+}

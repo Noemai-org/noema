@@ -1,58 +1,104 @@
 {
-  "pack_id": "insurance_conformance_v1",
-  "name": "Insurance Conformance Pack",
-  "domain": "INSURANCE",
-  "version": "insurance@1.0.0",
-  "policy": {
-    "policy_id": "ins.pol",
-    "policy_version": "ins.pol@1.0",
-    "precedence_ladder": ["STATUTORY", "POLICY_HOLDER_RIGHTS", "UNDERWRITING"],
-    "default_action": "DENY",
-    "rules": []
-  },
-  "trust_profiles": {
-    "default": {
-      "profile_id": "tp_insurance_default",
-      "max_evidence_age_seconds": 1800,
-      "freshness_sla_seconds": 1800,
-      "confidence_threshold": 0.85,
-      "requires_confirmation_on_r3": true
+  "schema_version": "1.0",
+  "pack_id": "ins",
+  "pack_version": "1.0.0",
+  "name": "Insurance conformance pack (SYNTHETIC, ILLUSTRATIVE)",
+  "intent_nodes": [
+    {
+      "node_id": "ins.claim.status.advance",
+      "pack": "ins",
+      "pack_version": "1.0.0",
+      "parent": null,
+      "display_name": "Advance the status of an insurance claim",
+      "slots": [
+        {
+          "name": "subject_resource",
+          "type": "Resource",
+          "resource_kind": "ins.claim",
+          "required": true,
+          "resolution": "candidate_search"
+        },
+        {
+          "name": "when",
+          "type": "TimeRef",
+          "required": false
+        }
+      ],
+      "disambiguation": {
+        "strategy": "ranked_candidates",
+        "auto_resolve_margin": 0.35,
+        "max_candidates_before_escalate": 4
+      },
+      "lexicon_refs": [],
+      "trust_profile": "ins.trust.claim.read",
+      "outcome_definitions": [
+        "ins.outcome.claim.status_advanced"
+      ],
+      "examples": [
+        "SYNTHETIC: where is my claim?"
+      ]
     }
-  },
-  "intent_classes": {
-    "QUERY_POLICY_COVERAGE": {
-      "intent_type": "QUERY_POLICY_COVERAGE",
-      "read_write_class": "READ",
-      "description": "Check coverage limit for policy.",
-      "required_slots": ["policy_number"],
-      "allowed_outcomes": ["ins.outcome.coverage.verified"]
+  ],
+  "trust_profiles": [
+    {
+      "profile_id": "ins.trust.claim.read",
+      "risk_class": "R0_read",
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "policyholder",
+          "authorised_agent"
+        ]
+      },
+      "policy_templates": [
+        "ins.pol.default.permit_reads"
+      ],
+      "clocks": [],
+      "approvals": [],
+      "prohibited_capabilities": [
+        "ins.cap.issue_payout"
+      ],
+      "evidence_required": [
+        "ins.src.claims"
+      ],
+      "max_evidence_age_seconds": 600,
+      "data_sensitivity": "S3_policyholder_pii"
     }
-  },
-  "evidence_sources": {
-    "ins.src.policy_db": {
-      "source_id": "ins.src.policy_db",
-      "name": "Policy Administration System",
-      "freshness_sla_seconds": 1800,
-      "authoritative": true,
-      "endpoint_type": "REST"
+  ],
+  "outcome_definitions": [
+    {
+      "outcome_id": "ins.outcome.claim.status_advanced",
+      "intent_nodes": [
+        "ins.claim.status.advance"
+      ],
+      "success_predicate": "exists(claim where claim.id == subject_resource and claim.status == expected_status)",
+      "intermediate_states": [],
+      "terminal_states": [
+        "ACHIEVED",
+        "NOT_ACHIEVED"
+      ],
+      "settle_window_seconds": 30,
+      "verification_sources": [
+        {
+          "source": "ins.src.claims",
+          "priority": 1
+        }
+      ],
+      "compensation": "none_required",
+      "explanation_templates": [
+        "ins.expl.claim_status.v1"
+      ]
     }
-  },
-  "routing_allowlist": ["CLAIMS_TRIAGE"],
-  "reason_codes": ["NONE", "POLICY_LAPSED"],
-  "outcomes": {
-    "ins.outcome.coverage.verified": {
-      "outcome_id": "ins.outcome.coverage.verified",
-      "description": "Policy coverage verified from Policy DB",
-      "verification_source": "ins.src.policy_db"
-    }
-  },
-  "capabilities": {
-    "ins.cap.lookup_policy": {
-      "capability_id": "ins.cap.lookup_policy",
-      "business_meaning": "Look up active policy details",
+  ],
+  "capabilities": [
+    {
+      "capability_id": "ins.cap.lookup_claim",
+      "business_meaning": "Look up a claim on the claims system",
       "risk_class": "R0_read",
       "side_effect_class": "NONE",
-      "blast_radius": "single_policy",
+      "blast_radius": "one record for one principal",
       "concurrency_control": "NONE",
       "retry_safety": "NATIVE_IDEMPOTENT",
       "revalidation_reads": [],
@@ -64,20 +110,186 @@
         "operational": "NONE",
         "irreversibility": "REVERSIBLE"
       },
-      "expected_outcome": "ins.outcome.coverage.verified",
-      "verification": { "method": "independent_read", "source": "ins.src.policy_db" },
-      "prohibited": false
-    }
-  },
-  "action_graph": {
-    "nodes": [
-      {
-        "node_id": "node_lookup_policy",
-        "capability_id": "ins.cap.lookup_policy",
-        "stage": "EVIDENCE_GATHERING",
-        "preconditions": []
+      "expected_outcome": "ins.outcome.claim.status_advanced",
+      "verification": {
+        "method": "independent_read",
+        "source": "ins.src.claims"
+      },
+      "prohibited": false,
+      "input_schema": "schemas/ins/lookup_claim.v1.json",
+      "preconditions": [],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "ins.pol.default.permit_reads"
+      ],
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "not_applicable"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
       }
-    ],
-    "edges": []
+    },
+    {
+      "capability_id": "ins.cap.issue_payout",
+      "business_meaning": "Issue a claim payout (never executed by Noema)",
+      "risk_class": "R4_monetary_write",
+      "side_effect_class": "MUTATES_STATE",
+      "blast_radius": "one record for one principal",
+      "concurrency_control": "CONDITIONAL_WRITE",
+      "retry_safety": "NONE",
+      "revalidation_reads": [],
+      "consequence_profile": {
+        "financial": "HIGH",
+        "customer": "HIGH",
+        "regulatory": "HIGH",
+        "access": "NONE",
+        "operational": "HIGH",
+        "irreversibility": "IRREVERSIBLE"
+      },
+      "expected_outcome": "ins.outcome.claim.status_advanced",
+      "verification": {
+        "method": "none_prohibited",
+        "source": "ins.src.claims"
+      },
+      "prohibited": true,
+      "input_schema": "schemas/ins/issue_payout.v1.json",
+      "preconditions": [],
+      "authority": {
+        "principal_must_own": [
+          "subject_resource"
+        ],
+        "roles_allowed": [
+          "subscriber"
+        ]
+      },
+      "policy_templates": [
+        "ins.pol.default.permit_reads"
+      ],
+      "idempotency": {
+        "key_fields": [
+          "tenant_id",
+          "principal_id",
+          "logical_action"
+        ],
+        "lookup": "not_applicable"
+      },
+      "retry": {
+        "reads": "bounded_backoff",
+        "writes": "only_under_new_grant_after_verification"
+      },
+      "recovery": [],
+      "compensation": "not_applicable",
+      "audit": [
+        "EVIDENCE_READ"
+      ],
+      "limits": {
+        "rate_per_principal_per_hour": 5,
+        "timeout_ms": 3000,
+        "circuit_breaker": {
+          "error_rate": 0.5,
+          "window_s": 60
+        }
+      }
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source_id": "ins.src.claims",
+      "display_name": "Claims system",
+      "freshness_sla_seconds": 600,
+      "authoritative_for": [
+        "claim_status"
+      ],
+      "corroborating_for": [],
+      "never_authoritative_for": [
+        "customer_claim"
+      ],
+      "sensitivity": "S3_policyholder_pii"
+    }
+  ],
+  "policy": {
+    "policy_id": "ins.pol",
+    "version": "1.0",
+    "rules": [
+      {
+        "rule_id": "ins.pol.default.permit_reads",
+        "class": "DEFAULT",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "ins.cap.lookup_claim"
+        ],
+        "condition": "true",
+        "effect": "PERMIT",
+        "reason_code": "ins.reason.permitted"
+      }
+    ]
+  },
+  "clocks": [],
+  "reason_catalogue": [
+    {
+      "code": "ins.reason.permitted",
+      "meaning": "A pack rule permits the capability",
+      "produced_by": "POLICY_RULE"
+    }
+  ],
+  "evidence_descriptors": [
+    {
+      "entity": "claim",
+      "source": "ins.src.claims",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "status": {
+          "type": "Enum",
+          "values": [
+            "SUBMITTED",
+            "IN_REVIEW",
+            "APPROVED",
+            "REJECTED"
+          ]
+        }
+      }
+    }
+  ],
+  "predicate_variables": {
+    "subject_resource": {
+      "type": "Reference"
+    },
+    "expected_status": {
+      "type": "Enum",
+      "values": [
+        "SUBMITTED",
+        "IN_REVIEW",
+        "APPROVED",
+        "REJECTED"
+      ]
+    }
   }
 }

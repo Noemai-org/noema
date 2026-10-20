@@ -1,0 +1,12 @@
+{
+  "requirement": "REQ-AG-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "routing",
+  "expect_message_contains": "no routing_allowlist",
+  "patch": [
+    {
+      "op": "remove",
+      "path": "/routing_allowlist"
+    }
+  ]
+}
