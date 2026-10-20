@@ -1,0 +1,961 @@
+{
+ "description": "Evaluation cases for internal/predicate (T6.1). Values are typed by the scope of corpus.json: a JSON string is a Reference, String or Enum, a number is an Integer, Timestamp or Duration, per the declared field type. 'now' is the SYNTHETIC clock in Unix seconds. 'error' is an evaluation-time code.",
+ "scope_from": "corpus.json",
+ "cases": [
+  {
+   "id": "sot_case_opened_one_open_case",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "sot_case_opened_routed_counts",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "ROUTED",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "sot_case_opened_no_case",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": false
+  },
+  {
+   "id": "sot_case_opened_closed_case",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "CLOSED",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "sot_case_opened_two_cases_by_this_intent",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      },
+      {
+       "id": "c2",
+       "subject": "tx1",
+       "status": "ROUTED",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "sot_case_opened_other_subject",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx9",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "sot_case_opened_one_by_another_intent",
+   "expr": "exists(case where case.subject == subject_resource and case.status in ['OPEN','ROUTED']) and count(case where case.subject == subject_resource and case.created_by_intent == intent_id) == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int2",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "count_is_zero_on_an_empty_entity",
+   "expr": "count(case where true) == 0",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "count_value",
+   "expr": "count(case where case.status == 'OPEN')",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      },
+      {
+       "id": "c2",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      },
+      {
+       "id": "c3",
+       "subject": "tx1",
+       "status": "CLOSED",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": 2
+  },
+  {
+   "id": "exists_short_circuits_on_first_match",
+   "expr": "exists(case where case.epoch == 1)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      },
+      {
+       "id": "c2",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 2,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "slot_status_enum_equality",
+   "expr": "subject_resource.status == 'RESOLVED'",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "slot_status_not_equal",
+   "expr": "subject_resource.status == 'AMBIGUOUS'",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": false
+  },
+  {
+   "id": "not_in_list",
+   "expr": "not exists(case where case.status not in ['CLOSED'])",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "CLOSED",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "time_arithmetic_within_72h",
+   "expr": "exists(case where case.created_at > now() - 72h)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792244400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "time_arithmetic_outside_72h",
+   "expr": "exists(case where case.created_at > now() - 72h)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792237200,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "time_arithmetic_at_exactly_72h_is_not_after",
+   "expr": "exists(case where case.created_at > now() - 72h)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792240800,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "timestamp_difference_is_a_duration",
+   "expr": "exists(case where now() - case.created_at >= 1h)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "duration_comparison",
+   "expr": "settle_window == 30s",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "duration_units",
+   "expr": "90s == 1m + 30s",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "integer_arithmetic",
+   "expr": "count(case where true) + 1 == 3",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      },
+      {
+       "id": "c2",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "null_variable_equals_null",
+   "expr": "evidence_packet_hash == null",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES",
+     "evidence_packet_hash": null
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "present_variable_not_null",
+   "expr": "evidence_packet_hash != null",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES",
+     "evidence_packet_hash": "h1"
+    },
+    "entities": {}
+   },
+   "result": true
+  },
+  {
+   "id": "null_field_equals_null",
+   "expr": "exists(case where case.owner_queue == null)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": null,
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "or_short_circuits_past_a_null",
+   "expr": "true or exists(case where case.epoch > 0)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": null,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "and_short_circuits_before_a_null",
+   "expr": "false and exists(case where case.epoch > 0)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": null,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": false
+  },
+  {
+   "id": "ordering_on_a_null_is_an_error",
+   "expr": "exists(case where case.epoch > 0)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": null,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "error": "NULL_OPERAND"
+  },
+  {
+   "id": "not_of_a_null_is_an_error",
+   "expr": "not exists(case where case.escalated)",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": null
+      }
+     ]
+    }
+   },
+   "error": "NULL_OPERAND"
+  },
+  {
+   "id": "arithmetic_on_a_null_is_an_error",
+   "expr": "count(case where true) + epoch == 1",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": null,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {}
+   },
+   "error": "NULL_OPERAND"
+  },
+  {
+   "id": "overflow_is_an_error",
+   "expr": "9007199254740991 + count(case where true) == 0",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "error": "OVERFLOW"
+  },
+  {
+   "id": "subtraction_below_the_range_is_an_error",
+   "expr": "count(case where true) - 9007199254740991 - 2 == 0",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "error": "OVERFLOW"
+  },
+  {
+   "id": "reference_equals_text",
+   "expr": "exists(case where case.owner_queue == 'DISPUTES')",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  },
+  {
+   "id": "reference_in_list",
+   "expr": "exists(case where case.owner_queue in ['DISPUTES','FRAUD_REVIEW'])",
+   "env": {
+    "now": 1792500000,
+    "variables": {
+     "subject_resource": "tx1",
+     "subject_resource.status": "RESOLVED",
+     "intent_id": "int1",
+     "case_id": "c1",
+     "epoch": 1,
+     "settle_window": 30,
+     "planned_queue": "DISPUTES"
+    },
+    "entities": {
+     "case": [
+      {
+       "id": "c1",
+       "subject": "tx1",
+       "status": "OPEN",
+       "created_by_intent": "int1",
+       "owner_queue": "DISPUTES",
+       "epoch": 1,
+       "created_at": 1792496400,
+       "note": "n",
+       "escalated": false
+      }
+     ]
+    }
+   },
+   "result": true
+  }
+ ]
+}
