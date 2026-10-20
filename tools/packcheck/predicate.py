@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+MAX_INTEGER = 9007199254740991
 KEYWORDS = {"and", "or", "not", "in", "true", "false", "null", "exists", "count", "where", "now"}
 TOKEN = re.compile(r"\s*(?:(?P<duration>\d+[smhd])(?![A-Za-z0-9_])|(?P<int>\d+)|(?P<str>'[^'\\]*')|(?P<op>==|!=|<=|>=|<|>|\+|-|\(|\)|\[|\]|,|\.)|(?P<id>[A-Za-z_][A-Za-z0-9_]*))")
 
@@ -126,6 +127,12 @@ class Parser:
             node = ("arith", op, node, self.atom())
         return node
 
+    @staticmethod
+    def bounded(value: int, text: str) -> int:
+        if value > MAX_INTEGER:
+            raise PredicateError("SYNTAX", f"number {text} is outside 0 to {MAX_INTEGER}")
+        return value
+
     def literal(self):
         t = self.peek()
         if t[0] == "str":
@@ -133,10 +140,10 @@ class Parser:
             return ("str", t[1][1:-1])
         if t[0] == "int":
             self.i += 1
-            return ("int", int(t[1]))
+            return ("int", self.bounded(int(t[1]), t[1]))
         if t[0] == "duration":
             self.i += 1
-            return ("dur", int(t[1][:-1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[t[1][-1]])
+            return ("dur", self.bounded(int(t[1][:-1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[t[1][-1]], t[1]))
         if t[0] == "kw" and t[1] in ("true", "false"):
             self.i += 1
             return ("bool", t[1] == "true")

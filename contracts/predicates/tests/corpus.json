@@ -303,6 +303,46 @@
    "id": "where_condition_not_boolean",
    "expr": "exists(case where case.epoch)",
    "error": "NOT_BOOLEAN"
+  },
+  {
+   "id": "integer_at_the_bound",
+   "expr": "9007199254740991 == count(case where true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "integer_past_the_bound",
+   "expr": "9007199254740992 == 1",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "duration_past_the_bound",
+   "expr": "settle_window == 9007199254740991d",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "digits_then_letters",
+   "expr": "5x == 5",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "chained_comparison",
+   "expr": "1 == 1 == true",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "escaped_quote",
+   "expr": "'it\\'s' == 'x'",
+   "error": "SYNTAX"
+  },
+  {
+   "id": "nested_exists_sees_only_the_inner_entity",
+   "expr": "exists(case where exists(attachment where attachment.case == case.id))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "bound_entity_shadows_a_variable_of_the_same_name",
+   "expr": "exists(case where case.epoch == epoch)",
+   "result": "Boolean"
   }
  ]
 }
