@@ -1,0 +1,10 @@
+# Canary: .env.example lists the TUSHE_ORACLE_ prefix, yet this job is not an `environment: bench` job. The check must fail.
+name: model
+on: [push]
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "$ID" | wc -c
+        env:
+          ID: ${{ secrets.TUSHE_ORACLE_CLIENT_ID }}
