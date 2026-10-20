@@ -134,4 +134,66 @@ def mocks(root: Path) -> list[Violation]:
     return out
 
 
-ALL = (clock, money, cross_service, manifest, mocks)
+MODEL_PKG = "services/model/noema_model"
+HTTP_CLIENTS = {"requests", "httpx", "aiohttp", "urllib3", "urllib.request", "http.client", "websockets", "grpc", "socket"}
+AGENT_FRAMEWORKS = {"langgraph", "langchain", "langchain_core", "autogen", "crewai", "llama_index", "haystack", "semantic_kernel", "smolagents"}
+MUTABLE_CALLS = {"list", "dict", "set", "defaultdict", "deque", "Counter", "OrderedDict", "bytearray"}
+
+
+def _imports_providers(node: ast.AST) -> list[tuple[str, int]]:
+    """Every import in the tree that reaches the providers package, absolute or relative."""
+    found = []
+    for n in ast.walk(node):
+        if isinstance(n, ast.Import):
+            found += [(a.name, n.lineno) for a in n.names if "providers" in a.name.split(".")]
+        elif isinstance(n, ast.ImportFrom):
+            module = n.module or ""
+            parts = module.split(".") if module else []
+            if "providers" in parts:
+                found.append((("." * n.level) + module, n.lineno))
+            elif any(a.name == "providers" for a in n.names):
+                found.append((("." * n.level) + module + ".providers", n.lineno))
+    return found
+
+
+def harness_only_providers(root: Path) -> list[Violation]:
+    """Only the harness imports the providers package (AGENT-28, PERD §19.1). The providers package's own modules and
+    the service's tests are not production importers and are not scanned."""
+    out = []
+    for path, rel in _files(root, MODEL_PKG):
+        if rel.startswith(f"{MODEL_PKG}/harness/") or rel.startswith(f"{MODEL_PKG}/providers/"):
+            continue
+        for module, line in _imports_providers(ast.parse(path.read_text())):
+            out.append(("harness-only-providers", rel, line, f"imports {module}; only noema_model/harness may import providers"))
+    return out
+
+
+def _mutable_value(value: ast.AST | None) -> bool:
+    if isinstance(value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
+        return True
+    return isinstance(value, ast.Call) and isinstance(value.func, (ast.Name, ast.Attribute)) and (
+        (value.func.id if isinstance(value.func, ast.Name) else value.func.attr) in MUTABLE_CALLS)
+
+
+def pipeline_purity(root: Path) -> list[Violation]:
+    """The pipeline is stateless pure functions (D3): no module-level mutable state, no global statement, and no
+    database, Temporal, HTTP or stateful agent-framework import. It reaches the world only through the harness and
+    the core Evidence API client."""
+    out = []
+    banned = {n.lower().replace("_", "-") for n in DB_AND_TEMPORAL}
+    for path, rel in _files(root, f"{MODEL_PKG}/understanding/pipeline"):
+        tree = ast.parse(path.read_text())
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign, ast.AugAssign)) and _mutable_value(getattr(stmt, "value", None)):
+                out.append(("pipeline-purity", rel, stmt.lineno, "module-level mutable state; use a tuple, a frozenset or MappingProxyType"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                out.append(("pipeline-purity", rel, node.lineno, "global statement"))
+        for module, line in _imports(tree):
+            top = module.split(".")[0]
+            if top.lower().replace("_", "-") in banned or module in HTTP_CLIENTS or top in HTTP_CLIENTS or top in AGENT_FRAMEWORKS:
+                out.append(("pipeline-purity", rel, line, f"imports {module}: a database, Temporal, HTTP or agent-framework client"))
+    return out
+
+
+ALL = (clock, money, cross_service, manifest, mocks, harness_only_providers, pipeline_purity)
