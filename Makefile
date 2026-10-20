@@ -40,6 +40,6 @@ bench-smoke:
 contracts-validate:
 	python3 -m venv .venv-contracts
 	.venv-contracts/bin/pip install -q --require-hashes -r tools/contracts/requirements.lock
+	.venv-contracts/bin/python -m unittest discover -s services/core/orchestrator -p 'test_*.py'
 	.venv-contracts/bin/python tools/contracts/validate.py
 	.venv-contracts/bin/python -m unittest discover -s tools/contracts -p 'test_*.py'
-	.venv-contracts/bin/python -m unittest discover -s services/core/orchestrator -p 'test_*.py'
