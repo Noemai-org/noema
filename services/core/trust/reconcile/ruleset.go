@@ -358,3 +358,19 @@ func (rs *RuleSet) Matrix() []MatrixEntry {
 	}
 	return out
 }
+
+// Produces lists the classifications some rule of the set can return, plus the fallback's. A classification that is not
+// listed can never be returned.
+func (rs *RuleSet) Produces() []Classification {
+	seen := map[Classification]bool{rs.fallback.classification: true}
+	for _, r := range rs.rules {
+		seen[r.classification] = true
+	}
+	out := make([]Classification, 0, len(seen))
+	for _, c := range allClassifications {
+		if seen[c] {
+			out = append(out, c)
+		}
+	}
+	return out
+}

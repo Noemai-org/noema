@@ -389,3 +389,56 @@ func TestMetamorphicProperties(t *testing.T) {
 		t.Fatalf("weak coverage: %d contradictions, %d terminal results", contradictions, collapses)
 	}
 }
+
+// Five of the twelve classifications have no rule in rule set v1 (open decisions OD-P-52 to OD-P-56). Until the founders add
+// them, each situation falls to INSUFFICIENT_EVIDENCE (REQ-RES-001: never a default success). These tests assert that fallback,
+// so adding a rule for one of them later is a deliberate change that must update the test and the open decision.
+func TestUncoveredClassificationsFallBackToInsufficientEvidence(t *testing.T) {
+	rs := loadRuleSet(t)
+	uncovered := []reconcile.Classification{reconcile.RejectedConfirmed, reconcile.DebitPostedCreditUnconfirmed, reconcile.ReversalPending,
+		reconcile.Partial, reconcile.EventOrderUncertain}
+
+	produced := map[reconcile.Classification]bool{}
+	for _, c := range rs.Produces() {
+		produced[c] = true
+	}
+	for _, c := range uncovered {
+		if produced[c] {
+			t.Errorf("a rule now produces %s: update this test and OD-P-52..56", c)
+		}
+	}
+
+	unknownCredit := credit("c", "CREDITED", true)
+	unknownCredit.Status = reconcile.Unknown
+	staleDebit, staleCredit := debit("d", "POSTED"), credit("c", "CREDITED", true)
+	staleDebit.Status, staleCredit.Status = reconcile.Stale, reconcile.Stale
+	situations := map[reconcile.Classification][]reconcile.Evidence{
+		// not debited, switch failed: the facts PERD §22.3 gives for REJECTED_CONFIRMED
+		reconcile.RejectedConfirmed: {debit("d", "NOT_POSTED"), item("s", "switch", state("FAILED"))},
+		// debit known, credit unknown, no terminal switch result
+		reconcile.DebitPostedCreditUnconfirmed: {debit("d", "POSTED"), unknownCredit},
+		// reversal initiated, not posted
+		reconcile.ReversalPending: {debit("d", "POSTED"), reversal("r", "PENDING", true)},
+		// no entity models a multi-leg transaction, so only a lone leg can be expressed
+		reconcile.Partial: {debit("d1", "POSTED")},
+		// no entity models ordering, so the closest expressible case is facts too old to use
+		reconcile.EventOrderUncertain: {staleDebit, staleCredit},
+	}
+	for _, c := range uncovered {
+		got := run(t, rs, situations[c]...)
+		if got.Classification != reconcile.InsufficientEvidence || got.RuleID != "R0@1" {
+			t.Errorf("%s: want the INSUFFICIENT_EVIDENCE fallback, got %s by %s", c, got.Classification, got.RuleID)
+		}
+	}
+
+	// and over random evidence the engine never returns one of the five
+	r := rand.New(rand.NewSource(99))
+	for i := 0; i < 4000; i++ {
+		got := run(t, rs, randomEvidence(r)...)
+		for _, c := range uncovered {
+			if got.Classification == c {
+				t.Fatalf("set %d returned %s, which no rule produces", i, c)
+			}
+		}
+	}
+}
