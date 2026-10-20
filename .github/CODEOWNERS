@@ -1,13 +1,13 @@
 # Both founders belong on every protected path (DEC-2026-10-13 R4; GOV-22).
-/services/core/trust/       @OladiranOlatunde
-/services/core/execution/   @OladiranOlatunde
-/services/core/outcome/     @OladiranOlatunde
-/services/core/record/      @OladiranOlatunde
-/contracts/                 @OladiranOlatunde
-/packs/                     @OladiranOlatunde
-/tools/lint/                @OladiranOlatunde
-/.github/                   @OladiranOlatunde
-/tools/contracts/          @OladiranOlatunde
-/deploy/compose/            @OladiranOlatunde
-/tools/ci/                  @OladiranOlatunde
-/.gitleaks.toml             @OladiranOlatunde
+/services/core/trust/       @OladiranOlatunde @noemai-systems
+/services/core/execution/   @OladiranOlatunde @noemai-systems
+/services/core/outcome/     @OladiranOlatunde @noemai-systems
+/services/core/record/      @OladiranOlatunde @noemai-systems
+/contracts/                 @OladiranOlatunde @noemai-systems
+/packs/                     @OladiranOlatunde @noemai-systems
+/tools/lint/                @OladiranOlatunde @noemai-systems
+/.github/                   @OladiranOlatunde @noemai-systems
+/tools/contracts/          @OladiranOlatunde @noemai-systems
+/deploy/compose/            @OladiranOlatunde @noemai-systems
+/tools/ci/                  @OladiranOlatunde @noemai-systems
+/.gitleaks.toml             @OladiranOlatunde @noemai-systems
