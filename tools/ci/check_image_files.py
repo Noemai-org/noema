@@ -10,10 +10,12 @@ import subprocess
 import sys
 
 SERVICES = ("core", "model", "ui")
-# Path fragments that mark another service or repository-level material.
+# Path fragments that mark another service or repository-level material. The model image may hold
+# its own generated contracts package (app/noema_model/contracts, PERD section 64.2) but never the
+# repository-level contracts directory (app/contracts, contracts/schemas).
 FOREIGN = {
     "core": ["noema_model", "usr/share/nginx", "app/requirements.lock", "benchmark", "benchmark-heldout", "contracts/"],
-    "model": ["usr/local/bin/core", "usr/share/nginx", "services/core", "benchmark", "benchmark-heldout", "contracts/"],
+    "model": ["usr/local/bin/core", "usr/share/nginx", "services/core", "benchmark", "benchmark-heldout", "app/contracts/", "contracts/schemas/"],
     "ui": ["noema_model", "usr/local/bin/core", "services/", "benchmark", "benchmark-heldout", "contracts/"],
 }
 SOURCE_SUFFIXES = {"core": (".go", "go.mod"), "model": (), "ui": (".ts",)}
