@@ -57,6 +57,7 @@ func main() {
 		os.Exit(2)
 	}
 	l.importRules()
+	l.subpackageRules()
 	l.astRules()
 	l.manifestRules()
 	l.mockRule()
