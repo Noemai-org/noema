@@ -1,0 +1,10 @@
+# Canary: reads a secret that .env.example does not list. The check must fail on it.
+name: model
+on: [push]
+jobs:
+  call:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "$KEY" | wc -c
+        env:
+          KEY: ${{ secrets.UNLISTED_PROVIDER_KEY }}
