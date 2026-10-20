@@ -1,0 +1,18 @@
+{
+  "requirement": "REQ-AG-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "graph",
+  "expect_message_contains": "cycle",
+  "patch": [
+    {
+      "file": "fintech/graph/g1_investigate.json",
+      "op": "add",
+      "path": "/edges/-",
+      "value": {
+        "node_id": "lookup_transaction",
+        "depends_on": "evaluate_sla_status",
+        "condition": null
+      }
+    }
+  ]
+}

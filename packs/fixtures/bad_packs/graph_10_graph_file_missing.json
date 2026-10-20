@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AG-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "does not exist",
+  "patch": [
+    {
+      "op": "add",
+      "path": "/action_graph_files/-",
+      "value": "fintech/graph/missing.json"
+    }
+  ]
+}

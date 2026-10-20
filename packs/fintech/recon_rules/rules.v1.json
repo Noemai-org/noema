@@ -1,0 +1,276 @@
+{
+  "ruleset_id": "fin.recon.rules",
+  "version": 1,
+  "label": "SYNTHETIC",
+  "entities": {
+    "debit": {
+      "state": {
+        "type": "Enum",
+        "values": [
+          "POSTED",
+          "NOT_POSTED"
+        ]
+      },
+      "counterparty": {
+        "type": "Reference"
+      },
+      "amount": {
+        "type": "Integer"
+      },
+      "posted_at": {
+        "type": "Timestamp"
+      },
+      "intent": {
+        "type": "Reference"
+      }
+    },
+    "credit": {
+      "state": {
+        "type": "Enum",
+        "values": [
+          "CREDITED",
+          "NOT_CREDITED",
+          "PENDING"
+        ]
+      },
+      "terminal": {
+        "type": "Boolean"
+      }
+    },
+    "switch": {
+      "state": {
+        "type": "Enum",
+        "values": [
+          "SUCCESSFUL",
+          "FAILED",
+          "TIMED_OUT",
+          "EXECUTION_OUTCOME_UNKNOWN"
+        ]
+      }
+    },
+    "settlement": {
+      "state": {
+        "type": "Enum",
+        "values": [
+          "PENDING",
+          "SETTLED",
+          "FAILED"
+        ]
+      },
+      "expected_by": {
+        "type": "Timestamp"
+      }
+    },
+    "reversal": {
+      "state": {
+        "type": "Enum",
+        "values": [
+          "POSTED",
+          "PENDING"
+        ]
+      },
+      "original_debit_linked": {
+        "type": "Boolean"
+      }
+    }
+  },
+  "incompatible": [
+    {
+      "label": "switch_failed_credit_credited",
+      "a": {
+        "entity": "switch",
+        "field": "state",
+        "value": "FAILED"
+      },
+      "b": {
+        "entity": "credit",
+        "field": "state",
+        "value": "CREDITED"
+      }
+    },
+    {
+      "label": "credit_without_debit",
+      "a": {
+        "entity": "debit",
+        "field": "state",
+        "value": "NOT_POSTED"
+      },
+      "b": {
+        "entity": "credit",
+        "field": "state",
+        "value": "CREDITED"
+      },
+      "unless": {
+        "entity": "reversal",
+        "field": "state",
+        "value": "POSTED"
+      }
+    },
+    {
+      "label": "reversal_conflict",
+      "a": {
+        "entity": "reversal",
+        "field": "state",
+        "value": "POSTED"
+      },
+      "b": {
+        "entity": "debit",
+        "field": "state",
+        "value": "NOT_POSTED"
+      }
+    },
+    {
+      "label": "switch_successful_credit_not_credited",
+      "a": {
+        "entity": "switch",
+        "field": "state",
+        "value": "SUCCESSFUL"
+      },
+      "b": {
+        "entity": "credit",
+        "field": "state",
+        "value": "NOT_CREDITED"
+      }
+    }
+  ],
+  "single_valued": [
+    {
+      "entity": "credit",
+      "field": "state"
+    },
+    {
+      "entity": "switch",
+      "field": "state"
+    },
+    {
+      "entity": "settlement",
+      "field": "state"
+    },
+    {
+      "entity": "reversal",
+      "field": "state"
+    }
+  ],
+  "derived": [
+    {
+      "name": "duplicate",
+      "entity": "debit",
+      "require": {
+        "entity": "debit",
+        "field": "state",
+        "value": "POSTED"
+      },
+      "same": [
+        "counterparty",
+        "amount",
+        "intent"
+      ],
+      "time_field": "posted_at",
+      "within_seconds": 600
+    }
+  ],
+  "rules": [
+    {
+      "id": "R3",
+      "classification": "REVERSED_CONFIRMED",
+      "uses": [
+        "reversal",
+        "debit"
+      ],
+      "condition": "exists(reversal where reversal.status == 'KNOWN' and reversal.state == 'POSTED' and reversal.original_debit_linked == true) and not exists(contradiction where contradiction.label in ['reversal_conflict','conflict:reversal'])"
+    },
+    {
+      "id": "R4",
+      "classification": "CONTRADICTORY_STATE",
+      "uses": [
+        "contradiction"
+      ],
+      "condition": "exists(contradiction where true)"
+    },
+    {
+      "id": "R6",
+      "classification": "POSSIBLE_DUPLICATE",
+      "uses": [
+        "duplicate"
+      ],
+      "condition": "exists(duplicate where duplicate.size >= 2)"
+    },
+    {
+      "id": "R2",
+      "classification": "EXECUTION_OUTCOME_UNKNOWN",
+      "uses": [
+        "debit",
+        "switch"
+      ],
+      "condition": "exists(debit where debit.status == 'KNOWN' and debit.state == 'POSTED') and exists(switch where switch.status == 'KNOWN' and switch.state in ['TIMED_OUT','EXECUTION_OUTCOME_UNKNOWN']) and not exists(credit where credit.status == 'KNOWN' and (credit.state == 'CREDITED' or (credit.state == 'NOT_CREDITED' and credit.terminal == true)))"
+    },
+    {
+      "id": "R5",
+      "classification": "SETTLEMENT_PENDING",
+      "uses": [
+        "switch",
+        "settlement"
+      ],
+      "condition": "exists(switch where switch.status == 'KNOWN' and switch.state == 'SUCCESSFUL') and exists(settlement where settlement.status == 'KNOWN' and settlement.state == 'PENDING' and now() <= settlement.expected_by)"
+    },
+    {
+      "id": "R1",
+      "classification": "SUCCESS_CONFIRMED",
+      "uses": [
+        "debit",
+        "credit"
+      ],
+      "condition": "exists(debit where debit.status == 'KNOWN' and debit.state == 'POSTED') and exists(credit where credit.status == 'KNOWN' and credit.state == 'CREDITED') and not exists(settlement where settlement.status == 'KNOWN' and settlement.state == 'PENDING') and not exists(reversal where reversal.status == 'KNOWN' and reversal.state == 'PENDING') and not exists(unavailable where unavailable.required == true)"
+    },
+    {
+      "id": "R7",
+      "classification": "INSUFFICIENT_EVIDENCE",
+      "uses": [
+        "unavailable"
+      ],
+      "condition": "exists(unavailable where unavailable.required == true)"
+    }
+  ],
+  "fallback": {
+    "id": "R0",
+    "classification": "INSUFFICIENT_EVIDENCE",
+    "uses": []
+  },
+  "certainty": {
+    "SUCCESS_CONFIRMED": 2,
+    "REJECTED_CONFIRMED": 2,
+    "REVERSED_CONFIRMED": 2,
+    "CONTRADICTORY_STATE": 2,
+    "POSSIBLE_DUPLICATE": 2,
+    "DEBIT_POSTED_CREDIT_UNCONFIRMED": 1,
+    "SETTLEMENT_PENDING": 1,
+    "REVERSAL_PENDING": 1,
+    "EXECUTION_OUTCOME_UNKNOWN": 1,
+    "PARTIAL": 1,
+    "EVENT_ORDER_UNCERTAIN": 1,
+    "INSUFFICIENT_EVIDENCE": 1
+  },
+  "pending_markers": [
+    {
+      "entity": "credit",
+      "field": "state",
+      "values": [
+        "PENDING"
+      ]
+    },
+    {
+      "entity": "settlement",
+      "field": "state",
+      "values": [
+        "PENDING"
+      ]
+    },
+    {
+      "entity": "reversal",
+      "field": "state",
+      "values": [
+        "PENDING"
+      ]
+    }
+  ]
+}

@@ -43,3 +43,7 @@ contracts-validate:
 	.venv-contracts/bin/python -m unittest discover -s services/core/orchestrator -p 'test_*.py'
 	.venv-contracts/bin/python tools/contracts/validate.py
 	.venv-contracts/bin/python -m unittest discover -s tools/contracts -p 'test_*.py'
+	.venv-contracts/bin/python -m unittest discover -s packs/tests -p 'test_*.py'
+	.venv-contracts/bin/python -m unittest discover -s tools/packcheck -p 'test_*.py'
+	.venv-contracts/bin/python tools/packcheck validate packs/fintech_v1.json
+	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done

@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AG-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "does not match",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/routing_allowlist/0",
+      "value": "https://evil.invalid/x"
+    }
+  ]
+}

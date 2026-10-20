@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-NFR-005",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "references",
+  "expect_message_contains": "evidence source",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/outcome_definitions/0/verification_sources/0/source",
+      "value": "fin.src.nope"
+    }
+  ]
+}

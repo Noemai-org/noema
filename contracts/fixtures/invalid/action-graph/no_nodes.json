@@ -1,0 +1,13 @@
+{
+  "graph_id": "fin.graph.synthetic",
+  "graph_version": "1.0.0",
+  "applies_when": "true",
+  "nodes": [],
+  "edges": [
+    {
+      "node_id": "create_escalation_case",
+      "depends_on": "lookup_transaction",
+      "condition": null
+    }
+  ]
+}

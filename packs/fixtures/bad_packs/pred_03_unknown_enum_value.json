@@ -1,0 +1,13 @@
+{
+  "requirement": "SoT 43.7",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "predicate",
+  "expect_message_contains": "UNKNOWN_ENUM_VALUE",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/policy/rules/5/condition",
+      "value": "subject_resource.status == 'DONE'"
+    }
+  ]
+}
