@@ -13,17 +13,19 @@ The docs checkout must be clean and at the commit you want (normally origin/main
     AGENTS.md                           <- AGENTS.md
     CLAUDE.md                           <- CLAUDE.md
     contracts/state-registry.md         <- docs/engineering/state-registry.md
-    contracts/perd-32-2-event-types.md  <- section 32.2 of the current PERD (see PERD_FILE below)
+    contracts/perd-32-2-event-types.md  <- section 32.2 of the current PERD
 
-When the PERD version changes, edit PERD_FILE. Standard library only.
+The current PERD file is not named here: it is resolved from the docs checkout's docs/poc/perd/README.md,
+the row marked "**Current.**", so a PERD version bump needs no change to this script. Standard library only.
 """
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-PERD_FILE = "docs/poc/perd/NOEMA_POC_PERD_v1.9.md"
+PERD_README = "docs/poc/perd/README.md"
 EVENT_HEADING = "### 32.2 Event types"
 
 WHOLE_FILES = [
@@ -32,6 +34,27 @@ WHOLE_FILES = [
     ("contracts/state-registry.md", "docs/engineering/state-registry.md"),
 ]
 EXTRACT_TARGET = "contracts/perd-32-2-event-types.md"
+
+
+CURRENT_ROW = re.compile(r"^\|\s*\[`(NOEMA_POC_PERD_v[0-9.]+\.md)`\]\(([^)]+)\)\s*\|.*\*\*Current\.\*\*")
+
+
+def resolve_perd(docs: Path) -> str:
+    """The current PERD file (path relative to the docs checkout), read from the PERD README pointer.
+
+    Exactly one table row must be marked "**Current.**" and its file must exist; anything else stops the run
+    rather than guessing, so a malformed README cannot silently vendor an old PERD."""
+    readme = docs / PERD_README
+    rows = [m for m in (CURRENT_ROW.match(line) for line in readme.read_text(encoding="utf-8").splitlines()) if m]
+    if len(rows) != 1:
+        raise SystemExit(f"{PERD_README} must mark exactly one PERD file as **Current.**; found {len(rows)}")
+    name, target = rows[0].groups()
+    if target != name:
+        raise SystemExit(f"{PERD_README}: the current row's link target {target!r} differs from its name {name!r}")
+    resolved = f"{Path(PERD_README).parent.as_posix()}/{name}"
+    if not (docs / resolved).is_file():
+        raise SystemExit(f"{PERD_README} names {name} as current, but {resolved} does not exist")
+    return resolved
 
 
 def git(docs: Path, *args: str) -> str:
@@ -43,11 +66,11 @@ def whole_header(source: str, commit: str) -> str:
             f"difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->")
 
 
-def event_table(perd_text: str) -> str:
+def event_table(perd_text: str, perd_file: str) -> str:
     lines = perd_text.splitlines()
     start = next((i for i, line in enumerate(lines) if line.startswith(EVENT_HEADING)), None)
     if start is None:
-        raise SystemExit(f"no heading '{EVENT_HEADING}' in {PERD_FILE}")
+        raise SystemExit(f"no heading '{EVENT_HEADING}' in {perd_file}")
     table = []
     for line in lines[start + 1:]:
         if line.startswith("|"):
@@ -55,7 +78,7 @@ def event_table(perd_text: str) -> str:
         elif table:
             break
     if not table:
-        raise SystemExit(f"no table found under '{EVENT_HEADING}' in {PERD_FILE}")
+        raise SystemExit(f"no table found under '{EVENT_HEADING}' in {perd_file}")
     return "\n".join(table)
 
 
@@ -63,10 +86,11 @@ def expected(docs: Path, commit: str) -> dict[str, str]:
     out = {}
     for target, source in WHOLE_FILES:
         out[target] = whole_header(source, commit) + "\n\n" + (docs / source).read_text(encoding="utf-8")
-    header = (f"<!-- Vendored extract of Noemai-org/docs {PERD_FILE} section 32.2 (Event types) at docs commit {commit}. "
+    perd_file = resolve_perd(docs)
+    header = (f"<!-- Vendored extract of Noemai-org/docs {perd_file} section 32.2 (Event types) at docs commit {commit}. "
               f"The PERD original is normative; this copy exists so CI can compare /contracts against it without "
               f"cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->")
-    out[EXTRACT_TARGET] = header + "\n\n" + EVENT_HEADING + "\n\n" + event_table((docs / PERD_FILE).read_text(encoding="utf-8")) + "\n"
+    out[EXTRACT_TARGET] = header + "\n\n" + EVENT_HEADING + "\n\n" + event_table((docs / perd_file).read_text(encoding="utf-8"), perd_file) + "\n"
     return out
 
 
