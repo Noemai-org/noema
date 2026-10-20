@@ -36,6 +36,8 @@ jobs:
         run: |
           body="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""')"
           PR_BODY="$body" python3 -I tools/ci/check_pr_trace.py
+      - name: Vendored-copy script tests (the current PERD is resolved, not hardcoded)
+        run: python3 -I -m unittest discover -s tools/vendor -p 'test_*.py'
       - name: Canaries (each check must fail for its own reason)
         run: python3 -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"
   images:
