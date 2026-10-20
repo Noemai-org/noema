@@ -80,6 +80,9 @@
    },
    "planned_queue": {
     "type": "Reference"
+   },
+   "evidence_packet_hash": {
+    "type": "String"
    }
   }
  },

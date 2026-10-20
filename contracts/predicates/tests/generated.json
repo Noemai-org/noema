@@ -1,0 +1,1730 @@
+{
+ "cases": [
+  {
+   "id": "gen_1000",
+   "expr": "not ((subject_resource.status != 'AMBIGUOUS' and now() - 72h \u003c now() - 30s) or not true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1001",
+   "expr": "not (now() \u003c= now() + 1d and 'DISPUTES' in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1002",
+   "expr": "subject_resource.status == 'AMBIGUOUS'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1003",
+   "expr": "count(case where not case.escalated == true) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1004",
+   "expr": "1 \u003c= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1005",
+   "expr": "5 \u003e epoch",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1006",
+   "expr": "count(case where exists(attachment where case_id != null)) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1007",
+   "expr": "((subject_resource == null and case_id in ['DISPUTES','FRAUD_REVIEW']) and count(case where 2 \u003c 5) \u003e= 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1008",
+   "expr": "((now() - 30s \u003e now() - 72h and subject_resource == subject_resource) or exists(case where case.status in ['OPEN','ROUTED']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1008_mutated",
+   "expr": "((now() - 30s \u003e now() - 72h and subject_resource == subject_resource) or exists(case where case.status in ['OPENX','ROUTED']))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1009",
+   "expr": "('tx1' in ['DISPUTES','FRAUD_REVIEW'] or subject_resource == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1010",
+   "expr": "count(case where count(attachment where now() - 30s \u003e= now()) \u003c 0) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1011",
+   "expr": "evidence_packet_hash != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1012",
+   "expr": "count(case where exists(attachment where subject_resource.status == 'ABSENT')) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1013",
+   "expr": "exists(attachment where not exists(attachment where 0 \u003e= 0))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1014",
+   "expr": "not (5 == 0 or true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1015",
+   "expr": "count(attachment where exists(case where 'DISPUTES' == case.created_by_intent)) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1016",
+   "expr": "subject_resource.status == 'AMBIGUOUS'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1017",
+   "expr": "(not count(attachment where subject_resource == null) \u003c 2 or now() \u003c= now())",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1018",
+   "expr": "0 == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1019",
+   "expr": "exists(case where (case.created_at + 1h \u003c= case.created_at and case.escalated == false))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1020",
+   "expr": "count(attachment where 1 \u003c= epoch) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1021",
+   "expr": "planned_queue == case_id",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1022",
+   "expr": "('tx1' in ['DISPUTES','FRAUD_REVIEW'] and subject_resource != null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1023",
+   "expr": "not subject_resource.status != 'UNRESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1024",
+   "expr": "not (1 \u003e 1 and count(case where 1 \u003c= case.epoch) \u003c 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1024_mutated",
+   "expr": "not (1 \u003e 1 and count(case where 1 \u003c= case.epocx) \u003c 0)",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "gen_1025",
+   "expr": "(not 1 \u003e= 5 or (subject_resource.status == 'AMBIGUOUS' and 2m != settle_window))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1025_mutated",
+   "expr": "(not 1 \u003e= 5 or (subject_resource.status == 'AMBIGUOUS' and 2m != settle_windw))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1026",
+   "expr": "(subject_resource.status != 'AMBIGUOUS' and exists(attachment where planned_queue not in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1027",
+   "expr": "not not count(attachment where true) \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1028",
+   "expr": "(now() - 30s \u003e= now() + 1d and now() - 72h == now() + 1d)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1029",
+   "expr": "exists(case where case.status == 'CLOSED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1030",
+   "expr": "exists(attachment where subject_resource.status != 'RESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1031",
+   "expr": "(now() + 1d \u003e= now() - 30s and planned_queue == 'tx1')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1032",
+   "expr": "(true and 'tx1' == intent_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1033",
+   "expr": "(count(case where case.status not in ['OPEN','ROUTED']) \u003e= 2 and exists(case where now() - 30s \u003c= now() - 72h))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1033_mutated",
+   "expr": "(count(case where case.status not in ['OPENX','ROUTED']) \u003e= 2 and exists(case where now() - 30s \u003c= now() - 72h))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1034",
+   "expr": "((subject_resource.status != 'ABSENT' and now() + 1d \u003e= now() - 72h) or exists(case where case.status == 'OPEN'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1034_mutated",
+   "expr": "((subject_resource.status != 'ABSENT' and now() + 1d \u003e= now() - 72h) or exists(case where case.status == 'OPENX'))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1035",
+   "expr": "(subject_resource not in ['DISPUTES','FRAUD_REVIEW'] or exists(case where case.status == 'OPEN'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1035_mutated",
+   "expr": "(subject_resource not in ['DISPUTES','FRAUD_REVIEW'] or exists(case where case.status == 'OPENX'))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1036",
+   "expr": "count(attachment where (intent_id in ['DISPUTES','FRAUD_REVIEW'] and settle_window + 1m \u003e= 2m)) \u003e= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1036_mutated",
+   "expr": "count(attachment where (intent_id in ['DISPUTES','FRAUD_REVIEW'] and settle_windw + 1m \u003e= 2m)) \u003e= 0",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1037",
+   "expr": "not intent_id in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1038",
+   "expr": "(exists(case where now() - case.created_at \u003e= now() - case.created_at) and count(attachment where subject_resource == null) == 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1039",
+   "expr": "not (case_id == null and false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1040",
+   "expr": "not exists(case where count(attachment where false) == 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1041",
+   "expr": "count(attachment where count(case where not case.escalated == false) \u003e= 0) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1042",
+   "expr": "exists(case where case.status in ['OPEN','ROUTED'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1042_mutated",
+   "expr": "exists(case where case.status in ['OPENX','ROUTED'])",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1043",
+   "expr": "((not 0 \u003e= 0 and ('DISPUTES' in ['DISPUTES','FRAUD_REVIEW'] or 'tx1' == case_id)) and not exists(attachment where evidence_packet_hash == null))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1044",
+   "expr": "('tx1' not in ['DISPUTES','FRAUD_REVIEW'] or exists(attachment where true))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1045",
+   "expr": "count(case where (now() \u003c= now() - 30s or (case.status != 'CLOSED' or subject_resource == case.subject))) == 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1046",
+   "expr": "count(attachment where exists(case where exists(case where case.status == 'CLOSED'))) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1047",
+   "expr": "(('DISPUTES' in ['DISPUTES','FRAUD_REVIEW'] and exists(attachment where case_id == null)) and exists(attachment where true))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1048",
+   "expr": "count(case where exists(attachment where not now() + 1d \u003c now())) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1049",
+   "expr": "(count(attachment where exists(attachment where 0 \u003e 1)) \u003c 0 and exists(case where 0 \u003e 2))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1050",
+   "expr": "not not false",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1051",
+   "expr": "not now() - 30s \u003e now() - 72h",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1052",
+   "expr": "not not exists(attachment where false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1053",
+   "expr": "1 \u003e 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1054",
+   "expr": "exists(case where (case_id == null or case.status == 'ROUTED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1055",
+   "expr": "count(case where exists(case where (1d \u003e= settle_window or epoch == 5))) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1055_mutated",
+   "expr": "count(case where exists(case where (1d \u003e= settle_windw or epoch == 5))) \u003c 1",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1056",
+   "expr": "count(attachment where (exists(case where 'DISPUTES' == planned_queue) or (true or 1d == 1d))) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1057",
+   "expr": "count(case where not (case.subject != 'tx1' or planned_queue == case.subject)) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1058",
+   "expr": "case_id != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1059",
+   "expr": "count(attachment where 1d \u003c 30s) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1060",
+   "expr": "(true or intent_id != intent_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1061",
+   "expr": "exists(case where (exists(attachment where attachment.case not in ['DISPUTES','FRAUD_REVIEW']) or (case.created_at + 1h \u003c= case.created_at + 1h or 5 != 1)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1062",
+   "expr": "now() + 1d \u003c= now() - 72h",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1063",
+   "expr": "exists(case where case.created_at \u003e case.created_at)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1064",
+   "expr": "exists(attachment where true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1065",
+   "expr": "not exists(case where 30s \u003e= 2m)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1066",
+   "expr": "(subject_resource.status == 'AMBIGUOUS' and intent_id not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1067",
+   "expr": "exists(attachment where case_id == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1068",
+   "expr": "(exists(case where now() + 1d \u003e= case.created_at + 1h) or (2m \u003c 1h and 'DISPUTES' != 'tx1'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1069",
+   "expr": "(false or 30s == 1h)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1070",
+   "expr": "not (not case_id == null or (2m != 1h or subject_resource in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1071",
+   "expr": "exists(attachment where (30s \u003e= settle_window or not subject_resource.status == 'UNRESOLVED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1071_mutated",
+   "expr": "exists(attachment where (30s \u003e= settle_windw or not subject_resource.status == 'UNRESOLVED'))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1072",
+   "expr": "not count(attachment where (subject_resource.status == 'ABSENT' and now() - 72h == now() - 30s)) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1073",
+   "expr": "exists(attachment where case_id == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1074",
+   "expr": "count(case where case.escalated == true) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1075",
+   "expr": "((epoch \u003e= 1 or case_id != null) or subject_resource.status == 'RESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1076",
+   "expr": "((count(attachment where subject_resource.status != 'RESOLVED') \u003e= 2 or count(case where case.id == case_id) == 1) and not not intent_id != intent_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1077",
+   "expr": "((0 != 0 or subject_resource.status != 'UNRESOLVED') or not subject_resource in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1078",
+   "expr": "not not evidence_packet_hash != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1079",
+   "expr": "not not subject_resource.status != 'ABSENT'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1080",
+   "expr": "0 \u003e 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1081",
+   "expr": "(('tx1' not in ['DISPUTES','FRAUD_REVIEW'] and intent_id in ['DISPUTES','FRAUD_REVIEW']) and count(attachment where subject_resource.status == 'ABSENT') \u003e= 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1082",
+   "expr": "exists(attachment where count(case where count(attachment where false) \u003e= 2) == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1083",
+   "expr": "count(case where case.escalated == false) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1084",
+   "expr": "now() + 1d == now() - 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1085",
+   "expr": "not count(attachment where (settle_window \u003e= settle_window + 1m and 2 \u003e= 2)) \u003e= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1085_mutated",
+   "expr": "not count(attachment where (settle_windw \u003e= settle_window + 1m and 2 \u003e= 2)) \u003e= 0",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1086",
+   "expr": "(2 != 0 and now() \u003c now() - 72h)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1087",
+   "expr": "exists(case where case.owner_queue != case_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1088",
+   "expr": "not now() + 1d \u003c now() - 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1089",
+   "expr": "now() - 72h \u003c= now() - 72h",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1090",
+   "expr": "1h == settle_window",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1090_mutated",
+   "expr": "1h == settle_windw",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1091",
+   "expr": "(false and subject_resource != subject_resource)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1092",
+   "expr": "((count(attachment where planned_queue not in ['DISPUTES','FRAUD_REVIEW']) \u003e= 2 and count(case where case.status == 'CLOSED') == 2) and not exists(case where case.escalated == false))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1093",
+   "expr": "planned_queue not in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1094",
+   "expr": "(exists(case where case.status in ['OPEN','ROUTED']) and not planned_queue != case_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1094_mutated",
+   "expr": "(exists(case where case.status in ['OPENX','ROUTED']) and not planned_queue != case_id)",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1095",
+   "expr": "count(attachment where true) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1096",
+   "expr": "(count(attachment where now() + 1d \u003c= now() - 30s) \u003c 0 or not intent_id != planned_queue)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1097",
+   "expr": "exists(case where (planned_queue != case.owner_queue and now() - 72h == case.created_at + 1h))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1098",
+   "expr": "false",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1099",
+   "expr": "count(case where (case.status not in ['OPEN','ROUTED'] and 1h \u003c 2m)) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1099_mutated",
+   "expr": "count(case where (case.status not in ['OPENX','ROUTED'] and 1h \u003c 2m)) \u003c 0",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1100",
+   "expr": "(1h \u003c 1h and (case_id == null or (false or epoch \u003e 0)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1101",
+   "expr": "('DISPUTES' == subject_resource and subject_resource != planned_queue)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1102",
+   "expr": "exists(case where case.escalated == false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1103",
+   "expr": "exists(case where case_id != case_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1104",
+   "expr": "(planned_queue in ['DISPUTES','FRAUD_REVIEW'] or subject_resource.status == 'ABSENT')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1105",
+   "expr": "count(case where case.status == 'ROUTED') == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1106",
+   "expr": "not count(case where (case_id != case_id or case.status not in ['OPEN','ROUTED'])) \u003e= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1106_mutated",
+   "expr": "not count(case where (case_id != case_id or case.status not in ['OPENX','ROUTED'])) \u003e= 0",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1107",
+   "expr": "evidence_packet_hash == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1108",
+   "expr": "not (exists(case where 1 != 1) or count(attachment where case_id not in ['DISPUTES','FRAUD_REVIEW']) == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1109",
+   "expr": "subject_resource.status != 'RESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1110",
+   "expr": "not now() - 30s \u003e now() - 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1111",
+   "expr": "case_id == planned_queue",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1112",
+   "expr": "not now() - 30s \u003c now()",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1113",
+   "expr": "case_id == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1114",
+   "expr": "(subject_resource.status == 'UNRESOLVED' or (exists(case where now() \u003c= now()) and not subject_resource != null))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1115",
+   "expr": "(subject_resource.status != 'AMBIGUOUS' and evidence_packet_hash == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1116",
+   "expr": "count(case where exists(attachment where now() + 1d \u003e now())) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1117",
+   "expr": "exists(case where (case.status in ['OPEN','ROUTED'] or case.status != 'ROUTED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1117_mutated",
+   "expr": "exists(case where (case.status in ['OPENX','ROUTED'] or case.status != 'ROUTED'))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1118",
+   "expr": "exists(case where case.status == 'CLOSED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1119",
+   "expr": "exists(case where evidence_packet_hash == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1120",
+   "expr": "count(attachment where exists(attachment where 2 != 1)) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1121",
+   "expr": "(now() \u003c= now() and 1h != 2m)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1122",
+   "expr": "settle_window + 1m == 2m",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1122_mutated",
+   "expr": "settle_windw + 1m == 2m",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1123",
+   "expr": "exists(attachment where attachment.case not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1124",
+   "expr": "count(case where case.status == 'CLOSED') == 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1125",
+   "expr": "(count(case where count(attachment where now() \u003e now() + 1d) \u003e= 2) \u003c 2 or ((case_id == null or case_id == subject_resource) or (case_id not in ['DISPUTES','FRAUD_REVIEW'] and true)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1126",
+   "expr": "count(case where not count(case where case.escalated == true) \u003c 2) \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1127",
+   "expr": "((not 1 == epoch or exists(attachment where now() + 1d == now() - 72h)) or (not evidence_packet_hash != null or (false or now() - 30s == now() + 1d)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1128",
+   "expr": "exists(attachment where ((epoch != epoch or subject_resource != null) and not now() - 30s \u003e= now()))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1129",
+   "expr": "(count(case where settle_window == 30s) == 2 or count(case where case.status != 'ROUTED') == 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1129_mutated",
+   "expr": "(count(case where settle_windw == 30s) == 2 or count(case where case.status != 'ROUTED') == 0)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1130",
+   "expr": "exists(attachment where now() - 30s \u003c now())",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1131",
+   "expr": "((not 'DISPUTES' != intent_id or (settle_window + 1m != 1d or 1 \u003e 2)) or count(case where count(attachment where 30s \u003c 2m) \u003e= 1) \u003e= 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1131_mutated",
+   "expr": "((not 'DISPUTES' != intent_id or (settle_windw + 1m != 1d or 1 \u003e 2)) or count(case where count(attachment where 30s \u003c 2m) \u003e= 1) \u003e= 0)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1132",
+   "expr": "(count(attachment where case_id == null) == 2 or (case_id in ['DISPUTES','FRAUD_REVIEW'] or now() - 72h \u003e now()))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1133",
+   "expr": "exists(case where now() - case.created_at \u003c 2m)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1134",
+   "expr": "count(case where case.status in ['OPEN','ROUTED']) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1134_mutated",
+   "expr": "count(case where case.status in ['OPENX','ROUTED']) == 2",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1135",
+   "expr": "(subject_resource != null and subject_resource.status == 'UNRESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1136",
+   "expr": "(exists(case where now() + 1d \u003e= now() - 30s) or (case_id not in ['DISPUTES','FRAUD_REVIEW'] and evidence_packet_hash != null))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1137",
+   "expr": "not (not false and not subject_resource.status != 'RESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1138",
+   "expr": "not exists(case where case.escalated == true)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1139",
+   "expr": "exists(attachment where planned_queue == attachment.case)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1140",
+   "expr": "not count(case where (case.epoch != 2 and case.status == 'OPEN')) \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1140_mutated",
+   "expr": "not count(case where (case.epocx != 2 and case.status == 'OPEN')) \u003c 2",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "gen_1141",
+   "expr": "not not exists(case where subject_resource == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1142",
+   "expr": "count(case where now() - 72h \u003c= now() + 1d) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1143",
+   "expr": "(subject_resource.status != 'AMBIGUOUS' or 2 \u003e 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1144",
+   "expr": "true",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1145",
+   "expr": "true",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1146",
+   "expr": "count(case where (case.created_at \u003c= now() + 1d or 2m != now() - case.created_at)) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1147",
+   "expr": "(not true and subject_resource.status != 'ABSENT')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1148",
+   "expr": "2 == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1149",
+   "expr": "not case_id != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1150",
+   "expr": "count(case where not case.status not in ['OPEN','ROUTED']) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1150_mutated",
+   "expr": "count(case where not case.status not in ['OPENX','ROUTED']) \u003e= 1",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1151",
+   "expr": "(subject_resource.status != 'ABSENT' or not epoch == 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1152",
+   "expr": "(count(case where now() \u003e now() - 30s) == 1 and (case_id != null or settle_window + 1m == 2m))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1152_mutated",
+   "expr": "(count(case where now() \u003e now() - 30s) == 1 and (case_id != null or settle_windw + 1m == 2m))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1153",
+   "expr": "true",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1154",
+   "expr": "((case_id == case_id and planned_queue == 'tx1') and exists(case where 2m \u003c now() - case.created_at))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1155",
+   "expr": "not subject_resource in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1156",
+   "expr": "(case_id != null or subject_resource.status != 'ABSENT')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1157",
+   "expr": "(not true or exists(case where intent_id != planned_queue))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1158",
+   "expr": "exists(attachment where case_id == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1159",
+   "expr": "(((settle_window == 30s and 1d == settle_window) or exists(case where case.status != 'ROUTED')) or not (now() \u003c now() + 1d or now() - 30s == now()))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1159_mutated",
+   "expr": "(((settle_windw == 30s and 1d == settle_window) or exists(case where case.status != 'ROUTED')) or not (now() \u003c now() + 1d or now() - 30s == now()))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1160",
+   "expr": "(planned_queue not in ['DISPUTES','FRAUD_REVIEW'] or false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1161",
+   "expr": "(1h == 2m or case_id == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1162",
+   "expr": "(subject_resource != null or subject_resource not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1163",
+   "expr": "(now() \u003c now() + 1d or false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1164",
+   "expr": "(exists(attachment where count(attachment where now() - 72h \u003c now() + 1d) \u003e= 0) or (count(case where 5 != 2) \u003c 1 or exists(attachment where now() - 30s == now() - 72h)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1165",
+   "expr": "exists(attachment where count(case where not case.epoch \u003c 2) == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1165_mutated",
+   "expr": "exists(attachment where count(case where not case.epocx \u003c 2) == 2)",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "gen_1166",
+   "expr": "not (exists(attachment where now() - 30s == now() - 72h) or subject_resource != planned_queue)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1167",
+   "expr": "((count(attachment where subject_resource.status != 'AMBIGUOUS') \u003c 0 and count(attachment where 'DISPUTES' == attachment.case) \u003e= 0) and ('tx1' != 'DISPUTES' or subject_resource.status == 'RESOLVED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1168",
+   "expr": "count(attachment where evidence_packet_hash != null) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1169",
+   "expr": "(count(attachment where settle_window + 1m != 30s) \u003e= 2 and (subject_resource.status != 'UNRESOLVED' or subject_resource.status != 'UNRESOLVED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1169_mutated",
+   "expr": "(count(attachment where settle_windw + 1m != 30s) \u003e= 2 and (subject_resource.status != 'UNRESOLVED' or subject_resource.status != 'UNRESOLVED'))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1170",
+   "expr": "subject_resource == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1171",
+   "expr": "(epoch == 1 or subject_resource != null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1172",
+   "expr": "(case_id == null and subject_resource != null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1173",
+   "expr": "exists(case where not count(case where case.escalated == false) \u003c 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1174",
+   "expr": "exists(case where (2m == now() - case.created_at and 5 == 1))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1175",
+   "expr": "(count(case where case.id == 'DISPUTES') \u003c 0 and count(case where evidence_packet_hash == null) == 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1176",
+   "expr": "(not subject_resource == null or (now() + 1d \u003e= now() + 1d or subject_resource.status == 'UNRESOLVED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1177",
+   "expr": "now() + 1d \u003c now() - 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1178",
+   "expr": "(exists(case where count(attachment where 2m != 2m) \u003c 0) or ((true and 'DISPUTES' != intent_id) or (true or case_id != null)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1179",
+   "expr": "not 0 != 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1180",
+   "expr": "'tx1' == 'DISPUTES'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1181",
+   "expr": "((not true and exists(attachment where 5 == 2)) or not (case_id != 'DISPUTES' or 30s == 2m))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1182",
+   "expr": "(exists(attachment where 1d \u003c 1h) or count(case where (case.escalated == false or case.status in ['OPEN','ROUTED'])) == 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1182_mutated",
+   "expr": "(exists(attachment where 1d \u003c 1h) or count(case where (case.escalated == false or case.status in ['OPENX','ROUTED'])) == 0)",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1183",
+   "expr": "count(case where count(attachment where exists(attachment where false)) == 2) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1184",
+   "expr": "not exists(attachment where false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1185",
+   "expr": "count(attachment where count(case where 'tx1' == case_id) \u003c 2) \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1186",
+   "expr": "count(case where case.escalated == false) \u003e= 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1187",
+   "expr": "count(case where case.status in ['OPEN','ROUTED']) == 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1187_mutated",
+   "expr": "count(case where case.status in ['OPENX','ROUTED']) == 0",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1188",
+   "expr": "((intent_id not in ['DISPUTES','FRAUD_REVIEW'] and count(attachment where false) \u003e= 1) or now() - 72h \u003c now() - 72h)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1189",
+   "expr": "exists(case where exists(attachment where now() \u003c= now() - 30s))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1190",
+   "expr": "exists(attachment where now() + 1d \u003e now() - 72h)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1191",
+   "expr": "exists(attachment where 2 \u003e= 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1192",
+   "expr": "subject_resource in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1193",
+   "expr": "(false and subject_resource.status != 'RESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1194",
+   "expr": "not case_id == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1195",
+   "expr": "(not evidence_packet_hash != null and exists(attachment where now() + 1d == now() - 72h))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1196",
+   "expr": "1 \u003c 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1197",
+   "expr": "not not 30s == 1h",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1198",
+   "expr": "exists(case where not case.status == 'OPEN')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1198_mutated",
+   "expr": "exists(case where not case.status == 'OPENX')",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1199",
+   "expr": "exists(attachment where count(attachment where (intent_id != 'tx1' and false)) == 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1200",
+   "expr": "exists(attachment where count(case where not case.created_at + 1h == now() + 1d) \u003c 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1201",
+   "expr": "not (subject_resource.status == 'ABSENT' or epoch == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1202",
+   "expr": "case_id == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1203",
+   "expr": "count(attachment where not (0 \u003c= 5 and now() \u003c= now() - 30s)) \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1204",
+   "expr": "(now() + 1d \u003e now() - 30s or subject_resource == case_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1205",
+   "expr": "(count(attachment where (now() \u003e= now() - 72h or now() - 30s \u003c= now() - 30s)) \u003c 0 or 0 \u003e 1)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1206",
+   "expr": "subject_resource != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1207",
+   "expr": "not not (epoch \u003c= 5 and case_id not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1208",
+   "expr": "exists(attachment where (epoch == 0 or (subject_resource == null and attachment.case not in ['DISPUTES','FRAUD_REVIEW'])))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1209",
+   "expr": "(intent_id not in ['DISPUTES','FRAUD_REVIEW'] and case_id != 'DISPUTES')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1210",
+   "expr": "((('tx1' not in ['DISPUTES','FRAUD_REVIEW'] or 'DISPUTES' in ['DISPUTES','FRAUD_REVIEW']) or exists(attachment where settle_window + 1m != settle_window)) or exists(case where (settle_window + 1m \u003c 1d or case.status in ['OPEN','ROUTED'])))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1210_mutated",
+   "expr": "((('tx1' not in ['DISPUTES','FRAUD_REVIEW'] or 'DISPUTES' in ['DISPUTES','FRAUD_REVIEW']) or exists(attachment where settle_window + 1m != settle_window)) or exists(case where (settle_window + 1m \u003c 1d or case.status in ['OPENX','ROUTED'])))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1211",
+   "expr": "count(attachment where (count(attachment where 2m \u003e= 1h) \u003c 0 or planned_queue not in ['DISPUTES','FRAUD_REVIEW'])) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1212",
+   "expr": "subject_resource.status == 'UNRESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1213",
+   "expr": "(subject_resource.status == 'UNRESOLVED' or 5 == 5)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1214",
+   "expr": "('tx1' in ['DISPUTES','FRAUD_REVIEW'] and planned_queue in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1215",
+   "expr": "(not 1 == epoch and (true or subject_resource.status == 'AMBIGUOUS'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1216",
+   "expr": "exists(attachment where count(attachment where settle_window + 1m \u003e= settle_window + 1m) \u003c 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1216_mutated",
+   "expr": "exists(attachment where count(attachment where settle_windw + 1m \u003e= settle_window + 1m) \u003c 0)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1217",
+   "expr": "false",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1218",
+   "expr": "not now() + 1d \u003c= now()",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1219",
+   "expr": "((case_id == 'tx1' and subject_resource != 'tx1') and count(attachment where settle_window + 1m \u003e= 30s) == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1219_mutated",
+   "expr": "((case_id == 'tx1' and subject_resource != 'tx1') and count(attachment where settle_windw + 1m \u003e= 30s) == 2)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1220",
+   "expr": "exists(attachment where not false)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1221",
+   "expr": "count(attachment where 2 \u003e= epoch) \u003e= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1222",
+   "expr": "not (settle_window \u003c settle_window or subject_resource.status != 'UNRESOLVED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1222_mutated",
+   "expr": "not (settle_windw \u003c settle_window or subject_resource.status != 'UNRESOLVED')",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1223",
+   "expr": "(exists(case where case.escalated == false) and (1h \u003e= 1h or intent_id in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1224",
+   "expr": "(now() - 72h \u003c now() or now() - 30s == now() + 1d)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1225",
+   "expr": "1d \u003e= settle_window",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1225_mutated",
+   "expr": "1d \u003e= settle_windw",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1226",
+   "expr": "exists(case where case.status != 'ROUTED')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1227",
+   "expr": "not count(attachment where 5 \u003c= 1) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1228",
+   "expr": "(subject_resource.status == 'ABSENT' and 1 \u003c 5)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1229",
+   "expr": "not count(case where (case.escalated == false or case_id != null)) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1230",
+   "expr": "(case_id in ['DISPUTES','FRAUD_REVIEW'] and intent_id == subject_resource)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1231",
+   "expr": "(now() + 1d \u003c= now() - 72h and 2 \u003c epoch)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1232",
+   "expr": "exists(attachment where not (2 \u003c= 1 or evidence_packet_hash != null))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1233",
+   "expr": "count(attachment where case_id == null) == 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1234",
+   "expr": "count(attachment where 2 \u003c= 0) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1235",
+   "expr": "((subject_resource.status == 'ABSENT' or subject_resource.status != 'RESOLVED') or settle_window == settle_window + 1m)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1235_mutated",
+   "expr": "((subject_resource.status == 'ABSENT' or subject_resource.status != 'RESOLVED') or settle_windw == settle_window + 1m)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1236",
+   "expr": "not ((subject_resource.status == 'AMBIGUOUS' and planned_queue in ['DISPUTES','FRAUD_REVIEW']) and exists(case where case.created_at \u003c now() - 72h))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1237",
+   "expr": "exists(case where ((case_id != case.subject or 2m \u003c now() - case.created_at) or exists(attachment where attachment.case not in ['DISPUTES','FRAUD_REVIEW'])))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1238",
+   "expr": "exists(case where exists(case where not case.status not in ['OPEN','ROUTED']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1238_mutated",
+   "expr": "exists(case where exists(case where not case.status not in ['OPENX','ROUTED']))",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1239",
+   "expr": "exists(attachment where subject_resource != null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1240",
+   "expr": "count(attachment where not 'tx1' == subject_resource) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1241",
+   "expr": "(0 \u003c 5 and ('tx1' in ['DISPUTES','FRAUD_REVIEW'] and 'tx1' in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1242",
+   "expr": "(((now() + 1d \u003c now() - 72h or 'tx1' != subject_resource) or not intent_id not in ['DISPUTES','FRAUD_REVIEW']) and exists(case where settle_window + 1m != 2m))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1242_mutated",
+   "expr": "(((now() + 1d \u003c now() - 72h or 'tx1' != subject_resource) or not intent_id not in ['DISPUTES','FRAUD_REVIEW']) and exists(case where settle_windw + 1m != 2m))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1243",
+   "expr": "exists(case where (case.epoch != 0 or case.escalated == false))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1243_mutated",
+   "expr": "exists(case where (case.epocx != 0 or case.escalated == false))",
+   "error": "UNKNOWN_FIELD"
+  },
+  {
+   "id": "gen_1244",
+   "expr": "count(case where count(case where case.status in ['OPEN','ROUTED']) \u003c 2) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1244_mutated",
+   "expr": "count(case where count(case where case.status in ['OPENX','ROUTED']) \u003c 2) == 2",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1245",
+   "expr": "subject_resource == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1246",
+   "expr": "exists(attachment where exists(attachment where subject_resource.status == 'UNRESOLVED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1247",
+   "expr": "exists(case where case.owner_queue == planned_queue)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1248",
+   "expr": "not 30s \u003c settle_window + 1m",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1248_mutated",
+   "expr": "not 30s \u003c settle_windw + 1m",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1249",
+   "expr": "(exists(attachment where subject_resource != null) and (subject_resource.status != 'ABSENT' and now() \u003e now()))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1250",
+   "expr": "(((case_id not in ['DISPUTES','FRAUD_REVIEW'] or now() == now() - 72h) or epoch == 1) and (count(attachment where subject_resource.status != 'ABSENT') \u003e= 1 and (subject_resource == null or epoch \u003c= 2)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1251",
+   "expr": "2 \u003e 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1252",
+   "expr": "subject_resource.status != 'RESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1253",
+   "expr": "exists(attachment where not (evidence_packet_hash == null and evidence_packet_hash != null))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1254",
+   "expr": "exists(case where case.status not in ['OPEN','ROUTED'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1254_mutated",
+   "expr": "exists(case where case.status not in ['OPENX','ROUTED'])",
+   "error": "UNKNOWN_ENUM_VALUE"
+  },
+  {
+   "id": "gen_1255",
+   "expr": "exists(attachment where ((1 \u003c= 2 and subject_resource.status != 'ABSENT') and false))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1256",
+   "expr": "(count(attachment where epoch \u003c 0) \u003e= 2 or subject_resource == 'tx1')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1257",
+   "expr": "((not now() + 1d \u003c now() or epoch \u003c epoch) and not exists(attachment where true))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1258",
+   "expr": "count(case where exists(attachment where case_id not in ['DISPUTES','FRAUD_REVIEW'])) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1259",
+   "expr": "not planned_queue not in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1260",
+   "expr": "exists(attachment where now() + 1d \u003c= now() + 1d)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1261",
+   "expr": "now() - 30s \u003c now() - 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1262",
+   "expr": "(subject_resource.status != 'RESOLVED' or 'DISPUTES' not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1263",
+   "expr": "((false and now() - 72h \u003e= now() - 72h) or subject_resource.status != 'AMBIGUOUS')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1264",
+   "expr": "exists(attachment where case_id == null)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1265",
+   "expr": "not ('DISPUTES' not in ['DISPUTES','FRAUD_REVIEW'] and subject_resource not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1266",
+   "expr": "not 1d \u003c 2m",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1267",
+   "expr": "count(attachment where not attachment.case == 'tx1') \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1268",
+   "expr": "(not epoch == 1 and not intent_id != subject_resource)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1269",
+   "expr": "(count(case where not evidence_packet_hash != null) \u003e= 1 or count(attachment where (subject_resource.status == 'RESOLVED' or subject_resource in ['DISPUTES','FRAUD_REVIEW'])) \u003c 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1270",
+   "expr": "subject_resource.status != 'ABSENT'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1271",
+   "expr": "now() - 30s \u003e= now() - 72h",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1272",
+   "expr": "subject_resource.status == 'UNRESOLVED'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1273",
+   "expr": "count(case where (exists(case where case.escalated == true) and exists(attachment where subject_resource == null))) \u003e= 0",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1274",
+   "expr": "(5 \u003e= epoch and 'tx1' == intent_id)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1275",
+   "expr": "((now() - 72h \u003e= now() - 30s and case_id != case_id) or exists(case where case.status == 'ROUTED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1276",
+   "expr": "not (0 \u003e= 5 or 'tx1' != 'DISPUTES')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1277",
+   "expr": "count(attachment where 'DISPUTES' != subject_resource) \u003c 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1278",
+   "expr": "intent_id in ['DISPUTES','FRAUD_REVIEW']",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1279",
+   "expr": "not count(case where case.created_at + 1h == now()) \u003c 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1280",
+   "expr": "count(attachment where (1d \u003c settle_window + 1m and evidence_packet_hash != null)) \u003e= 1",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1280_mutated",
+   "expr": "count(attachment where (1d \u003c settle_windw + 1m and evidence_packet_hash != null)) \u003e= 1",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1281",
+   "expr": "exists(attachment where 1h \u003c settle_window + 1m)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1281_mutated",
+   "expr": "exists(attachment where 1h \u003c settle_windw + 1m)",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1282",
+   "expr": "not evidence_packet_hash != null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1283",
+   "expr": "(false or subject_resource.status == 'AMBIGUOUS')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1284",
+   "expr": "(exists(case where (1h \u003e= 30s and now() - 72h \u003e= now() + 1d)) and (subject_resource.status != 'ABSENT' or count(attachment where true) \u003c 0))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1285",
+   "expr": "(('tx1' == 'DISPUTES' and epoch != 1) or (2m \u003e= settle_window + 1m and case_id not in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1285_mutated",
+   "expr": "(('tx1' == 'DISPUTES' and epoch != 1) or (2m \u003e= settle_windw + 1m and case_id not in ['DISPUTES','FRAUD_REVIEW']))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1286",
+   "expr": "not not 0 \u003e= 5",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1287",
+   "expr": "intent_id == 'DISPUTES'",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1288",
+   "expr": "exists(case where (planned_queue == case_id or exists(case where 1 == 2)))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1289",
+   "expr": "not (2 == 1 and case_id != 'DISPUTES')",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1290",
+   "expr": "(subject_resource.status != 'ABSENT' and planned_queue not in ['DISPUTES','FRAUD_REVIEW'])",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1291",
+   "expr": "((not 'tx1' != planned_queue or exists(case where case.id == 'tx1')) or count(case where exists(attachment where evidence_packet_hash == null)) == 0)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1292",
+   "expr": "30s \u003c 30s",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1293",
+   "expr": "('tx1' in ['DISPUTES','FRAUD_REVIEW'] or exists(case where not case.status != 'CLOSED'))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1294",
+   "expr": "case_id == null",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1295",
+   "expr": "count(case where count(attachment where true) \u003c 1) == 2",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1296",
+   "expr": "((subject_resource == case_id or now() - 72h \u003c now() - 30s) or (now() + 1d \u003c= now() + 1d and 'tx1' in ['DISPUTES','FRAUD_REVIEW']))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1297",
+   "expr": "(subject_resource.status == 'UNRESOLVED' or (subject_resource.status != 'RESOLVED' or settle_window + 1m != settle_window))",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1297_mutated",
+   "expr": "(subject_resource.status == 'UNRESOLVED' or (subject_resource.status != 'RESOLVED' or settle_windw + 1m != settle_window))",
+   "error": "UNKNOWN_NAME"
+  },
+  {
+   "id": "gen_1298",
+   "expr": "exists(attachment where count(case where case.escalated == false) == 2)",
+   "result": "Boolean"
+  },
+  {
+   "id": "gen_1299",
+   "expr": "2 == 0",
+   "result": "Boolean"
+  }
+ ],
+ "description": "Generated by internal/corpus (go test ./internal/corpus -run TestGeneratedCorpusIsCurrent with UPDATE_PREDICATE_CORPUS=1). Well-typed predicates and one-defect mutations over corpus.json's scope; the Python reference must give the same type or code. SYNTHETIC."
+}
