@@ -6,5 +6,24 @@ May import: noema_model.platform and the core Evidence API client.
 
 Must never: call a model to rank; break a tie; pick a winner below the margin or the floor; search outside the principal's scope.
 
-Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with the engine tracks, and nothing is built here yet.
+Public surface: rank (the pure function), RankingConfig, RecipientMatcher, and the plain data types. Ranking proposes a
+state (auto-resolved, ambiguous, too many, none); Trust decides what happens next.
 """
+
+from noema_model.understanding.resolution.config import RankingConfig
+from noema_model.understanding.resolution.matcher import RecipientMatcher
+from noema_model.understanding.resolution.ranking import candidates_resolved_payload, rank
+from noema_model.understanding.resolution.types import (
+    Candidate,
+    Context,
+    Resolution,
+    ResolutionState,
+    ScoredCandidate,
+    Target,
+    Why,
+)
+
+__all__ = [
+    "Candidate", "Context", "RankingConfig", "RecipientMatcher", "Resolution", "ResolutionState", "ScoredCandidate",
+    "Target", "Why", "candidates_resolved_payload", "rank",
+]
