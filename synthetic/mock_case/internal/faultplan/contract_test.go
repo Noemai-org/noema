@@ -21,6 +21,8 @@ var schemaOnly = map[string]string{
 	"paginate_page_size_zero.json":            "params of another component's effect",
 	"stale_read_without_seconds.json":         "params of another component's effect",
 	"state_change_from_the_proxy.json":        "effect and source pairing of another component's fault",
+	"proxy_source_with_a_tushe_effect.json":   "effect and source pairing of another component's fault",
+	"proxy_source_with_semantic_pending.json": "effect and source pairing of another component's fault",
 	"impossible_state_without_fixture.json":   "params of another component's effect",
 	"impossible_state_fixture_with_path.json": "params of another component's effect",
 }

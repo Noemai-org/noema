@@ -1,0 +1,35 @@
+{
+  "fault_plan_id": "fp_tushe_native",
+  "scenario_id": "SCN-STATE-021",
+  "seed": 21,
+  "deterministic": true,
+  "source": "TUSHE",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_200_SEMANTIC_PENDING"
+    },
+    {
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "PAGINATE",
+      "params": {
+        "page_size": 2
+      }
+    },
+    {
+      "target": "mock-policy",
+      "operation": "get_version",
+      "effect": "POLICY_MUTATION",
+      "params": {
+        "at_step": "after_plan"
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "IDEMPOTENCY_COLLISION"
+    }
+  ]
+}

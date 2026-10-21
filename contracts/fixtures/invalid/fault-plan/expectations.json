@@ -46,5 +46,7 @@
   "advance_step_with_space.json": "pattern",
   "expected_trace_events_not_objects.json": "type",
   "impossible_state_without_fixture.json": "required",
-  "impossible_state_fixture_with_path.json": "pattern"
+  "impossible_state_fixture_with_path.json": "pattern",
+  "proxy_source_with_a_tushe_effect.json": "anyOf",
+  "proxy_source_with_semantic_pending.json": "anyOf"
 }
