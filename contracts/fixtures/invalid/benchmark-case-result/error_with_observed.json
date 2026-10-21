@@ -1,0 +1,38 @@
+{
+  "run_id": "run_2026_11_04_a",
+  "case_id": "BEN-AMB-0009",
+  "case_version": 1,
+  "status": "ERROR",
+  "error": {
+    "code": "RUNNER_TIMEOUT",
+    "message": "no final state within the case deadline"
+  },
+  "observed": {
+    "disposition": "CLARIFY",
+    "classification": null,
+    "resolved_target": null,
+    "clarification_asked": true,
+    "escalation_opened": false,
+    "dispatches": [],
+    "verdicts": [],
+    "audit_events": [
+      "CANDIDATES_RESOLVED",
+      "DECISION_MADE",
+      "CLARIFICATION_REQUESTED"
+    ],
+    "claims": [
+      {
+        "text": "two matching transfers",
+        "bound_fact_status": "KNOWN"
+      }
+    ],
+    "disclosed_refs": [
+      "fin.transaction:TXA"
+    ]
+  },
+  "environment": null,
+  "path": "CLARIFICATION",
+  "latency_ms": 60000,
+  "cost_usd_micros": 0,
+  "outcome_digest": null
+}

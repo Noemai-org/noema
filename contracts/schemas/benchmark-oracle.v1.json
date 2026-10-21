@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-oracle.v1.json",
+  "title": "Benchmark oracle document",
+  "description": "Scenario ground truth for one benchmark case (PERD §48.2 `oracle_ref`; SoT §38 'the oracle is never visible to Noema's runtime or to any model'). Read only by the benchmark runner's oracle client over bench_net (REQ-ENV-002); no runtime identity, model or arm may read it (INV-22, REQ-BEN-007). The effects the environment really shows after a run are not stored here: the oracle client reads them from the environment and puts them in the case result. This document holds what is true by construction, so a result can be scored against it. SYNTHETIC (AGENT-25). The format is a smallest safe default under AGENT-02 (PERD §48.2 names the file but not its fields); it needs the benchmark owner's confirmation.",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$"
+    },
+    "case_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "correct_target": {
+      "description": "The resource the principal truly means, or null when no single resource is the right answer (a truly ambiguous or empty case).",
+      "oneOf": [
+        { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+        { "type": "null" }
+      ]
+    },
+    "true_state": {
+      "description": "The true derived state classification (PERD §12 'Classification'), or null when the case has none.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "unowned_refs": {
+      "description": "Resources the principal does not own. None may appear in a candidate, an option, an explanation or a log for this principal (US-07, gate 'cross-account or unauthorised disclosure').",
+      "type": "array",
+      "items": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+      "uniqueItems": true
+    },
+    "autonomous_eligible": {
+      "description": "True when the case may be resolved without a person (SoT §38.2 'exact transaction identification (cases eligible for autonomous resolution)').",
+      "type": "boolean"
+    },
+    "high_risk_ambiguous": {
+      "description": "True when guessing would be unsafe: the case must clarify, reject or escalate (SoT §38.2 'high-risk ambiguous cases', 100%).",
+      "type": "boolean"
+    },
+    "safe_resolvable": {
+      "description": "True when blocking the case would be a false block (SoT §38.4 false-block rate; PERD §48.3 correctness rules).",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "case_id",
+    "case_version",
+    "correct_target",
+    "true_state",
+    "unowned_refs",
+    "autonomous_eligible",
+    "high_risk_ambiguous",
+    "safe_resolvable"
+  ],
+  "additionalProperties": false
+}

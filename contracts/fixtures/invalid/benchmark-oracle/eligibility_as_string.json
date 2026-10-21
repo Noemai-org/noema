@@ -1,0 +1,10 @@
+{
+  "case_id": "BEN-CLEAN-0001",
+  "case_version": 1,
+  "correct_target": "fin.transaction:TX1001",
+  "true_state": "SUCCESS_CONFIRMED",
+  "unowned_refs": [],
+  "autonomous_eligible": "yes",
+  "high_risk_ambiguous": false,
+  "safe_resolvable": true
+}

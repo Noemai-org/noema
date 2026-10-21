@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/arm-manifest.v1.json",
+  "title": "Comparison arm manifest",
+  "description": "The record of one comparison arm (REQ-BEN-007 'Audit: arm manifests'; SoT §38.5 fair-comparison rules; PERD §50.2 run discipline). It records the arm's configuration, date, engineering hours and burden, and the independent reviewer's sign-off. The arms themselves are built only after Noema passes its own gates and never by this schema's author; this file only fixes what must be recorded. Arm C is Noema and has no manifest here. Arm A0 is a diagnostic floor labelled 'naive, not a competitor' and never appears in a 'Noema beats' claim (PERD §50.1). Arms E and F that cannot be tested are written up as NOT_TESTED, with no claim about them (SoT §38.5). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "arm_id": {
+      "type": "string",
+      "enum": ["A", "B", "D", "E", "F", "A0"]
+    },
+    "arm_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "status": {
+      "description": "BUILT when the arm ran; NOT_TESTED when access or data did not permit it.",
+      "type": "string",
+      "enum": ["BUILT", "NOT_TESTED"]
+    },
+    "label": {
+      "description": "Required on A0 and nowhere else: the arm is a diagnostic floor, not a competitor.",
+      "type": "string",
+      "const": "NAIVE_DIAGNOSTIC_NOT_A_COMPETITOR"
+    },
+    "not_tested_reason": {
+      "description": "Required exactly when status is NOT_TESTED.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "date": {
+      "description": "The date the configuration was frozen, YYYY-MM-DD.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "configuration": {
+      "description": "Required when status is BUILT (PERD §50.2 run discipline). `model` is null for an arm with no model, such as arm D.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": { "type": "string", "minLength": 1, "maxLength": 60 },
+                "model_version": { "type": "string", "minLength": 1, "maxLength": 100 }
+              },
+              "required": ["provider", "model_version"],
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
+        "prompt_or_config_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "code_version": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "pack_version": { "type": "string", "pattern": "^[a-z][a-z0-9_]*@[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "policy_version": { "type": "string", "pattern": "^[a-z][a-z0-9_.]*@[0-9]+(\\.[0-9]+){1,2}$" },
+        "scenario_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "environment_version": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "same_inputs_as_noema": {
+          "description": "Same fixtures, oracle isolation, instructions, documentation, adapters, auth context, capabilities, model access and time budget (REQ-BEN-007). Must be true; an arm for which it is false is not a fair comparison.",
+          "type": "boolean",
+          "const": true
+        }
+      },
+      "required": [
+        "model",
+        "prompt_or_config_version",
+        "code_version",
+        "pack_version",
+        "policy_version",
+        "scenario_version",
+        "seed",
+        "environment_version",
+        "same_inputs_as_noema"
+      ],
+      "additionalProperties": false
+    },
+    "effort": {
+      "description": "Setup effort and the burden of keeping the arm working (REQ-BEN-007 acceptance criteria). Required when status is BUILT.",
+      "type": "object",
+      "properties": {
+        "engineering_hours": { "type": "number", "minimum": 0, "maximum": 100000 },
+        "setup_hours": { "type": "number", "minimum": 0, "maximum": 100000 },
+        "lines_of_code": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "lines_of_configuration": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "integration_burden": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      },
+      "required": ["engineering_hours", "setup_hours", "lines_of_code", "lines_of_configuration", "integration_burden"],
+      "additionalProperties": false
+    },
+    "review": {
+      "description": "The independent reviewer's sign-off that the arm is competent (REQ-BEN-007). The reviewer is not the arm's builder.",
+      "type": "object",
+      "properties": {
+        "builder": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "reviewer": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "signed_off": { "type": "boolean" },
+        "signed_on": {
+          "oneOf": [
+            { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["builder", "reviewer", "signed_off", "signed_on"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["arm_id", "arm_name", "status", "date"],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "BUILT" } }, "required": ["status"] },
+      "then": { "required": ["configuration", "effort", "review"], "not": { "required": ["not_tested_reason"] } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "NOT_TESTED" } }, "required": ["status"] },
+      "then": { "required": ["not_tested_reason"], "not": { "anyOf": [{ "required": ["configuration"] }, { "required": ["effort"] }, { "required": ["review"] }] } }
+    },
+    {
+      "if": { "properties": { "arm_id": { "const": "A0" } }, "required": ["arm_id"] },
+      "then": { "required": ["label"] },
+      "else": { "not": { "required": ["label"] } }
+    }
+  ],
+  "additionalProperties": false
+}
