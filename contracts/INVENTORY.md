@@ -100,3 +100,10 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 **Migration note (AGENT-15).** `pack.v1.json` gains four optional properties: `action_graph_files`, `routing_allowlist`, `evidence_descriptors` and `predicate_variables`. No existing property changes and no document valid before is invalid now, so the file stays `v1`. packcheck requires `evidence_descriptors` and `predicate_variables` when a pack holds any predicate.
 
 **Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
+
+## T4 · Decision-model bake-off contracts (session C)
+
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `benchmark-decision-case.v1.json` | §38.5 | §19.1 (decision models), §48 | REQ-BEN-005 | One typed question about one input for one of the six eligible tasks; split by `en-NG`, `pcm`, `code-switched`, `voice-transcript`; generated layer only. Not the §48.2 case: a bake-off case has no Trust, write or oracle |
+| `benchmark-decision-run.v1.json` | §38.5 | §19.1, §48.5 | REQ-BEN-005 | What one path (LLM, or decide() backed by OpenAI Decisions) returned. `NOT_RUN` carries its reason and no result; nothing is faked |

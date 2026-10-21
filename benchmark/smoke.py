@@ -11,12 +11,13 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 FORBIDDEN = "benchmark-heldout"
 COMPOSE_FILE = Path(__file__).resolve().parent.parent / "deploy" / "compose" / "docker-compose.yml"
 
 
-def run_cases(cases: list[str]) -> dict:
+def run_cases(cases: list[str]) -> dict[str, Any]:
     results = [{"case": c, "passed": True} for c in cases]
     body = json.dumps(results, sort_keys=True)
     return {"cases": len(cases), "passed": sum(r["passed"] for r in results), "digest": hashlib.sha256(body.encode()).hexdigest()}

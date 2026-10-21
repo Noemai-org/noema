@@ -1,0 +1,41 @@
+{
+  "case_id": "BDC-INT-0001",
+  "version": 1,
+  "task": "INTENT_NODE",
+  "language_bucket": "pcm",
+  "generator": {
+    "name": "noema-casegen-decisions",
+    "version": "0.1.0",
+    "seed": 7
+  },
+  "input": {
+    "channel": "text",
+    "text": "Wetin happen to the 20k wey I send Tunde this morning?"
+  },
+  "question": {
+    "id": "intent_node",
+    "type": "choice",
+    "prompt": "Which intent does the customer express?",
+    "options": [
+      "fin.payments.exception.investigate",
+      "fin.meta.out_of_scope",
+      "none"
+    ]
+  },
+  "expected": "fin.payments.exception.investigate",
+  "perturbations": [
+    {
+      "kind": "CASE",
+      "text": "WETIN HAPPEN TO THE 20K WEY I SEND TUNDE THIS MORNING?"
+    },
+    {
+      "kind": "ASR_STYLE",
+      "text": "wetin happen to the 20k wey i send tunde this morning"
+    },
+    {
+      "kind": "TRANSLATE",
+      "text": "x"
+    }
+  ],
+  "provenance": "generated"
+}

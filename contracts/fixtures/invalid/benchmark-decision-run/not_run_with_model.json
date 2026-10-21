@@ -1,0 +1,14 @@
+{
+  "run_id": "bakeoff_2026_11_01",
+  "provider": "DECIDE_OPENAI_DECISIONS",
+  "status": "NOT_RUN",
+  "not_run_reason": "no access: no API key",
+  "runner_region": "unknown",
+  "cases_version": "sha256:352b84777d8dd96ac9c0b3c170ecb2c7cca7fc2dbae41a1ec1ed4286fb2c43db",
+  "results": [],
+  "model": {
+    "provider": "example",
+    "name": "example-model",
+    "version": "2026-01-01"
+  }
+}
