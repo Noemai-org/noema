@@ -116,3 +116,11 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 | `benchmark-decision-case.v1.json` | §38.5 | §19.1 (decision models), §48 | REQ-BEN-005 | One typed question about one input for one of the six eligible tasks; split by `en-NG`, `pcm`, `code-switched`, `voice-transcript`; generated layer only. Not the §48.2 case: a bake-off case has no Trust, write or oracle |
 | `benchmark-decision-run.v1.json` | §38.5 | §19.1, §48.5 | REQ-BEN-005 | What one path (LLM, or decide() backed by OpenAI Decisions) returned. `NOT_RUN` carries its reason and no result; nothing is faked |
 | `benchmark-fixture.v1.json` | §38.1 | §48.2 (`known_facts_fixture`) | REQ-BEN-001, REQ-ENV-004 | The known facts of one scenario: principals, beneficiaries, transactions with what each source says, existing cases, enterprise strings. The fixture-to-Tushe mapping belongs to the adapter tasks. Scenario facts only, never ground truth |
+
+## T3 · Fault plan (session B)
+
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `fault-plan.v1.json` | §36 | §37.1, §37.2 | REQ-ENV-004, REQ-ENV-005, REQ-ENV-008 | The PERD §37.1 FaultPlan with its effect enum and sources (DEC-2026-10-12 D3 and D4, DEC-2026-10-17 OD-P-38). Fixes the reading rules the PERD leaves implicit (see the schema description): a `mock-case` target is always produced by mock-case; a MOCK_CASE plan holds mock-case faults only; a PROXY plan holds only effects the hostility proxy produces (or mock-case faults); the four state-change effects need source TUSHE while `IMPOSSIBLE_STATE` is the proxy's named SYNTHETIC fixture (Tushe refuses to fake it; REQ-ENV-005); `deterministic: true` limits `probability` to 0 or 1. Parameters are fixed per effect; for `mock-case` the operations and effects are enumerated. The PERD example is a valid fixture |
+
+**Migration note (AGENT-15), fault plan.** New contract, no earlier version. `benchmark-case.v1.json` still names a plan by `fault_plan` (`fp_` ID) and is unchanged. The generator's provisional plan wrapper (`plan_id`, `harness_effects`, parameter names such as `committed`, `retry_after_s`) is replaced by this shape; `mock-case` was aligned in the same change (see the PR).

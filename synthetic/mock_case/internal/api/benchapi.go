@@ -158,6 +158,7 @@ func (s *Server) planBody() map[string]any {
 	out := map[string]any{"fault_plan_id": id, "scenario_id": scenario, "seed": seed, "loaded": c != nil}
 	if c != nil {
 		out["plan"] = json.RawMessage(c.JSON())
+		out["applied_faults"], out["ignored_faults"] = c.Applied, c.Ignored // ignored: aimed at another component
 	}
 	return out
 }

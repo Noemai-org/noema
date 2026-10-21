@@ -43,35 +43,39 @@ func TestInvalidPlansAreRefused(t *testing.T) {
 		data []byte
 		want string
 	}{
-		"unknown top-level field":  {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[],"bogus":1}`), "unknown field"},
-		"trailing data":            {append(plan("", ""), []byte(" {}")...), "trailing"},
-		"bad plan id":              {[]byte(`{"fault_plan_id":"plan","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "fault_plan_id"},
-		"fp_none":                  {[]byte(`{"fault_plan_id":"fp_none","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "fp_none"},
-		"no scenario":              {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "scenario_id"},
-		"negative seed":            {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":-1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "seed"},
-		"not deterministic":        {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":false,"source":"MOCK_CASE","faults":[]}`), "deterministic"},
-		"wrong source":             {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"TUSHE","faults":[]}`), "source"},
-		"faults missing":           {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE"}`), "faults is required"},
-		"wrong target":             {[]byte(strings.Replace(string(plan(fault("create_case", "{}", "DROP_RESPONSE", "{}"), "")), `"mock-case"`, `"mock-switch"`, 1)), "target"},
-		"unknown operation":        {plan(fault("close_case", "{}", "DROP_RESPONSE", "{}"), ""), "unknown operation"},
-		"effect not produced":      {plan(fault("create_case", "{}", "SPLIT_STATE", "{}"), ""), "not one mock-case produces"},
-		"match key not suppliable": {plan(fault("route_case", `{"transaction_ref":"TX1"}`, "DROP_RESPONSE", "{}"), ""), "cannot be supplied"},
-		"nth_call zero":            {plan(fault("create_case", `{"nth_call":0}`, "DROP_RESPONSE", "{}"), ""), "nth_call"},
-		"nth_call fraction":        {plan(fault("create_case", `{"nth_call":1.5}`, "DROP_RESPONSE", "{}"), ""), "nth_call"},
-		"empty match value":        {plan(fault("create_case", `{"idempotency_key":""}`, "DROP_RESPONSE", "{}"), ""), "non-empty"},
-		"delay missing":            {plan(fault("create_case", "{}", "TIMEOUT_AFTER_COMMIT", "{}"), ""), "delay_ms"},
-		"delay too large":          {plan(fault("create_case", "{}", "LATENCY", `{"delay_ms":600001}`), ""), "delay_ms"},
-		"delay negative":           {plan(fault("create_case", "{}", "LATENCY", `{"delay_ms":-1}`), ""), "delay_ms"},
-		"5xx status 404":           {plan(fault("create_case", "{}", "HTTP_5XX", `{"status":404}`), ""), "status"},
-		"5xx after_commit string":  {plan(fault("create_case", "{}", "HTTP_5XX", `{"after_commit":"yes"}`), ""), "after_commit"},
-		"429 negative retry":       {plan(fault("create_case", "{}", "HTTP_429", `{"retry_after_seconds":-1}`), ""), "retry_after_seconds"},
-		"paginate without size":    {plan(fault("find_cases", "{}", "PAGINATE", "{}"), ""), "page_size"},
-		"paginate on a write":      {plan(fault("create_case", "{}", "PAGINATE", `{"page_size":1}`), ""), "list operations"},
-		"concurrent mod on read":   {plan(fault("get_case", "{}", "CONCURRENT_MODIFICATION", "{}"), ""), "route_case"},
-		"stray param":              {plan(fault("create_case", "{}", "DROP_RESPONSE", `{"delay_ms":5}`), ""), "not a parameter"},
-		"bad clock start":          {plan("", `,"clock":{"start":"yesterday"}`), "clock.start"},
-		"bad advance":              {plan("", `,"clock":{"start":"2026-10-01T09:40:00Z","advances":[{"at_step":"s","by":"P1Y"}]}`), "clock.advances"},
-		"bad step name":            {plan("", `,"clock":{"start":"2026-10-01T09:40:00Z","advances":[{"at_step":"After Receipt","by":"PT1S"}]}`), "at_step"},
+		"unknown top-level field":          {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[],"bogus":1}`), "unknown field"},
+		"trailing data":                    {append(plan("", ""), []byte(" {}")...), "trailing"},
+		"bad plan id":                      {[]byte(`{"fault_plan_id":"plan","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "fault_plan_id"},
+		"fp_none":                          {[]byte(`{"fault_plan_id":"fp_none","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "fp_none"},
+		"no scenario":                      {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"","seed":1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "scenario_id"},
+		"negative seed":                    {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":-1,"deterministic":true,"source":"MOCK_CASE","faults":[]}`), "seed"},
+		"unknown source":                   {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"HARNESS","faults":[]}`), "source"},
+		"deterministic with a chance":      {plan(`{"target":"mock-case","operation":"create_case","effect":"DROP_RESPONSE","probability":0.5}`, ""), "deterministic plan"},
+		"mock-case has no chance":          {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":false,"source":"MOCK_CASE","faults":[{"target":"mock-case","operation":"create_case","effect":"DROP_RESPONSE","probability":0.5}]}`), "probabilistic"},
+		"probability above one":            {plan(`{"target":"mock-case","operation":"create_case","effect":"DROP_RESPONSE","probability":2}`, ""), "probability"},
+		"faults missing":                   {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"MOCK_CASE"}`), "faults is required"},
+		"unknown target":                   {[]byte(strings.Replace(string(plan(fault("create_case", "{}", "DROP_RESPONSE", "{}"), "")), `"mock-case"`, `"mock-switchh"`, 1)), "unknown target"},
+		"mock-case plan, other target":     {[]byte(strings.Replace(string(plan(fault("create_case", "{}", "DROP_RESPONSE", "{}"), "")), `"mock-case"`, `"mock-switch"`, 1)), "mock-case only"},
+		"unknown effect on another target": {[]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"PROXY","faults":[{"target":"mock-switch","operation":"get_status","effect":"EXPLODE"}]}`), "unknown effect"},
+		"unknown operation":                {plan(fault("close_case", "{}", "DROP_RESPONSE", "{}"), ""), "unknown operation"},
+		"effect not produced":              {plan(fault("create_case", "{}", "SPLIT_STATE", "{}"), ""), "not one mock-case produces"},
+		"match key not suppliable":         {plan(fault("route_case", `{"transaction_ref":"TX1"}`, "DROP_RESPONSE", "{}"), ""), "cannot be supplied"},
+		"nth_call zero":                    {plan(fault("create_case", `{"nth_call":0}`, "DROP_RESPONSE", "{}"), ""), "nth_call"},
+		"nth_call fraction":                {plan(fault("create_case", `{"nth_call":1.5}`, "DROP_RESPONSE", "{}"), ""), "nth_call"},
+		"empty match value":                {plan(fault("create_case", `{"idempotency_key":""}`, "DROP_RESPONSE", "{}"), ""), "non-empty"},
+		"delay missing":                    {plan(fault("create_case", "{}", "TIMEOUT_AFTER_COMMIT", "{}"), ""), "delay_ms"},
+		"delay too large":                  {plan(fault("create_case", "{}", "LATENCY", `{"delay_ms":600001}`), ""), "delay_ms"},
+		"delay negative":                   {plan(fault("create_case", "{}", "LATENCY", `{"delay_ms":-1}`), ""), "delay_ms"},
+		"5xx status 404":                   {plan(fault("create_case", "{}", "HTTP_5XX", `{"status":404}`), ""), "status"},
+		"5xx after_commit string":          {plan(fault("create_case", "{}", "HTTP_5XX", `{"after_commit":"yes"}`), ""), "after_commit"},
+		"429 negative retry":               {plan(fault("create_case", "{}", "HTTP_429", `{"retry_after_seconds":-1}`), ""), "retry_after_seconds"},
+		"paginate without size":            {plan(fault("find_cases", "{}", "PAGINATE", "{}"), ""), "page_size"},
+		"paginate on a write":              {plan(fault("create_case", "{}", "PAGINATE", `{"page_size":1}`), ""), "list operations"},
+		"concurrent mod on read":           {plan(fault("get_case", "{}", "CONCURRENT_MODIFICATION", "{}"), ""), "route_case"},
+		"stray param":                      {plan(fault("create_case", "{}", "DROP_RESPONSE", `{"delay_ms":5}`), ""), "not a parameter"},
+		"bad clock start":                  {plan("", `,"clock":{"start":"yesterday"}`), "clock.start"},
+		"bad advance":                      {plan("", `,"clock":{"start":"2026-10-01T09:40:00Z","advances":[{"at_step":"s","by":"P1Y"}]}`), "clock.advances"},
+		"bad step name":                    {plan("", `,"clock":{"start":"2026-10-01T09:40:00Z","advances":[{"at_step":"After Receipt","by":"PT1S"}]}`), "at_step"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -83,6 +87,37 @@ func TestInvalidPlansAreRefused(t *testing.T) {
 				t.Fatalf("error %q does not mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// A plan may carry faults for other components: they are counted, not applied (the PERD §37.1 example does).
+func TestFaultsForOtherComponentsAreCountedAndIgnored(t *testing.T) {
+	c, err := Parse([]byte(`{"fault_plan_id":"fp_t","scenario_id":"S","seed":1,"deterministic":true,"source":"TUSHE","faults":[
+	  {"target":"mock-switch","operation":"get_status","effect":"HTTP_200_SEMANTIC_PENDING"},
+	  {"target":"mock-case","operation":"create_case","match":{"nth_call":1},"effect":"DROP_RESPONSE"},
+	  {"target":"mock-ledger","operation":"get_transaction","effect":"STALE_READ","params":{"seconds":5}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Applied != 1 || c.Ignored != 2 {
+		t.Fatalf("applied %d, ignored %d", c.Applied, c.Ignored)
+	}
+	e := NewEngine()
+	e.Load(c)
+	d := e.Next(OpCreateCase, nil)
+	if d.Effect == nil || d.Effect.Index != 1 {
+		t.Fatalf("the fault trace must name the fault's position in the plan (1), got %+v", d.Effect)
+	}
+}
+
+func TestProbabilityZeroNeverFiresAndOneAlwaysFires(t *testing.T) {
+	e := NewEngine()
+	e.Load(mustParse(t, `{"target":"mock-case","operation":"get_case","effect":"DROP_RESPONSE","probability":0},`+
+		`{"target":"mock-case","operation":"get_case","effect":"HTTP_5XX","probability":1}`))
+	for i := 0; i < 3; i++ {
+		if d := e.Next(OpGetCase, nil); d.Effect == nil || d.Effect.Name != EffectHTTP5XX || d.Effect.Index != 1 {
+			t.Fatalf("%+v", d.Effect)
+		}
 	}
 }
 

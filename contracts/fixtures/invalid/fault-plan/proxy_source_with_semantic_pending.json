@@ -1,0 +1,14 @@
+{
+  "fault_plan_id": "fp_x",
+  "scenario_id": "S",
+  "seed": 1,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_200_SEMANTIC_PENDING"
+    }
+  ]
+}
