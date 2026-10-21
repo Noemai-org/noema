@@ -23,6 +23,9 @@ type Case struct {
 	PrincipalID    string    `json:"principal_id"`
 	TransactionRef string    `json:"transaction_ref"`
 	ReasonCode     string    `json:"reason_code"`
+	// CreatedByIntent and Epoch are the fin.case fields the pack's success predicate reads (SoT 15.3).
+	CreatedByIntent string `json:"created_by_intent"`
+	Epoch           int64  `json:"epoch"`
 
 	Seq     int64 `json:"-"`
 	Version int64 `json:"-"`
