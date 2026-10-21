@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "principal_ref": "usr_88213",
+  "resource_kind": "fin.transaction",
+  "filters": {
+    "amount_range": {
+      "min_minor": 1980000,
+      "max_minor": 2020000,
+      "currency": "NGN"
+    },
+    "counterparty_surface": "Ada"
+  }
+}

@@ -4,6 +4,7 @@
 //
 // Must never: do I/O in workflow code, read the wall clock, hold authoritative state, or import a model or provider client.
 //
-// This is an empty boundary package created by PLT-01. Its contents arrive with the tasks named in
-// the README of the PERD §64.2 tree; nothing is built here yet.
+// Retry policy (D8, PERD 36.1): retry.go declares, as data, which activities write and which read, and how each
+// retries. Workflow definitions take their activity options from it. The Temporal client itself is not here yet:
+// it needs the dependency decision of AGENT-14.
 package workflows

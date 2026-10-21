@@ -38,7 +38,7 @@ func cmd(op string) store.Cmd {
 
 func newCase(key string) store.CreateCaseInput {
 	return store.CreateCaseInput{TenantID: "ten_a", PrincipalID: "usr_1", TransactionRef: "TX88213", ReasonCode: "CREDIT_MISSING",
-		OwnerQueue: "PAYMENTS_OPERATIONS", Priority: "NORMAL", IdempotencyKey: key}
+		OwnerQueue: "PAYMENTS_OPERATIONS", Priority: "NORMAL", CreatedByIntent: "int_01J9X3", Epoch: 0, IdempotencyKey: key}
 }
 
 func TestMigrateTwiceIsANoOp(t *testing.T) {
@@ -302,6 +302,49 @@ func TestDatabaseRefusesWhatTheServiceDoesNotOffer(t *testing.T) {
 	var n int
 	if err := admin.QueryRow(ctx, `SELECT (SELECT count(*) FROM cases) + (SELECT count(*) FROM evidence) + (SELECT count(*) FROM complaints)`).Scan(&n); err != nil || n != 3 {
 		t.Fatalf("rows survived? %d %v", n, err)
+	}
+}
+
+// created_by_intent, epoch and the OPEN to ROUTED step (reconciliation with the pack's case entity).
+func TestDatabaseAllowsOnlyOpenToRoutedAndFixesIntentAndEpoch(t *testing.T) {
+	s, db := open(t)
+	ctx := context.Background()
+	s.CreateCase(ctx, cmd("create_case"), newCase("idk_1"))
+	app, admin := appConn(t, db), adminConn(t, db)
+	refused := []struct{ role, name, sql string }{
+		{"app", "rewrite the intent", `UPDATE cases SET created_by_intent = 'int_x', version = version + 1`},
+		{"app", "rewrite the epoch", `UPDATE cases SET epoch = 9, version = version + 1`},
+		{"admin", "rewrite the intent as the owner", `UPDATE cases SET created_by_intent = 'int_x', version = version + 1`},
+		{"admin", "rewrite the epoch as the owner", `UPDATE cases SET epoch = 9, version = version + 1`},
+		{"app", "close an open case", `UPDATE cases SET status = 'CLOSED', version = version + 1`},
+		{"admin", "close an open case as the owner", `UPDATE cases SET status = 'CLOSED', version = version + 1`},
+		{"app", "set a negative epoch", `UPDATE cases SET epoch = -1, version = version + 1`},
+	}
+	for _, r := range refused {
+		conn := app
+		if r.role == "admin" {
+			conn = admin
+		}
+		if _, err := conn.Exec(ctx, r.sql); err == nil {
+			t.Errorf("%s was allowed to %s", r.role, r.name)
+		}
+	}
+	if _, err := app.Exec(ctx, `UPDATE cases SET status = 'ROUTED', owner_queue = 'DISPUTES', version = version + 1, updated_at = now()`); err != nil {
+		t.Fatalf("OPEN to ROUTED was refused: %v", err)
+	}
+	for _, r := range []struct{ role, name, sql string }{
+		{"app", "reopen a routed case", `UPDATE cases SET status = 'OPEN', version = version + 1`},
+		{"admin", "reopen a routed case as the owner", `UPDATE cases SET status = 'OPEN', version = version + 1`},
+		{"app", "close a routed case", `UPDATE cases SET status = 'CLOSED', version = version + 1`},
+		{"admin", "close a routed case as the owner", `UPDATE cases SET status = 'CLOSED', version = version + 1`},
+	} {
+		conn := app
+		if r.role == "admin" {
+			conn = admin
+		}
+		if _, err := conn.Exec(ctx, r.sql); err == nil {
+			t.Errorf("%s was allowed to %s", r.role, r.name)
+		}
 	}
 }
 

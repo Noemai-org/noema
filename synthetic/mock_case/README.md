@@ -17,7 +17,7 @@ mock-case emulates the bank's case system, because Tushe has no case domain (DEC
 | Complaints | `POST /v1/cases/{id}/complaints`, `GET /v1/complaints[/{ref}]` | same idempotency and read-back rules; `clock_started_at` is a SYNTHETIC clock that nothing can change |
 | Evidence | `POST /v1/cases/{id}/evidence`, `GET /v1/evidence[/{id}]` | append-only; `payload_hash` is the SHA-256 of the exact bytes of `payload` (`sha256:<hex>`); a supplied `payload_hash` that does not match is `422` |
 
-**Absent by construction.** There is no operation to close or resolve a case, downgrade priority, change an SLA or clock, edit or delete evidence, or move money, and no dispute. They have no route (the answer is a JSON `404`, for any method), no handler, and no entry in the API description (`internal/api/openapi.json`). The database refuses them too (`internal/store/migrations/0001_init.sql`): `status` is constrained to `OPEN`; a case row may change only its queue and its version (+1); evidence, complaints and the command log refuse UPDATE, DELETE and TRUNCATE, for the owner as well. Tests: `TestForbiddenOperationsHaveNoRouteAndChangeNothing`, `TestCaseApiDescriptionOffersNothingProhibited`, `TestDatabaseRefusesWhatTheServiceDoesNotOffer`.
+**Absent by construction.** There is no operation to close or resolve a case, downgrade priority, change an SLA or clock, edit or delete evidence, or move money, and no dispute. They have no route (the answer is a JSON `404`, for any method), no handler, and no entry in the API description (`internal/api/openapi.json`). The database refuses them too (`internal/store/migrations/0001_init.sql`): `status` is `OPEN` or `ROUTED` and can only move from OPEN to ROUTED (never back, never closed); a case row may change only its queue and its version (+1); evidence, complaints and the command log refuse UPDATE, DELETE and TRUNCATE, for the owner as well. Tests: `TestForbiddenOperationsHaveNoRouteAndChangeNothing`, `TestCaseApiDescriptionOffersNothingProhibited`, `TestDatabaseRefusesWhatTheServiceDoesNotOffer`.
 
 ## Two listeners, two credentials
 
@@ -29,6 +29,18 @@ mock-case emulates the bank's case system, because Tushe has no case domain (DEC
 The bench listener is bound to the one local address that shares a subnet with `MOCK_CASE_BENCH_BIND_VIA` (the benchmark database, which is on `bench_net` only), so a caller on `tushe_net` cannot connect at all. If that address cannot be found, mock-case does not start. On top of the network, the credential is checked: every runtime identity (the adapter's credential, no credential, a guessed one) is refused on the bench listener, with `403` for a known runtime credential, and every refusal is logged (REQ-ENV-002). The connection-test matrix (`deploy/compose/netcheck/matrix.py`, step 6) proves both layers. The two tokens must differ and are read from files, never from the environment.
 
 The truth endpoint: `GET /truth/v1/state` (all cases, complaints, attachments), `/truth/v1/commands` (the command log: every command and every injected fault, with scenario, seed and fault-plan ID), `/truth/v1/digest` (a state hash and a fault-trace hash, to compare two replays in one call). Control: `PUT|GET|DELETE /control/v1/fault-plan`, `GET /control/v1/clock`, `POST /control/v1/clock/advance`, `POST /control/v1/reset`. There is no snapshot or restore (PERD §34.4).
+
+## Reconciliation with the pack
+
+The pack's `case` entity (`packs/fintech_v1.json`; SoT §15.3 success predicate `case.status in ['OPEN','ROUTED']` and `case.created_by_intent == intent_id`) reads three things the first mock-case did not supply. **mock-case was the incomplete side, so mock-case changed and the pack did not.** The SoT predicate is normative; the PERD §34.4 `fin.case` shape is `[REC]` and says exact field names are fixed at Phase A.
+
+| Pack reads | Before | Now (migration `0002_intent_epoch_routed.sql`) |
+|---|---|---|
+| `created_by_intent` | not stored | required on create (`created_by_intent`, same pattern as other IDs), returned on every read, part of the idempotent payload, fixed for life |
+| `epoch` | not stored | required on create (integer 0 to 2^53-1), returned on every read, part of the idempotent payload, fixed for life |
+| status `ROUTED` | only `OPEN` existed; routing moved the queue | a successful route moves OPEN to ROUTED; a later route keeps ROUTED; the database refuses ROUTED back to OPEN and any other status |
+
+Still true: nothing closes or resolves a case. The pack's status enum keeps `CLOSED`, which mock-case never emits, so the epoch can never advance against mock-case (PERD §29: it increments when the prior case is verified CLOSED). A benchmark that needs epoch 1 must create the case with `epoch: 1`. The pack's `id` and `subject` are the adapter's renames of `case_id` and `transaction_ref`. `packs/tests/test_mock_case_shape.py` pins all of this. SYNTHETIC.
 
 ## Fault plans
 
