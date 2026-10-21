@@ -10,5 +10,6 @@
   "missing_severity_class.json": "required",
   "failure_with_unknown_severity.json": "enum",
   "missing_incomplete_block.json": "required",
-  "missing_tier2_quantity.json": "required"
+  "missing_tier2_quantity.json": "required",
+  "incomplete_without_invalid_case.json": "required"
 }

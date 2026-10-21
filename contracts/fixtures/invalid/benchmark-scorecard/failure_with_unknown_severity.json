@@ -6,7 +6,8 @@
     "errored": [],
     "stale_version": [],
     "duplicate": [],
-    "unknown": []
+    "unknown": [],
+    "invalid_case": []
   },
   "n_cases": 2,
   "layers": {
