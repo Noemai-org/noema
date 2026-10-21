@@ -1,0 +1,64 @@
+{
+  "fixture_id": "fx_amb_two_tundes_0007",
+  "synthetic": true,
+  "principals": [
+    {
+      "principal_id": "usr_synth014",
+      "roles": [
+        "customer"
+      ],
+      "display_name": "Ada"
+    }
+  ],
+  "beneficiaries": [
+    {
+      "beneficiary_id": "ben_0001",
+      "owner": "usr_synth014",
+      "name": "Tunde Adeyemi",
+      "aliases": [
+        "Tunde",
+        "Tee"
+      ],
+      "account_last4": "4821"
+    },
+    {
+      "beneficiary_id": "ben_0002",
+      "owner": "usr_synth014",
+      "name": "Tunde Bakare",
+      "aliases": [
+        "Tunde"
+      ],
+      "account_last4": "7710"
+    }
+  ],
+  "transactions": [
+    {
+      "ref": "fin.transaction:TX3001",
+      "owner": "usr_synth_014",
+      "beneficiary": "ben_0001",
+      "direction": "OUTGOING",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "age_minutes": 150,
+      "ledger": "POSTED",
+      "switch": "APPROVED",
+      "destination": "CREDITED",
+      "settlement": "SETTLED"
+    },
+    {
+      "ref": "fin.transaction:TX3002",
+      "owner": "usr_synth014",
+      "beneficiary": "ben_0002",
+      "direction": "OUTGOING",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "age_minutes": 70,
+      "ledger": "POSTED",
+      "switch": "APPROVED",
+      "destination": "CREDITED",
+      "settlement": "SETTLED"
+    }
+  ],
+  "cases": [],
+  "enterprise_strings": []
+}

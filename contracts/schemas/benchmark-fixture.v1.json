@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-fixture.v1.json",
+  "title": "Benchmark fixture (known facts)",
+  "description": "The known facts of one benchmark scenario (PERD §48.2 `known_facts_fixture`; SoT §38.1 'the known facts'): who the principals are, their beneficiaries, the transactions and what each source says about them, and the cases that already exist. The runner loads it into the synthetic enterprise through the fixture loader; how a field maps to a Tushe call is the adapter task's, not this file's. The fixture holds scenario facts, never ground truth about what Noema should do: that is the oracle. Money is integer minor units with a currency (DEC-2026-10-16 M1). Every name, account and amount is made up. SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "fixture_id": { "type": "string", "pattern": "^fx_[a-z0-9_]{1,80}$" },
+    "synthetic": { "type": "boolean", "const": true },
+    "principals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "principal_id": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId" },
+          "roles": { "type": "array", "items": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName" }, "uniqueItems": true },
+          "display_name": { "type": "string", "minLength": 1, "maxLength": 80 }
+        },
+        "required": ["principal_id", "roles", "display_name"],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "beneficiaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "beneficiary_id": { "type": "string", "pattern": "^ben_[0-9]{4}$" },
+          "owner": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "aliases": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "uniqueItems": true },
+          "account_last4": { "type": "string", "pattern": "^[0-9]{4}$" }
+        },
+        "required": ["beneficiary_id", "owner", "name", "aliases", "account_last4"],
+        "additionalProperties": false
+      }
+    },
+    "transactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+          "owner": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId" },
+          "beneficiary": { "type": ["string", "null"], "pattern": "^ben_[0-9]{4}$" },
+          "direction": { "type": "string", "enum": ["OUTGOING", "INCOMING"] },
+          "amount_minor": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "age_minutes": { "description": "How long before the case starts the transaction happened.", "type": "integer", "minimum": 0, "maximum": 525600 },
+          "ledger": { "type": "string", "enum": ["POSTED", "NOT_POSTED", "REVERSED", "UNAVAILABLE"] },
+          "switch": { "type": "string", "enum": ["APPROVED", "DECLINED", "TIMED_OUT", "PENDING", "UNAVAILABLE"] },
+          "destination": { "type": "string", "enum": ["CREDITED", "NOT_CREDITED", "PENDING", "UNAVAILABLE"] },
+          "settlement": { "type": "string", "enum": ["SETTLED", "PENDING", "REVERSAL_PENDING", "REVERSED", "UNAVAILABLE"] }
+        },
+        "required": ["ref", "owner", "beneficiary", "direction", "amount_minor", "currency", "age_minutes", "ledger", "switch", "destination", "settlement"],
+        "additionalProperties": false
+      }
+    },
+    "cases": {
+      "description": "Cases that already exist in the case system when the scenario starts.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+          "transaction": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+          "status": { "type": "string", "enum": ["OPEN", "ROUTED", "CLOSED"] },
+          "owner_queue": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+        },
+        "required": ["ref", "transaction", "status", "owner_queue"],
+        "additionalProperties": false
+      }
+    },
+    "enterprise_strings": {
+      "description": "Free text that lives in enterprise data: narrations, notes. It is data, never an instruction (AGENT-09).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+          "field": { "type": "string", "enum": ["narration", "case_note", "beneficiary_name"] },
+          "text": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "required": ["target", "field", "text"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["fixture_id", "synthetic", "principals", "beneficiaries", "transactions", "cases", "enterprise_strings"],
+  "additionalProperties": false
+}
