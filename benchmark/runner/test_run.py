@@ -74,7 +74,7 @@ class Rig:
         self.oracle = OracleClient(truth, refusal_log=RefusalLog(self.log) if self.with_log else None, governance=RecordGovernance("MODEL"),
                                    monetary=DeclaredAbsent("monetary_calls", "test run: no monetary route"))
         self.env = RunEnv(api=PublicApi(self.noema.url), control=MockCaseControl(self.stub.url, otd.BENCH_TOKEN), oracle=self.oracle, fixtures=self.loader,
-                          sessions=self.sessions, run_id="run1", admin_token=ADMIN_TOKEN, grant_ttl_seconds=None, settle_timeout_s=self.timeout_s,
+                          sessions=self.sessions, run_id="run1", admin_token=ADMIN_TOKEN, tenant_id="ten_synth", grant_ttl_seconds=None, settle_timeout_s=self.timeout_s,
                           poll_s=0.0, sleep=lambda s: None)
         return self
 
@@ -82,6 +82,15 @@ class Rig:
         self.stub.__exit__(*exc)
         self.noema.__exit__(*exc)
         self.dir.cleanup()
+
+
+def with_timeline(lc: LoadedCase, events: list[str], *, turns: list[str] | None = None, at: str = "+00:05:00") -> LoadedCase:
+    """The same case with extra timeline events and follow-up turns (a copy; the suite is untouched)."""
+    case = json.loads(json.dumps(lc.case))
+    case["events_timeline"] += [{"at": at, "event": e} for e in events]
+    for text in turns or []:
+        case["utterances"].append({"turn": len(case["utterances"]) + 1, "text": text})
+    return LoadedCase(case, lc.fixture, lc.plan, lc.entry)
 
 
 def errors(result: Json) -> list[str]:
@@ -110,7 +119,7 @@ class RunCase(unittest.TestCase):
             self.assertEqual(rig.stub.plan["fault_plan_id"], lc.plan["plan_id"])  # type: ignore[index]
 
     def test_a_write_the_core_makes_is_read_from_the_oracle_not_from_the_response(self) -> None:
-        lc = pick(lambda x: x.case["expected"]["disposition"] == "ESCALATE" and x.plan is None and len(x.case["utterances"]) == 1
+        lc = pick(lambda x: x.case["expected"]["disposition"] == "ESCALATE" and x.case["expected"]["writes_expected"] and x.plan is None and len(x.case["utterances"]) == 1
                   and [e["event"] for e in x.case["events_timeline"]] == ["session_start:synthetic"])
         target = lc.case["expected"]["writes_expected"][0]["target"]
 
@@ -203,22 +212,37 @@ class RunCase(unittest.TestCase):
             self.assertEqual(result["path"], "FAULTED")
 
     def test_follow_up_turns_come_after_the_timeline_events(self) -> None:
-        lc = pick(lambda x: x.plan is None and len(x.case["utterances"]) == 2 and all(e["event"].split(":")[0] in ("session_start", "clock_advance") for e in x.case["events_timeline"])
-                  and len(x.case["events_timeline"]) > 1)
+        lc = with_timeline(plain_case(), ["clock_advance:PT61S"], turns=["The one ending 1234"])
         with Rig() as rig:
             result = run_case(rig.env, lc)
             self.assertEqual(result["status"], "COMPLETED", result.get("error"))
-            post = [p for m, p, _, _ in rig.noema.requests if m == "POST"]
-            self.assertEqual(post, ["/v1/conversations", "/v1/conversations/conv_0001/messages"])
-            self.assertTrue(rig.stub.advanced)
+            order = [(m, p) for m, p, _, _ in rig.noema.requests if m == "POST"]
+            self.assertEqual(order, [("POST", "/v1/conversations"), ("POST", "/v1/conversations/conv_0001/messages")])
+            self.assertEqual(rig.stub.advanced, [{"by": "PT61S"}])
+            advance_at = [i for i, (_, p, _) in enumerate(rig.stub.requests) if p == "/control/v1/clock/advance"][0]
+            self.assertGreater(advance_at, 0)
 
     def test_a_confirm_event_answers_the_confirmation_request(self) -> None:
-        lc = pick(lambda x: any(e["event"] in ("confirm:ACCEPT", "confirm:DECLINE") for e in x.case["events_timeline"]) and x.plan is None
-                  and all(e["event"].split(":")[0] in ("session_start", "confirm", "clock_advance") for e in x.case["events_timeline"]))
+        lc = with_timeline(plain_case(), ["confirm:ACCEPT"])
         with Rig(Script(sse=[("confirmation", {"confirmation_request_id": "cnf_0001"})])) as rig:
             result = run_case(rig.env, lc)
             self.assertEqual(result["status"], "COMPLETED", result.get("error"))
             self.assertIn("/v1/confirmations/cnf_0001", rig.noema.paths())
+        with Rig(Script(sse=[("progress", {"state": "EVALUATING"})])) as rig:
+            self.assertEqual(run_case(rig.env, lc)["error"]["code"], "CONFIRMATION_NOT_FOUND")
+
+    def test_a_confirmation_argument_the_api_does_not_take_has_no_driver(self) -> None:
+        lc = with_timeline(plain_case(), ["confirm:ACCEPT_BY_REQUESTER"])
+        with Rig() as rig:
+            self.assertEqual(run_case(rig.env, lc)["error"]["code"], "EVENT_KIND_UNSUPPORTED")
+
+    def test_the_kill_switch_is_set_before_the_first_input(self) -> None:
+        lc = with_timeline(plain_case(), ["kill_switch:on"], at="+00:00:00")
+        with Rig() as rig:
+            result = run_case(rig.env, lc)
+            self.assertEqual(result["status"], "COMPLETED", result.get("error"))
+            paths = rig.noema.paths()
+            self.assertLess(paths.index("/v1/admin/tenants/ten_synth/kill-switch"), paths.index("/v1/conversations"))
 
     def test_the_outcome_digest_is_stable_across_reruns(self) -> None:
         with Rig() as rig:

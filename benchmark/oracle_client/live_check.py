@@ -150,6 +150,25 @@ def main() -> int:
         time.sleep(0.3)
         check("that refusal is one oracle access, counted from mock-case's own log", oracle.readout(before_refusal, record_events=[])["oracle_accesses_by_runtime"] == 1)
         check("the seeded case id is unrelated", seeded["case_id"] != case_id)
+
+        # The runner's translation of every generated fault plan, loaded into the real mock-case: it accepts only a plan it can apply exactly.
+        from benchmark.generator.generate import generate
+        from benchmark.runner.faultplan import split_plan
+        suite = generate(20261020)
+        plans = rejected = 0
+        for case_id_, case_doc in suite.cases.items():
+            plan_file = suite.files.get(f"fault_plans/{case_doc['fault_plan']}.json")
+            split = split_plan(case_doc, json.loads(plan_file) if plan_file else None, grant_ttl_seconds=300)
+            if split.mock_case is None:
+                continue
+            plans += 1
+            try:
+                bench.request("PUT", "/control/v1/fault-plan", split.mock_case)
+            except HttpError as error:
+                rejected += 1
+                print(f"       {case_id_}: {error}")
+        bench.request("DELETE", "/control/v1/fault-plan")
+        check(f"{plans} translated fault plans loaded into the real mock-case, none refused", plans > 0 and rejected == 0, f"{rejected} refused")
     finally:
         for p in procs:
             p.terminate()

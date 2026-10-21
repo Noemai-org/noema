@@ -35,9 +35,10 @@ class Parse(unittest.TestCase):
         self.assertEqual(Contracts().errors("benchmark-case-result", doc), [])
 
     def test_an_unexpected_shape_is_an_error_never_a_guess(self) -> None:
-        for broken in ({}, {"outcome": {}}, {"events": [], "outcome": {"disposition": "ALLOW"}}, "text"):
+        broken: list[object] = [{}, {"outcome": {}}, {"events": [], "outcome": {"disposition": "ALLOW"}}, "text"]
+        for body_ in broken:
             with self.assertRaises(ReconstructionError):
-                parse(broken)  # type: ignore[arg-type]
+                parse(body_)
 
     def test_cost_is_an_integer(self) -> None:
         b = body("ALLOW")
