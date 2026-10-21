@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-proxy-test env-proxy-build
 
 build:
 	docker build -t noema-core:dev services/core
@@ -65,3 +65,10 @@ env-mock-case-test:
 
 env-mock-case-build:
 	docker build -t noema-mock-case:dev synthetic/mock_case
+
+# Hostility proxy (ENV-09): the Go standard library only, so its tests need no database.
+env-proxy-test:
+	cd benchmark/hostility_proxy && test -z "$$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./...
+
+env-proxy-build:
+	docker build -t noema-hostility-proxy:dev benchmark/hostility_proxy

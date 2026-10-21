@@ -7,6 +7,7 @@ name: noema-local
 
 # Each component's services live in its own file under services/ (session ownership; one line each).
 include:
+  - services/hostility-proxy.yml
   - services/evil-provider.yml
   - services/mock-case.yml
 

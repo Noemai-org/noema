@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "status": 200,
+  "headers": { "Content-Type": "application/json" },
+  "body": {
+    "transaction_ref": "TX88213",
+    "credit_state": "CREDITED",
+    "debit_state": "PENDING",
+    "account": "9999041234",
+    "note": "SYNTHETIC impossible-data fixture: the credit is posted before the debit that funds it"
+  }
+}
