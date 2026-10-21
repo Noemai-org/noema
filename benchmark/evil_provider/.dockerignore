@@ -1,0 +1,6 @@
+test_*.py
+recorded
+**/__pycache__
+**/*.md
+Dockerfile
+.dockerignore
