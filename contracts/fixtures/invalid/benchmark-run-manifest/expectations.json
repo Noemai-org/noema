@@ -4,7 +4,7 @@
   "missing_counter_sources.json": "required",
   "counter_source_missing_monetary.json": "required",
   "negative_count.json": "minimum",
-  "error_code_lowercase.json": "propertyNames",
+  "error_code_lowercase.json": "pattern",
   "extra_field.json": "additionalProperties",
   "run_id_has_space.json": "pattern",
   "manifest_hash_not_sha.json": "pattern"

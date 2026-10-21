@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-run-manifest.v1.json",
+  "title": "Benchmark run manifest",
+  "description": "What one benchmark run was (PERD REQ-BEN-002 Audit: 'the run manifest records commit SHAs, pack and policy versions, providers, generator version and seeds'; SoT §38.8). Written by the runner beside the case results. A run that could not start is NOT_RUN with its reason and no results: nothing is faked and no case is scored (the same rule as the decision-model bake-off). A run with any ERROR case or any case excluded for failing its schema is INCOMPLETE (REQ-BEN-001). `counter_sources` says where each environment counter of every case result came from, so a counter the operator declared rather than observed is visible. Holds no threshold and no verdict. The PERD names the audit items, not their fields: a smallest safe default under AGENT-02, for the benchmark owner to confirm. SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "run_id": { "$ref": "https://contracts.noema.invalid/benchmark-case-result.v1.json#/$defs/RunId" },
+    "status": { "type": "string", "enum": ["COMPLETE", "INCOMPLETE", "NOT_RUN"] },
+    "not_run_reason": {
+      "description": "Why nothing ran, when status is NOT_RUN; null otherwise.",
+      "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }]
+    },
+    "suite": {
+      "type": "object",
+      "properties": {
+        "suite_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+        "suite_version": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver" },
+        "manifest_sha256": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash" },
+        "generator": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+            "version": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver" },
+            "seed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+          },
+          "required": ["name", "version", "seed"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["suite_id", "suite_version", "manifest_sha256", "generator"],
+      "additionalProperties": false
+    },
+    "pack_version": { "type": "string", "pattern": "^[a-z][a-z0-9_]*@[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "policy_version": { "type": "string", "pattern": "^[a-z][a-z0-9_.]*@[0-9]+(\\.[0-9]+){1,2}$" },
+    "commit_sha": {
+      "description": "The commit of the code under test, or null when the runner was not given one.",
+      "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }]
+    },
+    "providers": {
+      "description": "The model providers declared for the run. Empty means none was declared, not that none was used.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+      "uniqueItems": true
+    },
+    "counter_sources": {
+      "type": "object",
+      "properties": {
+        "oracle_accesses_by_runtime": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "model_governance_changes": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "monetary_calls": { "type": "string", "minLength": 1, "maxLength": 300 }
+      },
+      "required": ["oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls"],
+      "additionalProperties": false
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "run": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "completed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "error": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "invalid": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["total", "run", "completed", "error", "invalid"],
+      "additionalProperties": false
+    },
+    "errors_by_code": {
+      "description": "ERROR cases by error code.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" },
+      "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+    },
+    "invalid_case_ids": {
+      "description": "Cases excluded for failing their schema; they were not run.",
+      "type": "array",
+      "items": { "type": "string", "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$" },
+      "uniqueItems": true
+    },
+    "clock_start": {
+      "description": "The start of the simulated clock mock-case runs on, RFC 3339. SYNTHETIC.",
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 40
+    }
+  },
+  "required": [
+    "run_id", "status", "not_run_reason", "suite", "pack_version", "policy_version", "commit_sha", "providers", "counter_sources", "counts",
+    "errors_by_code", "invalid_case_ids", "clock_start"
+  ],
+  "additionalProperties": false
+}
