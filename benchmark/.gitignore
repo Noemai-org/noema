@@ -1,0 +1,4 @@
+.venv-bench/
+__pycache__/
+.mypy_cache/
+.hypothesis/
