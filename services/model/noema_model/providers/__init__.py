@@ -4,5 +4,5 @@ May import: noema_model.platform.
 
 Must never: be imported by anything but understanding, explanation and voice; hold a credential for the core database, Temporal, an adapter or a grant key; depend on a single provider (BD-16).
 
-An empty boundary package created by PLT-01; nothing is built here yet.
+Boundary package created by PLT-01. Its sub-packages are filled by the engine tracks; see the README beside this file for what exists.
 """

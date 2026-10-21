@@ -1,0 +1,26 @@
+{
+  "id": "msg_synthetic",
+  "type": "message",
+  "role": "assistant",
+  "model": "pinned-model-2026-01-01",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "REASONING-MARKER-must-never-surface",
+      "signature": "synthetic"
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_synthetic",
+      "name": "harness_decide",
+      "input": {
+        "answers": []
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "usage": {
+    "input_tokens": 120,
+    "output_tokens": 30
+  }
+}

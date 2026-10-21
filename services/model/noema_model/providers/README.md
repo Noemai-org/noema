@@ -4,6 +4,6 @@
 
 **REQs.** REQ-INT-002, REQ-VOI-002.
 
-**Status.** Empty boundary package (PLT-01). Filled by UND-02 and VOI-01. No provider SDK is installed yet. The import rules and prohibitions are in `__init__.py`.
+**Status.** `llm/` holds the text-model adapters for the harness (T5): `openai_chat`, `anthropic_messages`, `gemini_generate`, the neutral types in `base.py`, the standard-library `UrllibTransport` (https only, no redirects, size cap, hard deadline) and the kind registry. No vendor SDK is used; each adapter is one HTTP call. `speech/` is still empty (VOI-01). The OpenAI Decisions adapter is not written yet: see `docs/sessions/`. The import rules and prohibitions are in `__init__.py`.
 
-**Tests.** `pytest` from `services/model/` (none for this package yet).
+**Tests.** `pytest` from `services/model/`: `tests/test_providers_contract.py` (fixtures; not run against a live endpoint: no access) and `tests/test_transport.py` (a real local socket).

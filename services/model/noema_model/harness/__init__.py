@@ -6,5 +6,32 @@ May import: noema_model.platform and noema_model.providers (it is the only impor
 
 Must never: repair a mismatching output (reject); turn a probability into a decision; log provider reasoning output; hold code that knows of the evil provider (endpoints are configuration); accept an unpinned model version.
 
-Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with the engine tracks, and nothing is built here yet.
+Public surface: Harness (generate, decide), load_harness_config and build_providers, the decide types and the typed
+rejection. Everything else in this package is internal to it.
 """
+
+from noema_model.harness.accounting import AttemptOutcome, AttemptRecord, CallRecord, Failover, RateCard
+from noema_model.harness.config import HarnessConfig, build_providers, load_harness_config
+from noema_model.harness.core import DecideRequest, DecideResult, GenerateRequest, GenerateResult, Harness
+from noema_model.harness.decide_types import (
+    ABSTAIN,
+    Answer,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    DecisionTask,
+    Option,
+    Question,
+    ScoreAnswer,
+    ScoreQuestion,
+    YesNoAnswer,
+    YesNoQuestion,
+)
+from noema_model.harness.errors import HarnessRejection, Reason
+from noema_model.harness.templates import PromptTemplate
+
+__all__ = [
+    "ABSTAIN", "Answer", "AttemptOutcome", "AttemptRecord", "CallRecord", "ChoiceAnswer", "ChoiceQuestion",
+    "DecideRequest", "DecideResult", "DecisionTask", "Failover", "GenerateRequest", "GenerateResult", "Harness",
+    "HarnessConfig", "HarnessRejection", "Option", "PromptTemplate", "Question", "RateCard", "Reason", "ScoreAnswer",
+    "ScoreQuestion", "YesNoAnswer", "YesNoQuestion", "build_providers", "load_harness_config",
+]

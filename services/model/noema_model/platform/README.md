@@ -4,6 +4,6 @@
 
 **REQs.** REQ-OBS-001, REQ-SEC-003, REQ-OPS-003.
 
-**Status.** Empty boundary package (PLT-01). Filled by REC-02 and PLT-05. The import rules and prohibitions are in `__init__.py`.
+**Status.** `clock` (the one place time is read), `config` (strict readers; nothing defaulted), `redaction` (`Redactor`: account numbers to the last four digits, secrets by key name) and `telemetry` (the `Telemetry` interface with null, in-memory and OpenTelemetry-span implementations) are built for the harness (T5). The Prometheus exporter, log shipping and `mtls` remain for REC-02 and PLT-05. The import rules and prohibitions are in `__init__.py`.
 
-**Tests.** `pytest` from `services/model/` (none for this package yet).
+**Tests.** `pytest` from `services/model/` (`tests/test_harness_fields.py` covers the redactor).
