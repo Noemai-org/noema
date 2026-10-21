@@ -1,0 +1,14 @@
+{
+  "missing_tier0.json": "required",
+  "ten_gates.json": "minItems",
+  "unknown_gate.json": "enum",
+  "rate_without_interval.json": "required",
+  "rate_above_one.json": "maximum",
+  "human_minutes_invented.json": "type",
+  "unknown_family.json": "propertyNames",
+  "extra_top_level.json": "additionalProperties",
+  "missing_severity_class.json": "required",
+  "failure_with_unknown_severity.json": "enum",
+  "missing_incomplete_block.json": "required",
+  "missing_tier2_quantity.json": "required"
+}
