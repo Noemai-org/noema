@@ -13,7 +13,8 @@ TX = "fin.transaction:TX1001"
 def case(case_id: str = "cas_1", tx: str = TX, version: str = "v1", key: str = "key-1") -> Json:
     return {"case_id": case_id, "reference": f"CASE-{case_id}", "status": "OPEN", "owner_queue": "PAYMENTS_OPERATIONS", "priority": "NORMAL",
             "idempotency_key": key, "version_token": version, "created_at": "2026-10-01T09:40:00Z", "tenant_id": "ten_synth", "principal_id": "usr_synth001",
-            "transaction_ref": tx, "reason_code": "OUTCOME_UNKNOWN"}
+            "transaction_ref": tx, "reason_code": "OUTCOME_UNKNOWN",
+            "created_by_intent": "bench_stub", "epoch": 0}
 
 
 def attachment(attachment_id: str = "att_1", case_id: str = "cas_1") -> Json:

@@ -97,7 +97,8 @@ def main() -> int:
         print("oracle client against a real mock-case:")
 
         def create(key: str, tx: str = TX) -> Json:
-            return runtime.request("POST", "/v1/cases", {"tenant_id": TENANT, "principal_id": PRINCIPAL, "transaction_ref": tx, "reason_code": "OUTCOME_UNKNOWN"},
+            return runtime.request("POST", "/v1/cases", {"tenant_id": TENANT, "principal_id": PRINCIPAL, "transaction_ref": tx, "reason_code": "OUTCOME_UNKNOWN",
+                                    "created_by_intent": "bench_live_check", "epoch": 0},
                                    {"Idempotency-Key": key})[0]
 
         def effects(baseline: Any) -> dict[tuple[str, str], int]:
