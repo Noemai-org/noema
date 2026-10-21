@@ -11,6 +11,6 @@
 // report anything but OUTCOME_UNKNOWN on silence; declare success (only Outcome does); import trust or
 // outcome.
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by T6.5 of DEC-2026-10-20. Everything outside the process (the store, the grants, the target) is a
+// port; the Postgres and Temporal implementations wait for the dependency decision of AGENT-14.
 package controller
