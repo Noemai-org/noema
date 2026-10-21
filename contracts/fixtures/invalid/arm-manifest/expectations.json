@@ -1,0 +1,14 @@
+{
+  "built_without_configuration.json": "required",
+  "built_without_review.json": "required",
+  "built_with_not_tested_reason.json": "not",
+  "not_tested_without_reason.json": "required",
+  "not_tested_with_effort.json": "not",
+  "a0_without_label.json": "required",
+  "label_on_competitor.json": "not",
+  "noema_arm_c.json": "enum",
+  "unequal_inputs.json": "const",
+  "code_version_not_a_sha.json": "pattern",
+  "negative_hours.json": "minimum",
+  "unsigned_review_date_missing.json": "required"
+}

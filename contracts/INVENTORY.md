@@ -100,3 +100,14 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 **Migration note (AGENT-15).** `pack.v1.json` gains four optional properties: `action_graph_files`, `routing_allowlist`, `evidence_descriptors` and `predicate_variables`. No existing property changes and no document valid before is invalid now, so the file stays `v1`. packcheck requires `evidence_descriptors` and `predicate_variables` when a pack holds any predicate.
 
 **Migration note (AGENT-15), clarification.** `clarification.v1.json` gains an optional `mode` (`OPTIONS` default, `ATTRIBUTE`) and an `attribute` that ATTRIBUTE mode requires (DEC-2026-10-20 D4). Existing fields are unchanged and every earlier document stays valid, so the file stays `v1`.
+
+## T4 · Benchmark and comparison-arm contracts (session C)
+
+| Schema | SoT | PERD | Requirements | Notes |
+|---|---|---|---|---|
+| `benchmark-case.v1.json` | §38.1 | §48.2 | REQ-BEN-001 | The PERD §48.2 case. `generator` is required exactly when `provenance` is `generated`. Coverage tags (user story, edge case, fault effect, capability) are in the suite manifest, not the case. PERD's example principal `usr_synth_014` does not match `PrincipalId` (underscore); fixtures use `usr_synth014` |
+| `benchmark-oracle.v1.json` | §38 | §48.2 (`oracle_ref`), REQ-ENV-002 | REQ-BEN-002, REQ-ENV-002 | Scenario ground truth, read only by the runner's oracle client. Fields are a smallest safe default (AGENT-02): the PERD names the file, not its content |
+| `benchmark-suite-manifest.v1.json` | §38.1, §38.8 | §48.1, §48.4 | REQ-BEN-001 | What a generator run produced: layer and category counts, Pidgin share, per-case hash, coverage tags and mutation lineage |
+| `arm-manifest.v1.json` | §38.5 | §50.1, §50.2 | REQ-BEN-007 | Records an arm's configuration, effort and independent sign-off. Arms are not built here (REQ-BEN-007) |
+| `benchmark-case-result.v1.json` | §38 | §48.2, §48.3 | REQ-BEN-002, REQ-BEN-004 | What the runner recorded for one case: `observed` (public API and Record) and `environment` (the oracle client's effect readout). A recorded file is enough to reproduce a score. Fields are a smallest safe default (AGENT-02) |
+| `benchmark-scorecard.v1.json` | §38, §38.8 | §48.3, §55 | REQ-BEN-004 | Four tiers; Tier 0 is a required member and first; every rate carries n, a Wilson 95% interval and the rule-of-three bound; holds no threshold (AGENT-16) |

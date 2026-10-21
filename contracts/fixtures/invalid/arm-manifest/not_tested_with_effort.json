@@ -1,0 +1,14 @@
+{
+  "arm_id": "E",
+  "arm_name": "Automation product",
+  "status": "NOT_TESTED",
+  "date": "2026-11-10",
+  "not_tested_reason": "No access to the product.",
+  "effort": {
+    "engineering_hours": 12.5,
+    "setup_hours": 3.0,
+    "lines_of_code": 850,
+    "lines_of_configuration": 120,
+    "integration_burden": "Direct adapter calls; no policy engine."
+  }
+}
