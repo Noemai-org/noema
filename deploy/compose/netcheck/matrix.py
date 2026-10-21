@@ -217,6 +217,47 @@ def check_database() -> None:
             fail(f"{user} -> {db}: expected {'connect' if allowed else 'refusal'}")
 
 
+def check_evil_provider() -> None:
+    """Row for the evil provider (T4 item 9): bench profile only, on provider_egress only, no published port, reachable
+    from the model's network and from nothing else. Its own rows; no other component's row is touched."""
+    print("6. evil provider (bench profile only; ADV-08)")
+    plain = ["docker", "compose", "-f", str(HERE.parent / "docker-compose.yml")]
+    if "evil-provider" in json.loads(run(plain + ["--profile", "dev", "config", "--format", "json"]).stdout)["services"]:
+        fail("evil-provider is present without the bench profile")
+    bench = COMPOSE + ["--profile", "bench"]
+    service = json.loads(run(bench + ["config", "--format", "json"]).stdout)["services"].get("evil-provider")
+    if service is None:
+        fail("evil-provider is missing from the bench profile")
+        return
+    networks = set(service.get("networks") or {})
+    print(f"  evil-provider      {sorted(networks)} {'ok' if networks == {'provider_egress'} else 'MISMATCH'}")
+    if networks != {"provider_egress"}:
+        fail(f"evil-provider is on {sorted(networks)}, expected only provider_egress")
+    if service.get("ports"):
+        fail("evil-provider publishes a port")
+    if set(service.get("profiles") or []) != {"bench"}:
+        fail(f"evil-provider is in profiles {service.get('profiles')}, expected only bench")
+    up = run(bench + ["up", "-d", "--wait", "--no-deps", "evil-provider"])
+    if up.returncode != 0:
+        fail(f"evil-provider did not start: {up.stderr.strip()[:200]}")
+        return
+    try:
+        target = "evil-provider:8090"
+        for probe, may in (("probe-core", False), ("probe-ui", False), ("probe-model", True)):
+            out = run(bench + ["run", "--rm", "--no-deps", "-T", probe, "python", "/probe.py", target])
+            try:
+                got = json.loads(out.stdout.strip().splitlines()[-1])[target]
+            except (ValueError, IndexError, KeyError):
+                fail(f"{probe} gave no result for the evil provider: {out.stderr.strip()[:200]}")
+                continue
+            want = "open" if may else "refused"
+            print(f"  {probe:18} -> evil-provider {got} (expected {want})")
+            if got != want:
+                fail(f"{probe} -> evil-provider: expected {want}, saw {got}")
+    finally:
+        run(bench + ["rm", "-sf", "evil-provider"])
+
+
 def main() -> int:
     up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench"])
     if up.returncode != 0:
@@ -227,6 +268,7 @@ def main() -> int:
     check_real_model()
     check_database()
     check_egress()
+    check_evil_provider()
     run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"])
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
