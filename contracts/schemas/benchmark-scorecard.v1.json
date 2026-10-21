@@ -7,7 +7,7 @@
   "properties": {
     "run_id": { "$ref": "https://contracts.noema.invalid/benchmark-case-result.v1.json#/$defs/RunId" },
     "complete": {
-      "description": "True when every suite case has exactly one COMPLETED result of the same case version. Otherwise the run is INCOMPLETE and says why in `incomplete`.",
+      "description": "True when every suite case has exactly one COMPLETED result of the same case version. Otherwise the run is INCOMPLETE and says why in `incomplete`. A case invalid against its schema is excluded and listed under `invalid_case`; it is never skipped silently (REQ-BEN-001).",
       "type": "boolean"
     },
     "incomplete": {
@@ -17,9 +17,10 @@
         "errored": { "type": "array", "items": { "type": "string" } },
         "stale_version": { "type": "array", "items": { "type": "string" } },
         "duplicate": { "type": "array", "items": { "type": "string" } },
-        "unknown": { "type": "array", "items": { "type": "string" } }
+        "unknown": { "type": "array", "items": { "type": "string" } },
+        "invalid_case": { "type": "array", "items": { "type": "string" } }
       },
-      "required": ["missing", "errored", "stale_version", "duplicate", "unknown"],
+      "required": ["missing", "errored", "stale_version", "duplicate", "unknown", "invalid_case"],
       "additionalProperties": false
     },
     "n_cases": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
