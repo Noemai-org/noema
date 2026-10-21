@@ -17,7 +17,7 @@ from .library import BY_CATEGORY
 from .mutations import MUTATIONS, Mutation
 
 GENERATOR_NAME = "noema-casegen"
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "1.1.0"
 SUITE_ID = "generated-v1"
 SUITE_VERSION = "1.0.0"
 DEFAULT_SEED = 20261020
