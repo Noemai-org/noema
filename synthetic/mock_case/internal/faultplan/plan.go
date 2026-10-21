@@ -1,9 +1,11 @@
-// Package faultplan reads a FaultPlan (PERD §37.1, JSON encoding) and decides, call by call, which fault applies.
+// Package faultplan reads a FaultPlan (PERD §37.1, JSON encoding; contracts/schemas/fault-plan.v1.json) and decides,
+// call by call, which fault applies.
 //
-// mock-case accepts only plans it can apply exactly: source MOCK_CASE, every fault aimed at mock-case, an effect
-// from the list below, params and match keys that mean something for that operation. Anything else is refused
-// when the plan is loaded, so a typo can never become a plan that silently injects nothing (REQ-ENV-004).
-// The benchmark owner owns every plan; this package only applies them.
+// A plan may carry faults for several targets: the faults aimed at another component are that component's, and
+// mock-case counts them and ignores them. It applies exactly the faults aimed at mock-case, and refuses the plan
+// when one of those cannot be applied exactly: an effect it does not produce, params or match keys that mean nothing
+// for the operation. A target or effect no plan may name is refused too, so a typo can never become a plan that
+// silently injects nothing (REQ-ENV-004). The benchmark owner owns every plan; this package only applies them.
 package faultplan
 
 import (
@@ -47,7 +49,7 @@ const (
 	EffectConcurrentModification = "CONCURRENT_MODIFICATION"
 )
 
-// Source and target names (REQ-ENV-004, PERD §37.1).
+// Source and target names (REQ-ENV-004, PERD §34.1, §37.1).
 const (
 	SourceMockCase = "MOCK_CASE"
 	TargetMockCase = "mock-case"
@@ -59,6 +61,22 @@ const (
 
 // maxDelayMS only catches unit mistakes (seconds written as milliseconds); it is not a product threshold.
 const maxDelayMS = 600_000
+
+var sources = map[string]bool{"TUSHE": true, "PROXY": true, SourceMockCase: true}
+
+// targets are the logical services of PERD §34.1; effects are the PERD §37.1 enum. Both are copied from
+// contracts/schemas/fault-plan.v1.json and checked against it by TestContractFixtures.
+var targets = map[string]bool{"mock-ledger": true, "mock-switch": true, "mock-destination": true, "mock-customer": true, "mock-policy": true,
+	TargetMockCase: true, "mock-clock": true, "fault-controller": true, "fixture-loader": true}
+
+var allEffects = map[string]bool{
+	"LATENCY": true, "TIMEOUT_BEFORE_COMMIT": true, "TIMEOUT_AFTER_COMMIT": true, "NEAR_TIMEOUT_BEFORE": true, "NEAR_TIMEOUT_AFTER": true,
+	"DROP_RESPONSE": true, "HTTP_200_SEMANTIC_PENDING": true, "HTTP_5XX": true, "HTTP_429": true, "MALFORMED_RESPONSE": true,
+	"DROP_WEBHOOK": true, "DUPLICATE_WEBHOOK": true, "REORDER_EVENTS": true, "LATE_EVENT": true,
+	"STALE_READ": true, "PAGINATE": true, "SCHEMA_DRIFT": true, "CLOCK_SKEW": true, "SERVICE_UNAVAILABLE": true,
+	"SPLIT_STATE": true, "DEBIT_WITHOUT_CREDIT": true, "DELAYED_SETTLEMENT": true, "DELAYED_REVERSAL": true, "IMPOSSIBLE_STATE": true,
+	"CONCURRENT_MODIFICATION": true, "POLICY_MUTATION": true, "IDEMPOTENCY_COLLISION": true, "INJECTION_PAYLOAD": true,
+}
 
 var operationKeys = map[string][]string{
 	OpCreateCase:      {"nth_call", "transaction_ref", "idempotency_key", "principal_id", "tenant_id"},
@@ -100,6 +118,9 @@ type Fault struct {
 	Match     map[string]json.RawMessage `json:"match,omitempty"`
 	Effect    string                     `json:"effect"`
 	Params    map[string]json.RawMessage `json:"params,omitempty"`
+	// Probability is 0 (never) or 1 (always) for every fault of a deterministic plan, and for every fault mock-case
+	// applies. It is optional; a fault without one always fires when its match holds.
+	Probability *float64 `json:"probability,omitempty"`
 }
 
 // ClockBlock drives mock-case's simulated clock (PERD §37.1).
@@ -118,12 +139,15 @@ type Advance struct {
 type Compiled struct {
 	Plan      Plan
 	Start     *time.Time
+	Applied   int // faults aimed at mock-case
+	Ignored   int // faults aimed at another component
 	steps     map[string][]time.Duration
 	conds     []cond
 	exportRaw []byte
 }
 
 type cond struct {
+	planIndex  int // position in the plan's faults, for the fault trace
 	op         string
 	attrs      map[string]string
 	nth        int64
@@ -184,19 +208,49 @@ func (c *Compiled) validate() error {
 	if p.Seed < 0 {
 		return errors.New("seed must be 0 or greater")
 	}
-	if !p.Deterministic {
-		return errors.New("deterministic must be true: mock-case has no probabilistic fault")
+	for i, ev := range p.ExpectedTraceEvents {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(ev, &obj); err != nil || obj == nil {
+			return fmt.Errorf("expected_trace_events[%d] must be an object", i)
+		}
 	}
-	if p.Source != SourceMockCase {
-		return fmt.Errorf("source must be %s, got %q", SourceMockCase, p.Source)
+	if !sources[p.Source] {
+		return fmt.Errorf("source must be TUSHE, PROXY or %s, got %q", SourceMockCase, p.Source)
 	}
 	if p.Faults == nil {
 		return errors.New("faults is required (use [] for a plan with no fault)")
 	}
 	for i, f := range p.Faults {
+		if !targets[f.Target] {
+			return fmt.Errorf("faults[%d]: unknown target %q", i, f.Target)
+		}
+		if !allEffects[f.Effect] {
+			return fmt.Errorf("faults[%d]: unknown effect %q", i, f.Effect)
+		}
+		if f.Probability != nil && (*f.Probability < 0 || *f.Probability > 1) {
+			return fmt.Errorf("faults[%d]: probability must be from 0 to 1", i)
+		}
+		if p.Deterministic && f.Probability != nil && *f.Probability != 0 && *f.Probability != 1 {
+			return fmt.Errorf("faults[%d]: a deterministic plan allows only probability 0 or 1", i)
+		}
+		if f.Target != TargetMockCase {
+			if p.Source == SourceMockCase {
+				return fmt.Errorf("faults[%d]: a %s plan holds faults for %s only, not %q", i, SourceMockCase, TargetMockCase, f.Target)
+			}
+			c.Ignored++
+			continue
+		}
 		cd, err := compileFault(f)
 		if err != nil {
 			return fmt.Errorf("faults[%d]: %w", i, err)
+		}
+		cd.planIndex = i
+		c.Applied++
+		if f.Probability != nil && *f.Probability == 0 {
+			continue // a fault that never fires: valid, and it consumes no call
+		}
+		if f.Probability != nil && *f.Probability != 1 {
+			return fmt.Errorf("faults[%d]: mock-case has no probabilistic fault; probability must be 0 or 1", i)
 		}
 		c.conds = append(c.conds, cd)
 	}
@@ -443,7 +497,7 @@ func (e *Engine) Next(op string, attrs map[string]string) Decision {
 		if d.Effect != nil || (cd.nth != 0 && e.seen[i] != cd.nth) {
 			continue
 		}
-		eff := &Effect{Index: i, Name: cd.effect, Delay: cd.delay, Status: cd.status, AfterCmt: cd.afterCmt, PageSize: cd.pageSize, Params: cd.paramsJSON}
+		eff := &Effect{Index: cd.planIndex, Name: cd.effect, Delay: cd.delay, Status: cd.status, AfterCmt: cd.afterCmt, PageSize: cd.pageSize, Params: cd.paramsJSON}
 		if cd.hasRetry {
 			r := cd.retry
 			eff.RetryAfter = &r

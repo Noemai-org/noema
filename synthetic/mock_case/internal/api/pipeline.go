@@ -26,6 +26,7 @@ var (
 )
 
 const (
+	maxEpoch    = 9007199254740991 // 2^53-1, the integer ceiling of every Noema contract
 	defaultPage = 50
 	maxPage     = 200 // transport sanity bound on one page
 	// dbTimeout bounds every database call. It is a transport sanity bound, not a product threshold, and it does

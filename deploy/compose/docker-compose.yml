@@ -9,6 +9,7 @@ name: noema-local
 include:
   - services/evil-provider.yml
   - services/mock-case.yml
+  - services/webhook-relay.yml
 
 x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
 x-model-networks: &model_networks [edge_net, svc_net, provider_egress]

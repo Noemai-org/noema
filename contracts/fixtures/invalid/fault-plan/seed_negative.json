@@ -1,0 +1,20 @@
+{
+  "fault_plan_id": "fp_case_create_timeout_after_commit_v1",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": -1,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": [
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "match": {
+        "nth_call": 1
+      },
+      "effect": "TIMEOUT_AFTER_COMMIT",
+      "params": {
+        "delay_ms": 3500
+      }
+    }
+  ]
+}

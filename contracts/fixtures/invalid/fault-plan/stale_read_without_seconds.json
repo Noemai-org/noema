@@ -1,0 +1,14 @@
+{
+  "fault_plan_id": "fp_case_create_timeout_after_commit_v1",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 42,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-ledger",
+      "operation": "get_transaction",
+      "effect": "STALE_READ"
+    }
+  ]
+}

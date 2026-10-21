@@ -1,0 +1,17 @@
+{
+  "fault_plan_id": "fp_x",
+  "scenario_id": "S",
+  "seed": 1,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "PAGINATE",
+      "params": {
+        "page_size": 2
+      }
+    }
+  ]
+}

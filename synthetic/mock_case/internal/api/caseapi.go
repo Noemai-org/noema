@@ -95,12 +95,14 @@ func (s *Server) parseCreateCase(w http.ResponseWriter, r *http.Request) (*opCal
 		return nil, e
 	}
 	var b struct {
-		TenantID       string `json:"tenant_id"`
-		PrincipalID    string `json:"principal_id"`
-		TransactionRef string `json:"transaction_ref"`
-		ReasonCode     string `json:"reason_code"`
-		OwnerQueue     string `json:"owner_queue"`
-		Priority       string `json:"priority"`
+		TenantID        string  `json:"tenant_id"`
+		PrincipalID     string  `json:"principal_id"`
+		TransactionRef  string  `json:"transaction_ref"`
+		ReasonCode      string  `json:"reason_code"`
+		OwnerQueue      string  `json:"owner_queue"`
+		Priority        string  `json:"priority"`
+		CreatedByIntent *string `json:"created_by_intent"`
+		Epoch           *int64  `json:"epoch"`
 	}
 	if e := decodeBody(w, r, &b); e != nil {
 		return nil, e
@@ -117,6 +119,18 @@ func (s *Server) parseCreateCase(w http.ResponseWriter, r *http.Request) (*opCal
 			return nil, e
 		}
 	}
+	if b.CreatedByIntent == nil {
+		return nil, badRequest("created_by_intent", "required: the intent that creates the case")
+	}
+	if e := check(idRE, "created_by_intent", *b.CreatedByIntent); e != nil {
+		return nil, e
+	}
+	if b.Epoch == nil {
+		return nil, badRequest("epoch", "required: the logical resolution epoch, an integer from 0")
+	}
+	if *b.Epoch < 0 || *b.Epoch > maxEpoch {
+		return nil, badRequest("epoch", "an integer from 0 to 9007199254740991")
+	}
 	if b.OwnerQueue == "" {
 		b.OwnerQueue = s.cfg.DefaultQueue
 	} else if !contains(s.cfg.Queues, b.OwnerQueue) {
@@ -128,7 +142,8 @@ func (s *Server) parseCreateCase(w http.ResponseWriter, r *http.Request) (*opCal
 		return nil, badRequest("priority", "not a priority of this case system")
 	}
 	in := store.CreateCaseInput{TenantID: b.TenantID, PrincipalID: b.PrincipalID, TransactionRef: b.TransactionRef,
-		ReasonCode: b.ReasonCode, OwnerQueue: b.OwnerQueue, Priority: b.Priority, IdempotencyKey: key}
+		ReasonCode: b.ReasonCode, OwnerQueue: b.OwnerQueue, Priority: b.Priority, IdempotencyKey: key,
+		CreatedByIntent: *b.CreatedByIntent, Epoch: *b.Epoch}
 	return &opCall{
 		attrs:  map[string]string{"tenant_id": in.TenantID, "principal_id": in.PrincipalID, "transaction_ref": in.TransactionRef, "idempotency_key": key},
 		tenant: in.TenantID, key: key,
