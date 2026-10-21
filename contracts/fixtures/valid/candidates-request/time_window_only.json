@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "principal_ref": "usr_88213",
+  "resource_kind": "fin.transaction",
+  "filters": {
+    "time_window": {
+      "from": "2026-10-01T07:00:00Z",
+      "to": "2026-10-01T11:00:00Z"
+    }
+  }
+}

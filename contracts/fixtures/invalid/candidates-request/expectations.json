@@ -1,0 +1,10 @@
+{
+  "missing_time_window.json": "required",
+  "extra_filter_field.json": "additionalProperties",
+  "extra_top_level_field.json": "additionalProperties",
+  "principal_wrong_prefix.json": "pattern",
+  "resource_kind_without_vertical.json": "pattern",
+  "amount_range_float.json": "type",
+  "counterparty_surface_too_long.json": "maxLength",
+  "counterparty_surface_empty.json": "minLength"
+}

@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/candidates-request.v1.json",
+  "title": "Candidate read request",
+  "description": "PERD REQ-CTX-006 and REQ-AMB-002: POST /internal/v1/evidence/candidates, sent by the model service to core. Inputs are exactly {principal_ref, tenant_id, resource_kind, filters{amount_range?, time_window, counterparty_surface?}}. The query is scoped by principal at the repository layer, so a row the principal does not own is never a candidate. The time window is the TimeRef window already widened by the pack tolerance, and the amount range is exact or +-1% when the amount is uncertain (REQ-AMB-002); both are computed by the caller, not here. counterparty_surface is untrusted customer text (REQ-CTX-007): a bounded string, never an instruction. Its length cap (64) is an agent default raised as an open decision, not a SoT or PERD value.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "principal_ref": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
+    },
+    "resource_kind": {
+      "description": "<vertical>.<kind> of the resource to read, from the pack (for example fin.transaction).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$"
+    },
+    "filters": {
+      "type": "object",
+      "properties": {
+        "amount_range": {
+          "$ref": "#/$defs/AmountRange"
+        },
+        "time_window": {
+          "description": "Inclusive window on occurred_at; from must not be after to (checked by the reader).",
+          "type": "object",
+          "properties": {
+            "from": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+            },
+            "to": {
+              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+            }
+          },
+          "required": [
+            "from",
+            "to"
+          ],
+          "additionalProperties": false
+        },
+        "counterparty_surface": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "time_window"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "principal_ref",
+    "resource_kind",
+    "filters"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "AmountRange": {
+      "description": "Inclusive bounds in minor units; min_minor must not exceed max_minor (checked by the reader; JSON Schema cannot compare two fields).",
+      "type": "object",
+      "properties": {
+        "min_minor": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/MinorAmount"
+        },
+        "max_minor": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/MinorAmount"
+        },
+        "currency": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/CurrencyCode"
+        }
+      },
+      "required": [
+        "min_minor",
+        "max_minor",
+        "currency"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
