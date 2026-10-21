@@ -382,3 +382,78 @@ def test_property_an_output_is_accepted_only_if_it_is_exactly_the_schema(raw: st
     assert set(parsed) == {"surface", "confidence"} and isinstance(parsed["surface"], str)
     assert isinstance(parsed["confidence"], (int, float)) and not isinstance(parsed["confidence"], bool)
     assert result.value.surface == parsed["surface"]
+
+
+# --- cost exposed on every call record (REQ-NFR-007) ------------------------------------------------------------------------
+
+def two_rate_harness(steps: dict[str, list[Any]], *, beta_currency: str = "USD", beta_rate: bool = True) -> Harness:
+    raw = raw_config(providers=tuple(steps))
+    raw["providers"]["alpha"]["rate"] = {"input_micro_per_mtok": 1_500_000, "output_micro_per_mtok": 7_000_000, "currency": "USD", "as_of": "2026-10-01"}
+    if beta_rate:
+        raw["providers"]["beta"]["rate"] = {"input_micro_per_mtok": 400_000, "output_micro_per_mtok": 2_000_000, "currency": beta_currency, "as_of": "2026-10-15"}
+    else:
+        raw["providers"]["beta"].pop("rate")
+    providers = {n: ScriptedProvider(n, s) for n, s in steps.items()}
+    return Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry())
+
+
+def test_every_attempt_carries_its_tokens_its_price_and_its_cost() -> None:
+    h = two_rate_harness({"alpha": [reply(None, version=version("alpha"), raw="{}", tokens=(10, 4))], "beta": [good("beta", tokens=(1000, 500))]})
+    call = run(h.generate(request())).call
+    first, second = call.attempts
+    assert (first.tokens_in, first.tokens_out, first.rate.input_micro_per_mtok, first.cost_micro) == (10, 4, 1_500_000, 15 + 28)  # type: ignore[union-attr]
+    assert (second.tokens_in, second.tokens_out, second.rate.as_of, second.cost_micro) == (1000, 500, "2026-10-15", 400 + 1000)  # type: ignore[union-attr]
+    assert call.cost_micro == first.cost_micro + second.cost_micro == 15 + 28 + 400 + 1000  # type: ignore[operator]
+    assert (call.tokens_in, call.tokens_out, call.cost_currency, call.cost_complete) == (1010, 504, "USD", True)
+
+
+def test_the_call_record_as_data_is_complete_json_safe_and_exact() -> None:
+    h = two_rate_harness({"alpha": [timeout_error()], "beta": [good("beta", tokens=(1000, 500))]})
+    data = run(h.generate(request())).call.to_dict()
+    assert json.loads(json.dumps(data)) == data
+    assert data["cost"] == {"total_micro": 1400, "currency": "USD", "rate_as_of": "2026-10-15", "complete": False}
+    assert (data["tokens_in"], data["tokens_out"], data["provider"], data["model_version"]) == (1000, 500, "beta", version("beta"))
+    assert data["template"] == {"id": "test.slots", "version": 3, "digest": TEMPLATE.digest}
+    timed_out, answered = data["attempts"]
+    assert timed_out["outcome"] == "TIMEOUT" and timed_out["cost_micro"] is None and timed_out["tokens_in"] is None
+    assert timed_out["price"] == {"input_micro_per_mtok": 1_500_000, "output_micro_per_mtok": 7_000_000, "currency": "USD", "as_of": "2026-10-01"}
+    assert answered["price"]["input_micro_per_mtok"] == 400_000 and answered["cost_micro"] == 1400
+
+    def no_floats(node: Any) -> None:
+        assert not isinstance(node, float)
+        for child in (node.values() if isinstance(node, dict) else node if isinstance(node, list) else ()):
+            no_floats(child)
+
+    no_floats(data)
+
+
+def test_the_record_as_data_holds_no_prompt_text_credential_or_reasoning() -> None:
+    h = two_rate_harness({"alpha": [good("alpha")], "beta": [good("beta")]})
+    text = json.dumps(run(h.generate(request({"utterance": "I sent 20k to Tunde"}))).call.to_dict())
+    assert "Tunde" not in text and "test-credential-do-not-use" not in text and "INSTRUCTION" not in text
+
+
+def test_a_skipped_provider_costs_nothing_and_an_unpriced_one_has_no_price() -> None:
+    h = two_rate_harness({"alpha": [timeout_error()], "beta": [good("beta")]}, beta_rate=False)
+    first = run(h.generate(request())).call
+    h2 = two_rate_harness({"alpha": [timeout_error()], "beta": [good("beta")]}, beta_rate=False)
+    h2._breakers["alpha"].failure_threshold = 1
+    run(h2.generate(request()))
+    skipped = run(h2.generate(request())).call.attempts[0]
+    assert (skipped.outcome, skipped.cost_micro, skipped.rate) == (AttemptOutcome.BREAKER_OPEN, 0, None)
+    answered = first.attempts[1]
+    assert answered.rate is None and answered.cost_micro is None and first.cost_micro is None and first.cost_complete is False
+    assert first.to_dict()["attempts"][1]["price"] is None
+
+
+def test_two_currencies_are_never_added() -> None:
+    h = two_rate_harness({"alpha": [reply(None, version=version("alpha"), raw="{}")], "beta": [good("beta")]}, beta_currency="EUR")
+    call = run(h.generate(request())).call
+    assert call.cost_micro is None and call.cost_currency is None and call.cost_complete is False
+    assert all(a.cost_micro is not None for a in call.attempts)  # each attempt is still priced in its own currency
+
+
+def test_a_rejected_call_still_reports_what_it_cost() -> None:
+    h = two_rate_harness({"alpha": [reply(None, version=version("alpha"), raw="{}", tokens=(10, 4))], "beta": [reply(None, version=version("beta"), raw="[]", tokens=(10, 4))]})
+    rejected = rejection(h, request())
+    assert rejected.call is not None and rejected.call.cost_micro == (15 + 28) + (4 + 8) and rejected.call.to_dict()["cost"]["total_micro"] == 55

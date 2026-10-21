@@ -352,3 +352,13 @@ def test_a_rejected_turn_still_accounts_for_every_call_that_was_made() -> None:
         "decide.intent_node_classification", "decide.enumerated_slot", "decide.ambiguity_flag", "decide.locale_detection",
         "decide.instruction_likeness", "slot_values",
     ])
+
+
+def test_every_call_in_a_pipeline_result_exposes_tokens_and_cost_for_the_runner() -> None:
+    result, _ = go(g_a_model(), FakeSource((candidate("a"),)))
+    assert len(result.calls) == 7
+    for call in result.calls:
+        data = call.to_dict()
+        assert data["tokens_in"] == 50 and data["tokens_out"] == 10 and data["cost"]["complete"] is True
+        assert data["cost"]["total_micro"] == sum(a["cost_micro"] for a in data["attempts"]) > 0
+    assert sum(c.to_dict()["cost"]["total_micro"] for c in result.calls) == sum(c.cost_micro or 0 for c in result.calls)

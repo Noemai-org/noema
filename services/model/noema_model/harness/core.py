@@ -27,6 +27,7 @@ from noema_model.harness.accounting import (
     AttemptRecord,
     CallRecord,
     RateCard,
+    attempt_cost,
     cost_of,
 )
 from noema_model.harness.breaker import Breaker, BreakerState
@@ -318,7 +319,7 @@ class Harness:
                 started = self._clock.monotonic_ms()
                 if not breaker.allow(started):
                     attempts.append(
-                        AttemptRecord(name, cfg.model_version, None, AttemptOutcome.BREAKER_OPEN, 0, None, None)
+                        AttemptRecord(name, cfg.model_version, None, AttemptOutcome.BREAKER_OPEN, 0, None, None, None, 0)
                     )
                     continue
                 provider_request = ProviderRequest(
@@ -359,13 +360,14 @@ class Harness:
                         value, outcome = self._judge(response, output_type, finalize)
                     attempt_span.set_attribute("outcome", outcome.value)
                 latency = max(0, self._clock.monotonic_ms() - started)
+                tokens_in = response.tokens_in if response is not None else None
+                tokens_out = response.tokens_out if response is not None else None
+                rate = self._rates.get(name)
                 attempts.append(
                     AttemptRecord(
                         name, cfg.model_version,
                         response.model_version_reported if response is not None else None,
-                        outcome, latency,
-                        response.tokens_in if response is not None else None,
-                        response.tokens_out if response is not None else None,
+                        outcome, latency, tokens_in, tokens_out, rate, attempt_cost(tokens_in, tokens_out, rate),
                     )
                 )
                 if outcome is AttemptOutcome.OK:
@@ -408,7 +410,7 @@ class Harness:
         provider: str | None,
     ) -> CallRecord:
         frozen = tuple(attempts)
-        cost, currency, as_of, complete = cost_of(frozen, self._rates)
+        cost, currency, as_of, complete = cost_of(frozen)
         chosen = next((a for a in reversed(frozen) if a.provider == provider), None) if provider else None
         return CallRecord(
             route=route,

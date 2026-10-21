@@ -17,7 +17,7 @@
 | A choice question without `none_or_other` is refused before any call; a task outside the six is refused | `decide_types.py`, `core.decide` | `test_harness_decide.py` |
 | A probability is information. The harness holds no threshold and never turns one into a decision | `decide_types.py` | `test_harness_decide.py` |
 | Vendor reasoning output is dropped inside the adapter, so it cannot reach a record or a log | `providers/llm/*` | `test_providers_contract.py` |
-| Cost comes only from a dated rate card, rounded up; with no rate or no token counts it says so | `accounting.cost_of` | `test_harness_call.py` |
+| Cost comes only from a dated rate card, rounded up; with no rate or no token counts it says so. Every attempt carries its tokens, its price (the rate card used, with its date) and its cost; the call carries the totals. `CallRecord.to_dict()` is the JSON-safe form the Record and the benchmark runner read | `accounting.attempt_cost`, `cost_of`, `CallRecord.to_dict` | `test_harness_call.py`, `test_pipeline.py` |
 | An output type must forbid extras, be strict and list every property as required | `core._schema_for` | `test_harness_call.py` |
 
 ## Configuration
