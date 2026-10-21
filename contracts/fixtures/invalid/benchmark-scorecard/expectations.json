@@ -5,7 +5,7 @@
   "rate_without_interval.json": "required",
   "rate_above_one.json": "maximum",
   "human_minutes_invented.json": "type",
-  "unknown_family.json": "propertyNames",
+  "unknown_family.json": "pattern",
   "extra_top_level.json": "additionalProperties",
   "missing_severity_class.json": "required",
   "failure_with_unknown_severity.json": "enum",

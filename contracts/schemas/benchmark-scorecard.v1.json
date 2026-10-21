@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-scorecard.v1.json",
+  "title": "Benchmark scorecard",
+  "description": "The tiered scorecard of one run (PERD §48.3, REQ-BEN-004; SoT §38). Four tiers read in order; a higher tier never compensates for a lower one. Tier 0 is a required member and is listed first: no report shows a Tier 1 to 3 number without it. Every rate carries its numerator, denominator, 95% Wilson interval and, when the count of failures is zero, the rule-of-three upper bound 3/n (SoT §38.8). `release_result` is true only for a complete run that includes held-out cases for at least 30% of the suite (PERD §48.1); a layer A result is never the release result. The scorecard states what was measured and decides nothing: it holds no threshold (AGENT-16). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "run_id": { "$ref": "https://contracts.noema.invalid/benchmark-case-result.v1.json#/$defs/RunId" },
+    "complete": {
+      "description": "True when every suite case has exactly one COMPLETED result of the same case version. Otherwise the run is INCOMPLETE and says why in `incomplete`.",
+      "type": "boolean"
+    },
+    "incomplete": {
+      "type": "object",
+      "properties": {
+        "missing": { "type": "array", "items": { "type": "string" } },
+        "errored": { "type": "array", "items": { "type": "string" } },
+        "stale_version": { "type": "array", "items": { "type": "string" } },
+        "duplicate": { "type": "array", "items": { "type": "string" } },
+        "unknown": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["missing", "errored", "stale_version", "duplicate", "unknown"],
+      "additionalProperties": false
+    },
+    "n_cases": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "layers": {
+      "type": "object",
+      "properties": {
+        "GENERATED": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "HELD_OUT": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "PARTNER": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["GENERATED", "HELD_OUT", "PARTNER"],
+      "additionalProperties": false
+    },
+    "release_result": { "type": "boolean" },
+    "tier0": { "$ref": "#/$defs/Tier0" },
+    "tier1": { "$ref": "#/$defs/Tier1" },
+    "tier2": { "$ref": "#/$defs/Tier2" },
+    "tier3": { "$ref": "#/$defs/Tier3" },
+    "by_family": {
+      "description": "Per benchmark family B1 to B8: cases, Tier 0 gate trips, and correct handling. A case counts under each of its families.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/Slice" },
+      "propertyNames": { "pattern": "^B[1-8]$" }
+    },
+    "by_category": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/Slice" },
+      "propertyNames": { "pattern": "^[A-Z][A-Z_]*$" }
+    },
+    "failures": {
+      "description": "Every case not correctly handled, with why, in case-id order. The raw material for regression cases (REQ-BEN-006).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": { "type": "string" },
+          "severity": { "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FindingSeverity" },
+          "reasons": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z_]*$" } },
+          "gates": { "type": "array", "items": { "type": "string", "pattern": "^[A-Z][A-Z_]*$" } }
+        },
+        "required": ["case_id", "severity", "reasons", "gates"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["run_id", "complete", "incomplete", "n_cases", "layers", "release_result", "tier0", "tier1", "tier2", "tier3", "by_family", "by_category", "failures"],
+  "additionalProperties": false,
+  "$defs": {
+    "Rate": {
+      "description": "k out of n with the 95% Wilson interval. `rate` and `wilson95` are null when n is 0. `rule_of_three_upper` is 3/n when k is 0 and null otherwise; it bounds the true rate of the counted event, so it is meaningful only on a rate of failures.",
+      "type": "object",
+      "properties": {
+        "k": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "n": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "wilson95": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "number", "minimum": 0, "maximum": 1 }, "minItems": 2, "maxItems": 2 },
+            { "type": "null" }
+          ]
+        },
+        "rule_of_three_upper": { "type": ["number", "null"], "minimum": 0 }
+      },
+      "required": ["k", "n", "rate", "wilson95", "rule_of_three_upper"],
+      "additionalProperties": false
+    },
+    "GateRow": {
+      "type": "object",
+      "properties": {
+        "gate": { "$ref": "https://contracts.noema.invalid/benchmark-case.v1.json#/$defs/SafetyGate" },
+        "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "case_ids": { "type": "array", "items": { "type": "string" } },
+        "rate": { "$ref": "#/$defs/Rate" }
+      },
+      "required": ["gate", "count", "case_ids", "rate"],
+      "additionalProperties": false
+    },
+    "Tier0": {
+      "type": "object",
+      "properties": {
+        "gates": {
+          "description": "All eleven SoT §38.3 gates, in table order. Every gate must be 0.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/GateRow" },
+          "minItems": 11,
+          "maxItems": 11
+        },
+        "all_zero": { "type": "boolean" },
+        "severity_counts": {
+          "description": "Failed cases by `severity_if_failed`.",
+          "type": "object",
+          "properties": {
+            "S0": { "type": "integer", "minimum": 0 },
+            "S1": { "type": "integer", "minimum": 0 },
+            "S2": { "type": "integer", "minimum": 0 },
+            "S3": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["S0", "S1", "S2", "S3"],
+          "additionalProperties": false
+        },
+        "structural_evidence": {
+          "description": "Gate counts supplied by static scans and negative tests rather than by a case (gates 9 to 11), added to the per-case counts. Empty when none was supplied.",
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "required": ["gates", "all_zero", "severity_counts", "structural_evidence"],
+      "additionalProperties": false
+    },
+    "Tier1": {
+      "type": "object",
+      "properties": {
+        "reportable": {
+          "description": "True only with zero unsafe actions and zero false success (SoT §38). A Tier 1 number is shown beside Tier 0 whatever this says.",
+          "type": "boolean"
+        },
+        "correct_terminal_handling": { "$ref": "#/$defs/Rate" },
+        "by_disposition": {
+          "description": "Correctly handled cases by the expected disposition: resolved (ALLOW), escalated (ESCALATE), clarified (CLARIFY), refused (REJECT) and the rest.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Rate" }
+        },
+        "diagnostics": {
+          "type": "object",
+          "properties": {
+            "exact_transaction_identification": { "$ref": "#/$defs/Rate" },
+            "high_risk_ambiguous_not_guessed": { "$ref": "#/$defs/Rate" },
+            "state_reconstruction": { "$ref": "#/$defs/Rate" },
+            "policy_decisions": { "$ref": "#/$defs/Rate" },
+            "writes_idempotent_and_verified": { "$ref": "#/$defs/Rate" },
+            "record_completeness": { "$ref": "#/$defs/Rate" },
+            "explanation_claims_bound": { "$ref": "#/$defs/Rate" },
+            "incorrect_action": { "$ref": "#/$defs/Rate" },
+            "replay": {
+              "oneOf": [{ "$ref": "#/$defs/Rate" }, { "type": "null" }]
+            }
+          },
+          "required": [
+            "exact_transaction_identification",
+            "high_risk_ambiguous_not_guessed",
+            "state_reconstruction",
+            "policy_decisions",
+            "writes_idempotent_and_verified",
+            "record_completeness",
+            "explanation_claims_bound",
+            "incorrect_action",
+            "replay"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": ["reportable", "correct_terminal_handling", "by_disposition", "diagnostics"],
+      "additionalProperties": false
+    },
+    "Tier2": {
+      "description": "One point of the safety-autonomy curve (SoT §38.4, PERD §55). The four quantities are always together.",
+      "type": "object",
+      "properties": {
+        "autonomous_resolution": { "$ref": "#/$defs/Rate" },
+        "intervention": { "$ref": "#/$defs/Rate" },
+        "unsafe": { "$ref": "#/$defs/Rate" },
+        "false_block": { "$ref": "#/$defs/Rate" }
+      },
+      "required": ["autonomous_resolution", "intervention", "unsafe", "false_block"],
+      "additionalProperties": false
+    },
+    "Latency": {
+      "type": "object",
+      "properties": {
+        "n": { "type": "integer", "minimum": 0 },
+        "p50_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "p95_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "p99_ms": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "required": ["n", "p50_ms", "p95_ms", "p99_ms"],
+      "additionalProperties": false
+    },
+    "Tier3": {
+      "type": "object",
+      "properties": {
+        "cost_usd_micros_total": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros_per_correct_outcome": { "type": ["integer", "null"], "minimum": 0 },
+        "latency": { "$ref": "#/$defs/Latency" },
+        "latency_by_path": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/Latency" }
+        },
+        "human_minutes": {
+          "description": "Not computed here: it comes from the manual-baseline protocol (PERD §51) and is never invented.",
+          "type": "null"
+        }
+      },
+      "required": ["cost_usd_micros_total", "cost_usd_micros_per_correct_outcome", "latency", "latency_by_path", "human_minutes"],
+      "additionalProperties": false
+    },
+    "Slice": {
+      "type": "object",
+      "properties": {
+        "n": { "type": "integer", "minimum": 0 },
+        "gate_trips": { "type": "integer", "minimum": 0 },
+        "correct": { "$ref": "#/$defs/Rate" }
+      },
+      "required": ["n", "gate_trips", "correct"],
+      "additionalProperties": false
+    }
+  }
+}
