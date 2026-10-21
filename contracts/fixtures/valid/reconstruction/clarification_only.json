@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "chain": {
+    "verified": true,
+    "head_event_id": "recev_1001",
+    "head_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002"
+  },
+  "events": [
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1001",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "written_by": "TRUST",
+      "event_type": "CLARIFICATION_REQUESTED",
+      "object_ref": "clr_3B",
+      "at": "2026-10-01T09:47:55Z"
+    }
+  ],
+  "sections": [
+    {
+      "kind": "WHO",
+      "items": []
+    },
+    {
+      "kind": "REQUEST",
+      "items": []
+    },
+    {
+      "kind": "AMBIGUITY",
+      "items": [
+        {
+          "record_event_id": "recev_1001",
+          "object_ref": "clr_3B",
+          "basis": "RULE",
+          "facts": {
+            "clarification_asked": true
+          }
+        }
+      ]
+    },
+    {
+      "kind": "RESOLUTION",
+      "items": []
+    },
+    {
+      "kind": "OBSERVED_STATE",
+      "items": []
+    },
+    {
+      "kind": "POLICY",
+      "items": []
+    },
+    {
+      "kind": "AUTHORITY",
+      "items": []
+    },
+    {
+      "kind": "DECISION",
+      "items": []
+    },
+    {
+      "kind": "ACTION",
+      "items": []
+    },
+    {
+      "kind": "DOWNSTREAM_RESULT",
+      "items": []
+    },
+    {
+      "kind": "VERIFICATION",
+      "items": []
+    },
+    {
+      "kind": "EXPLANATION",
+      "items": []
+    }
+  ],
+  "timeline": [
+    {
+      "record_event_id": "recev_1001",
+      "at": "2026-10-01T09:47:55Z",
+      "event_type": "CLARIFICATION_REQUESTED",
+      "text": "Clarification asked"
+    }
+  ]
+}

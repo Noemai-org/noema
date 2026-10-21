@@ -70,6 +70,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `outcome-verdict.v1.json` | §43.4 | §29 | REQ-VER-001, REQ-VER-003, REQ-VER-004 | `ACHIEVED` needs a true predicate and at least one read; a watch exists exactly on `PENDING_EXTERNAL` |
 | `outcome-updated.v1.json` | §43.4a | §29 (REQ-VER-005) | REQ-VER-005, REQ-API-006 | The PERD table plus `schema_version`; summary masked |
 | `recovery-request.v1.json` | §43.4 | §29 (REQ-VER-003) | REQ-VER-003, REQ-RCV-001 | Addressed to Trust only; exactly one of `verdict_id` (a verdict) or `grant_id` (a voided grant) (DEC-2026-10-18) |
+| `reconstruction.v1.json` | §43.6, US-12 | §32 (REQ-AUD-003) | REQ-AUD-003, REQ-AUD-001, INV-10 | Body of `GET /v1/reconstructions/{correlation_id}`: twelve ordered sections, every item cites a Record event and one of three bases; field names are a smallest safe default (the PERD gives none); the benchmark runner reads the named fact keys |
 
 ## C-6 · Evidence, snapshot, Record, explanation facts, inbound events, errors
 
