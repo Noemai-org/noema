@@ -1,0 +1,28 @@
+# The evil provider (T4 item 9; PERD §49 ADV-08). Included by docker-compose.yml. bench profile only.
+# An OpenAI-compatible test double on provider_egress that returns adversarial outputs. The model service reaches it through
+# ordinary harness configuration (a base URL); no product image holds its code. Nothing mounts benchmark-heldout (INV-22).
+# It needs no secret: it ignores credentials and returns the same bytes for the same request and seed.
+services:
+  evil-provider:
+    image: noema-evil-provider:dev
+    build:
+      context: ../../../benchmark/evil_provider
+    profiles: [bench]
+    networks: [provider_egress]
+    environment:
+      NOEMA_PROFILE: bench
+      EVIL_PROVIDER_ADDR: "0.0.0.0:8090"
+      EVIL_PROVIDER_MODE: all
+      EVIL_PROVIDER_SEED: "1"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=2).status == 200 else 1)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+# Must match docker-compose.yml exactly (Compose merges identical declarations and fails loudly on a difference).
+networks:
+  provider_egress: {}

@@ -1,0 +1,17 @@
+{
+  "not_synthetic.json": "const",
+  "bad_fixture_id.json": "pattern",
+  "no_principals.json": "minItems",
+  "amount_as_float.json": "type",
+  "negative_amount.json": "minimum",
+  "unknown_ledger_state.json": "enum",
+  "unknown_switch_state.json": "enum",
+  "missing_settlement.json": "required",
+  "five_digit_last4.json": "pattern",
+  "beneficiary_id_shape.json": "pattern",
+  "unowned_principal_shape.json": "pattern",
+  "currency_lowercase.json": "pattern",
+  "extra_field.json": "additionalProperties",
+  "unknown_string_field.json": "enum",
+  "bad_resource_ref.json": "pattern"
+}

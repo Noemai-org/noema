@@ -1,0 +1,8 @@
+{
+  "missing_correct_target.json": "required",
+  "bad_ref.json": "oneOf",
+  "lower_case_state.json": "pattern",
+  "extra_field.json": "additionalProperties",
+  "eligibility_as_string.json": "type",
+  "duplicate_unowned.json": "uniqueItems"
+}

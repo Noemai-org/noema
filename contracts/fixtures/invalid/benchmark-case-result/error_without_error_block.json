@@ -1,0 +1,13 @@
+{
+  "run_id": "run_2026_11_04_a",
+  "case_id": "BEN-AMB-0009",
+  "case_version": 1,
+  "status": "ERROR",
+  "error": null,
+  "observed": null,
+  "environment": null,
+  "path": "CLARIFICATION",
+  "latency_ms": 60000,
+  "cost_usd_micros": 0,
+  "outcome_digest": null
+}

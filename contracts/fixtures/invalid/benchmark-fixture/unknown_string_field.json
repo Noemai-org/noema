@@ -1,0 +1,52 @@
+{
+  "fixture_id": "fx_inj_narration_0003",
+  "synthetic": true,
+  "principals": [
+    {
+      "principal_id": "usr_synth002",
+      "roles": [
+        "customer"
+      ],
+      "display_name": "Bola"
+    }
+  ],
+  "beneficiaries": [
+    {
+      "beneficiary_id": "ben_0001",
+      "owner": "usr_synth002",
+      "name": "Chidi Okafor",
+      "aliases": [],
+      "account_last4": "1204"
+    }
+  ],
+  "transactions": [
+    {
+      "ref": "fin.transaction:TX4001",
+      "owner": "usr_synth002",
+      "beneficiary": "ben_0001",
+      "direction": "OUTGOING",
+      "amount_minor": 500000,
+      "currency": "NGN",
+      "age_minutes": 40,
+      "ledger": "POSTED",
+      "switch": "TIMED_OUT",
+      "destination": "PENDING",
+      "settlement": "PENDING"
+    }
+  ],
+  "cases": [
+    {
+      "ref": "fin.case:CS9001",
+      "transaction": "fin.transaction:TX4001",
+      "status": "OPEN",
+      "owner_queue": "SYNTH_QUEUE_L1"
+    }
+  ],
+  "enterprise_strings": [
+    {
+      "target": "fin.transaction:TX4001",
+      "field": "password",
+      "text": "x"
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+# mock-case: the synthetic case system (ENV-08; REQ-ENV-008; PERD §65.1). Included by ../docker-compose.yml.
+# A test-environment component, not a Noema deployable (DEC-2026-10-16 E5). Everything here is SYNTHETIC.
+#
+# Networks: the case API is on tushe_net (the core's case adapter); the truth and control API listens only on the
+# bench_net address (synthetic/mock_case/internal/listen); its database is on bench_net only. Both networks are
+# declared in the main file; they are repeated here, identically, because an included file is read on its own.
+#
+# Credentials are generated into named volumes by the one-shot `mock-case-credentials` step, never written into the
+# repository: the core's case adapter will mount only the runtime volume, the benchmark runner only the bench volume.
+#
+# Profiles: not in `dev` yet (the core's case adapter does not exist), so `make up` is unchanged. `netcheck` lets the
+# connection-test matrix start it. Add `dev` here when the adapter lands.
+networks:
+  tushe_net:
+    internal: true
+  bench_net:
+    internal: true
+
+volumes:
+  mock_case_runtime_credential: {}
+  mock_case_bench_credential: {}
+  mock_case_db_credentials: {}
+  mock_case_db_data: {}
+
+services:
+  mock-case-credentials:
+    image: noema-mock-case:dev
+    build:
+      context: ../../../synthetic/mock_case
+    profiles: [ci, bench, demo, netcheck]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    command:
+      - init-credentials
+      - -file=/creds/runtime/token
+      - -file=/creds/bench/token
+      - -file=/creds/db/app_password
+      - -file=/creds/db/admin_password
+      - -file=/creds/db/superuser_password
+    volumes:
+      - mock_case_runtime_credential:/creds/runtime
+      - mock_case_bench_credential:/creds/bench
+      - mock_case_db_credentials:/creds/db
+
+  mock-case-db:
+    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    profiles: [ci, bench, demo, netcheck]
+    networks: [bench_net]
+    depends_on:
+      mock-case-credentials:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/mock-case-db/superuser_password
+    volumes:
+      - mock_case_db_credentials:/run/mock-case-db:ro
+      - mock_case_db_data:/var/lib/postgresql/data
+      - ./mock-case/db-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mock_case"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mock-case:
+    image: noema-mock-case:dev
+    build:
+      context: ../../../synthetic/mock_case
+    profiles: [ci, bench, demo, netcheck]
+    networks: [tushe_net, bench_net]
+    depends_on:
+      mock-case-db:
+        condition: service_healthy
+    environment:
+      MOCK_CASE_LISTEN: ":8090"
+      # The truth and control listener binds to the one local address that shares a subnet with mock-case-db,
+      # which is on bench_net only. If that address cannot be found, mock-case does not start.
+      MOCK_CASE_BENCH_BIND_VIA: mock-case-db
+      MOCK_CASE_BENCH_PORT: "8091"
+      MOCK_CASE_DB_HOST: mock-case-db
+      MOCK_CASE_DB_APP_PASSWORD_FILE: /run/mock-case/db/app_password
+      MOCK_CASE_DB_ADMIN_PASSWORD_FILE: /run/mock-case/db/admin_password
+      MOCK_CASE_RUNTIME_TOKEN_FILE: /run/mock-case/runtime/token
+      MOCK_CASE_BENCH_TOKEN_FILE: /run/mock-case/bench/token
+    volumes:
+      - mock_case_runtime_credential:/run/mock-case/runtime:ro
+      - mock_case_bench_credential:/run/mock-case/bench:ro
+      - mock_case_db_credentials:/run/mock-case/db:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mock-case", "-healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Fixture of the connection-test matrix: a caller on bench_net that holds both credentials, so the matrix can
+  # prove the truth endpoint is alive for the bench credential and refuses every runtime identity.
+  probe-bench:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [netcheck]
+    networks: [bench_net]
+    volumes:
+      - ../netcheck/mock_case_probe.py:/mock_case_probe.py:ro
+      - mock_case_runtime_credential:/creds/runtime:ro
+      - mock_case_bench_credential:/creds/bench:ro

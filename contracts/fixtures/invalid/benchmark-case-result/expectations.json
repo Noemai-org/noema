@@ -1,0 +1,20 @@
+{
+  "completed_without_observed.json": "type",
+  "completed_with_error.json": "type",
+  "error_with_observed.json": "type",
+  "error_without_error_block.json": "type",
+  "unknown_grant_state.json": "enum",
+  "claim_without_binding.json": "required",
+  "claim_binding_not_a_status.json": "oneOf",
+  "unknown_disposition.json": "enum",
+  "unknown_audit_event.json": "enum",
+  "effect_count_zero.json": "minimum",
+  "negative_latency.json": "minimum",
+  "cost_as_float.json": "type",
+  "bad_outcome_digest.json": "oneOf",
+  "extra_field.json": "additionalProperties",
+  "missing_environment_field.json": "required",
+  "bad_run_id.json": "pattern",
+  "duplicate_audit_event.json": "uniqueItems",
+  "negative_governance_count.json": "minimum"
+}

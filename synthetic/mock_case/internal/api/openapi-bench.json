@@ -1,0 +1,274 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "mock-case: truth and control API (bench_net only)",
+    "version": "1.0.0",
+    "description": "SYNTHETIC. Served on the bench listener, which is bound to bench_net and opens only for the bench credential. Every runtime identity is refused (REQ-ENV-002). Not part of the case API description."
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/bench/v1/openapi.json": {
+      "get": {
+        "operationId": "describeBenchApi",
+        "summary": "This description",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 document"
+          }
+        }
+      }
+    },
+    "/truth/v1/state": {
+      "get": {
+        "operationId": "truthState",
+        "summary": "Every case, complaint and attachment, and the counters, as one consistent snapshot",
+        "responses": {
+          "200": {
+            "description": "The authoritative state"
+          }
+        }
+      }
+    },
+    "/truth/v1/commands": {
+      "get": {
+        "operationId": "truthCommands",
+        "summary": "The command log: every command and every injected fault, with scenario, seed and fault-plan ID",
+        "parameters": [
+          {
+            "name": "after_seq",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "1 to 1000 (default 200)",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "faults_only",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Rows in order"
+          }
+        }
+      }
+    },
+    "/truth/v1/digest": {
+      "get": {
+        "operationId": "truthDigest",
+        "summary": "state_hash and fault_trace_hash, for comparing two replays in one call",
+        "responses": {
+          "200": {
+            "description": "Hashes"
+          }
+        }
+      }
+    },
+    "/control/v1/fault-plan": {
+      "put": {
+        "operationId": "putFaultPlan",
+        "summary": "Load a FaultPlan (PERD \u00a737.1, JSON); resets every fault counter; starts the simulated clock if the plan has a clock block",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Loaded"
+          },
+          "422": {
+            "description": "INVALID_FAULT_PLAN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getFaultPlan",
+        "summary": "The loaded plan, or fp_none",
+        "responses": {
+          "200": {
+            "description": "The plan"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFaultPlan",
+        "summary": "Unload the plan and return to the wall clock",
+        "responses": {
+          "200": {
+            "description": "fp_none"
+          }
+        }
+      }
+    },
+    "/control/v1/clock": {
+      "get": {
+        "operationId": "getClock",
+        "summary": "The clock; always labelled SYNTHETIC",
+        "responses": {
+          "200": {
+            "description": "The clock"
+          }
+        }
+      }
+    },
+    "/control/v1/clock/advance": {
+      "post": {
+        "operationId": "advanceClock",
+        "summary": "Advance the simulated clock by an ISO 8601 duration, or by a step of the loaded plan",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "by": {
+                    "type": "string"
+                  },
+                  "step": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "step"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The clock"
+          },
+          "404": {
+            "description": "UNKNOWN_STEP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CLOCK_NOT_SIMULATED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/control/v1/reset": {
+      "post": {
+        "operationId": "reset",
+        "summary": "Empty every table, restart numbering, unload the plan. Bench only.",
+        "responses": {
+          "200": {
+            "description": "Reset"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "correlation_id": {
+                "type": "string"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "issue": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "issue"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "retryable"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  }
+}
