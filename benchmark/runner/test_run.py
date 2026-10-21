@@ -74,7 +74,7 @@ class Rig:
         self.oracle = OracleClient(truth, refusal_log=RefusalLog(self.log) if self.with_log else None, governance=RecordGovernance("MODEL"),
                                    monetary=DeclaredAbsent("monetary_calls", "test run: no monetary route"))
         self.env = RunEnv(api=PublicApi(self.noema.url), control=MockCaseControl(self.stub.url, otd.BENCH_TOKEN), oracle=self.oracle, fixtures=self.loader,
-                          sessions=self.sessions, run_id="run1", admin_token=ADMIN_TOKEN, tenant_id="ten_synth", grant_ttl_seconds=None, settle_timeout_s=self.timeout_s,
+                          sessions=self.sessions, run_id="run1", admin_token=ADMIN_TOKEN, tenant_id="ten_synth", settle_timeout_s=self.timeout_s,
                           poll_s=0.0, sleep=lambda s: None)
         return self
 
@@ -116,7 +116,7 @@ class RunCase(unittest.TestCase):
             order = [(m, p) for m, p, _ in rig.stub.requests]
             self.assertLess(order.index(("PUT", "/control/v1/fault-plan")), order.index(("GET", "/truth/v1/state")), "the plan is loaded before the baseline")
             self.assertEqual(rig.stub.plan is not None, True)
-            self.assertEqual(rig.stub.plan["fault_plan_id"], lc.plan["plan_id"])  # type: ignore[index]
+            self.assertEqual(rig.stub.plan["fault_plan_id"], lc.plan["fault_plan_id"])  # type: ignore[index]
 
     def test_a_write_the_core_makes_is_read_from_the_oracle_not_from_the_response(self) -> None:
         lc = pick(lambda x: x.case["expected"]["disposition"] == "ESCALATE" and x.case["expected"]["writes_expected"] and x.plan is None and len(x.case["utterances"]) == 1
@@ -166,6 +166,14 @@ class RunCase(unittest.TestCase):
             self.assertEqual(rig.noema.requests, [])
         self.assertEqual(result["error"]["code"], "EVENT_KIND_UNSUPPORTED")
         self.assertIn("webhook", result["error"]["message"])
+
+    def test_a_fault_no_producer_has_is_an_error_naming_it(self) -> None:
+        lc = pick(lambda x: any(e["event"].startswith("needs_fault:") for e in x.case["events_timeline"]))
+        with Rig() as rig:
+            result = run_case(rig.env, lc)
+            self.assertEqual(rig.noema.requests, [])
+        self.assertEqual(result["error"]["code"], "EVENT_KIND_UNSUPPORTED")
+        self.assertIn("needs_fault:", result["error"]["message"])
 
     def test_no_fixture_loader_is_an_error(self) -> None:
         with Rig() as rig:

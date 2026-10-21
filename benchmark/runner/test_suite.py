@@ -83,6 +83,16 @@ class Load(unittest.TestCase):
         self.assertEqual([c for c, _ in suite.invalid], ["BEN-CLEAN-0002"])
         self.assertNotIn("BEN-CLEAN-0002", [lc.case["case_id"] for lc in suite.cases])
 
+    def test_a_fault_plan_that_fails_its_contract_excludes_the_case(self) -> None:
+        d = copy_suite()
+        plan = next((d / "fault_plans").glob("*.json"))
+        doc = json.loads(plan.read_text())
+        doc["source"] = "NOBODY"
+        plan.write_text(json.dumps(doc))
+        suite = load_suite(d)
+        self.assertEqual([c for c, _ in suite.invalid], [doc["scenario_id"]])
+        self.assertTrue(suite.invalid[0][1][0].startswith("fault plan"))
+
     def test_a_missing_fault_plan_file_is_refused(self) -> None:
         d = copy_suite()
         plan = next((d / "fault_plans").glob("*.json"))

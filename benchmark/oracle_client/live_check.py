@@ -159,7 +159,7 @@ def main() -> int:
         plans = rejected = 0
         for case_id_, case_doc in suite.cases.items():
             plan_file = suite.files.get(f"fault_plans/{case_doc['fault_plan']}.json")
-            split = split_plan(case_doc, json.loads(plan_file) if plan_file else None, grant_ttl_seconds=300)
+            split = split_plan(case_doc, json.loads(plan_file) if plan_file else None)
             if split.mock_case is None:
                 continue
             plans += 1
