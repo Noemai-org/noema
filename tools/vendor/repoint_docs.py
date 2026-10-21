@@ -7,6 +7,9 @@ This script rewrites all of them from one docs checkout, so the next person does
 
     python3 tools/vendor/repoint_docs.py --docs <path to a docs checkout at the commit to point at>
     python3 tools/vendor/repoint_docs.py --docs <path> --check     # report differences, change nothing
+    python3 tools/vendor/repoint_docs.py --docs <path> --check --ignore-commit
+        # as --check, but a copy that differs only in the docs commit named in its header is not a difference:
+        # the drift guard (.github/workflows/docs-drift.yml) uses this, so an unrelated docs commit is not drift
 
 The docs checkout must be clean and at the commit you want (normally origin/main). The copies are:
 
@@ -39,6 +42,7 @@ STATE_HEADING = "### 28.2 Investigation state machine"
 STATE_TARGET = "services/core/orchestrator/perd-28-2-state-machine.md"
 
 
+COMMIT = re.compile(r"docs commit [0-9a-f]{40}")
 CURRENT_ROW = re.compile(r"^\|\s*\[`(NOEMA_POC_PERD_v[0-9.]+\.md)`\]\(([^)]+)\)\s*\|.*\*\*Current\.\*\*")
 
 
@@ -115,8 +119,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--docs", required=True, type=Path, help="a clean docs checkout at the commit to point at")
     parser.add_argument("--check", action="store_true", help="report differences and change nothing")
+    parser.add_argument("--ignore-commit", action="store_true",
+                        help="with --check: ignore the docs commit named in each header (content drift only)")
     args = parser.parse_args()
     docs = args.docs.resolve()
+    if args.ignore_commit and not args.check:
+        print("--ignore-commit only makes sense with --check", file=sys.stderr)
+        return 2
     if git(docs, "status", "--porcelain"):
         print(f"{docs} has uncommitted changes; point at a clean checkout of a real commit", file=sys.stderr)
         return 2
@@ -124,9 +133,13 @@ def main() -> int:
     differing = []
     for target, text in expected(docs, commit).items():
         path = ROOT / target
-        if not path.exists() or path.read_text(encoding="utf-8") != text:
+        have = path.read_text(encoding="utf-8") if path.exists() else None
+        if args.ignore_commit:
+            have, text = (None if have is None else COMMIT.sub("docs commit <any>", have)), COMMIT.sub("docs commit <any>", text)
+        if have != text:
             differing.append(target)
             if not args.check:
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text, encoding="utf-8")
     verb = "differs from" if args.check else "re-pointed to"
     for target in differing:
