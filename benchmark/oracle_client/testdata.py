@@ -67,7 +67,7 @@ class StubBench:
                     self._send(403 if auth else 401, {"error": {"code": "FORBIDDEN" if auth else "UNAUTHENTICATED", "message": "no", "retryable": False}})
                     return
                 length = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(length)) if length else None
+                body: Json = json.loads(self.rfile.read(length)) if length else {}
                 if (method, path) == ("GET", "/truth/v1/state"):
                     self._send(200, outer.state)
                 elif (method, path) == ("GET", "/truth/v1/commands"):

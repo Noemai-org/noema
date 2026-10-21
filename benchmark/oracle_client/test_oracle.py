@@ -67,7 +67,7 @@ class Effects(unittest.TestCase):
         self.assertTrue(set(CAPABILITY_OF_OPERATION.values()) <= ids)
 
     def test_a_new_case_evidence_and_complaint_are_effects_on_the_transaction(self) -> None:
-        before = {"cases": [], "complaints": [], "evidence": []}
+        before: dict[str, list[dict[str, object]]] = {"cases": [], "complaints": [], "evidence": []}
         after = {"cases": [td.case()], "complaints": [td.complaint()], "evidence": [td.attachment()]}
         got = effects_since(before, after, [])
         self.assertEqual({(e["capability"], e["target"], e["count"]) for e in got},
