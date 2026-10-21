@@ -2,20 +2,22 @@
 import copy
 import random
 import unittest
+from typing import Any
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 
 from benchmark.contracts import Contracts
 from benchmark.scoring.judge import GATES
 from benchmark.scoring.scorecard import score
+from benchmark.testing import examples
 from benchmark.scoring.testdata import GATE_MUTATIONS, REGISTRY, clean_result, renumber, templates
 
 CONTRACTS = Contracts()
-SETTINGS = settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+SETTINGS = settings(max_examples=examples(60), deadline=None, suppress_health_check=[HealthCheck.too_slow])
 
 
 @st.composite
-def suites(draw):
+def suites(draw: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     """A clean suite of 1 to 9 cases built from the three templates, with distinct case ids."""
     kinds = draw(st.lists(st.integers(0, 2), min_size=1, max_size=9))
     cases, oracles, results = [], [], []
@@ -29,18 +31,18 @@ def suites(draw):
     return cases, oracles, results
 
 
-def card_of(cases, oracles, results, **kw):
+def card_of(cases: Any, oracles: Any, results: Any, **kw: Any) -> dict[str, Any]:
     return score(cases, oracles, results, REGISTRY, run_id="run_prop", **kw)
 
 
-def gate_count(card, gate):
-    return next(g["count"] for g in card["tier0"]["gates"] if g["gate"] == gate)
+def gate_count(card: dict[str, Any], gate: str) -> int:
+    return int(next(g["count"] for g in card["tier0"]["gates"] if g["gate"] == gate))
 
 
 class ScoringProperties(unittest.TestCase):
     @SETTINGS
     @given(suites())
-    def test_a_clean_suite_is_all_zero_and_all_correct(self, suite) -> None:
+    def test_a_clean_suite_is_all_zero_and_all_correct(self, suite: Any) -> None:
         card = card_of(*suite)
         self.assertTrue(card["tier0"]["all_zero"])
         self.assertTrue(card["tier1"]["reportable"])
@@ -50,7 +52,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites(), st.integers(0, 10**6))
-    def test_order_of_inputs_never_changes_the_score(self, suite, seed) -> None:
+    def test_order_of_inputs_never_changes_the_score(self, suite: Any, seed: Any) -> None:
         cases, oracles, results = suite
         shuffled = [list(x) for x in (cases, oracles, results)]
         rng = random.Random(seed)
@@ -60,7 +62,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites(), st.sampled_from(GATES), st.data())
-    def test_one_violation_adds_exactly_one_to_its_gate_and_lowers_no_other(self, suite, gate, data) -> None:
+    def test_one_violation_adds_exactly_one_to_its_gate_and_lowers_no_other(self, suite: Any, gate: Any, data: Any) -> None:
         cases, oracles, results = suite
         before = card_of(cases, oracles, results)
         index = data.draw(st.integers(0, len(results) - 1))
@@ -76,7 +78,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites(), st.lists(st.tuples(st.integers(0, 8), st.sampled_from(GATES)), max_size=6))
-    def test_tier_zero_is_never_compensated_by_tier_one(self, suite, violations) -> None:
+    def test_tier_zero_is_never_compensated_by_tier_one(self, suite: Any, violations: Any) -> None:
         cases, oracles, results = suite
         mutated = copy.deepcopy(results)
         for index, gate in violations:
@@ -88,7 +90,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites())
-    def test_every_scorecard_always_carries_all_eleven_gates_beside_every_tier(self, suite) -> None:
+    def test_every_scorecard_always_carries_all_eleven_gates_beside_every_tier(self, suite: Any) -> None:
         card = card_of(*suite)
         self.assertEqual([g["gate"] for g in card["tier0"]["gates"]], list(GATES))
         for tier in ("tier1", "tier2", "tier3"):
@@ -97,7 +99,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites(), st.data())
-    def test_dropping_a_result_never_raises_the_correct_count(self, suite, data) -> None:
+    def test_dropping_a_result_never_raises_the_correct_count(self, suite: Any, data: Any) -> None:
         cases, oracles, results = suite
         full = card_of(cases, oracles, results)
         drop = data.draw(st.integers(0, len(results) - 1))
@@ -108,7 +110,7 @@ class ScoringProperties(unittest.TestCase):
 
     @SETTINGS
     @given(suites())
-    def test_scoring_does_not_mutate_inputs_and_is_repeatable(self, suite) -> None:
+    def test_scoring_does_not_mutate_inputs_and_is_repeatable(self, suite: Any) -> None:
         before = copy.deepcopy(suite)
         first = card_of(*suite)
         self.assertEqual(suite, before)

@@ -10,8 +10,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
-from jsonschema.validators import extend
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]  # no stubs; adding types-jsonschema needs approval (AGENT-14)
+from jsonschema.validators import extend  # type: ignore[import-untyped]
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 

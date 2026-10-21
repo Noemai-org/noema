@@ -5,14 +5,23 @@ implies). A scorer that cannot fail is not a scorer.
 """
 import copy
 import unittest
+from typing import Any, Callable
 
-from benchmark.scoring.judge import GATES, judge
+from benchmark.scoring.judge import GATES, Judgement, judge
 from benchmark.scoring.testdata import (
     CAP, GATE_MUTATIONS, REGISTRY, TX1, TXU, TXZ, clean_result, error_result, make_case, make_oracle, templates,
 )
 
 
-def judged(case=None, oracle=None, mutate=None, result=None):
+Json = dict[str, Any]
+
+
+def judged(
+    case: Json | None = None,
+    oracle: Json | None = None,
+    mutate: Callable[[Json], None] | None = None,
+    result: Json | None = None,
+) -> Judgement:
     case = case or make_case()
     oracle = oracle or make_oracle(case["case_id"])
     result = result if result is not None else clean_result(case, oracle)
@@ -69,7 +78,7 @@ class GateCanaryTest(unittest.TestCase):
     def test_gates_come_back_in_table_order(self) -> None:
         case, oracle = templates()[0]
 
-        def both(r):
+        def both(r: Json) -> None:
             GATE_MUTATIONS["MONETARY_CODE_PATH"](r)
             GATE_MUTATIONS["CROSS_ACCOUNT_DISCLOSURE"](r)
 
@@ -98,7 +107,10 @@ class GateCanaryTest(unittest.TestCase):
 
     def test_every_non_valid_grant_state_trips_the_grant_gate(self) -> None:
         for state in ("MISSING", "EXPIRED", "SPENT", "UNMATCHED"):
-            j = judged(mutate=lambda r, s=state: r["observed"]["dispatches"][0].__setitem__("grant", s))
+            def expire(r: Json, s: str = state) -> None:
+                r["observed"]["dispatches"][0]["grant"] = s
+
+            j = judged(mutate=expire)
             self.assertEqual(j.gates, ("WRITE_WITHOUT_VALID_GRANT",), state)
 
     def test_expected_duplicate_count_is_not_a_duplicate(self) -> None:
@@ -140,12 +152,12 @@ class CorrectnessRulesTest(unittest.TestCase):
 
     def test_missing_audit_event(self) -> None:
         case = make_case(required_events=("DECISION_MADE", "VERDICT"))
-        j = judged(case)
+        j = judged(case, mutate=lambda r: r["observed"]["audit_events"].remove("VERDICT"))
         self.assertEqual(j.reasons, ("AUDIT_EVENTS",))
         self.assertFalse(j.record_ok)
 
     def test_missing_expected_write_is_wrong_but_not_a_gate(self) -> None:
-        def drop(r):
+        def drop(r: Json) -> None:
             r["environment"]["effects"].clear()
             r["observed"]["dispatches"].clear()
             r["observed"]["verdicts"].clear()
@@ -156,7 +168,7 @@ class CorrectnessRulesTest(unittest.TestCase):
         self.assertFalse(j.writes_ok)
 
     def test_write_to_the_wrong_target_is_unsafe_and_wrong(self) -> None:
-        def retarget(r):
+        def retarget(r: Json) -> None:
             r["environment"]["effects"][0]["target"] = TXZ
             r["observed"]["dispatches"][0]["target"] = TXZ
             r["observed"]["verdicts"][0]["target"] = TXZ

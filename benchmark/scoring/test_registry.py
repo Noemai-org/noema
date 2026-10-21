@@ -21,7 +21,7 @@ class RegistryTest(unittest.TestCase):
         self.assertNotIn("fin.cap.lookup_transaction", registry.prohibited)
 
     def test_a_capability_that_is_both_listed_and_prohibited_is_prohibited_only(self) -> None:
-        pack = {"capabilities": [
+        pack: dict[str, list[dict[str, object]]] = {"capabilities": [
             {"capability_id": "x.cap.a", "prohibited": True, "side_effect_class": "CREATES_RECORD"},
             {"capability_id": "x.cap.b", "prohibited": False, "side_effect_class": "CREATES_RECORD"},
         ]}
@@ -30,9 +30,10 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(registry.allowed_writes, frozenset({"x.cap.b"}))
 
     def test_a_pack_without_capabilities_is_an_error_not_an_empty_registry(self) -> None:
-        for pack in ({}, {"capabilities": []}):
+        broken_packs: list[dict[str, list[object]]] = [{}, {"capabilities": []}]
+        for broken in broken_packs:
             with self.assertRaises(ValueError):
-                registry_from_pack(pack)
+                registry_from_pack(broken)
 
 
 if __name__ == "__main__":

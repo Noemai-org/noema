@@ -1,15 +1,17 @@
 """The four-tier scorecard (PERD §48.3, REQ-BEN-004): aggregation, completeness, ordering and purity."""
 import copy
 import unittest
+from typing import Any
 
 from benchmark.contracts import Contracts
 from benchmark.scoring.scorecard import score
 from benchmark.scoring.testdata import GATE_MUTATIONS, REGISTRY, clean_result, error_result, renumber, templates
 
 CONTRACTS = Contracts()
+Json = dict[str, Any]
 
 
-def suite(n_each: int = 2):
+def suite(n_each: int = 2) -> tuple[list[Json], list[Json], list[Json]]:
     pairs = []
     for i, template in enumerate(templates()):
         for j in range(n_each):
@@ -20,7 +22,7 @@ def suite(n_each: int = 2):
     return cases, oracles, results
 
 
-def run(cases, oracles, results, **kw):
+def run(cases: list[Json], oracles: list[Json], results: list[Json], **kw: Any) -> Json:
     return score(cases, oracles, results, REGISTRY, run_id="run_test", **kw)
 
 
@@ -200,7 +202,7 @@ class CompletenessTest(unittest.TestCase):
 
 class ReleaseAndReplayTest(unittest.TestCase):
     @staticmethod
-    def big_suite(total: int, held_out: int):
+    def big_suite(total: int, held_out: int) -> tuple[list[Json], list[Json], list[Json]]:
         base_case, base_oracle = templates()[0]
         cases, oracles, results = [], [], []
         for i in range(total):

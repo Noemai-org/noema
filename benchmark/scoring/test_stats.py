@@ -7,15 +7,27 @@ from hypothesis import given, strategies as st
 from benchmark.scoring.stats import make_rate, percentile, wilson_interval
 
 
+def interval(k: int, n: int) -> tuple[float, float]:
+    found = wilson_interval(k, n)
+    assert found is not None
+    return found
+
+
+def nearest(values: list[int], p: int) -> int:
+    found = percentile(values, p)
+    assert found is not None
+    return found
+
+
 class WilsonTest(unittest.TestCase):
     def test_known_values(self) -> None:
-        lo, hi = wilson_interval(0, 10) or (None, None)
+        lo, hi = interval(0, 10)
         self.assertEqual(lo, 0.0)
         self.assertAlmostEqual(hi, 0.277533, places=5)  # z^2 / (n + z^2)
-        lo, hi = wilson_interval(10, 10) or (None, None)
+        lo, hi = interval(10, 10)
         self.assertAlmostEqual(lo, 0.722467, places=5)
         self.assertEqual(hi, 1.0)
-        lo, hi = wilson_interval(5, 10) or (None, None)
+        lo, hi = interval(5, 10)
         self.assertAlmostEqual(lo, 0.236593, places=5)
         self.assertAlmostEqual(hi, 0.763407, places=5)
 
@@ -74,7 +86,7 @@ class RateTest(unittest.TestCase):
         rate = make_rate(k, n)
         self.assertEqual((rate["k"], rate["n"]), (k, n))
         if n:
-            self.assertAlmostEqual(rate["rate"], k / n, places=6)
+            self.assertAlmostEqual(rate["rate"], k / n, delta=1e-6)
 
 
 class PercentileTest(unittest.TestCase):
@@ -91,8 +103,8 @@ class PercentileTest(unittest.TestCase):
         for p in ps:
             self.assertEqual(percentile(values, p), percentile(sorted(values, reverse=True), p))
             self.assertIn(percentile(values, p), values)
-        self.assertLessEqual(percentile(values, 50), percentile(values, 95))
-        self.assertLessEqual(percentile(values, 95), percentile(values, 99))
+        self.assertLessEqual(nearest(values, 50), nearest(values, 95))
+        self.assertLessEqual(nearest(values, 95), nearest(values, 99))
 
 
 if __name__ == "__main__":

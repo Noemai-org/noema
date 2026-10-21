@@ -2,6 +2,7 @@
 import copy
 import re
 import unittest
+from typing import Any
 
 from benchmark.contracts import Contracts, sha256_of
 from benchmark.scoring.report import ReportError, render_markdown
@@ -11,14 +12,14 @@ from benchmark.scoring.testdata import GATE_MUTATIONS, REGISTRY, clean_result, r
 CONTRACTS = Contracts()
 
 
-def fixture(held_out: int = 0):
+def fixture(held_out: int = 0) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     pairs = [renumber(t, f"BEN-{t[0]['case_id'].split('-')[1]}-{i:04d}") for t in templates() for i in (1, 2)]
     cases = [p[0] for p in pairs]
     for c in cases[:held_out]:
         c["suite_layer"] = "HELD_OUT"
     oracles = [p[1] for p in pairs]
     results = [clean_result(c, o) for c, o in pairs]
-    manifest = {
+    manifest: dict[str, Any] = {
         "suite_id": "generated-test", "suite_version": "0.1.0",
         "generator": {"name": "noema-casegen", "version": "0.1.0", "seed": 42},
         "layer_counts": {"GENERATED": len(cases) - held_out, "HELD_OUT": held_out, "PARTNER": 0},
@@ -34,7 +35,7 @@ def fixture(held_out: int = 0):
     return cases, oracles, results, manifest
 
 
-def card_for(cases, oracles, results, **kw):
+def card_for(cases: list[dict[str, Any]], oracles: list[dict[str, Any]], results: list[dict[str, Any]], **kw: Any) -> dict[str, Any]:
     return score(cases, oracles, results, REGISTRY, run_id="run_report", **kw)
 
 
@@ -80,7 +81,7 @@ class ReportTest(unittest.TestCase):
     def test_states_how_the_cases_were_generated_and_the_conditions(self) -> None:
         self.assertIn("noema-casegen 0.1.0", self.text)
         self.assertIn("seed 42", self.text)
-        self.assertIn("FAULT:TIMEOUT_AFTER_COMMIT", self.text)
+        self.assertIn("TIMEOUT_AFTER_COMMIT 6", self.text)
         self.assertIn("2 of 6", self.text)  # the Pidgin or code-switched share, with its n
 
     def test_states_the_rule_of_three_bound(self) -> None:

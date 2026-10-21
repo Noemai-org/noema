@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from typing import Any, Callable
 
 from benchmark.contracts import pretty_bytes
 from benchmark.scoring.__main__ import main
@@ -15,7 +16,7 @@ PACK = {"capabilities": [{"capability_id": c, "prohibited": False, "side_effect_
         + [{"capability_id": c, "prohibited": True, "side_effect_class": "MUTATES_FINANCIAL_STATE"} for c in sorted(PROHIBITED)]}
 
 
-def write_tree(root: Path, mutate=None, break_case: bool = False):
+def write_tree(root: Path, mutate: Callable[[list[dict[str, Any]]], None] | None = None, break_case: bool = False) -> list[dict[str, Any]]:
     cases, oracles, results, manifest = fixture()
     if mutate:
         mutate(results)

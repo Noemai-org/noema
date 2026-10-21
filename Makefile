@@ -47,3 +47,12 @@ contracts-validate:
 	.venv-contracts/bin/python -m unittest discover -s tools/packcheck -p 'test_*.py'
 	.venv-contracts/bin/python tools/packcheck validate packs/fintech_v1.json
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
+
+# Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
+.PHONY: bench-test
+BENCH_VENV := .venv-bench
+bench-test:
+	python3 -m venv $(BENCH_VENV)
+	$(BENCH_VENV)/bin/pip install -q --require-hashes -r benchmark/requirements-dev.lock
+	$(BENCH_VENV)/bin/python -m unittest discover -s benchmark -t . -p 'test_*.py'
+	$(BENCH_VENV)/bin/python -m mypy -p benchmark --config-file benchmark/pyproject.toml
