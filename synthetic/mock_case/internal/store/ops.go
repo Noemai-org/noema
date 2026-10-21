@@ -9,13 +9,13 @@ import (
 )
 
 const caseColumns = `case_id, seq, tenant_id, reference, principal_id, transaction_ref, reason_code, status, owner_queue,
-  priority, idempotency_key, version, created_at, request_hash`
+  priority, idempotency_key, version, created_at, request_hash, created_by_intent, epoch`
 
 func scanCase(row pgx.Row) (Case, string, error) {
 	var c Case
 	var hash string
 	err := row.Scan(&c.CaseID, &c.Seq, &c.TenantID, &c.Reference, &c.PrincipalID, &c.TransactionRef, &c.ReasonCode, &c.Status,
-		&c.OwnerQueue, &c.Priority, &c.IdempotencyKey, &c.Version, &c.CreatedAt, &hash)
+		&c.OwnerQueue, &c.Priority, &c.IdempotencyKey, &c.Version, &c.CreatedAt, &hash, &c.CreatedByIntent, &c.Epoch)
 	c.VersionToken = VersionToken(c.Version)
 	c.CreatedAt = c.CreatedAt.UTC()
 	return c, hash, err
@@ -31,6 +31,9 @@ type CreateCaseInput struct {
 	OwnerQueue     string
 	Priority       string
 	IdempotencyKey string
+
+	CreatedByIntent string
+	Epoch           int64
 }
 
 func (in CreateCaseInput) requestHash() string {
@@ -42,7 +45,9 @@ func (in CreateCaseInput) requestHash() string {
 		ReasonCode     string `json:"reason_code"`
 		OwnerQueue     string `json:"owner_queue"`
 		Priority       string `json:"priority"`
-	}{"create_case", in.TenantID, in.PrincipalID, in.TransactionRef, in.ReasonCode, in.OwnerQueue, in.Priority})
+		Intent         string `json:"created_by_intent"`
+		Epoch          int64  `json:"epoch"`
+	}{"create_case", in.TenantID, in.PrincipalID, in.TransactionRef, in.ReasonCode, in.OwnerQueue, in.Priority, in.CreatedByIntent, in.Epoch})
 }
 
 // CreateCase creates a case, or answers a repeat of the same command. Same key and same payload returns the
@@ -73,11 +78,11 @@ func (s *Store) CreateCase(ctx context.Context, cmd Cmd, in CreateCaseInput) (Ca
 		id := ids.CaseID(cmd.Seed, n, at)
 		tag, err := tx.Exec(ctx, `
 INSERT INTO cases (case_id, seq, tenant_id, reference, principal_id, transaction_ref, reason_code, status, owner_queue, priority,
-  idempotency_key, request_hash, version, created_at, updated_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9,$10,$11,1,$12,$12)
+  idempotency_key, request_hash, version, created_at, updated_at, created_by_intent, epoch)
+VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9,$10,$11,1,$12,$12,$13,$14)
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 			id, n, in.TenantID, ids.CaseReference(at, n), in.PrincipalID, in.TransactionRef, in.ReasonCode, in.OwnerQueue, in.Priority,
-			in.IdempotencyKey, hash, at)
+			in.IdempotencyKey, hash, at, in.CreatedByIntent, in.Epoch)
 		if err != nil {
 			return res, err
 		}
@@ -180,10 +185,10 @@ func (s *Store) RouteCase(ctx context.Context, cmd Cmd, tenant, caseID, queue st
 			out, res.outcome = cur, VersionMismatch
 			return res, nil
 		}
-		if _, err := tx.Exec(ctx, `UPDATE cases SET owner_queue = $2, version = version + 1, updated_at = $3 WHERE case_id = $1`, caseID, queue, at); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE cases SET status = 'ROUTED', owner_queue = $2, version = version + 1, updated_at = $3 WHERE case_id = $1`, caseID, queue, at); err != nil {
 			return res, err
 		}
-		cur.OwnerQueue, cur.Version = queue, cur.Version+1
+		cur.Status, cur.OwnerQueue, cur.Version = "ROUTED", queue, cur.Version+1
 		cur.VersionToken = VersionToken(cur.Version)
 		out, res.outcome, res.committed = cur, Routed, true
 		return res, nil
