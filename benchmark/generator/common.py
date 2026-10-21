@@ -4,8 +4,14 @@ from typing import Any
 from .archetype import Arc, Fault, esc
 from .worlds import Ben, Tx, WorldSpec
 
-__all__ = ["Arc", "Fault", "esc", "Ben", "Tx", "WorldSpec", "st", "STATUS", "STATUS_NONAME", "COMPLAINT", "CASE_REQUEST", "E_EXPLAIN", "E_CLARIFY", "E_ESCALATE",
+__all__ = ["GRANT_TTL_SECONDS", "Arc", "Fault", "esc", "Ben", "Tx", "WorldSpec", "st", "STATUS", "STATUS_NONAME", "COMPLAINT", "CASE_REQUEST", "E_EXPLAIN", "E_CLARIFY", "E_ESCALATE",
            "E_REJECT", "FC_SUCCESS", "FC_FAIL", "FC_CASE", "PROHIBITED_KEYS", "explain", "escalate", "one", "at", "case_fault", "UNKNOWN"]
+
+
+# The grant lifetime the POC adopted: 10 minutes (PERD §65.3 table, DEC-2026-10-17 OD-P-31). A fault "beyond the grant's expiry" is one second past it, and a delay
+# "past the grant's lifetime" is the contract's largest delay_ms (600000). The generator reads the adopted value; it does not set it (AGENT-16). If the
+# founders change the TTL, these cases change with it.
+GRANT_TTL_SECONDS = 600
 
 
 def st(**states: str) -> tuple[tuple[str, str], ...]:
