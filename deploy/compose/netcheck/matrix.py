@@ -40,12 +40,15 @@ NETWORKS = {
     "mock-case": {"tushe_net", "bench_net"},
     "mock-case-truth": {"bench_net"},
     "mock-case-db": {"bench_net"},
+    # webhook relay (ENV-13): on tushe_net, so the core can pull; tushe_egress is only so Docker can publish its port.
+    "webhook-relay": {"tushe_net", "tushe_egress"},
 }
 TARGETS = {  # service -> host:port a probe connects to
     "postgres": "postgres:5432", "temporal": "temporal:7233", "core": "core:8080", "model": "model:8081",
     "ui": "ui:8082", "sentinel-tushe": "sentinel-tushe:9000", "sentinel-provider": "sentinel-provider:9000",
     "sentinel-bench": "sentinel-bench:9000",
     "mock-case": "mock-case:8090", "mock-case-truth": "mock-case:8091", "mock-case-db": "mock-case-db:5432",
+    "webhook-relay": "webhook-relay:8090",
 }
 # Paths the brief names as forbidden. Each must come out refused.
 MUST_BE_REFUSED = [
@@ -56,10 +59,12 @@ MUST_BE_REFUSED = [
     ("core", "mock-case-truth"), ("model", "mock-case-truth"), ("ui", "mock-case-truth"),
     ("core", "mock-case-db"), ("model", "mock-case-db"), ("ui", "mock-case-db"),
     ("model", "mock-case"), ("ui", "mock-case"),
+    # webhook relay (DEC-2026-10-16 E6): only the core pulls from it; the model and the UI never reach it.
+    ("model", "webhook-relay"), ("ui", "webhook-relay"),
 ]
 # Networks that are not Docker-internal, per service: the only routes out of the stack (PERD §65.1).
 EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"},
-                   "mock-case": set(), "mock-case-db": set()}
+                   "mock-case": set(), "mock-case-db": set(), "webhook-relay": {"tushe_egress"}}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
 failures: list[str] = []
@@ -303,7 +308,7 @@ def check_evil_provider() -> None:
 
 
 def main() -> int:
-    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case"])
+    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "webhook-relay"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
@@ -314,7 +319,7 @@ def main() -> int:
     check_egress()
     check_mock_case()
     check_evil_provider()
-    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES)
+    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1
