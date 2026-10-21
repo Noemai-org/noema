@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-decision-case.v1.json",
+  "title": "Decision-model bake-off case",
+  "description": "One generated, synthetic case for the decision-model bake-off (REQ-BEN-005, DEC-2026-10-20 D9, build prompt T4 item 9a). A case is one typed question about one input, one of the six understanding tasks of PERD §19.1 that a decision model is eligible for: intent node classification, the enumerated slots, ambiguity-flag proposals, locale and code-switching detection, answer binding, and instruction-likeness screening. `expected` is the truth by construction. `perturbations` are meaning-preserving rewrites of the input, used for the flip rate. Generated layer only: never held-out material (INV-22). Synthetic text only until each provider's data terms are reviewed (PERD R-18). The Nigerian-language phrasing is template text for measurement and has not been reviewed by native speakers. SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "description": "BDC-<task code>-<number>.",
+      "type": "string",
+      "pattern": "^BDC-[A-Z]{3}-[0-9]{4,6}$"
+    },
+    "version": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "task": {
+      "description": "The six tasks of PERD §19.1, in table order.",
+      "type": "string",
+      "enum": ["INTENT_NODE", "ENUM_SLOT", "AMBIGUITY_FLAG", "LOCALE", "ANSWER_BINDING", "INSTRUCTION_SCREEN"]
+    },
+    "language_bucket": {
+      "description": "The split every metric is reported by (build prompt T4 item 9a).",
+      "type": "string",
+      "enum": ["en-NG", "pcm", "code-switched", "voice-transcript"]
+    },
+    "generator": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "version": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver" },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["name", "version", "seed"],
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "channel": { "type": "string", "enum": ["text", "voice_transcript"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "context": {
+          "description": "Optional structured context the question needs, for example the options offered to the customer in an answer-binding case.",
+          "type": "object",
+          "properties": {
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": { "type": "string", "pattern": "^opt_[0-9]{1,2}$" },
+                  "label": { "type": "string", "minLength": 1, "maxLength": 200 }
+                },
+                "required": ["id", "label"],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 4
+            },
+            "prior_turn": { "type": "string", "minLength": 1, "maxLength": 1000 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["channel", "text"],
+      "additionalProperties": false
+    },
+    "question": {
+      "description": "The typed question. A choice always offers an abstention (`none` or `other`): the harness rejects a choice without one (PERD §19.1).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+        "type": { "type": "string", "enum": ["choice", "yes_no"] },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "options": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "minItems": 2,
+          "maxItems": 20,
+          "uniqueItems": true
+        }
+      },
+      "required": ["id", "type", "prompt", "options"],
+      "additionalProperties": false
+    },
+    "expected": {
+      "description": "The right answer: one of `question.options`. For a yes_no question the options are yes and no.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "perturbations": {
+      "description": "Meaning-preserving rewrites of `input.text`. The answer should not change under any of them.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string", "enum": ["CASE", "WHITESPACE", "PUNCTUATION", "FILLER", "ASR_STYLE"] },
+          "text": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        },
+        "required": ["kind", "text"],
+        "additionalProperties": false
+      },
+      "maxItems": 5
+    },
+    "provenance": { "type": "string", "const": "generated" }
+  },
+  "required": ["case_id", "version", "task", "language_bucket", "generator", "input", "question", "expected", "perturbations", "provenance"],
+  "additionalProperties": false
+}

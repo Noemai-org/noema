@@ -1,0 +1,57 @@
+{
+  "case_id": "BDC-BND-0001",
+  "version": 1,
+  "task": "ANSWER_BINDING",
+  "language_bucket": "en-NG",
+  "generator": {
+    "name": "noema-casegen-decisions",
+    "version": "0.1.0",
+    "seed": 7
+  },
+  "input": {
+    "channel": "text",
+    "text": "the 8 o'clock one",
+    "context": {
+      "options": [
+        {
+          "id": "opt_1",
+          "label": "x"
+        },
+        {
+          "id": "opt_2",
+          "label": "x"
+        },
+        {
+          "id": "opt_3",
+          "label": "x"
+        },
+        {
+          "id": "opt_4",
+          "label": "x"
+        },
+        {
+          "id": "opt_5",
+          "label": "x"
+        }
+      ]
+    }
+  },
+  "question": {
+    "id": "answer_binding",
+    "type": "choice",
+    "prompt": "Which option does the answer select?",
+    "options": [
+      "opt_1",
+      "opt_2",
+      "none"
+    ]
+  },
+  "expected": "opt_1",
+  "perturbations": [
+    {
+      "kind": "WHITESPACE",
+      "text": "the  8 o'clock   one"
+    }
+  ],
+  "provenance": "generated"
+}

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-decision-run.v1.json",
+  "title": "Decision-model bake-off run",
+  "description": "What one provider path returned for a set of bake-off cases (REQ-BEN-005, DEC-2026-10-20 D9, decision-model scope update). Two paths are compared: the LLM path and `decide()` backed by the OpenAI Decisions API. The run calls the model service only through `harness.decide()` or `harness.generate()`. A path that could not run is recorded as NOT_RUN with its reason ('no access: no API key'); nothing is faked, and a NOT_RUN run carries no result. `confidence` is the probability of the selected answer for `decide()` and the model's self-reported confidence for the LLM path; it is information, never authority. Model versions are pinned (PERD §19.1); a result with `model.version` null is allowed only to record that a snapshot could not be pinned. Synthetic inputs only (PERD R-18). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" },
+    "provider": {
+      "description": "The two paths compared (decision-model scope update): the LLM path and decide() backed by OpenAI Decisions.",
+      "type": "string",
+      "enum": ["LLM", "DECIDE_OPENAI_DECISIONS"]
+    },
+    "status": { "type": "string", "enum": ["RAN", "NOT_RUN"] },
+    "not_run_reason": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "model": {
+      "type": "object",
+      "properties": {
+        "provider": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": ["string", "null"], "minLength": 1, "maxLength": 100 }
+      },
+      "required": ["provider", "name", "version"],
+      "additionalProperties": false
+    },
+    "runner_region": {
+      "description": "Where the runner executed, for example af-lagos or unknown. Latency is only a Lagos-region measurement when this says so (build prompt T4 item 9a).",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,39}$"
+    },
+    "cases_version": {
+      "description": "SHA-256 of the case set the run answered, so a result cannot be matched to a different set.",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "results": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Result" }
+    }
+  },
+  "required": ["run_id", "provider", "status", "runner_region", "cases_version", "results"],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "RAN" } }, "required": ["status"] },
+      "then": { "required": ["model"], "not": { "required": ["not_run_reason"] } },
+      "else": { "required": ["not_run_reason"], "properties": { "results": { "maxItems": 0 } }, "not": { "required": ["model"] } }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Result": {
+      "type": "object",
+      "properties": {
+        "case_id": { "type": "string", "pattern": "^BDC-[A-Z]{3}-[0-9]{4,6}$" },
+        "variant": {
+          "description": "BASE, or P<n> for the n-th perturbation of the case (P0 is the first).",
+          "type": "string",
+          "pattern": "^(BASE|P[0-9])$"
+        },
+        "outcome": { "type": "string", "enum": ["ANSWERED", "REJECTED", "ERROR"] },
+        "selected": { "type": ["string", "null"], "minLength": 1, "maxLength": 100 },
+        "confidence": { "oneOf": [{ "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Ratio" }, { "type": "null" }] },
+        "latency_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+        "cost_usd_micros": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["case_id", "variant", "outcome", "selected", "confidence", "latency_ms", "cost_usd_micros"],
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "ANSWERED" } }, "required": ["outcome"] },
+          "then": { "properties": { "selected": { "type": "string" }, "confidence": { "type": "number" } } },
+          "else": { "properties": { "selected": { "type": "null" }, "confidence": { "type": "null" } } }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

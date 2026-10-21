@@ -1,0 +1,41 @@
+{
+  "run_id": "bakeoff_2026_11_01",
+  "provider": "LLM",
+  "status": "RAN",
+  "model": {
+    "provider": "example",
+    "name": "example-model",
+    "version": "2026-01-01"
+  },
+  "runner_region": "af-lagos",
+  "cases_version": "sha256:352b84777d8dd96ac9c0b3c170ecb2c7cca7fc2dbae41a1ec1ed4286fb2c43db",
+  "results": [
+    {
+      "case_id": "BDC-INT-0001",
+      "variant": "BASE",
+      "outcome": "ANSWERED",
+      "selected": "fin.payments.exception.investigate",
+      "confidence": 1.5,
+      "latency_ms": 900,
+      "cost_usd_micros": 40
+    },
+    {
+      "case_id": "BDC-INT-0001",
+      "variant": "P0",
+      "outcome": "ANSWERED",
+      "selected": "fin.payments.exception.investigate",
+      "confidence": 0.85,
+      "latency_ms": 880,
+      "cost_usd_micros": 40
+    },
+    {
+      "case_id": "BDC-INT-0002",
+      "variant": "BASE",
+      "outcome": "ERROR",
+      "selected": null,
+      "confidence": null,
+      "latency_ms": 5000,
+      "cost_usd_micros": 0
+    }
+  ]
+}
