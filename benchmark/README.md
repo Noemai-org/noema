@@ -1,6 +1,12 @@
 # benchmark
 
-Session C's benchmark harness (T4 of DEC-2026-10-20). Generated layer only. It never mounts, reads or infers anything from `benchmark-heldout` (INV-22, REQ-AGT-004); held-out material is unreachable from this repository.
+Owner task: ENV-09 (hostility proxy and benchmark harness). Status: empty, not built.
+
+This folder will hold the benchmark services that run on `bench_net` only (PERD §65.1). It never mounts anything from `benchmark-heldout` (INV-22, REQ-AGT-004). Held-out material is unreachable from this repository.
+
+## Session C's folders (T4 of DEC-2026-10-20)
+
+Generated layer only. `make bench-test` runs every test and `mypy --strict`; `make bench` is the generated layer end to end (exit 3 is "not run: no access"); `make bench-live` runs the oracle client and every translated fault plan against a real mock-case and PostgreSQL. The hostility proxy and the partner listener belong to session B.
 
 | Folder | What | Task |
 |---|---|---|
@@ -12,5 +18,3 @@ Session C's benchmark harness (T4 of DEC-2026-10-20). Generated layer only. It n
 | `bakeoff/` | The decision-model bake-off: case set, metrics, runner, comparison | BEN-21 |
 | `evil_provider/` | The adversarial provider, in the bench profile only | SEC-06 |
 | `arms/` | The comparison-arm folders (no arm is built here) | BEN-20 |
-
-`make bench-test` runs every test and `mypy --strict`. `make bench` is the generated layer end to end (exit 3 is "not run: no access"). `make bench-live` runs the oracle client and every translated fault plan against a real mock-case and PostgreSQL. The hostility proxy and the partner listener belong to session B.
