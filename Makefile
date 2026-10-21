@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build
 
 build:
 	docker build -t noema-core:dev services/core
@@ -47,3 +47,12 @@ contracts-validate:
 	.venv-contracts/bin/python -m unittest discover -s tools/packcheck -p 'test_*.py'
 	.venv-contracts/bin/python tools/packcheck validate packs/fintech_v1.json
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
+
+# mock-case (ENV-08): the synthetic case system. Tests run against a real PostgreSQL; scripts/test.sh starts a
+# throwaway server unless MOCK_CASE_TEST_DATABASE_URL points at one.
+env-mock-case-test:
+	synthetic/mock_case/scripts/test.sh -race ./...
+	cd synthetic/mock_case && test -z "$$(gofmt -l .)" && go vet ./...
+
+env-mock-case-build:
+	docker build -t noema-mock-case:dev synthetic/mock_case
