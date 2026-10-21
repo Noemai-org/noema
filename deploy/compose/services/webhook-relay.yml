@@ -1,0 +1,62 @@
+# webhook-relay: receives Tushe's signed webhooks and holds them for the core to pull (ENV-13; DEC-2026-10-16 E6;
+# REQ-API-008). Included by ../docker-compose.yml. A test-environment component, not a Noema deployable (E5).
+#
+# Credentials: the relay holds ONE secret, the webhook signing secret, in a named volume written by the one-shot
+# below (mode 0444, kept across restarts). To use the secret Tushe was given, write it to that volume file instead.
+# The core's pull token is derived from it: `docker compose run --rm webhook-relay pull-token`. The relay refuses to
+# start if its environment carries any other credential.
+#
+# Networks: tushe_net (internal; the core reaches the relay through it, and the hostility proxy forwards relay pulls
+# over it) and tushe_egress (a network of its own so Docker can publish the receiving port; the relay dials nothing).
+# The port is published on 127.0.0.1 by default; to be reached by Tushe, publish it deliberately with
+# WEBHOOK_RELAY_PUBLISH (e.g. 0.0.0.0:8090) behind the TLS terminator of the deployment. The relay serves plain HTTP
+# and holds no TLS key. Networks the main file declares are repeated here, identically.
+#
+# Profiles: relay, ci, netcheck. Never dev or demo unless asked for with --profile relay.
+networks:
+  tushe_net:
+    internal: true
+  tushe_egress: {}
+
+volumes:
+  webhook_relay_credentials: {}
+  webhook_relay_data: {}
+
+services:
+  webhook-relay-credentials:
+    image: noema-webhook-relay:dev
+    build:
+      context: ../../../synthetic/webhook_relay
+    profiles: [relay, ci, netcheck]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    command: [init-credentials, -file=/creds/signing_secret, -datadir=/data/store]
+    volumes:
+      - webhook_relay_credentials:/creds
+      - webhook_relay_data:/data
+
+  webhook-relay:
+    image: noema-webhook-relay:dev
+    build:
+      context: ../../../synthetic/webhook_relay
+    profiles: [relay, ci, netcheck]
+    networks: [tushe_net, tushe_egress]
+    ports:
+      - "${WEBHOOK_RELAY_PUBLISH:-127.0.0.1:8090}:8090"
+    depends_on:
+      webhook-relay-credentials:
+        condition: service_completed_successfully
+    environment:
+      WEBHOOK_RELAY_LISTEN: ":8090"
+      WEBHOOK_RELAY_SIGNING_SECRET_FILE: /run/webhook-relay/signing_secret
+      WEBHOOK_RELAY_STORE_FILE: /data/store/deliveries.jsonl
+    volumes:
+      - webhook_relay_credentials:/run/webhook-relay:ro
+      - webhook_relay_data:/data
+    read_only: true
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/webhook-relay", "-healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

@@ -1,0 +1,17 @@
+{
+  "fault_plan_id": "fp_case_create_timeout_after_commit_v1",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 42,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": 1.5
+      }
+    }
+  ]
+}

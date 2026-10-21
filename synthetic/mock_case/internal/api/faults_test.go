@@ -3,6 +3,7 @@ package api_test
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -285,7 +286,7 @@ func TestPlanControl(t *testing.T) {
 	}
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "HTTP_5XX", `{}`), ""))
 	for _, bad := range []string{`{`, `{"fault_plan_id":"x"}`, plan(fault("create_case", `{}`, "SPLIT_STATE", `{}`), ""),
-		strings.Replace(plan("", ""), `"MOCK_CASE"`, `"PROXY"`, 1)} {
+		strings.Replace(plan("", ""), `"MOCK_CASE"`, `"HARNESS"`, 1)} {
 		r := e.bench("PUT", "/control/v1/fault-plan", bad)
 		if r.status != 422 || r.errCode() != "INVALID_FAULT_PLAN" {
 			t.Errorf("%q: %d %s", bad, r.status, r.raw)
@@ -413,5 +414,32 @@ func TestTruthStateIsLabelledSyntheticAndComplete(t *testing.T) {
 	counters := s["counters"].(map[string]any)
 	if counters["case"] != 1.0 || counters["complaint"] != 1.0 || counters["evidence"] != 1.0 {
 		t.Fatalf("%v", counters)
+	}
+}
+
+// The PERD §37.1 example, loaded as written: its mock-switch fault is another component's and is only counted.
+func TestPerdExamplePlanLoadsAndOnlyItsMockCaseFaultApplies(t *testing.T) {
+	e := newEnv(t)
+	raw, err := os.ReadFile("../../../../contracts/fixtures/valid/fault-plan/perd_example.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := e.bench("PUT", "/control/v1/fault-plan", raw)
+	if r.status != 200 || r.json["applied_faults"] != 1.0 || r.json["ignored_faults"] != 1.0 {
+		t.Fatalf("%d %s", r.status, r.raw)
+	}
+	if _, err := e.createWith(impatient(100*time.Millisecond), "idk_1"); err == nil {
+		t.Fatal("the first create must be held and dropped (TIMEOUT_AFTER_COMMIT, 3500 ms)")
+	}
+	if e.count("cases") != 1 {
+		t.Fatal("the case must be committed")
+	}
+	tr := e.faultTrace()
+	if len(tr) != 1 || tr[0].Effect != "TIMEOUT_AFTER_COMMIT" || !tr[0].Committed {
+		t.Fatalf("%+v", tr)
+	}
+	idx := e.bench("GET", "/truth/v1/commands?faults_only=true", nil).json["commands"].([]any)[0].(map[string]any)["fault_index"]
+	if idx != 0.0 {
+		t.Fatalf("fault_index is the position in the plan: %v", idx)
 	}
 }

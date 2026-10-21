@@ -3,7 +3,7 @@
   "info": {
     "title": "mock-case: synthetic case system (case API)",
     "version": "1.0.0",
-    "description": "SYNTHETIC test double for an enterprise case system (REQ-ENV-008, PERD \u00a734.4). Runtime credential only. It offers cases, complaint references and append-only evidence, and nothing else: there is no operation to close or resolve a case, downgrade priority, change an SLA or clock, or edit or delete evidence, and no money movement."
+    "description": "SYNTHETIC test double for an enterprise case system (REQ-ENV-008, PERD §34.4). Runtime credential only. It offers cases, complaint references and append-only evidence, and nothing else: there is no operation to close or resolve a case, downgrade priority, change an SLA or clock, or edit or delete evidence, and no money movement."
   },
   "security": [
     {
@@ -1362,8 +1362,10 @@
           "status": {
             "type": "string",
             "enum": [
-              "OPEN"
-            ]
+              "OPEN",
+              "ROUTED"
+            ],
+            "description": "OPEN when created; ROUTED after a successful route. There is no other status and no way back to OPEN: nothing closes or resolves a case."
           },
           "owner_queue": {
             "type": "string"
@@ -1393,6 +1395,17 @@
           },
           "reason_code": {
             "type": "string"
+          },
+          "created_by_intent": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
+            "description": "The intent that created the case (the pack's fin.case created_by_intent, SoT 15.3). Fixed for life."
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The logical resolution epoch the case belongs to (PERD section 29). Fixed for life."
           }
         },
         "required": [
@@ -1407,7 +1420,9 @@
           "tenant_id",
           "principal_id",
           "transaction_ref",
-          "reason_code"
+          "reason_code",
+          "created_by_intent",
+          "epoch"
         ]
       },
       "Complaint": {
@@ -1579,13 +1594,26 @@
           "priority": {
             "type": "string",
             "description": "SYNTHETIC priority; default NORMAL"
+          },
+          "created_by_intent": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
+            "description": "The intent that created the case (the pack's fin.case created_by_intent, SoT 15.3). Fixed for life."
+          },
+          "epoch": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The logical resolution epoch the case belongs to (PERD section 29). Fixed for life."
           }
         },
         "required": [
           "tenant_id",
           "principal_id",
           "transaction_ref",
-          "reason_code"
+          "reason_code",
+          "created_by_intent",
+          "epoch"
         ]
       },
       "RouteCaseRequest": {

@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-relay-test env-relay-build
 
 build:
 	docker build -t noema-core:dev services/core
@@ -89,3 +89,10 @@ bench: bench-venv
 # The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
 bench-live: bench-venv
 	$(BENCH_PY) -m benchmark.oracle_client.live_check
+
+# webhook relay (ENV-13): standard library only; no database or network needed.
+env-relay-test:
+	cd synthetic/webhook_relay && test -z "$$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./...
+
+env-relay-build:
+	docker build -t noema-webhook-relay:dev synthetic/webhook_relay

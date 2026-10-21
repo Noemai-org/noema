@@ -17,7 +17,7 @@ mock-case emulates the bank's case system, because Tushe has no case domain (DEC
 | Complaints | `POST /v1/cases/{id}/complaints`, `GET /v1/complaints[/{ref}]` | same idempotency and read-back rules; `clock_started_at` is a SYNTHETIC clock that nothing can change |
 | Evidence | `POST /v1/cases/{id}/evidence`, `GET /v1/evidence[/{id}]` | append-only; `payload_hash` is the SHA-256 of the exact bytes of `payload` (`sha256:<hex>`); a supplied `payload_hash` that does not match is `422` |
 
-**Absent by construction.** There is no operation to close or resolve a case, downgrade priority, change an SLA or clock, edit or delete evidence, or move money, and no dispute. They have no route (the answer is a JSON `404`, for any method), no handler, and no entry in the API description (`internal/api/openapi.json`). The database refuses them too (`internal/store/migrations/0001_init.sql`): `status` is constrained to `OPEN`; a case row may change only its queue and its version (+1); evidence, complaints and the command log refuse UPDATE, DELETE and TRUNCATE, for the owner as well. Tests: `TestForbiddenOperationsHaveNoRouteAndChangeNothing`, `TestCaseApiDescriptionOffersNothingProhibited`, `TestDatabaseRefusesWhatTheServiceDoesNotOffer`.
+**Absent by construction.** There is no operation to close or resolve a case, downgrade priority, change an SLA or clock, edit or delete evidence, or move money, and no dispute. They have no route (the answer is a JSON `404`, for any method), no handler, and no entry in the API description (`internal/api/openapi.json`). The database refuses them too (`internal/store/migrations/0001_init.sql`): `status` is `OPEN` or `ROUTED` and can only move from OPEN to ROUTED (never back, never closed); a case row may change only its queue and its version (+1); evidence, complaints and the command log refuse UPDATE, DELETE and TRUNCATE, for the owner as well. Tests: `TestForbiddenOperationsHaveNoRouteAndChangeNothing`, `TestCaseApiDescriptionOffersNothingProhibited`, `TestDatabaseRefusesWhatTheServiceDoesNotOffer`.
 
 ## Two listeners, two credentials
 
@@ -30,14 +30,27 @@ The bench listener is bound to the one local address that shares a subnet with `
 
 The truth endpoint: `GET /truth/v1/state` (all cases, complaints, attachments), `/truth/v1/commands` (the command log: every command and every injected fault, with scenario, seed and fault-plan ID), `/truth/v1/digest` (a state hash and a fault-trace hash, to compare two replays in one call). Control: `PUT|GET|DELETE /control/v1/fault-plan`, `GET /control/v1/clock`, `POST /control/v1/clock/advance`, `POST /control/v1/reset`. There is no snapshot or restore (PERD §34.4).
 
+## Reconciliation with the pack
+
+The pack's `case` entity (`packs/fintech_v1.json`; SoT §15.3 success predicate `case.status in ['OPEN','ROUTED']` and `case.created_by_intent == intent_id`) reads three things the first mock-case did not supply. **mock-case was the incomplete side, so mock-case changed and the pack did not.** The SoT predicate is normative; the PERD §34.4 `fin.case` shape is `[REC]` and says exact field names are fixed at Phase A.
+
+| Pack reads | Before | Now (migration `0002_intent_epoch_routed.sql`) |
+|---|---|---|
+| `created_by_intent` | not stored | required on create (`created_by_intent`, same pattern as other IDs), returned on every read, part of the idempotent payload, fixed for life |
+| `epoch` | not stored | required on create (integer 0 to 2^53-1), returned on every read, part of the idempotent payload, fixed for life |
+| status `ROUTED` | only `OPEN` existed; routing moved the queue | a successful route moves OPEN to ROUTED; a later route keeps ROUTED; the database refuses ROUTED back to OPEN and any other status |
+
+Still true: nothing closes or resolves a case. The pack's status enum keeps `CLOSED`, which mock-case never emits, so the epoch can never advance against mock-case (PERD §29: it increments when the prior case is verified CLOSED). A benchmark that needs epoch 1 must create the case with `epoch: 1`. The pack's `id` and `subject` are the adapter's renames of `case_id` and `transaction_ref`. `packs/tests/test_mock_case_shape.py` pins all of this. SYNTHETIC.
+
 ## Fault plans
 
-mock-case applies a FaultPlan (PERD §37.1, JSON encoding) loaded through `PUT /control/v1/fault-plan`. It accepts only a plan it can apply exactly, and refuses the rest when loading (`422 INVALID_FAULT_PLAN`), so a typo cannot become a plan that injects nothing:
+mock-case applies a FaultPlan loaded through `PUT /control/v1/fault-plan`. The format is `contracts/schemas/fault-plan.v1.json` (PERD §37.1, JSON); `internal/faultplan` loads it and `TestContractFixtures*` runs every valid and invalid fixture of the schema through the loader, so the two cannot drift apart.
 
-- `source` is `MOCK_CASE`, `deterministic` is `true`, every fault's `target` is `mock-case`, unknown fields are refused.
+- **Whose faults.** A plan may hold faults for several targets (the PERD §37.1 example holds a `mock-case` fault and a `mock-switch` fault). mock-case applies exactly the faults whose `target` is `mock-case` and counts the rest as ignored: `GET /control/v1/fault-plan` reports `applied_faults` and `ignored_faults`. A plan whose `source` is `MOCK_CASE` holds mock-case faults only. A target or effect no plan may name is refused, so a typo cannot become a plan that injects nothing.
+- `deterministic: true` limits every `probability` to 0 or 1; mock-case has no probabilistic fault, so a mock-case fault's probability is 0 (never fires, consumes no call) or 1 (the default).
 - `operation`: `create_case`, `find_cases`, `get_case`, `route_case`, `create_complaint`, `find_complaints`, `get_complaint`, `append_evidence`, `find_evidence`, `get_evidence`.
-- `match`: `nth_call` (1 or more) and exact-match request attributes that the operation can actually supply (`tenant_id`, `principal_id`, `transaction_ref`, `idempotency_key`, `case_id`). A fault's counter counts only the calls that match its other keys, so unrelated traffic never moves `nth_call`. The first matching fault in plan order applies. A malformed request is counted but never faulted.
-- `effect` and `params`:
+- `match`: `nth_call` (1 or more) and exact-match request attributes the operation can actually supply (`tenant_id`, `principal_id`, `transaction_ref`, `idempotency_key`, `case_id`). A fault's counter counts only the calls that match its other keys, so unrelated traffic never moves `nth_call`. The first matching fault in plan order applies. A malformed request is counted but never faulted. The fault trace names each fault by its position in the plan's `faults`.
+- `effect` and `params` (the schema fixes them per effect):
 
 | Effect | Params | What happens |
 |---|---|---|
@@ -54,8 +67,6 @@ A fault never marks the response: no header or field tells the caller a fault wa
 
 - `clock.start` starts a simulated clock (all stored times follow it, in UTC); `clock.advances[]` are applied when the runner calls `POST /control/v1/clock/advance {"step": "<at_step>"}`; `{"by": "PT31S"}` advances directly. Without a `clock` block the wall clock is used.
 - `seed` makes identifiers and references a pure function of (seed, kind, counter, clock): the same plan, seed and simulated clock give identical IDs, state and fault trace (`TestReplayFromTheSameSeedIsIdentical`, via `/truth/v1/digest`).
-
-The operation names, params and match keys above are mock-case's reading of PERD §37.1, which names only `create_case`, `TIMEOUT_AFTER_COMMIT`, `nth_call` and `delay_ms`. The fault-plan schema (`contracts/schemas/fault-plan.v1.json`, owned by the benchmark owner) should adopt them or replace them; `internal/faultplan` is the one place to change.
 
 ## Tests
 

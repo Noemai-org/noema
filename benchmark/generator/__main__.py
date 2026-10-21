@@ -11,6 +11,7 @@ from benchmark.contracts import sha256_of
 from .coverage import load_pack_capabilities, render, report
 from .generate import DEFAULT_SEED, GENERATOR_NAME, GENERATOR_VERSION, generate, write
 from .library import BY_CATEGORY
+from .mutations import PROPOSED
 
 
 def assumptions() -> str:
@@ -19,6 +20,7 @@ def assumptions() -> str:
     rows = [a for arcs in BY_CATEGORY.values() for a in arcs if a.basis == "INFERRED"]
     lines = [f"{len(rows)} of {sum(len(v) for v in BY_CATEGORY.values())} archetypes carry an INFERRED expectation:"]
     lines += [f"  {a.key} ({a.cat}; {', '.join(a.covers)})" + (f": {a.note}" if a.note else "") for a in rows]
+    lines.append(f"{len(PROPOSED)} mutations are PROPOSED expectations awaiting review: {', '.join(PROPOSED)}")
     return "\n".join(lines)
 
 

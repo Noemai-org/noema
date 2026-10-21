@@ -185,7 +185,8 @@ func (e *env) bench(method, path string, body any) resp {
 func key(k string) map[string]string { return map[string]string{"Idempotency-Key": k} }
 
 func caseBody() map[string]any {
-	return map[string]any{"tenant_id": "ten_a", "principal_id": "usr_1", "transaction_ref": "TX88213", "reason_code": "CREDIT_MISSING"}
+	return map[string]any{"tenant_id": "ten_a", "principal_id": "usr_1", "transaction_ref": "TX88213", "reason_code": "CREDIT_MISSING",
+		"created_by_intent": "int_01J9X3", "epoch": 0}
 }
 
 func (e *env) createCase(k string) resp {
