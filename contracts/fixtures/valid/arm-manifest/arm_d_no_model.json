@@ -1,0 +1,30 @@
+{
+  "arm_id": "D",
+  "arm_name": "Deterministic rules",
+  "status": "BUILT",
+  "date": "2026-11-09",
+  "configuration": {
+    "model": null,
+    "prompt_or_config_version": "arm-a-prompt@1",
+    "code_version": "0000000000000000000000000000000000000001",
+    "pack_version": "fintech@1.0.0",
+    "policy_version": "fin.pol@3.1",
+    "scenario_version": "frozen-2026-11-09",
+    "seed": 1337,
+    "environment_version": "compose-2026-11-09",
+    "same_inputs_as_noema": true
+  },
+  "effort": {
+    "engineering_hours": 12.5,
+    "setup_hours": 3.0,
+    "lines_of_code": 850,
+    "lines_of_configuration": 120,
+    "integration_burden": "Direct adapter calls; no policy engine."
+  },
+  "review": {
+    "builder": "ARM",
+    "reviewer": "REV",
+    "signed_off": true,
+    "signed_on": "2026-11-10"
+  }
+}

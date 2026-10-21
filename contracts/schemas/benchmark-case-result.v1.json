@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-case-result.v1.json",
+  "title": "Benchmark case result",
+  "description": "What the runner recorded for one case in one run (PERD §48.2, REQ-BEN-002 step 5 'collects the Record, metrics and oracle state'; REQ-BEN-004). `observed` comes from the public API response and the case's Record; `environment` is the effect readout the oracle client took from the synthetic enterprise after the run (REQ-ENV-002). Scoring is a pure function of (cases, oracles, these results, the capability registry): a recorded result file is enough to reproduce a score (REQ-BEN-002 acceptance). A case that could not be run has status ERROR and no observed or environment block; it counts as not correctly handled and marks the run INCOMPLETE (REQ-BEN-001). The format is a smallest safe default under AGENT-02 (PERD names the collected items, not their fields). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "run_id": { "$ref": "#/$defs/RunId" },
+    "case_id": { "type": "string", "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$" },
+    "case_version": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "status": { "type": "string", "enum": ["COMPLETED", "ERROR"] },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+          },
+          "required": ["code", "message"],
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ]
+    },
+    "observed": {
+      "oneOf": [{ "$ref": "#/$defs/Observed" }, { "type": "null" }]
+    },
+    "environment": {
+      "oneOf": [{ "$ref": "#/$defs/Environment" }, { "type": "null" }]
+    },
+    "path": {
+      "description": "The PERD §47 path this case took, for latency by path, for example CLEAN, CLARIFICATION, ESCALATION.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "latency_ms": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+    "cost_usd_micros": {
+      "description": "Provider cost for the case in millionths of a US dollar. An integer, never a float.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "outcome_digest": {
+      "description": "SHA-256 of the authoritative outcome (disposition, verdicts, effects) for the replay check (INV-21, REQ-ENV-004). Null for an ERROR.",
+      "oneOf": [{ "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash" }, { "type": "null" }]
+    }
+  },
+  "required": ["run_id", "case_id", "case_version", "status", "error", "observed", "environment", "path", "latency_ms", "cost_usd_micros", "outcome_digest"],
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "COMPLETED" } }, "required": ["status"] },
+      "then": {
+        "properties": {
+          "error": { "type": "null" },
+          "observed": { "type": "object" },
+          "environment": { "type": "object" },
+          "outcome_digest": { "type": "string" }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": { "type": "object" },
+          "observed": { "type": "null" },
+          "environment": { "type": "null" },
+          "outcome_digest": { "type": "null" }
+        }
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "RunId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "Effect": {
+      "description": "A write the synthetic enterprise really applied: capability, target and how many times.",
+      "type": "object",
+      "properties": {
+        "capability": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "target": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+        "count": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      },
+      "required": ["capability", "target", "count"],
+      "additionalProperties": false
+    },
+    "Dispatch": {
+      "description": "A DISPATCH_ATTEMPTED event in the Record. `grant` is how the Record shows the grant at spend: VALID (issued, unexpired, unspent, matching), MISSING, EXPIRED, SPENT (already spent) or UNMATCHED (does not bind this capability, target or parameters).",
+      "type": "object",
+      "properties": {
+        "capability": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "target": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+        "grant": { "type": "string", "enum": ["VALID", "MISSING", "EXPIRED", "SPENT", "UNMATCHED"] }
+      },
+      "required": ["capability", "target", "grant"],
+      "additionalProperties": false
+    },
+    "VerdictRow": {
+      "description": "An Outcome verdict for one write.",
+      "type": "object",
+      "properties": {
+        "capability": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "target": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+        "verdict": { "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict" }
+      },
+      "required": ["capability", "target", "verdict"],
+      "additionalProperties": false
+    },
+    "Claim": {
+      "description": "One claim in a customer-visible explanation (the explanation's claim map). `bound_fact_status` is the status of the fact the claim is bound to, or null when it is bound to none (REQ-EXP-002). Only a KNOWN fact supports a certain statement (INV-13).",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "bound_fact_status": {
+          "oneOf": [
+            { "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FactStatus" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["text", "bound_fact_status"],
+      "additionalProperties": false
+    },
+    "Observed": {
+      "type": "object",
+      "properties": {
+        "disposition": { "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DecisionOutcome" },
+        "classification": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]*$" },
+        "resolved_target": {
+          "oneOf": [{ "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" }, { "type": "null" }]
+        },
+        "clarification_asked": { "type": "boolean" },
+        "escalation_opened": { "type": "boolean" },
+        "dispatches": { "type": "array", "items": { "$ref": "#/$defs/Dispatch" } },
+        "verdicts": { "type": "array", "items": { "$ref": "#/$defs/VerdictRow" } },
+        "audit_events": {
+          "description": "The distinct event types in the case's Record.",
+          "type": "array",
+          "items": { "$ref": "https://contracts.noema.invalid/record-event.v1.json#/$defs/RecordEventType" },
+          "uniqueItems": true
+        },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/Claim" } },
+        "disclosed_refs": {
+          "description": "Every resource that appeared in a customer-visible output: candidates, options, explanations.",
+          "type": "array",
+          "items": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef" },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "disposition",
+        "classification",
+        "resolved_target",
+        "clarification_asked",
+        "escalation_opened",
+        "dispatches",
+        "verdicts",
+        "audit_events",
+        "claims",
+        "disclosed_refs"
+      ],
+      "additionalProperties": false
+    },
+    "Environment": {
+      "description": "The readout of the synthetic enterprise after the run, taken by the oracle client.",
+      "type": "object",
+      "properties": {
+        "effects": { "type": "array", "items": { "$ref": "#/$defs/Effect" } },
+        "oracle_accesses_by_runtime": {
+          "description": "Oracle accesses by any identity other than the benchmark runner (REQ-ENV-002).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "model_governance_changes": {
+          "description": "Changes to policy, identity, allowlists, audit records or credentials traced to the model service's identity.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "monetary_calls": {
+          "description": "Calls that reached a monetary route of the synthetic enterprise.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": ["effects", "oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls"],
+      "additionalProperties": false
+    }
+  }
+}

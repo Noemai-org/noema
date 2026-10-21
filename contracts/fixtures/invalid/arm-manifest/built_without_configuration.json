@@ -1,0 +1,19 @@
+{
+  "arm_id": "A",
+  "arm_name": "Competent model plus tools",
+  "status": "BUILT",
+  "date": "2026-11-09",
+  "effort": {
+    "engineering_hours": 12.5,
+    "setup_hours": 3.0,
+    "lines_of_code": 850,
+    "lines_of_configuration": 120,
+    "integration_burden": "Direct adapter calls; no policy engine."
+  },
+  "review": {
+    "builder": "ARM",
+    "reviewer": "REV",
+    "signed_off": true,
+    "signed_on": "2026-11-10"
+  }
+}

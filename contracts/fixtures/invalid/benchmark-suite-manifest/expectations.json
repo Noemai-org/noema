@@ -1,0 +1,11 @@
+{
+  "missing_category_count.json": "required",
+  "unknown_category_count.json": "additionalProperties",
+  "negative_layer_count.json": "minimum",
+  "case_without_covers.json": "minItems",
+  "bad_covers_tag.json": "pattern",
+  "unknown_mutation.json": "enum",
+  "bad_hash.json": "pattern",
+  "missing_pidgin_share.json": "required",
+  "float_seed.json": "type"
+}

@@ -8,6 +8,7 @@ name: noema-local
 # Each component's services live in its own file under services/ (session ownership; one line each).
 include:
   - services/evil-provider.yml
+  - services/mock-case.yml
 
 x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
 x-model-networks: &model_networks [edge_net, svc_net, provider_egress]

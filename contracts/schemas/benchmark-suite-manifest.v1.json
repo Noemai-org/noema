@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-suite-manifest.v1.json",
+  "title": "Benchmark suite manifest",
+  "description": "What a generator run produced (PERD §48.1 'every result records the generator version and seed', §48.4, BEN-01). One entry per case with the SHA-256 of the case file's canonical bytes, the user stories, edge cases, fault families and capabilities the case covers (the coverage report reads these), and, for a mutated case, its base case and mutation. The same generator version and seed give a byte-identical manifest (REQ-BEN-001). The held-out set is never listed here. SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "suite_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{1,63}$"
+    },
+    "suite_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver"
+    },
+    "generator": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "version": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Semver" },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["name", "version", "seed"],
+      "additionalProperties": false
+    },
+    "layer_counts": {
+      "description": "Cases per layer. No case is counted twice (PERD §48.1).",
+      "type": "object",
+      "properties": {
+        "GENERATED": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "HELD_OUT": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "PARTNER": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["GENERATED", "HELD_OUT", "PARTNER"],
+      "additionalProperties": false
+    },
+    "category_counts": {
+      "description": "Cases per PERD §48.1 category. Every category key is present, with 0 when empty.",
+      "type": "object",
+      "properties": {
+        "CLEAN_UNIQUE": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "AMBIGUITY": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "STATE_CONFLICT": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "TIMEOUT_UNKNOWN": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "DUPLICATE_REPLAY": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "AUTHORISATION": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "POLICY_CLOCK": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "PROMPT_INJECTION": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "STALE_SESSION": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "INTEGRATION_HOSTILITY": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": [
+        "CLEAN_UNIQUE",
+        "AMBIGUITY",
+        "STATE_CONFLICT",
+        "TIMEOUT_UNKNOWN",
+        "DUPLICATE_REPLAY",
+        "AUTHORISATION",
+        "POLICY_CLOCK",
+        "PROMPT_INJECTION",
+        "STALE_SESSION",
+        "INTEGRATION_HOSTILITY"
+      ],
+      "additionalProperties": false
+    },
+    "pidgin_or_code_switched": {
+      "description": "Cases whose locale_mix names pcm or more than one tag, and their share of all cases (PERD §48.1: at least 30%). The share is reported with its numerator and denominator, never alone.",
+      "type": "object",
+      "properties": {
+        "count": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "of": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      },
+      "required": ["count", "of"],
+      "additionalProperties": false
+    },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ManifestCase" }
+    }
+  },
+  "required": [
+    "suite_id",
+    "suite_version",
+    "generator",
+    "layer_counts",
+    "category_counts",
+    "pidgin_or_code_switched",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Covers": {
+      "description": "One coverage tag: a user story (US-01), a supporting story (PUS-01), an edge case (EC-A01), a fault effect (FAULT:TIMEOUT_AFTER_COMMIT; PERD §37.1 effect enum, or FAULT:NONE for a case that injects none) or a capability (CAP:fin.cap.create_escalation_case; each prohibited capability too, AGENT-06).",
+      "type": "string",
+      "pattern": "^(US-[0-9]{2}|PUS-[0-9]{2}|EC-[A-Z][0-9]{2}|FAULT:[A-Z0-9_]+|CAP:[a-z][a-z0-9]*\\.cap\\.[a-z][a-z0-9_]*)$"
+    },
+    "Mutation": {
+      "description": "A PERD §48.4 mutation (kinds AMBIGUITY, STATE, TEMPORAL, RECOVERY), or one of the four attack families the architecture review adds to the generator (kind FAMILY, DEC-2026-10-20 T4 item 3): name collision, injection inside a beneficiary name, candidate flooding beyond 20, and a cross-principal probe. The mutated case inherits the base case's oracle, adjusted by the mutation's declared effect.",
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["AMBIGUITY", "STATE", "TEMPORAL", "RECOVERY", "FAMILY"] },
+        "name": {
+          "type": "string",
+          "enum": [
+            "ADD_NEAR_DUPLICATE_CANDIDATE",
+            "PERTURB_AMOUNT",
+            "ALIAS_NAME",
+            "SHIFT_TIME_WINDOW",
+            "FLIP_SOURCE_UNAVAILABLE",
+            "FLIP_SOURCE_STALE",
+            "FLIP_SOURCE_CONTRADICTORY",
+            "ADD_LATE_REVERSAL",
+            "ADD_DUPLICATE_DEBIT",
+            "POLICY_PUBLISH_AT_STEP",
+            "CLOCK_SKEW",
+            "WEBHOOK_DELAYED_PAST_DEADLINE",
+            "SESSION_EXPIRY_MID_FLOW",
+            "TIMEOUT_AFTER_COMMIT",
+            "HTTP_5XX",
+            "HTTP_429_BEYOND_GRANT_EXPIRY",
+            "VERSION_CONFLICT",
+            "RESTART_AT_STEP",
+            "NAME_COLLISION",
+            "INJECTION_IN_NAME",
+            "CANDIDATE_FLOODING",
+            "CROSS_PRINCIPAL_PROBE"
+          ]
+        }
+      },
+      "required": ["kind", "name"],
+      "additionalProperties": false
+    },
+    "ManifestCase": {
+      "type": "object",
+      "properties": {
+        "case_id": { "type": "string", "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "suite_layer": { "type": "string", "enum": ["GENERATED", "HELD_OUT", "PARTNER"] },
+        "category": { "$ref": "https://contracts.noema.invalid/benchmark-case.v1.json#/properties/category" },
+        "sha256": { "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash" },
+        "covers": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/Covers" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "base_case_id": {
+          "description": "The case this one was mutated from, or null for a base case.",
+          "oneOf": [
+            { "type": "string", "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$" },
+            { "type": "null" }
+          ]
+        },
+        "mutation": {
+          "oneOf": [
+            { "$ref": "#/$defs/Mutation" },
+            { "type": "null" }
+          ]
+        }
+      },
+      "required": ["case_id", "version", "suite_layer", "category", "sha256", "covers", "base_case_id", "mutation"],
+      "additionalProperties": false
+    }
+  }
+}

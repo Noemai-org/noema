@@ -1,0 +1,55 @@
+# mock-case CI (ENV-08). Builds and tests synthetic/mock_case only, against a real PostgreSQL (REQ-TST-004).
+# No GitHub Environment: it needs no secret. The workflow always triggers so its check always reports; the path
+# filter runs inside the job.
+name: mock-case
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  mock-case:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(synthetic/mock_case/|deploy/compose/services/mock-case|\.github/workflows/mock-case\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: synthetic/mock_case/go.mod
+          cache-dependency-path: synthetic/mock_case/go.sum
+      - if: steps.changed.outputs.run == 'true'
+        working-directory: synthetic/mock_case
+        env:
+          MOCK_CASE_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+          go build ./...
+      - if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-mock-case:ci synthetic/mock_case
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "no synthetic/mock_case change; nothing to build"
