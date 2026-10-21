@@ -36,6 +36,14 @@ class Determinism(unittest.TestCase):
             self.assertEqual(case["generator"], {"name": GENERATOR_NAME, "version": GENERATOR_VERSION, "seed": SEED})
 
 
+class Golden(unittest.TestCase):
+    def test_manifest_digest_is_pinned(self) -> None:
+        """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
+        from benchmark.contracts import sha256_of
+        self.assertEqual(GENERATOR_VERSION, "1.0.0")
+        self.assertEqual(sha256_of(suite().manifest), "sha256:f8f8117c2bbd1981549782b9749deb99db5a24c09e36605391854f5f7058e518")
+
+
 class Quotas(unittest.TestCase):
     def test_category_counts_are_the_perd_table(self) -> None:
         """PERD §48.1 category table; the release suite has at least 320 cases."""
@@ -95,7 +103,8 @@ class Consistency(unittest.TestCase):
             oracle = suite().oracles[case_id]
             self.assertEqual(oracle["case_id"], case_id)
             self.assertEqual(oracle["case_version"], case["version"])
-            self.assertEqual(case["oracle_ref"], f"oracle/{case_id}.json")
+            self.assertEqual(case["oracle_ref"], f"oracle/{case_id.split('-')[1].lower()}/{case_id.lower().replace('-', '_')}_v1.json")
+            self.assertIn(case["oracle_ref"], suite().files)
             fixture = suite().files[case["known_facts_fixture"]]
             refs = {t["ref"] for t in json.loads(fixture)["transactions"]} | {c["ref"] for c in json.loads(fixture)["cases"]}
             principal_ids = {p["principal_id"] for p in json.loads(fixture)["principals"]}

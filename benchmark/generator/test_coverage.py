@@ -4,19 +4,22 @@ import unittest
 
 from benchmark.generator import catalogue
 from benchmark.generator.coverage import PackCapabilities, load_pack_capabilities, report
-from benchmark.generator.generate import generate
+from benchmark.generator.generate import Suite, generate
 
 SEED = 20261020
 
 
 class Coverage(unittest.TestCase):
+    suite: Suite
+    pack: PackCapabilities
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.suite = generate(SEED)
         cls.pack = load_pack_capabilities()
 
     def test_default_suite_has_no_gaps(self) -> None:
-        result = report(self.suite.manifest, self.pack)
+        result = report(self.suite.manifest, self.pack, self.suite.cases)
         self.assertEqual(result.gaps, [], "\n".join(result.gaps))
 
     def test_the_rule_names_what_it_checks(self) -> None:
