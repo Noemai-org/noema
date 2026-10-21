@@ -26,6 +26,14 @@ EVENTS = """### 32.2 Event types [ADOPTED]
 
 Text after the table.
 """
+STATES = """### 28.2 Investigation state machine [ADOPTED]
+
+**RECEIVED**
+
+- Exit and allowed next states: → INTERPRETING.
+
+### 28.3 State requirements
+"""
 
 
 def row(version: str, current: bool) -> str:
@@ -46,7 +54,7 @@ class DocsCheckout(unittest.TestCase):
         subprocess.check_call(["git", "init", "-q", str(self.docs)])
 
     def perd(self, version: str, events: str = EVENTS):
-        (self.docs / f"docs/poc/perd/NOEMA_POC_PERD_v{version}.md").write_text(f"# PERD v{version}\n\n{events}", encoding="utf-8")
+        (self.docs / f"docs/poc/perd/NOEMA_POC_PERD_v{version}.md").write_text(f"# PERD v{version}\n\n{events}\n{STATES}", encoding="utf-8")
 
     def readme(self, *rows: str):
         (self.docs / "docs/poc/perd/README.md").write_text(TABLE.format(rows="\n".join(rows)), encoding="utf-8")
@@ -117,9 +125,21 @@ class ExtractFollowsTheResolvedFile(DocsCheckout):
     def test_the_whole_file_copies_name_the_commit(self):
         self.perd("1.10"); self.readme(row("1.10", True))
         out = rd.expected(self.docs, "e" * 40)
-        self.assertEqual(sorted(out), ["AGENTS.md", "CLAUDE.md", "contracts/perd-32-2-event-types.md", "contracts/state-registry.md"])
+        self.assertEqual(sorted(out), ["AGENTS.md", "CLAUDE.md", "contracts/perd-32-2-event-types.md", "contracts/state-registry.md",
+                                    "services/core/orchestrator/perd-28-2-state-machine.md"])
         for target in ("AGENTS.md", "CLAUDE.md", "contracts/state-registry.md"):
             self.assertIn("docs commit " + "e" * 40, out[target].splitlines()[0])
+
+
+class StateExtract(DocsCheckout):
+    def test_section_28_2_is_copied_verbatim_and_stops_at_the_next_heading(self):
+        self.perd("1.1")
+        self.readme(row("1.1", True))
+        out = rd.expected(self.docs, "e" * 40)["services/core/orchestrator/perd-28-2-state-machine.md"]
+        self.assertIn("### 28.2 Investigation state machine [ADOPTED]", out)
+        self.assertIn("→ INTERPRETING", out)
+        self.assertNotIn("28.3 State requirements", out)
+        self.assertIn("docs commit " + "e" * 40, out)
 
 
 if __name__ == "__main__":
