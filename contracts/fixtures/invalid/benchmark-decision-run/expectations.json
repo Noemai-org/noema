@@ -1,0 +1,16 @@
+{
+  "unknown_provider.json": "enum",
+  "ran_without_model.json": "required",
+  "not_run_without_reason.json": "required",
+  "not_run_with_results.json": "maxItems",
+  "not_run_with_model.json": "not",
+  "ran_with_not_run_reason.json": "not",
+  "answered_without_confidence.json": "type",
+  "error_with_answer.json": "type",
+  "confidence_above_one.json": "maximum",
+  "bad_variant.json": "pattern",
+  "negative_latency.json": "minimum",
+  "cost_as_float.json": "type",
+  "region_with_capitals.json": "pattern",
+  "bad_cases_version.json": "pattern"
+}

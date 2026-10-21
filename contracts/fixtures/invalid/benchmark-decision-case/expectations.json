@@ -1,0 +1,16 @@
+{
+  "unknown_task.json": "enum",
+  "unknown_bucket.json": "enum",
+  "bad_case_id.json": "pattern",
+  "choice_with_one_option.json": "minItems",
+  "duplicate_options.json": "uniqueItems",
+  "unknown_question_type.json": "enum",
+  "unknown_perturbation.json": "enum",
+  "too_many_options_offered.json": "maxItems",
+  "option_id_shape.json": "pattern",
+  "held_out_provenance.json": "const",
+  "missing_generator.json": "required",
+  "extra_field.json": "additionalProperties",
+  "empty_text.json": "minLength",
+  "unknown_channel.json": "enum"
+}
