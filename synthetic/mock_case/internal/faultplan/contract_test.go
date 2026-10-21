@@ -16,11 +16,13 @@ const fixtures = "../../../../contracts/fixtures/"
 // Rejected by the schema alone: each is a fault for another component, whose parameters and pairing its producer
 // (the hostility proxy, Tushe's fault controller) checks. mock-case counts such a fault and ignores it.
 var schemaOnly = map[string]string{
-	"schema_drift_unknown_change.json": "params of another component's effect",
-	"clock_skew_not_integer.json":      "params of another component's effect",
-	"paginate_page_size_zero.json":     "params of another component's effect",
-	"stale_read_without_seconds.json":  "params of another component's effect",
-	"state_change_from_the_proxy.json": "effect and source pairing of another component's fault",
+	"schema_drift_unknown_change.json":        "params of another component's effect",
+	"clock_skew_not_integer.json":             "params of another component's effect",
+	"paginate_page_size_zero.json":            "params of another component's effect",
+	"stale_read_without_seconds.json":         "params of another component's effect",
+	"state_change_from_the_proxy.json":        "effect and source pairing of another component's fault",
+	"impossible_state_without_fixture.json":   "params of another component's effect",
+	"impossible_state_fixture_with_path.json": "params of another component's effect",
 }
 
 func TestContractFixturesValid(t *testing.T) {

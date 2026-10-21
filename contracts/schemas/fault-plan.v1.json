@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/fault-plan.v1.json",
   "title": "FaultPlan",
-  "description": "The declarative, seeded fault specification attached to every benchmark case (PERD §37.1, REQ-ENV-004; effect enum and sources adopted by DEC-2026-10-12 D3 and D4 and DEC-2026-10-17 OD-P-38). The benchmark owner owns every plan, whichever source runs it. SYNTHETIC (AGENT-25). Reading rules the PERD leaves implicit, fixed here: (1) `source` names who produces the plan's faults on Tushe and the proxy; a fault whose `target` is `mock-case` is always produced by mock-case, whatever the source, which is how the PERD §37.1 example holds a mock-case fault and a mock-switch fault in one plan; (2) a plan whose source is MOCK_CASE holds mock-case faults only; (3) the state-change effects exist only in Tushe's fault controller, so they need source TUSHE; (4) `deterministic: true` means every `probability` is 0 or 1, and a fault without `probability` always fires when its match holds; (5) the operation names and parameters of a target other than mock-case follow that target's own interface and are checked by its producer, not here. The `clock` block drives only Noema's simulated clock and mock-case, never Tushe. `expected_trace_events` is written by the producer for the oracle; a plan may carry it empty.",
+  "description": "The declarative, seeded fault specification attached to every benchmark case (PERD §37.1, REQ-ENV-004; effect enum and sources adopted by DEC-2026-10-12 D3 and D4 and DEC-2026-10-17 OD-P-38). The benchmark owner owns every plan, whichever source runs it. SYNTHETIC (AGENT-25). Reading rules the PERD leaves implicit, fixed here: (1) `source` names who produces the plan's faults on Tushe and the proxy; a fault whose `target` is `mock-case` is always produced by mock-case, whatever the source, which is how the PERD §37.1 example holds a mock-case fault and a mock-switch fault in one plan; (2) a plan whose source is MOCK_CASE holds mock-case faults only; (3) the four state-change effects (SPLIT_STATE, DEBIT_WITHOUT_CREDIT, DELAYED_SETTLEMENT, DELAYED_REVERSAL) exist only in Tushe's fault controller, so they need source TUSHE, while IMPOSSIBLE_STATE is served by the hostility proxy as a named SYNTHETIC fixture, because Tushe refuses to fake impossible state (DEC-2026-10-12 D4, REQ-ENV-005; the PERD §37.1 table lists it with the controller's effects); (4) `deterministic: true` means every `probability` is 0 or 1, and a fault without `probability` always fires when its match holds; (5) the operation names and parameters of a target other than mock-case follow that target's own interface and are checked by its producer, not here. The `clock` block drives only Noema's simulated clock and mock-case, never Tushe. `expected_trace_events` is written by the producer for the oracle; a plan may carry it empty.",
   "type": "object",
   "properties": {
     "fault_plan_id": {
@@ -126,8 +126,7 @@
                     "SPLIT_STATE",
                     "DEBIT_WITHOUT_CREDIT",
                     "DELAYED_SETTLEMENT",
-                    "DELAYED_REVERSAL",
-                    "IMPOSSIBLE_STATE"
+                    "DELAYED_REVERSAL"
                   ]
                 }
               },
@@ -605,11 +604,45 @@
             "properties": {
               "effect": {
                 "enum": [
+                  "IMPOSSIBLE_STATE"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "fixture": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "description": "The name of an impossible-data fixture (labelled SYNTHETIC) the hostility proxy serves in place of the real response."
+                  }
+                },
+                "required": [
+                  "fixture"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
                   "SPLIT_STATE",
                   "DEBIT_WITHOUT_CREDIT",
                   "DELAYED_SETTLEMENT",
-                  "DELAYED_REVERSAL",
-                  "IMPOSSIBLE_STATE"
+                  "DELAYED_REVERSAL"
                 ]
               }
             },

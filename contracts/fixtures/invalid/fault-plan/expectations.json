@@ -44,5 +44,7 @@
   "advance_duration_in_years.json": "pattern",
   "advance_duration_empty_time.json": "pattern",
   "advance_step_with_space.json": "pattern",
-  "expected_trace_events_not_objects.json": "type"
+  "expected_trace_events_not_objects.json": "type",
+  "impossible_state_without_fixture.json": "required",
+  "impossible_state_fixture_with_path.json": "pattern"
 }
