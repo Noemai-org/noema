@@ -1,0 +1,14 @@
+{
+  "fault_plan_id": "fp_case_create_timeout_after_commit_v1",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 42,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": [
+    { "target": "mock-case", "operation": "create_case", "match": { "nth_call": 1 }, "effect": "TIMEOUT_AFTER_COMMIT", "params": { "delay_ms": 50 } }
+  ],
+  "clock": {
+    "start": "2026-10-01T09:40:00+01:00",
+    "advances": [ { "at_step": "after_receipt", "by": "PT31S" } ]
+  }
+}

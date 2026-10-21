@@ -34,20 +34,32 @@ NETWORKS = {
     "sentinel-tushe": {"tushe_net"},
     "sentinel-provider": {"provider_egress"},
     "sentinel-bench": {"bench_net"},
+    # mock-case (ENV-08): the case API on tushe_net, the truth and control API on bench_net. "mock-case-truth" is
+    # the truth listener of the same container, modelled as a bench_net-only target: its address is the bench_net
+    # one, so tushe_net callers must be refused.
+    "mock-case": {"tushe_net", "bench_net"},
+    "mock-case-truth": {"bench_net"},
+    "mock-case-db": {"bench_net"},
 }
 TARGETS = {  # service -> host:port a probe connects to
     "postgres": "postgres:5432", "temporal": "temporal:7233", "core": "core:8080", "model": "model:8081",
     "ui": "ui:8082", "sentinel-tushe": "sentinel-tushe:9000", "sentinel-provider": "sentinel-provider:9000",
     "sentinel-bench": "sentinel-bench:9000",
+    "mock-case": "mock-case:8090", "mock-case-truth": "mock-case:8091", "mock-case-db": "mock-case-db:5432",
 }
 # Paths the brief names as forbidden. Each must come out refused.
 MUST_BE_REFUSED = [
     ("model", "postgres"), ("model", "temporal"), ("model", "sentinel-tushe"), ("model", "sentinel-bench"),
     ("core", "sentinel-provider"), ("core", "sentinel-bench"), ("ui", "postgres"), ("ui", "temporal"),
     ("ui", "sentinel-tushe"), ("ui", "sentinel-provider"), ("ui", "sentinel-bench"),
+    # mock-case (REQ-ENV-002): neither the core nor the model nor the UI reaches the truth endpoint or its database.
+    ("core", "mock-case-truth"), ("model", "mock-case-truth"), ("ui", "mock-case-truth"),
+    ("core", "mock-case-db"), ("model", "mock-case-db"), ("ui", "mock-case-db"),
+    ("model", "mock-case"), ("ui", "mock-case"),
 ]
 # Networks that are not Docker-internal, per service: the only routes out of the stack (PERD §65.1).
-EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"}}
+EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"},
+                   "mock-case": set(), "mock-case-db": set()}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
 failures: list[str] = []
@@ -66,7 +78,7 @@ def check_membership() -> None:
     print("1. network membership from `docker compose config`")
     config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
     for name, expected in NETWORKS.items():
-        if name == "model-no-egress":  # a probe-only variant, checked below through probe-model-no-egress
+        if name in ("model-no-egress", "mock-case-truth"):  # not services: variants and listeners, checked through their probes
             continue
         actual = set(config["services"][name].get("networks") or {})
         status = "ok" if actual == expected else "MISMATCH"
@@ -217,8 +229,81 @@ def check_database() -> None:
             fail(f"{user} -> {db}: expected {'connect' if allowed else 'refusal'}")
 
 
+# What the identity probe must see on mock-case (REQ-ENV-002, REQ-ENV-008): the bench credential opens the truth
+# endpoint, and every runtime identity (the case adapter's credential, no credential, a guessed one) is refused there.
+MOCK_CASE_EXPECTED = {
+    "truth_with_bench_credential": 200,
+    "truth_with_runtime_credential": 403,
+    "truth_without_credential": 401,
+    "truth_with_guessed_credential": 401,
+    "reset_with_runtime_credential": 403,
+    "fault_plan_with_runtime_credential": 403,
+    "case_api_with_bench_credential": 403,
+    "case_api_with_runtime_credential": 200,
+    "case_api_without_credential": 401,
+    "case_health_is_open": 200,
+}
+MOCK_CASE_SERVICES = ["mock-case", "mock-case-db", "mock-case-credentials", "probe-bench"]
+
+
+def check_mock_case() -> None:
+    print("6. mock-case: the truth endpoint opens for the bench credential and refuses every runtime identity")
+    out = run(COMPOSE + ["run", "--rm", "--no-deps", "-T", "probe-bench", "python", "/mock_case_probe.py"])
+    try:
+        seen = json.loads(out.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        fail(f"probe-bench gave no result: {out.stderr.strip()[:200]}")
+        return
+    for name, want in MOCK_CASE_EXPECTED.items():
+        got = seen.get(name)
+        print(f"  {name:36} {got} {'ok' if got == want else f'!= {want}'}")
+        if got != want:
+            fail(f"mock-case {name}: expected {want}, saw {got}")
+
+
+def check_evil_provider() -> None:
+    """Row for the evil provider (T4 item 9): bench profile only, on provider_egress only, no published port, reachable
+    from the model's network and from nothing else. Its own rows; no other component's row is touched."""
+    print("7. evil provider (bench profile only; ADV-08)")
+    plain = ["docker", "compose", "-f", str(HERE.parent / "docker-compose.yml")]
+    if "evil-provider" in json.loads(run(plain + ["--profile", "dev", "config", "--format", "json"]).stdout)["services"]:
+        fail("evil-provider is present without the bench profile")
+    bench = COMPOSE + ["--profile", "bench"]
+    service = json.loads(run(bench + ["config", "--format", "json"]).stdout)["services"].get("evil-provider")
+    if service is None:
+        fail("evil-provider is missing from the bench profile")
+        return
+    networks = set(service.get("networks") or {})
+    print(f"  evil-provider      {sorted(networks)} {'ok' if networks == {'provider_egress'} else 'MISMATCH'}")
+    if networks != {"provider_egress"}:
+        fail(f"evil-provider is on {sorted(networks)}, expected only provider_egress")
+    if service.get("ports"):
+        fail("evil-provider publishes a port")
+    if set(service.get("profiles") or []) != {"bench"}:
+        fail(f"evil-provider is in profiles {service.get('profiles')}, expected only bench")
+    up = run(bench + ["up", "-d", "--wait", "--no-deps", "evil-provider"])
+    if up.returncode != 0:
+        fail(f"evil-provider did not start: {up.stderr.strip()[:200]}")
+        return
+    try:
+        target = "evil-provider:8090"
+        for probe, may in (("probe-core", False), ("probe-ui", False), ("probe-model", True)):
+            out = run(bench + ["run", "--rm", "--no-deps", "-T", probe, "python", "/probe.py", target])
+            try:
+                got = json.loads(out.stdout.strip().splitlines()[-1])[target]
+            except (ValueError, IndexError, KeyError):
+                fail(f"{probe} gave no result for the evil provider: {out.stderr.strip()[:200]}")
+                continue
+            want = "open" if may else "refused"
+            print(f"  {probe:18} -> evil-provider {got} (expected {want})")
+            if got != want:
+                fail(f"{probe} -> evil-provider: expected {want}, saw {got}")
+    finally:
+        run(bench + ["rm", "-sf", "evil-provider"])
+
+
 def main() -> int:
-    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench"])
+    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
@@ -227,7 +312,9 @@ def main() -> int:
     check_real_model()
     check_database()
     check_egress()
-    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"])
+    check_mock_case()
+    check_evil_provider()
+    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES)
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1
