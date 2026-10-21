@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-proxy-test env-proxy-build
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-relay-test env-relay-build env-proxy-test env-proxy-build
 
 build:
 	docker build -t noema-core:dev services/core
@@ -72,3 +72,10 @@ env-proxy-test:
 
 env-proxy-build:
 	docker build -t noema-hostility-proxy:dev benchmark/hostility_proxy
+
+# webhook relay (ENV-13): standard library only; no database or network needed.
+env-relay-test:
+	cd synthetic/webhook_relay && test -z "$$(gofmt -l .)" && go vet ./... && go test -race -count=1 ./...
+
+env-relay-build:
+	docker build -t noema-webhook-relay:dev synthetic/webhook_relay

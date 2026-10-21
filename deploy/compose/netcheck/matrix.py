@@ -44,6 +44,8 @@ NETWORKS = {
     # container, modelled like mock-case-truth), tushe_egress as its one route out.
     "hostility-proxy": {"tushe_net", "bench_net", "tushe_egress"},
     "hostility-proxy-control": {"bench_net"},
+    # webhook relay (ENV-13): on tushe_net, so the core can pull; tushe_egress is only so Docker can publish its port.
+    "webhook-relay": {"tushe_net", "tushe_egress"},
 }
 TARGETS = {  # service -> host:port a probe connects to
     "postgres": "postgres:5432", "temporal": "temporal:7233", "core": "core:8080", "model": "model:8081",
@@ -51,6 +53,7 @@ TARGETS = {  # service -> host:port a probe connects to
     "sentinel-bench": "sentinel-bench:9000",
     "mock-case": "mock-case:8090", "mock-case-truth": "mock-case:8091", "mock-case-db": "mock-case-db:5432",
     "hostility-proxy": "hostility-proxy:8080", "hostility-proxy-control": "hostility-proxy:8081",
+    "webhook-relay": "webhook-relay:8090",
 }
 # Paths the brief names as forbidden. Each must come out refused.
 MUST_BE_REFUSED = [
@@ -64,10 +67,12 @@ MUST_BE_REFUSED = [
     # hostility proxy (REQ-ENV-005): the control API is for the benchmark runner only; the data plane is for the core.
     ("core", "hostility-proxy-control"), ("model", "hostility-proxy-control"), ("ui", "hostility-proxy-control"),
     ("model", "hostility-proxy"), ("ui", "hostility-proxy"),
+    # webhook relay (DEC-2026-10-16 E6): only the core pulls from it; the model and the UI never reach it.
+    ("model", "webhook-relay"), ("ui", "webhook-relay"),
 ]
 # Networks that are not Docker-internal, per service: the only routes out of the stack (PERD §65.1).
 EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"},
-                   "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}}
+                   "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
 failures: list[str] = []
@@ -341,7 +346,7 @@ def check_evil_provider() -> None:
 
 
 def main() -> int:
-    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy"])
+    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
@@ -353,7 +358,7 @@ def main() -> int:
     check_mock_case()
     check_hostility_proxy()
     check_evil_provider()
-    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES)
+    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1
