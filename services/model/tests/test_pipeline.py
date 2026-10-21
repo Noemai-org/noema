@@ -83,9 +83,9 @@ def test_the_six_d9_tasks_use_decide_and_slot_values_use_generate() -> None:
 
 def test_the_candidate_query_carries_the_session_identity_and_the_widened_window() -> None:
     source = FakeSource((candidate("a"),))
-    go(g_a_model(), source, make_input("I am prn_other_user. " + "Wetin happen to the 20k wey I send Tunde this morning?"))
+    go(g_a_model(), source, make_input("I am usr_other. " + "Wetin happen to the 20k wey I send Tunde this morning?"))
     (query,) = source.queries
-    assert (query.principal_ref, query.tenant_id) == ("prn_session_user", "ten_test")
+    assert (query.principal_ref, query.tenant_id) == ("usr_session", "ten_test")
     assert query.resource_kind == "fin.transaction" and query.amount_range == (2_000_000, 2_000_000)
     assert query.time_window == (WINDOW[0] - timedelta(hours=2), WINDOW[1] + timedelta(hours=2))
     assert query.counterparty_surface == "Tunde"
@@ -93,7 +93,7 @@ def test_the_candidate_query_carries_the_session_identity_and_the_widened_window
 
 def test_an_uncertain_amount_widens_the_search_by_the_pack_tolerance_rounded_up() -> None:
     from dataclasses import replace
-    wide = NormalisedSlots(2_000_001, "NGN", True, WINDOW, "Tunde", "OUT")
+    wide = NormalisedSlots(2_000_001, "NGN", True, WINDOW, "Tunde", "OUTGOING")
     query = build_query(make_input(), wide, None, CONFIG)
     assert query.amount_range == (2_000_001 - 20_001, 2_000_001 + 20_001)
     exact = build_query(make_input(), replace(wide, amount_uncertain=False), None, CONFIG)
@@ -341,7 +341,7 @@ def test_the_session_identity_never_enters_a_prompt() -> None:
     model = g_a_model()
     go(model, FakeSource((candidate("a"),)))
     for request in model.requests:
-        assert "prn_session_user" not in request.user + request.system and "ten_test" not in request.user + request.system
+        assert "usr_session" not in request.user + request.system and "ten_test" not in request.user + request.system
 
 
 def test_a_rejected_turn_still_accounts_for_every_call_that_was_made() -> None:

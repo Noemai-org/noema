@@ -20,7 +20,7 @@ Which provider serves each task is harness configuration (`decide.<task>` routes
 
 The pipeline owns none of these, and none is faked here:
 
-- `CandidateSource`: the client of the core's Evidence API (REQ-CTX-006). Waiting on the T2 candidate-read contract.
+- `CandidateSource`: implemented by `noema_model.evidence.EvidenceClient`, written to `candidates-request.v1.json` and `candidates-response.v1.json`. The pipeline never imports it (it imports no HTTP); the service wires it in. The contract requires a time window, so with none the pipeline reads nothing and reports `NO_CANDIDATES`.
 - `Normalise`: the deterministic lexicon, whose values win over a model's (REQ-INT-003, UND-05).
 - `Gate`: the schema gate on the assembled Intent Object (REQ-INT-001). Waiting on generated contract types (CON-03).
 

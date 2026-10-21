@@ -131,7 +131,7 @@ def full_routes(drop: tuple[str, ...] = ()) -> dict[str, Any]:
 
 def make_input(text: str = "Wetin happen to the 20k wey I send Tunde this morning?", **over: Any) -> PipelineInput:
     base: dict[str, Any] = dict(
-        correlation_id="cor_test", principal_ref="prn_session_user", tenant_id="ten_test", channel="text", text=text,
+        correlation_id="corr_test", principal_ref="usr_session", tenant_id="ten_test", channel="text", text=text,
         locale_hint=None, transcript_is_final=True, key_slot_low_asr=False, candidate_set_id="cs_test", candidate_set_version=1,
     )
     return PipelineInput(**{**base, **over})
@@ -146,7 +146,7 @@ def normaliser(inp: PipelineInput, proposal: Proposal) -> NormalisedSlots:
         amount_uncertain=False,
         window=WINDOW,
         counterparty_surface=(proposal.mentions["counterparty"].surface_form or None) if "counterparty" in proposal.mentions else None,
-        expected_direction="OUT",
+        expected_direction="OUTGOING",
     )
 
 
@@ -155,17 +155,20 @@ def no_errors(proposal: Proposal, normalised: NormalisedSlots) -> tuple[str, ...
 
 
 def candidate(cid: str, who: str = "Tunde Adeyemi", *, amount: int = 2_000_000, at: datetime = T0, alias: bool | None = True) -> Candidate:
-    return Candidate(cid, f"res_{cid}", amount, "NGN", at, who, "0001", "OUT", alias)
+    return Candidate(cid, f"res_{cid}", amount, "NGN", at, who, "0001", "OUTGOING", alias)
 
 
 @dataclass
 class FakeSource:
     rows: tuple[Candidate, ...] = ()
     fail: bool = False
+    raises: Exception | None = None
     queries: list[CandidateQuery] = field(default_factory=list)
 
     async def fetch(self, query: CandidateQuery) -> tuple[Candidate, ...]:
         self.queries.append(query)
+        if self.raises is not None:
+            raise self.raises
         if self.fail:
             raise CandidateSourceError()
         return self.rows

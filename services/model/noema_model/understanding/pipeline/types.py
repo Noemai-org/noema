@@ -108,6 +108,7 @@ class NormalisedSlots:
 class CandidateQuery:
     """The filters of REQ-CTX-006. The principal and tenant come from the authenticated session, never from text."""
 
+    correlation_id: str
     principal_ref: str
     tenant_id: str
     resource_kind: str | None
@@ -118,7 +119,18 @@ class CandidateQuery:
 
 
 class CandidateSourceError(Exception):
-    """The Evidence API could not answer. The pipeline turns it into a typed, retryable rejection."""
+    """The Evidence API could not answer, or answered with something the contract does not allow. The pipeline turns it
+    into a typed, retryable dependency rejection."""
+
+
+class CandidateRequestInvalid(Exception):
+    """The query cannot be sent as the contract allows (a malformed id, a missing resource kind, an inverted range) or core
+    refused it as malformed. Not retryable: the same query fails the same way."""
+
+
+class CandidateScopeError(Exception):
+    """Core answered 403: the tenant does not match the authenticated caller (REQ-CTX-006). Never retried, and the caller
+    raises a security event."""
 
 
 class CandidateSource(Protocol):

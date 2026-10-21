@@ -16,6 +16,8 @@ from noema_model.harness import CallRecord, Harness, HarnessRejection
 from noema_model.understanding.pipeline import steps
 from noema_model.understanding.pipeline.types import (
     CandidateQuery,
+    CandidateRequestInvalid,
+    CandidateScopeError,
     CandidateSource,
     CandidateSourceError,
     Gate,
@@ -33,6 +35,7 @@ from noema_model.understanding.resolution import Candidate, Context, Resolution,
 GATE_INPUT_INVALID = "INPUT_INVALID"
 GATE_EVIDENCE_UNAVAILABLE = "DEPENDENCY_UNAVAILABLE"
 GATE_OUT_OF_BOUNDS = "SCHEMA_INVALID"
+GATE_TENANT_SCOPE = "TENANT_SCOPE_MISMATCH"
 
 
 def _stopped(
@@ -66,6 +69,7 @@ def build_query(inp: PipelineInput, normalised: NormalisedSlots, resource_kind: 
             delta = -(-wide.numerator // wide.denominator)  # rounded up, so the search is never narrower than the ramp
         amount_range = (max(0, normalised.amount_minor - delta), normalised.amount_minor + delta)
     return CandidateQuery(
+        correlation_id=inp.correlation_id,
         principal_ref=inp.principal_ref,
         tenant_id=inp.tenant_id,
         resource_kind=resource_kind,
@@ -150,11 +154,19 @@ async def run_pipeline(
     if search is None:
         return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     query = build_query(inp, normalised, search.resource_kind, config)
-    try:
-        candidates = await source.fetch(query)
-    except CandidateSourceError:
-        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
-                        proposal=proposal, normalised=normalised, signals=signals)
+    candidates: tuple[Candidate, ...] = ()
+    if query.time_window is not None:  # the read contract requires a window; with none there is nothing to read
+        try:
+            candidates = await source.fetch(query)
+        except CandidateScopeError:
+            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_TENANT_SCOPE,),
+                            proposal=proposal, normalised=normalised, signals=signals)
+        except CandidateRequestInvalid:
+            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
+                            proposal=proposal, normalised=normalised, signals=signals)
+        except CandidateSourceError:
+            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
+                            proposal=proposal, normalised=normalised, signals=signals)
     if len(candidates) > config.ranking.max_raw_candidates:
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_OUT_OF_BOUNDS,),
                         proposal=proposal, normalised=normalised, signals=signals)
