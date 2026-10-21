@@ -49,11 +49,18 @@ contracts-validate:
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test
+.PHONY: bench-test bench-venv bench bench-live
 BENCH_VENV := .venv-bench
-bench-test:
+BENCH_PY := $(BENCH_VENV)/bin/python
+BENCH_SEED ?= 20261020
+BENCH_OUT ?= benchmark/out
+BENCH_RUN_ID ?= local
+BENCH_RUNNER_ARGS ?=
+bench-venv:
 	python3 -m venv $(BENCH_VENV)
 	$(BENCH_VENV)/bin/pip install -q --require-hashes -r benchmark/requirements-dev.lock
+
+bench-test: bench-venv
 	$(BENCH_VENV)/bin/python -m unittest discover -s benchmark -t . -p 'test_*.py'
 	$(BENCH_VENV)/bin/python -m mypy -p benchmark --config-file benchmark/pyproject.toml
 
@@ -65,6 +72,23 @@ env-mock-case-test:
 
 env-mock-case-build:
 	docker build -t noema-mock-case:dev synthetic/mock_case
+
+# make bench: the generated layer end to end (T4 of DEC-2026-10-20). Generate the suite (a coverage gap fails here), say what this build can run, run it, score it.
+# The environment comes in through BENCH_RUNNER_ARGS (see `python -m benchmark.runner --help`). Without it, or without a core and a fixture loader, the run is
+# "not run: no access" and exits 3: nothing is faked and nothing is scored. Exit 0: complete and Tier 0 all zero. 1: incomplete, or a gate is not zero. 2: bad input.
+bench: bench-venv
+	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite
+	$(BENCH_PY) -m benchmark.runner --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/run --support $(BENCH_RUNNER_ARGS)
+	rm -rf $(BENCH_OUT)/run $(BENCH_OUT)/score
+	$(BENCH_PY) -m benchmark.runner --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/run --run-id $(BENCH_RUN_ID) $(BENCH_RUNNER_ARGS); rc=$$?; \
+	if [ $$rc -eq 3 ]; then echo "make bench: not run, no access (see $(BENCH_OUT)/run/run-manifest.json)"; exit 3; fi; \
+	if [ $$rc -ge 2 ]; then exit $$rc; fi; \
+	$(BENCH_PY) -m benchmark.scoring --cases $(BENCH_OUT)/suite/cases --oracles $(BENCH_OUT)/suite/oracle --results $(BENCH_OUT)/run/results \
+	  --pack packs/fintech_v1.json --manifest $(BENCH_OUT)/suite/manifest.json --run-id $(BENCH_RUN_ID) --out $(BENCH_OUT)/score
+
+# The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
+bench-live: bench-venv
+	$(BENCH_PY) -m benchmark.oracle_client.live_check
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:

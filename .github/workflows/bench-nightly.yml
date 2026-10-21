@@ -1,0 +1,54 @@
+# Nightly benchmark (T4 of DEC-2026-10-20, session C; PERD REQ-TST-005). Generates the suite (a coverage gap fails the build), runs it against the environment this
+# repository can reach, scores it, and files one regression issue per failing case, de-duplicated by case ID (benchmark/nightly).
+# Until a core and a fixture loader exist the run is "not run: no access": the job says so and passes, and nothing is scored or filed (nothing is faked).
+# Generated layer only. Nothing here reads or mounts benchmark-heldout (INV-22, REQ-AGT-004). No secret is read: issues are filed with the workflow's own token.
+name: bench-nightly
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: bench-nightly
+  cancel-in-progress: false
+jobs:
+  bench:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - id: bench
+        run: |
+          set +e
+          make bench BENCH_RUN_ID="nightly-${{ github.run_id }}"
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        run: |
+          {
+            echo "## Nightly benchmark"
+            case "${{ steps.bench.outputs.code }}" in
+              0) echo "Complete, and Tier 0 at zero." ;;
+              3) echo "**Not run: no access.** A required part of the environment is missing; nothing was run, scored or faked. Reason:"; echo; echo '```'; python3 -c 'import json; print(json.load(open("benchmark/out/run/run-manifest.json"))["not_run_reason"])'; echo '```' ;;
+              1) echo "Scored, but the run is incomplete or a gate is not at zero." ;;
+              *) echo "Failed with exit code ${{ steps.bench.outputs.code }}." ;;
+            esac
+            if [ -f benchmark/out/score/report.md ]; then echo; cat benchmark/out/score/report.md; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: File regression issues
+        if: steps.bench.outputs.code == '0' || steps.bench.outputs.code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          .venv-bench/bin/python -m benchmark.nightly
+          --scorecard benchmark/out/score/scorecard.json --results benchmark/out/run/results --run-manifest benchmark/out/run/run-manifest.json
+          --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+      - name: Result
+        run: |
+          case "${{ steps.bench.outputs.code }}" in
+            0|3) exit 0 ;;
+            *) exit 1 ;;
+          esac
