@@ -44,6 +44,13 @@ class Cli(unittest.TestCase):
             self.assertEqual(manifest["status"], "NOT_RUN")
             self.assertEqual(manifest["counts"]["total"], 320)
 
+    def test_every_missing_counter_source_is_named_in_the_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            code, out = run("--suite", str(suite_dir()), "--out", str(Path(d) / "o"), "--tokens-dir", d)
+            self.assertEqual(code, 3)
+            for counter in ("oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls"):
+                self.assertIn(counter, out)
+
     def test_help_names_every_option(self) -> None:
         with self.assertRaises(SystemExit):
             main(["--help"])

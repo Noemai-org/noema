@@ -153,6 +153,13 @@ class Counters(unittest.TestCase):
         with self.assertRaises(CounterUnavailable):
             RecordGovernance("MODEL").count(None)
 
+    def test_governance_without_a_writer_name_is_unavailable_not_zero(self) -> None:
+        with self.assertRaises(CounterUnavailable):
+            RecordGovernance(None).count([])
+        with self.assertRaises(CounterUnavailable):
+            RecordGovernance("").count([])
+        self.assertIn("unavailable", RecordGovernance(None).describe())
+
     def test_unavailable_and_declared_absent(self) -> None:
         with self.assertRaises(CounterUnavailable):
             Unavailable("monetary_calls", "no Tushe access log").value()
@@ -189,6 +196,14 @@ class Client(unittest.TestCase):
             with self.assertRaises(CounterUnavailable) as raised:
                 client.baseline()
             self.assertIn("oracle_accesses_by_runtime", str(raised.exception))
+
+    def test_missing_sources_are_listed_by_name(self) -> None:
+        with td.StubBench() as stub:
+            client = OracleClient(truth(stub), refusal_log=None, governance=RecordGovernance(None), monetary=Unavailable("monetary_calls", "no Tushe access log"))
+            missing = client.missing_sources()
+            self.assertEqual([m.split(":")[0] for m in missing], ["oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls"])
+            full = self._client(stub, None)
+            self.assertEqual([m.split(":")[0] for m in full.missing_sources()], ["oracle_accesses_by_runtime"])
 
     def test_the_run_manifest_names_where_each_counter_came_from(self) -> None:
         with td.StubBench() as stub, tempfile.TemporaryDirectory() as d:

@@ -154,8 +154,7 @@ def preflight(env: RunEnv) -> list[str]:
         reason = getattr(part, "unavailable_reason", None)
         if reason:
             unmet.append(f"{getattr(part, 'component', 'session provider')}: {reason}")
-    if env.oracle.refusal_log is None:
-        unmet.append("oracle: no mock-case log is configured, so oracle accesses cannot be counted")
+    unmet += [f"oracle counter {missing}" for missing in env.oracle.missing_sources()]
     if unmet:
         return unmet
     try:

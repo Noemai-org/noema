@@ -43,6 +43,10 @@ class OracleClient:
         return {"effects": effects_since(baseline.state, after, commands), "oracle_accesses_by_runtime": accesses,
                 "model_governance_changes": governance, "monetary_calls": monetary}
 
+    def missing_sources(self) -> list[str]:
+        """The counters that have no source, as `name: reason`. A run cannot start while any is missing."""
+        return [f"{name}: {text.removeprefix('unavailable: ')}" for name, text in self.sources().items() if text.startswith("unavailable")]
+
     def sources(self) -> dict[str, str]:
         """Where each counter comes from, for the run manifest."""
         return {

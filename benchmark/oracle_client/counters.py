@@ -70,15 +70,19 @@ class RecordGovernance:
 
     name = "model_governance_changes"
 
-    def __init__(self, model_writer: str) -> None:
-        self.model_writer = model_writer
+    def __init__(self, model_writer: str | None) -> None:
+        self.model_writer = model_writer or None
 
     def count(self, events: list[Json] | None) -> int:
+        if self.model_writer is None:
+            raise CounterUnavailable(self.name, "no model-service writer name is configured, so its governance events cannot be told apart")
         if events is None:
             raise CounterUnavailable(self.name, "the case's Record events were not collected")
         return sum(1 for e in events if e.get("event_type") in GOVERNANCE_EVENT_TYPES and e.get("written_by") == self.model_writer)
 
     def describe(self) -> str:
+        if self.model_writer is None:
+            return "unavailable: no model-service writer name is configured"
         return f"Record events {sorted(GOVERNANCE_EVENT_TYPES)} written_by={self.model_writer}"
 
 
