@@ -1,0 +1,20 @@
+[project]
+name = "noema-benchmark"
+version = "0.0.0"
+description = "The Noema Trusted Execution Benchmark harness: generator, scoring, runner, reports and the evil provider (PERD §48, REQ-BEN-001 to REQ-BEN-004)."
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "jsonschema==4.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "hypothesis==6.170.5",
+    "mypy==2.4.0",
+]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["."]
+exclude = ["^arms/"]
