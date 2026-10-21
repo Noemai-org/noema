@@ -1,0 +1,762 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/fault-plan.v1.json",
+  "title": "FaultPlan",
+  "description": "The declarative, seeded fault specification attached to every benchmark case (PERD §37.1, REQ-ENV-004; effect enum and sources adopted by DEC-2026-10-12 D3 and D4 and DEC-2026-10-17 OD-P-38). The benchmark owner owns every plan, whichever source runs it. SYNTHETIC (AGENT-25). Reading rules the PERD leaves implicit, fixed here: (1) `source` names who produces the plan's faults on Tushe and the proxy; a fault whose `target` is `mock-case` is always produced by mock-case, whatever the source, which is how the PERD §37.1 example holds a mock-case fault and a mock-switch fault in one plan; (2) a plan whose source is MOCK_CASE holds mock-case faults only; (3) the state-change effects exist only in Tushe's fault controller, so they need source TUSHE; (4) `deterministic: true` means every `probability` is 0 or 1, and a fault without `probability` always fires when its match holds; (5) the operation names and parameters of a target other than mock-case follow that target's own interface and are checked by its producer, not here. The `clock` block drives only Noema's simulated clock and mock-case, never Tushe. `expected_trace_events` is written by the producer for the oracle; a plan may carry it empty.",
+  "type": "object",
+  "properties": {
+    "fault_plan_id": {
+      "description": "The ID a benchmark case names in `fault_plan`. `fp_none` names the absence of a plan and is never a plan.",
+      "type": "string",
+      "pattern": "^fp_[a-z0-9][a-z0-9_]{0,95}$",
+      "not": {
+        "const": "fp_none"
+      }
+    },
+    "scenario_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    },
+    "seed": {
+      "description": "With the scenario, reproduces every fault and every generated identifier (REQ-ENV-004).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "deterministic": {
+      "type": "boolean"
+    },
+    "source": {
+      "description": "Who produces the faults (REQ-ENV-004): Tushe's fault controller and test values, the Noema hostility proxy, or mock-case.",
+      "type": "string",
+      "enum": [
+        "TUSHE",
+        "PROXY",
+        "MOCK_CASE"
+      ]
+    },
+    "faults": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Fault"
+      }
+    },
+    "clock": {
+      "$ref": "#/$defs/Clock"
+    },
+    "expected_trace_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "fault_plan_id",
+    "scenario_id",
+    "seed",
+    "deterministic",
+    "source",
+    "faults"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "MOCK_CASE"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "faults": {
+            "items": {
+              "properties": {
+                "target": {
+                  "const": "mock-case"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "deterministic": {
+            "const": true
+          }
+        },
+        "required": [
+          "deterministic"
+        ]
+      },
+      "then": {
+        "properties": {
+          "faults": {
+            "items": {
+              "properties": {
+                "probability": {
+                  "enum": [
+                    0,
+                    1
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "faults": {
+            "contains": {
+              "properties": {
+                "effect": {
+                  "enum": [
+                    "SPLIT_STATE",
+                    "DEBIT_WITHOUT_CREDIT",
+                    "DELAYED_SETTLEMENT",
+                    "DELAYED_REVERSAL",
+                    "IMPOSSIBLE_STATE"
+                  ]
+                }
+              },
+              "required": [
+                "effect"
+              ]
+            }
+          }
+        },
+        "required": [
+          "faults"
+        ]
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "const": "TUSHE"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Fault": {
+      "description": "One fault: where it manifests (`target`, `operation`), when (`match`), and what happens (`effect`, `params`).",
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "The logical service where the fault manifests (PERD §34.1).",
+          "type": "string",
+          "enum": [
+            "mock-ledger",
+            "mock-switch",
+            "mock-destination",
+            "mock-customer",
+            "mock-policy",
+            "mock-case",
+            "mock-clock",
+            "fault-controller",
+            "fixture-loader"
+          ]
+        },
+        "operation": {
+          "description": "The operation of the target. For mock-case, one of its ten operations (checked below); for the others, the target's own name for it.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "match": {
+          "description": "`nth_call` counts the calls that also satisfy the other keys; every other key is an exact string match on a request attribute the operation can supply.",
+          "type": "object",
+          "properties": {
+            "nth_call": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "LATENCY",
+            "TIMEOUT_BEFORE_COMMIT",
+            "TIMEOUT_AFTER_COMMIT",
+            "NEAR_TIMEOUT_BEFORE",
+            "NEAR_TIMEOUT_AFTER",
+            "DROP_RESPONSE",
+            "HTTP_200_SEMANTIC_PENDING",
+            "HTTP_5XX",
+            "HTTP_429",
+            "MALFORMED_RESPONSE",
+            "DROP_WEBHOOK",
+            "DUPLICATE_WEBHOOK",
+            "REORDER_EVENTS",
+            "LATE_EVENT",
+            "STALE_READ",
+            "PAGINATE",
+            "SCHEMA_DRIFT",
+            "CLOCK_SKEW",
+            "SERVICE_UNAVAILABLE",
+            "SPLIT_STATE",
+            "DEBIT_WITHOUT_CREDIT",
+            "DELAYED_SETTLEMENT",
+            "DELAYED_REVERSAL",
+            "IMPOSSIBLE_STATE",
+            "CONCURRENT_MODIFICATION",
+            "POLICY_MUTATION",
+            "IDEMPOTENCY_COLLISION",
+            "INJECTION_PAYLOAD"
+          ]
+        },
+        "params": {
+          "description": "Parameters of the effect; their names and types are fixed per effect below.",
+          "type": "object"
+        },
+        "probability": {
+          "description": "Chance the fault fires when its match holds. With `deterministic: true` it can only be 0 (never) or 1 (always).",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "target",
+        "operation",
+        "effect"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "LATENCY",
+                  "TIMEOUT_BEFORE_COMMIT",
+                  "TIMEOUT_AFTER_COMMIT",
+                  "NEAR_TIMEOUT_BEFORE",
+                  "NEAR_TIMEOUT_AFTER",
+                  "LATE_EVENT"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "delay_ms": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 600000,
+                    "description": "Milliseconds. LATENCY, NEAR_TIMEOUT_* and LATE_EVENT delay the response or the event; TIMEOUT_* hold it that long and then drop it. The upper bound only catches seconds written as milliseconds."
+                  }
+                },
+                "required": [
+                  "delay_ms"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "DROP_RESPONSE",
+                  "HTTP_200_SEMANTIC_PENDING",
+                  "MALFORMED_RESPONSE",
+                  "DROP_WEBHOOK",
+                  "DUPLICATE_WEBHOOK",
+                  "REORDER_EVENTS",
+                  "SERVICE_UNAVAILABLE",
+                  "CONCURRENT_MODIFICATION",
+                  "IDEMPOTENCY_COLLISION"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "HTTP_5XX"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "status": {
+                    "type": "integer",
+                    "minimum": 500,
+                    "maximum": 599,
+                    "description": "The status returned; default 500."
+                  },
+                  "after_commit": {
+                    "type": "boolean",
+                    "description": "true: the command commits first and the caller is told an error anyway; default false."
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "HTTP_429"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "retry_after_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Sent as Retry-After. Omit it for a 429 without the header."
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "STALE_READ"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Reads return the state as it was this many seconds ago."
+                  }
+                },
+                "required": [
+                  "seconds"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "PAGINATE"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "At most this many items per page; the response carries an explicit completeness marker."
+                  }
+                },
+                "required": [
+                  "page_size"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "SCHEMA_DRIFT"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "change": {
+                    "type": "string",
+                    "enum": [
+                      "add",
+                      "rename",
+                      "remove",
+                      "unknown_enum"
+                    ]
+                  },
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "The field changed; the producer picks one when omitted."
+                  }
+                },
+                "required": [
+                  "change"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "CLOCK_SKEW"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "skew_seconds": {
+                    "type": "integer",
+                    "description": "Signed. Timestamps in responses are shifted by this many seconds."
+                  }
+                },
+                "required": [
+                  "skew_seconds"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "POLICY_MUTATION"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "at_step": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]{0,63}$",
+                    "description": "The harness step after which the policy mutates."
+                  }
+                },
+                "required": [
+                  "at_step"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "INJECTION_PAYLOAD"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "required": [
+              "params"
+            ],
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "The field that carries the instruction-like text."
+                  }
+                },
+                "required": [
+                  "field"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "SPLIT_STATE",
+                  "DEBIT_WITHOUT_CREDIT",
+                  "DELAYED_SETTLEMENT",
+                  "DELAYED_REVERSAL",
+                  "IMPOSSIBLE_STATE"
+                ]
+              }
+            },
+            "required": [
+              "effect"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Passed through to the Tushe fault controller, which defines them."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "create_case",
+                  "find_cases",
+                  "get_case",
+                  "route_case",
+                  "create_complaint",
+                  "find_complaints",
+                  "get_complaint",
+                  "append_evidence",
+                  "find_evidence",
+                  "get_evidence"
+                ]
+              },
+              "effect": {
+                "enum": [
+                  "LATENCY",
+                  "TIMEOUT_BEFORE_COMMIT",
+                  "TIMEOUT_AFTER_COMMIT",
+                  "DROP_RESPONSE",
+                  "HTTP_5XX",
+                  "HTTP_429",
+                  "PAGINATE",
+                  "CONCURRENT_MODIFICATION"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "const": "PAGINATE"
+              },
+              "target": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "effect",
+              "target"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "find_cases",
+                  "find_complaints",
+                  "find_evidence"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "const": "CONCURRENT_MODIFICATION"
+              },
+              "target": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "effect",
+              "target"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "const": "route_case"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Clock": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "description": "RFC 3339 with an offset. Starts the simulated clock; every stored time follows it, in UTC.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
+        "advances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "at_step": {
+                "description": "A harness step name; the runner announces it to move the clock.",
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]{0,63}$"
+              },
+              "by": {
+                "description": "An ISO 8601 duration of days, hours, minutes and seconds (PT31S). Years, months and weeks are not accepted.",
+                "type": "string",
+                "pattern": "^P(?:[0-9]+D(?:T(?:[0-9]+H(?:[0-9]+M)?(?:[0-9]+S)?|[0-9]+M(?:[0-9]+S)?|[0-9]+S))?|T(?:[0-9]+H(?:[0-9]+M)?(?:[0-9]+S)?|[0-9]+M(?:[0-9]+S)?|[0-9]+S))$"
+              }
+            },
+            "required": [
+              "at_step",
+              "by"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "start"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

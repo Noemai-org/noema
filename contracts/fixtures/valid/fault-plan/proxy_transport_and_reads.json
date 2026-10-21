@@ -1,0 +1,92 @@
+{
+  "fault_plan_id": "fp_proxy_reads",
+  "scenario_id": "SCN-STATE-014",
+  "seed": 7,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-ledger",
+      "operation": "get_transaction",
+      "effect": "STALE_READ",
+      "params": {
+        "seconds": 120
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "unknown_enum",
+        "field": "semantic_status"
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 2
+      },
+      "effect": "CLOCK_SKEW",
+      "params": {
+        "skew_seconds": -90
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "MALFORMED_RESPONSE"
+    },
+    {
+      "target": "mock-destination",
+      "operation": "events_feed",
+      "effect": "DUPLICATE_WEBHOOK"
+    },
+    {
+      "target": "mock-destination",
+      "operation": "events_feed",
+      "effect": "LATE_EVENT",
+      "params": {
+        "delay_ms": 45000
+      }
+    },
+    {
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "PAGINATE",
+      "params": {
+        "page_size": 2
+      }
+    },
+    {
+      "target": "mock-ledger",
+      "operation": "get_transaction",
+      "effect": "NEAR_TIMEOUT_AFTER",
+      "params": {
+        "delay_ms": 3100
+      }
+    },
+    {
+      "target": "mock-policy",
+      "operation": "get_version",
+      "effect": "POLICY_MUTATION",
+      "params": {
+        "at_step": "after_plan"
+      }
+    },
+    {
+      "target": "mock-customer",
+      "operation": "get_beneficiaries",
+      "effect": "INJECTION_PAYLOAD",
+      "params": {
+        "field": "beneficiary_name"
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SERVICE_UNAVAILABLE"
+    }
+  ]
+}
