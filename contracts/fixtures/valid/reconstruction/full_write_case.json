@@ -143,7 +143,8 @@
           "facts": {
             "capability_id": "fin.cap.create_escalation_case",
             "execution_state": "ACKNOWLEDGED",
-            "attempt": 1
+            "attempt": 1,
+            "grant_state": "VALID"
           }
         }
       ]
@@ -168,7 +169,21 @@
     },
     {
       "kind": "EXPLANATION",
-      "items": []
+      "items": [
+        {
+          "record_event_id": "recev_1005",
+          "object_ref": "ver_9P0",
+          "basis": "RULE",
+          "facts": {
+            "fact_id": "f_case",
+            "text": "A case was opened for your transfer.",
+            "bound_fact_status": "KNOWN",
+            "disclosed_refs": [
+              "fin.transaction:TX88213"
+            ]
+          }
+        }
+      ]
     }
   ],
   "timeline": [

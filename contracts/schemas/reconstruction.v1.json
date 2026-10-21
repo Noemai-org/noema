@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/reconstruction.v1.json",
   "title": "Reconstruction response",
-  "description": "PERD REQ-AUD-003: the body of GET /v1/reconstructions/{correlation_id}. The PERD fixes the content (structured JSON plus a rendered timeline, in the order who, request, ambiguity, resolution, observed state, policy, authority, decision, action, downstream result, verification, explanation; every element built only from Record events and the objects they reference; each element cites its record event ID) and gives no field names. The field names below are a smallest safe default (AGENT-02) for the founders to confirm. The envelope is served only after the chain over the span verified; otherwise the answer is 409 RECORD_INTEGRITY_FAILURE in the error envelope (errors.v1.json) and no unverified data. The twelve sections are always present and always in that order, empty when the Record has nothing for them. Each item cites one Record event; its facts are scalar values projected from the object the event references, never model text (the model said so is never provenance), and a fact that cannot be traced to an evidence item, a versioned rule or an authenticated principal's action is not served. The fact keys named per section are the ones the benchmark runner reads; other scalar keys are allowed. Provider cost is not in the Record and is not part of this response. Ops and audit role only; masked.",
+  "description": "PERD REQ-AUD-003: the body of GET /v1/reconstructions/{correlation_id}. The PERD fixes the content (structured JSON plus a rendered timeline, in the order who, request, ambiguity, resolution, observed state, policy, authority, decision, action, downstream result, verification, explanation; every element built only from Record events and the objects they reference; each element cites its record event ID) and gives no field names. The field names below are a smallest safe default (AGENT-02) for the founders to confirm. The envelope is served only after the chain over the span verified; otherwise the answer is 409 RECORD_INTEGRITY_FAILURE in the error envelope (errors.v1.json) and no unverified data. The twelve sections are always present and always in that order, empty when the Record has nothing for them. Each item cites one Record event; its facts are scalar values projected from the object the event references, never model text (the model said so is never provenance), and a fact that cannot be traced to an evidence item, a versioned rule or an authenticated principal's action is not served. The fact keys named per section are the ones the benchmark runner reads; other scalar keys are allowed. One EXPLANATION item is one claim: its text and the status of the fact it is bound to. Provider cost is not in the Record and is not part of this response; no source for it is defined (the model harness keeps per-call accounting, PERD 19.1, but nothing exposes it here). Ops and audit role only; masked.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -435,7 +435,10 @@
                           },
                           "maxItems": 50
                         }
-                      }
+                      },
+                      "required": [
+                        "decision_outcome"
+                      ]
                     }
                   }
                 }
@@ -469,8 +472,24 @@
                         },
                         "attempt": {
                           "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+                        },
+                        "grant_state": {
+                          "description": "The grant's state at the moment of spend, derived by core from the Record (GRANT_ISSUED, GRANT_SPENT, DISPATCH_ATTEMPTED) and never asserted by a caller: VALID when a grant was issued for this capability, target and parameters, unspent and unexpired at that instant; MISSING when none was issued; EXPIRED, SPENT or UNMATCHED otherwise. Any value but VALID on a dispatch is a breach of INV-03.",
+                          "type": "string",
+                          "enum": [
+                            "VALID",
+                            "MISSING",
+                            "EXPIRED",
+                            "SPENT",
+                            "UNMATCHED"
+                          ]
                         }
-                      }
+                      },
+                      "required": [
+                        "capability_id",
+                        "execution_state",
+                        "grant_state"
+                      ]
                     }
                   }
                 }
@@ -528,14 +547,34 @@
                   "properties": {
                     "facts": {
                       "properties": {
-                        "fact_ids": {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 64
-                          },
-                          "maxItems": 50
+                        "fact_id": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "text": {
+                          "description": "One claim of the rendered explanation, as it was shown (masked).",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        },
+                        "bound_fact_status": {
+                          "description": "The status of the fact this claim is bound to (KNOWN, INFERRED, ...); null when the claim is bound to no fact, which is itself a finding (INV-13).",
+                          "oneOf": [
+                            {
+                              "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FactStatus"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "disclosed_refs": {
                           "type": "array",
@@ -544,7 +583,11 @@
                           },
                           "maxItems": 50
                         }
-                      }
+                      },
+                      "required": [
+                        "text",
+                        "bound_fact_status"
+                      ]
                     }
                   }
                 }

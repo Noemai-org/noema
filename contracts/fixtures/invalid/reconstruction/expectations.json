@@ -11,5 +11,10 @@
   "chain_not_verified.json": "const",
   "extra_top_level_field.json": "additionalProperties",
   "timeline_text_empty.json": "minLength",
-  "events_missing.json": "required"
+  "events_missing.json": "required",
+  "action_without_grant_state.json": "required",
+  "grant_state_unknown_value.json": "enum",
+  "claim_without_bound_status.json": "required",
+  "claim_status_not_a_fact_status.json": "oneOf",
+  "claim_text_empty.json": "minLength"
 }
