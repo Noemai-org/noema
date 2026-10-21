@@ -1,0 +1,12 @@
+{
+  "twenty_one_candidates.json": "maxItems",
+  "full_account_number_field.json": "additionalProperties",
+  "free_text_field.json": "additionalProperties",
+  "long_digit_run_in_display.json": "pattern",
+  "last4_five_digits.json": "pattern",
+  "direction_lowercase.json": "enum",
+  "missing_candidate_id.json": "required",
+  "amount_as_string.json": "type",
+  "occurred_at_not_utc.json": "pattern",
+  "candidates_missing.json": "required"
+}

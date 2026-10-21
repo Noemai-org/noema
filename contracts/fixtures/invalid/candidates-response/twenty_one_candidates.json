@@ -1,0 +1,217 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "candidates": [
+    {
+      "candidate_id": "cand_001",
+      "resource_ref": "fin.transaction:TX88001",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:58:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_002",
+      "resource_ref": "fin.transaction:TX88002",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:57:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_003",
+      "resource_ref": "fin.transaction:TX88003",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:56:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_004",
+      "resource_ref": "fin.transaction:TX88004",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:55:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_005",
+      "resource_ref": "fin.transaction:TX88005",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:54:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_006",
+      "resource_ref": "fin.transaction:TX88006",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:53:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_007",
+      "resource_ref": "fin.transaction:TX88007",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:52:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_008",
+      "resource_ref": "fin.transaction:TX88008",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:51:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_009",
+      "resource_ref": "fin.transaction:TX88009",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:50:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_010",
+      "resource_ref": "fin.transaction:TX88010",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:49:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_011",
+      "resource_ref": "fin.transaction:TX88011",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:48:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_012",
+      "resource_ref": "fin.transaction:TX88012",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:47:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_013",
+      "resource_ref": "fin.transaction:TX88013",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:46:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_014",
+      "resource_ref": "fin.transaction:TX88014",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:45:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_015",
+      "resource_ref": "fin.transaction:TX88015",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:44:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_016",
+      "resource_ref": "fin.transaction:TX88016",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:43:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_017",
+      "resource_ref": "fin.transaction:TX88017",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:42:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_018",
+      "resource_ref": "fin.transaction:TX88018",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:41:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_019",
+      "resource_ref": "fin.transaction:TX88019",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:40:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_020",
+      "resource_ref": "fin.transaction:TX88020",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:39:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    },
+    {
+      "candidate_id": "cand_021",
+      "resource_ref": "fin.transaction:TX88021",
+      "amount_minor": 2000000,
+      "currency": "NGN",
+      "occurred_at": "2026-10-01T09:38:00Z",
+      "counterparty_display": "A. O.",
+      "account_last4": "4821",
+      "direction": "OUTGOING"
+    }
+  ]
+}

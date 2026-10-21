@@ -1,0 +1,88 @@
+{
+  "fault_plan_id": "fp_mock_case_every_effect",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 42,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": [
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "effect": "DROP_RESPONSE",
+      "match": {
+        "nth_call": 1
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "effect": "TIMEOUT_BEFORE_COMMIT",
+      "match": {
+        "idempotency_key": "idk_target"
+      },
+      "params": {
+        "delay_ms": 50
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "effect": "LATENCY",
+      "params": {
+        "delay_ms": 200
+      },
+      "probability": 1
+    },
+    {
+      "target": "mock-case",
+      "operation": "route_case",
+      "effect": "HTTP_5XX",
+      "match": {
+        "case_id": "case_x",
+        "nth_call": 2
+      },
+      "params": {
+        "status": 503,
+        "after_commit": true
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "get_case",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "get_complaint",
+      "effect": "HTTP_429",
+      "params": {}
+    },
+    {
+      "target": "mock-case",
+      "operation": "find_cases",
+      "effect": "PAGINATE",
+      "params": {
+        "page_size": 3
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "route_case",
+      "effect": "CONCURRENT_MODIFICATION"
+    },
+    {
+      "target": "mock-case",
+      "operation": "append_evidence",
+      "effect": "HTTP_5XX"
+    },
+    {
+      "target": "mock-case",
+      "operation": "find_evidence",
+      "effect": "DROP_RESPONSE",
+      "probability": 0
+    }
+  ]
+}

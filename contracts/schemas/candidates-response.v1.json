@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/candidates-response.v1.json",
+  "title": "Candidate read response",
+  "description": "PERD REQ-CTX-006 and REQ-AMB-002: at most 20 candidates, newest first (occurred_at descending; ties by candidate_id ascending, an agent rule so the order is total). JSON Schema cannot check the order; the reader and the Python test over fixtures do. An empty list is a valid answer and means NO_TRANSACTION_MATCH, never 'no such transfer happened' (REQ-AMB-002). A tenant mismatch is not a response: core returns 403 and raises a security event (REQ-CTX-006), and an out-of-scope row does not exist for the caller.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "$ref": "#/$defs/Candidate"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "candidates"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Candidate": {
+      "description": "One masked, candidate-shaped record: only the fields resolution features need (REQ-CTX-006). The field list equals the candidates-api-shape lint's allowed names; a test compares the two.",
+      "type": "object",
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^cand_[0-9A-Za-z]{2,32}$"
+        },
+        "resource_ref": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+        },
+        "amount_minor": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/MinorAmount"
+        },
+        "currency": {
+          "$ref": "https://contracts.noema.invalid/money.v1.json#/$defs/CurrencyCode"
+        },
+        "occurred_at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "counterparty_display": {
+          "description": "Masked display name. At most four consecutive digits, so no account number can pass (the D4 label rule); never an unmasked name.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^(?![^\\n]*[0-9]{5})[^\\n]*$"
+        },
+        "account_last4": {
+          "type": "string",
+          "pattern": "^[0-9]{4}$"
+        },
+        "direction": {
+          "description": "OUTGOING or INCOMING, the two values the synthetic generator uses; no SoT or PERD value list exists (raised as an open decision).",
+          "type": "string",
+          "enum": [
+            "OUTGOING",
+            "INCOMING"
+          ]
+        },
+        "beneficiary_alias_match": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "resource_ref",
+        "amount_minor",
+        "currency",
+        "occurred_at",
+        "counterparty_display",
+        "account_last4",
+        "direction"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

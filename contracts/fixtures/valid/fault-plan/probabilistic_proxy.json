@@ -1,0 +1,15 @@
+{
+  "fault_plan_id": "fp_flaky_switch",
+  "scenario_id": "SCN-EXEC-009",
+  "seed": 11,
+  "deterministic": false,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_5XX",
+      "probability": 0.3
+    }
+  ]
+}
