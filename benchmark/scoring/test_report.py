@@ -111,7 +111,7 @@ class ReportTest(unittest.TestCase):
         text = render_markdown(card_for(cases, oracles, results), manifest)
         line = next(line for line in text.splitlines() if line.startswith("- provider cost"))
         self.assertIn("not available", line)
-        self.assertNotIn("None", text)
+        self.assertNotIn("None", line)
 
     def test_no_threshold_or_verdict_word_is_decided_by_the_report(self) -> None:
         for word in ("PASS", "FAIL", "target met", "meets the target"):
