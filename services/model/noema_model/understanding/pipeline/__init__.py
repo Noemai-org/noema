@@ -6,5 +6,34 @@ May import: noema_model.understanding.{gateway,compiler,resolution}, noema_model
 
 Must never: hold workflow state or module-level mutable state; import a database, Temporal, HTTP or stateful agent-framework client (the pipeline-purity lint); decide; write a clarification question; check policy.
 
-Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with the engine tracks, and nothing is built here yet.
+Public surface: run_pipeline, propose_binding, PipelineConfig and the plain data types. The caller supplies the three
+seams the pipeline does not own: a CandidateSource (the Evidence API client), a Normalise function (the deterministic
+lexicon) and a Gate (the schema gate).
 """
+
+from noema_model.understanding.pipeline.binding import BindingProposal, propose_binding
+from noema_model.understanding.pipeline.catalogue import NodeCatalogue
+from noema_model.understanding.pipeline.run import build_query, run_pipeline
+from noema_model.understanding.pipeline.types import (
+    CandidateQuery,
+    CandidateRequestInvalid,
+    CandidateScopeError,
+    CandidateSource,
+    CandidateSourceError,
+    FlagSpec,
+    LocaleOption,
+    MentionProposal,
+    NormalisedSlots,
+    Outcome,
+    PipelineConfig,
+    PipelineInput,
+    PipelineResult,
+    Proposal,
+)
+
+__all__ = (
+    "BindingProposal", "CandidateQuery", "CandidateRequestInvalid", "CandidateScopeError", "CandidateSource",
+    "CandidateSourceError", "FlagSpec", "LocaleOption",
+    "MentionProposal", "NodeCatalogue", "NormalisedSlots", "Outcome", "PipelineConfig", "PipelineInput",
+    "PipelineResult", "Proposal", "build_query", "propose_binding", "run_pipeline",
+)

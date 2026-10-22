@@ -4,6 +4,6 @@
 
 **REQs.** REQ-INT-001, REQ-INT-002, REQ-INT-003, REQ-AMB-001.
 
-**Status.** Empty boundary package (PLT-01). Filled by UND-01 to UND-08. The import rules and prohibitions are in `__init__.py`.
+**Status.** `pipeline/` (T5) and `resolution/` (T6.3) are built. `gateway/` and `compiler/` are still empty (UND-01 to UND-08). See each sub-package's README. The import rules and prohibitions are in `__init__.py`.
 
-**Tests.** `pytest` from `services/model/` (none for this package yet).
+**Tests.** `pytest` from `services/model/`: `tests/test_pipeline.py`, `tests/test_ranking.py`, `tests/test_matcher.py`.

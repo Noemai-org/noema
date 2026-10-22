@@ -1,0 +1,67 @@
+{
+  "matcher_id": "fin.matcher.recipient",
+  "version": "1.0.0",
+  "mark": "[synthetic seed]",
+  "note": "Recipient-name matcher data for the D5 composed matcher (DEC-2026-10-20). Every entry is a [synthetic seed]: invented for the POC, not reviewed by a native speaker (PERD REQ-INT-003 dependency), and the tier scores are starting values to be set by a benchmark run and a founder decision, not tuned values.",
+  "tiers": {
+    "mark": "[synthetic seed]",
+    "exact": "1",
+    "folded": "1",
+    "alias": "4/5",
+    "phonetic": "3/5",
+    "initial": "2/5"
+  },
+  "fold": {
+    "mark": "[synthetic seed]",
+    "map": {
+      "ɓ": "b",
+      "ɗ": "d",
+      "ƙ": "k",
+      "ƴ": "y",
+      "ʼ": "",
+      "’": "",
+      "'": ""
+    }
+  },
+  "nicknames": [
+    {"nickname": "tunde", "full_names": ["babatunde", "olatunde"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "bisi", "full_names": ["olabisi", "abisola"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "femi", "full_names": ["oluwafemi", "olufemi"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "kemi", "full_names": ["olukemi", "oluwakemi"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "tope", "full_names": ["oluwatope", "olutope"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "seun", "full_names": ["oluwaseun", "olusegun"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "ade", "full_names": ["adebayo", "adewale", "adeola"], "locale": "yo", "mark": "[synthetic seed]"},
+    {"nickname": "emeka", "full_names": ["chukwuemeka"], "locale": "ig", "mark": "[synthetic seed]"},
+    {"nickname": "chidi", "full_names": ["chidiebere", "chidiebube"], "locale": "ig", "mark": "[synthetic seed]"},
+    {"nickname": "ngozi", "full_names": ["ngozichukwu"], "locale": "ig", "mark": "[synthetic seed]"},
+    {"nickname": "ify", "full_names": ["ifeoma", "ifeanyi"], "locale": "ig", "mark": "[synthetic seed]"},
+    {"nickname": "obi", "full_names": ["obinna", "obiageli"], "locale": "ig", "mark": "[synthetic seed]"},
+    {"nickname": "abdu", "full_names": ["abdullahi", "abdulrahman"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"nickname": "sani", "full_names": ["sanusi"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"nickname": "chris", "full_names": ["christopher", "christian"], "locale": "en-NG", "mark": "[synthetic seed]"},
+    {"nickname": "mike", "full_names": ["michael"], "locale": "en-NG", "mark": "[synthetic seed]"}
+  ],
+  "variants": [
+    {"names": ["mohammed", "muhammad", "mohamed", "mohammad", "muhammed"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"names": ["yusuf", "yusuph", "yussuf"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"names": ["aisha", "aishat", "ayisha"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"names": ["khadija", "kadija", "khadijat"], "locale": "ha", "mark": "[synthetic seed]"},
+    {"names": ["ibrahim", "ibraheem"], "locale": "ha", "mark": "[synthetic seed]"}
+  ],
+  "phonetic": {
+    "mark": "[synthetic seed]",
+    "min_key_length": 3,
+    "vowels": "aeiou",
+    "rules": [
+      ["sh", "s"],
+      ["ch", "c"],
+      ["ph", "f"],
+      ["ck", "k"],
+      ["kh", "k"],
+      ["gh", "g"],
+      ["dh", "d"],
+      ["q", "k"],
+      ["x", "ks"]
+    ]
+  }
+}

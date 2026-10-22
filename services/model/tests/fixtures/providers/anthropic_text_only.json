@@ -1,0 +1,14 @@
+{
+  "model": "pinned-model-2026-01-01",
+  "content": [
+    {
+      "type": "text",
+      "text": "Sure! {\"answers\": []}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 5,
+    "output_tokens": 6
+  }
+}
