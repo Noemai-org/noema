@@ -154,19 +154,23 @@ async def run_pipeline(
     if search is None:
         return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     query = build_query(inp, normalised, search.resource_kind, config)
-    candidates: tuple[Candidate, ...] = ()
-    if query.time_window is not None:  # the read contract requires a window; with none there is nothing to read
-        try:
-            candidates = await source.fetch(query)
-        except CandidateScopeError:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_TENANT_SCOPE,),
-                            proposal=proposal, normalised=normalised, signals=signals)
-        except CandidateRequestInvalid:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
-                            proposal=proposal, normalised=normalised, signals=signals)
-        except CandidateSourceError:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
-                            proposal=proposal, normalised=normalised, signals=signals)
+    if query.time_window is None:
+        # The read contract requires a time window (REQ-CTX-006). With none, no search runs, so there is no empty result and
+        # NO_TRANSACTION_MATCH (REQ-AMB-002: an empty set) would claim something that was never looked for. The time is what
+        # is missing: raise the pack's time flag, which Trust turns into a question (PERD 20.3, 22.2), and read nothing.
+        flags = tuple(sorted({*proposal.ambiguity_flags, config.time_missing_flag}))
+        return PipelineResult(Outcome.PROPOSED, proposal, normalised, flags, (), None, None, signals, tuple(calls))
+    try:
+        candidates = await source.fetch(query)
+    except CandidateScopeError:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_TENANT_SCOPE,),
+                        proposal=proposal, normalised=normalised, signals=signals)
+    except CandidateRequestInvalid:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
+                        proposal=proposal, normalised=normalised, signals=signals)
+    except CandidateSourceError:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
+                        proposal=proposal, normalised=normalised, signals=signals)
     if len(candidates) > config.ranking.max_raw_candidates:
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_OUT_OF_BOUNDS,),
                         proposal=proposal, normalised=normalised, signals=signals)

@@ -56,6 +56,7 @@ def pipeline_config() -> PipelineConfig:
         material_flags=frozenset({"MULTIPLE_INTENTS", "CONTRADICTS_PRIOR_TURN", "INTENT_UNCLEAR", "OUT_OF_SCOPE_REQUEST"}),
         intent_unclear_flag="INTENT_UNCLEAR",
         out_of_scope_flag="OUT_OF_SCOPE_REQUEST",
+        time_missing_flag="TIME_VAGUE",
         state_flags={
             ResolutionState.NO_CANDIDATES: "NO_TRANSACTION_MATCH",
             ResolutionState.AMBIGUOUS: "MULTIPLE_TRANSACTIONS_MATCH",
