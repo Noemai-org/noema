@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/record-event.v1.json",
   "title": "Record event",
-  "description": "SoT §43.6 and PERD §32.2. The Record is append-only and hash-chained per tenant (INV-11). Each power appends events about its own objects and cannot modify or delete. The first event of a tenant's chain has prev_hash of 64 zeros. The event_type list is the PERD §32.2 table (v1.9), described on RecordEventType. Hash correctness is checked by the chain verification job, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
+  "description": "SoT \u00a743.6 and PERD \u00a732.2. The Record is append-only and hash-chained per tenant (INV-11). Each power appends events about its own objects and cannot modify or delete. The first event of a tenant's chain has prev_hash of 64 zeros. The event_type list is the PERD \u00a732.2 table (v1.9), described on RecordEventType. Hash correctness is checked by the chain verification job, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
   "$defs": {
     "RecordEventType": {
-      "description": "PERD §32.2 (53 types) plus four types that PERD requirements already use and that DEC-2026-10-18 adds to the table (PERD v1.9, Noemai-org/docs#14): AUDIO_RETAINED (REQ-VOI-004), INBOUND_EVENT_RECEIVED (REQ-API-008), RESOLUTION_POSTED (REQ-API-007), CONFIG_CHANGED (REQ-OPS-003). Not Record events, so not in this list: INTENT_SUPERSEDED (REQ-INT-004) and STATE_CHANGED (REQ-RES-004) are reasons carried by GRANT_VOIDED, and RECORD_ACCESSED (REQ-AUD-003) is written to the access log, not the chain.",
+      "description": "PERD \u00a732.2 (53 types) plus four types that PERD requirements already use and that DEC-2026-10-18 adds to the table (PERD v1.9, Noemai-org/docs#14): AUDIO_RETAINED (REQ-VOI-004), INBOUND_EVENT_RECEIVED (REQ-API-008), RESOLUTION_POSTED (REQ-API-007), CONFIG_CHANGED (REQ-OPS-003). Not Record events, so not in this list: INTENT_SUPERSEDED (REQ-INT-004) and STATE_CHANGED (REQ-RES-004) are reasons carried by GRANT_VOIDED, and RECORD_ACCESSED (REQ-AUD-003) is written to the access log, not the chain.",
       "type": "string",
       "enum": [
         "INPUT_RECEIVED",
@@ -127,7 +127,8 @@
           "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
         },
         "reason": {
-          "$ref": "#/$defs/GrantVoidReason"
+          "description": "GRANT_VOIDED carries a GrantVoidReason; PROVIDER_FAILOVER carries a ProviderFailoverReason. No other event carries one.",
+          "type": "string"
         }
       },
       "required": [
@@ -171,11 +172,56 @@
               "event_type": {
                 "const": "GRANT_VOIDED"
               }
-            }
+            },
+            "required": [
+              "event_type"
+            ]
           },
           "then": {
             "required": [
               "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/GrantVoidReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "PROVIDER_FAILOVER"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/ProviderFailoverReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "enum": [
+                  "GRANT_VOIDED",
+                  "PROVIDER_FAILOVER"
+                ]
+              }
+            },
+            "required": [
+              "event_type"
             ]
           },
           "else": {
@@ -195,6 +241,15 @@
             }
           }
         }
+      ]
+    },
+    "ProviderFailoverReason": {
+      "type": "string",
+      "description": "Why the Intent Compiler failed over to the next provider; carried by PROVIDER_FAILOVER only (PERD v1.12 REQ-INT-002, DEC-2026-10-21-int-002-refusal-failover). PROVIDER_ERROR: the provider returned an error. TIMEOUT: it did not answer in time. REFUSED_REPLY: it replied in the wrong format, failing the schema check of REQ-INT-001; it does not mean the provider declined to answer. The values are a default for the Founders to confirm.",
+      "enum": [
+        "PROVIDER_ERROR",
+        "TIMEOUT",
+        "REFUSED_REPLY"
       ]
     }
   },

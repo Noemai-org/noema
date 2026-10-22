@@ -1,0 +1,37 @@
+{
+  "run_id": "nightly-2026-10-21",
+  "status": "INCOMPLETE",
+  "not_run_reason": null,
+  "suite": {
+    "suite_id": "generated-v1",
+    "suite_version": "1.1.0",
+    "manifest_sha256": "sha256:abababababababababababababababababababababababababababababababab",
+    "generator": {
+      "name": "noema-casegen",
+      "version": "1.1.0",
+      "seed": 20261020
+    }
+  },
+  "pack_version": "fin@1.0.0",
+  "policy_version": "fin.pol@3.1",
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "providers": [
+    "evil-provider"
+  ],
+  "counts": {
+    "total": 320,
+    "run": 318,
+    "completed": 300,
+    "error": 18,
+    "invalid": 2
+  },
+  "errors_by_code": {
+    "FAULT_UNSUPPORTED": 12,
+    "EVENT_KIND_UNSUPPORTED": 6
+  },
+  "invalid_case_ids": [
+    "BEN-CLEAN-0002",
+    "BEN-AMB-0001"
+  ],
+  "clock_start": "2026-10-01T09:40:00+01:00"
+}

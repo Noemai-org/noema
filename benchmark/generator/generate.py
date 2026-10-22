@@ -13,11 +13,12 @@ from benchmark.contracts import pretty_bytes, sha256_of
 
 from .archetype import Arc, Instance, instantiate
 from .catalogue import CATEGORY_CODES, CATEGORY_QUOTAS
+from .faultplans import plan_document
 from .library import BY_CATEGORY
 from .mutations import MUTATIONS, Mutation
 
 GENERATOR_NAME = "noema-casegen"
-GENERATOR_VERSION = "1.0.0"
+GENERATOR_VERSION = "1.2.0"
 SUITE_ID = "generated-v1"
 SUITE_VERSION = "1.0.0"
 DEFAULT_SEED = 20261020
@@ -88,20 +89,12 @@ def _pack_versions() -> tuple[str, str]:
     return f"{pack['pack_id']}@{pack['pack_version']}", f"{pack['policy']['policy_id']}@{pack['policy']['version']}"
 
 
-def _fault_plan(case_id: str, inst: Instance) -> Json:
-    return {
-        "plan_id": f"fp_{case_id.lower().replace('-', '_')}", "synthetic": True, "case_id": case_id,
-        "provisional": "PERD §37.1 shape; the fault-plan schema is owned by the environment track and replaces this file's format when it lands",
-        "faults": inst.faults, "harness_effects": list(inst.arc.harness),
-    }
-
-
 def build_case(p: Planned, seed: int, pack_version: str, policy_version: str) -> tuple[Json, Json, Json, Json | None, list[str]]:
     inst = instantiate(p.arc, seed, p.variant)
     fixture = json.loads(json.dumps(inst.world.fixture))
     fixture["fixture_id"] = f"fx_{CATEGORY_CODES[p.category].lower()}_{p.number:04d}"
     fixture["principals"][0]["roles"] = list(p.arc.roles)
-    plan_doc = _fault_plan(p.case_id, inst) if inst.faults or p.arc.harness else None
+    plan_doc, _ = plan_document(p.case_id, seed, inst.faults)
     case: Json = {
         "case_id": p.case_id, "version": 1, "suite_layer": "GENERATED",
         "generator": {"name": GENERATOR_NAME, "version": GENERATOR_VERSION, "seed": seed},
@@ -110,7 +103,7 @@ def build_case(p: Planned, seed: int, pack_version: str, policy_version: str) ->
         "goal": inst.goal, "utterances": [{"turn": i, "text": t} for i, t in enumerate(inst.utterances, start=1)],
         "known_facts_fixture": f"fixtures/{fixture['fixture_id']}.json",
         "events_timeline": [{"at": at, "event": event} for at, event in inst.timeline],
-        "fault_plan": plan_doc["plan_id"] if plan_doc else "fp_none",
+        "fault_plan": plan_doc["fault_plan_id"] if plan_doc else "fp_none",
         "policy_version": policy_version, "pack_version": pack_version, "permitted_capabilities": inst.permitted,
         "expected": inst.expected, "oracle_ref": oracle_path(p),
         "safety_gate_relevance": _unique(p.arc.gates), "severity_if_failed": p.arc.sev, "provenance": "generated",
@@ -140,7 +133,7 @@ def generate(seed: int = DEFAULT_SEED) -> Suite:
         files[case["oracle_ref"]] = pretty_bytes(oracle)
         files[fixture_path] = pretty_bytes(fixture)
         if fault_plan:
-            files[f"fault_plans/{fault_plan['plan_id']}.json"] = pretty_bytes(fault_plan)
+            files[f"fault_plans/{fault_plan['fault_plan_id']}.json"] = pretty_bytes(fault_plan)
         entries.append({
             "case_id": p.case_id, "version": 1, "suite_layer": "GENERATED", "category": p.category, "sha256": sha256_of(case), "covers": covers,
             "base_case_id": base_ids[p.base_key] if p.mutation else None,

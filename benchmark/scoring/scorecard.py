@@ -164,14 +164,16 @@ def score(
     }
 
     # Tier 3
-    cost = sum(r["cost_usd_micros"] for r in own_result.values())
+    # Cost is the sum over completed cases. One with no cost (null: not available, no source exists yet) makes the total null: a partial sum would mislead.
+    costs = [r["cost_usd_micros"] for r in own_result.values() if r["status"] == "COMPLETED"]
+    cost = None if any(c is None for c in costs) else sum(costs)
     paths: dict[str, list[int]] = defaultdict(list)
     for case_id, result in own_result.items():
         if result["status"] == "COMPLETED":
             paths[result["path"]].append(result["latency_ms"])
     tier3 = {
         "cost_usd_micros_total": cost,
-        "cost_usd_micros_per_correct_outcome": cost // len(handled) if handled else None,
+        "cost_usd_micros_per_correct_outcome": cost // len(handled) if handled and cost is not None else None,
         "latency": _latency([v for values in paths.values() for v in values]),
         "latency_by_path": {p: _latency(v) for p, v in sorted(paths.items())},
         "human_minutes": None,

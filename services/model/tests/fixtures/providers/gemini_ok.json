@@ -1,0 +1,25 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "REASONING-MARKER-must-never-surface",
+            "thought": true
+          },
+          {
+            "text": "{\"answers\": []}"
+          }
+        ]
+      },
+      "finishReason": "STOP"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 30,
+    "thoughtsTokenCount": 10
+  },
+  "modelVersion": "pinned-model-2026-01-01"
+}

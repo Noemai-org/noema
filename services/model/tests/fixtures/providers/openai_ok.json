@@ -1,0 +1,23 @@
+{
+  "id": "chatcmpl-synthetic",
+  "object": "chat.completion",
+  "model": "pinned-model-2026-01-01",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"answers\": []}",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 30,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    }
+  }
+}

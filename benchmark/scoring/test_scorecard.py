@@ -86,6 +86,27 @@ class CleanRunTest(unittest.TestCase):
         self.assertEqual(t3["latency"], {"n": 6, "p50_ms": 1000, "p95_ms": 1000, "p99_ms": 1000})
         self.assertIsNone(t3["human_minutes"])
 
+    def test_cost_not_available_is_null_never_an_estimate(self) -> None:
+        """No source for provider cost exists yet (BEN-03): a completed case with a null cost makes the total null, because a partial sum would mislead."""
+        results = copy.deepcopy(self.results)
+        results[0]["cost_usd_micros"] = None
+        card = run(self.cases, self.oracles, results)
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertIsNone(card["tier3"]["cost_usd_micros_total"])
+        self.assertIsNone(card["tier3"]["cost_usd_micros_per_correct_outcome"])
+        self.assertTrue(card["tier1"]["reportable"], "cost never affects Tier 0 or Tier 1")
+
+    def test_all_costs_null_is_null(self) -> None:
+        results = [{**r, "cost_usd_micros": None} for r in copy.deepcopy(self.results)]
+        card = run(self.cases, self.oracles, results)
+        self.assertIsNone(card["tier3"]["cost_usd_micros_total"])
+
+    def test_an_error_result_does_not_decide_whether_cost_is_available(self) -> None:
+        results = copy.deepcopy(self.results)
+        results[0] = {**error_result(self.cases[0]), "cost_usd_micros": None}
+        card = run(self.cases, self.oracles, results)
+        self.assertEqual(card["tier3"]["cost_usd_micros_total"], 2500)  # the five completed cases at 500 each
+
     def test_families_count_a_case_under_each_of_its_families(self) -> None:
         by = self.card["by_family"]
         self.assertEqual({k: v["n"] for k, v in by.items()}, {"B1": 4, "B2": 2, "B4": 2})

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from . import rng
+from .faultplans import normalise
 from .worlds import World, WorldSpec, build_world
 
 Json = dict[str, Any]
@@ -183,6 +184,11 @@ def instantiate(arc: Arc, seed: int, variant: int) -> Instance:
         timeline.append([at, _fill(event, world)])
         if event.startswith("clock_advance:"):
             advances.append({"at_step": "after_receipt", "by": event.split(":", 1)[1]})
+
+    for fault in faults:  # a fault no producer has is named in the timeline, never dropped (see faultplans.py)
+        _, missing = normalise(fault)
+        if missing:
+            timeline.append(["+00:00:00", f"needs_fault:{missing}"])
 
     effects = [f.effect for f in arc.faults] + list(arc.harness)
     covers = list(arc.covers) + [f"FAULT:{e}" for e in dict.fromkeys(effects)] + ([] if effects else ["FAULT:NONE"])

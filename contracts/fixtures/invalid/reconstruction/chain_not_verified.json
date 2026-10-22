@@ -1,0 +1,206 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "chain": {
+    "verified": false,
+    "head_event_id": "recev_1005",
+    "head_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000006"
+  },
+  "events": [
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1001",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000001",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "written_by": "TRUST",
+      "event_type": "INTENT_ADMITTED",
+      "object_ref": "int_01J9X3",
+      "at": "2026-10-01T09:47:50Z"
+    },
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1002",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000002",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+      "written_by": "RESOLUTION",
+      "event_type": "CANDIDATES_RESOLVED",
+      "object_ref": "cns_7A",
+      "at": "2026-10-01T09:47:51Z"
+    },
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1003",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000003",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+      "written_by": "TRUST",
+      "event_type": "DECISION_MADE",
+      "object_ref": "dec_8R4",
+      "at": "2026-10-01T09:48:00Z"
+    },
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1004",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+      "written_by": "EXECUTION",
+      "event_type": "RECEIPT",
+      "object_ref": "rcp_5T",
+      "at": "2026-10-01T09:48:05Z"
+    },
+    {
+      "schema_version": "1.0",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "event_id": "recev_1005",
+      "prev_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000005",
+      "hash": "sha256:0000000000000000000000000000000000000000000000000000000000000006",
+      "written_by": "OUTCOME",
+      "event_type": "VERDICT",
+      "object_ref": "ver_9P0",
+      "at": "2026-10-01T09:49:10Z"
+    }
+  ],
+  "sections": [
+    {
+      "kind": "WHO",
+      "items": []
+    },
+    {
+      "kind": "REQUEST",
+      "items": [
+        {
+          "record_event_id": "recev_1001",
+          "object_ref": "int_01J9X3",
+          "basis": "PRINCIPAL_ACTION",
+          "facts": {
+            "intent_node": "fin.int.escalate_missing_credit"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "AMBIGUITY",
+      "items": []
+    },
+    {
+      "kind": "RESOLUTION",
+      "items": [
+        {
+          "record_event_id": "recev_1002",
+          "object_ref": "cns_7A",
+          "basis": "RULE",
+          "facts": {
+            "resolved_target": "fin.transaction:TX88213",
+            "candidate_count": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "OBSERVED_STATE",
+      "items": []
+    },
+    {
+      "kind": "POLICY",
+      "items": []
+    },
+    {
+      "kind": "AUTHORITY",
+      "items": []
+    },
+    {
+      "kind": "DECISION",
+      "items": [
+        {
+          "record_event_id": "recev_1003",
+          "object_ref": "dec_8R4",
+          "basis": "RULE",
+          "facts": {
+            "decision_outcome": "ALLOW",
+            "reason_codes": [
+              "fin.reason.credit_missing"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "ACTION",
+      "items": [
+        {
+          "record_event_id": "recev_1004",
+          "object_ref": "rcp_5T",
+          "basis": "RULE",
+          "facts": {
+            "capability_id": "fin.cap.create_escalation_case",
+            "execution_state": "ACKNOWLEDGED",
+            "attempt": 1
+          }
+        }
+      ]
+    },
+    {
+      "kind": "DOWNSTREAM_RESULT",
+      "items": []
+    },
+    {
+      "kind": "VERIFICATION",
+      "items": [
+        {
+          "record_event_id": "recev_1005",
+          "object_ref": "ver_9P0",
+          "basis": "EVIDENCE",
+          "facts": {
+            "capability_id": "fin.cap.create_escalation_case",
+            "verdict": "ACHIEVED"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "EXPLANATION",
+      "items": []
+    }
+  ],
+  "timeline": [
+    {
+      "record_event_id": "recev_1001",
+      "at": "2026-10-01T09:47:50Z",
+      "event_type": "INTENT_ADMITTED",
+      "text": "Intent admitted"
+    },
+    {
+      "record_event_id": "recev_1002",
+      "at": "2026-10-01T09:47:51Z",
+      "event_type": "CANDIDATES_RESOLVED",
+      "text": "One candidate resolved"
+    },
+    {
+      "record_event_id": "recev_1003",
+      "at": "2026-10-01T09:48:00Z",
+      "event_type": "DECISION_MADE",
+      "text": "Decision: ALLOW"
+    },
+    {
+      "record_event_id": "recev_1004",
+      "at": "2026-10-01T09:48:05Z",
+      "event_type": "RECEIPT",
+      "text": "Receipt: ACKNOWLEDGED"
+    },
+    {
+      "record_event_id": "recev_1005",
+      "at": "2026-10-01T09:49:10Z",
+      "event_type": "VERDICT",
+      "text": "Verdict: ACHIEVED"
+    }
+  ]
+}

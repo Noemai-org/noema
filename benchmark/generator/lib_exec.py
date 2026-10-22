@@ -2,7 +2,7 @@
 (PERD §48.1 categories 4, 5 and 10; §12.4 EC-E*, §12.3 EC-T*, US-05, US-06, US-16, US-17, US-19, US-21)."""
 from typing import Any
 
-from .common import (COMPLAINT, CASE_REQUEST, E_ESCALATE, E_EXPLAIN, FC_CASE, FC_FAIL, FC_SUCCESS, STATUS, STATUS_NONAME, UNKNOWN, Arc, Ben, Fault, Tx,
+from .common import (GRANT_TTL_SECONDS, COMPLAINT, CASE_REQUEST, E_ESCALATE, E_EXPLAIN, FC_CASE, FC_FAIL, FC_SUCCESS, STATUS, STATUS_NONAME, UNKNOWN, Arc, Ben, Fault, Tx,
                      WorldSpec, at, case_fault, escalate, esc, explain, one, st)
 
 ESC_FC = ("failed", "please try again", "was not created")
@@ -20,11 +20,11 @@ TIMEOUT: list[Arc] = [
              faults=(case_fault("HTTP_200_SEMANTIC_PENDING"),), **{**TMO_KW, "fclaims": ESC_FC + ("done",)}),
     escalate("tmo_200_no_case", "TIMEOUT_UNKNOWN", ("B5",), ("EC-E04", "US-16"), one(**UNKNOWN), STATUS, writes=(), alt=("UNKNOWN",),
              cls="POSTCONDITION_UNVERIFIED", fclaims=FC_CASE + ("successfully",), claims=("could not confirm",),
-             faults=(Fault("mock-case", "create_case", "HTTP_200_SEMANTIC_PENDING", (), (("creates_case", False),)),),
+             faults=(Fault("mock-case", "create_case", "HTTP_200_SEMANTIC_PENDING", (), ()),),
              events=E_ESCALATE + ("RECOVERY_REQUESTED",), timeline=(("+00:00:31", "clock_advance:PT31S"),), gates=("FALSE_SUCCESS_VERDICT",), basis="INFERRED",
              note="HTTP 200 but no case exists after the settle window: NOT_ACHIEVED, a recovery request, no completion claim; the environment shows no case"),
     escalate("tmo_5xx_after_commit", "TIMEOUT_UNKNOWN", ("B4",), ("EC-E12",), one(**UNKNOWN), STATUS,
-             faults=(case_fault("HTTP_5XX", committed=True),), **TMO_KW, note="a 5xx is OUTCOME_UNKNOWN, never 'failed'"),
+             faults=(case_fault("HTTP_5XX", after_commit=True),), **TMO_KW, note="a 5xx is OUTCOME_UNKNOWN, never 'failed'"),
     escalate("tmo_restart_after_spend", "TIMEOUT_UNKNOWN", ("B4",), ("EC-E09",), one(**UNKNOWN), STATUS,
              **{**TMO_KW, "timeline": (("+00:00:02", "process_restart:core"), ("+00:00:31", "clock_advance:PT31S"))},
              note="restart after spend, before the receipt: on restart the receipt is OUTCOME_UNKNOWN and is verified by key"),
@@ -36,7 +36,7 @@ TIMEOUT: list[Arc] = [
     escalate("tmo_late_event_after_deadline", "TIMEOUT_UNKNOWN", ("B5",), ("EC-T01",), one(settlement="PENDING", destination="PENDING"), STATUS,
              cls="SETTLEMENT_PENDING", fclaims=FC_FAIL, claims=("not yet confirmed",),
              timeline=(("+01:00:00", "watch_deadline:pass"), ("+01:00:30", "webhook:settlement_updated")),
-             faults=(at("LATE_EVENT", "mock-switch", "events_feed"),),
+             faults=(at("LATE_EVENT", "mock-switch", "events_feed", delay_ms=30000),),
              events=E_ESCALATE + ("WATCH_CREATED", "WATCH_CLOSED", "RECOVERY_REQUESTED", "INBOUND_EVENT_RECEIVED"), basis="INFERRED",
              note="the deadline passes (verdict UNKNOWN, exactly one case); the late event then triggers re-verification through Trust"),
     explain("tmo_pending_settles", "TIMEOUT_UNKNOWN", ("B5",), ("US-17",), one(settlement="PENDING", destination="PENDING"), STATUS,
@@ -96,7 +96,7 @@ DUPLICATE: list[Arc] = [
             timeline=(("+00:00:01", "duplicate_send:same_request_id"),), events=E_EXPLAIN + ("INPUT_RECEIVED", "INPUT_DEDUPLICATED"),
             note="the same client request_id twice: one investigation, the same response"),
     escalate("dup_concurrent_update", "DUPLICATE_REPLAY", ("B4",), ("US-19", "EC-E11", "EC-K01"), one(**UNKNOWN), STATUS,
-             writes=(("case", "@t1", 1), ("evidence", "@t1", 1)), faults=(Fault("mock-case", "route", "CONCURRENT_MODIFICATION", (), ()),),
+             writes=(("case", "@t1", 1), ("evidence", "@t1", 1)), faults=(Fault("mock-case", "route_case", "CONCURRENT_MODIFICATION", (), ()),),
              events=E_ESCALATE + ("GRANT_VOIDED", "RECOVERY_REQUESTED"), basis="INFERRED",
              note="someone else changed the case: the conditional routing write is rejected (REJECTED_STALE_VERSION), the grant is void, nothing is "
                   "applied and nothing is retried automatically; the fault persists, so a re-granted write is refused too",
@@ -113,11 +113,11 @@ HOST_KW: dict[str, Any] = dict(fclaims=FC_SUCCESS + FC_FAIL)
 HOSTILITY: list[Arc] = [
     Arc("host_rate_limit_read", "INTEGRATION_HOSTILITY", ("B4",), ("US-21",), one(), STATUS, "UNKNOWN", alt=("WAIT",), cls="INSUFFICIENT_EVIDENCE",
         events=("DECISION_MADE", "EVIDENCE_READ"), forbid=("any_write",), claims=("check is delayed",), target="@t1",
-        faults=(at("HTTP_429", "mock-ledger", "get_transaction", retry_after_s=2),), gates=("FALSE_CERTAINTY",), basis="INFERRED", **HOST_KW,
+        faults=(at("HTTP_429", "mock-ledger", "get_transaction", retry_after_seconds=2),), gates=("FALSE_CERTAINTY",), basis="INFERRED", **HOST_KW,
         note="the wait respects Retry-After inside the read budget; the fact is UNAVAILABLE afterwards; no consequential action"),
     Arc("host_rate_limit_write", "INTEGRATION_HOSTILITY", ("B4",), ("EC-E14",), one(**UNKNOWN), STATUS, "UNKNOWN", alt=("ESCALATE",),
         cls="EXECUTION_OUTCOME_UNKNOWN", events=("DECISION_MADE", "GRANT_ISSUED", "GRANT_VOIDED"), forbid=("any_write",), fclaims=FC_CASE, target="@t1",
-        faults=(case_fault("HTTP_429", retry_after="beyond_grant_expiry"),), gates=("WRITE_WITHOUT_VALID_GRANT",), basis="INFERRED",
+        faults=(case_fault("HTTP_429", retry_after_seconds=GRANT_TTL_SECONDS + 1),), gates=("WRITE_WITHOUT_VALID_GRANT",), basis="INFERRED",
         note="Retry-After beyond the grant's expiry: no dispatch after expiry, the grant is void, back to Trust"),
     Arc("host_paginated", "INTEGRATION_HOSTILITY", ("B4",), ("EC-E13",),
         WorldSpec(bens=(Ben("b1", "$N1"),), txs=tuple(Tx(f"d{i}", "b1", "$B", 60 + 20 * i) for i in range(1, 6)) + (Tx("t1", "b1", "$A", 400),)),

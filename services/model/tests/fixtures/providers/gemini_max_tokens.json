@@ -1,0 +1,20 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "{\"ans"
+          }
+        ]
+      },
+      "finishReason": "MAX_TOKENS"
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 5,
+    "candidatesTokenCount": 3
+  },
+  "modelVersion": "pinned-model-2026-01-01"
+}

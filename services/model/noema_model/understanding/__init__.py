@@ -4,5 +4,5 @@ May import: noema_model.platform and noema_model.providers (the only route to a 
 
 Must never: act, hold credentials for the core database, Temporal, adapters or grant keys (INV-29), see policy rules or thresholds, assert identity (INV-12), or authorise anything; model output is untrusted data that crosses only the schema gate (INV-02).
 
-An empty boundary package created by PLT-01; nothing is built here yet.
+Boundary package created by PLT-01. Its sub-packages are filled by the engine tracks; see the README beside this file for what exists.
 """

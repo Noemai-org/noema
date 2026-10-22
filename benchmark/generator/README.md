@@ -25,7 +25,7 @@ The default seed is `20261020`; the default output root is `benchmark/out/genera
 | `worlds.py`, `rng.py` | scenario worlds from a declarative spec; deterministic choices from a SHA-256 counter, never `random` |
 | `archetype.py` | `Arc` (one scenario and its expectation) and `instantiate` |
 | `lib_*.py`, `library.py` | the 140 archetypes, by category; each names the PERD rows it covers and says whether its expectation is `PERD` or `INFERRED` |
-| `mutations.py` | 13 mutations, each a transform with a declared effect on the expectation |
+| `mutations.py` | 22 mutations, each a transform with a declared effect on the expectation |
 | `generate.py` | the plan, the documents, the manifest |
 | `coverage.py` | the coverage report |
 
@@ -39,15 +39,23 @@ Each archetype's expectation is the PERD §11.2 / §12 row, column by column. Wh
 
 ## Mutations
 
-Implemented: `ADD_NEAR_DUPLICATE_CANDIDATE`, `PERTURB_AMOUNT` (ambiguity); `FLIP_SOURCE_UNAVAILABLE`, `FLIP_SOURCE_STALE`, `FLIP_SOURCE_CONTRADICTORY`, `ADD_LATE_REVERSAL` (state); `POLICY_PUBLISH_AT_STEP` (temporal); `TIMEOUT_AFTER_COMMIT`, `HTTP_5XX` (recovery); and the four attack families `NAME_COLLISION`, `INJECTION_IN_NAME`, `CANDIDATE_FLOODING`, `CROSS_PRINCIPAL_PROBE`.
+All 22 mutation names of the suite-manifest schema are carried: the PERD §48.4 four kinds and the four attack families.
 
-Named by PERD §48.4 and **not implemented**, because no PERD row states what the expectation becomes: `ALIAS_NAME`, `SHIFT_TIME_WINDOW`, `ADD_DUPLICATE_DEBIT`, `CLOCK_SKEW`, `WEBHOOK_DELAYED_PAST_DEADLINE`, `SESSION_EXPIRY_MID_FLOW`, `HTTP_429_BEYOND_GRANT_EXPIRY`, `VERSION_CONFLICT`, `RESTART_AT_STEP`. Each is a one-function addition once the benchmark owner states the effect.
+| Kind | Mutations |
+|---|---|
+| AMBIGUITY | `ADD_NEAR_DUPLICATE_CANDIDATE`, `PERTURB_AMOUNT`, `ALIAS_NAME`*, `SHIFT_TIME_WINDOW`* |
+| STATE | `FLIP_SOURCE_UNAVAILABLE`, `FLIP_SOURCE_STALE`, `FLIP_SOURCE_CONTRADICTORY`, `ADD_LATE_REVERSAL`, `ADD_DUPLICATE_DEBIT`* |
+| TEMPORAL | `POLICY_PUBLISH_AT_STEP`, `CLOCK_SKEW`*, `WEBHOOK_DELAYED_PAST_DEADLINE`*, `SESSION_EXPIRY_MID_FLOW`* |
+| RECOVERY | `TIMEOUT_AFTER_COMMIT`, `HTTP_5XX`, `HTTP_429_BEYOND_GRANT_EXPIRY`*, `VERSION_CONFLICT`*, `RESTART_AT_STEP`* |
+| FAMILY | `NAME_COLLISION`, `INJECTION_IN_NAME`, `CANDIDATE_FLOODING`, `CROSS_PRINCIPAL_PROBE` |
+
+\* **PROPOSED expectation, for review.** The PERD names these mutations but no row states the expectation they produce. Each is written as the expectation of the library archetype that already expresses the same situation (named in the transform's docstring in `mutations.py`), so the benchmark owner reviews a reading, not an invention. `python -m benchmark.generator assumptions` lists them. Changing one is a one-function edit, a `GENERATOR_VERSION` bump and a new pinned digest.
 
 A mutated case keeps its base archetype's key, so it shares the base case's names, ids and wording; only the declared edit differs. Its manifest entry names the base case and the mutation.
 
 ## Fault plans
 
-A case with faults names `fp_<case id>`; the plan file under `fault_plans/` is in the PERD §37.1 shape and is **provisional**: the fault-plan schema belongs to the environment track and replaces this file's format when it lands.
+A case with faults names `fp_<case id>`, and the file under `fault_plans/` is a `fault-plan.v1` document (the contract owned by the environment track): `fault_plan_id`, `scenario_id` (the case), `seed`, `deterministic`, a `source` chosen by the contract's reading rules (`TUSHE` for the four state-change effects and the effects only Tushe or mock-case produce, `MOCK_CASE` when every fault is mock-case's, `PROXY` otherwise), and `faults`. `faultplans.py` applies the few rewrites that keep a scenario's meaning (a case system that is down answers 503; webhook effects belong to the enterprise's `events_feed`) and names what no producer has: the case then carries a `needs_fault:<EFFECT>.<operation>` timeline marker instead of silently losing the fault, and still declares the effect for coverage. Faults "beyond the grant's expiry" use the adopted grant lifetime of 10 minutes (PERD §65.3, OD-P-31), read from `common.GRANT_TTL_SECONDS`, not set by the generator.
 
 ## Tests
 

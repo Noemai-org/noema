@@ -2,7 +2,7 @@
 (PERD §48.1 categories 6 to 9; §12.3 to §12.6; US-07 to US-11, US-18, US-20, US-22; ADV-08 to ADV-13)."""
 from typing import Any
 
-from .common import (CASE_REQUEST, COMPLAINT, E_CLARIFY, E_ESCALATE, E_EXPLAIN, E_REJECT, FC_CASE, FC_FAIL, FC_SUCCESS, STATUS, UNKNOWN, Arc, Ben, Fault, Tx,
+from .common import (GRANT_TTL_SECONDS, CASE_REQUEST, COMPLAINT, E_CLARIFY, E_ESCALATE, E_EXPLAIN, E_REJECT, FC_CASE, FC_FAIL, FC_SUCCESS, STATUS, UNKNOWN, Arc, Ben, Fault, Tx,
                      WorldSpec, at, case_fault, escalate, esc, explain, one, st)
 from .lib_clean_ambiguity import ONE, TWO_SAME_NAME
 
@@ -104,7 +104,7 @@ POLICY: list[Arc] = [
              events=E_ESCALATE + ("SLA_EVALUATED",), caps=("fin.cap.evaluate_sla_status",), basis="INFERRED", **{**POL_KW, "fclaims": ("lower priority",)},
              note="the transaction crosses an SLA boundary during the case: priority is recomputed upwards, never downgraded"),
     escalate("pol_grant_expires_in_queue", "POLICY_CLOCK", ("B4",), ("EC-T07",), one(**UNKNOWN), STATUS,
-             faults=(case_fault("LATENCY", delay="past_grant_ttl"),), events=E_ESCALATE + ("GRANT_VOIDED",), basis="INFERRED", **POL_KW,
+             faults=(case_fault("LATENCY", delay_ms=GRANT_TTL_SECONDS * 1000),), events=E_ESCALATE + ("GRANT_VOIDED",), basis="INFERRED", **POL_KW,
              note="the grant expires in a slow queue: never dispatched late; back to Trust, a new grant, one write"),
     Arc("pol_confirmation_expires", "POLICY_CLOCK", ("B3",), ("EC-T08",), WITH_CASE, COMPLAINT, "CONFIRM", events=("DECISION_MADE", "CONFIRMATION_REQUESTED", "CONFIRMATION_EXPIRED"),
         permitted=("complaint",), forbid=("any_write",), fclaims=("complaint logged",), target="@t1",

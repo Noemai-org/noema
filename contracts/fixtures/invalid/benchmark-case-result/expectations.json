@@ -16,5 +16,7 @@
   "missing_environment_field.json": "required",
   "bad_run_id.json": "pattern",
   "duplicate_audit_event.json": "uniqueItems",
-  "negative_governance_count.json": "minimum"
+  "negative_governance_count.json": "minimum",
+  "cost_as_string.json": "type",
+  "cost_negative.json": "minimum"
 }

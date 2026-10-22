@@ -1,0 +1,15 @@
+{
+  "model": "pinned-model-2026-01-01",
+  "content": [
+    {
+      "type": "tool_use",
+      "name": "harness_decide",
+      "input": {}
+    }
+  ],
+  "stop_reason": "max_tokens",
+  "usage": {
+    "input_tokens": 5,
+    "output_tokens": 6
+  }
+}
