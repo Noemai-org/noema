@@ -201,7 +201,7 @@
     "Tier3": {
       "type": "object",
       "properties": {
-        "cost_usd_micros_total": { "type": "integer", "minimum": 0 },
+        "cost_usd_micros_total": { "description": "Null when any completed case has no cost (not available): a partial sum would mislead.", "type": ["integer", "null"], "minimum": 0 },
         "cost_usd_micros_per_correct_outcome": { "type": ["integer", "null"], "minimum": 0 },
         "latency": { "$ref": "#/$defs/Latency" },
         "latency_by_path": {

@@ -104,6 +104,15 @@ class ReportTest(unittest.TestCase):
     def test_rendering_is_deterministic(self) -> None:
         self.assertEqual(self.text, render_markdown(copy.deepcopy(self.card), copy.deepcopy(self.manifest)))
 
+    def test_cost_not_available_is_said_plainly(self) -> None:
+        cases, oracles, results, manifest = fixture()
+        for r in results:
+            r["cost_usd_micros"] = None
+        text = render_markdown(card_for(cases, oracles, results), manifest)
+        line = next(line for line in text.splitlines() if line.startswith("- provider cost"))
+        self.assertIn("not available", line)
+        self.assertNotIn("None", line)
+
     def test_no_threshold_or_verdict_word_is_decided_by_the_report(self) -> None:
         for word in ("PASS", "FAIL", "target met", "meets the target"):
             self.assertNotIn(word, self.text)

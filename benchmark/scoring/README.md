@@ -34,6 +34,7 @@ written).
 - **A claim counts as certain unless it is bound to a KNOWN fact** (`FALSE_CERTAINTY`, INV-13). A claim bound to an INFERRED fact trips the gate, because the claim map carries no hedge flag. If the explanation engine later records hedging, that is a contract change.
 - **Gates 9 to 11** are read from the environment readout per case and can also be fed by static scans and negative tests (`--structural-evidence`), which add to the counts and are listed separately.
 - **`release_result`** is true only for a complete run of at least 320 cases with at least 100 held-out cases and held-out at least 30% of the suite (PERD §48.1). The scorer does not run the held-out set; the benchmark owner does.
+- **Cost is null when not available.** A completed case whose `cost_usd_micros` is null makes `tier3.cost_usd_micros_total` and the per-correct-outcome cost null, and the report says "not available": a partial sum would mislead and an estimate would be invented. Errored cases do not decide it.
 - **Human minutes** are never computed here (they come from the manual-baseline protocol, PERD §51).
 - **Operating-point selection** (PERD §55) is not done here: it needs limits that only the founders set.
 
