@@ -9,6 +9,7 @@ import importlib.util
 import json
 import re
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 import predicate
@@ -279,6 +280,39 @@ def check_routing(pack: dict) -> list[Problem]:
     return out
 
 
+def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -> list[Problem]:
+    """REQ-AMB-003: a pack that ranks candidates carries its ranking data (missing weights fail pack validation at load), the weights sum to
+    exactly 1, the floor and the tolerance lie in [0, 1], each ranking node names a matcher file that exists inside the pack's folder, and no
+    locale is listed twice. Numbers are exact: they are strings, compared as fractions, never floats (INV-21).
+
+    A conformance pack (SoT 15.4) exists to show the engine loads a pack of another industry with no code change. It carries no ranking data and
+    no matcher yet, so the presence rules are skipped for it; whatever it does carry is still checked. That is a gap, raised in the pull request."""
+    out: list[Problem] = []
+    ranking_nodes = [n for n in pack["intent_nodes"] if (n.get("disambiguation") or {}).get("strategy") == "ranked_candidates"]
+    und = pack.get("understanding")
+    if ranking_nodes and not und and not conformance:
+        out.append(("understanding", "a node ranks candidates but the pack has no understanding.ranking data"))
+    for n in ([] if conformance else ranking_nodes):
+        ref = n["disambiguation"].get("matcher_ref")
+        if not ref:
+            out.append(("understanding", f"{n['node_id']}: a node that ranks candidates needs a matcher_ref"))
+        elif not (pack_dir / ref).is_file():
+            out.append(("understanding", f"{n['node_id']}: matcher_ref {ref!r} is not a file in the pack folder"))
+    if not und:
+        return out
+    ranking = und["ranking"]
+    total = sum(Fraction(v) for v in ranking["weights"].values())
+    if total != 1:
+        out.append(("understanding", f"ranking weights sum to {total}, they must sum to exactly 1"))
+    for key in ("absolute_floor", "amount_tolerance_ratio"):
+        if not 0 <= Fraction(ranking[key]) <= 1:
+            out.append(("understanding", f"{key} lies outside [0, 1]"))
+    codes = [loc["code"] for loc in und["locales"]]
+    for code in sorted({c for c in codes if codes.count(c) > 1}):
+        out.append(("understanding", f"duplicate locale {code}"))
+    return out
+
+
 def check_conformance(pack: dict) -> list[Problem]:
     """SoT 15.4 cap: at most 3 intent nodes, 1 trust profile, 1 outcome definition, no adapters, no executed capabilities."""
     out: list[Problem] = []
@@ -312,7 +346,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     if problems:  # the other checks assume a well-formed pack
         return problems
     problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs)
-    problems += check_graphs(pack, graphs) + check_routing(pack)
+    problems += check_graphs(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     return problems
