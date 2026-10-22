@@ -14,5 +14,9 @@
   "security_event_without_kind.json": "required",
   "superseded_status_event.json": "enum",
   "unknown_event_type.json": "enum",
-  "unknown_security_kind.json": "enum"
+  "unknown_security_kind.json": "enum",
+  "provider_failover_without_reason.json": "required",
+  "provider_failover_unknown_reason.json": "enum",
+  "provider_failover_with_grant_reason.json": "enum",
+  "grant_voided_with_failover_reason.json": "enum"
 }
