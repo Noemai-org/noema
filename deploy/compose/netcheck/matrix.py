@@ -307,6 +307,46 @@ def check_evil_provider() -> None:
         run(bench + ["rm", "-sf", "evil-provider"])
 
 
+RELAY_PROBE = (
+    "import urllib.request, urllib.error, json\n"
+    "def call(method, path, headers=None, body=None):\n"
+    "    r = urllib.request.Request('http://webhook-relay:8090' + path, data=body, method=method, headers=headers or {})\n"
+    "    try:\n"
+    "        with urllib.request.urlopen(r, timeout=5) as x: return x.status, x.read().decode()\n"
+    "    except urllib.error.HTTPError as e: return e.code, e.read().decode()\n"
+    "out = {}\n"
+    "out['pull_without_credential'] = call('GET', '/v1/deliveries')\n"
+    "out['pull_with_wrong_credential'] = call('GET', '/v1/deliveries', {'Authorization': 'Bearer wrong'})\n"
+    "out['stats_without_credential'] = call('GET', '/v1/stats')\n"
+    "out['unsigned_delivery'] = call('POST', '/webhooks', {'Content-Type': 'application/json'}, b'{}')\n"
+    "out['health_is_open'] = call('GET', '/healthz')\n"
+    "print(json.dumps(out))\n"
+)
+RELAY_EXPECTED = {  # name -> status; the first three must also carry no delivery data
+    "pull_without_credential": 401, "pull_with_wrong_credential": 401, "stats_without_credential": 401,
+    "unsigned_delivery": 400, "health_is_open": 200,
+}
+
+
+def check_webhook_relay() -> None:
+    """Identity rows for the webhook relay (ENV-13, DEC-2026-10-16 E6): in the running stack, a caller on tushe_net with
+    no credential, or a wrong one, is refused the pull and the counters, and an unsigned delivery is refused. Its own
+    rows; no other component's row is touched."""
+    print("8. webhook relay: a pull without the pull token is refused in the running stack")
+    out = run(COMPOSE + ["run", "--rm", "--no-deps", "-T", "probe-core", "python", "-c", RELAY_PROBE])
+    try:
+        seen = json.loads(out.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        fail(f"probe-core gave no result for the webhook relay: {out.stderr.strip()[:200]}")
+        return
+    for name, want in RELAY_EXPECTED.items():
+        status, body = seen.get(name, [None, ""])
+        ok = status == want and (want != 401 or ('"deliveries"' not in body and '"counters"' not in body))
+        print(f"  {name:28} {status} {'ok' if ok else f'!= {want} (or the refusal carried data)'}")
+        if not ok:
+            fail(f"webhook relay {name}: expected {want}, saw {status}")
+
+
 def main() -> int:
     up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "webhook-relay"])
     if up.returncode != 0:
@@ -319,6 +359,7 @@ def main() -> int:
     check_egress()
     check_mock_case()
     check_evil_provider()
+    check_webhook_relay()
     run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
