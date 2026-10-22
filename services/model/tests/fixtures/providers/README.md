@@ -13,9 +13,16 @@ Every identifier in these files is invented, and the credential in `../credentia
 
 ## `openai_decisions_*.json` (a different provenance)
 
-`openai_decisions_request.json` and `openai_decisions_ok.json` are the request and response example the founder pasted into the
-session on 22 Oct 2026 as the OpenAI Decisions API reference, copied as pasted. They are not recordings and could not be
-checked against OpenAI's own page from the session (the host was blocked). They show one question type, `predicate`, and
-nothing else: no choice or score shape, no abstention, no error body, no dated model snapshot (the example names `gpt-6-luna`
-and the response echoes the same name). The adapter covers that and no more. Every other Decisions fixture the tests use
-(malformed answers, wrong counts) is invented, and says so in the test that uses it.
+The OpenAI Decisions fixtures come from OpenAI's own documentation, read on 22 Oct 2026 once the founder allowed the host:
+the endpoint page (`/api/reference/resources/decisions/methods/create`), the guide (`/api/docs/guides/decisions.md`), the model
+page (`/api/docs/models/gpt-6-luna.md`), the pricing, error-code, rate-limit and data-controls pages. They are documentation
+examples, not recordings of a live call, and no live call has been made: not run: no access.
+
+- `openai_decisions_request.json` and `openai_decisions_ok.json`: the predicate example from the endpoint page, as first pasted
+  by the founder and then confirmed on the page.
+- `openai_decisions_choice_request.json`, `openai_decisions_score_request.json`: the guide's request examples, verbatim.
+- `openai_decisions_choice_ok.json`, `openai_decisions_score_ok.json`: the guide's response excerpts, verbatim. The guide shows
+  only the `answers` array, so the `model` and `usage` objects around them are written here in the endpoint page's shape
+  (the token numbers are invented).
+
+Every other Decisions case the tests use (malformed answers, wrong counts, refusals) is invented, and says so in the test.

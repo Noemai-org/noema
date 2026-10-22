@@ -10,7 +10,7 @@ from hypothesis import strategies as st
 from noema_model.harness.config import DataLimits
 from noema_model.harness.decide_types import ABSTAIN
 from noema_model.harness.fields import DATA_CLOSE, DATA_OPEN, clean, data_block, render_fields
-from noema_model.harness.templates import DECIDE_V1
+from noema_model.harness.templates import DECIDE_V2
 from noema_model.platform.redaction import Redactor
 
 MIN = 8
@@ -77,8 +77,8 @@ def test_the_data_block_is_typed_json_and_cannot_be_closed_from_inside() -> None
 
 
 def test_template_text_is_pinned_by_digest_so_an_edit_needs_a_version_bump() -> None:
-    assert (DECIDE_V1.template_id, DECIDE_V1.version) == ("harness.decide", 1)
-    assert DECIDE_V1.digest == "37517b1cb2376fe71ffd981e4fd0bb14f1b440317710fe66e62bca16cf307126"
+    assert (DECIDE_V2.template_id, DECIDE_V2.version) == ("harness.decide", 2)
+    assert DECIDE_V2.digest == "b5718411d6bd113efd65f10d349889288c850fd7db1550baa9aa4ca9db9c4556"
     assert ABSTAIN == "none_or_other"
 
 

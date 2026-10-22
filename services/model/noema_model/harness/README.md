@@ -30,6 +30,8 @@
   "data_limits": {"default_max_chars": 256, "overrides": {"utterance": 2000}},
   "breaker": {"failure_threshold": 3, "cooldown_ms": 30000},
   "providers": {
+    "decisions": {"kind": "openai_decisions", "endpoint": "https://...", "model_version": "gpt-6-luna",
+                  "credential_file": "/run/secrets/openai_key", "timeout_ms": 1200, "max_response_bytes": 65536},
     "gpt": {"kind": "openai_chat", "endpoint": "https://...", "model_version": "<a pinned snapshot>",
             "credential_file": "/run/secrets/gpt_key", "timeout_ms": 1200, "max_output_tokens": 512,
             "max_response_bytes": 65536,
@@ -46,13 +48,21 @@ The numbers above are placeholders to show the shape, not product settings. `kin
 
 ## Decision models (D9): the two implementations of `decide()`
 
-`decide()` has exactly two implementations behind one interface: the **LLM-backed** one (any `openai_chat`, `anthropic_messages` or `gemini_generate` provider, answering in a forced schema) and the **OpenAI Decisions** one (`kind: openai_decisions`, a `DecisionProvider`). Both appear in a route (`decide.<task>`), in the order configured, so the LLM is the baseline and the fallback.
+`decide()` has exactly two implementations behind one interface: the **LLM-backed** one (any `openai_chat`, `anthropic_messages` or `gemini_generate` provider, answering in a forced schema) and the **OpenAI Decisions** one (`kind: openai_decisions`, a `DecisionProvider`). Both appear in a route (`decide.<task>`), in the order configured, so the LLM is the baseline and the fallback. The adapter is written from OpenAI's own reference (read 22 Oct 2026; `tests/fixtures/providers/README.md`): `POST /v1/decisions`, bearer token, `predicate`, `choice` and `score` questions, a per-question `refusal`.
 
-What the OpenAI Decisions adapter covers is only what the founder's pasted example shows (`tests/fixtures/providers/README.md`): `POST /v1/decisions` with `predicate` (yes/no) questions, answered with one probability each.
+| Our question | Sent as | Comes back as |
+|---|---|---|
+| `YesNoQuestion` | `predicate` | `YesNoAnswer(yes=None, p_yes)`: a bare probability |
+| `ChoiceQuestion` | `choice`; each option id is a choice value and its label the description; `none_or_other` is an ordinary choice value, as the guide recommends ("include a fallback option such as other") | `ChoiceAnswer(selected, probabilities, confidence)`: the provider's own `choice`, its distribution and its separate `confidence` |
+| `ScoreQuestion` (needs two or more levels) | `score` with the levels in order | `ScoreAnswer(score, probabilities level_0.., confidence)`: the provider's own `score`. The LLM-backed path returns only the distribution and no score, because the harness computes none |
+| any of them, refused by the model | a `refusal` answer | The whole set is treated as a refused reply (`OUTPUT_REFUSED`) and the next provider is asked |
 
-- **Yes/no sets only.** A question set with any choice or score question is not sent to a decision model: the attempt is recorded as `UNSUPPORTED` (never made, free, no breaker charge) and the next provider in the route is asked. No choice or score format is held, so none is guessed. Until it is, the four choice tasks (node, enumerated slots, locale, binding) run on the LLM-backed path, and only the two yes/no tasks (ambiguity flags, instruction-likeness) can use the decision model.
-- **A bare probability.** The decision model returns no selection, so `YesNoAnswer.yes` is `None` and `p_yes` is the probability, untouched. The harness never turns it into a yes or a no. The pipeline does, with the pack's `native_yes_threshold` (a benchmark and founder decision, AGENT-16); with none configured it counts as a yes, because a yes here only adds caution or a logged signal.
-- **Version pinning gap.** The example names one model, `gpt-6-luna`, and the response echoes the same name. No dated snapshot is shown, so the reply-equals-pin check cannot see a silent change of weights behind that name. This is recorded as a gap: the pinned-version rule still applies before any Record-relevant use, and the adapter must not be adopted for a task until a snapshot exists or the founders accept the alias (D9).
+- **Limits are the provider's, not ours.** A provider exposes `accepts(questions)`; the OpenAI adapter takes 1 to 400 questions and 2 to 255 unique choices (the reference's limits). A set it does not accept is recorded as `UNSUPPORTED` (never made, free, no breaker charge) and the next provider is asked.
+- **Probabilities are information.** The harness never turns one into a decision. A decision model's yes/no answer carries `yes=None`; the pipeline reads it against the pack's `native_yes_threshold` (a benchmark and founder decision, AGENT-16), and with none configured counts it as a yes, which only adds caution or a logged signal. A choice answer's `selected` is the provider's own field; its `confidence` is passed through, and no pack threshold on it exists yet.
+- **No dated snapshot exists (gap).** The model page lists one snapshot, `gpt-6-luna` ("Default snapshot: gpt-6-luna"; "Snapshots: gpt-6-luna"), and the endpoint says only that model is supported. The reply-equals-pin check therefore cannot see a silent change of weights behind the name. The pinned-version rule is unmet for this provider until a dated snapshot exists or the founders accept the alias; the API is in public beta ("we expect to GA in the coming weeks").
+- **Price.** The guide and model page give $0.10 per 1M input tokens and no output, cache or reasoning charge, so a rate card is `{"input_micro_per_mtok": 100000, "output_micro_per_mtok": 0, "currency": "USD", "as_of": "2026-10-22"}`. Not modelled: the 10% regional-processing premium, the 2x multiplier above 272K input tokens, and the Flex, Batch and Fast tiers.
+- **Data handling (PERD R-18).** The data-controls page lists `/v1/decisions` as not used for training, with abuse-monitoring logs kept up to 30 days by default and no application state; Zero Data Retention is available to approved customers "with limitations", and "Private Retention" eligibility is "pending confirmation". Residency is available for the US and EEA plus Switzerland. Until a data-terms review, synthetic data only.
+- **Errors.** The adapter reads no error body: any non-2xx status maps to a failure kind (408 timeout, 429 rate limited, 5xx unavailable, others rejected) and the next provider is asked. `Retry-After` is not honoured; failover replaces waiting. A 429 for credit or spend limits is not retried by waiting either, per the error-codes page.
 - Microsoft-Decision-1 and Jev adapters are not built (scope update); they come only if the bake-off needs a second option.
 - Not here: the explanation and voice callers.
 

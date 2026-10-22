@@ -50,9 +50,18 @@ class YesNoQuestion:
 
 
 @dataclass(frozen=True, slots=True)
+class Level:
+    label: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class ScoreQuestion:
+    """Rate against ordered levels, lowest first. The levels are developer or pack text, like option labels."""
+
     question_id: str
     prompt: str
+    levels: tuple[Level, ...]
 
 
 Question = ChoiceQuestion | YesNoQuestion | ScoreQuestion
@@ -60,9 +69,13 @@ Question = ChoiceQuestion | YesNoQuestion | ScoreQuestion
 
 @dataclass(frozen=True, slots=True)
 class ChoiceAnswer:
+    """`selected` is the provider's own selection. `confidence` is the decision model's separate confidence value when it
+    gives one (an LLM-backed answer has none). Both are information, never authority."""
+
     question_id: str
     selected: str
     probabilities: Mapping[str, float]
+    confidence: float | None = None
 
     @property
     def abstained(self) -> bool:
@@ -82,8 +95,13 @@ class YesNoAnswer:
 
 @dataclass(frozen=True, slots=True)
 class ScoreAnswer:
+    """The probability per level (keys level_0, level_1, ...). `score` is the decision model's probability-weighted level
+    index when it gives one; an LLM-backed answer carries only the distribution, because the harness computes no score."""
+
     question_id: str
-    score: float
+    score: float | None
+    probabilities: Mapping[str, float]
+    confidence: float | None = None
 
 
 Answer = ChoiceAnswer | YesNoAnswer | ScoreAnswer
@@ -98,6 +116,8 @@ def validate_questions(questions: tuple[Question, ...]) -> None:
         if not _ID.match(question.question_id) or question.question_id in seen or not question.prompt:
             raise HarnessRejection(Reason.QUESTION_INVALID)
         seen.add(question.question_id)
+        if isinstance(question, ScoreQuestion) and (len(question.levels) < 2 or not all(lv.label for lv in question.levels)):
+            raise HarnessRejection(Reason.QUESTION_INVALID)
         if isinstance(question, ChoiceQuestion):
             ids = [o.option_id for o in question.options]
             if len(set(ids)) != len(ids) or not all(_ID.match(i) and o.label for i, o in zip(ids, question.options, strict=True)):

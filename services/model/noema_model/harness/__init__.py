@@ -19,6 +19,7 @@ from noema_model.harness.decide_types import (
     ChoiceAnswer,
     ChoiceQuestion,
     DecisionTask,
+    Level,
     Option,
     Question,
     ScoreAnswer,
@@ -32,6 +33,6 @@ from noema_model.harness.templates import PromptTemplate
 __all__ = [
     "ABSTAIN", "Answer", "AttemptOutcome", "AttemptRecord", "CallRecord", "ChoiceAnswer", "ChoiceQuestion",
     "DecideRequest", "DecideResult", "DecisionTask", "Failover", "GenerateRequest", "GenerateResult", "Harness",
-    "HarnessConfig", "HarnessRejection", "Option", "PromptTemplate", "Question", "RateCard", "Reason", "ScoreAnswer",
+    "HarnessConfig", "HarnessRejection", "Level", "Option", "PromptTemplate", "Question", "RateCard", "Reason", "ScoreAnswer",
     "ScoreQuestion", "YesNoAnswer", "YesNoQuestion", "build_providers", "load_harness_config",
 ]

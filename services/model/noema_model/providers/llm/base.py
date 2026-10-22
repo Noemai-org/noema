@@ -77,12 +77,32 @@ class LLMProvider(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class NativeQuestion:
-    """A yes/no question for a decision model. Choice and score questions are not carried yet: the only decision-model
-    format the project holds is the predicate one (see providers/llm/openai_decisions.py)."""
+class NativePredicate:
+    """How likely is it that a statement about the input is true."""
 
     name: str
     instructions: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeChoice:
+    """Pick one of the supplied values. `choices` are (value, description) pairs; the values are strings and unique."""
+
+    name: str
+    instructions: str
+    choices: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NativeScore:
+    """Rate the input against ordered levels. `levels` are (label, description) pairs, lowest first."""
+
+    name: str
+    instructions: str
+    levels: tuple[tuple[str, str], ...]
+
+
+NativeQuestion = NativePredicate | NativeChoice | NativeScore
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,14 +113,40 @@ class NativeRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class NativeAnswer:
+class NativePredicateAnswer:
     name: str
     probability: float
 
 
 @dataclass(frozen=True, slots=True)
+class NativeChoiceAnswer:
+    name: str
+    choice: str
+    confidence: float
+    probabilities: tuple[tuple[str, float], ...]  # (value, probability)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeScoreAnswer:
+    name: str
+    score: float
+    confidence: float
+    probabilities: tuple[tuple[str, int, float], ...]  # (label, level index, probability)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRefusal:
+    """The model declined this one question. Other questions in the same request may still have answers."""
+
+    name: str
+
+
+NativeAnswer = NativePredicateAnswer | NativeChoiceAnswer | NativeScoreAnswer | NativeRefusal
+
+
+@dataclass(frozen=True, slots=True)
 class NativeResponse:
-    """A decision model's answer: a probability per question and nothing else. No text, no reasoning, no decision."""
+    """A decision model's answers, in the order the questions were asked. No text, no reasoning, no decision of ours."""
 
     answers: tuple[NativeAnswer, ...]
     model_version_reported: str | None
@@ -111,6 +157,11 @@ class NativeResponse:
 @runtime_checkable
 class DecisionProvider(Protocol):
     name: str
+
+    def accepts(self, questions: tuple[NativeQuestion, ...]) -> bool:
+        """Whether this provider can take the whole question set (its documented limits). A set it cannot take is never
+        sent: the harness asks the next provider instead of charging this one a failure."""
+        ...
 
     async def decide(self, request: NativeRequest) -> NativeResponse: ...
 

@@ -48,7 +48,7 @@ from noema_model.harness.decide_types import (
 )
 from noema_model.harness.errors import HarnessRejection, Reason
 from noema_model.harness.fields import RenderedField, clean, data_block, render_fields
-from noema_model.harness.templates import DECIDE_V1, PromptTemplate
+from noema_model.harness.templates import DECIDE_V2, PromptTemplate
 from noema_model.platform.clock import Clock
 from noema_model.platform.redaction import Redactor
 from noema_model.platform.telemetry import Telemetry
@@ -56,9 +56,16 @@ from noema_model.providers.llm.base import (
     DecisionProvider,
     FinishReason,
     LLMProvider,
+    NativeChoice,
+    NativeChoiceAnswer,
+    NativePredicate,
+    NativePredicateAnswer,
     NativeQuestion,
+    NativeRefusal,
     NativeRequest,
     NativeResponse,
+    NativeScore,
+    NativeScoreAnswer,
     ProviderError,
     ProviderFailure,
     ProviderRequest,
@@ -216,16 +223,16 @@ class Harness:
             raise HarnessRejection(Reason.TASK_NOT_ELIGIBLE)
         validate_questions(request.questions)
         rendered = render_fields(request.state, self._config.data_limits, self._redactor)
-        user = f"{DECIDE_V1.instruction}\n\nQUESTIONS:\n{self._questions_block(request.questions)}\n\n{data_block(rendered)}"
+        user = f"{DECIDE_V2.instruction}\n\nQUESTIONS:\n{self._questions_block(request.questions)}\n\n{data_block(rendered)}"
         answers, call = await self._call(
             route=f"decide.{request.task.value}",
-            template=DECIDE_V1,
+            template=DECIDE_V2,
             user=user,
             rendered=rendered,
             schema=self._schema_for(_WireDecision),
             output_type=_WireDecision,
             finalize=lambda wire: self._answers(request.questions, wire),
-            native=lambda cfg: self._native_request(cfg, request.questions, rendered),
+            native=lambda cfg, provider: self._native_request(cfg, provider, request.questions, rendered),
             native_finalize=lambda reply: self._native_answers(request.questions, reply),
             locale=request.locale,
             correlation_id=request.correlation_id,
@@ -233,31 +240,62 @@ class Harness:
         return DecideResult(task=request.task, answers=answers, call=call)
 
     def _native_request(
-        self, cfg: ProviderConfig, questions: tuple[Question, ...], rendered: tuple[RenderedField, ...]
+        self,
+        cfg: ProviderConfig,
+        provider: DecisionProvider,
+        questions: tuple[Question, ...],
+        rendered: tuple[RenderedField, ...],
     ) -> NativeRequest | None:
-        """The same masked, delimited data and the same questions, for a decision model. None when any question is not
-        yes/no: the only decision-model format the project holds is the predicate one, so such a set is not sent."""
-        if not all(isinstance(q, YesNoQuestion) for q in questions):
-            return None
+        """The same masked, delimited data and the same questions, for a decision model. None when the provider does not
+        accept this set (its documented limits), so the set is not sent and the next provider is asked."""
         limit = self._config.data_limits.default_max_chars
-        return NativeRequest(
-            cfg.model_version,
-            data_block(rendered),
-            tuple(
-                NativeQuestion(q.question_id, self._redactor.mask_account_numbers(clean(q.prompt))[:limit])
-                for q in questions
-            ),
-        )
+
+        def text(value: str) -> str:
+            return self._redactor.mask_account_numbers(clean(value))[:limit]
+
+        native: list[NativeQuestion] = []
+        for q in questions:
+            if isinstance(q, YesNoQuestion):
+                native.append(NativePredicate(q.question_id, text(q.prompt)))
+            elif isinstance(q, ChoiceQuestion):
+                native.append(NativeChoice(q.question_id, text(q.prompt), tuple((o.option_id, text(o.label)) for o in q.options)))
+            else:
+                native.append(NativeScore(q.question_id, text(q.prompt), tuple((text(lv.label), text(lv.description)) for lv in q.levels)))
+        asked = tuple(native)
+        if not provider.accepts(asked):
+            return None
+        return NativeRequest(cfg.model_version, data_block(rendered), asked)
 
     @staticmethod
     def _native_answers(questions: tuple[Question, ...], reply: NativeResponse) -> tuple[Answer, ...]:
-        by_name = {a.name: a.probability for a in reply.answers}
+        by_name = {a.name: a for a in reply.answers}
         if len(by_name) != len(reply.answers) or set(by_name) != {q.question_id for q in questions}:
             raise HarnessRejection(Reason.OUTPUT_MISMATCH)
-        if not all(0.0 <= p <= 1.0 for p in by_name.values()):
-            raise HarnessRejection(Reason.OUTPUT_MISMATCH)
-        # A probability and nothing more: the provider selected nothing, and the harness does not select for it.
-        return tuple(YesNoAnswer(q.question_id, None, by_name[q.question_id]) for q in questions)
+        if any(isinstance(a, NativeRefusal) for a in reply.answers):
+            raise HarnessRejection(Reason.OUTPUT_REFUSED)  # one refused question spoils the set; the next provider is asked
+        out: list[Answer] = []
+        for q in questions:
+            a = by_name[q.question_id]
+            if isinstance(q, YesNoQuestion) and isinstance(a, NativePredicateAnswer):
+                if not 0.0 <= a.probability <= 1.0:
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                # A probability and nothing more: the provider selected nothing, and the harness does not select for it.
+                out.append(YesNoAnswer(q.question_id, None, a.probability))
+            elif isinstance(q, ChoiceQuestion) and isinstance(a, NativeChoiceAnswer):
+                ids = {o.option_id for o in q.options}
+                probabilities = dict(a.probabilities)
+                if a.choice not in ids or not set(probabilities) <= ids or len(probabilities) != len(a.probabilities):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                if not all(0.0 <= p <= 1.0 for p in probabilities.values()):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                out.append(ChoiceAnswer(q.question_id, a.choice, probabilities, a.confidence))
+            elif isinstance(q, ScoreQuestion) and isinstance(a, NativeScoreAnswer):
+                if [i for _, i, _ in a.probabilities] != list(range(len(q.levels))) or not all(0.0 <= p <= 1.0 for _, _, p in a.probabilities):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                out.append(ScoreAnswer(q.question_id, a.score, {f"level_{i}": p for _, i, p in a.probabilities}, a.confidence))
+            else:
+                raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+        return tuple(out)
 
     # -- decide: question rendering and answer checking ------------------------------------------------------------
 
@@ -277,7 +315,13 @@ class Harness:
             elif isinstance(q, YesNoQuestion):
                 items.append({"question_id": q.question_id, "kind": "yes_no", "prompt": text(q.prompt)})
             else:
-                items.append({"question_id": q.question_id, "kind": "score", "prompt": text(q.prompt)})
+                items.append({
+                    "question_id": q.question_id, "kind": "score", "prompt": text(q.prompt),
+                    "levels": [
+                        {"option": f"level_{i}", "label": text(lv.label), "description": text(lv.description)}
+                        for i, lv in enumerate(q.levels)
+                    ],
+                })
         encoded = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return encoded.replace("<", "\\u003c").replace(">", "\\u003e")
 
@@ -305,9 +349,10 @@ class Harness:
                 out.append(YesNoAnswer(q.question_id, answer.selected == "yes", probabilities["yes"]))
             else:
                 assert isinstance(q, ScoreQuestion)
-                if answer.selected != "score" or set(probabilities) != {"score"}:
+                if answer.selected != "score" or set(probabilities) != {f"level_{i}" for i in range(len(q.levels))}:
                     raise HarnessRejection(Reason.OUTPUT_MISMATCH)
-                out.append(ScoreAnswer(q.question_id, probabilities["score"]))
+                # The distribution over the levels and nothing computed from it: the harness derives no score.
+                out.append(ScoreAnswer(q.question_id, None, probabilities, None))
         return tuple(out)
 
     # -- the shared call path --------------------------------------------------------------------------------------
@@ -333,7 +378,7 @@ class Harness:
         schema: dict[str, Any],
         output_type: type[T],
         finalize: Callable[[T], R],
-        native: Callable[[ProviderConfig], NativeRequest | None] | None = None,
+        native: Callable[[ProviderConfig, DecisionProvider], NativeRequest | None] | None = None,
         native_finalize: Callable[[NativeResponse], R] | None = None,
         locale: str | None,
         correlation_id: str,
@@ -360,7 +405,7 @@ class Harness:
                     attempts.append(AttemptRecord(
                         name, cfg.model_version, None, AttemptOutcome.BREAKER_OPEN, 0, None, None, None, 0, kind))
                     continue
-                native_request = native(cfg) if is_native and native is not None else None
+                native_request = native(cfg, provider) if isinstance(provider, DecisionProvider) and native is not None else None
                 if is_native and (native_request is None or native_finalize is None):
                     # Not a question set this kind of provider can take. Never sent, never guessed at; the next provider is
                     # asked, and the breaker is not charged because nothing was tried.
@@ -443,8 +488,8 @@ class Harness:
     ) -> tuple[R | None, AttemptOutcome]:
         try:
             return finalize(response), AttemptOutcome.OK
-        except HarnessRejection:
-            return None, AttemptOutcome.OUTPUT_MISMATCH
+        except HarnessRejection as rejection:
+            return None, (AttemptOutcome.OUTPUT_REFUSED if rejection.reason is Reason.OUTPUT_REFUSED else AttemptOutcome.OUTPUT_MISMATCH)
 
     @staticmethod
     def _judge(
