@@ -64,11 +64,14 @@ def _minor(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= MAX_MINOR
 
 
-def _surface(text: str) -> str | None:
-    """The counterparty filter: control and format characters removed; left out when empty or over the contract's bound.
-    Leaving it out only widens the read, which the principal-scoped, bounded API allows."""
+def _surface(text: str) -> str:
+    """The counterparty filter, cleaned of control and format characters. It must be 1 to SURFACE_MAX characters and not
+    blank. A filter the contract cannot carry is refused, never dropped: sending the request without it would widen the
+    read to everything in the window, which is not what the customer asked for."""
     cleaned = "".join(c for c in text if unicodedata.category(c) not in ("Cc", "Cf"))
-    return cleaned if 1 <= len(cleaned) <= SURFACE_MAX else None
+    if not cleaned.strip() or len(cleaned) > SURFACE_MAX:
+        raise CandidateRequestInvalid("the counterparty filter is empty or longer than the contract allows")
+    return cleaned
 
 
 def build_request(query: CandidateQuery) -> dict[str, Any]:
@@ -88,9 +91,8 @@ def build_request(query: CandidateQuery) -> dict[str, Any]:
         if not (_minor(low) and _minor(high) and low <= high and _CURRENCY.match(query.currency)):
             raise CandidateRequestInvalid("the amount range does not match the contract")
         filters["amount_range"] = {"min_minor": low, "max_minor": high, "currency": query.currency}
-    surface = _surface(query.counterparty_surface) if query.counterparty_surface else None
-    if surface is not None:
-        filters["counterparty_surface"] = surface
+    if query.counterparty_surface is not None:  # None means the customer named nobody; "" is not the same thing
+        filters["counterparty_surface"] = _surface(query.counterparty_surface)
     return {
         "schema_version": SCHEMA_VERSION,
         "tenant_id": query.tenant_id,

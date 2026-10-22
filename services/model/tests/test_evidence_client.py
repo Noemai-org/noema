@@ -161,11 +161,24 @@ def test_a_query_the_contract_cannot_carry_is_refused_before_anything_is_sent(ov
         build_request(query(**over))
 
 
-def test_a_counterparty_filter_the_contract_cannot_carry_is_left_out_not_sent() -> None:
-    for surface in ("", "x" * 65, None, "​\x00"):
-        assert "counterparty_surface" not in build_request(query(counterparty_surface=surface))["filters"]
+def test_an_empty_counterparty_filter_is_refused_not_dropped() -> None:
+    for empty in ("", "   ", "\u200b\x00", "\n\t"):  # empty, blank, or nothing left after control characters are removed
+        with pytest.raises(CandidateRequestInvalid):
+            build_request(query(counterparty_surface=empty))
+
+
+def test_an_over_long_counterparty_filter_is_refused_not_dropped() -> None:
+    for long in ("x" * 65, "x" * 500, "y" * 64 + "z"):
+        with pytest.raises(CandidateRequestInvalid):
+            build_request(query(counterparty_surface=long))
+    with pytest.raises(CandidateRequestInvalid):
+        build_request(query(counterparty_surface="x" * 60 + "\u200b" * 10 + "abcde"))  # 65 real characters after cleaning
+
+
+def test_a_counterparty_filter_that_fits_is_sent_and_no_filter_means_none_was_named() -> None:
     assert build_request(query(counterparty_surface="x" * 64))["filters"]["counterparty_surface"] == "x" * 64
-    assert build_request(query(counterparty_surface="Ad​a\n"))["filters"]["counterparty_surface"] == "Ada"
+    assert build_request(query(counterparty_surface="Ad\u200ba\n"))["filters"]["counterparty_surface"] == "Ada"
+    assert "counterparty_surface" not in build_request(query(counterparty_surface=None))["filters"]
 
 
 def test_an_amount_range_without_a_currency_is_left_out() -> None:
@@ -466,3 +479,83 @@ def test_with_no_time_window_there_is_nothing_to_read_and_the_result_is_no_candi
     result = run(run_pipeline(make_input(), pipeline_config(), harness, source, no_window, no_errors))
     assert source.queries == [] and result.resolution is not None and result.resolution.state is ResolutionState.NO_CANDIDATES
     assert "NO_TRANSACTION_MATCH" in result.ambiguity_flags
+
+
+# --- the filter defect, through the pipeline -------------------------------------------------------------------------------
+
+def _surface_normaliser(surface: str) -> Any:
+    from dataclasses import replace
+
+    def normalise(inp: Any, proposal: Any) -> Any:
+        return replace(normaliser(inp, proposal), counterparty_surface=surface)
+
+    return normalise
+
+
+@pytest.mark.parametrize("surface", ["", "   ", "x" * 65])
+def test_a_counterparty_filter_the_contract_cannot_carry_stops_the_turn_with_input_invalid(surface: str, core: Core) -> None:
+    harness, _ = harness_for(good_model())
+    result = run(run_pipeline(make_input(), pipeline_config(), harness, client_for(core.url), _surface_normaliser(surface), no_errors))
+    assert result.outcome is Outcome.REJECTED_AT_GATE and result.gate_errors == ("INPUT_INVALID",)
+    assert core.seen == [] and result.resolution is None  # nothing was sent, with or without the filter
+
+
+def test_the_evidence_client_never_sends_a_request_without_a_filter_it_was_asked_to_apply(core: Core) -> None:
+    with pytest.raises(CandidateRequestInvalid):
+        run(client_for(core.url).fetch(query(counterparty_surface="")))
+    with pytest.raises(CandidateRequestInvalid):
+        run(client_for(core.url).fetch(query(counterparty_surface="x" * 65)))
+    assert core.seen == []
+
+
+# --- boundaries of the package ----------------------------------------------------------------------------------------------------
+
+def test_the_evidence_package_sits_in_the_model_service_and_keeps_its_boundaries() -> None:
+    import ast
+    root = Path(__file__).resolve().parents[1] / "noema_model"
+    package = root / "evidence"
+    assert package.is_dir() and (package / "client.py").is_file()
+    for path in package.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            modules = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""] if isinstance(node, ast.ImportFrom) else []
+            for module in modules:
+                parts = module.split(".")
+                assert "providers" not in parts and "harness" not in parts, f"{path.name} imports {module}"
+    for path in (root / "understanding" / "pipeline").glob("*.py"):
+        assert "noema_model.evidence" not in path.read_text(), f"{path.name} imports the evidence client"
+
+
+# --- the mutation test: the drop-the-filter bug must fail the suite --------------------------------------------------------------------
+
+def test_the_drop_the_filter_bug_fails_the_suite(tmp_path: Path) -> None:
+    """Copy the service, put the bug back (an unusable filter is silently left out), and run the refusal tests against the
+    copy. They must pass on the real code and fail on the mutant, so this defect cannot return unnoticed."""
+    import shutil
+    import sys
+
+    repo = Path(__file__).resolve().parents[3]
+    work = tmp_path / "mutant"
+    (work / "services").mkdir(parents=True)
+    shutil.copytree(repo / "services" / "model", work / "services" / "model", ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", ".mypy_cache"))
+    for shared in ("contracts", "packs"):
+        (work / shared).symlink_to(repo / shared, target_is_directory=True)
+    model = work / "services" / "model"
+    selection = ["-k", "refused_not_dropped or stops_the_turn_with_input_invalid or never_sends_a_request_without_a_filter"]
+
+    def run_suite() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", "tests/test_evidence_client.py", *selection],
+            cwd=model, capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(model), "HOME": str(tmp_path)},
+        )
+
+    assert run_suite().returncode == 0, "the refusal tests must pass on the real code"
+    client = model / "noema_model" / "evidence" / "client.py"
+    source = client.read_text()
+    refusal = '        raise CandidateRequestInvalid("the counterparty filter is empty or longer than the contract allows")\n    return cleaned\n'
+    bug = '        return ""\n    return cleaned\n'  # the old behaviour: hand back nothing, and the caller drops the filter
+    assert refusal in source
+    client.write_text(source.replace(refusal, bug, 1).replace(
+        'filters["counterparty_surface"] = _surface(query.counterparty_surface)',
+        'filters["counterparty_surface"] = _surface(query.counterparty_surface)\n        if not filters["counterparty_surface"]:\n            del filters["counterparty_surface"]', 1))
+    mutant = run_suite()
+    assert mutant.returncode != 0, "the drop-the-filter bug passed the suite:\n" + mutant.stdout[-800:]
