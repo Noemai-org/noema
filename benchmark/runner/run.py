@@ -131,7 +131,7 @@ def _execute(env: RunEnv, lc: LoadedCase) -> Json:
 def _errored(env: RunEnv, case: Json, code: str, message: str) -> Json:
     return {"run_id": env.run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "ERROR",
             "error": {"code": code, "message": (message or code)[:300]}, "observed": None, "environment": None, "path": "ERROR", "latency_ms": 0,
-            "cost_usd_micros": 0, "outcome_digest": None}
+            "cost_usd_micros": None, "outcome_digest": None}
 
 
 def run_case(env: RunEnv, lc: LoadedCase) -> Json:

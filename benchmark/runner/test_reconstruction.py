@@ -22,9 +22,18 @@ def result_with(observed: Json) -> Json:
 
 class Parse(unittest.TestCase):
     def test_the_contracts_own_fixtures_parse(self) -> None:
-        for path in sorted((FIXTURES / "valid" / "reconstruction").glob("*.json")):
-            parsed = parse(json.loads(path.read_text()))
-            self.assertEqual(Contracts().errors("benchmark-case-result", result_with(parsed.observed)), [], path.name)
+        for name in ("full_write_case.json", "clarification_only.json"):
+            parsed = parse(json.loads((FIXTURES / "valid" / "reconstruction" / name).read_text()))
+            self.assertEqual(Contracts().errors("benchmark-case-result", result_with(parsed.observed)), [], name)
+
+    def test_a_clarification_with_no_decision_is_clarify(self) -> None:
+        parsed = parse(json.loads((FIXTURES / "valid" / "reconstruction" / "clarification_only.json").read_text()))
+        self.assertEqual((parsed.observed["disposition"], parsed.observed["clarification_asked"]), ("CLARIFY", True))
+
+    def test_a_valid_body_with_no_decision_and_no_clarification_cannot_become_a_result(self) -> None:
+        """no_events.json is a valid body (an empty Record); the runner has no disposition to report from it, so it is an error."""
+        with self.assertRaises(ReconstructionError):
+            parse(json.loads((FIXTURES / "valid" / "reconstruction" / "no_events.json").read_text()))
 
     def test_the_contracts_invalid_fixtures_are_errors_not_quiet_partials(self) -> None:
         for path in sorted((FIXTURES / "invalid" / "reconstruction").glob("*.json")):
@@ -83,7 +92,7 @@ class Parse(unittest.TestCase):
         self.assertEqual(parse(b).observed["disposition"], "ALLOW")
 
     def test_no_decision_is_an_error(self) -> None:
-        b = body("ALLOW")
+        b = body("ALLOW")  # no clarification either
         next(s for s in b["sections"] if s["kind"] == "DECISION")["items"] = []
         with self.assertRaises(ReconstructionError):
             parse(b)

@@ -107,6 +107,7 @@ class RunCase(unittest.TestCase):
         self.assertEqual((result["case_id"], result["case_version"], result["run_id"]), (lc.case["case_id"], 1, "run1"))
         self.assertEqual(result["environment"]["effects"], [])
         self.assertEqual(result["path"], "CLEAN")
+        self.assertIsNone(result["cost_usd_micros"], "no source for provider cost exists yet: null, never an estimate")
 
     def test_the_order_is_reset_fixture_plan_baseline_inputs(self) -> None:
         lc = pick(lambda x: x.plan is not None and any(f["target"] == "mock-case" and f["effect"] == "DROP_RESPONSE" for f in x.plan["faults"]) and len(x.plan["faults"]) == 1)
@@ -267,6 +268,7 @@ class RunCase(unittest.TestCase):
         card = score([lc.case], [oracle], [result], registry_from_pack(pack), run_id="run1")
         self.assertTrue(card["complete"], card["failures"])
         self.assertEqual(card["failures"], [], "the runner's result for a correctly handled case is scored as correctly handled")
+        self.assertIsNone(card["tier3"]["cost_usd_micros_total"])
 
 
 class RunSuite(unittest.TestCase):
