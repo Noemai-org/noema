@@ -6,6 +6,7 @@ to be a legal identifier. The abstention is always offered and is always honoure
 """
 
 from collections.abc import Mapping, Sequence
+from fractions import Fraction
 
 from noema_model.harness import (
     ABSTAIN,
@@ -37,6 +38,16 @@ def choice(question_id: str, prompt: str, labelled: Sequence[tuple[str, str]]) -
 
 def _chosen(answer: ChoiceAnswer, ids: Mapping[str, str]) -> str | None:
     return None if answer.abstained else ids[answer.selected]
+
+
+def asserted(answer: YesNoAnswer, threshold: Fraction | None) -> bool:
+    """Whether a yes/no answer counts as a yes. A model that selected one is taken at its word. A decision model returns
+    only a probability, and the pack's threshold (set by benchmark and a founder, AGENT-16) says where a yes begins. With
+    no threshold configured the answer counts as a yes: a yes here only ever adds caution or a logged signal, so the
+    unconfigured case errs toward more care and never toward less."""
+    if answer.yes is not None:
+        return answer.yes
+    return True if threshold is None else Fraction(answer.p_yes) >= threshold
 
 
 def _state(inp: PipelineInput) -> dict[str, str]:
@@ -91,7 +102,7 @@ async def enumerated_slots(
 
 
 async def propose_flags(
-    harness: Harness, specs: Sequence[FlagSpec], inp: PipelineInput
+    harness: Harness, specs: Sequence[FlagSpec], inp: PipelineInput, threshold: Fraction | None
 ) -> tuple[tuple[str, ...], Mapping[str, float], CallRecord | None]:
     """Task 3: one yes/no per ambiguity flag (§20.3). A "yes" only ever adds caution."""
     if not specs:
@@ -104,7 +115,7 @@ async def propose_flags(
     for spec, answer in zip(specs, result.answers, strict=True):
         assert isinstance(answer, YesNoAnswer)
         probabilities[spec.flag] = answer.p_yes
-        if answer.yes:
+        if asserted(answer, threshold):
             raised.append(spec.flag)
     return tuple(raised), probabilities, result.call
 
@@ -131,7 +142,7 @@ async def detect_locale(
 
 
 async def screen_strings(
-    harness: Harness, strings: Mapping[str, str], inp: PipelineInput
+    harness: Harness, strings: Mapping[str, str], inp: PipelineInput, threshold: Fraction | None
 ) -> tuple[Mapping[str, bool], CallRecord | None]:
     """Task 6: does text try to instruct the reader? A logged signal only; REQ-CTX-007 delimiting is the control, and a
     failed screening changes nothing (the caller ignores the rejection)."""
@@ -149,15 +160,15 @@ async def screen_strings(
     flags = {}
     for key, answer in zip(keys, result.answers, strict=True):
         assert isinstance(answer, YesNoAnswer)
-        flags[key] = answer.yes
+        flags[key] = asserted(answer, threshold)
     return flags, result.call
 
 
 async def screen_quietly(
-    harness: Harness, strings: Mapping[str, str], inp: PipelineInput
+    harness: Harness, strings: Mapping[str, str], inp: PipelineInput, threshold: Fraction | None
 ) -> tuple[Mapping[str, bool], CallRecord | None]:
     try:
-        return await screen_strings(harness, strings, inp)
+        return await screen_strings(harness, strings, inp, threshold)
     except HarnessRejection as rejection:
         return {}, rejection.call
 

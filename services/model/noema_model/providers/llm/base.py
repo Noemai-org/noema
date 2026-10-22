@@ -9,7 +9,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 class FinishReason(StrEnum):
@@ -69,10 +69,50 @@ class Transport(Protocol):
         ...
 
 
+@runtime_checkable
 class LLMProvider(Protocol):
     name: str
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse: ...
+
+
+@dataclass(frozen=True, slots=True)
+class NativeQuestion:
+    """A yes/no question for a decision model. Choice and score questions are not carried yet: the only decision-model
+    format the project holds is the predicate one (see providers/llm/openai_decisions.py)."""
+
+    name: str
+    instructions: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRequest:
+    model_version: str
+    input_text: str
+    questions: tuple[NativeQuestion, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NativeAnswer:
+    name: str
+    probability: float
+
+
+@dataclass(frozen=True, slots=True)
+class NativeResponse:
+    """A decision model's answer: a probability per question and nothing else. No text, no reasoning, no decision."""
+
+    answers: tuple[NativeAnswer, ...]
+    model_version_reported: str | None
+    tokens_in: int | None
+    tokens_out: int | None
+
+
+@runtime_checkable
+class DecisionProvider(Protocol):
+    name: str
+
+    async def decide(self, request: NativeRequest) -> NativeResponse: ...
 
 
 @dataclass(frozen=True, slots=True)

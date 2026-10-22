@@ -107,10 +107,10 @@ async def run_pipeline(
     # 2. The independent steps, together. A rejection in any required one stops the turn; screening never does.
     gathered = await asyncio.gather(
         steps.enumerated_slots(harness, config.catalogue, node, inp),
-        steps.propose_flags(harness, config.proposable_flags, inp),
+        steps.propose_flags(harness, config.proposable_flags, inp, config.native_yes_threshold),
         steps.detect_locale(harness, config.locales, inp),
         steps.slot_mentions(harness, node, inp),
-        steps.screen_quietly(harness, {"utterance": inp.text}, inp),
+        steps.screen_quietly(harness, {"utterance": inp.text}, inp, config.native_yes_threshold),
         return_exceptions=True,
     )
     rejections = [g for g in gathered if isinstance(g, HarnessRejection)]
@@ -175,7 +175,7 @@ async def run_pipeline(
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_OUT_OF_BOUNDS,),
                         proposal=proposal, normalised=normalised, signals=signals)
 
-    screening = asyncio.create_task(steps.screen_quietly(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp))
+    screening = asyncio.create_task(steps.screen_quietly(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp, config.native_yes_threshold))
     try:
         resolution = _rank(candidates, normalised, proposal, inp, config)
     finally:

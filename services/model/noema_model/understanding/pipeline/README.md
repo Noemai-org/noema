@@ -24,6 +24,8 @@ The pipeline owns none of these, and none is faked here:
 - `Normalise`: the deterministic lexicon, whose values win over a model's (REQ-INT-003, UND-05).
 - `Gate`: the schema gate on the assembled Intent Object (REQ-INT-001). Waiting on generated contract types (CON-03).
 
+**A decision model's probability.** When the flag or screening task is served by a decision model, the answer is a bare probability. The pipeline counts it as a yes at or above `PipelineConfig.native_yes_threshold` (pack data; a benchmark and founder decision), and as a yes when none is set.
+
 **Failure.** A provider failure or a refused reply on a required step is `REJECTED_AT_GATE` with the error code (`PROVIDER_UNAVAILABLE`, `SCHEMA_INVALID`), never a guess. A failed screening changes nothing. A candidate read over the bound is refused, not truncated. A counterparty filter that is empty or over 64 characters stops the turn with `INPUT_INVALID`: the request is never sent without the filter the customer's words asked for.
 
 **Tests.** `tests/test_pipeline.py`; the arch-lint rule `pipeline-purity` keeps module state, HTTP, database and agent frameworks out.

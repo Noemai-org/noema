@@ -19,6 +19,7 @@ class AttemptOutcome(StrEnum):
     MALFORMED = "MALFORMED"
     VERSION_MISMATCH = "VERSION_MISMATCH"
     BREAKER_OPEN = "BREAKER_OPEN"
+    UNSUPPORTED = "UNSUPPORTED"
     OUTPUT_MISMATCH = "OUTPUT_MISMATCH"
     OUTPUT_TRUNCATED = "OUTPUT_TRUNCATED"
     OUTPUT_REFUSED = "OUTPUT_REFUSED"
@@ -41,7 +42,9 @@ CONTENT_REJECTIONS = frozenset(
     {AttemptOutcome.OUTPUT_MISMATCH, AttemptOutcome.OUTPUT_TRUNCATED, AttemptOutcome.OUTPUT_REFUSED}
 )
 # Outcomes after which the next provider in the route is tried (REQ-INT-002).
-FAILOVER_OUTCOMES = PROVIDER_FAILURES | CONTENT_REJECTIONS | {AttemptOutcome.BREAKER_OPEN}
+# An attempt that was never made: an open breaker, or a question set this kind of provider cannot take. It costs nothing.
+NOT_MADE = frozenset({AttemptOutcome.BREAKER_OPEN, AttemptOutcome.UNSUPPORTED})
+FAILOVER_OUTCOMES = PROVIDER_FAILURES | CONTENT_REJECTIONS | NOT_MADE
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,10 +68,12 @@ class AttemptRecord:
     tokens_out: int | None
     rate: RateCard | None
     cost_micro: int | None
+    kind: str  # "llm" or "decision_model"; the template of the call applies to llm attempts only
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "provider": self.provider,
+            "kind": self.kind,
             "model_version": self.model_version,
             "model_version_reported": self.model_version_reported,
             "outcome": self.outcome.value,
@@ -161,7 +166,7 @@ def attempt_cost(tokens_in: int | None, tokens_out: int | None, rate: RateCard |
 def cost_of(attempts: tuple[AttemptRecord, ...]) -> tuple[int | None, str | None, str | None, bool]:
     """(cost_micro, currency, rate_as_of, complete), summed from the attempts' own costs.
 
-    Attempts refused before any call (an open breaker) cost nothing and do not make the figure incomplete. A made call
+    Attempts that were never made (an open breaker, an unsupported question set) cost nothing and do not make the figure incomplete. A made call
     whose cost is unknown makes the figure incomplete. Two currencies cannot be added, so the figure is then unknown.
     `rate_as_of` is that of the last priced attempt; each attempt carries its own.
     """
@@ -171,7 +176,7 @@ def cost_of(attempts: tuple[AttemptRecord, ...]) -> tuple[int | None, str | None
     complete = True
     priced = False
     for attempt in attempts:
-        if attempt.outcome is AttemptOutcome.BREAKER_OPEN:
+        if attempt.outcome in NOT_MADE:
             continue
         if attempt.cost_micro is None or attempt.rate is None:
             complete = False

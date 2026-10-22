@@ -71,8 +71,12 @@ class ChoiceAnswer:
 
 @dataclass(frozen=True, slots=True)
 class YesNoAnswer:
+    """`yes` is the model's own selection and is None when the provider returns only a probability (a decision model).
+    Turning that probability into a yes or a no needs a threshold, which is a pack setting decided by benchmark and a
+    founder (AGENT-16), so the harness never does it."""
+
     question_id: str
-    yes: bool
+    yes: bool | None
     p_yes: float
 
 
