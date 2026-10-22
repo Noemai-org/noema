@@ -82,5 +82,9 @@ def load_suite(root: Path, contracts: Contracts | None = None) -> Suite:
             if not plan_path.is_file():
                 raise SuiteError(f"{case_id}: the fault plan {case['fault_plan']} has no file")
             plan = _load(plan_path)
+            errors = contracts.errors("fault-plan", plan)
+            if errors:
+                invalid.append((case_id, [f"fault plan {e}" for e in errors]))
+                continue
         cases.append(LoadedCase(case, fixture, plan, entry))
     return Suite(Path(root), manifest, cases, invalid)

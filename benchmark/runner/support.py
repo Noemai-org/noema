@@ -8,17 +8,17 @@ from .suite import LoadedCase, Suite
 Json = dict[str, Any]
 
 
-def reasons_for(lc: LoadedCase, grant_ttl_seconds: int | None) -> set[str]:
-    reasons = {f"event: {e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"])}
-    for text in split_plan(lc.case, lc.plan, grant_ttl_seconds=grant_ttl_seconds).unsupported:
+def reasons_for(lc: LoadedCase) -> set[str]:
+    reasons = {f"event: {e['event'] if e['event'].startswith('needs_fault:') else e['event'].split(':')[0]}" for e in lc.case["events_timeline"] if not driven(e["event"])}
+    for text in split_plan(lc.case, lc.plan).unsupported:
         target_operation, _, _ = text.partition(":")
         reasons.add(f"fault: {target_operation.split('.')[0]} {target_operation.split(' ')[-1]}")
     return reasons
 
 
-def report(suite: Suite, *, grant_ttl_seconds: int | None) -> Json:
+def report(suite: Suite) -> Json:
     """`runnable` and `blocked` partition the cases. `blocked_by` counts cases per reason, so a case with two reasons is in two entries."""
-    per_case = [reasons_for(lc, grant_ttl_seconds) for lc in suite.cases]
+    per_case = [reasons_for(lc) for lc in suite.cases]
     by_reason: dict[str, int] = {}
     for reasons in per_case:
         for reason in reasons:

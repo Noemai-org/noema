@@ -70,7 +70,6 @@ class RunEnv:
     run_id: str
     admin_token: str | None = None
     tenant_id: str | None = None  # the tenant the admin API addresses (kill switch); no default is assumed
-    grant_ttl_seconds: int | None = None
     settle_timeout_s: float = 30.0
     poll_s: float = 0.2
     sleep: Callable[[float], None] = time.sleep

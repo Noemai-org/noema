@@ -55,7 +55,7 @@ A mutated case keeps its base archetype's key, so it shares the base case's name
 
 ## Fault plans
 
-A case with faults names `fp_<case id>`; the plan file under `fault_plans/` is in the PERD §37.1 shape and is **provisional**: the fault-plan schema belongs to the environment track and replaces this file's format when it lands.
+A case with faults names `fp_<case id>`, and the file under `fault_plans/` is a `fault-plan.v1` document (the contract owned by the environment track): `fault_plan_id`, `scenario_id` (the case), `seed`, `deterministic`, a `source` chosen by the contract's reading rules (`TUSHE` for the four state-change effects and the effects only Tushe or mock-case produce, `MOCK_CASE` when every fault is mock-case's, `PROXY` otherwise), and `faults`. `faultplans.py` applies the few rewrites that keep a scenario's meaning (a case system that is down answers 503; webhook effects belong to the enterprise's `events_feed`) and names what no producer has: the case then carries a `needs_fault:<EFFECT>.<operation>` timeline marker instead of silently losing the fault, and still declares the effect for coverage. Faults "beyond the grant's expiry" use the adopted grant lifetime of 10 minutes (PERD §65.3, OD-P-31), read from `common.GRANT_TTL_SECONDS`, not set by the generator.
 
 ## Tests
 

@@ -46,7 +46,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model-writer", help="the Record `written_by` name of the model service")
     p.add_argument("--declare-no-monetary-route", metavar="REASON", help="declare that this run exposes no monetary route, with the reason; recorded, not observed")
     p.add_argument("--tenant-id", help="the tenant the admin API addresses, for kill_switch events")
-    p.add_argument("--grant-ttl-seconds", type=int, help="the loaded trust profile's grant lifetime, for faults relative to it")
     p.add_argument("--provider", action="append", default=[], help="a model provider used in this run (repeatable)")
     p.add_argument("--only", action="append", help="run only this case id (repeatable)")
     p.add_argument("--commit-sha", default=None)
@@ -64,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unusable suite: {error}")
         return 2
     if args.support:
-        found = support_report(suite, grant_ttl_seconds=args.grant_ttl_seconds)
+        found = support_report(suite)
         print(f"{found['runnable']} of {found['total']} cases can run now ({found['blocked']} blocked; {found['without_faults_or_events']} need no fault and no event)")
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
@@ -76,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
                  fixtures=UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
-                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, grant_ttl_seconds=args.grant_ttl_seconds)
+                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id)
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=set(args.only) if args.only else None)
     counts = summary["counts"]

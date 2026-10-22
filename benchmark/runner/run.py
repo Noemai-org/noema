@@ -91,8 +91,8 @@ def _execute(env: RunEnv, lc: LoadedCase) -> Json:
     started = env.now()
     undriven = [e for e in case["events_timeline"] if not driven(e["event"])]
     if undriven:
-        raise CaseError("EVENT_KIND_UNSUPPORTED", "no driver for: " + ", ".join(sorted({e["event"].split(":")[0] for e in undriven})))
-    split = split_plan(case, lc.plan, grant_ttl_seconds=env.grant_ttl_seconds)
+        raise CaseError("EVENT_KIND_UNSUPPORTED", "no driver for: " + ", ".join(sorted({e["event"] if e["event"].startswith("needs_fault:") else e["event"].split(":")[0] for e in undriven})))
+    split = split_plan(case, lc.plan)
     if split.unsupported:
         raise CaseError("FAULT_UNSUPPORTED", "; ".join(split.unsupported)[:290])
     principal = case["principal"]
