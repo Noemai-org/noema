@@ -47,6 +47,11 @@ const (
 	EffectHTTP429                = "HTTP_429"
 	EffectPaginate               = "PAGINATE"
 	EffectConcurrentModification = "CONCURRENT_MODIFICATION"
+	EffectNearTimeoutBefore      = "NEAR_TIMEOUT_BEFORE"
+	EffectNearTimeoutAfter       = "NEAR_TIMEOUT_AFTER"
+	EffectHTTP200Pending         = "HTTP_200_SEMANTIC_PENDING"
+	EffectIdempotencyCollision   = "IDEMPOTENCY_COLLISION"
+	EffectInjectionPayload       = "INJECTION_PAYLOAD"
 )
 
 // Source and target names (REQ-ENV-004, PERD §34.1, §37.1).
@@ -92,6 +97,17 @@ var operationKeys = map[string][]string{
 }
 
 var listOperations = map[string]bool{OpFindCases: true, OpFindComplaints: true, OpFindEvidence: true}
+
+// keyedWrites are the operations that create something under an Idempotency-Key.
+var keyedWrites = map[string]bool{OpCreateCase: true, OpCreateComplaint: true, OpAppendEvidence: true}
+
+// injectableField names, per read operation, the one text field of the answer that can carry injected text: the
+// only free text a case answer holds.
+var injectableField = map[string]string{OpGetCase: "reason_code", OpFindCases: "reason_code", OpGetEvidence: "payload", OpFindEvidence: "payload"}
+
+func injectableFields() string {
+	return "get_case and find_cases: reason_code; get_evidence and find_evidence: payload"
+}
 
 var (
 	planIDRE     = regexp.MustCompile(`^fp_[a-z0-9][a-z0-9_]{0,95}$`)
@@ -158,6 +174,7 @@ type cond struct {
 	retry      int
 	hasRetry   bool
 	pageSize   int
+	field      string
 	paramsJSON json.RawMessage
 }
 
@@ -310,7 +327,7 @@ func compileFault(f Fault) (cond, error) {
 	var err error
 	known := map[string]bool{}
 	switch f.Effect {
-	case EffectLatency, EffectTimeoutBeforeCommit, EffectTimeoutAfterCommit:
+	case EffectLatency, EffectTimeoutBeforeCommit, EffectTimeoutAfterCommit, EffectNearTimeoutBefore, EffectNearTimeoutAfter:
 		known["delay_ms"] = true
 		raw, ok := take("delay_ms")
 		if !ok {
@@ -322,6 +339,22 @@ func compileFault(f Fault) (cond, error) {
 		}
 		cd.delay = time.Duration(n) * time.Millisecond
 	case EffectDropResponse, EffectConcurrentModification:
+	case EffectHTTP200Pending, EffectIdempotencyCollision:
+		if !keyedWrites[f.Operation] {
+			return cd, fmt.Errorf("%s applies only to the keyed writes (create_case, create_complaint, append_evidence), not %s", f.Effect, f.Operation)
+		}
+	case EffectInjectionPayload:
+		known["field"] = true
+		raw, ok := take("field")
+		if !ok {
+			return cd, errors.New("INJECTION_PAYLOAD needs params.field")
+		}
+		if err = json.Unmarshal(raw, &cd.field); err != nil || cd.field == "" {
+			return cd, errors.New("params.field must be a non-empty string")
+		}
+		if want, ok := injectableField[f.Operation]; !ok || want != cd.field {
+			return cd, fmt.Errorf("INJECTION_PAYLOAD on %s can carry its text only in %s", f.Operation, injectableFields())
+		}
 	case EffectHTTP5XX:
 		known["status"], known["after_commit"] = true, true
 		if raw, ok := take("status"); ok {
@@ -413,6 +446,7 @@ type Effect struct {
 	AfterCmt   bool            // HTTP_5XX: the command commits first
 	RetryAfter *int            // HTTP_429: seconds, nil when the header is omitted
 	PageSize   int             // PAGINATE
+	Field      string          // INJECTION_PAYLOAD: the answer field that carries the text
 	Params     json.RawMessage // the fault's params as written in the plan, for the fault trace
 }
 
@@ -497,7 +531,7 @@ func (e *Engine) Next(op string, attrs map[string]string) Decision {
 		if d.Effect != nil || (cd.nth != 0 && e.seen[i] != cd.nth) {
 			continue
 		}
-		eff := &Effect{Index: cd.planIndex, Name: cd.effect, Delay: cd.delay, Status: cd.status, AfterCmt: cd.afterCmt, PageSize: cd.pageSize, Params: cd.paramsJSON}
+		eff := &Effect{Index: cd.planIndex, Name: cd.effect, Delay: cd.delay, Status: cd.status, AfterCmt: cd.afterCmt, PageSize: cd.pageSize, Field: cd.field, Params: cd.paramsJSON}
 		if cd.hasRetry {
 			r := cd.retry
 			eff.RetryAfter = &r
