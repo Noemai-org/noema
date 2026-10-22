@@ -15,20 +15,41 @@ ADMIN_TOKEN = "admin-credential"
 CORRELATION = "corr_synth0001"
 
 
-def reconstruction(disposition: str = "ALLOW", *, writes: list[tuple[str, str]] | None = None, claims: list[Json] | None = None,
-                   events: list[str] | None = None, cost: int = 0, **overrides: Any) -> Json:
-    """A reconstruction body in the provisional shape of benchmark/runner/reconstruction.py."""
+SECTIONS = ("WHO", "REQUEST", "AMBIGUITY", "RESOLUTION", "OBSERVED_STATE", "POLICY", "AUTHORITY", "DECISION", "ACTION", "DOWNSTREAM_RESULT", "VERIFICATION", "EXPLANATION")
+
+
+def reconstruction(disposition: str = "ALLOW", *, writes: list[tuple[str, str]] | None = None, claims: list[Json] | None = None, events: list[str] | None = None,
+                   resolved_target: str | None = None, classification: str | None = None, clarification_asked: bool | None = None, grant: str = "VALID",
+                   verdict: str = "ACHIEVED", disclosed_refs: list[str] | None = None, explicit_targets: bool = False) -> Json:
+    """A body of GET /v1/reconstructions/{correlation_id} in the shape of contracts/schemas/reconstruction.v1.json (twelve sections, in order).
+    `writes` are (capability, target) pairs; the target is the resolved target unless `explicit_targets` puts it on the action (an optional fact)."""
     types = events or ["INPUT_RECEIVED", "DECISION_MADE"]
-    outcome: Json = {
-        "disposition": disposition, "classification": None, "resolved_target": None, "dispatches": [], "verdicts": [],
-        "claims": claims if claims is not None else [], "disclosed_refs": [], "provider_cost_usd_micros": cost,
-    }
-    for capability, target in writes or []:
-        outcome["dispatches"].append({"capability": capability, "target": target, "grant": "VALID"})
-        outcome["verdicts"].append({"capability": capability, "target": target, "verdict": "ACHIEVED"})
-    outcome.update(overrides)
-    return {"correlation_id": CORRELATION, "tenant_id": "ten_synth", "outcome": outcome,
-            "events": [{"event_type": t, "written_by": "TRUST", "event_id": f"evt_{i:04d}"} for i, t in enumerate(types)]}
+    ids = [f"recev_{1000 + i}" for i in range(len(types))]
+    hashes = ["sha256:" + f"{i + 1:064x}" for i in range(len(types) + 1)]
+    record = [{"schema_version": "1.0", "tenant_id": "ten_synth", "correlation_id": CORRELATION, "event_id": ids[i], "prev_hash": hashes[i], "hash": hashes[i + 1],
+               "written_by": "TRUST", "event_type": t, "object_ref": f"obj_{i:04d}", "at": "2026-10-01T09:48:00Z"} for i, t in enumerate(types)]
+    target = resolved_target if resolved_target is not None else (writes[0][1] if writes else None)
+
+    def item(i: int, facts: Json, basis: str = "RULE") -> Json:
+        return {"record_event_id": ids[min(i, len(ids) - 1)], "object_ref": f"obj_{min(i, len(ids) - 1):04d}", "basis": basis, "facts": facts}
+
+    items: dict[str, list[Json]] = {k: [] for k in SECTIONS}
+    items["RESOLUTION"] = [item(0, {"resolved_target": target, "candidate_count": 1 if target else 0})]
+    if clarification_asked is not None:
+        items["AMBIGUITY"] = [item(0, {"clarification_asked": clarification_asked})]
+    if classification is not None:
+        items["OBSERVED_STATE"] = [item(0, {"classification": classification})]
+    items["DECISION"] = [item(1, {"decision_outcome": disposition})]
+    for capability, write_target in writes or []:
+        extra: Json = {"target": write_target} if explicit_targets else {}
+        items["ACTION"].append(item(1, {"capability_id": capability, "execution_state": "ACKNOWLEDGED", "attempt": 1, "grant_state": grant, **extra}))
+        items["VERIFICATION"].append(item(1, {"capability_id": capability, "verdict": verdict, **extra}))
+    for claim in claims or []:
+        items["EXPLANATION"].append(item(1, {"text": claim["text"], "bound_fact_status": claim["bound_fact_status"], "disclosed_refs": list(disclosed_refs or [])}))
+    return {"schema_version": "1.0", "tenant_id": "ten_synth", "correlation_id": CORRELATION,
+            "chain": {"verified": True, "head_event_id": ids[-1], "head_hash": hashes[-1]}, "events": record,
+            "sections": [{"kind": k, "items": items[k]} for k in SECTIONS],
+            "timeline": [{"record_event_id": ids[i], "at": "2026-10-01T09:48:00Z", "event_type": t, "text": t.lower().replace("_", " ")} for i, t in enumerate(types)]}
 
 
 @dataclass
