@@ -155,11 +155,10 @@ async def run_pipeline(
         return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     query = build_query(inp, normalised, search.resource_kind, config)
     if query.time_window is None:
-        # The read contract requires a time window (REQ-CTX-006). With none, no search runs, so there is no empty result and
-        # NO_TRANSACTION_MATCH (REQ-AMB-002: an empty set) would claim something that was never looked for. The time is what
-        # is missing: raise the pack's time flag, which Trust turns into a question (PERD 20.3, 22.2), and read nothing.
-        flags = tuple(sorted({*proposal.ambiguity_flags, config.time_missing_flag}))
-        return PipelineResult(Outcome.PROPOSED, proposal, normalised, flags, (), None, None, signals, tuple(calls))
+        # The read contract requires a time window (REQ-CTX-006), so a request with none is invalid input: it is refused at
+        # the gate and nothing is read. NO_TRANSACTION_MATCH (REQ-AMB-002) is for a search that ran and came back empty.
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
+                        proposal=proposal, normalised=normalised, signals=signals)
     try:
         candidates = await source.fetch(query)
     except CandidateScopeError:

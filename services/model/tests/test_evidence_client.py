@@ -467,7 +467,7 @@ def test_a_contract_breaking_answer_is_a_dependency_error_and_nothing_is_ranked(
     assert pipeline(FakeSource(raises=CandidateResponseInvalid("x"))).gate_errors == ("DEPENDENCY_UNAVAILABLE",)
 
 
-def test_with_no_time_window_nothing_is_read_and_the_time_flag_is_raised_not_no_match() -> None:
+def test_with_no_time_window_nothing_is_read_and_the_request_is_input_invalid() -> None:
     from dataclasses import replace
     source = FakeSource((candidate("a"),))
 
@@ -476,16 +476,15 @@ def test_with_no_time_window_nothing_is_read_and_the_time_flag_is_raised_not_no_
 
     harness, _ = harness_for(good_model())
     result = run(run_pipeline(make_input(), pipeline_config(), harness, source, no_window, no_errors))
-    assert source.queries == [] and result.outcome is Outcome.PROPOSED and result.gate_errors == ()
+    assert source.queries == [] and result.outcome is Outcome.REJECTED_AT_GATE and result.gate_errors == ("INPUT_INVALID",)
     assert result.resolution is None and result.query is None  # no search ran, so there is no resolution to report
-    assert "TIME_VAGUE" in result.ambiguity_flags
     assert "NO_TRANSACTION_MATCH" not in result.ambiguity_flags  # that code is for a search that came back empty (REQ-AMB-002)
 
 
 def test_an_empty_answer_to_a_real_search_is_still_no_transaction_match() -> None:
     result = pipeline(FakeSource(()))
     assert result.resolution is not None and result.resolution.state is ResolutionState.NO_CANDIDATES
-    assert "NO_TRANSACTION_MATCH" in result.ambiguity_flags and "TIME_VAGUE" not in result.ambiguity_flags
+    assert "NO_TRANSACTION_MATCH" in result.ambiguity_flags and result.gate_errors == ()
 
 
 # --- the filter defect, through the pipeline -------------------------------------------------------------------------------

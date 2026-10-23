@@ -55,7 +55,6 @@ class PipelineConfig:
     material_flags: frozenset[str]
     intent_unclear_flag: str
     out_of_scope_flag: str
-    time_missing_flag: str
     native_yes_threshold: Fraction | None
     state_flags: Mapping[ResolutionState, str]
 
