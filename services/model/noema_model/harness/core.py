@@ -51,7 +51,7 @@ from noema_model.harness.fields import RenderedField, clean, data_block, render_
 from noema_model.harness.templates import DECIDE_V2, PromptTemplate
 from noema_model.platform.clock import Clock
 from noema_model.platform.redaction import Redactor
-from noema_model.platform.telemetry import Telemetry
+from noema_model.platform.telemetry import COST_EVENT, Telemetry
 from noema_model.providers.llm.base import (
     DecisionProvider,
     FinishReason,
@@ -551,6 +551,7 @@ class Harness:
             t.event("PROVIDER_FAILOVER", correlation_id, {
                 "route": route, "from_provider": f.from_provider, "to_provider": f.to_provider, "reason": f.reason.value,
             })
+        t.event(COST_EVENT, correlation_id, {"record": json.dumps(call.to_dict(), sort_keys=True, separators=(",", ":"))})
         for name in breakers_opened:
             t.count("noema_provider_breaker_open_total", {"provider": name})
         if call.truncated_fields:

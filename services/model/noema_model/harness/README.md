@@ -67,3 +67,9 @@ The numbers above are placeholders to show the shape, not product settings. `kin
 - Not here: the explanation and voice callers.
 
 **Tests.** `pytest` from `services/model/`.
+
+## Cost files (bench runs only)
+
+Every model call emits one `MODEL_CALL_RECORDED` event whose `record` field is `CallRecord.to_dict()` as JSON. During a bench run, `platform.telemetry.cost_files_from_environment(telemetry, environ)` wraps the telemetry when `BENCH_OUT` is set (the Makefile's `BENCH_OUT`, default `benchmark/out`) and writes each record to `$BENCH_OUT/cost/<correlation_id>-<NNN>.json`, created exclusively so no file is overwritten. With `BENCH_OUT` unset or empty the telemetry is returned unchanged and nothing is written. A write that fails raises, so a run with missing cost cannot look complete. The file is accounting for the benchmark, never proof of an outcome (AGENT-21).
+
+The service has no composition root yet, so nothing calls `cost_files_from_environment`. Wiring it (passing `os.environ` when the bench profile starts the service) and mounting `$BENCH_OUT` into the container belong to whoever owns that entry point and the compose files.
