@@ -68,3 +68,27 @@ def test_a_write_failure_is_loud_not_silent(tmp_path: Path) -> None:
     blocked.write_text("x")
     with pytest.raises(OSError):
         CostFileTelemetry(NullTelemetry(), blocked).event(COST_EVENT, "corr_1", {"record": "{}"})
+
+
+def test_events_and_spans_still_reach_the_wrapped_telemetry(tmp_path: Path) -> None:
+    inner = InMemoryTelemetry()
+    telemetry = CostFileTelemetry(inner, tmp_path)
+    telemetry.event("PROVIDER_FAILOVER", "corr_1", {"route": "x"})
+    telemetry.event(COST_EVENT, "corr_1", {"record": "{}"})
+    with telemetry.span("harness.call", "corr_1", {"route": "x"}):
+        pass
+    assert [e[0] for e in inner.events] == ["PROVIDER_FAILOVER", COST_EVENT]
+    assert inner.spans == [("harness.call", "corr_1", {"route": "x"})]
+
+
+def test_an_empty_or_very_long_correlation_id_still_gives_a_safe_file_name(tmp_path: Path) -> None:
+    telemetry = CostFileTelemetry(NullTelemetry(), tmp_path)
+    telemetry.event(COST_EVENT, "", {"record": "{}"})
+    telemetry.event(COST_EVENT, "c" * 1000, {"record": "{}"})
+    names = sorted(p.name for p in (tmp_path / "cost").iterdir())
+    assert names == ["call-001.json", "c" * 128 + "-001.json"]
+
+
+def test_the_file_holds_the_record_text_unchanged(tmp_path: Path) -> None:
+    CostFileTelemetry(NullTelemetry(), tmp_path).event(COST_EVENT, "corr_1", {"record": '{"a":1}'})
+    assert (tmp_path / "cost" / "corr_1-001.json").read_text() == '{"a":1}'
