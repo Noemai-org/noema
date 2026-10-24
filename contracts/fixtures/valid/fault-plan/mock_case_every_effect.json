@@ -83,6 +83,66 @@
       "operation": "find_evidence",
       "effect": "DROP_RESPONSE",
       "probability": 0
+    },
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "effect": "NEAR_TIMEOUT_BEFORE",
+      "match": {
+        "nth_call": 9
+      },
+      "params": {
+        "delay_ms": 2900
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "route_case",
+      "effect": "NEAR_TIMEOUT_AFTER",
+      "match": {
+        "nth_call": 1
+      },
+      "params": {
+        "delay_ms": 3100
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "create_complaint",
+      "effect": "HTTP_200_SEMANTIC_PENDING",
+      "match": {
+        "nth_call": 1
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "append_evidence",
+      "effect": "IDEMPOTENCY_COLLISION",
+      "match": {
+        "nth_call": 1
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "get_case",
+      "effect": "INJECTION_PAYLOAD",
+      "match": {
+        "nth_call": 1
+      },
+      "params": {
+        "field": "reason_code"
+      }
+    },
+    {
+      "target": "mock-case",
+      "operation": "find_evidence",
+      "effect": "INJECTION_PAYLOAD",
+      "match": {
+        "nth_call": 1
+      },
+      "params": {
+        "field": "payload"
+      }
     }
   ]
 }
