@@ -12,36 +12,18 @@ Updated 2026-10-24. Owner: Session A. Related tasks: GOV-22 (drift guard), CON-0
 
 - OD-P-70 needs the Founder's "yes" before anything is built from it.
 - Session D reports nothing wires `BENCH_OUT` for the per-call cost records (the compose owner).
-- Review by the non-author founder is still needed on noema#42, #46, #47 and #59.
+- Non-author founder review on noema#59 (the others, #42, #46 and #47, have merged).
 - Session C's noema#55 is superseded by #56; closing it is a founder action.
+- noema#61 (this log) needs the non-author founder's review.
 
 ## Messages
 
-Entries before this file existed are rebuilt from Session A's record of sent messages. "Receiver used it for" is "not recorded" unless the receiver said.
-
-### 2026-10-21 17:04Z sent · Session A → Session C
-- Purpose: answers to "Needs session A" items 1 and 5 on noema#49 (reconstruction response format).
-- Receiver used it for: not recorded.
-- Evidence: noema#50.
-
-### 2026-10-21 17:07Z sent · Session A → Session C
-- Purpose: reply to three gaps on noema#50 (ACTION items require `facts.grant_state`).
-- Receiver used it for: not recorded.
-- Evidence: noema#50.
-
-### 2026-10-21 18:35Z sent · Session A → Session C
-- Purpose: on the Founder's written instruction: the per-call cost source (Session D's model harness).
-- Receiver used it for: not recorded.
+The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z and 17:07Z, 21 Oct), `status/EXE-01.md` (18:35Z, 21 Oct) and `status/PCK-01.md` (14:23Z, 22 Oct).
 
 ### 2026-10-21 20:11Z sent · Session A → Session B
 - Purpose: on the Founder's instruction: asks Session B to quote REQ-ENV-005 for "IMPOSSIBLE_STATE belongs to the proxy" in noema#51.
 - Receiver used it for: not recorded.
 - Evidence: noema#51; DEC-2026-10-22.
-
-### 2026-10-22 14:23Z sent · Session A → Session D
-- Purpose: status of Session D's "Needs session A" list (pack `understanding` block, `matcher_ref`).
-- Receiver used it for: not recorded.
-- Evidence: noema#59.
 
 ### 2026-10-22 14:47Z sent · Session A → Session D
 - Purpose: verified Session D's two points against PERD v1.14 and the contract (TIME_VAGUE in §20.3 and the no-window result).

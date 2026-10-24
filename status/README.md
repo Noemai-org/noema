@@ -6,8 +6,8 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 ## What is built
 
-- `status/README.md` (this file): the format.
-- `status/OPS-07.md`: Session A's log for the vendored-copy drift work (REQ-OPS-005) and the messages it carried.
+- `status/README.md` (this file): the index and the format.
+- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-01`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
 
@@ -18,6 +18,22 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 5. Before handover, list open pull requests, compare their files, and report any overlap on both. Resolve by merging `main` into the branch; no rebase, no force-push.
 6. Docs pull requests are small and re-pointed in the same session (PERD REQ-OPS-005).
 7. No secret in code, a log or a PR body. Ask before adding any secret name.
+
+## Message index (Session A, 21 to 23 Oct 2026)
+
+| Time (UTC) | Direction | Peer | File |
+|---|---|---|---|
+| 21 Oct 17:04 | sent | Session C | `CON-01.md` |
+| 21 Oct 17:07 | sent | Session C | `CON-01.md` |
+| 21 Oct 18:35 | sent | Session C | `EXE-01.md` |
+| 21 Oct 20:11 | sent | Session B | `OPS-07.md` |
+| 22 Oct 14:23 | sent | Session D | `PCK-01.md` |
+| 22 Oct 14:47 | sent | Session D | `OPS-07.md` |
+| 23 Oct 10:13 | sent | Session D | `OPS-07.md` |
+| 23 Oct 10:19 | sent | Session D | `OPS-07.md` |
+| 23 Oct 10:20 | accepted | Session D | `OPS-07.md` |
+| 23 Oct 10:38 | sent | Session D | `OPS-07.md` |
+| 21 Oct 17:06, 22 Oct 11:16 | accepted | Sessions C, D | `OPS-07.md` (bodies not recovered) |
 
 ## Entry format
 
@@ -38,5 +54,6 @@ Times are UTC.
 
 ## Open
 
-- Sessions B, C and D keep their own status files for their own tasks; none is created here.
-- Messages before 21 Oct 2026 are not backfilled.
+- Sessions B, C and D keep their own status files for their own tasks; none is created here. #60 (Session D) adds `status/UND-02.md`.
+- Messages before 21 Oct 2026 are not backfilled, and two incoming bodies could not be recovered (see the index).
+- The index is hand-kept; a script that checks it against the files is not built.

@@ -11,3 +11,9 @@ Packs are loaded as data, never imported as code (SoT §51). The files are `fint
 - The fintech Action Graph is pack data in `fintech/graph/` (G1 investigate, G2 escalate, G3 complaint; PERD section 24). The pack lists the files in `action_graph_files`.
 - `python tools/packcheck validate [--conformance] <pack>` runs every check: schema, references, capabilities (REQ-CAP-001), predicates (parse and type-check against `evidence_descriptors` and `predicate_variables`), graphs (REQ-AG-001), routing (REQ-AG-002) and reason-code namespaces. `fixtures/bad_packs/` holds one patch per failing case; each names the check that must fail.
 - The predicate grammar and the shared corpus are in `contracts/predicates/`. The Go evaluator (T6.1) must pass the same corpus.
+
+## Status (Session A, 24 Oct 2026)
+
+- **Built:** the four packs, the fintech Action Graph and the `packcheck` checks. #59 (open) adds the `understanding` block and `matcher_ref`.
+- **Constraints:** packs are data, loaded never imported; both founders review changes; all content is synthetic.
+- **Open:** non-author founder review on #59; OD-P-69 (the format of `counterparty_display`); OD-P-70 (the pack directory is mounted read-only in compose, a default waiting for the Founder's "yes").
