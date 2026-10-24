@@ -48,5 +48,10 @@
   "impossible_state_without_fixture.json": "required",
   "impossible_state_fixture_with_path.json": "pattern",
   "proxy_source_with_a_tushe_effect.json": "anyOf",
-  "proxy_source_with_semantic_pending.json": "anyOf"
+  "proxy_source_with_semantic_pending.json": "anyOf",
+  "mock_case_pending_on_a_read.json": "enum",
+  "mock_case_collision_on_a_read.json": "enum",
+  "mock_case_injection_field_the_operation_lacks.json": "anyOf",
+  "mock_case_injection_on_a_write.json": "anyOf",
+  "mock_case_near_timeout_without_delay.json": "required"
 }

@@ -22,6 +22,7 @@ from pydantic import ConfigDict as PydanticConfig
 
 from noema_model.harness.accounting import (
     CONTENT_REJECTIONS,
+    NOT_MADE,
     PROVIDER_FAILURES,
     AttemptOutcome,
     AttemptRecord,
@@ -31,7 +32,7 @@ from noema_model.harness.accounting import (
     cost_of,
 )
 from noema_model.harness.breaker import Breaker, BreakerState
-from noema_model.harness.config import HarnessConfig
+from noema_model.harness.config import HarnessConfig, ProviderConfig
 from noema_model.harness.decide_types import (
     ABSTAIN,
     Answer,
@@ -47,13 +48,24 @@ from noema_model.harness.decide_types import (
 )
 from noema_model.harness.errors import HarnessRejection, Reason
 from noema_model.harness.fields import RenderedField, clean, data_block, render_fields
-from noema_model.harness.templates import DECIDE_V1, PromptTemplate
+from noema_model.harness.templates import DECIDE_V2, PromptTemplate
 from noema_model.platform.clock import Clock
 from noema_model.platform.redaction import Redactor
-from noema_model.platform.telemetry import Telemetry
+from noema_model.platform.telemetry import COST_EVENT, Telemetry
 from noema_model.providers.llm.base import (
+    DecisionProvider,
     FinishReason,
     LLMProvider,
+    NativeChoice,
+    NativeChoiceAnswer,
+    NativePredicate,
+    NativePredicateAnswer,
+    NativeQuestion,
+    NativeRefusal,
+    NativeRequest,
+    NativeResponse,
+    NativeScore,
+    NativeScoreAnswer,
     ProviderError,
     ProviderFailure,
     ProviderRequest,
@@ -167,7 +179,7 @@ class Harness:
     def __init__(
         self,
         config: HarnessConfig,
-        providers: Mapping[str, LLMProvider],
+        providers: Mapping[str, LLMProvider | DecisionProvider],
         clock: Clock,
         telemetry: Telemetry,
     ) -> None:
@@ -211,19 +223,79 @@ class Harness:
             raise HarnessRejection(Reason.TASK_NOT_ELIGIBLE)
         validate_questions(request.questions)
         rendered = render_fields(request.state, self._config.data_limits, self._redactor)
-        user = f"{DECIDE_V1.instruction}\n\nQUESTIONS:\n{self._questions_block(request.questions)}\n\n{data_block(rendered)}"
+        user = f"{DECIDE_V2.instruction}\n\nQUESTIONS:\n{self._questions_block(request.questions)}\n\n{data_block(rendered)}"
         answers, call = await self._call(
             route=f"decide.{request.task.value}",
-            template=DECIDE_V1,
+            template=DECIDE_V2,
             user=user,
             rendered=rendered,
             schema=self._schema_for(_WireDecision),
             output_type=_WireDecision,
             finalize=lambda wire: self._answers(request.questions, wire),
+            native=lambda cfg, provider: self._native_request(cfg, provider, request.questions, rendered),
+            native_finalize=lambda reply: self._native_answers(request.questions, reply),
             locale=request.locale,
             correlation_id=request.correlation_id,
         )
         return DecideResult(task=request.task, answers=answers, call=call)
+
+    def _native_request(
+        self,
+        cfg: ProviderConfig,
+        provider: DecisionProvider,
+        questions: tuple[Question, ...],
+        rendered: tuple[RenderedField, ...],
+    ) -> NativeRequest | None:
+        """The same masked, delimited data and the same questions, for a decision model. None when the provider does not
+        accept this set (its documented limits), so the set is not sent and the next provider is asked."""
+        limit = self._config.data_limits.default_max_chars
+
+        def text(value: str) -> str:
+            return self._redactor.mask_account_numbers(clean(value))[:limit]
+
+        native: list[NativeQuestion] = []
+        for q in questions:
+            if isinstance(q, YesNoQuestion):
+                native.append(NativePredicate(q.question_id, text(q.prompt)))
+            elif isinstance(q, ChoiceQuestion):
+                native.append(NativeChoice(q.question_id, text(q.prompt), tuple((o.option_id, text(o.label)) for o in q.options)))
+            else:
+                native.append(NativeScore(q.question_id, text(q.prompt), tuple((text(lv.label), text(lv.description)) for lv in q.levels)))
+        asked = tuple(native)
+        if not provider.accepts(asked):
+            return None
+        return NativeRequest(cfg.model_version, data_block(rendered), asked)
+
+    @staticmethod
+    def _native_answers(questions: tuple[Question, ...], reply: NativeResponse) -> tuple[Answer, ...]:
+        by_name = {a.name: a for a in reply.answers}
+        if len(by_name) != len(reply.answers) or set(by_name) != {q.question_id for q in questions}:
+            raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+        if any(isinstance(a, NativeRefusal) for a in reply.answers):
+            raise HarnessRejection(Reason.OUTPUT_REFUSED)  # one refused question spoils the set; the next provider is asked
+        out: list[Answer] = []
+        for q in questions:
+            a = by_name[q.question_id]
+            if isinstance(q, YesNoQuestion) and isinstance(a, NativePredicateAnswer):
+                if not 0.0 <= a.probability <= 1.0:
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                # A probability and nothing more: the provider selected nothing, and the harness does not select for it.
+                out.append(YesNoAnswer(q.question_id, None, a.probability))
+            elif isinstance(q, ChoiceQuestion) and isinstance(a, NativeChoiceAnswer):
+                ids = {o.option_id for o in q.options}
+                probabilities = dict(a.probabilities)
+                if a.choice not in ids or not set(probabilities) <= ids or len(probabilities) != len(a.probabilities):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                if not all(0.0 <= p <= 1.0 for p in probabilities.values()):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                out.append(ChoiceAnswer(q.question_id, a.choice, probabilities, a.confidence))
+            elif isinstance(q, ScoreQuestion) and isinstance(a, NativeScoreAnswer):
+                if [i for _, i, _ in a.probabilities] != list(range(len(q.levels))) or not all(0.0 <= p <= 1.0 for _, _, p in a.probabilities):
+                    raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+                out.append(ScoreAnswer(q.question_id, a.score, {f"level_{i}": p for _, i, p in a.probabilities}, a.confidence))
+            else:
+                raise HarnessRejection(Reason.OUTPUT_MISMATCH)
+        return tuple(out)
 
     # -- decide: question rendering and answer checking ------------------------------------------------------------
 
@@ -243,7 +315,13 @@ class Harness:
             elif isinstance(q, YesNoQuestion):
                 items.append({"question_id": q.question_id, "kind": "yes_no", "prompt": text(q.prompt)})
             else:
-                items.append({"question_id": q.question_id, "kind": "score", "prompt": text(q.prompt)})
+                items.append({
+                    "question_id": q.question_id, "kind": "score", "prompt": text(q.prompt),
+                    "levels": [
+                        {"option": f"level_{i}", "label": text(lv.label), "description": text(lv.description)}
+                        for i, lv in enumerate(q.levels)
+                    ],
+                })
         encoded = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return encoded.replace("<", "\\u003c").replace(">", "\\u003e")
 
@@ -271,9 +349,10 @@ class Harness:
                 out.append(YesNoAnswer(q.question_id, answer.selected == "yes", probabilities["yes"]))
             else:
                 assert isinstance(q, ScoreQuestion)
-                if answer.selected != "score" or set(probabilities) != {"score"}:
+                if answer.selected != "score" or set(probabilities) != {f"level_{i}" for i in range(len(q.levels))}:
                     raise HarnessRejection(Reason.OUTPUT_MISMATCH)
-                out.append(ScoreAnswer(q.question_id, probabilities["score"]))
+                # The distribution over the levels and nothing computed from it: the harness derives no score.
+                out.append(ScoreAnswer(q.question_id, None, probabilities, None))
         return tuple(out)
 
     # -- the shared call path --------------------------------------------------------------------------------------
@@ -299,6 +378,8 @@ class Harness:
         schema: dict[str, Any],
         output_type: type[T],
         finalize: Callable[[T], R],
+        native: Callable[[ProviderConfig, DecisionProvider], NativeRequest | None] | None = None,
+        native_finalize: Callable[[NativeResponse], R] | None = None,
         locale: str | None,
         correlation_id: str,
     ) -> tuple[R, CallRecord]:
@@ -315,30 +396,44 @@ class Harness:
         with self._telemetry.span("harness.call", correlation_id, {"route": route}) as span:
             for name in names:
                 cfg = self._config.providers[name]
+                provider = self._providers[name]
                 breaker = self._breakers[name]
+                is_native = isinstance(provider, DecisionProvider)
+                kind = "decision_model" if is_native else "llm"
                 started = self._clock.monotonic_ms()
                 if not breaker.allow(started):
-                    attempts.append(
-                        AttemptRecord(name, cfg.model_version, None, AttemptOutcome.BREAKER_OPEN, 0, None, None, None, 0)
-                    )
+                    attempts.append(AttemptRecord(
+                        name, cfg.model_version, None, AttemptOutcome.BREAKER_OPEN, 0, None, None, None, 0, kind))
                     continue
-                provider_request = ProviderRequest(
-                    model_version=cfg.model_version,
-                    system=template.system,
-                    user=user,
-                    schema_name=schema_name,
-                    output_schema=schema,
-                    max_output_tokens=cfg.max_output_tokens,
-                    temperature=cfg.temperature,
-                )
-                response: ProviderResponse | None = None
+                native_request = native(cfg, provider) if isinstance(provider, DecisionProvider) and native is not None else None
+                if is_native and (native_request is None or native_finalize is None):
+                    # Not a question set this kind of provider can take. Never sent, never guessed at; the next provider is
+                    # asked, and the breaker is not charged because nothing was tried.
+                    breaker.release_probe()
+                    attempts.append(AttemptRecord(
+                        name, cfg.model_version, None, AttemptOutcome.UNSUPPORTED, 0, None, None, None, 0, kind))
+                    continue
+                response: ProviderResponse | NativeResponse | None = None
                 outcome: AttemptOutcome
                 with self._telemetry.span("harness.provider_call", correlation_id,
                                           {"route": route, "provider": name}) as attempt_span:
                     try:
-                        response = await asyncio.wait_for(
-                            self._providers[name].complete(provider_request), cfg.timeout_ms / 1000
-                        )
+                        if isinstance(provider, DecisionProvider) and native_request is not None:
+                            response = await asyncio.wait_for(provider.decide(native_request), cfg.timeout_ms / 1000)
+                        else:
+                            assert isinstance(provider, LLMProvider) and cfg.max_output_tokens is not None
+                            response = await asyncio.wait_for(
+                                provider.complete(ProviderRequest(
+                                    model_version=cfg.model_version,
+                                    system=template.system,
+                                    user=user,
+                                    schema_name=schema_name,
+                                    output_schema=schema,
+                                    max_output_tokens=cfg.max_output_tokens,
+                                    temperature=cfg.temperature,
+                                )),
+                                cfg.timeout_ms / 1000,
+                            )
                         outcome = AttemptOutcome.OK
                     except TimeoutError:
                         outcome = AttemptOutcome.TIMEOUT
@@ -356,7 +451,9 @@ class Harness:
                     else:
                         breaker.record_success()
                     value: R | None = None
-                    if outcome is AttemptOutcome.OK and response is not None:
+                    if outcome is AttemptOutcome.OK and isinstance(response, NativeResponse) and native_finalize is not None:
+                        value, outcome = self._judge_native(response, native_finalize)
+                    elif outcome is AttemptOutcome.OK and isinstance(response, ProviderResponse):
                         value, outcome = self._judge(response, output_type, finalize)
                     attempt_span.set_attribute("outcome", outcome.value)
                 latency = max(0, self._clock.monotonic_ms() - started)
@@ -367,7 +464,7 @@ class Harness:
                     AttemptRecord(
                         name, cfg.model_version,
                         response.model_version_reported if response is not None else None,
-                        outcome, latency, tokens_in, tokens_out, rate, attempt_cost(tokens_in, tokens_out, rate),
+                        outcome, latency, tokens_in, tokens_out, rate, attempt_cost(tokens_in, tokens_out, rate), kind,
                     )
                 )
                 if outcome is AttemptOutcome.OK:
@@ -379,11 +476,20 @@ class Harness:
             span.set_attribute("attempts", len(attempts))
         self._emit(call, correlation_id, route, breakers_opened)
         if winner is None or result is None:
-            real = [a.outcome for a in attempts if a.outcome is not AttemptOutcome.BREAKER_OPEN]
+            real = [a.outcome for a in attempts if a.outcome not in NOT_MADE]
             if real and all(o in CONTENT_REJECTIONS for o in real):
                 raise HarnessRejection(_CONTENT_REASON[real[-1]], call)
             raise HarnessRejection(Reason.NO_PROVIDER_ANSWERED, call)
         return result, call
+
+    @staticmethod
+    def _judge_native(
+        response: NativeResponse, finalize: Callable[[NativeResponse], R]
+    ) -> tuple[R | None, AttemptOutcome]:
+        try:
+            return finalize(response), AttemptOutcome.OK
+        except HarnessRejection as rejection:
+            return None, (AttemptOutcome.OUTPUT_REFUSED if rejection.reason is Reason.OUTPUT_REFUSED else AttemptOutcome.OUTPUT_MISMATCH)
 
     @staticmethod
     def _judge(
@@ -417,7 +523,7 @@ class Harness:
             template_id=template.template_id,
             template_version=template.version,
             template_digest=template.digest,
-            input_digest=_digest(template.system + "\n" + user),
+            input_digest=_digest(user),
             truncated_fields=tuple(f.name for f in rendered if f.truncated),
             attempts=frozen,
             provider=provider,
@@ -435,7 +541,7 @@ class Harness:
         t = self._telemetry
         for a in call.attempts:
             t.count("noema_provider_call_total", {"route": route, "provider": a.provider, "outcome": a.outcome.value})
-            if a.outcome is not AttemptOutcome.BREAKER_OPEN:
+            if a.outcome not in NOT_MADE:
                 t.observe("noema_provider_call_latency_ms", {"route": route, "provider": a.provider}, a.latency_ms)
             for direction, tokens in (("in", a.tokens_in), ("out", a.tokens_out)):
                 if tokens:
@@ -445,6 +551,7 @@ class Harness:
             t.event("PROVIDER_FAILOVER", correlation_id, {
                 "route": route, "from_provider": f.from_provider, "to_provider": f.to_provider, "reason": f.reason.value,
             })
+        t.event(COST_EVENT, correlation_id, {"record": json.dumps(call.to_dict(), sort_keys=True, separators=(",", ":"))})
         for name in breakers_opened:
             t.count("noema_provider_breaker_open_total", {"provider": name})
         if call.truncated_fields:

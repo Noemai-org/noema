@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
+from fractions import Fraction
 from typing import Protocol
 
 from noema_model.harness import CallRecord
@@ -54,6 +55,7 @@ class PipelineConfig:
     material_flags: frozenset[str]
     intent_unclear_flag: str
     out_of_scope_flag: str
+    native_yes_threshold: Fraction | None
     state_flags: Mapping[ResolutionState, str]
 
 

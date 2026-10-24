@@ -4,6 +4,7 @@ from the ScriptedProvider and the harness config, as in the harness tests."""
 
 import json
 from dataclasses import dataclass, field
+from fractions import Fraction
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,7 @@ def pipeline_config() -> PipelineConfig:
         material_flags=frozenset({"MULTIPLE_INTENTS", "CONTRADICTS_PRIOR_TURN", "INTENT_UNCLEAR", "OUT_OF_SCOPE_REQUEST"}),
         intent_unclear_flag="INTENT_UNCLEAR",
         out_of_scope_flag="OUT_OF_SCOPE_REQUEST",
+        native_yes_threshold=Fraction(1, 2),  # a TEST value; the real one is a founder decision after the benchmark (AGENT-16)
         state_flags={
             ResolutionState.NO_CANDIDATES: "NO_TRANSACTION_MATCH",
             ResolutionState.AMBIGUOUS: "MULTIPLE_TRANSACTIONS_MATCH",

@@ -758,7 +758,12 @@
                   "HTTP_5XX",
                   "HTTP_429",
                   "PAGINATE",
-                  "CONCURRENT_MODIFICATION"
+                  "CONCURRENT_MODIFICATION",
+                  "NEAR_TIMEOUT_BEFORE",
+                  "NEAR_TIMEOUT_AFTER",
+                  "HTTP_200_SEMANTIC_PENDING",
+                  "IDEMPOTENCY_COLLISION",
+                  "INJECTION_PAYLOAD"
                 ]
               }
             }
@@ -812,6 +817,90 @@
                 "const": "route_case"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "HTTP_200_SEMANTIC_PENDING",
+                  "IDEMPOTENCY_COLLISION"
+                ]
+              },
+              "target": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "effect",
+              "target"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "create_case",
+                  "create_complaint",
+                  "append_evidence"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "const": "INJECTION_PAYLOAD"
+              },
+              "target": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "effect",
+              "target"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "get_case",
+                      "find_cases"
+                    ]
+                  },
+                  "params": {
+                    "properties": {
+                      "field": {
+                        "const": "reason_code"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "operation": {
+                    "enum": [
+                      "get_evidence",
+                      "find_evidence"
+                    ]
+                  },
+                  "params": {
+                    "properties": {
+                      "field": {
+                        "const": "payload"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
         }
       ]

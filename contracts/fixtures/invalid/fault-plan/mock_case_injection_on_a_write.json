@@ -1,0 +1,17 @@
+{
+  "fault_plan_id": "fp_bad",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 1,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": [
+    {
+      "target": "mock-case",
+      "operation": "create_case",
+      "effect": "INJECTION_PAYLOAD",
+      "params": {
+        "field": "reason_code"
+      }
+    }
+  ]
+}

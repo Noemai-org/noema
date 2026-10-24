@@ -1,0 +1,17 @@
+{
+  "model": "gpt-6-luna",
+  "answers": [
+    {
+      "type": "score",
+      "name": "severity",
+      "score": 1.1,
+      "probabilities": [
+        { "value": 0, "label": "Cosmetic", "probability": 0.1 },
+        { "value": 1, "label": "Workaround available", "probability": 0.7 },
+        { "value": 2, "label": "Fully blocked", "probability": 0.2 }
+      ],
+      "confidence": 0.55
+    }
+  ],
+  "usage": {"input_tokens": 36, "output_tokens": 0, "total_tokens": 36}
+}

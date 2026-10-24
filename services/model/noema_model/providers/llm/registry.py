@@ -8,9 +8,10 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
 from noema_model.providers.llm.anthropic_messages import AnthropicMessages
-from noema_model.providers.llm.base import AdapterSettings, LLMProvider, Transport
+from noema_model.providers.llm.base import AdapterSettings, DecisionProvider, LLMProvider, Transport
 from noema_model.providers.llm.gemini_generate import GeminiGenerate
 from noema_model.providers.llm.openai_chat import OpenAIChat
+from noema_model.providers.llm.openai_decisions import OpenAIDecisions
 
 Factory = Callable[[str, AdapterSettings, Transport], LLMProvider]
 
@@ -21,3 +22,8 @@ KINDS: Mapping[str, Factory] = MappingProxyType(
         "gemini_generate": GeminiGenerate,
     }
 )
+
+NativeFactory = Callable[[str, AdapterSettings, Transport], DecisionProvider]
+
+# Decision models (D9): a probability per question, no generated text. Beside the LLM kinds, never instead of them.
+NATIVE_KINDS: Mapping[str, NativeFactory] = MappingProxyType({"openai_decisions": OpenAIDecisions})

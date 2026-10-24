@@ -12,9 +12,11 @@ PLT-05) behind the same interface. Metric names are noema_<name>_<unit|total>; l
 finite set (task, provider name, outcome), never free text, an identifier or customer data.
 """
 
+import re
 from collections.abc import Iterator, Mapping
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol
 
 from opentelemetry import trace
@@ -116,3 +118,54 @@ class OtelTelemetry:
             name, attributes={**attributes, "correlation_id": correlation_id}
         ) as otel_span:
             yield otel_span
+
+
+COST_EVENT = "MODEL_CALL_RECORDED"
+"""Emitted by the harness once per call. Its one field, `record`, is the call's `CallRecord.to_dict()` as JSON."""
+
+_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+
+
+class CostFileTelemetry:
+    """Bench runs only: writes each call's record to <out>/cost/<call_id>.json, the same JSON as `CallRecord.to_dict()`,
+    so the benchmark can read provider cost (REQ-NFR-007). Everything else passes through to the wrapped telemetry.
+
+    A call id is the correlation id plus a three-digit sequence; the file is created exclusively, so a record already on
+    disk is never overwritten. A write that fails raises: a bench run with missing cost must not look complete."""
+
+    def __init__(self, inner: Telemetry, out: Path) -> None:
+        self._inner = inner
+        self._dir = out / "cost"
+
+    def count(self, name: str, labels: Mapping[str, str], value: int = 1) -> None:
+        self._inner.count(name, labels, value)
+
+    def observe(self, name: str, labels: Mapping[str, str], value: int) -> None:
+        self._inner.observe(name, labels, value)
+
+    def event(self, name: str, correlation_id: str, fields: Mapping[str, str | int | bool]) -> None:
+        self._inner.event(name, correlation_id, fields)
+        if name == COST_EVENT:
+            self._write(correlation_id, str(fields["record"]))
+
+    def span(self, name: str, correlation_id: str, attributes: Mapping[str, Attribute]) -> AbstractContextManager[Span]:
+        return self._inner.span(name, correlation_id, attributes)
+
+    def _write(self, correlation_id: str, record: str) -> None:
+        self._dir.mkdir(parents=True, exist_ok=True)
+        stem = _UNSAFE.sub("_", correlation_id)[:128] or "call"  # the id names the file; it never chooses the directory
+        sequence = 1
+        while True:
+            try:
+                with open(self._dir / f"{stem}-{sequence:03d}.json", "x", encoding="utf-8") as handle:
+                    handle.write(record)
+                return
+            except FileExistsError:
+                sequence += 1
+
+
+def cost_files_from_environment(inner: Telemetry, environ: Mapping[str, str]) -> Telemetry:
+    """Wrap `inner` in cost files when BENCH_OUT is set (the Makefile's bench output directory); otherwise return it as is.
+    The caller passes the environment, so production wiring that passes none never writes a file."""
+    out = environ.get("BENCH_OUT", "")
+    return CostFileTelemetry(inner, Path(out)) if out else inner

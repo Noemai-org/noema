@@ -1,0 +1,12 @@
+{
+  "requirement": "REQ-AMB-003",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "TOO_MANY_CANDIDATES",
+  "patch": [
+    {
+      "op": "remove",
+      "path": "/understanding/state_flags/TOO_MANY_CANDIDATES"
+    }
+  ]
+}
