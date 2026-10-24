@@ -21,7 +21,7 @@ The default seed is `20261020`; the default output root is `benchmark/out/genera
 
 | File | Role |
 |---|---|
-| `catalogue.py` | the US, PUS, EC and fault lists and the category quotas, vendored from PERD v1.11 (§11.2, §12, §37.1, §48.1) |
+| `catalogue.py` | the US, PUS, EC and fault lists and the category quotas, vendored from PERD v1.15 at docs `67a60ec` (§11.2, §12, §37.1, §48.1) |
 | `worlds.py`, `rng.py` | scenario worlds from a declarative spec; deterministic choices from a SHA-256 counter, never `random` |
 | `archetype.py` | `Arc` (one scenario and its expectation) and `instantiate` |
 | `lib_*.py`, `library.py` | the 140 archetypes, by category; each names the PERD rows it covers and says whether its expectation is `PERD` or `INFERRED` |
@@ -55,7 +55,7 @@ A mutated case keeps its base archetype's key, so it shares the base case's name
 
 ## Fault plans
 
-A case with faults names `fp_<case id>`, and the file under `fault_plans/` is a `fault-plan.v1` document (the contract owned by the environment track): `fault_plan_id`, `scenario_id` (the case), `seed`, `deterministic`, a `source` chosen by the contract's reading rules (`TUSHE` for the four state-change effects and the effects only Tushe or mock-case produce, `MOCK_CASE` when every fault is mock-case's, `PROXY` otherwise), and `faults`. `faultplans.py` applies the few rewrites that keep a scenario's meaning (a case system that is down answers 503; webhook effects belong to the enterprise's `events_feed`) and names what no producer has: the case then carries a `needs_fault:<EFFECT>.<operation>` timeline marker instead of silently losing the fault, and still declares the effect for coverage. Faults "beyond the grant's expiry" use the adopted grant lifetime of 10 minutes (PERD §65.3, OD-P-31), read from `common.GRANT_TTL_SECONDS`, not set by the generator.
+A case with faults names `fp_<case id>`, and the file under `fault_plans/` is a `fault-plan.v1` document (the contract owned by the environment track): `fault_plan_id`, `scenario_id` (the case), `seed`, `deterministic`, a `source` chosen by the contract's reading rules (`TUSHE` for the four state-change effects and the effects only Tushe or mock-case produce, `MOCK_CASE` when every fault is mock-case's, `PROXY` otherwise), and `faults`. `faultplans.py` applies the few rewrites that keep a scenario's meaning (a case system that is down answers 503; webhook effects belong to the enterprise's `events_feed`) and names what no producer has: the case then carries a `needs_fault:<EFFECT>.<operation>` timeline marker instead of silently losing the fault, and still declares the effect for coverage. mock-case produces thirteen effects since noema#57 (the five added there: `NEAR_TIMEOUT_BEFORE`, `NEAR_TIMEOUT_AFTER`, `HTTP_200_SEMANTIC_PENDING`, `IDEMPOTENCY_COLLISION` and `INJECTION_PAYLOAD`); `INJECTION_PAYLOAD` only into `reason_code` of `get_case`/`find_cases` or `payload` of `get_evidence`/`find_evidence`. Generator 1.3.0 therefore leaves one marker: `BEN-INJ-0003` injects `case_note` of `get_case`, which the contract does not allow. Faults "beyond the grant's expiry" use the adopted grant lifetime of 10 minutes (PERD §65.3, OD-P-31), read from `common.GRANT_TTL_SECONDS`, not set by the generator.
 
 ## Tests
 

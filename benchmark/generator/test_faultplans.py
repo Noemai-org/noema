@@ -62,11 +62,11 @@ class Emitted(unittest.TestCase):
 
 
 class Unproducible(unittest.TestCase):
-    def test_an_unproducible_fault_is_a_timeline_marker_not_a_silent_drop(self) -> None:
-        markers = [(c["case_id"], e["event"]) for c in suite().cases.values() for e in c["events_timeline"] if e["event"].startswith("needs_fault:")]
-        self.assertGreaterEqual(len(markers), 8)
-        effects = {m.split(":", 1)[1].split(".")[0] for _, m in markers}
-        self.assertEqual(effects, {"HTTP_200_SEMANTIC_PENDING", "IDEMPOTENCY_COLLISION", "INJECTION_PAYLOAD", "NEAR_TIMEOUT_BEFORE", "NEAR_TIMEOUT_AFTER"})
+    def test_the_five_mock_case_effects_are_produced_so_only_one_marker_remains(self) -> None:
+        """ENV-08b (fault-plan.v1, noema#57): mock-case produces NEAR_TIMEOUT_BEFORE/AFTER, HTTP_200_SEMANTIC_PENDING, IDEMPOTENCY_COLLISION and INJECTION_PAYLOAD.
+        The one case whose injection names a field the contract does not allow (`case_note`, not `reason_code`) keeps its marker."""
+        markers = sorted((c["case_id"], e["event"]) for c in suite().cases.values() for e in c["events_timeline"] if e["event"].startswith("needs_fault:"))
+        self.assertEqual(markers, [("BEN-INJ-0003", "needs_fault:INJECTION_PAYLOAD.get_case")])
 
     def test_a_marked_case_names_the_operation(self) -> None:
         for c in suite().cases.values():
@@ -78,11 +78,38 @@ class Unproducible(unittest.TestCase):
     def test_a_marker_is_coverage_neutral(self) -> None:
         """The case still declares the effect it needs, so the coverage report is unchanged."""
         covers = {t for e in suite().manifest["cases"] for t in e["covers"]}
-        for effect in ("FAULT:HTTP_200_SEMANTIC_PENDING", "FAULT:IDEMPOTENCY_COLLISION", "FAULT:NEAR_TIMEOUT_BEFORE", "FAULT:NEAR_TIMEOUT_AFTER"):
+        for effect in ("FAULT:HTTP_200_SEMANTIC_PENDING", "FAULT:IDEMPOTENCY_COLLISION", "FAULT:NEAR_TIMEOUT_BEFORE", "FAULT:NEAR_TIMEOUT_AFTER", "FAULT:INJECTION_PAYLOAD"):
             self.assertIn(effect, covers)
+
+    def test_a_produced_case_has_a_plan_with_its_effect(self) -> None:
+        for case_id, effect in (("BEN-TMO-0003", "HTTP_200_SEMANTIC_PENDING"), ("BEN-TMO-0011", "NEAR_TIMEOUT_BEFORE"), ("BEN-TMO-0012", "NEAR_TIMEOUT_AFTER"), ("BEN-DUP-0003", "IDEMPOTENCY_COLLISION")):
+            doc = plans()[f"fault_plans/fp_{case_id.lower().replace('-', '_')}.json"]
+            self.assertIn(effect, {f["effect"] for f in doc["faults"]}, case_id)
+            self.assertEqual(doc["source"], "MOCK_CASE", case_id)
+
+    def test_the_pending_effect_takes_no_params(self) -> None:
+        """noema#57 migration note: HTTP_200_SEMANTIC_PENDING takes no params (a producer's creates_case must go)."""
+        for doc in plans().values():
+            for f in doc["faults"]:
+                if f["effect"] in ("HTTP_200_SEMANTIC_PENDING", "IDEMPOTENCY_COLLISION"):
+                    self.assertEqual(f["params"], {}, doc["fault_plan_id"])
+                    self.assertNotIn("creates_case", json.dumps(f))
 
 
 class Normalise(unittest.TestCase):
+    def test_the_four_new_mock_case_effects_pass_through(self) -> None:
+        for effect, params in (("NEAR_TIMEOUT_BEFORE", {"delay_ms": 2900}), ("NEAR_TIMEOUT_AFTER", {"delay_ms": 3100}), ("HTTP_200_SEMANTIC_PENDING", {}), ("IDEMPOTENCY_COLLISION", {})):
+            f = fault("mock-case", effect, "create_case", params, {"nth_call": 1})
+            self.assertEqual(normalise(f), (f, None), effect)
+
+    def test_injection_passes_only_where_the_contract_allows_it(self) -> None:
+        ok = fault("mock-case", "INJECTION_PAYLOAD", "get_case", {"field": "reason_code"})
+        self.assertEqual(normalise(ok), (ok, None))
+        ok2 = fault("mock-case", "INJECTION_PAYLOAD", "get_evidence", {"field": "payload"})
+        self.assertEqual(normalise(ok2), (ok2, None))
+        bad = fault("mock-case", "INJECTION_PAYLOAD", "get_case", {"field": "case_note"})
+        self.assertEqual(normalise(bad), (None, "INJECTION_PAYLOAD.get_case"))
+
     def test_a_mock_case_effect_passes_through(self) -> None:
         f = fault("mock-case", "TIMEOUT_AFTER_COMMIT", "create_case", {"delay_ms": 3500}, {"nth_call": 1})
         self.assertEqual(normalise(f), (f, None))
@@ -104,7 +131,7 @@ class Normalise(unittest.TestCase):
             self.assertEqual((out["target"], out["operation"]), ("mock-destination", "events_feed"))
 
     def test_effects_no_producer_has_are_named(self) -> None:
-        for effect in ("HTTP_200_SEMANTIC_PENDING", "IDEMPOTENCY_COLLISION", "INJECTION_PAYLOAD", "NEAR_TIMEOUT_BEFORE", "NEAR_TIMEOUT_AFTER"):
+        for effect in ("MALFORMED_RESPONSE", "STALE_READ"):
             out, reason = normalise(fault("mock-case", effect, "create_case"))
             self.assertIsNone(out)
             self.assertEqual(reason, f"{effect}.create_case")
@@ -122,9 +149,9 @@ class Sources(unittest.TestCase):
         self.assertEqual(source_of([fault("mock-ledger", "STALE_READ"), fault("mock-case", "DROP_RESPONSE")]), "PROXY")
 
     def test_a_plan_with_nothing_producible_is_no_plan(self) -> None:
-        doc, missing = plan_document("BEN-TMO-0001", 5, [fault("mock-case", "HTTP_200_SEMANTIC_PENDING", "create_case")])
+        doc, missing = plan_document("BEN-TMO-0001", 5, [fault("mock-case", "MALFORMED_RESPONSE", "create_case")])
         self.assertIsNone(doc)
-        self.assertEqual(missing, ["HTTP_200_SEMANTIC_PENDING.create_case"])
+        self.assertEqual(missing, ["MALFORMED_RESPONSE.create_case"])
 
     def test_a_plan_document_has_the_contract_fields(self) -> None:
         doc, missing = plan_document("BEN-TMO-0001", 5, [fault("mock-case", "DROP_RESPONSE", "create_case")])

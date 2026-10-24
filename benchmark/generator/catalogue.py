@@ -1,7 +1,7 @@
 """The identifiers the coverage rule is checked against (PERD §48.1 "Coverage rule"; REQ-BEN-001).
 
-A vendored extract of Noemai-org/docs, docs/poc/perd/NOEMA_POC_PERD_v1.11.md at docs commit
-1156558158a920f46f93ad2d3b084a06dd251eef: the 22 user stories (§11.2), the 8 supporting stories (§11.2), the 105 edge cases
+A vendored extract of Noemai-org/docs, docs/poc/perd/NOEMA_POC_PERD_v1.15.md at docs commit
+67a60ec5d1e201d049bd6102835d01456d4fc88e: the 22 user stories (§11.2), the 8 supporting stories (§11.2), the 105 edge cases
 (§12) and the 28 fault effects (§37.1). The PERD is normative; this copy only lets the build fail on a gap without reading the
 docs repository. The capabilities come from the pack at generation time, never from here.
 """

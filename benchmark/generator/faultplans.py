@@ -4,13 +4,18 @@ An archetype states the fault its scenario needs. Whether a producer exists for 
 `mock-case` must be an effect mock-case produces, the four state-change effects exist only in Tushe's fault controller, and so on. This module applies
 the few rewrites that keep the scenario's meaning, and names the rest. A fault no producer has is never dropped silently: the case carries a
 `needs_fault:<EFFECT>.<operation>` timeline marker, which the runner has no driver for, so the case is an ERROR that says what is missing until a
-producer is built (the benchmark owner owns the plan; mock-case and Tushe own the producers)."""
+producer is built (the benchmark owner owns the plan; mock-case and Tushe own the producers). An injection into a mock-case field the contract does not allow is such a fault."""
 from typing import Any
 
 Json = dict[str, Any]
 MOCK_CASE = "mock-case"
-# The eight effects mock-case produces (synthetic/mock_case README; the fault-plan contract checks them per operation).
-MOCK_CASE_EFFECTS = frozenset({"LATENCY", "TIMEOUT_BEFORE_COMMIT", "TIMEOUT_AFTER_COMMIT", "DROP_RESPONSE", "HTTP_5XX", "HTTP_429", "PAGINATE", "CONCURRENT_MODIFICATION"})
+# The thirteen effects mock-case produces (synthetic/mock_case README; the fault-plan contract checks them per operation).
+MOCK_CASE_EFFECTS = frozenset({
+    "LATENCY", "TIMEOUT_BEFORE_COMMIT", "TIMEOUT_AFTER_COMMIT", "DROP_RESPONSE", "HTTP_5XX", "HTTP_429", "PAGINATE", "CONCURRENT_MODIFICATION",
+    "NEAR_TIMEOUT_BEFORE", "NEAR_TIMEOUT_AFTER", "HTTP_200_SEMANTIC_PENDING", "IDEMPOTENCY_COLLISION", "INJECTION_PAYLOAD",
+})
+# mock-case injects instruction-like text only into these fields (fault-plan.v1, last allOf branch).
+INJECTABLE = {("get_case", "reason_code"), ("find_cases", "reason_code"), ("get_evidence", "payload"), ("find_evidence", "payload")}
 # The four state-change effects exist only in Tushe's fault controller (the contract's reading rule 3).
 TUSHE_EFFECTS = frozenset({"SPLIT_STATE", "DEBIT_WITHOUT_CREDIT", "DELAYED_SETTLEMENT", "DELAYED_REVERSAL"})
 # Effects that come from Tushe or mock-case, never from the hostility proxy (reading rule 4).
@@ -20,9 +25,15 @@ WEBHOOK_EFFECTS = frozenset({"DUPLICATE_WEBHOOK", "DROP_WEBHOOK", "REORDER_EVENT
 
 def normalise(fault: Json) -> tuple[Json | None, str | None]:
     """(the fault as the contract allows it, None) or (None, "<EFFECT>.<operation>") when no producer has it."""
-    if fault["target"] != MOCK_CASE or fault["effect"] in MOCK_CASE_EFFECTS:
+    if fault["target"] != MOCK_CASE:
         return fault, None
     effect = fault["effect"]
+    if effect == "INJECTION_PAYLOAD":
+        if (fault["operation"], fault["params"].get("field")) in INJECTABLE:
+            return fault, None
+        return None, f"{effect}.{fault['operation']}"
+    if effect in MOCK_CASE_EFFECTS:
+        return fault, None
     if effect == "SERVICE_UNAVAILABLE":  # a case system that is down answers 503
         return {**fault, "effect": "HTTP_5XX", "params": {"status": 503}}, None
     if effect in WEBHOOK_EFFECTS:  # webhooks are the enterprise's (Tushe's), not the case system's
