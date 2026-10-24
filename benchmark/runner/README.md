@@ -32,13 +32,13 @@ A timeline's offsets **order** its events; they are not waited for. The clock is
 
 Everything else is an **ERROR with a code**, never skipped (REQ-BEN-001): `EVENT_KIND_UNSUPPORTED` (no driver), `FAULT_UNSUPPORTED` (the source is not reachable, or mock-case does not produce the effect), `FIXTURE_UNAVAILABLE`, `SESSION_UNAVAILABLE`, `ORACLE_COUNTER_UNAVAILABLE`, `NOT_SETTLED`, `API_REFUSED`, `API_FAILED`, `API_UNREACHABLE`, `RECONSTRUCTION_UNEXPECTED`, `FAULT_PLAN_REJECTED`, `RESULT_INVALID`.
 
-`python -m benchmark.runner --suite DIR --out DIR --support` prints how many cases this build can run and what stops the rest. On the default suite today: **134 of 320 can run** once the core and a fixture loader exist; the rest are blocked by faults on Tushe-held sources (`mock-customer`, `mock-ledger`, `mock-switch`, `mock-destination`), by effects mock-case does not produce, and by event kinds with no driver (webhook relay, process control, provider control, the policy and session APIs).
+`python -m benchmark.runner --suite DIR --out DIR --support` prints how many cases this build can run and what stops the rest. On the default suite today: **143 of 320 can run** once the core and a fixture loader exist; the rest are blocked by faults on Tushe-held sources (`mock-customer`, `mock-ledger`, `mock-switch`, `mock-destination`), by effects mock-case does not produce, and by event kinds with no driver (webhook relay, process control, provider control, the policy and session APIs).
 
 ## Fault plans
 
 A case's plan is a `fault-plan.v1` document (contracts; session B's schema). `load_suite` validates it and excludes a case whose plan fails. The faults aimed at `mock-case` go to mock-case as a `MOCK_CASE` plan, unchanged: the contract already guarantees they are effects mock-case produces, with its operation and parameter names, and mock-case still refuses at load a plan it cannot apply exactly. Every other fault needs a producer this build cannot reach (Tushe's fault controller, the hostility proxy) and is listed as unsupported. `python -m benchmark.oracle_client.live_check` loads every plan the runner would send into a real mock-case (52 today) and none is refused. The simulated clock starts at `2026-10-01T09:40:00+01:00` (the PERD §37.1 example, SYNTHETIC).
 
-A fault no producer has yet (an HTTP 200 that created nothing, an idempotency collision, an injection in the case system's own output, a near-timeout at the case system) is a `needs_fault:<EFFECT>.<operation>` marker in the case's timeline. The runner has no driver for it, so the case is an ERROR that says what is missing, until mock-case or Tushe gets the effect.
+A fault no producer has yet (today only one case: an injection into a case-system field the contract does not allow) is a `needs_fault:<EFFECT>.<operation>` marker in the case's timeline. The runner has no driver for it, so the case is an ERROR that says what is missing, until mock-case or Tushe gets the effect.
 
 ## Gaps (nothing is faked)
 
