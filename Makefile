@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-relay-test env-relay-build env-proxy-test env-proxy-build
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-relay-test env-relay-build env-proxy-test env-proxy-build model-bench-up
 
 build:
 	docker build -t noema-core:dev services/core
@@ -103,3 +103,11 @@ env-relay-test:
 
 env-relay-build:
 	docker build -t noema-webhook-relay:dev synthetic/webhook_relay
+
+# Model service (session D): the bench stack with the model writing its cost records to $(BENCH_OUT)/cost/ (REQ-NFR-007).
+# Only this target adds deploy/compose/bench-model.yml, so `make up` never sets BENCH_OUT or mounts anything writable.
+model-bench-up:
+	deploy/compose/secrets_local.sh
+	mkdir -p $(BENCH_OUT)
+	NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) \
+	  docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench up -d --build --wait

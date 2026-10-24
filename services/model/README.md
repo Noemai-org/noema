@@ -14,12 +14,13 @@ The Python model service (the Go core is the other deployable). It hosts Underst
 - **Decisions adapter: synthetic data only, not for Record-relevant use.** OpenAI documents one model name for the Decisions API (`gpt-6-luna`) and no dated snapshot, so the harness's pinned-version rule is not met and a reply is not reproducible (INV-21). It is public beta; abuse-monitoring retention is up to 30 days unless zero data retention is approved. No non-synthetic data goes to it until the data terms are reviewed (PERD R-18). Nothing routes to it unless a founder-approved config names it.
 - **A request with no time window** is refused at the gate as `INPUT_INVALID`, and nothing is read. `NO_TRANSACTION_MATCH` is only for a search that ran and came back empty (REQ-AMB-002).
 - **A counterparty filter** that is empty or over 64 characters is refused (`INPUT_INVALID`); it is never truncated or dropped.
-- **Bench cost files.** With `BENCH_OUT` set, each call's `CallRecord.to_dict()` is written to `$BENCH_OUT/cost/<correlation_id>-<NNN>.json` (see `harness/README.md`). Accounting only, never proof of an outcome (AGENT-21).
+- **Bench cost files.** `main.py` builds the service's telemetry from the environment (`build_telemetry`). Only `make model-bench-up` sets `BENCH_OUT` (to `/bench-out`, a bind mount of the Makefile's `BENCH_OUT`, with the invoking user's uid), through `deploy/compose/bench-model.yml`; `make up` and CI set nothing and mount nothing writable. With `BENCH_OUT` set, each call's `CallRecord.to_dict()` is written to `$BENCH_OUT/cost/<correlation_id>-<NNN>.json` (see `harness/README.md`). Accounting only, never proof of an outcome (AGENT-21).
 - No threshold, margin, floor, TTL or provider default is set here (AGENT-16); ranking numbers are pack data.
 
 ## Open
 
-- Wiring `cost_files_from_environment` and mounting `$BENCH_OUT`: needs whoever owns the service entry point and compose.
+- A running service writes cost files only once a request path constructs the `Harness` from `app.state.telemetry` (`main.py` is still the health-only skeleton).
+- `make model-bench-up` (compose override `deploy/compose/bench-model.yml`) was checked with `docker compose config`; no container was started here, so the bind mount and the uid mapping are untested end to end (not run: no Docker daemon).
 - A dated snapshot or an accepted alias for the Decisions API, `native_yes_threshold` and any choice-confidence threshold: founders.
 - Data-terms review (PERD R-18) before any non-synthetic data reaches a provider.
 - Live-provider runs: not run, no access.

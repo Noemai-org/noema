@@ -1,0 +1,13 @@
+# Bench startup only (REQ-NFR-007): lets the model service write each call's cost record to $BENCH_OUT/cost/.
+# NOT included by docker-compose.yml. `make bench-model-up` adds it with `-f`; no other profile or target ever does, so
+# `make up` and the CI stack have no BENCH_OUT and no writable mount. The three variables are set by that target:
+#   NOEMA_BENCH_OUT  absolute host path of the Makefile's BENCH_OUT
+#   NOEMA_BENCH_UID, NOEMA_BENCH_GID  the invoking user, so the files on the host are theirs
+# The mount holds benchmark output only; nothing here mounts benchmark-heldout (INV-22).
+services:
+  model:
+    user: "${NOEMA_BENCH_UID:?set by make bench-model-up}:${NOEMA_BENCH_GID:?set by make bench-model-up}"
+    environment:
+      BENCH_OUT: /bench-out
+    volumes:
+      - ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out

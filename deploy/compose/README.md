@@ -7,6 +7,7 @@ The POC topology (PLT-04; PERD §65.1, REQ-OPS-001). Local use only.
 | `make up` | creates local secret files if missing, then builds and starts Postgres, Temporal, core, model and the UI, waiting for every health check |
 | `make net-matrix` | runs the connection-test matrix against the running stack |
 | `make bench-smoke` | zero-case deterministic smoke; refuses to run if `benchmark-heldout` is referenced |
+| `make model-bench-up` | the bench profile with `bench-model.yml` added: the model service gets `BENCH_OUT=/bench-out`, a bind mount of the Makefile's `BENCH_OUT` and the invoking user's uid, and writes each call's cost record to `$BENCH_OUT/cost/` (REQ-NFR-007). Only this target adds the file; `make up` and CI never do. Checked with `docker compose config` only (no Docker daemon where it was written) |
 | `make down` | stops the stack, keeps the data volume |
 | `make reset` | destroys containers, networks and the data volume of project `noema-local`; refuses any other project name; prints what it will destroy |
 
