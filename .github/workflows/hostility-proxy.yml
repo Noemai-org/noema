@@ -1,0 +1,40 @@
+# Hostility proxy CI (ENV-09). Builds and tests benchmark/hostility_proxy only. No GitHub Environment: it needs no
+# secret. The workflow always triggers so its check always reports; the path filter runs inside the job.
+name: hostility-proxy
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  hostility-proxy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(benchmark/hostility_proxy/|deploy/compose/services/hostility-proxy|contracts/schemas/fault-plan|contracts/fixtures/(valid|invalid)/fault-plan/|\.github/workflows/hostility-proxy\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: benchmark/hostility_proxy/go.mod
+          cache: false
+      - if: steps.changed.outputs.run == 'true'
+        working-directory: benchmark/hostility_proxy
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+          go build ./...
+      - if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-hostility-proxy:ci benchmark/hostility_proxy
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "no benchmark/hostility_proxy change; nothing to build"

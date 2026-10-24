@@ -40,6 +40,10 @@ NETWORKS = {
     "mock-case": {"tushe_net", "bench_net"},
     "mock-case-truth": {"bench_net"},
     "mock-case-db": {"bench_net"},
+    # hostility proxy (ENV-09): the data plane on tushe_net, the control API on bench_net only (a listener of the same
+    # container, modelled like mock-case-truth), tushe_egress as its one route out.
+    "hostility-proxy": {"tushe_net", "bench_net", "tushe_egress"},
+    "hostility-proxy-control": {"bench_net"},
     # webhook relay (ENV-13): on tushe_net, so the core can pull; tushe_egress is only so Docker can publish its port.
     "webhook-relay": {"tushe_net", "tushe_egress"},
 }
@@ -48,6 +52,7 @@ TARGETS = {  # service -> host:port a probe connects to
     "ui": "ui:8082", "sentinel-tushe": "sentinel-tushe:9000", "sentinel-provider": "sentinel-provider:9000",
     "sentinel-bench": "sentinel-bench:9000",
     "mock-case": "mock-case:8090", "mock-case-truth": "mock-case:8091", "mock-case-db": "mock-case-db:5432",
+    "hostility-proxy": "hostility-proxy:8080", "hostility-proxy-control": "hostility-proxy:8081",
     "webhook-relay": "webhook-relay:8090",
 }
 # Paths the brief names as forbidden. Each must come out refused.
@@ -59,12 +64,15 @@ MUST_BE_REFUSED = [
     ("core", "mock-case-truth"), ("model", "mock-case-truth"), ("ui", "mock-case-truth"),
     ("core", "mock-case-db"), ("model", "mock-case-db"), ("ui", "mock-case-db"),
     ("model", "mock-case"), ("ui", "mock-case"),
+    # hostility proxy (REQ-ENV-005): the control API is for the benchmark runner only; the data plane is for the core.
+    ("core", "hostility-proxy-control"), ("model", "hostility-proxy-control"), ("ui", "hostility-proxy-control"),
+    ("model", "hostility-proxy"), ("ui", "hostility-proxy"),
     # webhook relay (DEC-2026-10-16 E6): only the core pulls from it; the model and the UI never reach it.
     ("model", "webhook-relay"), ("ui", "webhook-relay"),
 ]
 # Networks that are not Docker-internal, per service: the only routes out of the stack (PERD §65.1).
 EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"},
-                   "mock-case": set(), "mock-case-db": set(), "webhook-relay": {"tushe_egress"}}
+                   "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
 failures: list[str] = []
@@ -83,7 +91,7 @@ def check_membership() -> None:
     print("1. network membership from `docker compose config`")
     config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
     for name, expected in NETWORKS.items():
-        if name in ("model-no-egress", "mock-case-truth"):  # not services: variants and listeners, checked through their probes
+        if name in ("model-no-egress", "mock-case-truth", "hostility-proxy-control"):  # not services: variants and listeners, checked through their probes
             continue
         actual = set(config["services"][name].get("networks") or {})
         status = "ok" if actual == expected else "MISMATCH"
@@ -266,6 +274,36 @@ def check_mock_case() -> None:
             fail(f"mock-case {name}: expected {want}, saw {got}")
 
 
+HOSTILITY_PROXY_SERVICES = ["hostility-proxy", "hostility-proxy-anchor", "hostility-proxy-credentials"]
+CONTROL_PROBE = (
+    "import urllib.request, urllib.error, json\n"
+    "def code(h):\n"
+    "    r = urllib.request.Request('http://hostility-proxy:8081/control/v1/fault-plan', headers=h)\n"
+    "    try: return urllib.request.urlopen(r, timeout=5).status\n"
+    "    except urllib.error.HTTPError as e: return e.code\n"
+    "print(json.dumps({'no_credential': code({}), 'wrong_credential': code({'Authorization': 'Bearer wrong'})}))\n"
+)
+
+
+def check_hostility_proxy() -> None:
+    """Rows for the hostility proxy (T4 item 7): absent from the dev profile; its control API answers a caller on
+    bench_net and refuses it (401, logged) without the bench credential. Its own rows; no other row is touched."""
+    print("6b. hostility proxy (ci, bench and netcheck profiles only; REQ-ENV-005)")
+    plain = ["docker", "compose", "-f", str(HERE.parent / "docker-compose.yml")]
+    if "hostility-proxy" in json.loads(run(plain + ["--profile", "dev", "config", "--format", "json"]).stdout)["services"]:
+        fail("hostility-proxy is present in the dev profile")
+    out = run(COMPOSE + ["run", "--rm", "--no-deps", "-T", "probe-bench", "python", "-c", CONTROL_PROBE])
+    try:
+        seen = json.loads(out.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        fail(f"probe-bench gave no result for the hostility proxy: {out.stderr.strip()[:200]}")
+        return
+    for name, got in seen.items():
+        print(f"  control API, {name:18} {got} {'ok' if got == 401 else '!= 401'}")
+        if got != 401:
+            fail(f"hostility proxy control API, {name}: expected 401, saw {got}")
+
+
 def check_evil_provider() -> None:
     """Row for the evil provider (T4 item 9): bench profile only, on provider_egress only, no published port, reachable
     from the model's network and from nothing else. Its own rows; no other component's row is touched."""
@@ -308,7 +346,7 @@ def check_evil_provider() -> None:
 
 
 def main() -> int:
-    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "webhook-relay"])
+    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
@@ -318,8 +356,9 @@ def main() -> int:
     check_database()
     check_egress()
     check_mock_case()
+    check_hostility_proxy()
     check_evil_provider()
-    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
+    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1

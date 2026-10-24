@@ -1,0 +1,85 @@
+# hostility-proxy: the fault-injecting proxy (ENV-09; REQ-ENV-005; PERD §65.1). Included by ../docker-compose.yml.
+# A test-environment component, not a Noema deployable (DEC-2026-10-16 E5). Everything here is SYNTHETIC.
+#
+# Networks: the data plane is on tushe_net (the core reaches Tushe through it); the control API listens only on the
+# bench_net address (benchmark/hostility_proxy/internal/listen), found through the bench_net-only anchor below. The
+# proxy's one route out is `tushe_egress`, a network of its own, as `provider_egress` is the model's: Docker cannot
+# allowlist a host, so the allowlist is the proxy's own route table, and shared environments still need the host
+# firewall rules REQ-OPS-001 requires. Networks the main file declares are repeated here, identically, because an
+# included file is read on its own.
+#
+# Profiles: ci, bench and netcheck, never dev or demo (PERD §65.1: the proxy is absent from every other profile);
+# the proxy also refuses to start unless HOSTILITY_PROXY_PROFILE is bench, ci or test.
+#
+# The route table and the impossible-data fixtures are mounted from benchmark/hostility_proxy/config. The sample
+# table is SYNTHETIC and follows no real Tushe interface: replace it when the Tushe OpenAPI is frozen (REQ-ENV-001).
+# Upstreams default to the netcheck sentinel; set TUSHE_BASE_URL (and WEBHOOK_RELAY_URL) for a real run.
+networks:
+  tushe_net:
+    internal: true
+  bench_net:
+    internal: true
+  tushe_egress: {}
+
+volumes:
+  hostility_proxy_credentials: {}
+
+services:
+  hostility-proxy-credentials:
+    image: noema-hostility-proxy:dev
+    build:
+      context: ../../../benchmark/hostility_proxy
+    profiles: [ci, bench, netcheck]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    command:
+      - init-credentials
+      - -file=/creds/number_key
+      - -file=/creds/bench_token
+    volumes:
+      - hostility_proxy_credentials:/creds
+
+  # A listener on bench_net only. The proxy binds its control API to the local address that shares a subnet with it.
+  hostility-proxy-anchor:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [ci, bench, netcheck]
+    networks: [bench_net]
+    command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9000), 2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  hostility-proxy:
+    image: noema-hostility-proxy:dev
+    build:
+      context: ../../../benchmark/hostility_proxy
+    profiles: [ci, bench, netcheck]
+    networks: [tushe_net, bench_net, tushe_egress]
+    depends_on:
+      hostility-proxy-credentials:
+        condition: service_completed_successfully
+      hostility-proxy-anchor:
+        condition: service_healthy
+    environment:
+      HOSTILITY_PROXY_PROFILE: "${HOSTILITY_PROXY_PROFILE:-bench}"
+      HOSTILITY_PROXY_DATA_LISTEN: ":8080"
+      HOSTILITY_PROXY_CONTROL_BIND_VIA: hostility-proxy-anchor
+      HOSTILITY_PROXY_CONTROL_PORT: "8081"
+      HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/routes.json
+      HOSTILITY_PROXY_FIXTURES_DIR: /etc/hostility-proxy/fixtures
+      HOSTILITY_PROXY_NUMBER_KEY_FILE: /run/hostility-proxy/number_key
+      HOSTILITY_PROXY_BENCH_TOKEN_FILE: /run/hostility-proxy/bench_token
+      HOSTILITY_PROXY_UPSTREAM_TUSHE: "${TUSHE_BASE_URL:-http://sentinel-tushe:9000}"
+      HOSTILITY_PROXY_UPSTREAM_RELAY: "${WEBHOOK_RELAY_URL:-http://sentinel-tushe:9000}"
+    volumes:
+      - hostility_proxy_credentials:/run/hostility-proxy:ro
+      - ../../../benchmark/hostility_proxy/config/routes.json:/etc/hostility-proxy/routes.json:ro
+      - ../../../benchmark/hostility_proxy/config/fixtures:/etc/hostility-proxy/fixtures:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/hostility-proxy", "-healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20

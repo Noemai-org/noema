@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "synthetic": true,
+  "routes": [
+    { "method": "GET", "path": "/v1/transactions/{transaction_ref}", "upstream": "tushe", "target": "mock-ledger", "operation": "get_transaction", "attrs": { "transaction_ref": "path:transaction_ref" } },
+    { "method": "GET", "path": "/v1/transactions", "upstream": "tushe", "target": "mock-ledger", "operation": "list_transactions", "attrs": { "account": "query:account" } },
+    { "method": "GET", "path": "/v1/status/{transaction_ref}", "upstream": "tushe", "target": "mock-switch", "operation": "get_status", "attrs": { "transaction_ref": "path:transaction_ref" } },
+    { "method": "GET", "path": "/v1/accounts/{account}/entries", "upstream": "tushe", "target": "mock-ledger", "operation": "get_entries", "attrs": { "account": "path:account" } },
+    { "method": "GET", "path": "/v1/beneficiaries", "upstream": "tushe", "target": "mock-customer", "operation": "get_beneficiaries", "attrs": { "principal_id": "header:X-Principal" } },
+    { "method": "GET", "path": "/v1/events", "upstream": "tushe", "target": "mock-destination", "operation": "events_feed", "event_feed": { "events": "events" } },
+    { "method": "GET", "path": "/relay/deliveries", "upstream": "relay", "target": "mock-destination", "operation": "relay_pull", "event_feed": { "events": "deliveries" } },
+    { "method": "POST", "path": "/v1/lookups", "upstream": "tushe", "target": "mock-customer", "operation": "post_lookup" }
+  ]
+}
