@@ -57,7 +57,8 @@
       "disambiguation": {
         "strategy": "ranked_candidates",
         "auto_resolve_margin": 0.35,
-        "max_candidates_before_escalate": 4
+        "max_candidates_before_escalate": 4,
+        "matcher_ref": "fintech/lexicons/recipient_matcher.json"
       },
       "lexicon_refs": [
         "fin.lex.en_ng",
@@ -2135,5 +2136,69 @@
     "fintech/graph/g1_investigate.json",
     "fintech/graph/g2_escalate.json",
     "fintech/graph/g3_complaint.json"
-  ]
+  ],
+  "understanding": {
+    "ranking": {
+      "weights": {
+        "amount": "0.35",
+        "recipient": "0.25",
+        "temporal": "0.20",
+        "relationship": "0.10",
+        "type_direction": "0.10"
+      },
+      "absolute_floor": "0.70",
+      "max_raw_candidates": 20,
+      "amount_tolerance_ratio": "0.01",
+      "time_tolerance_seconds": 7200
+    },
+    "proposable_flags": [
+      {
+        "flag": "MULTIPLE_INTENTS",
+        "question": "Does the customer ask for more than one thing?"
+      },
+      {
+        "flag": "CONTRADICTS_PRIOR_TURN",
+        "question": "Does the customer contradict something said earlier?"
+      }
+    ],
+    "locales": [
+      {
+        "code": "en-NG",
+        "label": "Nigerian English"
+      },
+      {
+        "code": "pcm",
+        "label": "Nigerian Pidgin"
+      },
+      {
+        "code": "yo",
+        "label": "Yoruba"
+      },
+      {
+        "code": "ha",
+        "label": "Hausa"
+      },
+      {
+        "code": "ig",
+        "label": "Igbo"
+      }
+    ],
+    "material_flags": [
+      "COUNTERPARTY_MULTIPLE_MATCH",
+      "MULTIPLE_TRANSACTIONS_MATCH",
+      "NO_TRANSACTION_MATCH",
+      "AMOUNT_LOW_CONFIDENCE",
+      "KEY_SLOT_LOW_ASR_CONFIDENCE",
+      "INTENT_UNCLEAR",
+      "MULTIPLE_INTENTS",
+      "CONTRADICTS_PRIOR_TURN"
+    ],
+    "intent_unclear_flag": "INTENT_UNCLEAR",
+    "out_of_scope_flag": "OUT_OF_SCOPE_REQUEST",
+    "state_flags": {
+      "NO_CANDIDATES": "NO_TRANSACTION_MATCH",
+      "AMBIGUOUS": "MULTIPLE_TRANSACTIONS_MATCH",
+      "TOO_MANY_CANDIDATES": "MULTIPLE_TRANSACTIONS_MATCH"
+    }
+  }
 }

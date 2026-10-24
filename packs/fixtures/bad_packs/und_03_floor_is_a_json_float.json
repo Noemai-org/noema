@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AMB-003",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "absolute_floor",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/understanding/ranking/absolute_floor",
+      "value": 0.7
+    }
+  ]
+}

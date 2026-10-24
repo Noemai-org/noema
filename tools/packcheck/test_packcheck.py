@@ -62,7 +62,7 @@ class BadPacks(unittest.TestCase):
     def test_there_are_enough_fixtures(self):
         self.assertGreaterEqual(len(BAD), 8)  # REQ-CAP-001: 8 crafted invalid descriptors
         covered = {json.loads(p.read_text())["expect_check"] for p in BAD}
-        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons"})
+        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons", "understanding"})
 
     def test_each_fails_for_its_stated_reason(self):
         for path in BAD:

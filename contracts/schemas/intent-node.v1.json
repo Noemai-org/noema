@@ -100,6 +100,11 @@
         "max_candidates_before_escalate": {
           "type": "integer",
           "minimum": 1
+        },
+        "matcher_ref": {
+          "description": "The recipient matcher's data file, relative to the pack file's folder (for example fintech/lexicons/recipient_matcher.json). The model service reads it from a mounted pack directory; the image holds no pack (PERD REQ-AMB-003, DEC-2026-10-20 D5).",
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(/[a-z0-9_]+)*\\.json$"
         }
       },
       "required": [

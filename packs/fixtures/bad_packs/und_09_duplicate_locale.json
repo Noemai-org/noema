@@ -1,0 +1,16 @@
+{
+  "requirement": "REQ-INT-003",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "understanding",
+  "expect_message_contains": "duplicate locale",
+  "patch": [
+    {
+      "op": "add",
+      "path": "/understanding/locales/-",
+      "value": {
+        "code": "yo",
+        "label": "Yoruba again"
+      }
+    }
+  ]
+}

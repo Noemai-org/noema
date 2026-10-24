@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/pack.v1.json",
   "title": "Vertical pack",
-  "description": "SoT \u00a715.5: everything Noema needs to serve one vertical, and no code. Loaded as data, never imported (SoT \u00a751). Cross-references (every ID used exists; risk against consequence; predicates type-check) are checked by packcheck (PCK-02). Not defined here and left open: lexicon and explanation-template content, and benchmark seed cases.",
+  "description": "SoT §15.5: everything Noema needs to serve one vertical, and no code. Loaded as data, never imported (SoT §51). Cross-references (every ID used exists; risk against consequence; predicates type-check) are checked by packcheck (PCK-02). Not defined here and left open: lexicon and explanation-template content, and benchmark seed cases.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -120,6 +120,9 @@
       "additionalProperties": {
         "$ref": "https://contracts.noema.invalid/evidence-descriptor.v1.json#/$defs/FieldType"
       }
+    },
+    "understanding": {
+      "$ref": "#/$defs/Understanding"
     }
   },
   "required": [
@@ -136,5 +139,174 @@
     "clocks",
     "reason_catalogue"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "$defs": {
+    "ExactNumber": {
+      "description": "A non-negative decimal or fraction written as a string, such as \"0.35\" or \"7/20\". Never a JSON number: a float would let the same file mean different things on different machines (INV-21; the model service's ranking reader refuses floats).",
+      "type": "string",
+      "pattern": "^(?:[0-9]{1,18}(?:\\.[0-9]{1,18})?|[0-9]{1,18}/[1-9][0-9]{0,17})$"
+    },
+    "Understanding": {
+      "description": "Pipeline and ranking data the model service reads (PERD REQ-AMB-002, REQ-AMB-003, REQ-INT-005, §20.3; DEC-2026-10-20 D3 and D5). Every number is a value the PERD already gives, labelled in packs/fintech/understanding.md; none is tuned here (AGENT-16). The margin and the limit of four live in the intent node's disambiguation, not here.",
+      "type": "object",
+      "properties": {
+        "ranking": {
+          "type": "object",
+          "properties": {
+            "weights": {
+              "description": "Per feature, exactly 1 together (checked by packcheck).",
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "$ref": "#/$defs/ExactNumber"
+                },
+                "recipient": {
+                  "$ref": "#/$defs/ExactNumber"
+                },
+                "temporal": {
+                  "$ref": "#/$defs/ExactNumber"
+                },
+                "relationship": {
+                  "$ref": "#/$defs/ExactNumber"
+                },
+                "type_direction": {
+                  "$ref": "#/$defs/ExactNumber"
+                }
+              },
+              "required": [
+                "amount",
+                "recipient",
+                "temporal",
+                "relationship",
+                "type_direction"
+              ],
+              "additionalProperties": false
+            },
+            "absolute_floor": {
+              "$ref": "#/$defs/ExactNumber"
+            },
+            "max_raw_candidates": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "amount_tolerance_ratio": {
+              "$ref": "#/$defs/ExactNumber"
+            },
+            "time_tolerance_seconds": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "weights",
+            "absolute_floor",
+            "max_raw_candidates",
+            "amount_tolerance_ratio",
+            "time_tolerance_seconds"
+          ],
+          "additionalProperties": false
+        },
+        "proposable_flags": {
+          "description": "Ambiguity flags the model may propose, each with the yes-or-no question put to it (a prompt to a model, never customer copy).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "flag": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "flag",
+              "question"
+            ],
+            "additionalProperties": false
+          },
+          "uniqueItems": true
+        },
+        "locales": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              }
+            },
+            "required": [
+              "code",
+              "label"
+            ],
+            "additionalProperties": false
+          },
+          "uniqueItems": true
+        },
+        "material_flags": {
+          "description": "Flags that are always material (PERD §20.3, the rows marked Yes).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "intent_unclear_flag": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "out_of_scope_flag": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "state_flags": {
+          "description": "The flag each non-resolving ranking state raises.",
+          "type": "object",
+          "properties": {
+            "NO_CANDIDATES": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "AMBIGUOUS": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "TOO_MANY_CANDIDATES": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          },
+          "required": [
+            "NO_CANDIDATES",
+            "AMBIGUOUS",
+            "TOO_MANY_CANDIDATES"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ranking",
+        "proposable_flags",
+        "locales",
+        "material_flags",
+        "intent_unclear_flag",
+        "out_of_scope_flag",
+        "state_flags"
+      ],
+      "additionalProperties": false
+    }
+  }
 }

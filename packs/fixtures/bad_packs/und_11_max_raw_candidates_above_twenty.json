@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AMB-002",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "max_raw_candidates",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/understanding/ranking/max_raw_candidates",
+      "value": 21
+    }
+  ]
+}

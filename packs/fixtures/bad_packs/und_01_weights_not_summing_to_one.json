@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-AMB-003",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "understanding",
+  "expect_message_contains": "exactly 1",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/understanding/ranking/weights/amount",
+      "value": "0.40"
+    }
+  ]
+}

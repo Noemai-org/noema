@@ -8,8 +8,8 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 |---|---|---|---|---|
 | `common.v1.json` | §43 | §32.3 | REQ-API-001 | Shared patterns: ID, hash, timestamp, signature, namespaced pack ID |
 | `enums.v1.json` | §43.8, §15.3 | §25, §23.4 | REQ-API-001, REQ-CAP-001 | Capability and policy value lists; C-2 adds the rest |
-| `pack.v1.json` | §15.5 | §20.4, §25 | REQ-API-001, REQ-AG-001 | The whole pack as data |
-| `intent-node.v1.json` | §15.3 | §20.1, §20.4 | REQ-INT-005, REQ-AG-001 | Two nodes in the fintech pack (DEC-2026-10-16 C2) |
+| `pack.v1.json` | §15.5 | §20.4, §25 (REQ-AMB-003, §20.3) | REQ-API-001, REQ-AG-001, REQ-AMB-003 | The whole pack as data. Optional `understanding` block (ranking weights, floor, tolerances, proposable and material flags, locales, state-to-flag map; PERD values only, see `packs/fintech/understanding.md`) added for the model service; AGENT-15 migration note: an optional property, no existing pack changes meaning |
+| `intent-node.v1.json` | §15.3 | §20.1, §20.4 | REQ-INT-005, REQ-AG-001 | Two nodes in the fintech pack (DEC-2026-10-16 C2); `disambiguation.matcher_ref` (optional, pack-folder-relative) names the recipient matcher's data file (REQ-AMB-003, D5) |
 | `trust-profile.v1.json` | §15.3 | §23.2 | REQ-TRU-001, REQ-TRU-002 | |
 | `outcome-definition.v1.json` | §15.3, §43.7 | §29 | REQ-VER-001, REQ-VER-002 | |
 | `capability-descriptor.v1.json` | §43.8 | §25 | REQ-CAP-001, REQ-CAP-002 | Prohibited capabilities carry no executable fields |
