@@ -9,7 +9,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 
 class FinishReason(StrEnum):
@@ -69,10 +69,101 @@ class Transport(Protocol):
         ...
 
 
+@runtime_checkable
 class LLMProvider(Protocol):
     name: str
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse: ...
+
+
+@dataclass(frozen=True, slots=True)
+class NativePredicate:
+    """How likely is it that a statement about the input is true."""
+
+    name: str
+    instructions: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeChoice:
+    """Pick one of the supplied values. `choices` are (value, description) pairs; the values are strings and unique."""
+
+    name: str
+    instructions: str
+    choices: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NativeScore:
+    """Rate the input against ordered levels. `levels` are (label, description) pairs, lowest first."""
+
+    name: str
+    instructions: str
+    levels: tuple[tuple[str, str], ...]
+
+
+NativeQuestion = NativePredicate | NativeChoice | NativeScore
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRequest:
+    model_version: str
+    input_text: str
+    questions: tuple[NativeQuestion, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class NativePredicateAnswer:
+    name: str
+    probability: float
+
+
+@dataclass(frozen=True, slots=True)
+class NativeChoiceAnswer:
+    name: str
+    choice: str
+    confidence: float
+    probabilities: tuple[tuple[str, float], ...]  # (value, probability)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeScoreAnswer:
+    name: str
+    score: float
+    confidence: float
+    probabilities: tuple[tuple[str, int, float], ...]  # (label, level index, probability)
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRefusal:
+    """The model declined this one question. Other questions in the same request may still have answers."""
+
+    name: str
+
+
+NativeAnswer = NativePredicateAnswer | NativeChoiceAnswer | NativeScoreAnswer | NativeRefusal
+
+
+@dataclass(frozen=True, slots=True)
+class NativeResponse:
+    """A decision model's answers, in the order the questions were asked. No text, no reasoning, no decision of ours."""
+
+    answers: tuple[NativeAnswer, ...]
+    model_version_reported: str | None
+    tokens_in: int | None
+    tokens_out: int | None
+
+
+@runtime_checkable
+class DecisionProvider(Protocol):
+    name: str
+
+    def accepts(self, questions: tuple[NativeQuestion, ...]) -> bool:
+        """Whether this provider can take the whole question set (its documented limits). A set it cannot take is never
+        sent: the harness asks the next provider instead of charging this one a failure."""
+        ...
+
+    async def decide(self, request: NativeRequest) -> NativeResponse: ...
 
 
 @dataclass(frozen=True, slots=True)

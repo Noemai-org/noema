@@ -21,8 +21,8 @@ from noema_model.platform.config import (
     require_mapping,
     require_str,
 )
-from noema_model.providers.llm.base import AdapterSettings, LLMProvider, Transport
-from noema_model.providers.llm.registry import KINDS
+from noema_model.providers.llm.base import AdapterSettings, DecisionProvider, LLMProvider, Transport
+from noema_model.providers.llm.registry import KINDS, NATIVE_KINDS
 
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -49,7 +49,7 @@ class ProviderConfig:
     credential_file: str
     api_version: str | None
     timeout_ms: int
-    max_output_tokens: int
+    max_output_tokens: int | None
     max_response_bytes: int
     temperature: float | None
     rate: RateCard | None
@@ -102,7 +102,8 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
     if not _NAME.match(name):
         raise ConfigError(f"{where}: provider names are lower-case identifiers")
     kind = require_str(src, "kind", where)
-    if kind not in KINDS:
+    native = kind in NATIVE_KINDS
+    if kind not in KINDS and not native:
         raise ConfigError(f"{where}.kind: unknown kind")
     endpoint = require_str(src, "endpoint", where)
     if not endpoint.startswith("https://"):
@@ -114,6 +115,8 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
         raise ConfigError(f"{where}.api_version: expected a non-empty string")
     if kind == "anthropic_messages" and api_version is None:
         raise ConfigError(f"{where}.api_version: required for anthropic_messages")
+    if native and ("max_output_tokens" in src or "temperature" in src):
+        raise ConfigError(f"{where}: a decision model has no max_output_tokens or temperature")
     temperature = src.get("temperature")
     if temperature is not None and (isinstance(temperature, bool) or not isinstance(temperature, (int, float))):
         raise ConfigError(f"{where}.temperature: expected a number")
@@ -128,7 +131,7 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
         credential_file=require_str(src, "credential_file", where),
         api_version=api_version,
         timeout_ms=require_int(src, "timeout_ms", where, minimum=1),
-        max_output_tokens=require_int(src, "max_output_tokens", where, minimum=1),
+        max_output_tokens=None if native else require_int(src, "max_output_tokens", where, minimum=1),
         max_response_bytes=require_int(src, "max_response_bytes", where, minimum=1),
         temperature=None if temperature is None else float(temperature),
         rate=rate,
@@ -216,10 +219,10 @@ def load_harness_config(raw: Any) -> HarnessConfig:
     )
 
 
-def build_providers(config: HarnessConfig, transport: Transport) -> dict[str, LLMProvider]:
+def build_providers(config: HarnessConfig, transport: Transport) -> dict[str, LLMProvider | DecisionProvider]:
     """Instantiate each configured provider. Credentials are read from their mounted files here and held only by the
     adapter (INV-29). A missing or empty credential file is a ConfigError, so a provider without a key never starts."""
-    built: dict[str, LLMProvider] = {}
+    built: dict[str, LLMProvider | DecisionProvider] = {}
     for name, cfg in config.providers.items():
         try:
             credential = Path(cfg.credential_file).read_text(encoding="utf-8").strip()
@@ -234,5 +237,5 @@ def build_providers(config: HarnessConfig, transport: Transport) -> dict[str, LL
             timeout_ms=cfg.timeout_ms,
             max_response_bytes=cfg.max_response_bytes,
         )
-        built[name] = KINDS[cfg.kind](name, settings, transport)
+        built[name] = (NATIVE_KINDS[cfg.kind] if cfg.kind in NATIVE_KINDS else KINDS[cfg.kind])(name, settings, transport)
     return built

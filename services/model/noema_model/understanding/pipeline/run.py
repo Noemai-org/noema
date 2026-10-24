@@ -107,10 +107,10 @@ async def run_pipeline(
     # 2. The independent steps, together. A rejection in any required one stops the turn; screening never does.
     gathered = await asyncio.gather(
         steps.enumerated_slots(harness, config.catalogue, node, inp),
-        steps.propose_flags(harness, config.proposable_flags, inp),
+        steps.propose_flags(harness, config.proposable_flags, inp, config.native_yes_threshold),
         steps.detect_locale(harness, config.locales, inp),
         steps.slot_mentions(harness, node, inp),
-        steps.screen_quietly(harness, {"utterance": inp.text}, inp),
+        steps.screen_quietly(harness, {"utterance": inp.text}, inp, config.native_yes_threshold),
         return_exceptions=True,
     )
     rejections = [g for g in gathered if isinstance(g, HarnessRejection)]
@@ -154,24 +154,27 @@ async def run_pipeline(
     if search is None:
         return PipelineResult(Outcome.PROPOSED, proposal, normalised, proposal.ambiguity_flags, (), None, None, signals, tuple(calls))
     query = build_query(inp, normalised, search.resource_kind, config)
-    candidates: tuple[Candidate, ...] = ()
-    if query.time_window is not None:  # the read contract requires a window; with none there is nothing to read
-        try:
-            candidates = await source.fetch(query)
-        except CandidateScopeError:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_TENANT_SCOPE,),
-                            proposal=proposal, normalised=normalised, signals=signals)
-        except CandidateRequestInvalid:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
-                            proposal=proposal, normalised=normalised, signals=signals)
-        except CandidateSourceError:
-            return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
-                            proposal=proposal, normalised=normalised, signals=signals)
+    if query.time_window is None:
+        # The read contract requires a time window (REQ-CTX-006), so a request with none is invalid input: it is refused at
+        # the gate and nothing is read. NO_TRANSACTION_MATCH (REQ-AMB-002) is for a search that ran and came back empty.
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
+                        proposal=proposal, normalised=normalised, signals=signals)
+    try:
+        candidates = await source.fetch(query)
+    except CandidateScopeError:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_TENANT_SCOPE,),
+                        proposal=proposal, normalised=normalised, signals=signals)
+    except CandidateRequestInvalid:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_INPUT_INVALID,),
+                        proposal=proposal, normalised=normalised, signals=signals)
+    except CandidateSourceError:
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_EVIDENCE_UNAVAILABLE,),
+                        proposal=proposal, normalised=normalised, signals=signals)
     if len(candidates) > config.ranking.max_raw_candidates:
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_OUT_OF_BOUNDS,),
                         proposal=proposal, normalised=normalised, signals=signals)
 
-    screening = asyncio.create_task(steps.screen_quietly(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp))
+    screening = asyncio.create_task(steps.screen_quietly(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp, config.native_yes_threshold))
     try:
         resolution = _rank(candidates, normalised, proposal, inp, config)
     finally:

@@ -13,6 +13,7 @@ from noema_model.harness import (
     DecisionTask,
     Harness,
     HarnessRejection,
+    Level,
     Option,
     Reason,
     ScoreAnswer,
@@ -25,7 +26,7 @@ from tests.support import ManualClock, ScriptedProvider, make_config, reply, run
 
 NODE_Q = ChoiceQuestion("node", "Which intent is this?", (Option("investigate", "Investigate a payment"), Option(ABSTAIN, "None or other")))
 FLAG_Q = YesNoQuestion("multiple_intents", "Does the customer ask for more than one thing?")
-SCORE_Q = ScoreQuestion("vagueness", "How vague is the time?")
+SCORE_Q = ScoreQuestion("vagueness", "How vague is the time?", (Level("Exact", "A clock time."), Level("Vague", "A part of the day.")))
 
 
 def wire(*answers: dict[str, Any]) -> dict[str, Any]:
@@ -62,14 +63,14 @@ def test_all_three_question_kinds_in_one_call() -> None:
     payload = wire(
         ans("node", "investigate", investigate=0.97, none_or_other=0.03),
         ans("multiple_intents", "no", yes=0.1, no=0.9),
-        ans("vagueness", "score", score=0.4),
+        ans("vagueness", "score", level_0=0.3, level_1=0.7),
     )
     h, provider = build([payload])
     result = run(h.decide(request((NODE_Q, FLAG_Q, SCORE_Q))))
     node, flag, score = result.answers
     assert node == ChoiceAnswer("node", "investigate", {"investigate": 0.97, "none_or_other": 0.03}) and not node.abstained
     assert flag == YesNoAnswer("multiple_intents", False, 0.1)
-    assert score == ScoreAnswer("vagueness", 0.4)
+    assert score == ScoreAnswer("vagueness", None, {"level_0": 0.3, "level_1": 0.7}, None)  # the harness computes no score
     assert result.call.route == "decide.intent_node_classification" and result.call.template_id == "harness.decide"
     prompt = provider.calls[0].user
     assert '"question_id":"node"' in prompt and "none_or_other" in prompt
@@ -143,8 +144,11 @@ def test_yes_no_and_score_answers_are_checked_against_their_kind() -> None:
     for bad_payload, question in (
         (wire(ans("multiple_intents", "maybe", yes=0.5, no=0.5)), FLAG_Q),
         (wire(ans("multiple_intents", "yes", yes=0.5)), FLAG_Q),
-        (wire(ans("vagueness", "high", score=0.5)), SCORE_Q),
-        (wire(ans("vagueness", "score", score=2.0)), SCORE_Q),
+        (wire(ans("vagueness", "high", level_0=0.5, level_1=0.5)), SCORE_Q),
+        (wire(ans("vagueness", "score", level_0=2.0, level_1=0.5)), SCORE_Q),
+        (wire(ans("vagueness", "score", level_0=1.0)), SCORE_Q),            # a level missing
+        (wire(ans("vagueness", "score", level_0=0.5, level_1=0.5, level_2=0.0)), SCORE_Q),  # a level that does not exist
+        (wire(ans("vagueness", "score", score=0.4)), SCORE_Q),              # the old shape
     ):
         h, _ = build([bad_payload])
         assert rejected(h, request((question,))).reason is Reason.OUTPUT_MISMATCH
@@ -159,3 +163,22 @@ def test_state_text_is_masked_and_delimited_not_mixed_into_the_instructions() ->
     assert "<" not in body and ">" not in body
     assert "0123456789" not in prompt
     assert json.loads(body)["utterance"]["text"].endswith("******6789")
+
+
+def test_a_score_question_needs_at_least_two_levels() -> None:
+    h, provider = build([wire()])
+    one = ScoreQuestion("vagueness", "How vague?", (Level("Only", "x"),))
+    blank = ScoreQuestion("vagueness", "How vague?", (Level("", "x"), Level("b", "y")))
+    for bad in (one, blank):
+        assert rejected(h, request((bad,))).reason is Reason.QUESTION_INVALID
+    assert provider.calls == []
+
+
+def test_score_levels_reach_the_prompt_as_numbered_options() -> None:
+    h, provider = build([wire(ans("vagueness", "score", level_0=0.5, level_1=0.5))])
+    run(h.decide(request((SCORE_Q,))))
+    questions = json.loads(provider.calls[0].user.split("QUESTIONS:\n", 1)[1].split("\n\n<<<DATA", 1)[0])
+    assert questions[0]["levels"] == [
+        {"option": "level_0", "label": "Exact", "description": "A clock time."},
+        {"option": "level_1", "label": "Vague", "description": "A part of the day."},
+    ]
