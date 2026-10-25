@@ -7,7 +7,7 @@ Updated 2026-10-24.
 - `.github/CODEOWNERS` lists both founders on each protected path (DEC-2026-10-13 R4; GOV-22).
 
 ## Open
-- Nothing built for the Go core beyond the skeleton and the packages listed in the T6 work; see `status/EXE-01.md`.
+- Nothing built for the Go core beyond the skeleton and the packages listed in the T6 work; see `status/EXE-02.md`.
 
 ## Messages
 None sent or accepted for this task.

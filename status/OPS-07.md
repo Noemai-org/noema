@@ -5,20 +5,22 @@ Updated 2026-10-24. Owner: Session A. Related tasks: GOV-22 (drift guard), CON-0
 ## State
 
 - docs#57 merged: PERD v1.15 (REQ-OPS-005; §39.3 `TENANT_SCOPE_MISMATCH`; REQ-AMB-002 no time window is `INPUT_INVALID`), plan v1.9 (task OPS-07), DEC-2026-10-23, OD-P-70 (waiting for the Founder's "yes").
-- noema#56 merged at `48f93f7`: five vendored copies re-pointed to docs `67a60ec`; `tools/vendor/test_repoint_bodies.py`.
-- main at `48f93f7`: the first push runs failed in about 4 seconds with no steps and no runner (cause not seen; it cleared). All 12 workflows are green after one re-run each.
+- noema#56 merged: five vendored copies re-pointed to docs `67a60ec`; `tools/vendor/test_repoint_bodies.py`. noema#61 merged: `status/` and the READMEs.
+- docs#58 merged (24 Oct): `.gitleaksignore` with one fingerprint (SoT line 2148 example key).
+- 25 Oct: docs#59 (DEC-2026-10-25: ENV-03 starts, Go Postgres driver and Temporal SDK approved, mock-case secret names, CODEOWNERS for `/.gitleaksignore`) and noema#67 (ENV-03 first slice: `adapters.Case`, `CaseClient`) are open for the non-author founder. This PR adds the two approved secret names to `.env.example` and renames `EXE-01.md` to `EXE-02.md`.
+- main at `48f93f7` was red for a day with jobs that never started; all 12 workflows were green after one re-run each (24 Oct). The cause was not seen.
 
 ## Open
 
-- OD-P-70 needs the Founder's "yes" before anything is built from it.
-- Session D reports nothing wires `BENCH_OUT` for the per-call cost records (the compose owner).
-- Non-author founder review on noema#59 (the others, #42, #46 and #47, have merged).
-- Session C's noema#55 is superseded by #56; closing it is a founder action.
-- noema#61 (this log) needs the non-author founder's review.
+- The `contracts/fixtures/README.md` line about `secret_hex` waits for the Founder's written confirmation on a pull request that it is test-only (nothing is added until then).
+- Tushe-dependent work is paused until the Founder confirms (DEC-2026-10-25 D8).
+- OD-P-70 (certificates, pack mount) needs the Founder's "yes".
+- The abandoned branch `sa/env-03-case-adapter` (one gitleaks finding in a test placeholder, never in a PR) could not be deleted by me; a founder can.
+- `docs/sessions/` holds five session files owned by other sessions; moving them to `status/` needs the owners and an AGENTS §9 change (two of them are the same task twice, so the names would collide).
 
 ## Messages
 
-The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z and 17:07Z, 21 Oct), `status/EXE-01.md` (18:35Z, 21 Oct) and `status/PCK-01.md` (14:23Z, 22 Oct).
+The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z and 17:07Z, 21 Oct), `status/EXE-02.md` (18:35Z, 21 Oct) and `status/PCK-01.md` (14:23Z, 22 Oct).
 
 ### 2026-10-21 20:11Z sent · Session A → Session B
 - Purpose: on the Founder's instruction: asks Session B to quote REQ-ENV-005 for "IMPOSSIBLE_STATE belongs to the proxy" in noema#51.

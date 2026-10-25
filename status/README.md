@@ -7,7 +7,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 ## What is built
 
 - `status/README.md` (this file): the index and the format.
-- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-01`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
+- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
 
@@ -25,7 +25,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 |---|---|---|---|
 | 21 Oct 17:04 | sent | Session C | `CON-01.md` |
 | 21 Oct 17:07 | sent | Session C | `CON-01.md` |
-| 21 Oct 18:35 | sent | Session C | `EXE-01.md` |
+| 21 Oct 18:35 | sent | Session C | `EXE-02.md` |
 | 21 Oct 20:11 | sent | Session B | `OPS-07.md` |
 | 22 Oct 14:23 | sent | Session D | `PCK-01.md` |
 | 22 Oct 14:47 | sent | Session D | `OPS-07.md` |
