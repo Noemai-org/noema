@@ -26,3 +26,10 @@ See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `no
 - `make model-bench-up` and the bind mount were checked with `docker compose config` only: no Docker daemon in this session, so no container was started (not run: no access).
 - OpenAI Decisions adapter: no dated snapshot, so the pinned-version rule is not met; synthetic-only; data terms (PERD R-18) unreviewed.
 - `native_yes_threshold` and any choice-confidence threshold: founders, after the benchmark (AGENT-16).
+
+## Manual container test (separate PR)
+
+- `.github/workflows/bench-model-up.yml`: `workflow_dispatch` only, `ubuntu-24.04`. Prepared, **not run**: it waits for the founder's yes. Run by the founder or on their say-so; nothing in it needs a secret.
+- Messages: the founder's instruction of 25 Oct 2026 (start the request path as one PR, prepare this workflow as another, do not run it before the founder's yes, do not use Windows, log every message, do not merge) is logged in the first PR's table (row dated 2026-10-25) because that PR carries the log of the work it asked for. This PR adds no new message.
+- Checked without running the workflow: YAML parses; `check_pins`, `check_env_refs` and `check_secret_refs` pass; the Python snippet and the host-side check were run against a temp directory (one file, JSON equals the marker, owner is the invoking user); `docker compose config` with the override resolves. Not run: the stack itself (no Docker daemon in the session).
+

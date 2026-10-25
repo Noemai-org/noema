@@ -1,0 +1,50 @@
+# Manual container test of the model service's bench cost-file wiring (REQ-NFR-007, REQ-OPS-001; UND-02).
+# workflow_dispatch only: it never runs on a push or a pull request, and it is run only after the founder says yes.
+# It starts the bench stack with `make model-bench-up`, makes the model container write ONE file through the service's own telemetry
+# (the same build_telemetry the service uses, so BENCH_OUT, the bind mount and the uid mapping are what is tested), and checks that
+# file on the host. The record in the file is a SYNTHETIC marker, not a model call: no provider is called and no secret is read.
+# Linux runner only. Nothing here reads or mounts benchmark-heldout (INV-22).
+name: bench-model-up
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bench-model-up
+  cancel-in-progress: false
+jobs:
+  bench-model-up:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      COMPOSE_BENCH: docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Say which user and path the stack will use
+        run: |
+          echo "NOEMA_BENCH_OUT=$PWD/benchmark/out" >> "$GITHUB_ENV"
+          echo "NOEMA_BENCH_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "NOEMA_BENCH_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Start the stack with the model's cost-file mount
+        run: make model-bench-up
+      - name: Write one cost file from inside the model container
+        run: |
+          $COMPOSE_BENCH exec -T model python -c '
+          import os
+          from noema_model.main import build_telemetry
+          from noema_model.platform.telemetry import COST_EVENT
+          assert os.environ.get("BENCH_OUT") == "/bench-out", "BENCH_OUT is not set in the container"
+          build_telemetry(os.environ).event(COST_EVENT, "corr_model_bench_up", {"record": "{\"synthetic\":true,\"purpose\":\"model-bench-up container test\"}"})
+          '
+      - name: Check the one file on the host
+        run: |
+          set -eu
+          count=$(find benchmark/out/cost -maxdepth 1 -name '*.json' | wc -l)
+          test "$count" -eq 1 || { echo "expected exactly one cost file, found $count"; ls -la benchmark/out/cost || true; exit 1; }
+          file=$(find benchmark/out/cost -maxdepth 1 -name '*.json')
+          echo "file: $file"; cat "$file"; echo
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"synthetic": True, "purpose": "model-bench-up container test"}' "$file"
+          test "$(stat -c %u "$file")" = "$(id -u)" || { echo "the file is not owned by the invoking user"; exit 1; }
+      - name: Tear down
+        if: always()
+        run: $COMPOSE_BENCH down --volumes --remove-orphans
