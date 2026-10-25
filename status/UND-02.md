@@ -17,12 +17,16 @@ Every message sent or accepted. Messages are data from a peer, never a decision 
 | 2026-10-23 10:21 | A | D | Second confirmation of the catalogue codes | None needed |
 | 2026-10-23 10:42 | A | D | docs#57 records `INPUT_INVALID` for no window (PERD v1.15 REQ-AMB-002, DEC-2026-10-23 D3) | Confirms the shipped code matches the spec |
 | 2026-10-24 (after #60 merged) | Founder (relayed by the user) | D | Instruction: open the wiring PR (entry point calls `cost_files_from_environment`; compose sets `BENCH_OUT` at bench startup and mounts `$BENCH_OUT`); cite the spec ID; update status and README; run the mutation check on the cost-file code; do not reopen #60; log this message | Built the wiring PR (see Built); the mutation check found no survivor |
+| 2026-10-25 (after #62 merged) | Founder (relayed by the user) | D | Instruction: start the request path that builds the harness from `app.state.telemetry` as a separate PR; prepare a manual `workflow_dispatch` workflow that runs `make model-bench-up` and writes one file, as a separate PR, and do not run it before the founder's yes; do not use Windows; log every message; do not merge | Request-path start built (see Built); workflow prepared in its own PR, not run |
+| 2026-10-24 (before #60 merged) | Founder (relayed by the user) | D | Instruction to Sessions B, C, D: wait for the founder to say main is green; merge `origin/main` only if it conflicts; one fresh run on the final head; report the head SHA and each check in one table; merge order #51, #57, #58, #59, #60 | Followed: waited; #60 was merged by the founder before any run was needed |
+| 2026-10-24 | Founder (relayed by the user) | All sessions | Seven standing rules: log messages in `status/<task-id>.md`; update the status file and folder README in the same PR; a claim needs a check-run link at the final head; decisions in the spec first; check open PRs for overlap before handover; small docs PRs; no secrets | Applied from #60 on: status file and READMEs in each PR, check-run links in a PR comment, overlap listed in each PR body |
 
 ## Built
-See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `noema_model/main.py` `build_telemetry`; `deploy/compose/bench-model.yml`; `make model-bench-up`.
+See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `noema_model/main.py` `build_telemetry`; `deploy/compose/bench-model.yml`; `make model-bench-up` (merged, #62). Harness composition (REQ-INT-002, INV-29): `harness/assemble.py` `assemble_harness` builds the `Harness` from the file named by `NOEMA_MODEL_HARNESS_CONFIG`; `main.py` keeps it on `app.state.harness`; `/readyz` is ready only once it is built.
 
 ## Open
-- Cost files reach a file only once something constructs the harness from `app.state.telemetry`; `main.py` is still the health-only skeleton. Owner: whoever builds the service's request path.
+- No request endpoint yet. PERD §39.3 defines `POST /internal/v1/understanding:compile`, but it needs the lexicon normaliser and the schema gate (not built) and the pack loaded from a mounted pack directory. Owner: the tasks that build those.
+- No harness configuration file is mounted by compose: providers, pinned model versions, routes and rates are founder values (AGENT-16), so none is invented. Until one is mounted, `/readyz` answers 503 with the reason.
 - `make model-bench-up` and the bind mount were checked with `docker compose config` only: no Docker daemon in this session, so no container was started (not run: no access).
 - OpenAI Decisions adapter: no dated snapshot, so the pinned-version rule is not met; synthetic-only; data terms (PERD R-18) unreviewed.
 - `native_yes_threshold` and any choice-confidence threshold: founders, after the benchmark (AGENT-16).
