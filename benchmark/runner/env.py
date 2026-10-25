@@ -1,6 +1,6 @@
 """What a run needs from outside, as small interfaces, so a missing piece is a named gap and not a silent skip."""
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -9,6 +9,7 @@ from benchmark.oracle_client.transport import read_secret
 
 from .api import PublicApi
 from .control import MockCaseControl
+from .cost import CostFiles
 
 Json = dict[str, Any]
 
@@ -74,3 +75,4 @@ class RunEnv:
     poll_s: float = 0.2
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.monotonic
+    costs: CostFiles = field(default_factory=lambda: CostFiles(None))  # the model service's bench cost files; none configured means cost is not available
