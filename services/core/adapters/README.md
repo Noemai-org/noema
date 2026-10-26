@@ -12,7 +12,8 @@
 ## What is not built, and why
 
 - Interfaces for `mock-ledger`, `mock-switch`, `mock-destination`, `mock-customer`, `mock-policy`: their payload fields are "fixed when the Tushe OpenAPI is frozen" (PERD §34.4) and the Tushe-dependent work is paused until the Founder confirms. Nothing is guessed.
-- `mock-clock`, `fault-controller`, `fixture-loader`: the control plane is benchmark-only and "never reachable by the runtime" (PERD §34.4, REQ-ENV-002). An interface for them in the core's adapters package would give the runtime a way to reach them. They need a decision on where they live (the benchmark side) before any code exists.
+- `fault-controller` and `fixture-loader`: benchmark-only, never reachable from core or model (PERD §34.2, §34.4, REQ-ENV-002; amendment to §34.1 in a docs pull request). Their clients go under `benchmark/runner/` and `benchmark/fixtures/`, never here.
+- `mock-clock`: a read-only client is added here only when a slice needs it (PERD §64.2 lists clock clients); clock control (`simulate/advance`) stays benchmark-only.
 - Complaint and evidence-attach operations of `mock-case`: next slice.
 
 ## Constraints

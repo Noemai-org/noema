@@ -11,9 +11,9 @@ Updated 2026-10-25. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Th
 ## Not built, and why
 
 - Interfaces for `mock-ledger`, `mock-switch`, `mock-destination`, `mock-customer`, `mock-policy`: PERD §34.4 fixes their field names only when the Tushe OpenAPI is frozen, and the Founder paused Tushe-dependent work on 25 Oct 2026. Nothing guessed.
-- `mock-clock`, `fault-controller`, `fixture-loader`: benchmark-only control plane, "never reachable by the runtime" (PERD §34.4, REQ-ENV-002). An interface for them in the core would be a path to them. Needs a decision on where they live. Raised in the PR.
+- `mock-clock`, `fault-controller`, `fixture-loader`: decided by the Founder on 26 Oct 2026 (the PERD amendment is in a docs pull request, not yet merged). `fault-controller` and `fixture-loader` are benchmark-only and never reachable from core or model; their clients go under `benchmark/runner/` and `benchmark/fixtures/`, never in core. A read-only `mock-clock` client in core adapters is added only when a slice needs it (PERD §64.2 lists clock clients); this slice does not.
 - Complaints and evidence-attach operations of `mock-case`: next slice.
-- `ENV-01` (a Needs task) is not marked Done on a board I can see; the Tushe-dependent part of ENV-03 needs it.
+- `ENV-01` (a Needs task): its board status is not visible to this session; the Tushe-dependent part of ENV-03 needs it.
 
 ## Open
 
