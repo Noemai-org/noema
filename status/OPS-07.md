@@ -12,11 +12,11 @@ Updated 2026-10-24. Owner: Session A. Related tasks: GOV-22 (drift guard), CON-0
 
 ## Open
 
-- The `contracts/fixtures/README.md` line about `secret_hex` waits for the Founder's written confirmation on a pull request that it is test-only (nothing is added until then).
-- Tushe-dependent work is paused until the Founder confirms (DEC-2026-10-25 D8).
-- OD-P-70 (certificates, pack mount) needs the Founder's "yes".
-- The abandoned branch `sa/env-03-case-adapter` (one gitleaks finding in a test placeholder, never in a PR) could not be deleted by me; a founder can.
-- `docs/sessions/` holds five session files owned by other sessions; moving them to `status/` needs the owners and an AGENTS §9 change (two of them are the same task twice, so the names would collide).
+- The Founder's decisions on the gitleaks findings and `secret_hex` are posted on noema#61 (comment 6418518950): only one reviewed suppression exists (docs#58, finding 1); any further entry needs its own PR with before-and-after scan evidence. The `secret_hex` note is in `contracts/fixtures/README.md` (this PR).
+- Tushe-dependent work (relay pull client, Tushe entries in `.env.example`, Tushe interfaces) is paused until the Founder confirms (DEC-2026-10-25 D8).
+- OD-P-70 (certificates, pack mount): default proposed, no decision recorded.
+- The abandoned branch `sa/env-03-case-adapter` (one gitleaks finding in a test placeholder, never in a PR) was deleted by a founder; the safeguards scan scope is addressed in its own PR.
+- `docs/sessions/` five session files move to `status/` together with an AGENTS §9 change, in one pull request (approved 26 Oct 2026).
 
 ## Messages
 
@@ -50,3 +50,13 @@ The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z 
 
 ### Earlier incoming messages
 Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" lists. The bodies were not recoverable from the session record, so they are not summarised here.
+
+### 2026-10-26 sent · Session A → Session D
+- Purpose: cleaning of PR text on #64 to #68 and status files; Session D's own `status/UND-02.md` (on #65 and #66) is Session D's to clean; Session A edits titles and bodies through the PR API only.
+- Receiver used it for: not recorded.
+- Evidence: noema#65, noema#66.
+
+### 2026-10-26 sent · Session A → Session C
+- Purpose: same; nothing found to remove in #64; `status/BEN-03.md` on `sC/t4-cost-reader` is Session C's to clean.
+- Receiver used it for: not recorded.
+- Evidence: noema#64.
