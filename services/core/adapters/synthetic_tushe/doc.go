@@ -8,6 +8,7 @@
 // Must never: expose a monetary call (BD-08); be imported by anything but execution and evidence (import-
 // adapters); hold an oracle credential (INV-22).
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). Built so far (ENV-03, first slice): CaseClient, the
+// client of mock-case (case_client.go). mock-case is the Noema-run case system, not hosted Tushe; PERD §64.2
+// keeps its client here. No client of hosted Tushe exists yet.
 package synthetic_tushe

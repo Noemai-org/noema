@@ -21,8 +21,17 @@ jobs:
           python-version: "3.13"
       - name: Install pinned scanners
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
-      - name: Secret scan (gitleaks)
-        run: "$RUNNER_TEMP/bin/gitleaks git . --no-banner --redact"
+      # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
+      # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
+      - name: Secret scan (gitleaks), the commits of this change only
+        env:
+          RANGE_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          RANGE_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: python3 -I tools/ci/gitleaks_range.py "$RUNNER_TEMP/bin/gitleaks" "$RANGE_BASE" "$RANGE_HEAD"
+      - name: Secret scan range tests
+        env:
+          GITLEAKS: ${{ runner.temp }}/bin/gitleaks
+        run: python3 -I tools/ci/test_gitleaks_range.py
       - name: Dependency pins
         run: python3 -I tools/ci/check_pins.py
       - name: Environment references

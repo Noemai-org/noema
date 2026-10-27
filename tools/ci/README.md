@@ -9,7 +9,7 @@ CI safeguards (PLT-02). Standard library only, except the two pinned scanners.
 | Environment references (R3) | `check_env_refs.py` | a workflow references another area's GitHub Environment |
 | Secret names | `check_secret_refs.py` | a workflow reads `secrets.NAME` and `.env.example` does not list `NAME` (a trailing `*` covers a prefix; `GITHUB_TOKEN` is built in; a secret looked up by an expression fails) |
 | PR trace | `check_pr_trace.py` | the PR body lacks a task ID, a PERD `REQ-` ID or a SoT ID |
-| Secret scan | gitleaks, config `/.gitleaks.toml` | a secret is found in the history |
+| Secret scan | gitleaks via `gitleaks_range.py`, config `/.gitleaks.toml` | a secret is found in the commits of this change: a pull request's `base..head`, or what a push adds (not every ref; the range is printed). `test_gitleaks_range.py` runs it against the real gitleaks |
 | SBOM | syft (CycloneDX JSON) | uploaded per image as an artifact |
 
 `run_canaries.py` proves each check can fail. Each canary must fail for its own reason. Canaries are left out by pointing each check at its own canary, never by weakening a check. The fake secret is built at run time.

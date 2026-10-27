@@ -121,7 +121,7 @@ def render_markdown(scorecard: Json, manifest: Json) -> str:
     lat = t3["latency"]
     per = t3["cost_usd_micros_per_correct_outcome"]
     out += ["## Tier 3: economics and latency", "", _tier0_line(scorecard), "",
-            ("- provider cost: not available (no source for per-call provider cost exists yet; it is never estimated)" if t3["cost_usd_micros_total"] is None else
+            ("- provider cost: not available (a completed case has no complete USD cost record; it is never estimated)" if t3["cost_usd_micros_total"] is None else
              f"- provider cost: {t3['cost_usd_micros_total']} millionths of a US dollar in total; "
              + (f"{per} per correct outcome (rounded down)" if per is not None else "no correct outcome to divide by")),
             f"- latency, all paths (n={lat['n']}): P50 {lat['p50_ms']} ms, P95 {lat['p95_ms']} ms, P99 {lat['p99_ms']} ms"]
