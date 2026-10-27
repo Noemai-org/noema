@@ -77,3 +77,9 @@ Every model call emits one `MODEL_CALL_RECORDED` event whose `record` field is `
 ## Assembly
 
 `assemble_harness(environ, clock, telemetry, transport=None)` builds the `Harness` from the JSON file named by `NOEMA_MODEL_HARNESS_CONFIG` (the shape `load_harness_config` reads) and returns an `Assembly(harness, reason)`. It holds no provider, version, route or rate of its own. On any fault it returns no harness and a reason that names the fault, never a value or a credential, and emits `HARNESS_CONFIG_REJECTED`. It lives here because only `harness/` may import providers (the `harness-only-providers` lint).
+
+## Provider configuration keys added for the model selection
+
+- `credential_env`: the name of an environment variable holding the key, instead of `credential_file`; exactly one of the two. `build_providers(config, transport, environ)` reads it from `environ`; the key is never in the configuration, a log or an error (INV-29).
+- `reported_model_version`: optional; the identifier the API returns when it differs from the ID sent (`model_version`). When set, a reply must report exactly it; when not, `model_version`.
+- `reasoning_effort`: required for kind `openai_responses` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`), refused for every other kind.

@@ -1,0 +1,17 @@
+{
+  "id": "resp_synthetic_0002",
+  "object": "response",
+  "status": "incomplete",
+  "incomplete_details": {"reason": "max_output_tokens"},
+  "model": "pinned-model-2026-01-01",
+  "output": [
+    {"id": "rs_synthetic_0002", "type": "reasoning", "summary": []}
+  ],
+  "usage": {
+    "input_tokens": 120,
+    "input_tokens_details": {"cache_write_tokens": 0, "cached_tokens": 0},
+    "output_tokens": 512,
+    "output_tokens_details": {"reasoning_tokens": 512},
+    "total_tokens": 632
+  }
+}

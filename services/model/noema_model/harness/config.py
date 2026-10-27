@@ -27,6 +27,9 @@ from noema_model.providers.llm.registry import KINDS, NATIVE_KINDS
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _ALIASES = ("latest", "default", "auto", "stable", "preview", "current", "newest")
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max"})
+_REASONING_KINDS = frozenset({"openai_responses"})
 _LOCALE = re.compile(r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$")
 
 
@@ -46,13 +49,16 @@ class ProviderConfig:
     kind: str
     endpoint: str
     model_version: str
-    credential_file: str
+    credential_file: str | None
     api_version: str | None
     timeout_ms: int
     max_output_tokens: int | None
     max_response_bytes: int
     temperature: float | None
     rate: RateCard | None
+    credential_env: str | None = None
+    reported_model_version: str | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,8 +101,8 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
     src = require_mapping(raw, where)
     reject_unknown(
         src,
-        frozenset({"kind", "endpoint", "model_version", "credential_file", "api_version", "timeout_ms",
-                   "max_output_tokens", "max_response_bytes", "temperature", "rate"}),
+        frozenset({"kind", "endpoint", "model_version", "credential_file", "credential_env", "reported_model_version",
+                   "reasoning_effort", "api_version", "timeout_ms", "max_output_tokens", "max_response_bytes", "temperature", "rate"}),
         where,
     )
     if not _NAME.match(name):
@@ -110,6 +116,22 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
         raise ConfigError(f"{where}.endpoint: must be https")
     model_version = require_str(src, "model_version", where)
     check_pinned(model_version)
+    reported = src.get("reported_model_version")
+    if reported is not None and (not isinstance(reported, str) or not _PIN.match(reported)):
+        raise ConfigError(f"{where}.reported_model_version: expected a plain identifier")
+    has_file, has_env = "credential_file" in src, "credential_env" in src
+    if has_file == has_env:
+        raise ConfigError(f"{where}: exactly one of credential_file and credential_env is required")
+    credential_file = require_str(src, "credential_file", where) if has_file else None
+    credential_env = require_str(src, "credential_env", where) if has_env else None
+    if credential_env is not None and not _ENV_NAME.match(credential_env):
+        raise ConfigError(f"{where}.credential_env: expected an upper-case environment variable name")
+    effort = src.get("reasoning_effort")
+    if kind in _REASONING_KINDS:
+        if not isinstance(effort, str) or effort not in _EFFORTS:
+            raise ConfigError(f"{where}.reasoning_effort: required, one of {', '.join(sorted(_EFFORTS))}")
+    elif "reasoning_effort" in src:
+        raise ConfigError(f"{where}.reasoning_effort: not a setting of kind {kind}")
     api_version = src.get("api_version")
     if api_version is not None and (not isinstance(api_version, str) or not api_version):
         raise ConfigError(f"{where}.api_version: expected a non-empty string")
@@ -128,7 +150,10 @@ def _provider(name: str, raw: Any) -> ProviderConfig:
         kind=kind,
         endpoint=endpoint,
         model_version=model_version,
-        credential_file=require_str(src, "credential_file", where),
+        credential_file=credential_file,
+        credential_env=credential_env,
+        reported_model_version=reported,
+        reasoning_effort=effort,
         api_version=api_version,
         timeout_ms=require_int(src, "timeout_ms", where, minimum=1),
         max_output_tokens=None if native else require_int(src, "max_output_tokens", where, minimum=1),
@@ -219,23 +244,34 @@ def load_harness_config(raw: Any) -> HarnessConfig:
     )
 
 
-def build_providers(config: HarnessConfig, transport: Transport) -> dict[str, LLMProvider | DecisionProvider]:
-    """Instantiate each configured provider. Credentials are read from their mounted files here and held only by the
-    adapter (INV-29). A missing or empty credential file is a ConfigError, so a provider without a key never starts."""
+def build_providers(
+    config: HarnessConfig, transport: Transport, environ: Mapping[str, str] | None = None
+) -> dict[str, LLMProvider | DecisionProvider]:
+    """Instantiate each configured provider. Credentials are read from their mounted files, or from the named environment
+    variable of `environ`, here and nowhere else, and held only by the adapter (INV-29). A missing or empty credential is a
+    ConfigError that names the file or the variable and never a value, so a provider without a key never starts."""
     built: dict[str, LLMProvider | DecisionProvider] = {}
     for name, cfg in config.providers.items():
-        try:
-            credential = Path(cfg.credential_file).read_text(encoding="utf-8").strip()
-        except OSError as exc:
-            raise ConfigError(f"providers.{name}.credential_file: unreadable") from exc
-        if not credential:
-            raise ConfigError(f"providers.{name}.credential_file: empty")
+        if cfg.credential_env is not None:
+            credential = (environ if environ is not None else {}).get(cfg.credential_env, "").strip()
+            if not credential:
+                raise ConfigError(f"providers.{name}.credential_env: {cfg.credential_env} is not set")
+        else:
+            if cfg.credential_file is None:
+                raise ConfigError(f"providers.{name}: no credential source")  # unreachable through the loader
+            try:
+                credential = Path(cfg.credential_file).read_text(encoding="utf-8").strip()
+            except OSError as exc:
+                raise ConfigError(f"providers.{name}.credential_file: unreadable") from exc
+            if not credential:
+                raise ConfigError(f"providers.{name}.credential_file: empty")
         settings = AdapterSettings(
             endpoint=cfg.endpoint,
             credential=credential,
             api_version=cfg.api_version,
             timeout_ms=cfg.timeout_ms,
             max_response_bytes=cfg.max_response_bytes,
+            reasoning_effort=cfg.reasoning_effort,
         )
         built[name] = (NATIVE_KINDS[cfg.kind] if cfg.kind in NATIVE_KINDS else KINDS[cfg.kind])(name, settings, transport)
     return built

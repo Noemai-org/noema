@@ -1,0 +1,19 @@
+{
+  "id": "resp_synthetic_0001",
+  "object": "response",
+  "status": "completed",
+  "incomplete_details": null,
+  "model": "pinned-model-2026-01-01",
+  "output": [
+    {"id": "rs_synthetic_0001", "type": "reasoning", "summary": []},
+    {"id": "msg_synthetic_0001", "type": "message", "status": "completed", "role": "assistant",
+     "content": [{"type": "output_text", "text": "{\"answers\": []}", "annotations": []}]}
+  ],
+  "usage": {
+    "input_tokens": 120,
+    "input_tokens_details": {"cache_write_tokens": 0, "cached_tokens": 0},
+    "output_tokens": 340,
+    "output_tokens_details": {"reasoning_tokens": 310},
+    "total_tokens": 460
+  }
+}

@@ -442,7 +442,7 @@ class Harness:
                     except BaseException:
                         breaker.release_probe()
                         raise
-                    if response is not None and response.model_version_reported != cfg.model_version:
+                    if response is not None and response.model_version_reported != (cfg.reported_model_version or cfg.model_version):
                         outcome = AttemptOutcome.VERSION_MISMATCH
                     if outcome in PROVIDER_FAILURES:
                         breaker.record_failure(self._clock.monotonic_ms())

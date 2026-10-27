@@ -7,3 +7,8 @@
 **Status.** `llm/` holds the text-model adapters for the harness (T5): `openai_chat`, `anthropic_messages`, `gemini_generate`, the neutral types in `base.py`, the standard-library `UrllibTransport` (https only, no redirects, size cap, hard deadline) and the kind registry. No vendor SDK is used; each adapter is one HTTP call. `speech/` is still empty (VOI-01). `openai_decisions` is the decision-model adapter (predicate, choice and score questions; see the harness README for the mapping, the limits and the snapshot gap). The import rules and prohibitions are in `__init__.py`.
 
 **Tests.** `pytest` from `services/model/`: `tests/test_providers_contract.py` (fixtures; not run against a live endpoint: no access) and `tests/test_transport.py` (a real local socket).
+
+## OpenAI Responses (`llm/openai_responses.py`)
+
+Kind `openai_responses`: `POST /v1/responses` with `instructions`, `input`, a strict `json_schema` text format, `max_output_tokens`, `store: false` and `reasoning.effort` from the provider configuration (the adapter holds no effort of its own). The reply is one `message` item with one `output_text` or one `refusal`; reasoning items are dropped unread; reasoning tokens are part of `usage.output_tokens`. `incomplete` with `max_output_tokens` is a truncation and with `content_filter` a refusal; any other status, or no message, or more than one, is malformed. Written from the endpoint reference read on 2026-10-27; the fixtures are synthetic: not run against a live endpoint (no access).
+

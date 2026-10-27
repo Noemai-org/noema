@@ -173,6 +173,7 @@ class AdapterSettings:
     api_version: str | None
     timeout_ms: int
     max_response_bytes: int
+    reasoning_effort: str | None = None  # read by the adapters of reasoning models; None sends nothing
 
     def __repr__(self) -> str:
         return f"AdapterSettings(endpoint={self.endpoint!r}, credential=<hidden>)"
