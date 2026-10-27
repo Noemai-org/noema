@@ -152,7 +152,7 @@ func (w *World) IssueGrant(n int, notBefore, expires time.Time) controller.Signe
 		IntentHash: w.IntentHash, CapabilityID: Capability, TargetRef: TargetRef, ParamsHash: ph, EvidenceSetHash: hashOf("evidence-1"),
 		PlanHash: hashOf("plan-1"), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "sim.case_scope:TX1", Source: "sim.src.case", VersionToken: "v_1"}},
 		PolicyVersion: "sim.pol@1.0", PackVersion: "sim@1.0.0", NotBefore: notBefore.UTC().Format(time.RFC3339), ExpiresAt: expires.UTC().Format(time.RFC3339),
-		Nonce: fmt.Sprintf("n_%04x", n), SingleUse: true}
+		Nonce: fmt.Sprintf("n_%04x", n), SingleUse: true, CorrelationID: "corr_sim01", TenantID: TenantID}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
 		panic(err)
@@ -162,6 +162,20 @@ func (w *World) IssueGrant(n int, notBefore, expires time.Time) controller.Signe
 		panic(err)
 	}
 	return controller.SignedGrant{Grant: g, Sig: controller.Sig{KeyID: KeyID, Value: sig}}
+}
+
+// Resign signs g's grant again after a test changed it.
+func (w *World) Resign(g controller.SignedGrant) controller.SignedGrant {
+	canon, err := crypto.CanonicalJSON(g.Grant)
+	if err != nil {
+		panic(err)
+	}
+	sig, err := w.Keys.SignWith(KeyID, canon)
+	if err != nil {
+		panic(err)
+	}
+	g.Sig = controller.Sig{KeyID: KeyID, Value: sig}
+	return g
 }
 
 // ---- GrantSource ----
@@ -317,7 +331,7 @@ func (w *World) Dispatching(context.Context, string) ([]controller.Pending, erro
 	for _, rec := range w.idem {
 		for _, a := range rec.Attempts {
 			if _, done := w.receipts[fmt.Sprintf("%s#%d", a.GrantID, a.Number)]; !done {
-				out = append(out, controller.Pending{GrantID: a.GrantID, TenantID: TenantID, IdempotencyKey: rec.Key, LogicalAction: rec.Action, Attempt: a.Number})
+				out = append(out, controller.Pending{GrantID: a.GrantID, TenantID: TenantID, CorrelationID: "corr_sim01", IdempotencyKey: rec.Key, LogicalAction: rec.Action, Attempt: a.Number})
 			}
 		}
 	}

@@ -20,8 +20,8 @@ func (c *Controller) Recover(ctx context.Context, tenantID string) (int, error) 
 	}
 	written := 0
 	for _, p := range pending {
-		rc, err := c.sign(Receipt{ReceiptID: c.IDs.ReceiptID(), GrantID: p.GrantID, TenantID: p.TenantID, IdempotencyKey: p.IdempotencyKey,
-			LogicalAction: p.LogicalAction, Attempt: p.Attempt, DispatchedAt: c.Clock.Now().UTC().Format(time.RFC3339),
+		rc, err := c.sign(Receipt{ReceiptID: c.IDs.ReceiptID(), GrantID: p.GrantID, TenantID: p.TenantID, CorrelationID: p.CorrelationID, IdempotencyKey: p.IdempotencyKey,
+			LogicalAction: p.LogicalAction, Attempt: p.Attempt, DispatchedAt: c.Clock.Now().UTC().Format(time.RFC3339Nano),
 			TransportResult: transportSweeperNoReceipt, State: StateOutcomeUnknown})
 		if err != nil {
 			return written, err

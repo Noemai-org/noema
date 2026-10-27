@@ -63,7 +63,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	// E2: not_before <= now < expires_at, by the clock interface.
 	notBefore, err1 := time.Parse(time.RFC3339, g.NotBefore)
 	expires, err2 := time.Parse(time.RFC3339, g.ExpiresAt)
-	if err1 != nil || err2 != nil || !g.SingleUse {
+	if err1 != nil || err2 != nil || !g.SingleUse || g.CorrelationID == "" || g.TenantID != tenantID {
 		return c.void(ctx, g, VoidBindingMismatch)
 	}
 	if now := c.Clock.Now(); now.Before(notBefore) || !now.Before(expires) {
@@ -144,6 +144,11 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, err
 	}
 	spend, err := c.Ledger.Spend(ctx, SpendCommand{Grant: g, IdempotencyKey: key, LogicalAction: step.KeyFields.LogicalAction})
+	if errors.Is(err, ErrKeyCollision) {
+		// The same key with other parameters is never dispatched (EC-E06): the grant is void and the Ledger
+		// has already raised the security event.
+		return c.void(ctx, g, VoidBindingMismatch)
+	}
 	if err != nil {
 		return Outcome{}, fmt.Errorf("%sspend: %w", errPrefix, err)
 	}
@@ -160,7 +165,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 
 	// E9: the one write, with the key and, for a conditional write, the expected versions.
-	req := DispatchRequest{IdempotencyKey: key, Attempt: spend.Attempt, CapabilityID: g.CapabilityID, TargetRef: g.TargetRef,
+	req := DispatchRequest{TenantID: tenantID, GrantID: g.GrantID, IdempotencyKey: key, Attempt: spend.Attempt, CapabilityID: g.CapabilityID, TargetRef: g.TargetRef,
 		Params: step.Params, TimeoutMS: step.TimeoutMS}
 	if step.Conditional {
 		req.ExpectedFrom = g.TargetVersions
@@ -175,6 +180,12 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 
 	// E10: classify. Silence is OUTCOME_UNKNOWN.
 	state := Classify(result)
+	if result.KeyCollision {
+		// The target refused the same key with another payload (EC-E06): a security event, then the receipt.
+		if err := c.Ledger.Append(ctx, tenantID, Event{Type: eventSecurity, Kind: kindIdempotencyCollision, GrantID: g.GrantID}); err != nil {
+			return Outcome{}, fmt.Errorf("%sappend: %w", errPrefix, err)
+		}
+	}
 	if err := c.at(PointAfterClassify); err != nil {
 		return Outcome{}, err
 	}
@@ -232,8 +243,8 @@ func joinFacts(f []string) string {
 
 // receipt builds and signs the Execution Receipt. The receipt never says succeeded.
 func (c *Controller) receipt(g Grant, tenantID, key, action string, attempt int64, at time.Time, r TransportResult, state ExecutionState) (Receipt, error) {
-	rc := Receipt{ReceiptID: c.IDs.ReceiptID(), GrantID: g.GrantID, TenantID: tenantID, IdempotencyKey: key, LogicalAction: action,
-		Attempt: attempt, DispatchedAt: at.UTC().Format(time.RFC3339), TransportResult: transportLabel(r), State: state}
+	rc := Receipt{ReceiptID: c.IDs.ReceiptID(), GrantID: g.GrantID, TenantID: tenantID, CorrelationID: g.CorrelationID, IdempotencyKey: key,
+		LogicalAction: action, Attempt: attempt, DispatchedAt: at.UTC().Format(time.RFC3339Nano), TransportResult: string(r.Class), RawCode: r.RawCode, State: state}
 	if state == StateAcknowledged {
 		ack := r.ExternalAck
 		rc.ExternalAck = &ack
@@ -241,21 +252,20 @@ func (c *Controller) receipt(g Grant, tenantID, key, action string, attempt int6
 	return c.sign(rc)
 }
 
-func transportLabel(r TransportResult) string {
-	if r.RawCode != "" {
-		return string(r.Class) + ":" + r.RawCode
-	}
-	return string(r.Class)
-}
-
-func (c *Controller) sign(rc Receipt) (Receipt, error) {
-	doc := map[string]any{"receipt_id": rc.ReceiptID, "grant_id": rc.GrantID, "tenant_id": rc.TenantID, "idempotency_key": rc.IdempotencyKey,
+// Document is the receipt as it is signed and stored, without the signature (contracts/schemas/execution-receipt.v1.json).
+func (rc Receipt) Document() map[string]any {
+	doc := map[string]any{"schema_version": receiptSchemaVersion, "correlation_id": rc.CorrelationID,
+		"receipt_id": rc.ReceiptID, "grant_id": rc.GrantID, "tenant_id": rc.TenantID, "idempotency_key": rc.IdempotencyKey,
 		"logical_action": rc.LogicalAction, "attempt": rc.Attempt, "dispatched_at": rc.DispatchedAt, "transport_result": rc.TransportResult,
 		"execution_state": string(rc.State), "external_ack": nil}
 	if rc.ExternalAck != nil {
 		doc["external_ack"] = *rc.ExternalAck
 	}
-	canon, err := crypto.CanonicalJSON(doc)
+	return doc
+}
+
+func (c *Controller) sign(rc Receipt) (Receipt, error) {
+	canon, err := crypto.CanonicalJSON(rc.Document())
 	if err != nil {
 		return rc, err
 	}

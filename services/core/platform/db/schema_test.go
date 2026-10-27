@@ -139,7 +139,7 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 	pool := migrated(t)
 	seed(t, pool)
 	for _, q := range []string{
-		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_1', 'ten_a', 'n1', now())`,
+		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`,
 		`INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, dispatched_at, json, sig_key_id, sig_value, created_at)
 		 VALUES ('rcp_1', 'ten_a', 'grt_1', 1, 'idk_v1_x', 'A', 'OUTCOME_UNKNOWN', 'TIMEOUT', now(), '{}', 'k', 's', now())`,
 		`SELECT record_lock_head('ten_a')`,
@@ -200,11 +200,11 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_1', 'ten_a', 'n1', now())`); err != nil {
+	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_1', 'ten_a', 'n9', now())`), violation, "second spend of one grant")
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_2', 'ten_a', 'n1', now())`), violation, "second spend with one nonce")
+	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n9', 'idk_v1_x', 1, now())`), violation, "second spend of one grant")
+	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_2', 'ten_a', 'n1', 'idk_v1_x', 1, now())`), violation, "second spend with one nonce")
 	// The nonce is unique across tenants, not only within one (PERD 38.2: nonce UNIQUE).
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
@@ -215,7 +215,7 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_3', 'ten_b', 'n1', now())`), violation, "the same nonce under another tenant")
+	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_3', 'ten_b', 'n1', 'idk_v1_x', 1, now())`), violation, "the same nonce under another tenant")
 }
 
 // The idempotency record keeps its key, action and parameters, and its attempt only moves forward (REQ-EXE-002).
@@ -223,7 +223,7 @@ func TestIdempotencyRecordGuard(t *testing.T) {
 	pool := migrated(t)
 	seed(t, pool)
 	for _, q := range []string{
-		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, spent_at) VALUES ('grt_1', 'ten_a', 'n1', now())`,
+		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`,
 		`INSERT INTO idempotency_record (tenant_id, idempotency_key, logical_action, params_hash, attempt, status, last_grant_id, created_at, updated_at)
 		 VALUES ('ten_a', 'idk_v1_x', 'A', 'ph', 2, 'DISPATCHING', 'grt_1', now(), now())`,
 	} {

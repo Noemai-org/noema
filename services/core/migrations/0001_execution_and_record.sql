@@ -76,12 +76,15 @@ CREATE TRIGGER decision_grant_no_truncate BEFORE TRUNCATE ON decision_grant FOR 
 -- grant_spend (single use is a unique constraint, never workflow history: INV-30, REQ-EXE-001) ----------------
 
 CREATE TABLE grant_spend (
-  grant_id  text PRIMARY KEY REFERENCES decision_grant (grant_id),
-  tenant_id text NOT NULL REFERENCES tenant (tenant_id),
-  nonce     text NOT NULL,
-  spent_at  timestamptz NOT NULL,
+  grant_id        text PRIMARY KEY REFERENCES decision_grant (grant_id),
+  tenant_id       text NOT NULL REFERENCES tenant (tenant_id),
+  nonce           text NOT NULL,
+  idempotency_key text NOT NULL,
+  attempt         bigint NOT NULL CHECK (attempt >= 1),
+  spent_at        timestamptz NOT NULL,
   CONSTRAINT grant_spend_nonce_key UNIQUE (nonce)
 );
+CREATE INDEX grant_spend_key_attempt_idx ON grant_spend (tenant_id, idempotency_key, attempt);
 CREATE TRIGGER grant_spend_immutable BEFORE UPDATE OR DELETE ON grant_spend FOR EACH ROW EXECUTE FUNCTION reject_mutation();
 CREATE TRIGGER grant_spend_no_truncate BEFORE TRUNCATE ON grant_spend FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation();
 
@@ -95,7 +98,7 @@ CREATE TABLE idempotency_record (
   attempt         bigint NOT NULL CHECK (attempt >= 1),
   status          text NOT NULL CHECK (status IN ('DISPATCHING', 'RECEIPTED')),
   external_ref    text,
-  last_grant_id   text NOT NULL REFERENCES grant_spend (grant_id),
+  last_grant_id   text NOT NULL REFERENCES decision_grant (grant_id),
   created_at      timestamptz NOT NULL,
   updated_at      timestamptz NOT NULL,
   PRIMARY KEY (tenant_id, idempotency_key)
