@@ -83,7 +83,7 @@ A fault never marks the response: no header or field tells the caller a fault wa
 | Commit-then-drop and every other fault, on the wire, reproducible from a seed | `internal/api/faults_test.go` |
 | No route, no description entry, no database path for the prohibited operations | `internal/api/absent_test.go`, `internal/store/store_test.go` |
 | The truth endpoint refuses every runtime identity | `internal/api/auth_test.go`; in Compose: matrix step 6 |
-| Linearizability (D7): concurrent histories under faults, checked per key; a corrupted history is rejected | `internal/api/linearizability_test.go`, `internal/lincheck` |
+| Linearizability (D7): concurrent histories under faults, checked per key; a corrupted history is rejected. Clients wait 300 ms when faults are loaded (a 600 ms hold is a lost response) and 10 s in the quiet run, where nothing may be lost | `internal/api/linearizability_test.go`, `internal/lincheck` |
 | Plan validation, counters, determinism | `internal/faultplan` |
 
 The checker (`internal/lincheck`) is a Wing and Gong search with memoisation, over the standard library only. An operation whose response was never seen (a drop, a timeout, a 5xx) is *pending*: it may have taken effect at any time after it was invoked, or never. A budget overrun is a failure, not a pass.

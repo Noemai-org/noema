@@ -137,6 +137,13 @@ type recorder struct {
 	mu   sync.Mutex
 	ops  []lincheck.Operation
 	n    struct{ pending, replays, mismatches, conflicts, creates int }
+	lost []string // why each operation has no definitive response, for the failure message of a quiet run
+}
+
+func (r *recorder) lose(why string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lost = append(r.lost, why)
 }
 
 func (r *recorder) add(client int, in lIn, out lOut, pending bool, call int64) {
@@ -182,12 +189,27 @@ func outOfCase(status int, c map[string]any, code string) lOut {
 	return o
 }
 
+// faultClientTimeout is how long a client waits when faults are loaded: short on purpose, so a TIMEOUT_AFTER_COMMIT
+// of 600ms is an operation with no seen response.
+const faultClientTimeout = 300 * time.Millisecond
+
+// quietClientTimeout is how long a client waits when no fault is loaded. Nothing in a quiet run is meant to time out,
+// so the wait only has to outlast a slow machine: the 300ms of the fault runs is the same as a stall of 8 concurrent
+// clients on a loaded CI runner against a real PostgreSQL, and a client that gives up there reports a lost response
+// that no fault caused. The service itself bounds every database call at 30s.
+const quietClientTimeout = 10 * time.Second
+
 // workload runs `workers` concurrent clients for `perWorker` operations each against slots, with faults applied.
 func workload(t *testing.T, e *env, seed int64, workers, perWorker, slots int) *recorder {
 	t.Helper()
+	return workloadWithTimeout(t, e, faultClientTimeout, seed, workers, perWorker, slots)
+}
+
+// workloadWithTimeout is workload with the time a client waits for an answer before it gives up.
+func workloadWithTimeout(t *testing.T, e *env, clientTimeout time.Duration, seed int64, workers, perWorker, slots int) *recorder {
+	t.Helper()
 	rec := &recorder{}
-	// Clients give up after 300ms, so a TIMEOUT_AFTER_COMMIT of 600ms is an operation with no seen response.
-	client := &http.Client{Timeout: 300 * time.Millisecond, Transport: &http.Transport{DisableKeepAlives: true, MaxIdleConnsPerHost: -1}}
+	client := &http.Client{Timeout: clientTimeout, Transport: &http.Transport{DisableKeepAlives: true, MaxIdleConnsPerHost: -1}}
 	var known sync.Map // slot -> case ID learned from a response
 	var wg sync.WaitGroup
 	queues := []string{"PAYMENTS_OPERATIONS", "DISPUTES", "FRAUD_REVIEW", "SETTLEMENT_OPS"}
@@ -232,6 +254,11 @@ func workload(t *testing.T, e *env, seed int64, workers, perWorker, slots int) *
 				call := rec.tick.Add(1)
 				r, err := e.send(client, method, url, runtimeToken, hdr, body)
 				if err != nil || r.status >= 500 || r.status == 429 {
+					why := fmt.Sprintf("status %d", r.status)
+					if err != nil {
+						why = err.Error()
+					}
+					rec.lose(fmt.Sprintf("%s %s: %s", method, url, why))
 					rec.add(w, in, lOut{}, true, call) // no definitive response: the effect is unknown
 					continue
 				}
@@ -415,10 +442,10 @@ func TestACorruptedHistoryIsRejected(t *testing.T) {
 // A quiet run (no faults) is also linearizable, and every effect the clients saw is in the truth endpoint.
 func TestMockCaseHistoriesWithoutFaultsAreLinearizable(t *testing.T) {
 	e := newEnv(t)
-	rec := workload(t, e, 7, 8, 40, 4)
+	rec := workloadWithTimeout(t, e, quietClientTimeout, 7, 8, 40, 4)
 	checkHistory(t, "no faults", rec)
 	if rec.n.pending != 0 {
-		t.Fatalf("%d operations lost their response with no fault loaded", rec.n.pending)
+		t.Fatalf("%d operations lost their response with no fault loaded:\n  %s", rec.n.pending, strings.Join(rec.lost, "\n  "))
 	}
 	if rec.n.creates != e.count("cases") {
 		t.Fatalf("clients saw %d creations, the truth endpoint holds %d cases", rec.n.creates, e.count("cases"))
