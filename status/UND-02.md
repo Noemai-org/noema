@@ -32,3 +32,14 @@ See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `no
 - `make model-bench-up` and the bind mount were checked with `docker compose config` only: no Docker daemon in this session, so no container was started (not run: no access).
 - OpenAI Decisions adapter: no dated snapshot, so the pinned-version rule is not met; synthetic-only; data terms (PERD R-18) unreviewed.
 - `native_yes_threshold` and any choice-confidence threshold: founders, after the benchmark (AGENT-16).
+
+## Manual container test (separate PR)
+
+- `.github/workflows/bench-model-up.yml`: `workflow_dispatch` only, `ubuntu-24.04`; prepared and not run; it needs no secret.
+- Messages: the founder's decisions of 25 Oct 2026 (the request path and this workflow as separate pull requests, the workflow not run yet, Linux runner only, messages logged) are logged in the first PR's table (row dated 2026-10-25). This PR logs one more: the decision of 27 Oct 2026 below.
+- Checked without running the workflow: YAML parses; `check_pins`, `check_env_refs` and `check_secret_refs` pass; the Python snippet and the host-side check were run against a temp directory (one file, JSON equals the marker, owner is the invoking user); `docker compose config` with the override resolves. Not run: the stack itself (no Docker daemon in the session).
+- 2026-10-27, founder (relayed by the user), to D: decided that instruction text is removed from the PR text and status files of #65 and #66, a log of decisions staying; after #71 and #73 are merged, `origin/main` is merged into each of #65 and #66 and the checks run once on each final head. Used for: this change.
+- 2026-10-27 (later), founder (relayed by the user), to D: decided that #66 changes only `.github/` and `status/UND-02.md`. D therefore removed the `deploy/compose/README.md` row for the workflow from this PR (the row is not on `main`); the workflow is described here and in its header comment. Used for: this change.
+- Open: `deploy/compose/README.md` has no row for the `bench-model-up` workflow. A follow-up change adds it once the workflow is merged (owner: D; the folder is under the founders' CODEOWNERS).
+- 2026-10-27 (later still), founder (relayed by the user), to D: decided that the founder merges #65 and #66; #65 needs nothing more from D after its merge (it merged at head `c9f4e6c`); #66 touches only the workflow file under `.github/` and `status/UND-02.md`, with the compose README follow-up recorded above as open; `origin/main` is merged into the #66 branch after #65 merged, `status/UND-02.md` resolved by keeping every row from both sides, the checks run once on the final head and are reported on #66; the `bench-model-up` workflow is run only after the founder approves it, following the merge of #66. Used for: this change.
+
