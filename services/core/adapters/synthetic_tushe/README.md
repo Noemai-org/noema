@@ -15,6 +15,7 @@ Clients of the synthetic enterprise behind the interfaces in `adapters` (PERD §
 | 200 `{"status":"PENDING"}`, nothing created | `ACK_2XX` | `200:PENDING` | no reference; Outcome decides (EC-E03) |
 | 409 `IDEMPOTENCY_CONFLICT` | `REJECTED_4XX` | `409:IDEMPOTENCY_CONFLICT` | `KeyCollision` is true (EC-E06); never acknowledged |
 | 409 `VERSION_MISMATCH` (route) | `VERSION_CONFLICT_409_412` | `409:VERSION_MISMATCH` | `CurrentVersionToken` carries the current token |
+| 412 `PRECONDITION_FAILED` (create) | `DUPLICATE_CREATE` | `412:PRECONDITION_FAILED` | the subject already has a case under another key; Execution gives `REJECTED_BY_TARGET`; `ExistingCaseID` and `CurrentVersionToken` name the case that exists; any other 412 is `REJECTED_4XX` |
 | 429 | `REJECTED_4XX` | `429:RATE_LIMITED` | `RetryAfter` if sent |
 | other 4xx | `REJECTED_4XX` | `<status>:<CODE>` | |
 | 5xx | `SERVER_5XX` | `<status>:<CODE>` | committed or not, it is never read as failure |

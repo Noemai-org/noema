@@ -205,14 +205,15 @@ func TestCreateCaseClassifiesEveryRecordedWriteOutcome(t *testing.T) {
 }
 
 // A create is conditional on there being no case for its subject and epoch. When the target holds one that another key
-// made, the write did not happen, and the state it expected ("absent") no longer holds: the same class as a stale
-// version (E10, REQ-EXE-004). The case that exists is named, never taken as this write's result.
+// made, the write did not happen. That is a business rejection (E10, REQ-EXE-007), not a stale version: a create has no
+// version token. It has its own class, DUPLICATE_CREATE (errors.v2.json, D6). The case that exists is named, never
+// taken as this write's result.
 func TestCreateCaseRefusedBecauseTheSubjectHasACase(t *testing.T) {
 	recs := loadRecordings(t)
 	var hits int32
 	cli := newClient(t, replay(t, recs["create_precondition_failed_412"], &hits))
 	got := cli.CreateCase(context.Background(), createIn("idk_v1_live09"))
-	if got.Class != adapters.ClassVersionConflict || got.RawCode != "412:PRECONDITION_FAILED" || got.KeyCollision || got.ExternalAck != "" || got.Case != nil {
+	if got.Class != adapters.ClassDuplicateCreate || got.RawCode != "412:PRECONDITION_FAILED" || got.KeyCollision || got.ExternalAck != "" || got.Case != nil {
 		t.Fatalf("refused create: %+v", got)
 	}
 	if got.ExistingCaseID != caseID(recs) || got.CurrentVersionToken != "v1" {

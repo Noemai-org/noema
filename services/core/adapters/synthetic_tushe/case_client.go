@@ -355,12 +355,13 @@ func classifyCreate(status int, h http.Header, raw []byte) adapters.WriteResult 
 	switch status {
 	case http.StatusPreconditionFailed:
 		// The create was conditional on there being no case for the subject and epoch, and the target holds one that
-		// another key made. The state the write expected ("absent") no longer holds: the same class as a stale version
-		// (E10). The case that exists is named, never adopted as this write's result.
+		// another key made. That is a business rejection (E10, REJECTED_BY_TARGET), not a stale version: a create has no
+		// version token. It has its own class, the error code DUPLICATE_CREATE of errors.v2.json (D6). The case that
+		// exists is named, never adopted as this write's result.
 		if code != "PRECONDITION_FAILED" {
 			return adapters.WriteResult{Class: adapters.ClassRejected4xx, RawCode: rawCode(status, code)}
 		}
-		r := adapters.WriteResult{Class: adapters.ClassVersionConflict, RawCode: rawCode(status, code)}
+		r := adapters.WriteResult{Class: adapters.ClassDuplicateCreate, RawCode: rawCode(status, code)}
 		if we != nil {
 			for _, d := range we.Error.Details {
 				switch d.Field {

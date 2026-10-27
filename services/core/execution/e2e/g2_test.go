@@ -240,7 +240,8 @@ func (r raceDispatcher) Dispatch(ctx context.Context, req controller.DispatchReq
 
 // REQ-EXE-004, PERD 27.1 E7/E10, the create is CONDITIONAL_WRITE: revalidation found no case, then another writer made one.
 // The target enforces "create only if absent" atomically, so the grant's create is refused (412), not a second case; the
-// receipt is REJECTED_STALE_VERSION, the refusal is kept raw, and mock-case holds one case. Guarantee: the mock target's only.
+// receipt is REJECTED_BY_TARGET (class DUPLICATE_CREATE, D6), not REJECTED_STALE_VERSION, the refusal is kept raw, and
+// mock-case holds one case. Guarantee: the mock target's only.
 func TestG2ACreateRacedByAnotherWriterAfterRevalidationMakesNoSecondCase(t *testing.T) {
 	mc := startMockCase(t)
 	st := newStack(t, mc)
@@ -261,8 +262,8 @@ func TestG2ACreateRacedByAnotherWriterAfterRevalidationMakesNoSecondCase(t *test
 	if rival.Class != adapters.ClassAck2xx || rival.RawCode != "201" {
 		t.Fatalf("the rival create must have won the race: %+v", rival)
 	}
-	if run.Void != "" || run.State != "REJECTED_STALE_VERSION" || run.TransportClass != "VERSION_CONFLICT_409_412" || run.RawCode != "412:PRECONDITION_FAILED" || run.ExternalAck != "" {
-		t.Fatalf("raced create: %+v, want REJECTED_STALE_VERSION from a 412:PRECONDITION_FAILED and no acknowledgement", run)
+	if run.Void != "" || run.State != "REJECTED_BY_TARGET" || run.TransportClass != "DUPLICATE_CREATE" || run.RawCode != "412:PRECONDITION_FAILED" || run.ExternalAck != "" {
+		t.Fatalf("raced create: %+v, want REJECTED_BY_TARGET (DUPLICATE_CREATE) from a 412:PRECONDITION_FAILED and no acknowledgement", run)
 	}
 	page, err := st.cases.FindCases(bg(t), adapters.CaseQuery{TenantID: tenant, PrincipalID: principal, TransactionRef: txRef})
 	if err != nil || !page.Complete || len(page.Items) != 1 || page.Items[0].IdempotencyKey != "idk_rival_writer" {
@@ -271,8 +272,8 @@ func TestG2ACreateRacedByAnotherWriterAfterRevalidationMakesNoSecondCase(t *test
 	if got := st.casesFor(t, run.IdempotencyKey); len(got) != 0 {
 		t.Fatalf("the refused create left %d cases under its own key", len(got))
 	}
-	if st.count(t, `SELECT count(*) FROM grant_spend`) != 1 || st.count(t, `SELECT count(*) FROM execution_receipt WHERE execution_state = 'REJECTED_STALE_VERSION'`) != 1 {
-		t.Fatal("the grant must be spent once, with a REJECTED_STALE_VERSION receipt")
+	if st.count(t, `SELECT count(*) FROM grant_spend`) != 1 || st.count(t, `SELECT count(*) FROM execution_receipt WHERE execution_state = 'REJECTED_BY_TARGET'`) != 1 {
+		t.Fatal("the grant must be spent once, with a REJECTED_BY_TARGET receipt")
 	}
 }
 
