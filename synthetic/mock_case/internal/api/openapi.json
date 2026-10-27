@@ -107,7 +107,7 @@
     "/v1/cases": {
       "post": {
         "operationId": "createCase",
-        "summary": "Create a case with an idempotency key",
+        "summary": "Create a case if none exists for its transaction and epoch (create-if-absent), with an idempotency key",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -116,6 +116,18 @@
             "description": "1 to 128 characters of letters, digits and _.:-",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": true,
+            "description": "Must be * : the create is conditional on there being no case for this tenant, transaction and epoch. Without it the create has no route (428).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "*"
+              ]
             }
           }
         ],
@@ -150,8 +162,28 @@
               }
             }
           },
+          "412": {
+            "description": "PRECONDITION_FAILED: a case already exists for this transaction and epoch (a different key was used); nothing was written and no reference was spent. details names existing_case_id and existing_version_token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "PRECONDITION_REQUIRED: the create carried no If-None-Match: *",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "400": {
-            "description": "INVALID_REQUEST",
+            "description": "INVALID_REQUEST (including an If-None-Match other than *)",
             "content": {
               "application/json": {
                 "schema": {

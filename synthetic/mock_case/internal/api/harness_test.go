@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -184,14 +185,37 @@ func (e *env) bench(method, path string, body any) resp {
 
 func key(k string) map[string]string { return map[string]string{"Idempotency-Key": k} }
 
-func caseBody() map[string]any {
-	return map[string]any{"tenant_id": "ten_a", "principal_id": "usr_1", "transaction_ref": "TX88213", "reason_code": "CREDIT_MISSING",
+// newKey is the header set of a create: the idempotency key and the precondition "create only if absent".
+func newKey(k string) map[string]string {
+	return map[string]string{"Idempotency-Key": k, "If-None-Match": "*"}
+}
+
+// ifAbsent adds the create precondition to a header set.
+func ifAbsent(h map[string]string) map[string]string {
+	out := map[string]string{"If-None-Match": "*"}
+	for k, v := range h {
+		out[k] = v
+	}
+	return out
+}
+
+func caseBody() map[string]any { return caseBodyFor("TX88213") }
+
+// caseBodyFor is a create for another subject: a case is created only if none exists for its transaction and epoch.
+func caseBodyFor(tx string) map[string]any {
+	return map[string]any{"tenant_id": "ten_a", "principal_id": "usr_1", "transaction_ref": tx, "reason_code": "CREDIT_MISSING",
 		"created_by_intent": "int_01J9X3", "epoch": 0}
 }
 
 func (e *env) createCase(k string) resp {
 	e.t.Helper()
-	return e.runtime("POST", "/v1/cases", key(k), caseBody())
+	return e.runtime("POST", "/v1/cases", newKey(k), caseBody())
+}
+
+// createCaseFor creates a case for the transaction numbered i (TX00001, ...), so several cases can exist side by side.
+func (e *env) createCaseFor(k string, i int) resp {
+	e.t.Helper()
+	return e.runtime("POST", "/v1/cases", newKey(k), caseBodyFor(fmt.Sprintf("TX%05d", i)))
 }
 
 func (e *env) loadPlan(plan string) resp {

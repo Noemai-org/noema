@@ -134,6 +134,13 @@ func createIn(key string) adapters.CreateCaseInput {
 		ReasonCode: "CREDIT_MISSING", CreatedByIntent: "int_01J9X3", Epoch: 0, Timeout: 3 * time.Second}
 }
 
+// createInFor is createIn for another subject: each faulted create was recorded on a subject of its own.
+func createInFor(key, tx string) adapters.CreateCaseInput {
+	in := createIn(key)
+	in.TransactionRef = tx
+	return in
+}
+
 func deadline(t *testing.T) context.Context {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -167,17 +174,17 @@ func TestCreateCaseClassifiesEveryRecordedWriteOutcome(t *testing.T) {
 			in.TransactionRef = "TX99999"
 			return in
 		}, adapters.ClassRejected4xx, "409:IDEMPOTENCY_CONFLICT", "", true, 0},
-		{"create_injected_collision_409", func() adapters.CreateCaseInput { return createIn("idk_v1_live03") }, adapters.ClassRejected4xx, "409:IDEMPOTENCY_CONFLICT", "", true, 0},
+		{"create_injected_collision_409", func() adapters.CreateCaseInput { return createInFor("idk_v1_live03", "TX00003") }, adapters.ClassRejected4xx, "409:IDEMPOTENCY_CONFLICT", "", true, 0},
 		// semantic "pending" behind a 200: preserved as acknowledged with no reference; Outcome decides (EC-E03)
-		{"create_http200_pending", func() adapters.CreateCaseInput { return createIn("idk_v1_live02") }, adapters.ClassAck2xx, "200:PENDING", "", false, 0},
+		{"create_http200_pending", func() adapters.CreateCaseInput { return createInFor("idk_v1_live02", "TX00002") }, adapters.ClassAck2xx, "200:PENDING", "", false, 0},
 		// a 5xx, committed or not, is never read as failure: Execution maps it to OUTCOME_UNKNOWN
-		{"create_http_503", func() adapters.CreateCaseInput { return createIn("idk_v1_live04") }, adapters.ClassServer5xx, "503:UNAVAILABLE", "", false, 0},
-		{"create_http_500_after_commit", func() adapters.CreateCaseInput { return createIn("idk_v1_live05") }, adapters.ClassServer5xx, "500:UNAVAILABLE", "", false, 0},
-		{"create_http_429", func() adapters.CreateCaseInput { return createIn("idk_v1_live06") }, adapters.ClassRejected4xx, "429:RATE_LIMITED", "", false, 7 * time.Second},
+		{"create_http_503", func() adapters.CreateCaseInput { return createInFor("idk_v1_live04", "TX00004") }, adapters.ClassServer5xx, "503:UNAVAILABLE", "", false, 0},
+		{"create_http_500_after_commit", func() adapters.CreateCaseInput { return createInFor("idk_v1_live05", "TX00005") }, adapters.ClassServer5xx, "500:UNAVAILABLE", "", false, 0},
+		{"create_http_429", func() adapters.CreateCaseInput { return createInFor("idk_v1_live06", "TX00006") }, adapters.ClassRejected4xx, "429:RATE_LIMITED", "", false, 7 * time.Second},
 		// no response at all: the case is committed in mock-case, and the adapter reports only what it saw
-		{"create_drop_response", func() adapters.CreateCaseInput { return createIn("idk_v1_live07") }, adapters.ClassNoResponse, "NO_RESPONSE", "", false, 0},
+		{"create_drop_response", func() adapters.CreateCaseInput { return createInFor("idk_v1_live07", "TX00007") }, adapters.ClassNoResponse, "NO_RESPONSE", "", false, 0},
 		{"create_timeout_after_commit", func() adapters.CreateCaseInput {
-			in := createIn("idk_v1_live08")
+			in := createInFor("idk_v1_live08", "TX00008")
 			in.Timeout = 300 * time.Millisecond
 			return in
 		}, adapters.ClassTimeout, "TIMEOUT", "", false, 0},
@@ -194,6 +201,39 @@ func TestCreateCaseClassifiesEveryRecordedWriteOutcome(t *testing.T) {
 				t.Fatalf("%d requests for one write: an adapter never retries (REQ-EXE-006)", n)
 			}
 		})
+	}
+}
+
+// A create is conditional on there being no case for its subject and epoch. When the target holds one that another key
+// made, the write did not happen. That is a business rejection (E10, REQ-EXE-007), not a stale version: a create has no
+// version token. It has its own class, DUPLICATE_CREATE (errors.v2.json, D6). The case that exists is named, never
+// taken as this write's result.
+func TestCreateCaseRefusedBecauseTheSubjectHasACase(t *testing.T) {
+	recs := loadRecordings(t)
+	var hits int32
+	cli := newClient(t, replay(t, recs["create_precondition_failed_412"], &hits))
+	got := cli.CreateCase(context.Background(), createIn("idk_v1_live09"))
+	if got.Class != adapters.ClassDuplicateCreate || got.RawCode != "412:PRECONDITION_FAILED" || got.KeyCollision || got.ExternalAck != "" || got.Case != nil {
+		t.Fatalf("refused create: %+v", got)
+	}
+	if got.ExistingCaseID != caseID(recs) || got.CurrentVersionToken != "v1" {
+		t.Fatalf("the refusal names the case that exists and its token: %+v", got)
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Fatalf("%d requests for one write: an adapter never retries (REQ-EXE-006)", n)
+	}
+}
+
+// Any other 412 is a rejection by the target, not a stale precondition.
+func TestAnotherPreconditionStatusIsAPlainRejection(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPreconditionFailed)
+		_, _ = w.Write([]byte(`{"error":{"code":"SOMETHING_ELSE","message":"x","retryable":false}}`))
+	}))
+	t.Cleanup(srv.Close)
+	got := newClient(t, srv).CreateCase(context.Background(), createIn("idk_x"))
+	if got.Class != adapters.ClassRejected4xx || got.RawCode != "412:SOMETHING_ELSE" {
+		t.Fatalf("%+v", got)
 	}
 }
 

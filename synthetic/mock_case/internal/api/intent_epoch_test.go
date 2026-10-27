@@ -13,7 +13,7 @@ func TestACaseCarriesItsIntentAndEpoch(t *testing.T) {
 	e := newEnv(t)
 	body := caseBody()
 	body["created_by_intent"], body["epoch"] = "int_88213", 3
-	r := e.runtime("POST", "/v1/cases", key("idk_1"), body)
+	r := e.runtime("POST", "/v1/cases", newKey("idk_1"), body)
 	if r.status != 201 {
 		t.Fatalf("%d %s", r.status, r.raw)
 	}
@@ -50,7 +50,7 @@ func TestIntentAndEpochAreRequiredAndValidated(t *testing.T) {
 	for _, c := range cases {
 		body := caseBody()
 		c.edit(body)
-		r := e.runtime("POST", "/v1/cases", key("idk_bad"), body)
+		r := e.runtime("POST", "/v1/cases", newKey("idk_bad"), body)
 		if r.status != 400 {
 			t.Errorf("%s: want 400, got %d %s", c.name, r.status, r.raw)
 		}
@@ -71,7 +71,7 @@ func TestIntentAndEpochAreTheIdempotentPayload(t *testing.T) {
 	} {
 		b := caseBody()
 		edit(b)
-		if r := e.runtime("POST", "/v1/cases", key("idk_1"), b); r.status != 409 || r.errCode() != "IDEMPOTENCY_CONFLICT" {
+		if r := e.runtime("POST", "/v1/cases", newKey("idk_1"), b); r.status != 409 || r.errCode() != "IDEMPOTENCY_CONFLICT" {
 			t.Errorf("%s under the same key must be a conflict: %d %s", name, r.status, r.raw)
 		}
 	}

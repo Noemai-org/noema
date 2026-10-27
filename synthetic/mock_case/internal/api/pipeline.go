@@ -280,6 +280,12 @@ func outcomeReply(oc store.Outcome, body any, noun string) reply {
 		return reply{err: newErr(404, "NOT_FOUND", "no such "+noun, false)}
 	case store.IdempotencyConflict:
 		return reply{err: newErr(409, "IDEMPOTENCY_CONFLICT", "this idempotency key was already used with a different payload", false)}
+	case store.PreconditionFailed:
+		// The case that exists is named so the caller can read it back; it is in the caller's own tenant.
+		if c, ok := body.(store.Case); ok {
+			return reply{err: newErr(412, "PRECONDITION_FAILED", "a case already exists for this transaction and epoch: the create was conditional on there being none", false,
+				errDetail{"existing_case_id", c.CaseID}, errDetail{"existing_version_token", c.VersionToken})}
+		}
 	}
 	return reply{err: internalErr()}
 }

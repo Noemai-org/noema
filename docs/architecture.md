@@ -31,6 +31,6 @@ Trust (decisions, grants, policy), Understanding, Evidence, Outcome (verifier, w
 
 ## Deviations from the specification
 
-- The create capability's descriptor says `CONDITIONAL_WRITE`; mock-case's create has no expected-version parameter (its dedupe is the idempotency key), so the create plan step is not conditional. The route is conditional. (Under remediation: create-if-absent in mock-case, a separate pull request.)
+- The create capability's descriptor says `CONDITIONAL_WRITE`. mock-case's create is conditional on absence: it needs `If-None-Match: *`, a unique index on tenant, transaction and epoch enforces it atomically, and a create for a subject that has a case is refused with `412 PRECONDITION_FAILED`. The adapter reports that as the transport class `DUPLICATE_CREATE` (the error code of `errors.v2.json`), so the receipt is `REJECTED_BY_TARGET`, not `REJECTED_STALE_VERSION` (DEC-2026-10-27-record-event-v2, D6). There is no expected version for a create, because there is no case to hold one; the route is conditional on a version token. This holds for mock-case only. Tushe's create semantics are an open item for the founders (`synthetic/mock_case/README.md`, "Create if absent").
 
 Resolved on 27 Oct 2026 (DEC-2026-10-27-record-event-v2): the Record events are `record-event.v2` (PERD §32.1 fields, tenant-scoped genesis hash) and `GRANT_VOIDED.reason` takes any of the nine reasons of PERD §27.1 and REQ-EXE-003. `record-event.v1` and `reconstruction.v1` are unchanged and no longer written.

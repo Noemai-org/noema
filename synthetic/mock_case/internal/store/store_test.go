@@ -2,12 +2,14 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/store"
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/testpg"
@@ -39,6 +41,13 @@ func cmd(op string) store.Cmd {
 func newCase(key string) store.CreateCaseInput {
 	return store.CreateCaseInput{TenantID: "ten_a", PrincipalID: "usr_1", TransactionRef: "TX88213", ReasonCode: "CREDIT_MISSING",
 		OwnerQueue: "PAYMENTS_OPERATIONS", Priority: "NORMAL", CreatedByIntent: "int_01J9X3", Epoch: 0, IdempotencyKey: key}
+}
+
+// newCaseFor is a create for another subject: a case is created only if none exists for its transaction and epoch.
+func newCaseFor(key, tx string) store.CreateCaseInput {
+	in := newCase(key)
+	in.TransactionRef = tx
+	return in
 }
 
 func TestMigrateTwiceIsANoOp(t *testing.T) {
@@ -104,7 +113,7 @@ func TestConcurrentCreatesSameKeyYieldOneCase(t *testing.T) {
 	if counts[store.Created] != 1 || counts[store.Replayed] != 99 || len(ids) != 1 {
 		t.Fatalf("outcomes %v, ids %v", counts, ids)
 	}
-	next, oc, err := s.CreateCase(ctx, cmd("create_case"), newCase("idk_next"))
+	next, oc, err := s.CreateCase(ctx, cmd("create_case"), newCaseFor("idk_next", "TX00002"))
 	if err != nil || oc != store.Created || next.Reference != "CMP-2026-00002" {
 		t.Fatalf("references must stay gapless after lost races: %+v %v %v", next, oc, err)
 	}
@@ -216,7 +225,7 @@ func TestComplaintsFollowTheSameRules(t *testing.T) {
 	if oc != store.Replayed || again.ComplaintRef != first.ComplaintRef {
 		t.Fatalf("%v %+v", oc, again)
 	}
-	c2, _, _ := s.CreateCase(ctx, cmd("create_case"), newCase("idk_2"))
+	c2, _, _ := s.CreateCase(ctx, cmd("create_case"), newCaseFor("idk_2", "TX00002"))
 	if _, oc, _ := s.CreateComplaint(ctx, cmd("create_complaint"), "ten_a", c2.CaseID, "idk_c1"); oc != store.IdempotencyConflict {
 		t.Fatalf("same key, other case: %v", oc)
 	}
@@ -371,7 +380,7 @@ func TestPagingHasAnExplicitCompletenessMarker(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
-		s.CreateCase(ctx, cmd("create_case"), newCase(fmt.Sprintf("idk_%d", i)))
+		s.CreateCase(ctx, cmd("create_case"), newCaseFor(fmt.Sprintf("idk_%d", i), fmt.Sprintf("TX%05d", i)))
 	}
 	f := store.CaseFilter{TenantID: "ten_a", PrincipalID: "usr_1"}
 	var seen []string
@@ -414,5 +423,105 @@ func TestCommandLogCarriesScenarioSeedAndPlan(t *testing.T) {
 		Scan(&scenario, &seed, &plan, &effect, &committed, &suppressed, &status)
 	if err != nil || scenario != "SCN-T" || seed != 42 || plan != "fp_none" || effect != "DROP_RESPONSE" || !committed || !suppressed || status != 0 {
 		t.Fatalf("%v %s %d %s %s %v %v %d", err, scenario, seed, plan, effect, committed, suppressed, status)
+	}
+}
+
+// Create-if-absent (the precondition of a create is "no case exists for this subject and epoch"): a new key for a
+// subject that has a case is refused, names the case that exists, and writes nothing, not even a reference number.
+func TestCreateCaseIfAbsentRefusesASecondCaseForTheSubject(t *testing.T) {
+	s, db := open(t)
+	ctx := context.Background()
+	first, oc, err := s.CreateCase(ctx, cmd("create_case"), newCase("idk_1"))
+	if err != nil || oc != store.Created {
+		t.Fatalf("%v %v", oc, err)
+	}
+	got, oc, err := s.CreateCase(ctx, cmd("create_case"), newCase("idk_2"))
+	if err != nil || oc != store.PreconditionFailed || got.CaseID != first.CaseID || got.VersionToken != first.VersionToken {
+		t.Fatalf("a second key for the same subject and epoch: %v %v %+v", oc, err, got)
+	}
+	if oc.Status() != 412 || oc.ErrorCode() != "PRECONDITION_FAILED" {
+		t.Fatalf("the refusal is a 412 PRECONDITION_FAILED: %d %s", oc.Status(), oc.ErrorCode())
+	}
+	// The refused key was not recorded: it is still free, and the refusal is repeatable.
+	again, oc, _ := s.CreateCase(ctx, cmd("create_case"), newCase("idk_2"))
+	if oc != store.PreconditionFailed || again.CaseID != first.CaseID {
+		t.Fatalf("a refusal repeats: %v %+v", oc, again)
+	}
+	// The same key and the same payload is still a replay of the original create, not a refusal.
+	if rep, oc, _ := s.CreateCase(ctx, cmd("create_case"), newCase("idk_1")); oc != store.Replayed || rep.CaseID != first.CaseID {
+		t.Fatalf("replay of the original: %v %+v", oc, rep)
+	}
+	// Another epoch, another transaction and another tenant are other subjects.
+	epoch1 := newCase("idk_e1")
+	epoch1.Epoch = 1
+	tenantB := newCase("idk_b")
+	tenantB.TenantID = "ten_b"
+	for name, in := range map[string]store.CreateCaseInput{"epoch": epoch1, "transaction": newCaseFor("idk_t", "TX00002"), "tenant": tenantB} {
+		if _, oc, err := s.CreateCase(ctx, cmd("create_case"), in); err != nil || oc != store.Created {
+			t.Fatalf("%s is another subject: %v %v", name, oc, err)
+		}
+	}
+	// No reference number was spent by the refusals: the next reference follows the last created one.
+	next, oc, _ := s.CreateCase(ctx, cmd("create_case"), newCaseFor("idk_n", "TX00003"))
+	if oc != store.Created || next.Reference != "CMP-2026-00005" {
+		t.Fatalf("references stay gapless across refusals: %v %+v", oc, next)
+	}
+	var n int
+	if err := adminConn(t, db).QueryRow(ctx, `SELECT count(*) FROM cases`).Scan(&n); err != nil || n != 5 {
+		t.Fatalf("%d cases, %v", n, err)
+	}
+}
+
+// The guarantee does not rest on the code path: the database refuses a second open case for a subject and epoch.
+func TestTheDatabaseRefusesASecondOpenCaseForTheSubject(t *testing.T) {
+	s, db := open(t)
+	ctx := context.Background()
+	if _, _, err := s.CreateCase(ctx, cmd("create_case"), newCase("idk_1")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := adminConn(t, db).Exec(ctx, `INSERT INTO cases (case_id, seq, tenant_id, reference, principal_id, transaction_ref, reason_code, status,
+ owner_queue, priority, idempotency_key, request_hash, version, created_at, updated_at, created_by_intent, epoch)
+ VALUES ('case_rogue', 99, 'ten_a', 'CMP-2026-00099', 'usr_1', 'TX88213', 'CREDIT_MISSING', 'OPEN', 'PAYMENTS_OPERATIONS', 'NORMAL', 'idk_rogue', 'h', 1, now(), now(), 'int_01J9X3', 0)`)
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != "23505" || pe.ConstraintName != "cases_subject_epoch_uq" {
+		t.Fatalf("the unique index must refuse it: %v", err)
+	}
+}
+
+// 100 creators with 100 different keys race for one subject: exactly one wins, the other 99 are refused and name the
+// winner, one case exists, and the next reference has no gap.
+func TestConcurrentCreatesForOneSubjectYieldOneCase(t *testing.T) {
+	s, db := open(t)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	counts := map[store.Outcome]int{}
+	ids := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c, oc, err := s.CreateCase(ctx, store.Cmd{At: t0, Seed: 42, ScenarioID: "S", FaultPlanID: "fp_none", Operation: "create_case", CallNo: 1}, newCase(fmt.Sprintf("idk_rival_%d", i)))
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			mu.Lock()
+			counts[oc]++
+			ids[c.CaseID] = true
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	if counts[store.Created] != 1 || counts[store.PreconditionFailed] != 99 || len(ids) != 1 {
+		t.Fatalf("outcomes %v, case ids %v", counts, ids)
+	}
+	next, oc, err := s.CreateCase(ctx, cmd("create_case"), newCaseFor("idk_next", "TX00002"))
+	if err != nil || oc != store.Created || next.Reference != "CMP-2026-00002" {
+		t.Fatalf("references stay gapless after lost races: %+v %v %v", next, oc, err)
+	}
+	var n int
+	if err := adminConn(t, db).QueryRow(ctx, `SELECT count(*) FROM cases`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("%d cases, %v", n, err)
 	}
 }

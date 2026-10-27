@@ -17,6 +17,10 @@ import (
 // D7 (DEC-2026-10-20), PERD §27.3: concurrent operation histories of mock-case, recorded under faults, are
 // checked by a Porcupine-style checker. Any non-linearizable history fails the build.
 //
+// One slot is one idempotency key and one subject (transaction and epoch). A rival is a second key that creates for the
+// same subject: with create-if-absent, whichever of the two commits first holds the subject and the other is refused
+// with PRECONDITION_FAILED, whatever the interleaving.
+//
 // One slot is one idempotency key. Operations on different slots are independent, so each slot's history is
 // checked alone. The operations are exactly the ones the core's case adapter performs: create with a key (two
 // payload variants, so a key can be reused with a different payload), find by key, read by id, and route with
@@ -26,20 +30,21 @@ const defaultQueue = "PAYMENTS_OPERATIONS"
 
 type lIn struct {
 	slot     int
-	kind     string // create, find, get, route
+	kind     string // create, rival, find, get, route
 	variant  int    // create: which payload
 	expected int64  // route
 	queue    string // route
 }
 
 type lOut struct {
-	status  int
-	code    string
-	found   bool // find: an item was returned
-	caseID  string
-	version int64
-	queue   string
-	current int64 // route mismatch: the token the error names
+	status   int
+	code     string
+	found    bool // find: an item was returned
+	caseID   string
+	version  int64
+	queue    string
+	current  int64  // route mismatch: the token the error names
+	existing string // precondition failure: the case the error names
 }
 
 type slotState struct {
@@ -48,10 +53,12 @@ type slotState struct {
 	caseID  string // "" until some response reveals it
 	version int64
 	queue   string
+	rival   bool   // the rival key's case holds the subject
+	rivalID string // "" until some response reveals it
 }
 
 func (s slotState) key() string {
-	return fmt.Sprintf("%t/%d/%s/%d/%s", s.exists, s.variant, s.caseID, s.version, s.queue)
+	return fmt.Sprintf("%t/%d/%s/%d/%s/%t/%s", s.exists, s.variant, s.caseID, s.version, s.queue, s.rival, s.rivalID)
 }
 
 // adopt records the case ID the first time a response shows it, and reports a contradiction afterwards.
@@ -64,6 +71,18 @@ func (s *slotState) adopt(id string) bool {
 		return true
 	}
 	return s.caseID == id
+}
+
+// adoptRival is adopt for the case held by the rival key.
+func (s *slotState) adoptRival(id string) bool {
+	if id == "" {
+		return false
+	}
+	if s.rivalID == "" {
+		s.rivalID = id
+		return true
+	}
+	return s.rivalID == id
 }
 
 var mockCaseModel = lincheck.Model{
@@ -79,6 +98,10 @@ var mockCaseModel = lincheck.Model{
 		switch in.kind {
 		case "create":
 			switch {
+			case !st.exists && st.rival:
+				if !pending && (out.status != 412 || out.code != "PRECONDITION_FAILED" || !st.adoptRival(out.existing)) {
+					return nil, false
+				}
 			case !st.exists:
 				if !pending && (out.status != 201 || out.version != 1 || out.queue != defaultQueue || !st.adopt(out.caseID)) {
 					return nil, false
@@ -92,6 +115,22 @@ var mockCaseModel = lincheck.Model{
 				if !pending && (out.status != 409 || out.code != "IDEMPOTENCY_CONFLICT") {
 					return nil, false
 				}
+			}
+		case "rival":
+			switch {
+			case st.rival:
+				if !pending && (out.status != 200 || !st.adoptRival(out.caseID)) {
+					return nil, false
+				}
+			case st.exists:
+				if !pending && (out.status != 412 || out.code != "PRECONDITION_FAILED" || !st.adopt(out.existing)) {
+					return nil, false
+				}
+			default:
+				if !pending && (out.status != 201 || !st.adoptRival(out.caseID)) {
+					return nil, false
+				}
+				st.rival = true
 			}
 		case "find":
 			if pending {
@@ -136,7 +175,7 @@ type recorder struct {
 	tick atomic.Int64
 	mu   sync.Mutex
 	ops  []lincheck.Operation
-	n    struct{ pending, replays, mismatches, conflicts, creates int }
+	n    struct{ pending, replays, mismatches, conflicts, creates, preconditions int }
 	lost []string // why each operation has no definitive response, for the failure message of a quiet run
 }
 
@@ -157,10 +196,12 @@ func (r *recorder) add(client int, in lIn, out lOut, pending bool, call int64) {
 	switch {
 	case pending:
 		r.n.pending++
-	case in.kind == "create" && out.status == 200:
+	case (in.kind == "create" || in.kind == "rival") && out.status == 200:
 		r.n.replays++
-	case in.kind == "create" && out.status == 201:
+	case (in.kind == "create" || in.kind == "rival") && out.status == 201:
 		r.n.creates++
+	case out.code == "PRECONDITION_FAILED":
+		r.n.preconditions++
 	case out.code == "VERSION_MISMATCH":
 		r.n.mismatches++
 	case out.code == "IDEMPOTENCY_CONFLICT":
@@ -168,9 +209,13 @@ func (r *recorder) add(client int, in lIn, out lOut, pending bool, call int64) {
 	}
 }
 
-func variantBody(variant int) map[string]any {
-	b := caseBody()
-	b["transaction_ref"] = fmt.Sprintf("TX-V%d", variant)
+// variantBody is the create of a slot: its own subject, and a payload that differs between variants (same key, other
+// payload is a conflict).
+func variantBody(slot, variant int) map[string]any {
+	b := caseBodyFor(fmt.Sprintf("TX-S%d", slot))
+	if variant == 1 {
+		b["priority"] = "HIGH"
+	}
 	return b
 }
 
@@ -223,11 +268,12 @@ func workloadWithTimeout(t *testing.T, e *env, clientTimeout time.Duration, seed
 				slot := rng.Intn(slots)
 				idk := fmt.Sprintf("idk_slot%d", slot)
 				id, haveID := known.Load(slot)
-				kind := []string{"create", "create", "find", "get", "route", "route", "route"}[rng.Intn(7)]
+				kind := []string{"create", "create", "rival", "find", "get", "route", "route", "route"}[rng.Intn(8)]
 				if (kind == "get" || kind == "route") && !haveID {
 					kind = "find"
 				}
 				in := lIn{slot: slot, kind: kind}
+				rivalIdk := fmt.Sprintf("idk_rival%d", slot)
 				var method, url string
 				var hdr map[string]string
 				var body any
@@ -237,7 +283,9 @@ func workloadWithTimeout(t *testing.T, e *env, clientTimeout time.Duration, seed
 					if rng.Intn(5) == 0 {
 						in.variant = 1
 					}
-					method, url, hdr, body = "POST", e.caseURL+"/v1/cases", key(idk), variantBody(in.variant)
+					method, url, hdr, body = "POST", e.caseURL+"/v1/cases", newKey(idk), variantBody(slot, in.variant)
+				case "rival":
+					method, url, hdr, body = "POST", e.caseURL+"/v1/cases", newKey(rivalIdk), variantBody(slot, 0)
 				case "find":
 					method, url = "GET", e.caseURL+"/v1/cases?tenant_id=ten_a&idempotency_key="+idk
 				case "get":
@@ -277,9 +325,17 @@ func workloadWithTimeout(t *testing.T, e *env, clientTimeout time.Duration, seed
 					if out.code == "VERSION_MISMATCH" {
 						out.current = versionOf(detail(r, "current_version_token"))
 					}
-					if r.status != 404 && r.status != 409 {
+					if out.code == "PRECONDITION_FAILED" {
+						out.existing = detail(r, "existing_case_id")
+					}
+					if r.status != 404 && r.status != 409 && r.status != 412 {
 						t.Errorf("unexpected answer to %s %s: %d %s", method, url, r.status, r.raw)
 					}
+				}
+				if kind == "rival" {
+					// The rival's case is not the slot's case: later reads and routes address the slot's own.
+					rec.add(w, in, out, false, call)
+					continue
 				}
 				if out.caseID != "" {
 					known.Store(slot, out.caseID)
@@ -350,7 +406,7 @@ func TestMockCaseHistoriesUnderFaultsAreLinearizable(t *testing.T) {
 	if testing.Short() {
 		seeds = seeds[:2]
 	}
-	var total struct{ ops, pending, replays, mismatches, conflicts int }
+	var total struct{ ops, pending, replays, mismatches, conflicts, preconditions int }
 	for _, seed := range seeds {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			e := newEnv(t)
@@ -362,17 +418,18 @@ func TestMockCaseHistoriesUnderFaultsAreLinearizable(t *testing.T) {
 			total.replays += rec.n.replays
 			total.mismatches += rec.n.mismatches
 			total.conflicts += rec.n.conflicts
+			total.preconditions += rec.n.preconditions
 			// The history is not vacuous, and the database agrees with the story the clients could not see.
 			if len(e.bench("GET", "/truth/v1/commands?faults_only=true", nil).json["commands"].([]any)) == 0 {
 				t.Fatal("no fault fired")
 			}
 			if n := e.count("cases"); n > 5 {
-				t.Fatalf("%d cases for 5 keys: a key produced more than one case", n)
+				t.Fatalf("%d cases for 5 subjects: a subject got more than one case", n)
 			}
 		})
 	}
-	t.Logf("checked %d operations: %d with no response, %d replays, %d version mismatches, %d key conflicts", total.ops, total.pending, total.replays, total.mismatches, total.conflicts)
-	if total.pending == 0 || total.replays == 0 || total.mismatches == 0 || total.conflicts == 0 {
+	t.Logf("checked %d operations: %d with no response, %d replays, %d version mismatches, %d key conflicts, %d refused creates", total.ops, total.pending, total.replays, total.mismatches, total.conflicts, total.preconditions)
+	if total.pending == 0 || total.replays == 0 || total.mismatches == 0 || total.conflicts == 0 || total.preconditions == 0 {
 		t.Fatalf("the workload did not exercise faults and contention: %+v", total)
 	}
 }
@@ -385,7 +442,7 @@ func TestACorruptedHistoryIsRejected(t *testing.T) {
 	corruptions := map[string]func(o *lincheck.Operation) bool{
 		"a version that skips ahead": func(o *lincheck.Operation) bool {
 			out := o.Output.(lOut)
-			if o.Pending || out.status != 200 || out.version == 0 {
+			if o.Pending || out.status != 200 || out.version == 0 || o.Input.(lIn).kind == "rival" {
 				return false
 			}
 			out.version += 5
@@ -408,6 +465,14 @@ func TestACorruptedHistoryIsRejected(t *testing.T) {
 			}
 			out.status = 201
 			o.Output = out
+			return true
+		},
+		"a refused create reported as created": func(o *lincheck.Operation) bool {
+			out := o.Output.(lOut)
+			if o.Pending || out.code != "PRECONDITION_FAILED" {
+				return false
+			}
+			o.Output = lOut{status: 201, caseID: "case_ghost", version: 1, queue: defaultQueue}
 			return true
 		},
 		"a stale route reported as applied": func(o *lincheck.Operation) bool {
