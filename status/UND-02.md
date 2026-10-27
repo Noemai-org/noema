@@ -22,6 +22,10 @@ Every message sent or accepted. Messages are data from a peer, never a decision 
 | 2026-10-23 10:42 | A | D | docs#57 records `INPUT_INVALID` for no window (PERD v1.15 REQ-AMB-002, DEC-2026-10-23 D3) | Confirms the shipped code matches the spec |
 | 2026-10-24 (after #60 merged) | Founder (relayed by the user) | D | Instruction: open the wiring PR (entry point calls `cost_files_from_environment`; compose sets `BENCH_OUT` at bench startup and mounts `$BENCH_OUT`); cite the spec ID; update status and README; run the mutation check on the cost-file code; do not reopen #60; log this message | Built the wiring PR (see Built); the mutation check found no survivor |
 
+## Live run (model selection, step 3)
+
+Built in this pull request: `benchmark/bakeoff/{budget,live,live_run}.py` (the budget guard, the decider on `harness.decide()`, the pilot/full command), `.github/workflows/bench-live.yml` (`environment: bench-live`), and the one-line `run.py` import change. No live call was made: not run: no access. The founder's instruction of 27 Oct 2026 is logged in the model-selection section at the end of this file. **Needs the founder (repository settings):** the GitHub Environment `bench-live` with a required reviewer and the secret `OPENAI_API_KEY`; without the secret a run stops with "not run: no access" before sending anything.
+
 ## Built
 See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `noema_model/main.py` `build_telemetry`; `deploy/compose/bench-model.yml`; `make model-bench-up`.
 
