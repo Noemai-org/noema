@@ -1,12 +1,13 @@
 # Status · ENV-03 (Session A) · Go adapter interfaces
 
-Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). First slice: the case adapter (merged, noema#67). Second slice: the first end-to-end case (this file's last section).
+Updated 2026-10-27 (second update). Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). First slice: the case adapter (merged, noema#67). Second slice: the first end-to-end case (this file's last section).
 
 ## State
 
 - Built (PR for this file): `adapters.Case`, the interface of `mock-case`, with the shared write and read vocabulary (`services/core/adapters/case.go`), and `CaseClient`, its implementation (`adapters/synthetic_tushe/case_client.go`).
 - Evidence: contract tests replay 19 exchanges recorded from the real mock-case (real PostgreSQL, faults from real FaultPlans); a throwaway live driver ran the adapter against the real mock-case locally (all scenarios as expected; the 4 cases that mock-case committed are the 4 that should be: the 201, the 500 after commit, the dropped response and the timeout after commit); seven deliberate breaks of the adapter were all caught by the tests.
 - Standard library only. No dependency was added: the Postgres driver and the Temporal SDK (approved by the Founder on 25 Oct 2026 in a working session) are not used by this slice.
+- #77: Merged 13:14 UTC 27 Oct by noemai-systems after approval. Its v1 record shape is superseded by #80.
 
 ## Not built, and why
 
@@ -24,10 +25,52 @@ Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Fi
 ## Messages
 
 ### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: "Session A: docs#63 and #83 are merged. Work in this order and report each step with the PR head SHA and check run links. Do not merge anything. Do not rebase or force-push. 1. Re-point. Open a PR from main that re-points the five vendored docs copies to the current docs main head, using tools/vendor/repoint_docs.py with --check --ignore-commit. Run the docs-drift check. This is urgent because main is currently behind docs. 2. v2 check. Search for record-event.v2 events outside tests: writers, stored Record data, fixtures, and any consumer that reads v2 events. Answer yes or no for each, with paths. Also confirm whether the change under consideration is additive, meaning existing v2 events still verify under the new rules. Report before continuing. 3. Actor revision. Quote the actor convention as currently implemented in v2, with file and line. Then propose a revised design that separates the emitting power or service from the authenticated principal. For each field, give the closed set and the ID rule, citing PERD section numbers. Keep regulator and auditor separate where the PERD makes them separate principals. Do not write the amendment until I confirm the sets. 4. After steps 2 and 3 are reported and the conditions are met: branch from main. If no v2 events exist outside tests and the change is additive, make a versioned v2 minor with v1 untouched. Otherwise introduce v3 and leave v2 unchanged. Update the schema, version checks, writer, verifier, fixtures, golden vectors and tests together. Golden vectors: the empty object, a nested object, a Unicode string, and a number. Compute each expected hash with an independent implementation, not the code under test, and record the input bytes beside each hash. 5. #82: merge main into it, with no rebase. Rerun checks once and report the head SHA. 6. #81: change the 412 mapping to DUPLICATE_CREATE (REJECTED_BY_TARGET), and update the adapter and end-to-end tests. Merge main, rerun checks once, and report the head SHA. Log every message in status/ENV-03.md."
+- Used it for: step 1 = noema#85 (head `0308f0ecb6ed754e1181aeaebcea4d6971eb19d0`); step 2 and step 3 = the reply to the founder (summary below); step 5 = this merge of `main` into #82 (no rebase). Steps 4 and 6 wait: step 4 for the founder's confirmation of the sets, step 6 because #81 can use the `DUPLICATE_CREATE` class only after #82 is on `main` (stacking is not allowed).
+- Evidence: noema#85, noema#82 (this commit), the reply.
+
+#### Findings of 27 Oct (steps 2 and 3), kept here with the proposal
+- v2 events outside tests: writer code yes (`services/core/record/chain/chain.go`, called by `services/core/execution/ledger/ledger.go:138`; neither is wired into `cmd/core`); stored Record data no (the `record_event` table exists in `services/core/migrations/0001_execution_and_record.sql`; rows exist only in throwaway test databases); fixtures yes (`contracts/fixtures/{valid,invalid}/record-event.v2/`, `reconstruction.v2/`, the `record_event_chain_vectors` family of `contracts/fixtures/golden_vectors.json`, written by `tools/record_chain_ref.py`); consumers of v2 events: the reader `benchmark/runner/reconstruction.py` (its input endpoint is not served, REC-03) and `chain.Verify` (`services/core/record/chain/verify.go`, no caller outside tests).
+- Additive: `payload_hash` yes. The Go writer already computes SHA-256 of the RFC 8785 form for the value types it accepts (integers within 2^53-1; fractions are refused), and it agrees with an independent Node implementation on the empty object, a nested object, a Unicode string with an astral-plane key, and integers. The Python reference `tools/record_chain_ref.py:jcs` is not RFC 8785 for astral-plane keys (it sorts by code point, RFC 8785 by UTF-16 code unit) or for fractions (it writes `1e-07`, `-0.0`); no existing fixture uses either, so no existing hash changes, but the reference needs the fix. `actor` no: its meaning and form change, and the current values (`EXECUTION`, `EXECUTION:usr_88213`) stop validating.
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: "Session A: the founder approved actor and payload_hash with these definitions: actor is 'kind:id', where kind comes from a complete closed list and id is a stable principal identifier. payload_hash = SHA-256(JCS(payload) encoded as UTF-8), where JCS is RFC 8785. Do the following, in order: 1. Derive the closed kind list from the PERD: every principal type the PERD names. Post the list on a PR body or in a status note for the founder's one-line approval. Do not write the amendment until it is approved. 2. After approval, open a docs PR that adds a PERD v1.17 amendment defining actor and payload_hash exactly as above. Quote the approved list in full. 3. In noema, amend the v2 contract inside #80 (it has not merged, so v2 is not released). Keep v1 untouched. Update the writers, readers, verifiers and tests together. 4. Golden vectors: include the empty object, a nested object, a Unicode string, and a number. Compute each expected hash with an independent implementation, not the code under test, and record the input bytes beside each hash. 5. Report the head SHA of each PR, the file list, and check results with run links on each PR. Do not merge. The founder merges. Log every message in status/ENV-03.md."
+- Used it for: step 1 only so far. The proposed list is below and in the body of Noemai-org/docs#63; nothing else is written until it is approved. Note for step 3: #80 had already merged (27 Oct, 15:58 UTC) before this instruction, so the amendment cannot go "inside #80"; it will be a new pull request on `main` that amends `record-event.v2` (a v2 minor, as D4 of the decision record already says), with v1 untouched. Reported to the founder with the list.
+- Evidence: Noemai-org/docs#63 (body); this file.
+
+#### Proposed closed list of `actor` kinds (awaiting the founder's one-line approval)
+Derived from PERD v1.16 only: every principal type it names. Lower case, six kinds.
+
+| kind | Who or what | Where the PERD names it |
+|---|---|---|
+| `customer` | an end user of the enterprise, authenticated by the synthetic IdP | REQ-SEC-001 ("synthetic customers"); the benchmark session example `"roles": ["customer"]` (§48) |
+| `operator` | enterprise staff who work cases | REQ-SEC-001 ("operators"); J9, §11 ("An operator or auditor opens a finished case") |
+| `approver` | a person who accepts or declines a confirmation | REQ-SEC-001 ("approvers"); REQ-TRU-009; `approver_principal` in `confirmation_event` (§38.2) |
+| `auditor` | reads the Record and reconstructions (folds in "Auditor or regulator", compliance and engineer audiences) | the §7 user table ("Auditor or regulator (enterprise-side)"); J9; REQ-AUD-003, §32 ("Ops and audit role only"); the §31 audit-reconstruction audience |
+| `admin` | the control plane: policy publish, pack load, kill switch, key rotation | §41.1 identities table, row `admin` (control plane) |
+| `service` | a non-human identity | §41.1: `core-edge`, `core-trust`, `core-execution`, `core-outcome`, `core-record`, `core-evidence`, `core-workflows`, `model-service`, `benchmark-runner`; "per-adapter service identity" (§34) and "Outcome uses its own adapter identity" (§29), both citing SoT §47.1 |
+
+`id` is the stable principal identifier: for the five human kinds the IdP session's `sub`, which is the `principal_id` (examples in the PERD and SoT: `usr_88213`, `usr_synth_014`); for `service` the §41.1 identity name (for example `core-execution`) or the adapter's identity name.
+
+Deliberately not kinds: the model (not a principal; its output is untrusted data, INV-01, INV-02); the enterprise IdP (it asserts a principal through `asserted_by` and writes no Record event); "regulator", "compliance" and "engineer" (audiences of the reconstruction, covered by `auditor` and `operator`).
+
+Three judgement calls to confirm with the approval: (1) `customer`, as the PERD writes it, rather than `end_user`, the value in the SoT's Intent Object example (the SoT shows one value and defines no list); (2) one `service` kind for all non-human identities, not one kind per power; (3) "regulator" folded into `auditor`.
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: "Session A: #77 was merged on 27 Oct at 13:14 UTC by noemai-systems after its approval. That's accepted. Record it in status/ENV-03.md as: 'Merged 13:14 UTC 27 Oct by noemai-systems after approval. Its v1 record shape is superseded by #80.' Answers to your questions: 1. The key is from the grant's key fields, not the grant ID. A retry under a new grant keeps the same key. Confirmed. 2. If-None-Match: * stays required. A create without it is refused with 428. Confirmed. 3. A 412 is not REJECTED_STALE_VERSION. Check the contract for an existing duplicate-create code. If none exists, add one to #80 before it merges, and map 412 to it. Report which code you used and its contract entry. 4. Tushe's create semantics stay open for the founder. Before #80 merges, also: Confirm the actor format and the payload_hash of {} against the exact PERD text. Quote the PERD lines in the PR body. If the PERD is silent, say so and stop. After #80 and docs#62 merge: Open one noema PR that re-points to the merged docs commit, using tools/vendor/repoint_docs.py. Report the head SHA and check results. After that re-point merges: Merge main into #81 (no rebase, no force-push) and resolve the overlap in docs/architecture.md. Rerun checks once, and report the head SHA and results. Do not start EXE-04 yet. It comes after the pilot. Do not merge. Log every message in status/."
+- Used it for: the #77 line in State above; answers 1, 2 and 4 are in the #81 body already (no change); answer 3 is `errors.v2.json` with the code `DUPLICATE_CREATE` and the transport class of the same name, added to #80 (the mapping of the 412 in the case adapter moves into #81 when `main` is merged into it, because #81 branches from `main`); the actor and `payload_hash` check is in the #80 body (the PERD is silent on both; nothing changed, stopped there). The re-point PR and the merge of `main` into #81 wait for the merges.
+- Evidence: #80 and #81 at the heads reported there.
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
 - Purpose: proceed with the G2 escalate case through the core adapter. Approved: the Postgres driver, the Temporal SDK and this first end-to-end case. Build the Postgres ledger, the Temporal workflow and the bridge from the adapter's write result to the controller, each step behind its own test. Report create with idempotency key, read back with version token, route with that token, the run links and anything still blocked. Do not merge.
 - Used it for: the pull request that carries the section "Session 2026-10-27" below.
 - Evidence: the pull request of the branch `sa/g2-escalate-case`.
 
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: the three-part instruction summarised in `status/CON-01.md` (record-event v2; create-if-absent in mock-case; merge main into #77). Part 3 concerns this task: #77 was merged before the instruction arrived, so there is no open #77 to update; the writers, readers and verifiers it introduced are on `main` and PR 1 updates them.
+- Used it for: PR 1 (contract, includes the changes to `record/chain`, `execution/ledger` tests and the benchmark reader); PR 2 (mock-case).
+- Evidence: the PR 1 pull request.
 
 # Session 2026-10-27 13:35 WAT · ENV-03
 
@@ -38,7 +81,7 @@ Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Fi
 - Tests added (REQ, INV, US or EC IDs): `platform/db` (REQ-DATA-001: role matrix, immutability, single use), `record/chain` (REQ-AUD-001, EC-E16: golden vector from Python, tamper kinds, concurrency), `execution/ledger` (REQ-EXE-001, -002, -006, -008, EC-E06, EC-E09, EC-E16: 100 concurrent executes, crash and sweep, failed append), `execution/bridge` (REQ-EXE-003, -004, -006, -007, REQ-CAP-002), `workflows` (D8, INV-30), `execution/e2e` (the G2 case, US-19 style stale-token void, case dedupe, kill switch). Each guard was checked by deliberately breaking it; two mutants survived as equivalent (the SERIALIZABLE level and an `ON CONFLICT` target, both backed by unique constraints and row locks).
 - Regression cases added: the above; no bug fix in this session.
 - Debt entries (to file in `docs/poc/execution/debt.md`, docs repository): (a) `tenant_id` is on every row and every query is tenant-scoped, but a repository-layer test that proves it (REQ-SEC-004) is not written; (b) the sweeper writes a receipt for every unreceipted attempt it sees; an age threshold so that it does not race a dispatch in flight is configuration (REQ-OPS-003) and is not built; (c) the transport faults between E7 and E9 against the live mock-case (dropped response, concurrent modification) are covered by recordings made with real FaultPlans, not by a live run, because the fault-plan client lives in the benchmark runner; (d) the other PERD §38.2 tables and `db_schema.md` (generated) are not built.
-- Conflicts raised: two, below.
+- Conflicts raised: two, below. Both are resolved by DEC-2026-10-27-record-event-v2 and the pull request `sa/record-event-v2` (record-event.v2, nine grant-void reasons).
 
 CONFLICT DETECTED
 Affected IDs: INV-11, REQ-AUD-001, AGENT-15; PERD §32.1 (REC); `contracts/schemas/record-event.v1.json`

@@ -283,5 +283,149 @@
         "value": "97e8a71d00cd7e1bc8d00af672cbf22cf970c96435501aa5c8c88d7d860beab5"
       }
     }
+  ],
+  "record_event_chain_vectors": [
+    {
+      "name": "single_event_empty_payload",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "expected_genesis_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_2001",
+            "written_by": "UNDERSTANDING",
+            "event_type": "INPUT_RECEIVED",
+            "object_ref": "req_01J9X3",
+            "at": "2026-10-01T09:48:00.410Z"
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+            "payload_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "hash": "sha256:68f315ae88b2fb0ef3eb8643de7973f30d2caa42af3b297af6ed617e1fcf9425"
+          }
+        }
+      ],
+      "payloads_note": "payload is the object the event refers to; null means the hash of {}"
+    },
+    {
+      "name": "execution_path",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "expected_genesis_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_2101",
+            "written_by": "EXECUTION",
+            "event_type": "GRANT_SPENT",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.000Z",
+            "payload": {
+              "grant_id": "grt_0001",
+              "nonce": "n_0001",
+              "idempotency_key": "idk_v1_abababababababababababababababababababababababababababababababab",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+            "payload_hash": "sha256:cb9d2669dc91ee261ca65c2e1e7d569d6c93744be5a75c08f9b28d5f0dbe2bc8",
+            "hash": "sha256:7c2733b2069af4b8eadc69a49c56bea7d4b16833d8b797740fcf8c164843a111"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_2102",
+            "written_by": "EXECUTION",
+            "event_type": "DISPATCH_ATTEMPTED",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.001Z",
+            "payload": {
+              "idempotency_key": "idk_v1_abababababababababababababababababababababababababababababababab",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 2,
+            "prev_hash": "sha256:7c2733b2069af4b8eadc69a49c56bea7d4b16833d8b797740fcf8c164843a111",
+            "payload_hash": "sha256:81507d654ca17ac8fcfe2f4c3d2c77848d1214f2c18a38837f63b7061fcf75b9",
+            "hash": "sha256:0fe7c004a532d61e906773ce1d8d1fb522fc5d7095175036eac2d247984bd601"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_2103",
+            "written_by": "EXECUTION",
+            "actor": "EXECUTION:usr_88213",
+            "event_type": "RECEIPT",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.350Z",
+            "payload": {
+              "receipt_id": "rcp_01",
+              "execution_state": "ACKNOWLEDGED",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 3,
+            "prev_hash": "sha256:0fe7c004a532d61e906773ce1d8d1fb522fc5d7095175036eac2d247984bd601",
+            "payload_hash": "sha256:435626d68a7f1eb3be7744e9188db34a47ffaeba8e63d4d62c859249c576c72a",
+            "hash": "sha256:1743d9a84f64e0b5f4f5d0675de56380be1d282c5b36657f8e38b6eb214e8cac"
+          }
+        }
+      ],
+      "payloads_note": ""
+    },
+    {
+      "name": "security_and_void",
+      "tenant_id": "ten_other",
+      "correlation_id": "corr_9d0e11",
+      "expected_genesis_hash": "sha256:f0fcef8677cd310f66ccfea390fac2bc814900978f0fd7532944e3a183703b9f",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_3001",
+            "written_by": "EXECUTION",
+            "event_type": "SECURITY_EVENT",
+            "kind": "IDEMPOTENCY_COLLISION",
+            "object_ref": "grt_0002",
+            "at": "2026-10-01T10:00:00.000Z",
+            "payload": {
+              "idempotency_key": "idk_v1_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+            }
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:f0fcef8677cd310f66ccfea390fac2bc814900978f0fd7532944e3a183703b9f",
+            "payload_hash": "sha256:096a0ca5c9e600f3f0e96efe2952254c57493858f000436e586f95a75886f53c",
+            "hash": "sha256:0fced5fff1392175e7636a265af8e2330bb97b1a6c152a227c8214d5c562b3d6"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_3002",
+            "written_by": "EXECUTION",
+            "event_type": "GRANT_VOIDED",
+            "reason": "BINDING_MISMATCH",
+            "object_ref": "grt_0002",
+            "at": "2026-10-01T10:00:00.002Z",
+            "payload": {
+              "grant_id": "grt_0002",
+              "reason": "BINDING_MISMATCH"
+            }
+          },
+          "expected": {
+            "seq": 2,
+            "prev_hash": "sha256:0fced5fff1392175e7636a265af8e2330bb97b1a6c152a227c8214d5c562b3d6",
+            "payload_hash": "sha256:caec13e7ed5f0e222f1f02ac21c8f7c70b90a2549fe5775e2ce242f1421fe5fa",
+            "hash": "sha256:2af3caf059fb21403495bb85f091c1fcb821ae436fd30456327eaffe0d8d4650"
+          }
+        }
+      ],
+      "payloads_note": ""
+    }
   ]
 }

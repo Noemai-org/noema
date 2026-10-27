@@ -11,7 +11,6 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Protocol
 
-from benchmark.bakeoff.cases import cases_digest
 
 Json = dict[str, Any]
 Timer = Callable[[], int]
@@ -97,6 +96,8 @@ def _call(decider: Decider, case: Json, text: str, timer: Timer) -> Json:
 
 
 def run_provider(cases: list[Json], decider: Decider, *, run_id: str, runner_region: str, timer: Timer = time.monotonic_ns) -> Json:
+    from benchmark.bakeoff.cases import cases_digest  # here, not at import: the case generator needs jsonschema and the deciders do not
+
     digest = cases_digest(cases)
     try:
         decider.ready()

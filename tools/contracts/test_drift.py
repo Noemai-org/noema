@@ -34,6 +34,20 @@ class DriftGuard(unittest.TestCase):
         changed["record-event.v1.json"]["$defs"]["RecordEventType"]["enum"].remove("CONFIG_CHANGED")
         self.assertTrue(any("CONFIG_CHANGED" in p for p in drift.check_record_event_types(changed)))
 
+    def test_record_event_types_added_to_or_removed_from_the_v2_schema(self):
+        added = copy.deepcopy(SCHEMAS)
+        added["record-event.v2.json"]["$defs"]["RecordEventType"]["enum"].append("RECORD_ACCESSED")
+        self.assertTrue(any("record-event.v2.json" in p and "RECORD_ACCESSED" in p for p in drift.check_record_event_types(added)))
+        removed = copy.deepcopy(SCHEMAS)
+        removed["record-event.v2.json"]["$defs"]["RecordEventType"]["enum"].remove("CONFIG_CHANGED")
+        self.assertTrue(any("record-event.v2.json" in p and "CONFIG_CHANGED" in p for p in drift.check_record_event_types(removed)))
+
+    def test_grant_void_reasons_of_v2_must_be_the_nine_of_perd_27_1(self):
+        for mutate in (lambda e: e.remove("EXPIRED"), lambda e: e.append("SOMETHING_ELSE"), lambda e: e.append("EXPIRED")):
+            changed = copy.deepcopy(SCHEMAS)
+            mutate(changed["record-event.v2.json"]["$defs"]["GrantVoidReason"]["enum"])
+            self.assertTrue(any("GrantVoidReason" in p for p in drift.check_record_event_types(changed)))
+
     def test_value_added_to_the_registry(self):
         mutated = REGISTRY.replace("`ALLOW`, `CLARIFY`", "`ALLOW`, `PROCEED`, `CLARIFY`", 1)
         self.assertNotEqual(mutated, REGISTRY)

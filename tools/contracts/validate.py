@@ -76,8 +76,23 @@ def load_strict(path: Path):
     return json.loads(path.read_text(encoding="utf-8"), parse_float=WireFloat, parse_constant=_no_constant, object_pairs_hook=_no_duplicates)
 
 
+VERSIONED = re.compile(r"^(?P<name>[a-z0-9-]+)\.v(?P<major>[0-9]+)\.json$")
+
+
 def load_schemas() -> dict[str, dict]:
-    return {p.name: load_strict(p) for p in sorted(SCHEMAS.glob("*.v1.json"))}
+    """Every schema, keyed by file name (`<name>.v<major>.json`). A new major is a new file beside the old one (AGENT-15)."""
+    return {p.name: load_strict(p) for p in sorted(SCHEMAS.glob("*.json")) if VERSIONED.match(p.name)}
+
+
+def schema_file(name: str) -> str:
+    """`record-event` is record-event.v1.json (the name every v1 fixture folder uses); `record-event.v2` is record-event.v2.json."""
+    return f"{name}.json" if re.search(r"\.v[0-9]+$", name) else f"{name}.v1.json"
+
+
+def fixture_name(filename: str) -> str:
+    """The fixture folder of a schema: `<name>` for v1, `<name>.v<major>` for a later major."""
+    m = VERSIONED.match(filename)
+    return m["name"] if m["major"] == "1" else f"{m['name']}.v{m['major']}"
 
 
 def make_registry(schemas: dict[str, dict]) -> Registry:
@@ -89,7 +104,7 @@ def make_registry(schemas: dict[str, dict]) -> Registry:
 
 def validator_for(name: str, schemas: dict[str, dict], registry: Registry, definition: str | None = None) -> Draft202012Validator:
     """Validator for a schema, or for one of its $defs (a fixture named <Def>__<case>.json targets that definition)."""
-    schema = schemas[f"{name}.v1.json"]
+    schema = schemas[schema_file(name)]
     if definition:
         return StrictValidator({"$ref": f"{schema['$id']}#/$defs/{definition}"}, registry=registry)
     return StrictValidator(schema, registry=registry)
@@ -147,7 +162,7 @@ def check_schemas(schemas: dict[str, dict], registry: Registry) -> list[str]:
 
 def check_fixtures(schemas: dict[str, dict], registry: Registry) -> list[str]:
     problems = []
-    names = {f.removesuffix(".v1.json") for f in schemas}
+    names = {fixture_name(f) for f in schemas}
     for kind in ("valid", "invalid"):
         base = FIXTURES / kind
         for folder in sorted(p for p in base.iterdir() if p.is_dir()) if base.exists() else []:
@@ -232,7 +247,7 @@ def keywords(error) -> set[str]:
 def check_inventory(schemas: dict[str, dict]) -> list[str]:
     if not INVENTORY.exists():
         return ["contracts/INVENTORY.md is missing"]
-    rows = set(re.findall(r"^\|\s*`([a-z0-9-]+\.v1\.json)`\s*\|", INVENTORY.read_text(), re.M))
+    rows = set(re.findall(r"^\|\s*`([a-z0-9-]+\.v[0-9]+\.json)`\s*\|", INVENTORY.read_text(), re.M))
     problems = [f"INVENTORY.md has no row for {f}" for f in sorted(set(schemas) - rows)]
     problems += [f"INVENTORY.md names {f}, which does not exist" for f in sorted(rows - set(schemas))]
     return problems

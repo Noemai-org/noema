@@ -16,4 +16,10 @@ Dated decision records for the benchmark's measurement rules: what is measured, 
 
 - The identifier the API returns for each model is unknown until the pilot.
 - The pilot's measured cost and the full-corpus estimate are posted on the freeze PR after the pilot.
-- The adapter for the Responses API, the live decider, the budget guard and the `bench-live` workflow are separate pull requests that follow this one; none is part of the freeze.
+- The Responses adapter is its own pull request; the live decider, the budget guard and the `bench-live` workflow are another. Neither is part of the freeze.
+
+## Files
+
+- `harness-gpt-6-luna.json`, `harness-gpt-6.1-terra.json`: the harness configuration each run reads (model ID, endpoint, the key's variable name, `reasoning.effort`, `max_output_tokens`, timeout, rate card, routes). Frozen by SHA-256 in the record. The key itself is never in them.
+- The live code is `benchmark/bakeoff/{budget,live,live_run}.py`, started only by `.github/workflows/bench-live.yml` (`environment: bench-live`, a required reviewer).
+

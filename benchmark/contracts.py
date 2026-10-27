@@ -7,6 +7,7 @@ every benchmark hash is taken over, so the same document always has the same dig
 """
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 Json = dict[str, Any]
+_VERSIONED = re.compile(r"^[a-z0-9-]+\.v[0-9]+\.json$")
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMAS = ROOT / "contracts" / "schemas"
@@ -75,7 +77,7 @@ class Contracts:
     """All /contracts schemas, loaded once, with a validator per schema name."""
 
     def __init__(self, schemas_dir: Path = SCHEMAS) -> None:
-        self._schemas: dict[str, Json] = {p.name: load_strict(p) for p in sorted(schemas_dir.glob("*.v1.json"))}
+        self._schemas: dict[str, Json] = {p.name: load_strict(p) for p in sorted(schemas_dir.glob("*.json")) if _VERSIONED.match(p.name)}
         registry: Registry = Registry()
         for schema in self._schemas.values():
             registry = registry.with_resource(schema["$id"], Resource.from_contents(schema, default_specification=DRAFT202012))
@@ -83,9 +85,10 @@ class Contracts:
         self._validators: dict[str, Any] = {}
 
     def errors(self, name: str, document: Any) -> list[str]:
-        """Every violation of contracts/schemas/<name>.v1.json, as 'path: message', sorted. Empty when valid."""
+        """Every violation of contracts/schemas/<name>.v1.json (or <name>.json when name ends in .v<major>, e.g. "reconstruction.v2"), as 'path: message', sorted. Empty when valid."""
         if name not in self._validators:
-            self._validators[name] = _Validator(self._schemas[f"{name}.v1.json"], registry=self._registry)
+            file = f"{name}.json" if re.search(r"\.v[0-9]+$", name) else f"{name}.v1.json"
+            self._validators[name] = _Validator(self._schemas[file], registry=self._registry)
         found = [
             f"{'/'.join(map(str, e.absolute_path)) or '(root)'}: {e.message[:160]}"
             for e in self._validators[name].iter_errors(document)

@@ -54,3 +54,9 @@ accuracy with a 95% Wilson interval; coverage; abstention rate; **expected calib
 
 `gates.py` applies the accepted gates of `benchmark/decisions/2026-10-27-model-selection.md` to one run (`evaluate`) and compares the runs that pass every gate without naming a winner (`select`). `freeze.py` computes the corpus hash and the scoring-code hash recorded in that decision; `test_freeze.py` recomputes them, so a change to the corpus or to the scoring code after the freeze fails CI. These two files are additive: `cases.py`, `metrics.py`, `report.py` and `run.py` are unchanged. Not run: no live result exists.
 
+## Live run (UND-02; `budget.py`, `live.py`, `live_run.py`)
+
+`live.py` is the `Decider` for `harness.decide()` on the OpenAI Responses adapter, with `budget.py`'s guard in front of every request (spent + the worst-case projection of the request must fit; a refusal is sticky and sends nothing). It learns the identifier the API returns with one counted probe request and stops sending if a later call reports another. `live_run.py --phase pilot|full --prior-spent-micros N` checks the frozen record, corpus, scoring code, prompt template and harness configurations first, runs both models under one budget, and prints the pilot's measured cost with a full-corpus estimate, or every gate per model with safety failures apart. It is started by `.github/workflows/bench-live.yml`. The key is only the process environment's `OPENAI_API_KEY`. `run.py` changed in one line: `cases_digest` is imported inside `run_provider`, so the deciders import without the case generator's `jsonschema`.
+
+Not run: no live call has been made. Tests of `live.py` are in `services/model/tests/test_bakeoff_live.py` (they need the model service's dependencies); a change under `benchmark/` alone does not trigger that CI job.
+

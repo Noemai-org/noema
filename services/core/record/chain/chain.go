@@ -17,8 +17,8 @@ import (
 
 const (
 	errPrefix = "record: "
-	// SchemaVersion is the record-event contract version this package writes (contracts/schemas/record-event.v1.json).
-	SchemaVersion = "1.0"
+	// SchemaVersion is the record-event contract version this package writes (contracts/schemas/record-event.v2.json).
+	SchemaVersion = "2.0"
 	hashPrefix    = "sha256:"
 	genesisSalt   = "noema:genesis:"
 )
@@ -100,7 +100,7 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 	if err := tx.QueryRow(ctx, `SELECT seq, hash FROM record_lock_head($1)`, ev.TenantID).Scan(&seq, &prev); err != nil {
 		return Stored{}, fmt.Errorf("%slock head: %w", errPrefix, err)
 	}
-	body := eventBody(ev, id, seq+1, prev, payloadHash, at)
+	body := Body(ev, id, seq+1, prev, payloadHash, at)
 	hash, err := Hash(prev, body)
 	if err != nil {
 		return Stored{}, err
@@ -133,7 +133,8 @@ func Hash(prevHash string, body map[string]any) (string, error) {
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func eventBody(ev Event, id string, seq int64, prev, payloadHash string, at time.Time) map[string]any {
+// Body is the event as it is hashed and stored: every field of record-event.v2.json except `hash`.
+func Body(ev Event, id string, seq int64, prev, payloadHash string, at time.Time) map[string]any {
 	body := map[string]any{
 		"schema_version": SchemaVersion,
 		"tenant_id":      ev.TenantID,
@@ -156,6 +157,10 @@ func eventBody(ev Event, id string, seq int64, prev, payloadHash string, at time
 	}
 	return body
 }
+
+// PayloadHash is the hash of the referenced object's canonical JSON, and that JSON; an event that refers to no object
+// (nil) carries the hash of the empty object {} and no stored payload (PERD 32.1).
+func PayloadHash(p any) (hash string, canonical any, err error) { return payloadOf(p) }
 
 func payloadOf(p any) (hash string, js any, err error) {
 	if p == nil {
@@ -183,6 +188,14 @@ func validate(ev Event) error {
 		return fmt.Errorf("%sevent_type %q does not match the contract", errPrefix, ev.EventType)
 	case ev.Actor == "":
 		return errors.New(errPrefix + "actor is required")
+	case !eventTypes[ev.EventType]:
+		return fmt.Errorf("%sevent_type %q is not a Record event type (PERD 32.2)", errPrefix, ev.EventType)
+	case ev.Kind != "" && !securityKinds[ev.Kind]:
+		return fmt.Errorf("%skind %q is not a security kind", errPrefix, ev.Kind)
+	case ev.EventType == "GRANT_VOIDED" && !grantVoidReasons[ev.Reason]:
+		return fmt.Errorf("%sreason %q is not a grant-void reason: an unknown reason is rejected", errPrefix, ev.Reason)
+	case ev.EventType == "PROVIDER_FAILOVER" && !providerFailoverReasons[ev.Reason]:
+		return fmt.Errorf("%sreason %q is not a provider-failover reason", errPrefix, ev.Reason)
 	case (ev.EventType == "SECURITY_EVENT") != (ev.Kind != ""):
 		return errors.New(errPrefix + "kind is required on SECURITY_EVENT and only there")
 	case (ev.EventType == "GRANT_VOIDED" || ev.EventType == "PROVIDER_FAILOVER") != (ev.Reason != ""):

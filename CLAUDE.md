@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs CLAUDE.md at docs commit 05459feaf6b65a30eb4ec7822c13b79d2264fdb1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs CLAUDE.md at docs commit 30b096fd51e8839e87bf5c7093f06b3fa75aea23. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 @AGENTS.md
 

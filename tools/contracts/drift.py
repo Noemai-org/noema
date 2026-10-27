@@ -124,15 +124,28 @@ def perd_event_types(text: str) -> list[str]:
     return names
 
 
+RECORD_EVENT_SCHEMAS = ("record-event.v1.json", "record-event.v2.json")
+# The nine reasons PERD §27.1 and REQ-EXE-003 name for a void grant; v1 lists the first three.
+GRANT_VOID_REASONS_V2 = ["INTENT_SUPERSEDED", "STATE_CHANGED", "POLICY_SUPERSEDED", "SIGNATURE_INVALID", "EXPIRED", "BINDING_MISMATCH", "WRITES_DISABLED",
+                         "REVALIDATION_UNAVAILABLE", "REJECTED_STALE_VERSION"]
+
+
 def check_record_event_types(schemas: dict) -> list[str]:
-    """The schema's Record event types must be exactly the PERD §32.2 table (no more, no fewer, no duplicates)."""
+    """Each Record event schema's types must be exactly the PERD §32.2 table (no more, no fewer, no duplicates), and v2 must list the nine grant-void reasons."""
     want = perd_event_types(PERD_EVENT_TYPES.read_text(encoding="utf-8"))
-    have = schemas["record-event.v1.json"]["$defs"]["RecordEventType"]["enum"]
     problems = []
     if not want or len(want) != len(set(want)):
         problems.append("PERD §32.2 extract is empty or lists an event type twice")
-    if sorted(want) != sorted(have):
-        problems.append(f"RecordEventType: PERD §32.2 {sorted(set(want) - set(have))} missing from the schema, schema {sorted(set(have) - set(want))} missing from PERD §32.2")
+    for name in RECORD_EVENT_SCHEMAS:
+        if name not in schemas:
+            continue
+        have = schemas[name]["$defs"]["RecordEventType"]["enum"]
+        if sorted(want) != sorted(have):
+            problems.append(f"{name} RecordEventType: PERD §32.2 {sorted(set(want) - set(have))} missing from the schema, schema {sorted(set(have) - set(want))} missing from PERD §32.2")
+    if "record-event.v2.json" in schemas:
+        reasons = schemas["record-event.v2.json"]["$defs"]["GrantVoidReason"]["enum"]
+        if sorted(reasons) != sorted(GRANT_VOID_REASONS_V2) or len(reasons) != len(set(reasons)):
+            problems.append(f"record-event.v2.json GrantVoidReason {sorted(reasons)} is not the nine reasons of PERD §27.1 {sorted(GRANT_VOID_REASONS_V2)}")
     return problems
 
 

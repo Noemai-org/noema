@@ -9,7 +9,7 @@ This file describes what was built. It never defines architecture, requirements 
 | Module (`services/core/`) | What it does | Requirements | Source |
 |---|---|---|---|
 | `migrations/`, `platform/db` | Forward-only SQL migrations, per-power roles, immutability triggers; `db.Migrate`, `db.OpenAsRole` | REQ-DATA-001, REQ-AUD-001 | PERD §38, §32.4 |
-| `record/chain` | Append to the per-tenant hash chain inside the caller's transaction; `Verify` | REQ-AUD-001 | PERD §32.1, §32.4; SoT §43.6 |
+| `record/chain` | Append `record-event.v2` events to the per-tenant hash chain inside the caller's transaction; `Verify` | REQ-AUD-001 | PERD §32.1, §32.4; SoT §43.6 |
 | `platform/ids` | Prefixed ULIDs from the clock interface | (PERD §32.3) | PERD §32.3 |
 | `execution/controller` | Spend-and-dispatch E1 to E11, classification, sweeper; every dependency is a port | REQ-EXE-001..008 | PERD §27 |
 | `execution/ledger` | Postgres implementation of the controller's `Ledger` and `GrantSource` | REQ-EXE-001, REQ-EXE-002, REQ-EXE-006, REQ-AUD-001 | PERD §27.1 E8, E11 |
@@ -31,6 +31,6 @@ Trust (decisions, grants, policy), Understanding, Evidence, Outcome (verifier, w
 
 ## Deviations from the specification
 
-- Record events carry the PERD §32.1 fields (`seq`, `payload_hash`, `actor`) and the genesis hash of PERD §32.1; `contracts/schemas/record-event.v1.json` has none of the three and says the first `prev_hash` is 64 zeros. The contract is not changed here (AGENT-15). See the CONFLICT block in the pull request and `status/ENV-03.md`.
-- `GRANT_VOIDED.reason` carries all nine void reasons of PERD §27.1 and REQ-EXE-003; the contract's `GrantVoidReason` lists three. Same pointer.
-- The create capability's descriptor says `CONDITIONAL_WRITE`. mock-case's create is conditional on absence: it needs `If-None-Match: *`, a unique index on tenant, transaction and epoch enforces it atomically, and a create for a subject that has a case is refused with `412 PRECONDITION_FAILED` (the adapter reports it as `VERSION_CONFLICT_409_412`, so the receipt is `REJECTED_STALE_VERSION`). There is no expected version for a create, because there is no case to hold one; the route is conditional on a version token. This holds for mock-case only. Tushe's create semantics are an open item for the founders (`synthetic/mock_case/README.md`, "Create if absent").
+- The create capability's descriptor says `CONDITIONAL_WRITE`. mock-case's create is conditional on absence: it needs `If-None-Match: *`, a unique index on tenant, transaction and epoch enforces it atomically, and a create for a subject that has a case is refused with `412 PRECONDITION_FAILED`. The adapter reports that as the transport class `DUPLICATE_CREATE` (the error code of `errors.v2.json`), so the receipt is `REJECTED_BY_TARGET`, not `REJECTED_STALE_VERSION` (DEC-2026-10-27-record-event-v2, D6). There is no expected version for a create, because there is no case to hold one; the route is conditional on a version token. This holds for mock-case only. Tushe's create semantics are an open item for the founders (`synthetic/mock_case/README.md`, "Create if absent").
+
+Resolved on 27 Oct 2026 (DEC-2026-10-27-record-event-v2): the Record events are `record-event.v2` (PERD §32.1 fields, tenant-scoped genesis hash) and `GRANT_VOIDED.reason` takes any of the nine reasons of PERD §27.1 and REQ-EXE-003. `record-event.v1` and `reconstruction.v1` are unchanged and no longer written.
