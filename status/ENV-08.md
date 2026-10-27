@@ -35,3 +35,33 @@ Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-stat
 - Open questions (owner): whether the benchmark owner wants a different reading of the near-timeouts (session A / founders).
 - Files to read first: `synthetic/mock_case/README.md` (effects table), `internal/api/pipeline.go`.
 - Do not touch: the stored data path of `INJECTION_PAYLOAD` (it must stay answer-only).
+
+## Session 2026-10-27 · ENV-08 (follow-up: a flaky quiet-run linearizability test)
+
+### Session summary
+- What changed (PR links): `TestMockCaseHistoriesWithoutFaultsAreLinearizable` (`synthetic/mock_case/internal/api/linearizability_test.go`) now gives its clients 10 s to answer (`quietClientTimeout`) instead of the 300 ms the fault runs use (`faultClientTimeout`), and its failure message lists why each operation lost its response. The check itself is unchanged: `rec.n.pending` must still be 0. PR link: see the pull request that carries this file.
+- Why: the test failed once on `main` ("3 operations lost their response with no fault loaded") and passed on re-run. A quiet run has no fault that can lose a response, so the only way to lose one is a client that gives up before a slow machine answers.
+- Evidence of the cause: reproduced locally with the old 300 ms wait. With the test, its PostgreSQL and six busy loops pinned to one core (`taskset -c 0`, `-race -count=10`), 2 of 10 runs failed; every lost response was `POST /v1/cases: context deadline exceeded (Client.Timeout exceeded while awaiting headers)`, and there was no 5xx. With 10 s, the same load gave no lost response in 25 runs (see the PR body for the exact result).
+- Risks, and how they are contained: the fault runs (`TestACorruptedHistoryIsRejected`, the seeded and sequential tests) keep 300 ms because their faults (a 600 ms hold) depend on it. A real service stall of more than 10 s would still fail the quiet test, as it should.
+- Tests added (REQ, INV, US or EC IDs): none; REQ-TST-002 and D7 linearizability coverage is unchanged and now deterministic under load.
+- Regression cases added: none beyond the reproduction above (a CPU-starved run), which is not a CI test.
+- Debt entries: none.
+- Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: the founder reviews and merges the PR.
+- Open questions (owner): none.
+- Files to read first: `synthetic/mock_case/internal/api/linearizability_test.go` (`workloadWithTimeout`, `quietClientTimeout`).
+- Do not touch: the `rec.n.pending != 0` assertion (do not loosen it).
+
+## Messages
+
+### 2026-10-25 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: your work is complete. Hold. Do not start new work or touch any branch until the founder gives the next task. Do not push or re-run anything."
+- Receiver used it for: held; did nothing until the next task below.
+- Evidence: none (no repository change).
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: TestMockCaseHistoriesWithoutFaultsAreLinearizable (synthetic/mock_case/internal/api/linearizability_test.go:421) failed once on main with '3 operations lost their response with no fault loaded', then passed on re-run. The likely cause is a client timeout under concurrent load against real PostgreSQL. Fix it in the test's workload or timeout, not by loosening the check. Open one PR, report the head SHA and check results with run links. Do not re-run any job on main. Log every message in status/. Do not merge."
+- Receiver used it for: reproduced the failure locally (old 300 ms wait, one loaded core), changed the quiet run's client wait to 10 s, added the loss reasons to the failure message, opened one PR from `sB/t3-linearizability-flake`; no job on `main` was re-run; this entry.
+- Evidence: the PR that carries this file (its check runs are linked in the PR body, at its final head).
