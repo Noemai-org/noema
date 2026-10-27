@@ -107,7 +107,35 @@ class RunCase(unittest.TestCase):
         self.assertEqual((result["case_id"], result["case_version"], result["run_id"]), (lc.case["case_id"], 1, "run1"))
         self.assertEqual(result["environment"]["effects"], [])
         self.assertEqual(result["path"], "CLEAN")
-        self.assertIsNone(result["cost_usd_micros"], "no source for provider cost exists yet: null, never an estimate")
+        self.assertIsNone(result["cost_usd_micros"], "no cost files configured: null (not available), never an estimate")
+
+    def test_cost_comes_from_the_model_services_files_for_this_cases_correlation(self) -> None:
+        """REQ-NFR-007: the runner reads $BENCH_OUT/cost/<correlation_id>-<NNN>.json; the result stays contract-valid."""
+        from benchmark.runner.cost import CostFiles
+        from benchmark.runner.test_cost import record
+        from benchmark.runner.testdata import CORRELATION
+        lc = plain_case()
+        with Rig(Script(reconstruction=reconstruction("ALLOW", claims=[{"text": "completed", "bound_fact_status": "KNOWN"}]))) as rig:
+            out = Path(rig.dir.name) / "cost"
+            out.mkdir()
+            (out / f"{CORRELATION}-001.json").write_text(json.dumps(record(1200)))
+            (out / f"{CORRELATION}-002.json").write_text(json.dumps(record(34)))
+            (out / "corr_other-001.json").write_text(json.dumps(record(999)))
+            rig.env.costs = CostFiles(out)
+            result = run_case(rig.env, lc)
+        self.assertEqual(result["status"], "COMPLETED", result.get("error"))
+        self.assertEqual(result["cost_usd_micros"], 1234)
+        self.assertEqual(errors(result), [])
+
+    def test_an_error_result_has_no_cost(self) -> None:
+        from benchmark.runner.cost import CostFiles
+        lc = plain_case()
+        with Rig() as rig:
+            rig.env.costs = CostFiles(Path(rig.dir.name) / "cost")
+            env = RunEnv(**{**rig.env.__dict__, "fixtures": UnavailableFixtureLoader("the Tushe sandbox is not reachable")})
+            result = run_case(env, lc)
+        self.assertEqual(result["status"], "ERROR")
+        self.assertIsNone(result["cost_usd_micros"])
 
     def test_the_order_is_reset_fixture_plan_baseline_inputs(self) -> None:
         lc = pick(lambda x: x.plan is not None and any(f["target"] == "mock-case" and f["effect"] == "DROP_RESPONSE" for f in x.plan["faults"]) and len(x.plan["faults"]) == 1)

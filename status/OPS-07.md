@@ -68,5 +68,15 @@ The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z 
 - Used it for: this entry, added to #70.
 - Evidence: noema#70.
 
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: resolve the `status/README.md` conflicts on #67, #68 and #70, in that order: merge `origin/main` into each branch (no rebase, no force-push); keep main's task list plus the lines the PR adds; keep every row of the message index from both sides; keep the rules section; push; run checks once on the final head; report head SHA, what was kept from each side, and check results with run links on each PR; do not merge.
+- Used it for: #67 was already merged (`f441ebf`), so nothing to resolve there. #68 merged main at `c3dea52`. #70 merged main in the commit that carries this entry.
+- Evidence: noema#68, noema#70.
+
+### 2026-10-27 (time not recorded) sent · Session A → Founder
+- Purpose: report that #67 is already merged, and the per-PR results for #68 and #70 (head SHA, what was kept from each side, checks with run links).
+- Receiver used it for: not recorded.
+- Evidence: noema#68 and noema#70 comments.
+
 ### Earlier incoming messages
 Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" lists. The bodies were not recoverable from the session record, so they are not summarised here.
