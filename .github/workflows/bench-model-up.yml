@@ -1,5 +1,5 @@
 # Manual container test of the model service's bench cost-file wiring (REQ-NFR-007, REQ-OPS-001; UND-02).
-# workflow_dispatch only: it never runs on a push or a pull request, and it is run only after the founder says yes.
+# workflow_dispatch only: it never runs on a push or a pull request. It has not been run.
 # It starts the bench stack with `make model-bench-up`, makes the model container write ONE file through the service's own telemetry
 # (the same build_telemetry the service uses, so BENCH_OUT, the bind mount and the uid mapping are what is tested), and checks that
 # file on the host. The record in the file is a SYNTHETIC marker, not a model call: no provider is called and no secret is read.

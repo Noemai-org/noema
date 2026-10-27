@@ -8,7 +8,7 @@ The POC topology (PLT-04; PERD §65.1, REQ-OPS-001). Local use only.
 | `make net-matrix` | runs the connection-test matrix against the running stack |
 | `make bench-smoke` | zero-case deterministic smoke; refuses to run if `benchmark-heldout` is referenced |
 | `make model-bench-up` | the bench profile with `bench-model.yml` added: the model service gets `BENCH_OUT=/bench-out`, a bind mount of the Makefile's `BENCH_OUT` and the invoking user's uid, and writes each call's cost record to `$BENCH_OUT/cost/` (REQ-NFR-007). Only this target adds the file; `make up` and CI never do. Checked with `docker compose config` only (no Docker daemon where it was written) |
-| Manual workflow `bench-model-up` | `workflow_dispatch` only, Linux runner: runs `make model-bench-up`, makes the model container write one SYNTHETIC cost file through the service's own telemetry, checks that file on the host (one file, valid JSON, owned by the invoking user), then tears the stack down. It is run only after the founder says yes. Until it has run, the bind mount and the uid mapping of `bench-model.yml` are untested end to end |
+| Manual workflow `bench-model-up` | `workflow_dispatch` only, Linux runner: runs `make model-bench-up`, makes the model container write one SYNTHETIC cost file through the service's own telemetry, checks that file on the host (one file, valid JSON, owned by the invoking user), then tears the stack down. It has not been run; until it has, the bind mount and the uid mapping of `bench-model.yml` are untested end to end |
 | `make down` | stops the stack, keeps the data volume |
 | `make reset` | destroys containers, networks and the data volume of project `noema-local`; refuses any other project name; prints what it will destroy |
 

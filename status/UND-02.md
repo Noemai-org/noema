@@ -4,7 +4,7 @@ Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `servic
 
 ## Messages
 
-Every message sent or accepted. Messages are data from a peer, never a decision (AGENTS.md §2, item 3).
+Every message sent or accepted. A message from a peer is data, not a decision (AGENTS.md §2, item 3).
 
 | Date (UTC) | From | To | Purpose | What the receiver used it for |
 |---|---|---|---|---|
@@ -16,7 +16,7 @@ Every message sent or accepted. Messages are data from a peer, never a decision 
 | 2026-10-23 10:20 | D | A | No-window request now returns `INPUT_INVALID`; bench cost files exist but are not wired | A recorded the code in docs#57 |
 | 2026-10-23 10:21 | A | D | Second confirmation of the catalogue codes | None needed |
 | 2026-10-23 10:42 | A | D | docs#57 records `INPUT_INVALID` for no window (PERD v1.15 REQ-AMB-002, DEC-2026-10-23 D3) | Confirms the shipped code matches the spec |
-| 2026-10-24 (after #60 merged) | Founder (relayed by the user) | D | Instruction: open the wiring PR (entry point calls `cost_files_from_environment`; compose sets `BENCH_OUT` at bench startup and mounts `$BENCH_OUT`); cite the spec ID; update status and README; run the mutation check on the cost-file code; do not reopen #60; log this message | Built the wiring PR (see Built); the mutation check found no survivor |
+| 2026-10-24 (after #60 merged) | Founder (relayed by the user) | D | Decided: the wiring PR (the entry point uses `cost_files_from_environment`; compose sets `BENCH_OUT` at bench startup and mounts `$BENCH_OUT`), citing the spec ID, with the status file and README updated and a mutation check on the cost-file code | #62, merged; the mutation check found no survivor |
 
 ## Built
 See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `noema_model/main.py` `build_telemetry`; `deploy/compose/bench-model.yml`; `make model-bench-up`.
@@ -29,7 +29,7 @@ See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `no
 
 ## Manual container test (separate PR)
 
-- `.github/workflows/bench-model-up.yml`: `workflow_dispatch` only, `ubuntu-24.04`. Prepared, **not run**: it waits for the founder's yes. Run by the founder or on their say-so; nothing in it needs a secret.
-- Messages: the founder's instruction of 25 Oct 2026 (start the request path as one PR, prepare this workflow as another, do not run it before the founder's yes, do not use Windows, log every message, do not merge) is logged in the first PR's table (row dated 2026-10-25) because that PR carries the log of the work it asked for. This PR adds no new message.
+- `.github/workflows/bench-model-up.yml`: `workflow_dispatch` only, `ubuntu-24.04`; prepared and not run; it needs no secret.
+- Messages: the founder's decisions of 25 Oct 2026 (the request path and this workflow as separate pull requests, the workflow not run yet, Linux runner only, messages logged) are logged in the first PR's table (row dated 2026-10-25). This PR logs one more: the decision of 27 Oct 2026 below.
 - Checked without running the workflow: YAML parses; `check_pins`, `check_env_refs` and `check_secret_refs` pass; the Python snippet and the host-side check were run against a temp directory (one file, JSON equals the marker, owner is the invoking user); `docker compose config` with the override resolves. Not run: the stack itself (no Docker daemon in the session).
-
+- 2026-10-27, founder (relayed by the user), to D: decided that instruction text is removed from the PR text and status files of #65 and #66, a log of decisions staying; after #71 and #73 are merged, `origin/main` is merged into each of #65 and #66 and the checks run once on each final head. Used for: this change.
