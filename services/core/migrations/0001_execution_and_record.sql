@@ -185,6 +185,7 @@ CREATE TABLE record_event (
   schema_version  text NOT NULL,
   actor           text NOT NULL,
   body            jsonb NOT NULL,
+  payload         jsonb,
   CONSTRAINT record_event_tenant_seq_key UNIQUE (tenant_id, seq),
   CONSTRAINT record_event_tenant_hash_key UNIQUE (tenant_id, hash)
 );
@@ -207,14 +208,14 @@ CREATE FUNCTION record_lock_head(p_tenant text) RETURNS TABLE (seq bigint, hash 
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   INSERT INTO record_chain_head (tenant_id, seq, hash)
-  VALUES (p_tenant, 0, encode(sha256(convert_to('noema:genesis:' || p_tenant, 'UTF8')), 'hex'))
+  VALUES (p_tenant, 0, 'sha256:' || encode(sha256(convert_to('noema:genesis:' || p_tenant, 'UTF8')), 'hex'))
   ON CONFLICT (tenant_id) DO NOTHING;
   RETURN QUERY SELECT h.seq, h.hash FROM record_chain_head h WHERE h.tenant_id = p_tenant FOR UPDATE;
 END $$;
 
 CREATE FUNCTION record_insert(
   p_tenant text, p_event_id text, p_seq bigint, p_prev_hash text, p_hash text, p_written_by text, p_event_type text,
-  p_object_ref text, p_payload_hash text, p_correlation_id text, p_at timestamptz, p_schema_version text, p_actor text, p_body jsonb
+  p_object_ref text, p_payload_hash text, p_correlation_id text, p_at timestamptz, p_schema_version text, p_actor text, p_body jsonb, p_payload jsonb
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE head record_chain_head%ROWTYPE;
@@ -223,21 +224,21 @@ BEGIN
   IF NOT FOUND OR head.seq + 1 <> p_seq OR head.hash <> p_prev_hash THEN
     RAISE EXCEPTION 'record chain: the event does not extend the head of tenant %', p_tenant USING ERRCODE = 'serialization_failure';
   END IF;
-  INSERT INTO record_event (event_id, tenant_id, seq, prev_hash, hash, written_by, event_type, object_ref, payload_hash, correlation_id, at, schema_version, actor, body)
-  VALUES (p_event_id, p_tenant, p_seq, p_prev_hash, p_hash, p_written_by, p_event_type, p_object_ref, p_payload_hash, p_correlation_id, p_at, p_schema_version, p_actor, p_body);
+  INSERT INTO record_event (event_id, tenant_id, seq, prev_hash, hash, written_by, event_type, object_ref, payload_hash, correlation_id, at, schema_version, actor, body, payload)
+  VALUES (p_event_id, p_tenant, p_seq, p_prev_hash, p_hash, p_written_by, p_event_type, p_object_ref, p_payload_hash, p_correlation_id, p_at, p_schema_version, p_actor, p_body, p_payload);
   UPDATE record_chain_head SET seq = p_seq, hash = p_hash WHERE tenant_id = p_tenant;
 END $$;
 
 ALTER FUNCTION record_lock_head(text) OWNER TO record_append;
-ALTER FUNCTION record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb) OWNER TO record_append;
+ALTER FUNCTION record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb) OWNER TO record_append;
 
 -- Privileges --------------------------------------------------------------------------------------------------
 
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
-REVOKE ALL ON FUNCTION record_lock_head(text), record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION record_lock_head(text), record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb) FROM PUBLIC;
 
 -- Every power that writes the Record may call the two functions, and nothing else on it.
-GRANT EXECUTE ON FUNCTION record_lock_head(text), record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb)
+GRANT EXECUTE ON FUNCTION record_lock_head(text), record_insert(text, text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb)
   TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw;
 GRANT USAGE ON SCHEMA public TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_append;
 
