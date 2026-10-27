@@ -1,6 +1,6 @@
-# Status · EXE-01 (Session A) · spend-and-dispatch controller
+# Status · EXE-02 (Session A) · spend-and-dispatch controller
 
-Updated 2026-10-24.
+Updated 2026-10-25. Renamed from `EXE-01.md`: the plan's EXE-01 is the registry loader; the controller (E1 to E11) is plan task EXE-02. The merged commit message still says "EXE-01" and cannot be changed.
 
 ## State
 - Merged (#47): the controller (E1-E11), crash-point injection, a 10,000-seed simulation and the D8 retry policy. ENV-08 mock-case reconciliation merged in #46.
