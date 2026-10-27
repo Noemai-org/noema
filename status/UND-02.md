@@ -43,3 +43,17 @@ See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `no
 - Open: `deploy/compose/README.md` has no row for the `bench-model-up` workflow. A follow-up change adds it once the workflow is merged (owner: D; the folder is under the founders' CODEOWNERS).
 - 2026-10-27 (later still), founder (relayed by the user), to D: decided that the founder merges #65 and #66; #65 needs nothing more from D after its merge (it merged at head `c9f4e6c`); #66 touches only the workflow file under `.github/` and `status/UND-02.md`, with the compose README follow-up recorded above as open; `origin/main` is merged into the #66 branch after #65 merged, `status/UND-02.md` resolved by keeping every row from both sides, the checks run once on the final head and are reported on #66; the `bench-model-up` workflow is run only after the founder approves it, following the merge of #66. Used for: this change.
 
+## Model selection (separate PR, the freeze)
+
+Record: `benchmark/decisions/2026-10-27-model-selection.md`. Scope: an initial OpenAI integration; the provider-neutral harness stays; multi-provider support is not complete.
+
+| Date (UTC) | From | To | Purpose | What the receiver used it for |
+|---|---|---|---|---|
+| 2026-10-26 | A | D | Relayed a founder instruction of 26 Oct to clean instruction text from the PR titles and bodies and status files of #64 to #68 | Not applied on that message alone; D replied to A and asked its user. Not yet applied: the status files of #65 and #66 are unchanged |
+| 2026-10-26 | D | A | Reply: no edit to D's branches without the instruction in D's own session; PR titles and bodies are A's | A logged it in `status/OPS-07.md` (A's file; not confirmed by D) |
+| 2026-10-27 | Founder (relayed by the user) | D | Decisions for the model selection: scope (initial OpenAI integration only), the freeze PR first, the candidates, pins, rate cards, hashes, retry policy, gates, decision rule, budget ($25, pilot $2), the Responses API at `reasoning.effort` medium, key handling (`OPENAI_API_KEY` from the environment, `environment: bench-live`), the pilot, the budget guard, the full run after approval, the report; unmatched points decided by D and recorded in the record | The freeze PR (record, gates, tests), then the adapter and live-run pull requests. No live call made |
+| 2026-10-27 (later) | Founder (relayed by the user) | D | Decided: #71 then #73 each take `origin/main` (no rebase, no force-push), keeping every row of `status/UND-02.md`; for README conflicts main's wording stays and the PR's lines are added; the checks run once on each final head, reported with the head SHA and the file list; #73's diff against main is the adapter files, the adapter's README and `status/UND-02.md`; `feat/und-02-live-decider` stays unopened until both are merged; a failed job on main is reported with its first error line and not re-run; the founder merges #71 then #73 | This change |
+
+Open: the pilot and the full run wait for the freeze PR to be merged, for the `bench-live` Environment with its required reviewer, and for the founder's approval on the freeze PR. Not run: no access.
+
+Note (27 Oct): the `mock-case` job on `main` failed once at the #65 merge on `TestMockCaseHistoriesWithoutFaultsAreLinearizable` ("3 operations lost their response with no fault loaded", `synthetic/mock_case/internal/api/linearizability_test.go:421`), in code this work does not touch; one re-run of the failed job passed. The test belongs to Session B.
