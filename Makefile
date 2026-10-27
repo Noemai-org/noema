@@ -87,7 +87,7 @@ bench: bench-venv
 	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite
 	$(BENCH_PY) -m benchmark.runner --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/run --support $(BENCH_RUNNER_ARGS)
 	rm -rf $(BENCH_OUT)/run $(BENCH_OUT)/score
-	$(BENCH_PY) -m benchmark.runner --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/run --run-id $(BENCH_RUN_ID) $(BENCH_RUNNER_ARGS); rc=$$?; \
+	$(BENCH_PY) -m benchmark.runner --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/run --run-id $(BENCH_RUN_ID) --cost-dir $(BENCH_OUT)/cost $(BENCH_RUNNER_ARGS); rc=$$?; \
 	if [ $$rc -eq 3 ]; then echo "make bench: not run, no access (see $(BENCH_OUT)/run/run-manifest.json)"; exit 3; fi; \
 	if [ $$rc -ge 2 ]; then exit $$rc; fi; \
 	$(BENCH_PY) -m benchmark.scoring --cases $(BENCH_OUT)/suite/cases --oracles $(BENCH_OUT)/suite/oracle --results $(BENCH_OUT)/run/results \

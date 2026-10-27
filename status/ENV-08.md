@@ -1,6 +1,10 @@
-# Session 2026-10-21 09:30 WAT · ENV-08
+# Status · ENV-08 · session notes
 
-## Session summary
+Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status). One section per session, newest last; the text of each section is unchanged (headings one level lower). Files merged: `2026-10-21-0930-ENV-08.md`, `2026-10-22-1530-ENV-08b.md`.
+
+## Session 2026-10-21 09:30 WAT · ENV-08
+
+### Session summary
 - What changed (PR links): `synthetic/mock_case/` built (T3 of DEC-2026-10-20); additive rows in `deploy/compose` and `netcheck/matrix.py`; `Makefile` targets `env-mock-case-*`; workflow `mock-case.yml`. PR link: see the PR that carries this file.
 - Why: every POC write targets a case system and Tushe has none (DEC-2026-10-12 D1); REQ-ENV-008 asks for a synthetic one, built by someone other than the builder of `services/core`.
 - Risks, and how they are contained: (1) the compose change touches the shared stack, so mock-case is outside the `dev` profile and `make up` is unchanged; the matrix starts it itself. (2) A new dependency, `github.com/jackc/pgx/v5` v5.8.0, in the mock-case module only (AGENT-14): it needs approval. (3) The Compose runtime path could not be run in this session (no Docker daemon); `docker compose config` validates, and the binary, `db-init.sh` and the credential step were run against a real PostgreSQL by hand.
@@ -9,8 +13,25 @@
 - Debt entries: none written (the docs repository is session A's). Suggested: testcontainers is replaced by a CI service container and a throwaway local server (docker is not available here).
 - Conflicts raised: none blocking. Observations for session A are listed in the PR body under "Needs session A".
 
-## Pre-work for the next agent
+### Pre-work for the next agent
 - Exact next step: this session's list continues with the fault-plan schema (`contracts/schemas/fault-plan.v1.json`), then the hostility proxy (T4 item 7) and the webhook relay (T4 item 8). The fault-plan schema should adopt the operation names, match keys, effects and params in `synthetic/mock_case/README.md`, or `internal/faultplan` changes with it.
 - Open questions (owner): approval of `pgx/v5` (founders, AGENT-14); whether `dev` joins mock-case's profiles now or with the core's case adapter (session A).
 - Files to read first: `synthetic/mock_case/README.md`, `internal/faultplan/plan.go`, `internal/store/migrations/0001_init.sql`, `deploy/compose/services/mock-case.yml`.
 - Do not touch: `services/**`, `benchmark-heldout`, any threshold.
+
+## Session 2026-10-22 15:30 WAT · ENV-08 (follow-up: the five missing case-system effects)
+
+### Session summary
+- What changed (PR links): mock-case produces `NEAR_TIMEOUT_BEFORE`, `NEAR_TIMEOUT_AFTER`, `HTTP_200_SEMANTIC_PENDING`, `IDEMPOTENCY_COLLISION` and `INJECTION_PAYLOAD`; `fault-plan.v1.json` allows them on target `mock-case` (relaxation, migration note in `contracts/INVENTORY.md`).
+- Why: session C's generator marks these effects `needs_fault` because mock-case could not produce them (REQ-ENV-008, REQ-ENV-004, REQ-TST-004).
+- Risks, and how they are contained: the semantics of the near-timeouts, the pending body and the injection text are this session's reading (PR body, "Agent decisions"). Every effect is injected on the real wire; a plan that names one on an operation it cannot apply to is refused, never skipped.
+- Tests added (REQ, INV, US or EC IDs): EC-T09 (both near-timeouts), EC-E03 (pending, three keyed writes), EC-E06 (collision), EC-X02 and AGENT-09 (injection on four reads); plan-loader refusals; schema fixtures (1 valid extended, 5 invalid).
+- Regression cases added: none (new behaviour).
+- Debt entries: none.
+- Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: session C removes the `needs_fault` markers for these five effects once this merges, and renames `creates_case` away (the pending effect takes no params).
+- Open questions (owner): whether the benchmark owner wants a different reading of the near-timeouts (session A / founders).
+- Files to read first: `synthetic/mock_case/README.md` (effects table), `internal/api/pipeline.go`.
+- Do not touch: the stored data path of `INJECTION_PAYLOAD` (it must stay answer-only).
