@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 67a60ec5d1e201d049bd6102835d01456d4fc88e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 05459feaf6b65a30eb4ec7822c13b79d2264fdb1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -275,12 +275,12 @@ All of this section is **working practice**.
 
 **The session file.**
 
-- Write one file per session, in the repository where the work happened:
-  - in the `docs` repository: `docs/poc/execution/sessions/YYYY-MM-DD-HHMM-<task-id>.md`;
-  - in the `noema` repository: `docs/sessions/YYYY-MM-DD-HHMM-<task-id>.md`.
-- Neither folder exists yet. The first session that writes a file creates the folder.
-- Never overwrite another session's file. Parallel agents each write their own.
-- Use this template:
+- Write session notes in the repository where the work happened:
+  - in the `docs` repository: one file per session, `docs/poc/execution/sessions/YYYY-MM-DD-HHMM-<task-id>.md`;
+  - in the `noema` repository: one file per task, `status/<task-id>.md` ([DEC-2026-10-26-session-notes-in-status](docs/decisions/DEC-2026-10-26-session-notes-in-status.md)). Each session adds its own dated section to its task's file, using the template below. The same file carries the task's state and its message log (`status/README.md` in `noema` gives the format).
+- The first session that needs a folder creates it.
+- Never overwrite another session's file or section. Parallel agents each write their own.
+- Use this template (for `status/<task-id>.md`, the heading's date and time make the section; keep the rest):
 
 ```markdown
 # Session <YYYY-MM-DD HH:MM WAT> · <task ID>
