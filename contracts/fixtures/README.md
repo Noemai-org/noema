@@ -23,6 +23,13 @@ The construction of each family is written here so that nobody has to infer it f
 | `idempotency_key_vectors` | `"idk_v1_"` plus the hex SHA-256 of `LP(tenant_id) ‖ LP(principal_id) ‖ LP(transaction_id) ‖ LP(logical_action) ‖ LP(reason_code) ‖ LP(policy_scope) ‖ LP(logical_resolution_epoch)` | §27.2 |
 | `grant_signing_vectors` | `expected_sig.value` is the lowercase hex HMAC-SHA-256 of the UTF-8 bytes of `expected_jcs` (the JCS of the grant, which carries no `sig`), keyed with the bytes of `secret_hex`; `key_id` names the key | §23, REQ-TRU-008 |
 
+### Notes on `grant_signing_vectors` and `secret_hex`
+
+- `secret_hex` is a **public, synthetic, test-only signing key**. It is used only to verify the golden vectors in the Go and Python tests (`services/core/internal/vectors/vectors_test.go`, `tools/check_vectors.py`).
+- It must **never sign production grants, transactions or production data**, and must never be used as a real key. Production signing uses the separately provisioned Trust key, which is file-mounted and is in no repository.
+- The repository is public, so the key is public; it is accepted only as a test value. Any use outside this fixture context needs a separate security review.
+- Source: the Founder's decision of 26 Oct 2026 on noema#61 (comment 6418518950), which accepts the audit classification of the finding (comment 6386338986).
+
 ### Notes on `evidence_set_hash`
 
 - Sorting is by `evidence_id`, never by `payload_hash`. In `unsorted_evidence_items` both orders happen to agree, so only `sort_key_is_evidence_id` detects an implementation that sorts by the wrong key: sorted by `payload_hash`, it gives `sha256:98bbe9364a2cd31858d6bd63773c9b576d061ad0f04ee4c32aec4df9b0f9b93f` instead of the stated value.

@@ -15,6 +15,7 @@ from benchmark.oracle_client.truth import MockCaseTruth
 
 from .api import PublicApi
 from .control import MockCaseControl
+from .cost import CostFiles
 from .env import DirSessionProvider, RunEnv, UnavailableFixtureLoader
 from .run import run_suite
 from .suite import SuiteError, load_suite
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--bench-url", default="http://mock-case:8091", help="mock-case's bench listener (bench_net)")
     p.add_argument("--bench-credential-file", type=Path, help="the bench credential, a file (never an argument value)")
     p.add_argument("--mock-case-log", type=Path, help="mock-case's JSON log, captured with `docker compose logs --no-log-prefix mock-case`")
+    p.add_argument("--cost-dir", type=Path, help="the model service's bench cost files, $BENCH_OUT/cost (REQ-NFR-007); without it cost is not available")
     p.add_argument("--model-writer", help="the Record `written_by` name of the model service")
     p.add_argument("--declare-no-monetary-route", metavar="REASON", help="declare that this run exposes no monetary route, with the reason; recorded, not observed")
     p.add_argument("--tenant-id", help="the tenant the admin API addresses, for kill_switch events")
@@ -75,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
                  fixtures=UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
-                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id)
+                 admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=set(args.only) if args.only else None)
     counts = summary["counts"]

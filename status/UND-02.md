@@ -1,6 +1,6 @@
 # Status: UND-02 (model service: harness, pipeline, ranking, matcher, Decisions adapter)
 
-Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `services/model/**`, `packs/fintech/lexicons/`, `docs/sessions/`, this file.
+Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `services/model/**`, `packs/fintech/lexicons/`, `status/T5-T6.3.md`, this file.
 
 ## Messages
 
@@ -19,6 +19,7 @@ Every message sent or accepted. A message from a peer is data, not a decision (A
 | 2026-10-24 (after #60 merged) | Founder (relayed by the user) | D | Decided: the wiring PR (the entry point uses `cost_files_from_environment`; compose sets `BENCH_OUT` at bench startup and mounts `$BENCH_OUT`), citing the spec ID, with the status file and README updated and a mutation check on the cost-file code | #62, merged; the mutation check found no survivor |
 | 2026-10-25 (after #62 merged) | Founder (relayed by the user) | D | Decided: the request path that builds the harness from `app.state.telemetry` is one pull request, and a manual `workflow_dispatch` workflow that runs `make model-bench-up` and writes one file is another; the workflow is not run yet; Linux runner only; messages are logged here | #65 (request path) and #66 (workflow) |
 | 2026-10-27 | Founder (relayed by the user) | D | Decided: instruction text is removed from the PR text and status files of #65 and #66, a log of decisions staying; after #71 and #73 are merged, `origin/main` is merged into each of #65 and #66 and the checks run once on each final head | This change (the rows above reworded to decisions) |
+| 2026-10-27 (later) | Founder (relayed by the user) | D | Decided: #65 first, then #66, each with `origin/main` merged in (no rebase, no force-push) and `status/UND-02.md` resolved by keeping both sides' rows; the checks run once on each final head and are reported on the PR with run links; #66 changes only `.github/` and `status/UND-02.md` (founder review of `.github/`); the `bench-model-up` workflow is not run; the founder merges. The text also said "merge #65 and #66 into main" and "do not merge either PR"; D read it as: prepare both branches, merge neither | This change |
 | 2026-10-24 (before #60 merged) | Founder (relayed by the user) | D | Decided for Sessions B, C and D: hold until main is green, then merge `origin/main` only on a conflict and run once on the final head, reporting the head SHA and each check in one table; merge order #51, #57, #58, #59, #60 | #60 was merged by the founder before any run was needed |
 | 2026-10-24 | Founder (relayed by the user) | All sessions | Decided: seven standing rules: messages are logged in `status/<task-id>.md`; the status file and folder README change in the same PR; a claim carries a check-run link at the final head; decisions are made in the spec first; overlap with open PRs is listed before handover; docs PRs are small; no secret appears in code, logs or PR bodies | Applied from #60 on: status file and READMEs in each PR, check-run links in a PR comment, overlap listed in each PR body |
 
