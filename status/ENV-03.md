@@ -34,12 +34,12 @@ Derived from PERD v1.16 only: every principal type it names. Lower case, six kin
 
 | kind | Who or what | Where the PERD names it |
 |---|---|---|
-| `customer` | an end user of the enterprise, authenticated by the synthetic IdP | REQ-SEC-001 ("synthetic customers"); the session example `"roles": ["customer"]` (§ Appendix) |
-| `operator` | enterprise staff who work cases | REQ-SEC-001 ("operators"); J9 ("An operator or auditor opens a finished case") |
+| `customer` | an end user of the enterprise, authenticated by the synthetic IdP | REQ-SEC-001 ("synthetic customers"); the benchmark session example `"roles": ["customer"]` (§48) |
+| `operator` | enterprise staff who work cases | REQ-SEC-001 ("operators"); J9, §11 ("An operator or auditor opens a finished case") |
 | `approver` | a person who accepts or declines a confirmation | REQ-SEC-001 ("approvers"); REQ-TRU-009; `approver_principal` in `confirmation_event` (§38.2) |
-| `auditor` | reads the Record and reconstructions (folds in "Auditor or regulator", compliance and engineer audiences) | the user table ("Auditor or regulator (enterprise-side)"); J9; REQ-AUD-003 ("Ops and audit role only"); §30 audit-reconstruction audience |
+| `auditor` | reads the Record and reconstructions (folds in "Auditor or regulator", compliance and engineer audiences) | the §7 user table ("Auditor or regulator (enterprise-side)"); J9; REQ-AUD-003, §32 ("Ops and audit role only"); the §31 audit-reconstruction audience |
 | `admin` | the control plane: policy publish, pack load, kill switch, key rotation | §41.1 identities table, row `admin` (control plane) |
-| `service` | a non-human identity | §41.1: `core-edge`, `core-trust`, `core-execution`, `core-outcome`, `core-record`, `core-evidence`, `core-workflows`, `model-service`, `benchmark-runner`; "per-adapter service identity" (SoT §47.1 as the PERD cites it for the Outcome and Tushe adapters) |
+| `service` | a non-human identity | §41.1: `core-edge`, `core-trust`, `core-execution`, `core-outcome`, `core-record`, `core-evidence`, `core-workflows`, `model-service`, `benchmark-runner`; "per-adapter service identity" (§34) and "Outcome uses its own adapter identity" (§29), both citing SoT §47.1 |
 
 `id` is the stable principal identifier: for the five human kinds the IdP session's `sub`, which is the `principal_id` (examples in the PERD and SoT: `usr_88213`, `usr_synth_014`); for `service` the §41.1 identity name (for example `core-execution`) or the adapter's identity name.
 
