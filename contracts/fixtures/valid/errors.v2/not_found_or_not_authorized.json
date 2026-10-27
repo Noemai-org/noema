@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "NOT_FOUND_OR_NOT_AUTHORIZED",
+    "message": "We could not find that item.",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9"
+  }
+}

@@ -88,6 +88,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `inbound-event.v1.json` | §35.5 | §39.6 | REQ-API-008, REQ-CTX-005 | Smallest envelope the inbox rules need [REC]; payload is data |
 | `noema-resolution.v1.json` | §39 | §39.5 | REQ-API-007 | `verified` true exactly when every listed verdict is `ACHIEVED` and at least one is listed |
 | `errors.v1.json` | — | §39.1 | REQ-API-002 | 34 codes split into 5 retryable and 29 non-retryable (DEC-2026-10-18); no stack traces, no digit runs |
+| `errors.v2.json` | — | §39.1, §27.1 (E10), REQ-EXE-007 | REQ-API-002, REQ-EXE-007 | `errors.v1.json` plus one non-retryable code, `DUPLICATE_CREATE` (35 codes: 5 retryable, 30 non-retryable): a conditional create refused because the target already holds a case for the subject and epoch under another idempotency key. Not `IDEMPOTENCY_CONFLICT`, not `REJECTED_STALE_VERSION` (DEC-2026-10-27-record-event-v2, D6) |
 
 Not defined, for want of a field list in the PERD or SoT: the explanation render result (`text`, `claims[]`, REQ-EXP-001), the action graph (SoT §43.9), the operational memory record, and the integration (adapter) contract and scenario/evaluation case of SoT §43.10. Each needs a decision before a schema.
 

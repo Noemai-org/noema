@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/errors.v2.json",
+  "title": "Error envelope and catalogue (v2)",
+  "description": "v2: errors.v1.json plus one code, DUPLICATE_CREATE (non-retryable): a create that is conditional on absence was refused because the target already holds a case for the same subject and epoch, made under another idempotency key (mock-case answers 412 PRECONDITION_FAILED). It is not IDEMPOTENCY_CONFLICT (the same key with another payload), not REJECTED_STALE_VERSION (a version token that moved) and not a duplicate of the same key (that is an acknowledgement, PERD REQ-EXE-007). Decision record: DEC-2026-10-27-record-event-v2 (D6). errors.v1.json is unchanged. PERD §39.1 and REQ-API-002: the error shape everywhere, with the code catalogue. Messages are safe text: no PII, stack trace, policy threshold or another principal's data, and no run of five or more digits. Not-found and not-authorised are one code (NOT_FOUND_OR_NOT_AUTHORIZED) so they cannot be told apart. Retryability is a property of the code, never inferred from an HTTP status, and a retryable transport error never overrides a capability's retry-safety class: a write is retried only under a new grant. An error is retryable only if sending the identical request again can succeed with no change by the caller (transient: unavailable, timeout, rate-limited, dependency down); every decision or reason code, every validation error and every authorization error is non-retryable (DEC-2026-10-18, PERD §39.1). RetryableErrorCode and NonRetryableErrorCode partition ErrorCode; tools/contracts/test_gap_closure.py checks that.",
+  "$defs": {
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "INPUT_INVALID",
+        "SCHEMA_INVALID",
+        "UNKNOWN_ENUM_VALUE",
+        "SESSION_INVALID",
+        "UNAUTHENTICATED",
+        "NOT_FOUND_OR_NOT_AUTHORIZED",
+        "TENANT_SCOPE_MISMATCH",
+        "REQUEST_ID_REUSED",
+        "AMBIGUOUS_TARGET",
+        "STALE_CANDIDATE_SET",
+        "EVIDENCE_UNAVAILABLE",
+        "EVIDENCE_STALE",
+        "CONTRADICTORY_STATE",
+        "POLICY_STALE",
+        "GRANT_INVALID",
+        "GRANT_EXPIRED",
+        "GRANT_ALREADY_SPENT",
+        "CONFIRMATION_EXPIRED",
+        "CONFIRMATION_BINDING_MISMATCH",
+        "APPROVER_NOT_ELIGIBLE",
+        "CAPABILITY_PROHIBITED",
+        "CAPABILITY_NOT_REGISTERED",
+        "IDEMPOTENCY_CONFLICT",
+        "DUPLICATE_CREATE",
+        "REJECTED_STALE_VERSION",
+        "TARGET_RATE_LIMITED",
+        "TARGET_TIMEOUT",
+        "OUTCOME_UNKNOWN",
+        "POSTCONDITION_UNVERIFIED",
+        "RECORD_INTEGRITY_FAILURE",
+        "WRITES_DISABLED",
+        "PROVIDER_UNAVAILABLE",
+        "DEPENDENCY_UNAVAILABLE",
+        "CALLBACK_DELIVERY_FAILED",
+        "INTERNAL_SAFETY_BLOCK"
+      ]
+    },
+    "ErrorBody": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "correlation_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "issue": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+              }
+            },
+            "required": [
+              "field",
+              "issue"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/RetryableErrorCode"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "retryable": {
+            "const": true
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "retryable": {
+            "const": false
+          }
+        }
+      }
+    },
+    "ErrorEnvelope": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "RetryableErrorCode": {
+      "description": "Retryable only if sending the identical request again can succeed with no change by the caller (transient: unavailable, timeout, rate-limited, dependency down).",
+      "type": "string",
+      "enum": [
+        "EVIDENCE_UNAVAILABLE",
+        "TARGET_RATE_LIMITED",
+        "TARGET_TIMEOUT",
+        "PROVIDER_UNAVAILABLE",
+        "DEPENDENCY_UNAVAILABLE"
+      ]
+    },
+    "NonRetryableErrorCode": {
+      "description": "Every decision or reason code, every validation error and every authorization error, and every other code. The identical request would fail the same way, or the caller must change something first.",
+      "type": "string",
+      "enum": [
+        "INPUT_INVALID",
+        "SCHEMA_INVALID",
+        "UNKNOWN_ENUM_VALUE",
+        "SESSION_INVALID",
+        "UNAUTHENTICATED",
+        "NOT_FOUND_OR_NOT_AUTHORIZED",
+        "TENANT_SCOPE_MISMATCH",
+        "REQUEST_ID_REUSED",
+        "AMBIGUOUS_TARGET",
+        "STALE_CANDIDATE_SET",
+        "EVIDENCE_STALE",
+        "CONTRADICTORY_STATE",
+        "POLICY_STALE",
+        "GRANT_INVALID",
+        "GRANT_EXPIRED",
+        "GRANT_ALREADY_SPENT",
+        "CONFIRMATION_EXPIRED",
+        "CONFIRMATION_BINDING_MISMATCH",
+        "APPROVER_NOT_ELIGIBLE",
+        "CAPABILITY_PROHIBITED",
+        "CAPABILITY_NOT_REGISTERED",
+        "IDEMPOTENCY_CONFLICT",
+        "DUPLICATE_CREATE",
+        "REJECTED_STALE_VERSION",
+        "OUTCOME_UNKNOWN",
+        "POSTCONDITION_UNVERIFIED",
+        "RECORD_INTEGRITY_FAILURE",
+        "WRITES_DISABLED",
+        "CALLBACK_DELIVERY_FAILED",
+        "INTERNAL_SAFETY_BLOCK"
+      ]
+    }
+  },
+  "$ref": "#/$defs/ErrorEnvelope"
+}

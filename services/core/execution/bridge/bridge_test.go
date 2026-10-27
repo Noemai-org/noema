@@ -94,11 +94,11 @@ func TestKeyCollisionCrossesTheBridge(t *testing.T) {
 func TestEveryAdapterClassIsAControllerClass(t *testing.T) {
 	known := map[controller.TransportClass]bool{}
 	for _, c := range []controller.TransportClass{controller.TransportAck2xx, controller.TransportVersionConflict, controller.TransportDuplicate409,
-		controller.TransportRejected4xx, controller.TransportTimeout, controller.TransportConnectionReset, controller.TransportServer5xx,
+		controller.TransportDuplicateCreate, controller.TransportRejected4xx, controller.TransportTimeout, controller.TransportConnectionReset, controller.TransportServer5xx,
 		controller.TransportNoResponse, controller.TransportDefect} {
 		known[c] = true
 	}
-	for _, c := range []adapters.TransportClass{adapters.ClassAck2xx, adapters.ClassVersionConflict, adapters.ClassDuplicate409, adapters.ClassRejected4xx,
+	for _, c := range []adapters.TransportClass{adapters.ClassAck2xx, adapters.ClassVersionConflict, adapters.ClassDuplicate409, adapters.ClassDuplicateCreate, adapters.ClassRejected4xx,
 		adapters.ClassTimeout, adapters.ClassConnectionReset, adapters.ClassServer5xx, adapters.ClassNoResponse, adapters.ClassDefect} {
 		r := &recorder{write: adapters.WriteResult{Class: c}}
 		got := bridge.CaseDispatcher{Case: r}.Dispatch(context.Background(), createReq())
