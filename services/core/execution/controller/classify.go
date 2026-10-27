@@ -6,6 +6,7 @@ package controller
 //	409 or 412 version mismatch         -> REJECTED_STALE_VERSION
 //	409 duplicate, same key             -> ACKNOWLEDGED, the ack is the existing reference
 //	4xx validation or business reject   -> REJECTED_BY_TARGET
+//	create refused, subject already has a case (DUPLICATE_CREATE) -> REJECTED_BY_TARGET (a business rejection, not a stale version)
 //	timeout, reset, 5xx, no response    -> OUTCOME_UNKNOWN
 //	adapter-detected non-retryable defect -> FAILED_TERMINAL
 //
@@ -20,7 +21,7 @@ func Classify(r TransportResult) ExecutionState {
 		return StateAcknowledged
 	case TransportVersionConflict:
 		return StateRejectedStaleVersion
-	case TransportRejected4xx:
+	case TransportRejected4xx, TransportDuplicateCreate:
 		return StateRejectedByTarget
 	case TransportDefect:
 		return StateFailedTerminal

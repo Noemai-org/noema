@@ -24,6 +24,9 @@ const (
 	ClassAck2xx          TransportClass = "ACK_2XX"
 	ClassVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	ClassDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
+	// ClassDuplicateCreate: the target refused a create conditional on absence because it already holds a case for the
+	// subject and epoch under another key (mock-case: 412 PRECONDITION_FAILED). Same string as the error code DUPLICATE_CREATE.
+	ClassDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	ClassRejected4xx     TransportClass = "REJECTED_4XX"
 	ClassTimeout         TransportClass = "TIMEOUT"
 	ClassConnectionReset TransportClass = "CONNECTION_RESET"
