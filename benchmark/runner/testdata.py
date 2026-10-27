@@ -13,6 +13,7 @@ Json = dict[str, Any]
 USER_TOKEN = "user-session-token"
 ADMIN_TOKEN = "admin-credential"
 CORRELATION = "corr_synth0001"
+EMPTY_PAYLOAD_HASH = "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"  # the hash of {}: an event that refers to no object (PERD 32.1)
 
 
 SECTIONS = ("WHO", "REQUEST", "AMBIGUITY", "RESOLUTION", "OBSERVED_STATE", "POLICY", "AUTHORITY", "DECISION", "ACTION", "DOWNSTREAM_RESULT", "VERIFICATION", "EXPLANATION")
@@ -21,13 +22,14 @@ SECTIONS = ("WHO", "REQUEST", "AMBIGUITY", "RESOLUTION", "OBSERVED_STATE", "POLI
 def reconstruction(disposition: str = "ALLOW", *, writes: list[tuple[str, str]] | None = None, claims: list[Json] | None = None, events: list[str] | None = None,
                    resolved_target: str | None = None, classification: str | None = None, clarification_asked: bool | None = None, grant: str = "VALID",
                    verdict: str = "ACHIEVED", disclosed_refs: list[str] | None = None, explicit_targets: bool = False) -> Json:
-    """A body of GET /v1/reconstructions/{correlation_id} in the shape of contracts/schemas/reconstruction.v1.json (twelve sections, in order).
+    """A body of GET /v1/reconstructions/{correlation_id} in the shape of contracts/schemas/reconstruction.v2.json (twelve sections, in order).
     `writes` are (capability, target) pairs; the target is the resolved target unless `explicit_targets` puts it on the action (an optional fact)."""
     types = events or ["INPUT_RECEIVED", "DECISION_MADE"]
     ids = [f"recev_{1000 + i}" for i in range(len(types))]
     hashes = ["sha256:" + f"{i + 1:064x}" for i in range(len(types) + 1)]
-    record = [{"schema_version": "1.0", "tenant_id": "ten_synth", "correlation_id": CORRELATION, "event_id": ids[i], "prev_hash": hashes[i], "hash": hashes[i + 1],
-               "written_by": "TRUST", "event_type": t, "object_ref": f"obj_{i:04d}", "at": "2026-10-01T09:48:00Z"} for i, t in enumerate(types)]
+    record = [{"schema_version": "2.0", "tenant_id": "ten_synth", "correlation_id": CORRELATION, "event_id": ids[i], "seq": i + 1, "prev_hash": hashes[i], "hash": hashes[i + 1],
+               "written_by": "TRUST", "actor": "TRUST", "event_type": t, "object_ref": f"obj_{i:04d}", "payload_hash": EMPTY_PAYLOAD_HASH,
+               "at": "2026-10-01T09:48:00Z"} for i, t in enumerate(types)]
     target = resolved_target if resolved_target is not None else (writes[0][1] if writes else None)
 
     def item(i: int, facts: Json, basis: str = "RULE") -> Json:

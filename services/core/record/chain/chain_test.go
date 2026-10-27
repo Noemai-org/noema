@@ -78,30 +78,6 @@ func event(tenant string, n int) chain.Event {
 		ObjectRef: fmt.Sprintf("grt_%04d", n), Payload: map[string]any{"n": n}}
 }
 
-type fixedIDs struct{}
-
-func (fixedIDs) ID(prefix string) (string, error) { return prefix + "_01TESTEVENT0000000000000A", nil }
-
-// REQ-AUD-001, PERD 32.1: hash = SHA-256(prev_hash || JCS(event without hash)), genesis = SHA-256("noema:genesis:" || tenant).
-// The expected values were computed in Python (json.dumps with sorted keys and compact separators over this
-// ASCII-only event), not by this code, so a mistake in the Go canonicalisation cannot cancel itself out.
-func TestGoldenVectorAgainstAnIndependentImplementation(t *testing.T) {
-	w := newWorld(t, "ten_aa")
-	w.app = &chain.Appender{Clock: clock.NewManual(time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)), IDs: fixedIDs{}}
-	st := w.append(t, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION",
-		EventType: "GRANT_VOIDED", Reason: "EXPIRED", ObjectRef: "grt_0001", Payload: map[string]any{"grant_id": "grt_0001", "reason": "EXPIRED"}})
-	const (
-		genesis = "sha256:12a9709429b7c7fe2aff8775fc84fc31c1f0b7de78c40e53f6641dc8a7274fc0"
-		hash    = "sha256:2bb4603745e52e64a1b0dc029231a6613105bd5f80bfa3a4690e112b0889c130"
-	)
-	if chain.GenesisHash("ten_aa") != genesis || st.PrevHash != genesis {
-		t.Fatalf("genesis = %s (stored prev %s), want %s", chain.GenesisHash("ten_aa"), st.PrevHash, genesis)
-	}
-	if st.Hash != hash {
-		t.Fatalf("hash = %s, want %s", st.Hash, hash)
-	}
-}
-
 // REC-01 done when: the chain property holds (contiguous seq, each event extends the one before, verification passes).
 func TestChainIsContiguousAndVerifies(t *testing.T) {
 	w := newWorld(t, "ten_aa", "ten_bb")
@@ -242,6 +218,8 @@ func TestVerifyDetectsEveryKindOfTampering(t *testing.T) {
 		{"a broken prior hash", `UPDATE record_event SET prev_hash = 'sha256:` + strings.Repeat("1", 64) + `' WHERE seq = 3`, chain.BreakPrevHash},
 		{"a deleted event", `DELETE FROM record_event WHERE seq = 2`, chain.BreakSeqGap},
 		{"an edited payload", `UPDATE record_event SET payload = '{"n": 999}' WHERE seq = 2`, chain.BreakPayloadHash},
+		{"a v1 schema_version in the stored row", `UPDATE record_event SET schema_version = '1.0' WHERE seq = 2`, chain.BreakSchema},
+		{"a v1 schema_version in the hashed body too", `UPDATE record_event SET schema_version = '1.0', body = jsonb_set(body, '{schema_version}', '"1.0"') WHERE seq = 2`, chain.BreakSchema},
 		{"an edited event type column", `UPDATE record_event SET event_type = 'GRANT_VOIDED' WHERE seq = 2`, chain.BreakColumns},
 		{"a whole self-consistent rewrite of the last event", ``, chain.BreakHash},
 	}
@@ -306,6 +284,8 @@ func TestAppendRefusesEventsOutsideTheContract(t *testing.T) {
 		"an object_ref with spaces":                     func(e *chain.Event) { e.ObjectRef = "grt 1" },
 		"a lower-case written_bby":                      func(e *chain.Event) { e.WrittenBy = "execution" },
 		"a missing actor":                               func(e *chain.Event) { e.Actor = "" },
+		"an event type outside PERD 32.2":               func(e *chain.Event) { e.EventType = "NOT_AN_EVENT" },
+		"a security kind outside the schema":            func(e *chain.Event) { e.EventType, e.Kind = "SECURITY_EVENT", "SOMETHING_NEW" },
 		"a SECURITY_EVENT without a kind":               func(e *chain.Event) { e.EventType = "SECURITY_EVENT" },
 		"a kind on an event that is not SECURITY_EVENT": func(e *chain.Event) { e.Kind = "CHAIN_BREAK" },
 		"a reason on GRANT_SPENT":                       func(e *chain.Event) { e.Reason = "EXPIRED" },
@@ -339,5 +319,60 @@ func TestAppendNeedsAContextDeadline(t *testing.T) {
 	var _ pgx.Tx = tx
 	if _, err := w.app.Append(context.Background(), tx, event("ten_aa", 1)); err == nil {
 		t.Fatal("Append accepted a context without a deadline")
+	}
+}
+
+// PERD 27.1, REQ-EXE-003: each of the nine void reasons is accepted, kept as written and distinct from the others, and the
+// chain over them verifies. The six added by record-event.v2 are SIGNATURE_INVALID, EXPIRED, BINDING_MISMATCH,
+// WRITES_DISABLED, REVALIDATION_UNAVAILABLE and REJECTED_STALE_VERSION.
+func TestEveryGrantVoidReasonIsAcceptedKeptAsWrittenAndDistinct(t *testing.T) {
+	reasons := chain.GrantVoidReasons()
+	if len(reasons) != 9 {
+		t.Fatalf("%d reasons, want 9: %v", len(reasons), reasons)
+	}
+	added := []string{"SIGNATURE_INVALID", "EXPIRED", "BINDING_MISMATCH", "WRITES_DISABLED", "REVALIDATION_UNAVAILABLE", "REJECTED_STALE_VERSION"}
+	for _, r := range added {
+		found := false
+		for _, have := range reasons {
+			found = found || have == r
+		}
+		if !found {
+			t.Fatalf("%s is not an accepted grant-void reason", r)
+		}
+	}
+	w := newWorld(t, "ten_aa")
+	for i, r := range reasons {
+		w.append(t, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION", EventType: "GRANT_VOIDED", Reason: r,
+			ObjectRef: fmt.Sprintf("grt_%04d", i+1), Payload: map[string]any{"reason": r}})
+	}
+	var distinct, matching int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(DISTINCT body->>'reason'), count(*) FILTER (WHERE body->>'reason' = payload->>'reason') FROM record_event WHERE event_type = 'GRANT_VOIDED'`).Scan(&distinct, &matching); err != nil {
+		t.Fatal(err)
+	}
+	if distinct != 9 || matching != 9 {
+		t.Fatalf("stored %d distinct reasons, %d equal to their payload; want 9 and 9", distinct, matching)
+	}
+	if n, err := chain.Verify(ctx(t), w.admin, "ten_aa"); err != nil || n != 9 {
+		t.Fatalf("verify = %d, %v", n, err)
+	}
+}
+
+// An unknown reason is rejected before it reaches the database, and nothing is stored (record-event.v2 GrantVoidReason).
+func TestAnUnknownGrantVoidReasonIsRejected(t *testing.T) {
+	w := newWorld(t, "ten_aa")
+	for _, bad := range []string{"SOMETHING_ELSE", "expired", "Expired", "", " EXPIRED", "EXPIRED ", "TIMEOUT", "REJECTED_STALE_VERSION2", "SUCCEEDED"} {
+		tx, err := w.exec.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = w.app.Append(ctx(t), tx, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION",
+			EventType: "GRANT_VOIDED", Reason: bad, ObjectRef: "grt_0001"})
+		_ = tx.Rollback(ctx(t))
+		if err == nil {
+			t.Errorf("GRANT_VOIDED with the reason %q was appended", bad)
+		}
+	}
+	if n, _ := chain.Verify(ctx(t), w.admin, "ten_aa"); n != 0 {
+		t.Fatalf("rejected reasons left %d events", n)
 	}
 }

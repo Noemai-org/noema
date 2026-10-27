@@ -21,6 +21,7 @@ const (
 	BreakHash        BreakKind = "HASH"         // the stored hash is not the hash of the stored event
 	BreakColumns     BreakKind = "COLUMNS"      // a projection column differs from the hashed event
 	BreakPayloadHash BreakKind = "PAYLOAD_HASH" // the stored payload is not the object payload_hash commits to
+	BreakSchema      BreakKind = "SCHEMA"       // the event is not a record-event.v2 event (its schema_version is not the one this verifier checks)
 )
 
 // BreakError is the first break found. Verification stops there.
@@ -46,7 +47,7 @@ type Queryer interface {
 // calls this; it reads only and never repairs.
 func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 	rows, err := q.Query(ctx, `SELECT seq, event_id, prev_hash, hash, written_by, event_type, object_ref, payload_hash,
-		correlation_id, body::text, payload::text FROM record_event WHERE tenant_id = $1 ORDER BY seq`, tenantID)
+		correlation_id, schema_version, body::text, payload::text FROM record_event WHERE tenant_id = $1 ORDER BY seq`, tenantID)
 	if err != nil {
 		return 0, fmt.Errorf("%sread chain: %w", errPrefix, err)
 	}
@@ -55,9 +56,9 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 	var want, checked int64 = 1, 0
 	for rows.Next() {
 		var seq int64
-		var eventID, prevHash, hash, writtenBy, eventType, objectRef, payloadHash, correlation, bodyText string
+		var eventID, prevHash, hash, writtenBy, eventType, objectRef, payloadHash, correlation, schemaVersion, bodyText string
 		var payloadText *string
-		if err := rows.Scan(&seq, &eventID, &prevHash, &hash, &writtenBy, &eventType, &objectRef, &payloadHash, &correlation, &bodyText, &payloadText); err != nil {
+		if err := rows.Scan(&seq, &eventID, &prevHash, &hash, &writtenBy, &eventType, &objectRef, &payloadHash, &correlation, &schemaVersion, &bodyText, &payloadText); err != nil {
 			return checked, fmt.Errorf("%sscan: %w", errPrefix, err)
 		}
 		brk := func(k BreakKind, d string) error {
@@ -74,6 +75,9 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 		dec.UseNumber()
 		if err := dec.Decode(&body); err != nil {
 			return checked, brk(BreakHash, "the stored body is not JSON")
+		}
+		if schemaVersion != SchemaVersion || body["schema_version"] != SchemaVersion {
+			return checked, brk(BreakSchema, "schema_version is not "+SchemaVersion)
 		}
 		for k, v := range map[string]string{"event_id": eventID, "prev_hash": prevHash, "written_by": writtenBy, "event_type": eventType,
 			"object_ref": objectRef, "payload_hash": payloadHash, "correlation_id": correlation, "tenant_id": tenantID} {

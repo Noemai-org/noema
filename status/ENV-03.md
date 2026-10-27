@@ -1,6 +1,6 @@
 # Status · ENV-03 (Session A) · Go adapter interfaces
 
-Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). First slice: the case adapter (merged, noema#67). Second slice: the first end-to-end case (this file's last section).
+Updated 2026-10-27 (second update). Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). First slice: the case adapter (merged, noema#67). Second slice: the first end-to-end case (this file's last section).
 
 ## State
 
@@ -29,6 +29,11 @@ Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Fi
 - Evidence: the pull request of the branch `sa/g2-escalate-case`.
 
 
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: the three-part instruction summarised in `status/CON-01.md` (record-event v2; create-if-absent in mock-case; merge main into #77). Part 3 concerns this task: #77 was merged before the instruction arrived, so there is no open #77 to update; the writers, readers and verifiers it introduced are on `main` and PR 1 updates them.
+- Used it for: PR 1 (contract, includes the changes to `record/chain`, `execution/ledger` tests and the benchmark reader); PR 2 (mock-case).
+- Evidence: the PR 1 pull request.
+
 # Session 2026-10-27 13:35 WAT · ENV-03
 
 ## Session summary
@@ -38,7 +43,7 @@ Updated 2026-10-27. Plan task ENV-03 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Fi
 - Tests added (REQ, INV, US or EC IDs): `platform/db` (REQ-DATA-001: role matrix, immutability, single use), `record/chain` (REQ-AUD-001, EC-E16: golden vector from Python, tamper kinds, concurrency), `execution/ledger` (REQ-EXE-001, -002, -006, -008, EC-E06, EC-E09, EC-E16: 100 concurrent executes, crash and sweep, failed append), `execution/bridge` (REQ-EXE-003, -004, -006, -007, REQ-CAP-002), `workflows` (D8, INV-30), `execution/e2e` (the G2 case, US-19 style stale-token void, case dedupe, kill switch). Each guard was checked by deliberately breaking it; two mutants survived as equivalent (the SERIALIZABLE level and an `ON CONFLICT` target, both backed by unique constraints and row locks).
 - Regression cases added: the above; no bug fix in this session.
 - Debt entries (to file in `docs/poc/execution/debt.md`, docs repository): (a) `tenant_id` is on every row and every query is tenant-scoped, but a repository-layer test that proves it (REQ-SEC-004) is not written; (b) the sweeper writes a receipt for every unreceipted attempt it sees; an age threshold so that it does not race a dispatch in flight is configuration (REQ-OPS-003) and is not built; (c) the transport faults between E7 and E9 against the live mock-case (dropped response, concurrent modification) are covered by recordings made with real FaultPlans, not by a live run, because the fault-plan client lives in the benchmark runner; (d) the other PERD §38.2 tables and `db_schema.md` (generated) are not built.
-- Conflicts raised: two, below.
+- Conflicts raised: two, below. Both are resolved by DEC-2026-10-27-record-event-v2 and the pull request `sa/record-event-v2` (record-event.v2, nine grant-void reasons).
 
 CONFLICT DETECTED
 Affected IDs: INV-11, REQ-AUD-001, AGENT-15; PERD §32.1 (REC); `contracts/schemas/record-event.v1.json`

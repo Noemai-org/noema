@@ -4,20 +4,22 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-VALID = ROOT / "contracts" / "fixtures" / "valid" / "reconstruction"
+VALID_DIRS = [ROOT / "contracts" / "fixtures" / "valid" / "reconstruction", ROOT / "contracts" / "fixtures" / "valid" / "reconstruction.v2"]
 SCHEMA = json.loads((ROOT / "contracts" / "schemas" / "reconstruction.v1.json").read_text())
+SCHEMAS = [SCHEMA, json.loads((ROOT / "contracts" / "schemas" / "reconstruction.v2.json").read_text())]
 ORDER = ["WHO", "REQUEST", "AMBIGUITY", "RESOLUTION", "OBSERVED_STATE", "POLICY", "AUTHORITY", "DECISION", "ACTION",
          "DOWNSTREAM_RESULT", "VERIFICATION", "EXPLANATION"]
 
 
 def bodies():
-    return [(p.name, json.loads(p.read_text())) for p in sorted(VALID.glob("*.json"))]
+    return [(f"{d.name}/{p.name}", json.loads(p.read_text())) for d in VALID_DIRS for p in sorted(d.glob("*.json"))]
 
 
 class Reconstruction(unittest.TestCase):
     def test_the_order_in_the_schema_is_the_order_of_the_perd(self):
-        kinds = [e["allOf"][1]["properties"]["kind"]["const"] for e in SCHEMA["properties"]["sections"]["prefixItems"]]
-        self.assertEqual(kinds, ORDER)
+        for schema in SCHEMAS:
+            kinds = [e["allOf"][1]["properties"]["kind"]["const"] for e in schema["properties"]["sections"]["prefixItems"]]
+            self.assertEqual(kinds, ORDER, schema["$id"])
 
     def test_every_item_and_timeline_entry_cites_an_event_that_is_in_the_body(self):
         for name, body in bodies():
@@ -55,8 +57,10 @@ class Reconstruction(unittest.TestCase):
                 for v in node:
                     walk(v)
 
-        walk(SCHEMA)
-        self.assertFalse([n for n in names if "cost" in n], names)
+        for schema in SCHEMAS:
+            names.clear()
+            walk(schema)
+            self.assertFalse([n for n in names if "cost" in n], names)
 
 
 if __name__ == "__main__":

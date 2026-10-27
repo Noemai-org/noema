@@ -78,17 +78,22 @@ func (f *fakeTarget) count() int {
 
 // stand-ins for the parts of Trust and Evidence that are not built: they read what the test planted.
 type binder struct {
-	l      *ledger.Ledger
-	params map[string]any
-	fields controller.KeyFields
-	onE6   func()
+	l          *ledger.Ledger
+	params     map[string]any
+	fields     controller.KeyFields
+	onE6       func()
+	intentHash string // when set, the latest admitted intent has this hash instead of the grant's
+	denied     bool   // the decision's policy is no longer active
 }
 
 func (b *binder) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
+	if b.intentHash != "" {
+		return b.intentHash, nil
+	}
 	return g.IntentHash, nil
 }
 func (b *binder) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
-	return true, nil
+	return !b.denied, nil
 }
 func (b *binder) Plan(_ context.Context, g controller.Grant) (controller.PlanStep, error) {
 	return controller.PlanStep{PlanHash: g.PlanHash, Step: g.PlanStep, CapabilityID: g.CapabilityID, Registered: true, AdapterExists: true,
@@ -102,9 +107,15 @@ func (b *binder) WritesEnabled(ctx context.Context, tenantID string) (bool, erro
 	return ok, err
 }
 
-type reval struct{ pass bool }
+type reval struct {
+	pass bool
+	err  error
+}
 
 func (r reval) Revalidate(context.Context, controller.Grant, controller.PlanStep) (controller.Revalidation, error) {
+	if r.err != nil {
+		return controller.Revalidation{}, r.err
+	}
 	return controller.Revalidation{Passed: r.pass, ChangedFacts: []string{"case_status"}}, nil
 }
 
