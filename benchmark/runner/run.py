@@ -123,7 +123,7 @@ def _execute(env: RunEnv, lc: LoadedCase) -> Json:
     return {
         "run_id": env.run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "COMPLETED", "error": None,
         "observed": parsed.observed, "environment": environment, "path": _path(parsed.observed, split.mock_case is not None or lc.plan is not None),
-        "latency_ms": max(0, int((env.now() - started) * 1000)), "cost_usd_micros": parsed.cost_usd_micros,
+        "latency_ms": max(0, int((env.now() - started) * 1000)), "cost_usd_micros": env.costs.cost_usd_micros(conv.correlation_id),
         "outcome_digest": _digest(parsed.observed, environment),
     }
 
