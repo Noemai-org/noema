@@ -1,7 +1,7 @@
 """The runner reads provider cost from the model service's bench cost files (REQ-NFR-007; noema#62). SYNTHETIC records.
 
 The file layout is the service's own: `$BENCH_OUT/cost/<correlation_id>-<NNN>.json`, each the JSON of `CallRecord.to_dict()`
-(services/model/noema_model/harness/accounting.py), with the correlation id's characters outside A-Z a-z 0-9 _ - replaced by `_` and cut to 128.
+(services/model/noema_model/harness/accounting.py), and an exact name: an id with a character outside A-Z a-z 0-9 _ - is refused, never rewritten or cut; NNN is 001 to 999.
 The runner does not import services/**: these records are written by hand to that shape. A cost that is not known is null, never zero or a guess."""
 import json
 import tempfile
@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from benchmark.runner.cost import CostFiles
+from benchmark.runner.cost import MAX_CORRELATION_ID_LENGTH, CostFiles
 
 Json = dict[str, Any]
 
@@ -62,14 +62,41 @@ class Reader(unittest.TestCase):
         self.assertEqual(self.costs.cost_usd_micros("corr_1"), 1200)
         self.assertEqual(self.costs.cost_usd_micros("corr_1-001"), 777)
 
-    def test_the_file_name_follows_the_writers_rule_for_odd_ids(self) -> None:
-        self.put("a_b_c-001.json", record(5))
-        self.assertEqual(self.costs.cost_usd_micros("a/b c"), 5)
-        long_id = "x" * 300
-        self.put("x" * 128 + "-001.json", record(6))
-        self.assertEqual(self.costs.cost_usd_micros(long_id), 6)
-        self.put("call-001.json", record(7))
-        self.assertEqual(self.costs.cost_usd_micros(""), 7)
+    def test_an_id_with_a_character_outside_the_allowed_set_has_no_file_and_is_not_normalised(self) -> None:
+        """Decided: only [A-Za-z0-9_-]. The producer refuses such an id, so the reader never maps it to another id's file."""
+        self.put("a_b-001.json", record(5))
+        self.put("escape-001.json", record(6))
+        for bad in ("a/b", "a b", "a.b", "../escape", "é", "a\x00b", "a\nb", ""):
+            self.assertIsNone(self.costs.cost_usd_micros(bad), repr(bad))
+        self.assertEqual(self.costs.cost_usd_micros("a_b"), 5)
+
+    def test_an_id_over_the_file_system_limit_is_not_cut(self) -> None:
+        longest = "y" * MAX_CORRELATION_ID_LENGTH
+        self.put(f"{longest}-001.json", record(8))
+        self.assertEqual(self.costs.cost_usd_micros(longest), 8)
+        self.put("x" * 128 + "-001.json", record(9))
+        self.assertIsNone(self.costs.cost_usd_micros("x" * 300), "an over-long id is refused, not cut to 128 and matched to another id's file")
+        self.assertIsNone(self.costs.cost_usd_micros("y" * (MAX_CORRELATION_ID_LENGTH + 1)))
+
+    def test_ids_that_differ_after_a_long_prefix_read_their_own_files(self) -> None:
+        one, two = "x" * 130 + "1", "x" * 130 + "2"
+        self.put(f"{one}-001.json", record(1))
+        self.put(f"{two}-001.json", record(2))
+        self.assertEqual((self.costs.cost_usd_micros(one), self.costs.cost_usd_micros(two)), (1, 2))
+
+    def test_a_sequence_outside_001_to_999_makes_the_case_not_available(self) -> None:
+        """The producer writes 001 to 999 and refuses the 1000th. A file with another sequence is not its output."""
+        for name in ("corr_1-000.json", "corr_1-1000.json", "corr_1-01.json", "corr_1-0001.json"):
+            self.put("corr_1-001.json", record(1))
+            self.put(name, record(2))
+            self.assertIsNone(self.costs.cost_usd_micros("corr_1"), name)
+            (self.root / "cost" / name).unlink()
+        self.assertEqual(self.costs.cost_usd_micros("corr_1"), 1)
+
+    def test_all_999_calls_are_summed(self) -> None:
+        for n in range(1, 1000):
+            self.put(f"corr_1-{n:03d}.json", record(1))
+        self.assertEqual(self.costs.cost_usd_micros("corr_1"), 999)
 
     def test_an_id_cannot_reach_outside_the_directory(self) -> None:
         (self.root / "secret-001.json").write_text(json.dumps(record(1)))
