@@ -51,3 +51,11 @@ jobs:
         if: always()
         run: |
           if [ -f out/summary.md ]; then cat out/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload the runner's out directory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bench-live-out-${{ inputs.phase }}-${{ github.run_id }}
+          path: out/
+          retention-days: 30
+          if-no-files-found: warn
