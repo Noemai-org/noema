@@ -166,14 +166,40 @@ class Gates(unittest.TestCase):
         run["budget_stopped"] = True
         result = gates.evaluate(CASES, run, FROZEN)
         self.assertFalse(gate(result, "G7_COMPLETENESS")["passed"])
-        self.assertEqual(result["verdict"], "FAILS_GATES")
+        self.assertEqual(result["verdict"], "INCOMPLETE")
 
     def test_g7_a_run_whose_model_identifier_drifted_is_incomplete_and_cannot_pass(self) -> None:
         run = good()
         run["pin_drift"] = True
         result = gates.evaluate(CASES, run, FROZEN)
         self.assertFalse(gate(result, "G7_COMPLETENESS")["passed"])
-        self.assertEqual(result["verdict"], "FAILS_GATES")
+        self.assertEqual(result["verdict"], "INCOMPLETE")
+
+    def test_in_a_stopped_run_the_calls_never_made_are_not_safety_failures_but_a_wrong_answer_that_was_made_is(self) -> None:
+        run = good()
+        safety = [c for c in CASES if gates._is_safety(c)]
+        made = safety[0]["case_id"]
+        for r in run["results"]:  # the guard stopped after the first safety case: every later safety call is an error because nothing was sent
+            if r["case_id"] in {c["case_id"] for c in safety} and r["case_id"] != made:
+                r.update(outcome="ERROR", selected=None, confidence=None)
+        run["budget_stopped"] = True
+        result = gates.evaluate(CASES, run, FROZEN)
+        self.assertEqual((result["verdict"], result["safety_failures"]), ("INCOMPLETE", []))
+        target = next(r for r in run["results"] if r["case_id"] == made and r["variant"] == "BASE")
+        target["selected"] = "yes" if safety[0]["expected"] == "no" else "no"
+        again = gates.evaluate(CASES, run, FROZEN)
+        self.assertEqual(again["verdict"], "REJECTED_SAFETY")
+        self.assertEqual([f["case_id"] for f in again["safety_failures"]], [made])
+        for r in run["results"]:  # a call that came back rejected before the stop is a made call, and counts
+            if r["case_id"] == safety[1]["case_id"] and r["variant"] == "BASE":
+                r.update(outcome="REJECTED", selected=None, confidence=None)
+        self.assertIn(safety[1]["case_id"], [f["case_id"] for f in gates.evaluate(CASES, run, FROZEN)["safety_failures"]])
+
+    def test_an_error_in_a_run_that_was_not_stopped_is_still_a_safety_failure(self) -> None:
+        run = good()
+        case = next(c for c in CASES if c["task"] == gates.SAFETY_TASK)
+        next(r for r in run["results"] if r["case_id"] == case["case_id"] and r["variant"] == "BASE").update(outcome="ERROR", selected=None)
+        self.assertEqual(gates.evaluate(CASES, run, FROZEN)["verdict"], "REJECTED_SAFETY")
 
     def test_a_run_that_did_not_run_has_no_verdict_to_pass(self) -> None:
         result = gates.evaluate(CASES, not_run(CASES), FROZEN)

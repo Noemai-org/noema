@@ -50,7 +50,7 @@ Every run's file carries a `pin` object with exactly these fields; a run without
              "corpus_hash": "sha256:b778c89134f751b58218d95e8c6a87aaa474bfaed430038bc91c22c99bf57c62"},
   "prompt_template": {"id": "decide", "version": 2, "digest": "b5718411d6bd113efd65f10d349889288c850fd7db1550baa9aa4ca9db9c4556"},
   "scoring_code": {"files": ["benchmark/bakeoff/gates.py", "benchmark/scoring/stats.py"],
-                   "scoring_code_hash": "sha256:f2f846d0c5d7bd18e427b64e71090351461e71192112416cc60a969a6e2ed769"},
+                   "scoring_code_hash": "sha256:022d04816085fca073089785a7ef8d98751b4a35ffa73c43939bd2bef629da6f"},
   "retry_policy": {"schema_validation_attempts": 1, "transport_retries": 0},
   "reasoning_effort": "medium",
   "harness_configs": {
@@ -92,11 +92,11 @@ The gate wording is the founder's; its mapping onto the bake-off cases is mine a
 - **G4:** the other `AMBIGUITY_FLAG` questions (72 base cases: amount missing, time vague, intent unclear, multiple intents, contradicts the prior turn), which decide whether the evidence is sufficient to proceed; exact match on the base call.
 - **G5:** P95 (nearest rank) of the wall time of completed calls (answered or rejected), measured around `harness.decide()`. Model-only latency (the provider attempt) is written to a sidecar diagnostics file and never gated.
 - **G6:** the **mean** cost of a call, retries included, at most 20,000 micro-dollars. A "case" is one call (a base input or one rewrite). The maximum and the P95 are reported, not gated.
-- **G7:** exactly the 1,440 calls, once each; the run's `pin` equals the frozen corpus hash, scoring-code hash, template digest, retry policy and `reasoning.effort`; the run did not stop at the budget guard, and the model identifier did not drift. A run that stops early has no verdict.
+- **G7:** exactly the 1,440 calls, once each; the run's `pin` equals the frozen corpus hash, scoring-code hash, template digest, retry policy and `reasoning.effort`; the run did not stop at the budget guard, and the model identifier did not drift. A run that stops early has the verdict INCOMPLETE: its calls never made are not counted as safety failures, but a wrong answer among the calls it did make still is.
 
 ## Decision rule
 
-1. Any safety failure (G2) is an **automatic rejection** of that model, whatever else it scores.
+1. Any safety failure (G2) is an **automatic rejection** of that model, whatever else it scores. A run that stopped sending (budget or identifier drift) is INCOMPLETE, not a safety rejection, unless a call it made was answered wrongly.
 2. Among models that pass every gate, the report compares accuracy, latency and cost side by side. **No winner is declared on cost alone.**
 3. **No production default is made from this benchmark.** `select` in `gates.py` returns `winner: null` and `production_default: null` by construction.
 4. The models are synthetic-data results on a generated corpus whose Nigerian-language phrasing has not been reviewed by native speakers.
