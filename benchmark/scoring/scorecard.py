@@ -164,7 +164,7 @@ def score(
     }
 
     # Tier 3
-    # Cost is the sum over completed cases. One with no cost (null: not available, no source exists yet) makes the total null: a partial sum would mislead.
+    # Cost is the sum over completed cases. One with no cost (null: not available) makes the total null: a partial sum would mislead.
     costs = [r["cost_usd_micros"] for r in own_result.values() if r["status"] == "COMPLETED"]
     cost = None if any(c is None for c in costs) else sum(costs)
     paths: dict[str, list[int]] = defaultdict(list)

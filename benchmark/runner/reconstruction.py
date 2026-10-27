@@ -18,7 +18,7 @@ Mapping to the case result's `observed` block:
   escalation_opened   <- an ACHIEVED verdict on the escalation capability
 The target of an ACTION or VERIFICATION item is its optional `target` fact when it has one, otherwise the resolved target of the case: the contract's action facts carry
 no target, and every write the POC makes is on the one transaction the case resolved. If neither exists the item is an error. Provider cost is not in the Record and not in
-this response, and no source for it is defined (the model harness's per-call accounting is not exposed): `cost_usd_micros` is None, never an estimate."""
+this response: `cost_usd_micros` here is always None. Cost is read from the model service's bench cost files by `cost.py`, never from this body, and never estimated."""
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,7 +38,7 @@ class ReconstructionError(Exception):
 class Parsed:
     observed: Json
     record_events: list[Json]
-    cost_usd_micros: int | None  # always None: no source for provider cost exists yet
+    cost_usd_micros: int | None  # always None: cost is not in the reconstruction (see cost.py)
 
 
 def parse(body: Any) -> Parsed:

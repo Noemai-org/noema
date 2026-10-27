@@ -4,6 +4,6 @@
 //
 // Must never: import trust, outcome or record, call a model or provider, exist for a PROHIBITED capability (BD-08), or infer a Tushe behaviour that has not been shown.
 //
-// This is an empty boundary package created by PLT-01. Its contents arrive with the tasks named in
-// the README of the PERD §64.2 tree; nothing is built here yet.
+// Built so far (ENV-03, first slice): the interface of the logical service mock-case (case.go). The interfaces
+// of the other logical services wait for the frozen Tushe OpenAPI and are not built (see README.md).
 package adapters

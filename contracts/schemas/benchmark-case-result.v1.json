@@ -36,7 +36,7 @@
     },
     "latency_ms": { "type": "integer", "minimum": 0, "maximum": 86400000 },
     "cost_usd_micros": {
-      "description": "Provider cost for the case in millionths of a US dollar. An integer, never a float. Null is 'not available': no source for provider cost exists yet (the model harness's per-call accounting is not exposed, and the reconstruction does not carry it), so the runner reports null and never estimates.",
+      "description": "Provider cost for the case in millionths of a US dollar. An integer, never a float. Null is 'not available': the runner reads the sum of the model service's per-call bench cost records for the case's correlation id and reports null when there is none, when any record is incomplete, unreadable or not in USD, or when no cost directory was configured. It never estimates and never reads cost from the reconstruction.",
       "oneOf": [{ "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, { "type": "null" }]
     },
     "outcome_digest": {
