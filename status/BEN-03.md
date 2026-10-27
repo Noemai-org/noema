@@ -36,3 +36,8 @@ Updated 2026-10-25. Owner: Session C. Related tasks: BEN-10 (generator, `status/
 - Purpose: decisions are final. (1) `BEN-INJ-0003`: a PR proposing the move from `case_note` to `reason_code`, with evidence that the injection test, attack surface, fixture meaning and expected outcome are unchanged; the marker stays until the benchmark owner or the non-author co-founder approves. (2) Cost file naming: canonical name `<correlation_id>-<NNN>.json`; a correlation id with a character outside `[A-Za-z0-9_-]` is rejected and not normalised; NNN is 001 to 999 and the 1000th call is refused; files are created exclusively; the same rules in producer and reader; tests for multiple calls, colliding ids, call 1000 and no overwrite. One PR for item 2, with test results.
 - Receiver used it for: this PR (producer `CostFileTelemetry`, reader `cost.py`, tests, READMEs). The producer is in `services/model`, which Session D owns; this instruction is the reason it is changed here.
 - Evidence: this PR.
+
+### 2026-10-27 (time not recorded) accepted · Founder (relayed by the user) → Session C
+- Purpose: #64 failed because its branch predated the scan-scope fix (#69); `origin/main` is to be merged into `sC/t4-cost-reader` without rebase or force-push, the result pushed, checks run once on the new head, and the head SHA and each check's result reported in one table with run links on #64; the founder merges after the checks pass; every message is logged in `status/`.
+- Receiver used it for: the merge of `origin/main` into `sC/t4-cost-reader` (no conflicts), done in #64, and this entry.
+- Evidence: #64.
