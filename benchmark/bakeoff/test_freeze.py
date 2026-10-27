@@ -46,6 +46,25 @@ class Freeze(unittest.TestCase):
                        "https://developers.openai.com/api/docs/models/gpt-6-luna", "https://developers.openai.com/api/docs/models/gpt-6.1-terra"):
             self.assertIn(needle, text)
 
+    def test_the_harness_configurations_are_the_recorded_files(self) -> None:
+        import hashlib
+        for path, digest in frozen()["harness_configs"].items():
+            self.assertEqual(hashlib.sha256((ROOT / path).read_bytes()).hexdigest(), digest, path)
+
+    def test_the_harness_configurations_name_the_frozen_models_rates_effort_and_key_variable(self) -> None:
+        expected = {"harness-gpt-6-luna.json": ("gpt-6-luna", 100_000, 500_000), "harness-gpt-6.1-terra.json": ("gpt-6.1-terra", 1_000_000, 5_000_000)}
+        self.assertEqual(sorted(Path(p).name for p in frozen()["harness_configs"]), sorted(expected))
+        for name, (model, rate_in, rate_out) in expected.items():
+            config = json.loads((ROOT / "benchmark" / "decisions" / name).read_text(encoding="utf-8"))
+            (provider,) = config["providers"].values()
+            self.assertEqual((provider["kind"], provider["model_version"], provider["reasoning_effort"], provider["credential_env"]),
+                             ("openai_responses", model, frozen()["reasoning_effort"], "OPENAI_API_KEY"))
+            self.assertEqual((provider["rate"]["input_micro_per_mtok"], provider["rate"]["output_micro_per_mtok"], provider["rate"]["currency"],
+                              provider["rate"]["as_of"]), (rate_in, rate_out, "USD", "2026-10-27"))
+            self.assertEqual(provider["max_output_tokens"], 4000)
+            self.assertNotIn("credential_file", provider)
+            self.assertNotIn("reported_model_version", provider)  # learned in the run, never frozen
+
     def test_the_retry_policy_is_one_validation_attempt_and_no_transport_retry(self) -> None:
         self.assertEqual(frozen()["retry_policy"], {"schema_validation_attempts": 1, "transport_retries": 0})
 

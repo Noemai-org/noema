@@ -33,7 +33,7 @@ Every run's file carries a `pin` object with exactly these fields; a run without
 | Field | Value |
 |---|---|
 | model ID sent | `gpt-6-luna` / `gpt-6.1-terra` |
-| identifier the API returns | read from the response's `model` field on the first call of the run and recorded as `pin.reported_model_id`; it is **not known at the freeze** because no live call is made before merge. The run aborts if a later call reports another identifier. |
+| identifier the API returns | read from the response's `model` field by a one-request probe at the start of the run (counted in the budget, not a corpus call) and recorded as `pin.reported_model_id`; it is **not known at the freeze** because no live call is made before merge. If a later call reports another identifier, the run stops sending (each remaining call is recorded as an error), is flagged `pin_drift`, and has no verdict (G7). |
 | date fetched | 2026-10-27 (the rate card and capability pages) |
 | prompt template | `DECIDE_V2`, version 2, digest `b5718411d6bd113efd65f10d349889288c850fd7db1550baa9aa4ca9db9c4556` |
 | `reasoning.effort` | `medium` |
@@ -50,14 +50,19 @@ Every run's file carries a `pin` object with exactly these fields; a run without
              "corpus_hash": "sha256:b778c89134f751b58218d95e8c6a87aaa474bfaed430038bc91c22c99bf57c62"},
   "prompt_template": {"id": "decide", "version": 2, "digest": "b5718411d6bd113efd65f10d349889288c850fd7db1550baa9aa4ca9db9c4556"},
   "scoring_code": {"files": ["benchmark/bakeoff/gates.py", "benchmark/scoring/stats.py"],
-                   "scoring_code_hash": "sha256:b6c6ac252bca9e33376a83c4c68c202e33d8e9e740de69ce373e731734f52ef8"},
+                   "scoring_code_hash": "sha256:f2f846d0c5d7bd18e427b64e71090351461e71192112416cc60a969a6e2ed769"},
   "retry_policy": {"schema_validation_attempts": 1, "transport_retries": 0},
-  "reasoning_effort": "medium"
+  "reasoning_effort": "medium",
+  "harness_configs": {
+    "benchmark/decisions/harness-gpt-6-luna.json": "ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd",
+    "benchmark/decisions/harness-gpt-6.1-terra.json": "841f01ba906f4b3663711b8cbd8d52596518a38d9a31f3176eba95d63325cd4f"
+  }
 }
 ```
 
 - **Corpus** (decision D1): the bake-off case set (`benchmark/bakeoff`, generated layer, synthetic, seed 1, 20 cases per task per language bucket): 480 base cases and 1,440 calls (each base call plus its one or two meaning-preserving rewrites). Nothing held out is read (INV-22).
 - **Corpus hash:** `cases_digest` of that set: SHA-256 over the canonical bytes of the cases in id order.
+- **Harness configurations:** the files `benchmark/decisions/harness-gpt-6-luna.json` and `harness-gpt-6.1-terra.json` are the configuration the harness reads for each run (model ID, endpoint, the key's environment-variable name, `reasoning.effort`, `max_output_tokens`, timeout, rate card, routes). Their SHA-256 is in the frozen block and recomputed by CI. The data limits, masking floor, breaker settings and the 30-second timeout in them are values chosen for this run, not product defaults (D10); the timeout is long on purpose so latency is measured by G5 rather than cut off.
 - **Prompt-template hash:** the digest of `DECIDE_V2`, pinned by `services/model/tests/test_harness_fields.py` and re-checked against this record by `services/model/tests/test_freeze_record.py`.
 - **Scoring-code hash:** SHA-256 over the lines `<sha256 of the file>  <path>` of the files listed, sorted by path (`benchmark/bakeoff/freeze.py`). `benchmark/bakeoff/test_freeze.py` recomputes the corpus hash and the scoring-code hash on every CI run, so a change after the freeze fails the build; changing either needs a new record.
 
@@ -87,7 +92,7 @@ The gate wording is the founder's; its mapping onto the bake-off cases is mine a
 - **G4:** the other `AMBIGUITY_FLAG` questions (72 base cases: amount missing, time vague, intent unclear, multiple intents, contradicts the prior turn), which decide whether the evidence is sufficient to proceed; exact match on the base call.
 - **G5:** P95 (nearest rank) of the wall time of completed calls (answered or rejected), measured around `harness.decide()`. Model-only latency (the provider attempt) is written to a sidecar diagnostics file and never gated.
 - **G6:** the **mean** cost of a call, retries included, at most 20,000 micro-dollars. A "case" is one call (a base input or one rewrite). The maximum and the P95 are reported, not gated.
-- **G7:** exactly the 1,440 calls, once each; the run's `pin` equals the frozen corpus hash, scoring-code hash, template digest, retry policy and `reasoning.effort`; and the run did not stop at the budget guard. A run that stops early has no verdict.
+- **G7:** exactly the 1,440 calls, once each; the run's `pin` equals the frozen corpus hash, scoring-code hash, template digest, retry policy and `reasoning.effort`; the run did not stop at the budget guard, and the model identifier did not drift. A run that stops early has no verdict.
 
 ## Decision rule
 
@@ -121,11 +126,15 @@ The gate wording is the founder's; its mapping onto the bake-off cases is mine a
 | D2 | The gate-to-case mapping above. |
 | D3 | The unit of "case" for G6 is one call; the gate is on the mean. |
 | D4 | Retry policy: one validation attempt, zero transport retries. |
-| D5 | The returned identifier is learned on the first call of each run and pinned for the rest of that run; a different one aborts the run. |
+| D5 | The returned identifier is learned on the first call of each run and pinned for the rest of that run; a different one stops the run from sending and fails G7. |
 | D6 | `max_output_tokens` 4,000 for both models; cached-input credit is ignored in the cost. |
 | D7 | The guard's projection is the worst case for the request, not an average. |
 | D8 | The harness configuration may name the credential by environment variable (`credential_env`) instead of a file; exactly one of the two is allowed. |
 | D9 | The models' reported identifier is compared to a `reported_model_version` in the configuration when it is set, and to `model_version` otherwise. |
+| D10 | The values in the two harness configuration files that no instruction set (data limits, masking floor, breaker, timeout, response size cap) are run values, frozen with the files; they are not product settings and are not adopted by this record. |
+| D11 | The identifier probe is one extra request of the same kind, counted in the budget and in the diagnostics, and not part of the corpus or of any gate. |
+| D12 | Spending is carried between runs of a phase by a required `prior_spent_micros` input to the live workflow, taken from the previous run's printed summary; the guard counts it. The pilot's spending is the prior spend of the full run. |
+| D13 | The pilot is the first two base cases of every task and language bucket in case-id order, with their rewrites. |
 
 ## Not claimed
 

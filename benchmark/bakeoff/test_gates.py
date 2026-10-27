@@ -168,6 +168,13 @@ class Gates(unittest.TestCase):
         self.assertFalse(gate(result, "G7_COMPLETENESS")["passed"])
         self.assertEqual(result["verdict"], "FAILS_GATES")
 
+    def test_g7_a_run_whose_model_identifier_drifted_is_incomplete_and_cannot_pass(self) -> None:
+        run = good()
+        run["pin_drift"] = True
+        result = gates.evaluate(CASES, run, FROZEN)
+        self.assertFalse(gate(result, "G7_COMPLETENESS")["passed"])
+        self.assertEqual(result["verdict"], "FAILS_GATES")
+
     def test_a_run_that_did_not_run_has_no_verdict_to_pass(self) -> None:
         result = gates.evaluate(CASES, not_run(CASES), FROZEN)
         self.assertEqual((result["verdict"], result["gates"]), ("NOT_RUN", []))
