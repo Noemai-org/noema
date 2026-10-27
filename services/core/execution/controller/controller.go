@@ -165,7 +165,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 
 	// E9: the one write, with the key and, for a conditional write, the expected versions.
-	req := DispatchRequest{TenantID: tenantID, GrantID: g.GrantID, IdempotencyKey: key, Attempt: spend.Attempt, CapabilityID: g.CapabilityID, TargetRef: g.TargetRef,
+	req := DispatchRequest{TenantID: tenantID, GrantID: g.GrantID, PrincipalID: g.PrincipalID, IdempotencyKey: key, Attempt: spend.Attempt, CapabilityID: g.CapabilityID, TargetRef: g.TargetRef,
 		Params: step.Params, TimeoutMS: step.TimeoutMS}
 	if step.Conditional {
 		req.ExpectedFrom = g.TargetVersions

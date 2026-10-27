@@ -122,6 +122,7 @@ type Pending struct {
 type DispatchRequest struct {
 	TenantID       string
 	GrantID        string
+	PrincipalID    string // from the grant, which took it from the authenticated session (INV-12)
 	IdempotencyKey string
 	Attempt        int64
 	CapabilityID   string
