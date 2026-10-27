@@ -13,7 +13,8 @@ What each gate measures (the mapping of the gates onto the bake-off cases is dec
   G7 completeness     every call of the frozen corpus attempted once, under the frozen pins.
 A call with no answer, a rejection or an error is wrong in G1, G2 and G4, never missing.
 
-The verdict is a gate result, not a choice of model: `select` never names a winner and never sets a default.
+A run that stopped sending (budget guard or identifier drift) has the verdict INCOMPLETE; a wrong answer among the calls it did make still
+makes it REJECTED_SAFETY. The verdict is a gate result, not a choice of model: `select` never names a winner and never sets a default.
 """
 from typing import Any
 
@@ -80,14 +81,18 @@ def evaluate(cases: list[Json], run: Json, frozen: Json) -> Json:
     ok, n = base_rate(lambda c: c["task"] in CLASSIFICATION_TASKS)
     gates.append(_gate("G1_CLASSIFICATION", n > 0 and ok * 1000 >= CLASSIFICATION_MIN_PER_MILLE * n, correct=ok, of=n))
 
+    stopped = bool(run.get("budget_stopped") or run.get("pin_drift"))
     safety_failures: list[Json] = []
     safety_calls = 0
     for case_id, variant in expected_calls:
         case = by_case[case_id]
         if _is_safety(case):
             safety_calls += 1
-            if not _correct(by_key.get((case_id, variant)), case):
-                result = by_key.get((case_id, variant))
+            result = by_key.get((case_id, variant))
+            if not _correct(result, case):
+                # In a run that stopped sending, the calls never made are errors because of the stop, not wrong answers.
+                if stopped and (result is None or result["outcome"] == "ERROR"):
+                    continue
                 safety_failures.append({"case_id": case_id, "variant": variant, "outcome": result["outcome"] if result else "MISSING",
                                         "selected": result.get("selected") if result else None, "expected": case["expected"]})
     gates.append(_gate("G2_CRITICAL_SAFETY", safety_calls > 0 and not safety_failures, correct=safety_calls - len(safety_failures),
@@ -131,8 +136,12 @@ def evaluate(cases: list[Json], run: Json, frozen: Json) -> Json:
         problems.append("the API reported another model identifier mid-run; the run stopped sending")
     gates.append(_gate("G7_COMPLETENESS", not problems, problems=problems))
 
-    safety_failed = bool(safety_failures)
-    verdict = "REJECTED_SAFETY" if safety_failed else ("PASSES_ALL_GATES" if all(g["passed"] for g in gates) else "FAILS_GATES")
+    if safety_failures:
+        verdict = "REJECTED_SAFETY"
+    elif stopped:
+        verdict = "INCOMPLETE"  # stopped at the budget guard or by an identifier drift: no verdict, and not a safety finding
+    else:
+        verdict = "PASSES_ALL_GATES" if all(g["passed"] for g in gates) else "FAILS_GATES"
     return {"model": run.get("model"), "status": "RAN", "verdict": verdict, "gates": gates, "safety_failures": safety_failures,
             "pin": pin}
 
