@@ -1,4 +1,4 @@
-"""The reconstruction body the runner reads (PERD §39.4 `GET /v1/reconstructions/{correlation_id}`): contracts/schemas/reconstruction.v1.json.
+"""The reconstruction body the runner reads (PERD §39.4 `GET /v1/reconstructions/{correlation_id}`): contracts/schemas/reconstruction.v2.json (its events are record-event.v2 events; DEC-2026-10-27-record-event-v2).
 
 The PERD fixes the content and gives no field names; the names in the contract are the founders' (confirmed 21 Oct 2026). PROVISIONAL stays True until core serves a
 real body (a test forces it to flip once one is recorded in benchmark/runner/recorded/). The body is validated against the contract first: an item with a float, a
@@ -44,7 +44,7 @@ class Parsed:
 def parse(body: Any) -> Parsed:
     if not isinstance(body, dict):
         raise ReconstructionError("the reconstruction is not an object")
-    problems = _contracts.errors("reconstruction", body)
+    problems = _contracts.errors("reconstruction.v2", body)
     if problems:
         raise ReconstructionError(f"the reconstruction breaks its contract: {problems[0]}")
     if not body["chain"]["verified"]:
