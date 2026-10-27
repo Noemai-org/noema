@@ -20,6 +20,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Generated files.** The v2 fixtures and the `record_event_chain_vectors` family of `fixtures/golden_vectors.json` are written by `python3 -I tools/record_chain_ref.py --write` from PERD §32.1, with every hash computed. `--check` (run by `tools/contracts/test_record_event_v2.py`) fails if a file differs. No other golden-vector family is touched, so no existing digest changes and the test-only key of `grant_signing_vectors` is unchanged.
 - **Tooling.** `tools/contracts/validate.py` and `benchmark/contracts.py` read `<name>.v<major>.json`; fixture folders are `<name>` for v1 and `<name>.v<major>` after.
 
+## Error catalogue v2 (27 Oct 2026)
+
+`schemas/errors.v2.json` sits beside `errors.v1.json`, which is not edited (a test pins its bytes). It is v1 plus one code, `DUPLICATE_CREATE` (non-retryable, 35 codes: 5 retryable, 30 non-retryable). Decision record: `DEC-2026-10-27-record-event-v2` (D6) in `Noemai-org/docs`.
+
+- **What it names.** A create that is conditional on absence was refused because the target already holds a case for the same subject and epoch, made under another idempotency key (mock-case: `412 PRECONDITION_FAILED`). It is not `IDEMPOTENCY_CONFLICT` (the same key, another payload), not `REJECTED_STALE_VERSION` (a version token that moved) and not the same key sent twice (that is an acknowledgement, REQ-EXE-007).
+- **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
+- **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
+
 ## Status (Session A, 24 Oct 2026)
 
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.

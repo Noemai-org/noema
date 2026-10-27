@@ -99,6 +99,9 @@ const (
 	TransportAck2xx          TransportClass = "ACK_2XX"
 	TransportVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	TransportDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
+	// TransportDuplicateCreate: a create conditional on absence was refused because the target already holds a case for
+	// the subject and epoch under another key. The string is the error code DUPLICATE_CREATE of contracts/schemas/errors.v2.json.
+	TransportDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	TransportRejected4xx     TransportClass = "REJECTED_4XX"
 	TransportTimeout         TransportClass = "TIMEOUT"
 	TransportConnectionReset TransportClass = "CONNECTION_RESET"

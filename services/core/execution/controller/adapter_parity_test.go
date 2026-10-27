@@ -19,6 +19,7 @@ func TestAdapterTransportClassesMatchTheController(t *testing.T) {
 		{adapters.ClassAck2xx, controller.TransportAck2xx},
 		{adapters.ClassVersionConflict, controller.TransportVersionConflict},
 		{adapters.ClassDuplicate409, controller.TransportDuplicate409},
+		{adapters.ClassDuplicateCreate, controller.TransportDuplicateCreate},
 		{adapters.ClassRejected4xx, controller.TransportRejected4xx},
 		{adapters.ClassTimeout, controller.TransportTimeout},
 		{adapters.ClassConnectionReset, controller.TransportConnectionReset},
