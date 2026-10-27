@@ -30,3 +30,16 @@ See `services/model/README.md`. Cost-file wiring (REQ-NFR-007, REQ-OPS-001): `no
 - `make model-bench-up` and the bind mount were checked with `docker compose config` only: no Docker daemon in this session, so no container was started (not run: no access).
 - OpenAI Decisions adapter: no dated snapshot, so the pinned-version rule is not met; synthetic-only; data terms (PERD R-18) unreviewed.
 - `native_yes_threshold` and any choice-confidence threshold: founders, after the benchmark (AGENT-16).
+
+## Model selection (separate PR, the freeze)
+
+Record: `benchmark/decisions/2026-10-27-model-selection.md`. Scope: an initial OpenAI integration; the provider-neutral harness stays; multi-provider support is not complete.
+
+| Date (UTC) | From | To | Purpose | What the receiver used it for |
+|---|---|---|---|---|
+| 2026-10-26 | A | D | Relayed a founder instruction of 26 Oct to clean instruction text from the PR titles and bodies and status files of #64 to #68 | Not applied on that message alone; D replied to A and asked its user. Not yet applied: the status files of #65 and #66 are unchanged |
+| 2026-10-26 | D | A | Reply: no edit to D's branches without the instruction in D's own session; PR titles and bodies are A's | A logged it in `status/OPS-07.md` (A's file; not confirmed by D) |
+| 2026-10-27 | Founder (relayed by the user) | D | Decisions for the model selection: scope (initial OpenAI integration only), the freeze PR first, the candidates, pins, rate cards, hashes, retry policy, gates, decision rule, budget ($25, pilot $2), the Responses API at `reasoning.effort` medium, key handling (`OPENAI_API_KEY` from the environment, `environment: bench-live`), the pilot, the budget guard, the full run after approval, the report; unmatched points decided by D and recorded in the record | The freeze PR (record, gates, tests), then the adapter and live-run pull requests. No live call made |
+
+Open: the pilot and the full run wait for the freeze PR to be merged, for the `bench-live` Environment with its required reviewer, and for the founder's approval on the freeze PR. Not run: no access.
+

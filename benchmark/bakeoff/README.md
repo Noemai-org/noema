@@ -49,3 +49,8 @@ accuracy with a 95% Wilson interval; coverage; abstention rate; **expected calib
 ## Tests
 
 `make bench-test`: case-set validity, determinism, coverage of every task and bucket, meaning-preservation of the perturbations (property tests), ECE and its bounds (property tests), the runner against a scripted decider, the NOT_RUN paths, the report and diagrams, and the command.
+
+## Model-selection gates (UND-02; `gates.py`, `freeze.py`)
+
+`gates.py` applies the accepted gates of `benchmark/decisions/2026-10-27-model-selection.md` to one run (`evaluate`) and compares the runs that pass every gate without naming a winner (`select`). `freeze.py` computes the corpus hash and the scoring-code hash recorded in that decision; `test_freeze.py` recomputes them, so a change to the corpus or to the scoring code after the freeze fails CI. These two files are additive: `cases.py`, `metrics.py`, `report.py` and `run.py` are unchanged. Not run: no live result exists.
+
