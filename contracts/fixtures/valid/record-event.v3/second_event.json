@@ -1,0 +1,15 @@
+{
+  "schema_version": "3.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "event_id": "recev_1002",
+  "seq": 2,
+  "prev_hash": "sha256:4e53425c61f5f895521188daae6f6cfb44bbaadd3c095eb1b849f6d2f76b230f",
+  "written_by": "core-edge",
+  "actor": "core-edge",
+  "event_type": "CANDIDATES_RESOLVED",
+  "object_ref": "cns_7A",
+  "payload_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "at": "2026-10-01T09:47:51.200Z",
+  "hash": "sha256:7e5416b5641caeb7537a7290ed0aa8a647769c910e51a279aab16658ec68525f"
+}

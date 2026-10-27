@@ -1,0 +1,708 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/record-event.v3.json",
+  "title": "Record event (v3)",
+  "description": "v3 (DEC-2026-10-27-actor-and-payload-hash, PERD v1.17 §32.1). SoT §43.6 and PERD §32.1, §32.2. The Record is append-only and hash-chained per tenant (INV-11). v3 is v2 with the emitter and the principal defined: written_by is one service identity of a closed set (PERD §41.1 and §34.1), actor is required and is either <kind>:<id> (kind from the closed list customer, operator, approver, auditor, regulator, admin; id the principal's identifier) or, for an event no authenticated person caused, the emitter's own service identity, equal to written_by. payload_hash is SHA-256 of the RFC 8785 form of the payload, integers only; an event that refers to no object has the payload {}. record-event.v1.json and record-event.v2.json are unchanged and stay valid for their documents; a v3 event is not a v2 event and the reverse. Hash correctness, the genesis rule and the integers-only rule on the stored payload are checked by the chain verification, not by the schema. The model said so is never provenance: object_ref names an object, not a free-text claim.",
+  "$ref": "#/$defs/RecordEvent",
+  "$defs": {
+    "RecordEventType": {
+      "description": "PERD §32.2 (53 types) plus four types that PERD requirements already use and that DEC-2026-10-18 adds to the table (PERD v1.9, Noemai-org/docs#14): AUDIO_RETAINED (REQ-VOI-004), INBOUND_EVENT_RECEIVED (REQ-API-008), RESOLUTION_POSTED (REQ-API-007), CONFIG_CHANGED (REQ-OPS-003). Not Record events, so not in this list: INTENT_SUPERSEDED (REQ-INT-004) and STATE_CHANGED (REQ-RES-004) are reasons carried by GRANT_VOIDED, and RECORD_ACCESSED (REQ-AUD-003) is written to the access log, not the chain.",
+      "type": "string",
+      "enum": [
+        "INPUT_RECEIVED",
+        "INPUT_DEDUPLICATED",
+        "SESSION_VALIDATED",
+        "INTENT_PROPOSED",
+        "INTENT_ADMITTED",
+        "INTENT_REJECTED_AT_GATE",
+        "LEXICON_APPLIED",
+        "CANDIDATES_RESOLVED",
+        "CLARIFICATION_REQUESTED",
+        "CLARIFICATION_ANSWERED",
+        "CLARIFICATION_EXPIRED",
+        "EVIDENCE_READ",
+        "EVIDENCE_REFRESHED",
+        "CONTEXT_SNAPSHOT_SEALED",
+        "STATE_RECONCILED",
+        "CONTRADICTION_FREEZE_SET",
+        "CONTRADICTION_FREEZE_CLEARED",
+        "SLA_EVALUATED",
+        "POLICY_EVALUATED",
+        "DECISION_MADE",
+        "CONFIRMATION_REQUESTED",
+        "CONFIRMATION_RECEIVED",
+        "CONFIRMATION_EXPIRED",
+        "PLAN_CREATED",
+        "GRANT_ISSUED",
+        "GRANT_VOIDED",
+        "REVALIDATION_PASSED",
+        "REVALIDATION_FAILED",
+        "GRANT_SPENT",
+        "DISPATCH_ATTEMPTED",
+        "RECEIPT",
+        "CIRCUIT_STATE_CHANGED",
+        "VERIFICATION_READ",
+        "VERDICT",
+        "WATCH_CREATED",
+        "WATCH_CHECKED",
+        "WATCH_CLOSED",
+        "RECOVERY_REQUESTED",
+        "CALLBACK_DELIVERY_ATTEMPTED",
+        "CALLBACK_DELIVERED",
+        "CALLBACK_FAILED",
+        "EXPLANATION_RENDERED",
+        "EXPLANATION_BLOCKED",
+        "INVESTIGATION_STATE_CHANGED",
+        "INVESTIGATION_RESUMED",
+        "OPS_ALERT_RAISED",
+        "POLICY_PUBLISHED",
+        "PACK_LOADED",
+        "KILL_SWITCH_CHANGED",
+        "KEY_ROTATED",
+        "SECURITY_EVENT",
+        "PROVIDER_FAILOVER",
+        "MEMORY_OBSERVATION_RECORDED",
+        "AUDIO_RETAINED",
+        "CONFIG_CHANGED",
+        "INBOUND_EVENT_RECEIVED",
+        "RESOLUTION_POSTED"
+      ]
+    },
+    "SecurityKind": {
+      "type": "string",
+      "enum": [
+        "INJECTION_DETECTED",
+        "PRINCIPAL_OVERRIDE_ATTEMPT",
+        "SIGNATURE_INVALID",
+        "CROSS_SCOPE_ATTEMPT",
+        "REQUEST_ID_REUSED",
+        "IDEMPOTENCY_COLLISION",
+        "CHAIN_BREAK"
+      ]
+    },
+    "GrantVoidReason": {
+      "description": "Why a grant was voided; carried by GRANT_VOIDED only. Nine distinct values, one per reason PERD §27.1 and REQ-EXE-003 name for a void grant; an unknown value is rejected. None of them is a Record event type. v1 listed the first three; v2 adds SIGNATURE_INVALID, EXPIRED, BINDING_MISMATCH, WRITES_DISABLED, REVALIDATION_UNAVAILABLE and REJECTED_STALE_VERSION (DEC-2026-10-27-record-event-v2). Meanings: INTENT_SUPERSEDED: E3 (PERD §27.1): the grant's intent hash is no longer the latest admitted intent's hash. PERD REQ-INT-004. STATE_CHANGED: E7 (PERD §27.1, REQ-EXE-003): revalidation re-read a fact and it differs from the evidence set, the ownership or the freeze. PERD REQ-RES-004. POLICY_SUPERSEDED: E4 (PERD §27.1): the decision's policy version is no longer ACTIVE. PERD REQ-TRU-005, US-08. SIGNATURE_INVALID: E1 (PERD §27.1): the grant's HMAC does not verify under any active key ID, or the key ID is unknown. EXPIRED: E2 (PERD §27.1): not_before <= now < expires_at does not hold by the clock source. BINDING_MISMATCH: E5 (PERD §27.1): plan_hash or plan_step does not match the stored plan, the capability is unregistered, prohibited or has no adapter, or params_hash is not the hash of the parameters. Also: the grant is malformed, or it names another tenant. WRITES_DISABLED: E6 (PERD §27.1, REQ-EXE-008): the tenant kill switch is on or the circuit is open, read at E6 or again inside the spend transaction. REVALIDATION_UNAVAILABLE: E7 (PERD §27.1, REQ-EXE-003): a revalidation read could not be made. The grant is void; Trust decides next. REJECTED_STALE_VERSION: The target refused the expected version token (PERD REQ-EXE-004). The grant is void and the write is not retried without a new grant.",
+      "type": "string",
+      "enum": [
+        "INTENT_SUPERSEDED",
+        "STATE_CHANGED",
+        "POLICY_SUPERSEDED",
+        "SIGNATURE_INVALID",
+        "EXPIRED",
+        "BINDING_MISMATCH",
+        "WRITES_DISABLED",
+        "REVALIDATION_UNAVAILABLE",
+        "REJECTED_STALE_VERSION"
+      ]
+    },
+    "ProviderFailoverReason": {
+      "type": "string",
+      "description": "Why the Intent Compiler failed over to the next provider; carried by PROVIDER_FAILOVER only (PERD v1.12 REQ-INT-002, DEC-2026-10-21-int-002-refusal-failover). PROVIDER_ERROR: the provider returned an error. TIMEOUT: it did not answer in time. REFUSED_REPLY: it replied in the wrong format, failing the schema check of REQ-INT-001; it does not mean the provider declined to answer. The values are a default for the Founders to confirm.",
+      "enum": [
+        "PROVIDER_ERROR",
+        "TIMEOUT",
+        "REFUSED_REPLY"
+      ]
+    },
+    "RecordEvent": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "description": "Contract version of this event: major 3. v1 and v2 events carry majors 1 and 2 and are not valid here.",
+          "type": "string",
+          "pattern": "^3\\.[0-9]+$"
+        },
+        "tenant_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+        },
+        "correlation_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+        },
+        "event_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecordEventId"
+        },
+        "seq": {
+          "description": "Monotonic position in the tenant's chain, starting at 1 (PERD §32.1).",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+        },
+        "prev_hash": {
+          "description": "The hash of the previous event of the tenant's chain. For seq 1 it is the tenant's genesis hash: sha256: followed by the hex SHA-256 of the UTF-8 bytes of \"noema:genesis:\" followed by tenant_id (PERD §32.1). 64 zeros is the v1 genesis value and is not valid in v2.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        },
+        "hash": {
+          "description": "sha256: followed by the hex SHA-256 of prev_hash (its sha256:-prefixed text, as UTF-8) followed by the JCS (RFC 8785) of this event without hash (PERD §32.1). Checked by the chain verifier, not by the schema.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        },
+        "written_by": {
+          "description": "The emitter: the service identity that appended the event (PERD v1.17 §32.1).",
+          "$ref": "#/$defs/Emitter"
+        },
+        "actor": {
+          "description": "The principal, required on every event (PERD v1.17 §32.1).",
+          "$ref": "#/$defs/Principal"
+        },
+        "event_type": {
+          "$ref": "#/$defs/RecordEventType"
+        },
+        "kind": {
+          "$ref": "#/$defs/SecurityKind"
+        },
+        "object_ref": {
+          "type": "string",
+          "pattern": "^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$"
+        },
+        "payload_hash": {
+          "description": "SHA-256 of the UTF-8 bytes of the RFC 8785 canonical JSON of the payload, written sha256: plus 64 lower-case hex digits (PERD v1.17 §32.1). Numbers in the payload are integers within 2^53-1. An event that refers to no object has the payload {}: sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        },
+        "at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "reason": {
+          "description": "GRANT_VOIDED carries a GrantVoidReason; PROVIDER_FAILOVER carries a ProviderFailoverReason. No other event carries one.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "correlation_id",
+        "event_id",
+        "seq",
+        "prev_hash",
+        "hash",
+        "written_by",
+        "actor",
+        "event_type",
+        "object_ref",
+        "payload_hash",
+        "at"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "SECURITY_EVENT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "kind"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "kind"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "GRANT_VOIDED"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/GrantVoidReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "const": "PROVIDER_FAILOVER"
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "then": {
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/ProviderFailoverReason"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "event_type": {
+                "enum": [
+                  "GRANT_VOIDED",
+                  "PROVIDER_FAILOVER"
+                ]
+              }
+            },
+            "required": [
+              "event_type"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "reason"
+              ]
+            }
+          }
+        },
+        {
+          "properties": {
+            "hash": {
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            },
+            "prev_hash": {
+              "not": {
+                "const": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-edge"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-edge"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-trust"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-trust"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-execution"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-execution"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-outcome"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-outcome"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-record"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-record"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-evidence"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-evidence"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "core-workflows"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "core-workflows"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "model-service"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "model-service"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "benchmark-runner"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "benchmark-runner"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "admin"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "admin"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-ledger"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-ledger"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-switch"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-switch"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-destination"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-destination"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-customer"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-customer"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-policy"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-policy"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-case"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "actor": {
+                "const": "mock-clock"
+              }
+            },
+            "required": [
+              "actor"
+            ]
+          },
+          "then": {
+            "properties": {
+              "written_by": {
+                "const": "mock-clock"
+              }
+            },
+            "required": [
+              "written_by"
+            ]
+          }
+        }
+      ]
+    },
+    "Emitter": {
+      "description": "The service identity that appended the event (PERD v1.17 §32.1). The ten identities of the §41.1 table (core-edge, core-trust, core-execution, core-outcome, core-record, core-evidence, core-workflows, model-service, benchmark-runner, admin) and the seven logical services of §34.1 whose adapters carry a per-adapter service identity (REQ-ENV-001, §34.3): mock-ledger, mock-switch, mock-destination, mock-customer, mock-policy, mock-case, mock-clock. fault-controller and fixture-loader (§34.1) are benchmark-only and never reachable from the core, so they are not emitters.",
+      "type": "string",
+      "enum": [
+        "core-edge",
+        "core-trust",
+        "core-execution",
+        "core-outcome",
+        "core-record",
+        "core-evidence",
+        "core-workflows",
+        "model-service",
+        "benchmark-runner",
+        "admin",
+        "mock-ledger",
+        "mock-switch",
+        "mock-destination",
+        "mock-customer",
+        "mock-policy",
+        "mock-case",
+        "mock-clock"
+      ]
+    },
+    "PrincipalKind": {
+      "description": "A principal kind (PERD v1.17 §32.1): customer (§7, REQ-SEC-001), operator (§7, REQ-SEC-001), approver (REQ-SEC-001, §38.2), auditor (§7, REQ-AUD-003), regulator (§7), admin (§41.1). service is not a principal kind.",
+      "type": "string",
+      "enum": [
+        "customer",
+        "operator",
+        "approver",
+        "auditor",
+        "regulator",
+        "admin"
+      ]
+    },
+    "Principal": {
+      "description": "The authenticated principal the event was written for (PERD v1.17 §32.1): <kind>:<id>, where <id> is the session token's sub (REQ-SEC-001, INV-12) and never holds a colon; or the emitter's service identity when no authenticated person caused the event (then equal to written_by, checked by the rules in RecordEvent).",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^(customer|operator|approver|auditor|regulator|admin):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+        },
+        {
+          "$ref": "#/$defs/Emitter"
+        }
+      ]
+    }
+  }
+}

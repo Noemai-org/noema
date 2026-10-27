@@ -2,9 +2,23 @@ package chain
 
 import "sort"
 
-// The closed sets of contracts/schemas/record-event.v2.json. A test (types_test.go) reads the schema and requires these
+// The closed sets of contracts/schemas/record-event.v3.json. A test (types_test.go) reads the schema and requires these
 // sets to equal its enums, so the writer, the verifier and the contract cannot drift apart. An unknown member is rejected.
 var (
+	// emitters are the service identities that may append to the Record (PERD v1.17 section 32.1): the ten identities of the
+	// section 41.1 table, and the seven section 34.1 logical services whose adapters carry a per-adapter identity (REQ-ENV-001).
+	// fault-controller and fixture-loader (34.1) are benchmark-only and never reachable from the core, so they are not here.
+	//
+	// The contract lists 17 emitters; this writer accepts 16. The 17th is the benchmark runner's identity (section 41.1,
+	// "benchmark-runner"): the core never appends to the Record as the benchmark runner, and the architecture lint (rule
+	// benchmark-branch, SoT section 51) forbids that term in core code. The schema keeps it as the Founder decided; the writer
+	// and the verifier refuse it. A test requires exactly that one difference (CONFLICT block of the pull request).
+	emitters = setOf(
+		"core-edge", "core-trust", "core-execution", "core-outcome", "core-record", "core-evidence", "core-workflows", "model-service", "admin",
+		"mock-ledger", "mock-switch", "mock-destination", "mock-customer", "mock-policy", "mock-case", "mock-clock",
+	)
+	// principalKinds are the kinds a person's or administrator's principal may have (PERD v1.17 section 32.1). service is not one.
+	principalKinds = setOf("customer", "operator", "approver", "auditor", "regulator", "admin")
 	// eventTypes are the Record event types of PERD 32.2.
 	eventTypes = setOf(
 		"INPUT_RECEIVED", "INPUT_DEDUPLICATED", "SESSION_VALIDATED", "INTENT_PROPOSED", "INTENT_ADMITTED", "INTENT_REJECTED_AT_GATE", "LEXICON_APPLIED", "AUDIO_RETAINED",
@@ -41,6 +55,12 @@ func sorted(set map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// Emitters lists the accepted values of written_by, sorted.
+func Emitters() []string { return sorted(emitters) }
+
+// PrincipalKinds lists the accepted kinds of a person's principal, sorted.
+func PrincipalKinds() []string { return sorted(principalKinds) }
 
 // GrantVoidReasons lists the accepted GRANT_VOIDED reasons, sorted.
 func GrantVoidReasons() []string { return sorted(grantVoidReasons) }
