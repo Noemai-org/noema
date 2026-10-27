@@ -27,3 +27,8 @@ Updated 2026-10-24. Owner: Session C. Related tasks: BEN-03 (runner), ENV-08 (mo
 - Purpose: `docs/sessions/2026-10-22-1530-ENV-08b.md` in noema#57: remove the `needs_fault` markers for the five effects and drop `creates_case` once #57 merges.
 - Receiver used it for: this change. The generator never wrote `creates_case`; a test now asserts the two effects with no params carry none.
 - Evidence: noema#57; this PR.
+
+### 2026-10-27 (time not recorded) accepted · Founder (relayed by the user) → Session C
+- Purpose: a PR that proposes moving the `BEN-INJ-0003` injection from `case_note` to `reason_code`, with evidence that the injection test, attack surface, fixture meaning and expected benchmark outcome are unchanged; the marker stays until the benchmark owner or the non-author co-founder approves. (The cost-file part of the same instruction is logged in `status/BEN-03.md`.)
+- Receiver used it for: `benchmark/generator/PROPOSAL-BEN-INJ-0003.md` and `test_proposal_ben_inj_0003.py`. The evidence found that `get_case` cannot carry the per-transaction match in mock-case, so the proposal names `find_cases` as well as `reason_code`.
+- Evidence: the proposal pull request.
