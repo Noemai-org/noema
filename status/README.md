@@ -36,6 +36,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 | 21 Oct 17:06, 22 Oct 11:16 | accepted | Sessions C, D | `OPS-07.md` (bodies not recovered) |
 | 26 Oct | sent | Session D | `OPS-07.md` |
 | 26 Oct | sent | Session C | `OPS-07.md` |
+| 26 Oct | accepted | Session D | `OPS-07.md` |
 
 ## Entry format
 
