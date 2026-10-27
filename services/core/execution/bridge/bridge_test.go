@@ -219,3 +219,34 @@ func TestCreateRevalidation(t *testing.T) {
 		t.Error("a capability with no mapping revalidated")
 	}
 }
+
+// The read-back is complete and names exactly one case of this tenant and key; anything else is an error.
+func TestReadCaseByKey(t *testing.T) {
+	one := adapters.CaseRecord{CaseID: "case_1", Reference: "CMP-1", Status: "OPEN", OwnerQueue: "DISPUTES", VersionToken: "v3", IdempotencyKey: "idk_v1_k", TenantID: "ten_aa"}
+	for name, c := range map[string]struct {
+		page adapters.CasePage
+		err  error
+		ok   bool
+	}{
+		"exactly one":      {page: adapters.CasePage{Complete: true, Items: []adapters.CaseRecord{one}}, ok: true},
+		"none":             {page: adapters.CasePage{Complete: true}},
+		"incomplete":       {page: adapters.CasePage{Complete: false, Items: []adapters.CaseRecord{one}}},
+		"two":              {page: adapters.CasePage{Complete: true, Items: []adapters.CaseRecord{one, one}}},
+		"another key":      {page: adapters.CasePage{Complete: true, Items: []adapters.CaseRecord{{CaseID: "c", VersionToken: "v", IdempotencyKey: "idk_v1_other", TenantID: "ten_aa"}}}},
+		"another tenant":   {page: adapters.CasePage{Complete: true, Items: []adapters.CaseRecord{{CaseID: "c", VersionToken: "v", IdempotencyKey: "idk_v1_k", TenantID: "ten_bb"}}}},
+		"no version token": {page: adapters.CasePage{Complete: true, Items: []adapters.CaseRecord{{CaseID: "c", IdempotencyKey: "idk_v1_k", TenantID: "ten_aa"}}}},
+		"the read failed":  {err: &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "503"}},
+	} {
+		r := &recorder{page: c.page, findErr: c.err}
+		got, err := bridge.CaseReadBack{Case: r}.ReadCaseByKey(context.Background(), "ten_aa", "idk_v1_k")
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %+v, %v", name, got, err)
+		}
+		if c.ok && (got.CaseID != "case_1" || got.VersionToken != "v3" || got.Reference != "CMP-1") {
+			t.Errorf("%s: view %+v", name, got)
+		}
+		if len(r.finds) != 1 || r.finds[0].IdempotencyKey != "idk_v1_k" || r.finds[0].TenantID != "ten_aa" || r.finds[0].PrincipalID != "" {
+			t.Errorf("%s: query %+v, want a scoped find by key only", name, r.finds)
+		}
+	}
+}

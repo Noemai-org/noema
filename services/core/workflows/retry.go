@@ -33,6 +33,10 @@ var Activities = []Activity{
 		Why: "spend-and-dispatch (PERD 27.1): E9 is the only external write; REQ-EXE-006, DEC-2026-10-20 D8"},
 	{Name: "RecoverySweep", Kind: Write, Policy: RetryPolicy{MaximumAttempts: 1},
 		Why: "writes receipts (PERD 27.1); the next sweep tick is the retry; DEC-2026-10-20 D8"},
+	{Name: "IssueRouteGrant", Kind: Write, Policy: RetryPolicy{MaximumAttempts: 1},
+		Why: "asks Trust for a grant, which writes decision_grant; two attempts could issue two grants; DEC-2026-10-20 D8"},
+	{Name: "ReadBackCase", Kind: Read, Policy: RetryPolicy{MaximumAttempts: 3, BackoffSeconds: []int{1, 3, 9}},
+		Why: "a read of mock-case by idempotency key, no side effect; same bounded retry as VerifyRead (REQ-VER-001, DEC-2026-10-17)"},
 	{Name: "VerifyRead", Kind: Read, Policy: RetryPolicy{MaximumAttempts: 3, BackoffSeconds: []int{1, 3, 9}},
 		Why: "REQ-VER-001: three attempts with backoff of 1, 3 and 9 s of simulated time [ADOPTED DEC-2026-10-17]"},
 }
