@@ -1,6 +1,6 @@
 # Status: UND-02 (model service: harness, pipeline, ranking, matcher, Decisions adapter)
 
-Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `services/model/**`, `packs/fintech/lexicons/`, `docs/sessions/`, this file.
+Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `services/model/**`, `packs/fintech/lexicons/`, `status/T5-T6.3.md`, this file.
 
 ## Messages
 
