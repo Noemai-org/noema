@@ -26,3 +26,8 @@ examples, not recordings of a live call, and no live call has been made: not run
   (the token numbers are invented).
 
 Every other Decisions case the tests use (malformed answers, wrong counts, refusals) is invented, and says so in the test.
+
+## `openai_responses_*.json`
+
+Synthetic, written from the Responses endpoint reference (`/api/reference/resources/responses/methods/create.md`, read 2026-10-27): a completed response with a reasoning item and one message, an `incomplete` one (`max_output_tokens`), and a refusal. The ids and token numbers are invented. No live call was made: not run: no access.
+

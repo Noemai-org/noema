@@ -73,3 +73,10 @@ The numbers above are placeholders to show the shape, not product settings. `kin
 Every model call emits one `MODEL_CALL_RECORDED` event whose `record` field is `CallRecord.to_dict()` as JSON. During a bench run, `platform.telemetry.cost_files_from_environment(telemetry, environ)` wraps the telemetry when `BENCH_OUT` is set (the Makefile's `BENCH_OUT`, default `benchmark/out`) and writes each record to `$BENCH_OUT/cost/<correlation_id>-<NNN>.json`, created exclusively so no file is overwritten. With `BENCH_OUT` unset or empty the telemetry is returned unchanged and nothing is written. A write that fails raises, so a run with missing cost cannot look complete. The file is accounting for the benchmark, never proof of an outcome (AGENT-21).
 
 `noema_model/main.py` calls it through `build_telemetry(os.environ)` and keeps the result on `app.state.telemetry`; `make model-bench-up` is the only thing that sets `BENCH_OUT` for the container. Nothing constructs the `Harness` in the service yet, so no running service writes a file until that request path exists.
+
+## Provider configuration keys added for the model selection
+
+- `credential_env`: the name of an environment variable holding the key, instead of `credential_file`; exactly one of the two. `build_providers(config, transport, environ)` reads it from `environ`; the key is never in the configuration, a log or an error (INV-29).
+- `reported_model_version`: optional; the identifier the API returns when it differs from the ID sent (`model_version`). When set, a reply must report exactly it; when not, `model_version`.
+- `reasoning_effort`: required for kind `openai_responses` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`), refused for every other kind.
+

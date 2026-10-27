@@ -12,6 +12,7 @@ from noema_model.providers.llm.base import AdapterSettings, DecisionProvider, LL
 from noema_model.providers.llm.gemini_generate import GeminiGenerate
 from noema_model.providers.llm.openai_chat import OpenAIChat
 from noema_model.providers.llm.openai_decisions import OpenAIDecisions
+from noema_model.providers.llm.openai_responses import OpenAIResponses
 
 Factory = Callable[[str, AdapterSettings, Transport], LLMProvider]
 
@@ -19,6 +20,7 @@ KINDS: Mapping[str, Factory] = MappingProxyType(
     {
         "anthropic_messages": AnthropicMessages,
         "openai_chat": OpenAIChat,
+        "openai_responses": OpenAIResponses,
         "gemini_generate": GeminiGenerate,
     }
 )
