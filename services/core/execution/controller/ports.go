@@ -83,6 +83,7 @@ type SpendResult struct {
 // Event is a Record event (PERD section 32.2). The Record never acts.
 type Event struct {
 	Type    string
+	Kind    string // SECURITY_EVENT only
 	GrantID string
 	Detail  string
 }
@@ -111,6 +112,7 @@ type Ledger interface {
 type Pending struct {
 	GrantID        string
 	TenantID       string
+	CorrelationID  string
 	IdempotencyKey string
 	LogicalAction  string
 	Attempt        int64
@@ -118,6 +120,9 @@ type Pending struct {
 
 // DispatchRequest is the single write of E9.
 type DispatchRequest struct {
+	TenantID       string
+	GrantID        string
+	PrincipalID    string // from the grant, which took it from the authenticated session (INV-12)
 	IdempotencyKey string
 	Attempt        int64
 	CapabilityID   string

@@ -5,6 +5,6 @@
 // Must never: do I/O in workflow code, read the wall clock, hold authoritative state, or import a model or provider client.
 //
 // Retry policy (D8, PERD 36.1): retry.go declares, as data, which activities write and which read, and how each
-// retries. Workflow definitions take their activity options from it. The Temporal client itself is not here yet:
-// it needs the dependency decision of AGENT-14.
+// retries. Workflow definitions take their activity options from it (options.go). The Temporal SDK
+// (go.temporal.io/sdk) is approved (DEC-2026-10-25, AGENT-14); the escalate case (escalate.go) is the first workflow.
 package workflows

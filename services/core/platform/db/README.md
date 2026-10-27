@@ -1,9 +1,9 @@
 # platform/db
 
-**What it does.** Postgres access with per-power roles.
+**What it does.** Postgres access with per-power roles: `Open`, `OpenAsRole` (every connection runs `SET ROLE <power>`, so the database decides what a power may write) and `Migrate` (forward-only, checksummed, one advisory lock).
 
 **REQs.** REQ-DATA-001, REQ-DATA-002.
 
-**Status.** Empty boundary package (PLT-01). PLT-06. The import rules and prohibitions are in `doc.go`.
+**Status.** Built for the first end-to-end case (task PLT-06, slice). The tables are in `services/core/migrations/README.md`.
 
-**Tests.** `go test ./platform/db/...` from `services/core/` (none yet).
+**Tests.** `go test ./platform/db/...` from `services/core/`: migration mechanics (applies once, refuses an edited, removed or misnamed file, rolls a failed file back), the role-permission matrix, and the immutability triggers. They need PostgreSQL server binaries or `NOEMA_TEST_DATABASE_URL`.

@@ -68,7 +68,14 @@ const (
 	transportSweeperNoReceipt = "SWEEPER_NO_RECEIPT"
 	eventRevalidationPassed   = "REVALIDATION_PASSED"
 	eventRevalidationFailed   = "REVALIDATION_FAILED"
+	eventSecurity             = "SECURITY_EVENT"
+	receiptSchemaVersion      = "1.0"
+	kindIdempotencyCollision  = "IDEMPOTENCY_COLLISION"
 )
+
+// ErrKeyCollision is what a Ledger returns from Spend when the idempotency key already exists with other
+// parameters or another action (EC-E06). Nothing was spent; the controller voids the grant.
+var ErrKeyCollision = errors.New(errPrefix + "idempotency key collision")
 
 // ExecutionState is the Execution Receipt state (contracts enums ExecutionState). Execution never writes
 // SUCCEEDED: that word belongs to Outcome.
@@ -106,6 +113,8 @@ type TransportResult struct {
 	Class       TransportClass
 	ExternalAck string
 	RawCode     string
+	// KeyCollision is true when the target refused the same key with another payload (EC-E06).
+	KeyCollision bool
 }
 
 // Receipt is the Execution Receipt (contracts/schemas/execution-receipt.v1.json).
@@ -113,11 +122,13 @@ type Receipt struct {
 	ReceiptID       string
 	GrantID         string
 	TenantID        string
+	CorrelationID   string
 	IdempotencyKey  string
 	LogicalAction   string
 	Attempt         int64
 	DispatchedAt    string
-	TransportResult string
+	TransportResult string // the transport class only (contract: ^[A-Z][A-Z0-9_]*$)
+	RawCode         string // the raw status next to the class (REQ-EXE-007); stored and put on the Record, not signed
 	ExternalAck     *string
 	State           ExecutionState
 	Sig             Sig
