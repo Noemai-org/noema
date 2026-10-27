@@ -123,15 +123,32 @@ class OtelTelemetry:
 COST_EVENT = "MODEL_CALL_RECORDED"
 """Emitted by the harness once per call. Its one field, `record`, is the call's `CallRecord.to_dict()` as JSON."""
 
-_UNSAFE = re.compile(r"[^A-Za-z0-9_-]")
+MAX_CALLS_PER_CORRELATION = 999
+"""The sequence is three digits, 001 to 999. The 1000th call for one correlation id is refused; the field is not widened."""
+
+_FILE_NAME_LIMIT = 255
+_NAME_ADDITION = len("-NNN.json")
+MAX_CORRELATION_ID_LENGTH = _FILE_NAME_LIMIT - _NAME_ADDITION
+"""The longest id whose file name a file system accepts. Longer ids are refused, never cut: a cut would let two ids share a name."""
+
+_ALLOWED = re.compile(r"[A-Za-z0-9_-]+")
+
+
+class CostFileRefused(Exception):
+    """A cost file was not written because its name could not be exact: the correlation id has a character outside
+    A-Z a-z 0-9 _ -, is empty or too long, or the id already has MAX_CALLS_PER_CORRELATION files."""
 
 
 class CostFileTelemetry:
-    """Bench runs only: writes each call's record to <out>/cost/<call_id>.json, the same JSON as `CallRecord.to_dict()`,
-    so the benchmark can read provider cost (REQ-NFR-007). Everything else passes through to the wrapped telemetry.
+    """Bench runs only: writes each call's record to <out>/cost/<correlation_id>-<NNN>.json, the same JSON as
+    `CallRecord.to_dict()`, so the benchmark can read provider cost (REQ-NFR-007). Everything else passes through to the
+    wrapped telemetry.
 
-    A call id is the correlation id plus a three-digit sequence; the file is created exclusively, so a record already on
-    disk is never overwritten. A write that fails raises: a bench run with missing cost must not look complete."""
+    The name is exact. A correlation id with a character outside [A-Za-z0-9_-] is refused, not rewritten, so two different
+    ids never map to one name (the three-digit suffix has a fixed width, so `a` and `a-001` never meet either). NNN counts
+    from 001 to 999; the 1000th call for one id is refused. Files are created exclusively, so a file already on disk is
+    never overwritten. A refusal or a failed write raises: a bench run with missing cost must not look complete. The
+    benchmark reader (benchmark/runner/cost.py) applies the same rules."""
 
     def __init__(self, inner: Telemetry, out: Path) -> None:
         self._inner = inner
@@ -152,16 +169,17 @@ class CostFileTelemetry:
         return self._inner.span(name, correlation_id, attributes)
 
     def _write(self, correlation_id: str, record: str) -> None:
+        if not _ALLOWED.fullmatch(correlation_id) or len(correlation_id) > MAX_CORRELATION_ID_LENGTH:
+            raise CostFileRefused(f"correlation id of {len(correlation_id)} characters is not 1 to {MAX_CORRELATION_ID_LENGTH} characters of [A-Za-z0-9_-]")
         self._dir.mkdir(parents=True, exist_ok=True)
-        stem = _UNSAFE.sub("_", correlation_id)[:128] or "call"  # the id names the file; it never chooses the directory
-        sequence = 1
-        while True:
+        for sequence in range(1, MAX_CALLS_PER_CORRELATION + 1):
             try:
-                with open(self._dir / f"{stem}-{sequence:03d}.json", "x", encoding="utf-8") as handle:
+                with open(self._dir / f"{correlation_id}-{sequence:03d}.json", "x", encoding="utf-8") as handle:
                     handle.write(record)
                 return
             except FileExistsError:
-                sequence += 1
+                continue
+        raise CostFileRefused(f"correlation id already has {MAX_CALLS_PER_CORRELATION} cost files; the next call is refused")
 
 
 def cost_files_from_environment(inner: Telemetry, environ: Mapping[str, str]) -> Telemetry:
