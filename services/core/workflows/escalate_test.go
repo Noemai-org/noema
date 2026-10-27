@@ -5,6 +5,7 @@ import (
 	"errors"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/Noemai-org/noema/services/core/workflows"
@@ -98,6 +100,7 @@ func newScript() *script {
 func run(t *testing.T, s *script, in workflows.EscalateInput) (workflows.EscalateResult, error) {
 	t.Helper()
 	var suite testsuite.WorkflowTestSuite
+	suite.SetLogger(log.NewStructuredLogger(slog.New(slog.DiscardHandler)))
 	env := suite.NewTestWorkflowEnvironment()
 	env.RegisterWorkflowWithOptions(workflows.EscalateCase, workflowOptions())
 	env.RegisterActivity(&workflows.EscalateActivities{Executor: s, Reader: s, Issuer: s})

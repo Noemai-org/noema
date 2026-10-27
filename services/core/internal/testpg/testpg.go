@@ -45,6 +45,17 @@ func Main(m *testing.M) {
 	os.Exit(code)
 }
 
+// ServerURL returns the URL of the shared server's maintenance database, connected as the superuser, for tests that
+// need to create roles or databases of their own (a second service with its own database).
+func ServerURL(t testing.TB) string {
+	t.Helper()
+	once.Do(func() { baseURL, baseErr = start() })
+	if baseErr != nil {
+		t.Fatalf("testpg: %v", baseErr)
+	}
+	return baseURL
+}
+
 // NewDatabase creates an empty database on the shared server and returns its pool, connected as the
 // superuser (the migrating role). The database is dropped when the test ends.
 func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
