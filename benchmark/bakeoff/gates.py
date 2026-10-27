@@ -127,6 +127,8 @@ def evaluate(cases: list[Json], run: Json, frozen: Json) -> Json:
         problems.append("reasoning.effort differs from the frozen one")
     if run.get("budget_stopped"):
         problems.append("the run stopped at the budget guard before it finished")
+    if run.get("pin_drift"):
+        problems.append("the API reported another model identifier mid-run; the run stopped sending")
     gates.append(_gate("G7_COMPLETENESS", not problems, problems=problems))
 
     safety_failed = bool(safety_failures)
