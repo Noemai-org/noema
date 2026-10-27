@@ -17,7 +17,7 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 | `execution_receipt` | insert-only; unique on (`grant_id`, `attempt`) |
 | `recovery_request` | `execution_rw` inserts, `trust_rw` updates `status`; unique per grant |
 | `outbox_event` | `orchestrator_rw` marks it dispatched |
-| `record_event`, `record_chain_head` | owned by `record_append`; no power holds any privilege; reached only through `record_lock_head` and `record_insert` |
+| `record_event`, `record_chain_head` | `record_event.schema_version` is "2.0" (`record-event.v2`); owned by `record_append`; no power holds any privilege; reached only through `record_lock_head` and `record_insert` |
 
 Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw`. The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 

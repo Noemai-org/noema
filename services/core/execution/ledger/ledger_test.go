@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"testing"
@@ -382,5 +383,77 @@ func TestLedgerMethodsNeedADeadline(t *testing.T) {
 	}
 	if err := w.led.Append(bg, tenant); err == nil {
 		t.Error("Append accepted no deadline")
+	}
+}
+
+// PERD 27.1, REQ-EXE-003, record-event.v2 GrantVoidReason: every void reason reaches the Record and the RecoveryRequest exactly as the
+// controller holds it, kept distinct from the others. Eight come from a real path through the controller; REJECTED_STALE_VERSION
+// has no controller path yet (a refused version becomes a receipt state, and the grant is already spent: EXE-04), so the Ledger is
+// asked to void a grant with it directly.
+func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
+	type scenario struct {
+		reason controller.VoidReason
+		setup  func(w *world, g controller.Grant)
+		grant  []func(*controller.Grant)
+		direct bool
+	}
+	tamper := func(w *world, g controller.Grant) {
+		conn, err := w.admin.Acquire(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Release()
+		if _, err := conn.Exec(ctx(t), `SET session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx(t), `UPDATE decision_grant SET json = jsonb_set(json, '{plan_step}', '9') WHERE grant_id = $1`, g.GrantID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []scenario{
+		{reason: controller.VoidSignatureInvalid, setup: tamper},
+		{reason: controller.VoidExpired, grant: []func(*controller.Grant){func(g *controller.Grant) { g.ExpiresAt = "2026-10-27T08:00:00Z" }}},
+		{reason: controller.VoidIntentSuperseded, setup: func(w *world, _ controller.Grant) { w.bind.intentHash = "sha256:" + fmt.Sprintf("%064d", 7) }},
+		{reason: controller.VoidPolicySuperseded, setup: func(w *world, _ controller.Grant) { w.bind.denied = true }},
+		{reason: controller.VoidBindingMismatch, setup: func(w *world, _ controller.Grant) { w.bind.params = map[string]any{"transaction_ref": "TX9"} }},
+		{reason: controller.VoidWritesDisabled, setup: func(w *world, _ controller.Grant) {
+			if _, err := w.admin.Exec(ctx(t), `UPDATE tenant SET kill_switch = true`); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{reason: controller.VoidStateChanged, setup: func(w *world, _ controller.Grant) { w.ctl.Reval = reval{pass: false} }},
+		{reason: controller.VoidRevalidationFailed, setup: func(w *world, _ controller.Grant) { w.ctl.Reval = reval{err: errors.New("the read could not be made")} }},
+		{reason: controller.VoidTargetVersionStale, direct: true},
+	}
+	seen := map[string]bool{}
+	for _, c := range cases {
+		t.Run(string(c.reason), func(t *testing.T) {
+			w := newWorld(t)
+			g := w.issue(t, 1, c.grant...)
+			if c.setup != nil {
+				c.setup(w, g)
+			}
+			if c.direct {
+				if err := w.led.Void(ctx(t), g, c.reason); err != nil {
+					t.Fatal(err)
+				}
+			} else if out := mustExecute(t, w, g.GrantID); out.Void != c.reason {
+				t.Fatalf("outcome %+v, want the grant void with %s", out, c.reason)
+			}
+			if w.target.count() != 0 {
+				t.Fatal("a void grant was dispatched")
+			}
+			if got := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'GRANT_VOIDED' AND body->>'reason' = $1 AND payload->>'reason' = $1`, string(c.reason)); got != 1 {
+				t.Fatalf("GRANT_VOIDED with reason %s on the Record: %d, want 1", c.reason, got)
+			}
+			if got := w.count(t, `SELECT count(*) FROM recovery_request WHERE reason = $1`, string(c.reason)); got != 1 {
+				t.Fatalf("RecoveryRequest with reason %s: %d, want 1", c.reason, got)
+			}
+			verifyChain(t, w)
+			seen[string(c.reason)] = true
+		})
+	}
+	if len(seen) != len(chain.GrantVoidReasons()) {
+		t.Fatalf("covered %d reasons, the Record accepts %d: %v", len(seen), len(chain.GrantVoidReasons()), chain.GrantVoidReasons())
 	}
 }
