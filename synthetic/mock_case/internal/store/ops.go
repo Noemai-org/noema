@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/ids"
 )
@@ -50,8 +52,15 @@ func (in CreateCaseInput) requestHash() string {
 	}{"create_case", in.TenantID, in.PrincipalID, in.TransactionRef, in.ReasonCode, in.OwnerQueue, in.Priority, in.CreatedByIntent, in.Epoch})
 }
 
-// CreateCase creates a case, or answers a repeat of the same command. Same key and same payload returns the
-// existing case (Replayed); same key and a different payload is IdempotencyConflict and changes nothing.
+// subjectEpochIndex is the unique index that makes create-if-absent atomic (migration 0003).
+const subjectEpochIndex = "cases_subject_epoch_uq"
+
+// CreateCase creates a case if none exists for its subject and epoch, or answers a repeat of the same command.
+// Same key and same payload returns the existing case (Replayed); same key and a different payload is
+// IdempotencyConflict and changes nothing. A new key for a subject and epoch that already has a case is
+// PreconditionFailed: nothing is written, no counter value is spent, and the existing case is returned. The
+// precondition is enforced by the unique index, in the transaction that would insert, so two concurrent creators
+// cannot both succeed.
 func (s *Store) CreateCase(ctx context.Context, cmd Cmd, in CreateCaseInput) (Case, Outcome, error) {
 	var out Case
 	hash := in.requestHash()
@@ -70,6 +79,9 @@ func (s *Store) CreateCase(ctx context.Context, cmd Cmd, in CreateCaseInput) (Ca
 		if err != pgx.ErrNoRows {
 			return res, err
 		}
+		if _, err := tx.Exec(ctx, `SAVEPOINT create_case`); err != nil {
+			return res, err
+		}
 		n, err := nextCounter(ctx, tx, "case")
 		if err != nil {
 			return res, err
@@ -83,6 +95,20 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,'OPEN',$8,$9,$10,$11,1,$12,$12,$13,$14)
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 			id, n, in.TenantID, ids.CaseReference(at, n), in.PrincipalID, in.TransactionRef, in.ReasonCode, in.OwnerQueue, in.Priority,
 			in.IdempotencyKey, hash, at, in.CreatedByIntent, in.Epoch)
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == subjectEpochIndex {
+			// Back out to before the counter was taken, so the references stay gapless, then answer with the case that exists.
+			if _, rerr := tx.Exec(ctx, `ROLLBACK TO SAVEPOINT create_case`); rerr != nil {
+				return res, rerr
+			}
+			found, _, qerr := scanCase(tx.QueryRow(ctx, `SELECT `+caseColumns+` FROM cases
+WHERE tenant_id = $1 AND transaction_ref = $2 AND epoch = $3 AND status IN ('OPEN', 'ROUTED')`, in.TenantID, in.TransactionRef, in.Epoch))
+			if qerr != nil {
+				return res, qerr
+			}
+			out, res.outcome, res.caseID = found, PreconditionFailed, found.CaseID
+			return res, nil
+		}
 		if err != nil {
 			return res, err
 		}

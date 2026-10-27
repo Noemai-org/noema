@@ -46,8 +46,12 @@ type WriteResult struct {
 	// KeyCollision is true when the target refused the same idempotency key with a different payload
 	// (EC-E06). The caller raises the security event; the adapter only reports it.
 	KeyCollision bool
-	// CurrentVersionToken is set on a version mismatch (the token the target holds now).
+	// CurrentVersionToken is set on a version mismatch (the token the target holds now) and on a refused
+	// create-if-absent (the token of the case that exists).
 	CurrentVersionToken string
+	// ExistingCaseID is set on a refused create-if-absent: the case the target already holds for the subject and epoch.
+	// It is a name to read back, never this write's result.
+	ExistingCaseID string
 	// RetryAfter is the target's Retry-After on a 429, if it sent one.
 	RetryAfter time.Duration
 	// Case is the case the target returned, when it returned one.

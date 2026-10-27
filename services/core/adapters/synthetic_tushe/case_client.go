@@ -137,7 +137,7 @@ func (c *CaseClient) CreateCase(ctx context.Context, in adapters.CreateCaseInput
 	if in.Priority != "" {
 		body["priority"] = in.Priority
 	}
-	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases", nil, map[string]string{"Idempotency-Key": in.IdempotencyKey}, body, in.Timeout)
+	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases", nil, map[string]string{"Idempotency-Key": in.IdempotencyKey, "If-None-Match": "*"}, body, in.Timeout)
 	if res != nil {
 		return *res
 	}
@@ -346,11 +346,32 @@ func unrecognised(status int) adapters.WriteResult {
 }
 
 func classifyCreate(status int, h http.Header, raw []byte) adapters.WriteResult {
-	if r, ok := classifyCommon(status, h, raw); ok {
-		return r
+	if status != http.StatusPreconditionFailed {
+		if r, ok := classifyCommon(status, h, raw); ok {
+			return r
+		}
 	}
-	code, _ := errCode(raw)
+	code, we := errCode(raw)
 	switch status {
+	case http.StatusPreconditionFailed:
+		// The create was conditional on there being no case for the subject and epoch, and the target holds one that
+		// another key made. The state the write expected ("absent") no longer holds: the same class as a stale version
+		// (E10). The case that exists is named, never adopted as this write's result.
+		if code != "PRECONDITION_FAILED" {
+			return adapters.WriteResult{Class: adapters.ClassRejected4xx, RawCode: rawCode(status, code)}
+		}
+		r := adapters.WriteResult{Class: adapters.ClassVersionConflict, RawCode: rawCode(status, code)}
+		if we != nil {
+			for _, d := range we.Error.Details {
+				switch d.Field {
+				case "existing_version_token":
+					r.CurrentVersionToken = d.Issue
+				case "existing_case_id":
+					r.ExistingCaseID = d.Issue
+				}
+			}
+		}
+		return r
 	case http.StatusCreated, http.StatusOK:
 		var w wireCase
 		if err := strict(raw, &w); err == nil {

@@ -99,7 +99,7 @@ def main() -> int:
         def create(key: str, tx: str = TX) -> Json:
             return runtime.request("POST", "/v1/cases", {"tenant_id": TENANT, "principal_id": PRINCIPAL, "transaction_ref": tx, "reason_code": "OUTCOME_UNKNOWN",
                                     "created_by_intent": "bench_live_check", "epoch": 0},
-                                   {"Idempotency-Key": key})[0]
+                                   {"Idempotency-Key": key, "If-None-Match": "*"})[0]
 
         def effects(baseline: Any) -> dict[tuple[str, str], int]:
             return {(e["capability"], e["target"]): e["count"] for e in oracle.readout(baseline, record_events=[])["effects"]}

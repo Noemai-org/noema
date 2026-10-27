@@ -94,6 +94,15 @@ func (s *Server) parseCreateCase(w http.ResponseWriter, r *http.Request) (*opCal
 	if e != nil {
 		return nil, e
 	}
+	// A create is a conditional write (create_escalation_case is CONDITIONAL_WRITE): it must say what it is conditional on,
+	// "no case exists for this subject and epoch", and the target enforces it atomically. An unconditional create has no route.
+	switch inm := r.Header.Get("If-None-Match"); inm {
+	case "":
+		return nil, newErr(428, "PRECONDITION_REQUIRED", "a case is created only if absent: send If-None-Match: *", false)
+	case "*":
+	default:
+		return nil, badRequest("If-None-Match", "only * is supported: create only if absent")
+	}
 	var b struct {
 		TenantID        string  `json:"tenant_id"`
 		PrincipalID     string  `json:"principal_id"`

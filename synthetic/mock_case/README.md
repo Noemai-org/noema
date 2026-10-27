@@ -10,7 +10,7 @@ mock-case emulates the bank's case system, because Tushe has no case domain (DEC
 
 | §34.4 row | Route | Notes |
 |---|---|---|
-| Create with idempotency key | `POST /v1/cases` + `Idempotency-Key` | same key and same payload: `200` and the original case (`Idempotent-Replay: true`); same key and a different payload: `409 IDEMPOTENCY_CONFLICT`, nothing changes, nothing leaks |
+| Create if absent, with idempotency key | `POST /v1/cases` + `Idempotency-Key` + `If-None-Match: *` | the create is conditional on there being no case for the tenant, transaction and epoch. Same key and same payload: `200` and the original case (`Idempotent-Replay: true`); same key and a different payload: `409 IDEMPOTENCY_CONFLICT`, nothing changes, nothing leaks; another key for a subject that has a case: `412 PRECONDITION_FAILED`, nothing is written and no reference is spent, and `details` names `existing_case_id` and `existing_version_token`; no `If-None-Match: *`: `428 PRECONDITION_REQUIRED` (an unconditional create has no route) |
 | Find by transaction or principal; by idempotency key | `GET /v1/cases?tenant_id=&idempotency_key=` or `&principal_id=[&transaction_ref=]` | never a global search; absence is `200` with `items: []`; pages carry `complete` and `next_cursor` |
 | A version token on every read | `GET /v1/cases/{id}`, and every item of a list | opaque `v<n>`: compare it, do not parse it |
 | Route with expected version | `POST /v1/cases/{id}/route` | a stale token is `409 VERSION_MISMATCH` (distinct from the idempotency conflict), applies nothing, and names the current token in `details` |
@@ -18,6 +18,18 @@ mock-case emulates the bank's case system, because Tushe has no case domain (DEC
 | Evidence | `POST /v1/cases/{id}/evidence`, `GET /v1/evidence[/{id}]` | append-only; `payload_hash` is the SHA-256 of the exact bytes of `payload` (`sha256:<hex>`); a supplied `payload_hash` that does not match is `422` |
 
 **Absent by construction.** There is no operation to close or resolve a case, downgrade priority, change an SLA or clock, edit or delete evidence, or move money, and no dispute. They have no route (the answer is a JSON `404`, for any method), no handler, and no entry in the API description (`internal/api/openapi.json`). The database refuses them too (`internal/store/migrations/0001_init.sql`): `status` is `OPEN` or `ROUTED` and can only move from OPEN to ROUTED (never back, never closed); a case row may change only its queue and its version (+1); evidence, complaints and the command log refuse UPDATE, DELETE and TRUNCATE, for the owner as well. Tests: `TestForbiddenOperationsHaveNoRouteAndChangeNothing`, `TestCaseApiDescriptionOffersNothingProhibited`, `TestDatabaseRefusesWhatTheServiceDoesNotOffer`.
+
+## Create if absent
+
+`create_escalation_case` stays `CONDITIONAL_WRITE` in the capability descriptor (nothing in the SoT or the descriptor changes). This is how mock-case honours the condition, so the core can rely on it when the dispatch outcome is unknown (PERD §27.1 E7, REQ-EXE-004).
+
+- **The precondition is the request's.** `If-None-Match: *` says "create only if absent". Absent means: no case in `OPEN` or `ROUTED` for the same `tenant_id`, `transaction_ref` and `epoch`.
+- **It is enforced atomically in the target.** The unique partial index `cases_subject_epoch_uq` (migration `0003_create_if_absent.sql`) is the guard, in the transaction that would insert, so two concurrent creators cannot both succeed. A creator that loses is rolled back to before it took a reference number, so references stay gapless.
+- **The idempotency key is the retry's identity.** The core derives it from the plan inputs bound to the grant, so a retry under a new grant (PERD §27.2) sends the same key. Same key, same payload is the original case; same key, different payload is `409`. A different key for the same subject is a different attempt at the same create, and is `412`.
+- **The refusal can be verified.** The `412` names the case that exists and its server-issued version token. The caller reads it back (`GET /v1/cases/{id}`) and compares; no token is made up (a made-up token on a route is `409 VERSION_MISMATCH`).
+- **Scope of the guarantee.** It holds for mock-case only. How Tushe's own create behaves is an open item for the founders; the core must not read this section as a statement about Tushe.
+
+Tests: `internal/api/precondition_test.go` (header required, duplicate, conflicting, concurrent under load, read-back), `internal/store/store_test.go` (`TestCreateCaseIfAbsentRefusesASecondCaseForTheSubject`, `TestTheDatabaseRefusesASecondOpenCaseForTheSubject`, `TestConcurrentCreatesForOneSubjectYieldOneCase`), and the linearizability workload, whose model includes a rival key per subject.
 
 ## Two listeners, two credentials
 

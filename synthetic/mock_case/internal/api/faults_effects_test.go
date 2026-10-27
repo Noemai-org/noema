@@ -24,7 +24,7 @@ func TestNearTimeoutAfterCommitsThenAnswersLate(t *testing.T) {
 	// A caller that waits gets the real answer, late, not a dropped connection.
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "NEAR_TIMEOUT_AFTER", `{"delay_ms":150}`), ""))
 	start := time.Now()
-	r, err := e.createWith(patient(e), "idk_2")
+	r, err := e.createWithFor(patient(e), "idk_2", 2)
 	if err != nil || r.status != 201 || r.str("case_id") == "" {
 		t.Fatalf("the late answer is the real one: %v %d %s", err, r.status, r.raw)
 	}
@@ -57,7 +57,7 @@ func TestNearTimeoutBeforeCommitsOnlyForACallerThatWaits(t *testing.T) {
 	}
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "NEAR_TIMEOUT_BEFORE", `{"delay_ms":150}`), ""))
 	start := time.Now()
-	r, err := e.createWith(patient(e), "idk_2")
+	r, err := e.createWithFor(patient(e), "idk_2", 2)
 	if err != nil || r.status != 201 {
 		t.Fatalf("a caller that waits gets the real answer: %v %d %s", err, r.status, r.raw)
 	}
@@ -79,13 +79,13 @@ func TestHTTP200SemanticPendingCreatesNothing(t *testing.T) {
 		body     map[string]any
 		kind     string
 	}{
-		{"create_case", "/v1/cases", caseBody(), "cases"},
+		{"create_case", "/v1/cases", caseBodyFor("TX99999"), "cases"},
 		{"create_complaint", "/v1/cases/" + c.str("case_id") + "/complaints", map[string]any{"tenant_id": "ten_a"}, "complaints"},
 		{"append_evidence", "/v1/cases/" + c.str("case_id") + "/evidence", map[string]any{"tenant_id": "ten_a", "payload": "synthetic note"}, "evidence"},
 	} {
 		e.loadPlan(plan(fault(tc.op, `{"nth_call":1}`, "HTTP_200_SEMANTIC_PENDING", `{}`), ""))
 		before := e.count(tc.kind)
-		r := e.runtime("POST", tc.path, key("idk_pending_"+tc.op), tc.body)
+		r := e.runtime("POST", tc.path, ifAbsent(key("idk_pending_"+tc.op)), tc.body)
 		if r.status != 200 || r.str("status") != "PENDING" || r.str("case_id") != "" || r.str("complaint_ref") != "" || r.str("attachment_id") != "" {
 			t.Fatalf("%s: a 200 that says pending and carries no created object: %d %s", tc.op, r.status, r.raw)
 		}
@@ -96,7 +96,7 @@ func TestHTTP200SemanticPendingCreatesNothing(t *testing.T) {
 		if last := trace[len(trace)-1]; last != (traceRow{tc.op, "HTTP_200_SEMANTIC_PENDING", false, false, 200}) {
 			t.Fatalf("%s: fault trace: %+v", tc.op, trace)
 		}
-		again := e.runtime("POST", tc.path, key("idk_pending_"+tc.op), tc.body)
+		again := e.runtime("POST", tc.path, ifAbsent(key("idk_pending_"+tc.op)), tc.body)
 		if again.status != 201 || e.count(tc.kind) != before+1 {
 			t.Fatalf("%s: the key stays free; the retry is a first create: %d %s", tc.op, again.status, again.raw)
 		}
@@ -111,10 +111,10 @@ func TestIdempotencyCollisionAnswersAsARealCollisionAndCreatesNothing(t *testing
 	if r.status != 409 || r.errCode() != "IDEMPOTENCY_CONFLICT" || r.json["error"].(map[string]any)["retryable"] != false {
 		t.Fatalf("%d %s", r.status, r.raw)
 	}
-	e.runtime("POST", "/v1/cases", key("idk_real"), caseBody()) // nth_call 2: no fault
+	e.runtime("POST", "/v1/cases", newKey("idk_real"), caseBody()) // nth_call 2: no fault
 	other := caseBody()
 	other["principal_id"] = "usr_2"
-	genuine := e.runtime("POST", "/v1/cases", key("idk_real"), other)
+	genuine := e.runtime("POST", "/v1/cases", newKey("idk_real"), other)
 	if genuine.status != 409 || genuine.errCode() != r.errCode() || genuine.str("error", "message") != r.str("error", "message") {
 		t.Fatalf("the injected collision must read like a real one: %s vs %s", r.raw, genuine.raw)
 	}
