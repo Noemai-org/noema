@@ -15,6 +15,8 @@ Updated 2026-10-24. Owner: Session A. Related tasks: GOV-22 (drift guard), CON-0
 - Non-author founder review on noema#59 (the others, #42, #46 and #47, have merged).
 - Session C's noema#55 is superseded by #56; closing it is a founder action.
 - noema#61 (this log) needs the non-author founder's review.
+- noema#75 (re-point to docs `05459fe`) is accepted; the Founder merges it.
+- The G2 escalate case waits for the Founder to merge noema#67.
 
 ## Messages
 
@@ -45,6 +47,26 @@ The messages for other tasks are in their own files: `status/CON-01.md` (17:04Z 
 ### 2026-10-23 10:38Z sent · Session A → Session D
 - Purpose: the docs now match Session D's code (docs#57 at `9861aa6`).
 - Receiver used it for: not recorded.
+
+### 2026-10-26 (time not recorded) accepted · Founder → Session A
+- Purpose: the nine-step instruction list of 26 Oct: post the decision comment on noema#61; clean the text of #64 to #68 and their status files; one fresh check on each final head of #67 and #68; limit the secret scan to the PR's own commits (#69); move `docs/sessions/` to `status/` and update AGENTS §9 (#70, docs#61); draft PERD v1.16 for §34.1 (docs#60); no clients for fault-controller or fixture-loader in core; run the G2 escalate case after #67 merges; no Tushe-dependent work until the Founder confirms.
+- Used it for: docs#59, docs#60, docs#61, noema#67 to #70. The G2 case waits for #67 to merge.
+- Evidence: docs#60, docs#61, noema#67, #68, #69, #70.
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: docs main is `05459fe` (includes docs#60 and docs#61); noema main is `08a2b25` after #69. Open one noema PR from main that re-points the five managed vendored copies with `tools/vendor/repoint_docs.py`, with the diff limited to those five files; report the head SHA and every check including docs-drift; do not merge.
+- Used it for: noema#75, head `bab2586958f5a322c4bebcaa1b77b18e1f50f685`.
+- Evidence: noema#75.
+
+### 2026-10-27 (time not recorded) sent · Session A → Founder
+- Purpose: report on noema#75: five files only; `repoint_docs.py --check --ignore-commit` exit 1 before and exit 0 after; 16 checks success, 1 skipped (`codegen-diff`), 0 failed, with run links; `docs-drift` does not run on pull requests, so it was dispatched once on the branch (run 40465546208, success); the message log was kept out of #75.
+- Receiver used it for: the Founder accepted #75 and will merge it (next entry).
+- Evidence: noema#75, comment 6436006042.
+
+### 2026-10-27 (time not recorded) accepted · Founder → Session A
+- Purpose: #75 is accepted and the Founder will merge it; keep it at five files; log the 26 Oct instruction, the #75 report and this message in `status/OPS-07.md` on #70, not #75; post the head SHA and check results on #70; stay idle until #67 merges, then run the G2 escalate case.
+- Used it for: this entry, added to #70.
+- Evidence: noema#70.
 
 ### Earlier incoming messages
 Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" lists. The bodies were not recoverable from the session record, so they are not summarised here.
