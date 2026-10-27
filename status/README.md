@@ -8,7 +8,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 - `status/README.md` (this file): the index and the format.
 - Session notes of other sessions, moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status): `ENV-08.md` and `ENV-13.md` (two sessions each, one dated section per session) and `T5-T6.3.md`. Each task's file now holds its state, its sessions and its message log.
-- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-01`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
+- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
 
@@ -26,7 +26,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 |---|---|---|---|
 | 21 Oct 17:04 | sent | Session C | `CON-01.md` |
 | 21 Oct 17:07 | sent | Session C | `CON-01.md` |
-| 21 Oct 18:35 | sent | Session C | `EXE-01.md` |
+| 21 Oct 18:35 | sent | Session C | `EXE-02.md` |
 | 21 Oct 20:11 | sent | Session B | `OPS-07.md` |
 | 22 Oct 14:23 | sent | Session D | `PCK-01.md` |
 | 22 Oct 14:47 | sent | Session D | `OPS-07.md` |
@@ -35,6 +35,9 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 | 23 Oct 10:20 | accepted | Session D | `OPS-07.md` |
 | 23 Oct 10:38 | sent | Session D | `OPS-07.md` |
 | 21 Oct 17:06, 22 Oct 11:16 | accepted | Sessions C, D | `OPS-07.md` (bodies not recovered) |
+| 26 Oct | sent | Session D | `OPS-07.md` |
+| 26 Oct | sent | Session C | `OPS-07.md` |
+| 26 Oct | accepted | Session D | `OPS-07.md` |
 
 ## Entry format
 
