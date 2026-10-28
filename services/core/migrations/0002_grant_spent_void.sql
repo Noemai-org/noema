@@ -18,13 +18,20 @@
 --       the shape of transport_result but no value set; that is a limitation of this check, not of the contract;
 --   (f) there is no external acknowledgement: the member is present and null in the signed document, and null or empty in
 --       the row;
---   (g) the signature in the document is the row's signature (key and value).
+--   (g) the signature member of the document equals the row's signature columns (key and value). This is a consistency
+--       check that the row was written from this document. It is not a verification of the HMAC, and it does not require a
+--       non-empty value: an empty key and value on both sides pass.
 -- raw_status (the class, then the raw status code, e.g. VERSION_CONFLICT_409_412:409:VERSION_MISMATCH) is a diagnostic and
 -- decides nothing, but it must agree with the signed transport_result: its part before the first colon is the same class.
 -- A contradiction makes the receipt ambiguous, and an ambiguous receipt does not void a grant.
--- The database does not verify the HMAC: the keys are not in the database (PERD 41.1). Only execution_rw can insert a
--- receipt, and Execution signs it.
+-- Nothing verifies the receipt's HMAC before the receipt is written, in the database or in the core. The database holds no
+-- key (PERD 41.1: the grant key is held by the core from the secrets manager). In the core, KeyRing.VerifyWith is called
+-- once, at E1, for the grant; the receipt is signed (Controller.sign) and written (ledger.Complete) without being verified.
+-- The SoT names Outcome as the checker of the receipt's signature (SoT 13.1, the "Checks" row of the constitution table); Outcome is not built. Only
+-- execution_rw can insert a receipt, and Execution signs it; that is the whole of the guarantee about its origin.
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
+-- That guarantee comes from mock-case's OpenAPI contract (route response 409 VERSION_MISMATCH, "nothing applied"), not from a
+-- real target's contract: Tushe defines no case API. It must be re-verified against any real target before production use.
 -- Outcome's own read follows from the outbox event written in the same transaction; it is not a precondition.
 --
 -- Everything else in decision_grant_guard is as in 0001: no DELETE, only the status may change, and a status other than
