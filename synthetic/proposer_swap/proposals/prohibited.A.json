@@ -1,0 +1,203 @@
+{
+  "intent_object": {
+    "ambiguity_flags": [],
+    "correlation_id": "corr_g2case1",
+    "created_at": "2026-10-27T09:00:00Z",
+    "desired_outcome_refs": [
+      "fin.outcome.exception.case_opened"
+    ],
+    "intent_id": "int_swap01",
+    "intent_node": "fin.payments.exception.investigate",
+    "pack": {
+      "pack_id": "fin",
+      "pack_version": "1.0.0"
+    },
+    "principal": {
+      "asserted_by": "enterprise_idp",
+      "authn_ref": "ses_swap01",
+      "principal_id": "usr_100",
+      "principal_type": "end_user"
+    },
+    "schema_version": "1.0",
+    "sig": {
+      "key_id": "und-swap-2026",
+      "value": "Avzmctz3tclcSW4c6wF9HjUYojSx0PgxGyLMBHDLxC8="
+    },
+    "slots": {
+      "amount": {
+        "confidence": 0.9,
+        "type": "Quantity",
+        "unit": "NGN",
+        "value": 2000000
+      },
+      "counterparty": {
+        "confidence": 0.9,
+        "surface_form": "Tunde",
+        "type": "Party"
+      },
+      "question_type": {
+        "status": "RESOLVED",
+        "type": "Reference",
+        "value": "ESCALATION_REQUEST"
+      },
+      "requested_remedy": {
+        "status": "RESOLVED",
+        "type": "Reference",
+        "value": "fin.cap.initiate_refund"
+      },
+      "subject_resource": {
+        "candidates_ref": "cns_swap01",
+        "confidence": 1.0,
+        "resolved_ref": "fin.transaction:TX1",
+        "status": "RESOLVED",
+        "type": "Resource"
+      },
+      "when": {
+        "confidence": 0.8,
+        "surface_form": "this morning",
+        "type": "TimeRef",
+        "window": [
+          "2026-10-21T05:00:00Z",
+          "2026-10-21T12:00:00Z"
+        ]
+      }
+    },
+    "source": {
+      "asr_confidence": null,
+      "channel": "text",
+      "locale_detected": [
+        "pcm"
+      ],
+      "mode": "MODE_1",
+      "raw_ref": "raw_swap01"
+    },
+    "status": "VALIDATED",
+    "supersedes": null,
+    "tenant_id": "ten_aa",
+    "version": 1
+  },
+  "pipeline": {
+    "gate_errors": [],
+    "outcome": "PROPOSED"
+  },
+  "proposer": {
+    "calls": [
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.intent_node_classification",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.enumerated_slot",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.ambiguity_flag",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.locale_detection",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "slot_values",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.instruction_likeness",
+        "tokens_in": 50,
+        "tokens_out": 10
+      },
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OK",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": "model-stub_a-2026-01-01",
+        "provider": "stub_a",
+        "route": "decide.instruction_likeness",
+        "tokens_in": 50,
+        "tokens_out": 10
+      }
+    ],
+    "id": "A",
+    "kind": "canned_stub"
+  },
+  "scenario": "prohibited",
+  "synthetic": true
+}

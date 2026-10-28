@@ -1,0 +1,33 @@
+{
+  "intent_object": null,
+  "pipeline": {
+    "gate_errors": [
+      "SCHEMA_INVALID"
+    ],
+    "outcome": "REJECTED_AT_GATE"
+  },
+  "proposer": {
+    "calls": [
+      {
+        "attempts": [
+          {
+            "model_version": "model-stub_a-2026-01-01",
+            "outcome": "OUTPUT_MISMATCH",
+            "provider": "stub_a",
+            "tokens_in": 50,
+            "tokens_out": 10
+          }
+        ],
+        "model_version": null,
+        "provider": null,
+        "route": "decide.intent_node_classification",
+        "tokens_in": 50,
+        "tokens_out": 10
+      }
+    ],
+    "id": "A",
+    "kind": "canned_stub"
+  },
+  "scenario": "invalid",
+  "synthetic": true
+}

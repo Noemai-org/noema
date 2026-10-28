@@ -6,7 +6,7 @@ The Python model service (the Go core is the other deployable). It hosts Underst
 
 - **Python:** 3.13, pinned by `requires-python` in `pyproject.toml`. Dependencies are pinned with `==`, and `requirements.lock` / `requirements-dev.lock` carry every file hash (`pip install --require-hashes`). Regenerate with `make lock-model`.
 - **Build context:** this folder only (DEC-2026-10-13 R2): `docker build services/model`.
-- **Tests and types:** `make test` (pytest, including the Hypothesis property tests) and `mypy --strict` through `make lint`. Provider contract tests read synthetic fixtures; no vendor key existed, so no live provider run has happened (`tests/fixtures/providers/README.md`).
+- **Tests and types:** `make test` (pytest, including the Hypothesis property tests) and `mypy --strict` through `make lint`. Provider contract tests read synthetic fixtures; no vendor key existed, so no live provider run has happened (`tests/fixtures/providers/README.md`). `tests/test_proposer_swap.py` writes the proposals of the proposer swap test to `synthetic/proposer_swap/` (see its README); no network.
 - **Why `noema_model/`.** The PERD §64.2 tree shows `understanding/` and `platform/` directly under `services/model/`. A top-level package named `platform` would shadow the standard library's `platform` module for anything that runs with this folder on `sys.path`, so the same packages sit one level down. See the PR for the recorded decision.
 
 ## Constraints

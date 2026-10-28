@@ -1,0 +1,33 @@
+{
+  "intent_object": null,
+  "pipeline": {
+    "gate_errors": [
+      "SCHEMA_INVALID"
+    ],
+    "outcome": "REJECTED_AT_GATE"
+  },
+  "proposer": {
+    "calls": [
+      {
+        "attempts": [
+          {
+            "model_version": "model-openai_b-2026-01-01",
+            "outcome": "OUTPUT_MISMATCH",
+            "provider": "openai_b",
+            "tokens_in": 120,
+            "tokens_out": 340
+          }
+        ],
+        "model_version": null,
+        "provider": null,
+        "route": "decide.intent_node_classification",
+        "tokens_in": 120,
+        "tokens_out": 340
+      }
+    ],
+    "id": "B",
+    "kind": "openai_responses_replay"
+  },
+  "scenario": "invalid",
+  "synthetic": true
+}

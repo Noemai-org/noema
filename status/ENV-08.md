@@ -71,6 +71,23 @@ Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-stat
 - Files to read first: `synthetic/mock_case/README.md` ("Create if absent"), `internal/store/ops.go` (`CreateCase`), `services/core/adapters/synthetic_tushe/case_client.go` (`classifyCreate`).
 - Do not touch: the unique index (the guarantee rests on it), the recordings (re-record with the real service, never by hand).
 
+## Session 2026-10-28 · ENV-08 (the proposer swap test)
+
+### Session summary
+- What changed (PR links): a stub-based proposer swap test in two linked halves, plus the proposers. `services/model/tests/{support_swap,support_contract,test_proposer_swap}.py` and `tests/fixtures/proposer_swap/canned_outputs.json` (proposer A, a canned-proposal stub; proposer B, the OpenAI Responses adapter replaying a canned provider response; no network); `synthetic/proposer_swap/` (the proposals they produce, and `decisions.json`); `services/core/trust/decide/proposer_swap_test.go` (decision half); `services/core/execution/e2e/proposer_swap_test.go` (execution half). No core code, no `tools/lint` change. PR link: see the pull request that carries this file.
+- Why: the founders asked for evidence that the core decides and records the same for the same canned decision whatever proposer produced it, and refuses an invalid or prohibited proposal the same way. The replay of Luna's recorded outputs was dropped (the diagnostics hold no raw responses).
+- Risks, and how they are contained: (1) **This validates the decision path only. It does not validate the unbuilt intake or the complete architecture.** The core has no code that parses an Intent Object; `intake` in the decision half is a stand-in for the Trust intake, not the intake, and fixes the three authority layers to PASS (the authority and policy engines are not built). (2) The Intent Object follows SoT §43.1 and PERD §20.1 (`contracts/schemas/intent-object.v1.json`); no field was invented; the four valid Intent Objects pass `tools/contracts/validate.py`. (3) A single chained Go test was not possible: `import-boundary` forbids execution reaching trust, and `import-adapters` limits adapters. The founder chose two linked tests; they meet at the committed `decisions.json`, which the decision half fails on if it is stale, and the proposal files are guarded the same way by the model test. (4) Normalisation in the execution half covers only values drawn from entropy or mock-case's own clock (ULID entropy of minted ids, the hashes and receipt signature that cover them, mock-case's case id, reference and time); the chain is verified in every run.
+- Tests added (REQ, INV, US or EC IDs): REQ-TST-004, REQ-ENV-008, INV-01, INV-02, INV-03, INV-12, INV-21: same decision gives identical outcome, Record events, workflow result and mock-case state under both proposers; a prohibited remedy (T4, PROHIBITED_CAPABILITY) and an invalid proposal (T1, INTENT_INVALID) are refused identically and write nothing; mutation controls in both halves (provenance in the decision, in the ambiguity flags, in a grant parameter) that must be noticed; drift guards on the committed files.
+- Regression cases added: the committed proposals and decisions under `synthetic/proposer_swap/`.
+- Debt entries: none written (docs repository). The stand-in stays until the Trust intake exists; replace it then.
+- Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: when the Trust intake is built, replace `intake` with it and keep the two halves' comparisons.
+- Open questions (owner): none.
+- Files to read first: `synthetic/proposer_swap/README.md`.
+- Do not touch: the drift guards; regenerate with the commands in that README, never by hand.
+
 ## Messages
 
 ### 2026-10-25 (time not recorded) accepted · Founder → Session B
@@ -87,3 +104,33 @@ Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-stat
 - Purpose: "Session A: #77 stays open and unmerged. Do three things, in order. Log every message in status/. Do not merge anything. The non-author co-founder approves each PR, and the founder merges. PR 1: contract (remediation items 1 and 2). ... PR 2: create-if-absent in mock-case (remediation item 3). Start after PR 1 is open; it merges after PR 1. Keep create declared CONDITIONAL_WRITE. Do not change the Source of Truth or the descriptor to NONE. Implement target-side create-if-absent: a stable idempotency key bound to the grant, the precondition enforced atomically in the target, and conflicting or duplicate attempts rejected with the right error. Read-back state must be verifiable. Do not use a fabricated version token. Tests must prove the guarantee and its failure cases: duplicate create, conflicting create, concurrent create under load, and read-back verification. If you hit a real technical limit, stop and report the specific trade-off. Do not silently change the contract. In the PR body, state that the guarantee holds for the mock target only, and that Tushe's create semantics are an open item for the founder to confirm. Step 3: #77 (after PR 1 merges). Merge origin/main into #77. Update its writers, readers and verifiers to the new schema. No rebase, no force-push. Rerun checks once on the final head, and report the head SHA and results with run links. Keep #77 open for the co-founder's approval. Do not merge it." (PR 1 part: see `status/CON-01.md`.)
 - Receiver used it for: PR 2 (this PR). Step 3 could not be done as written: #77 was already merged (27 Oct 2026, 13:14 UTC) before the instruction, so there is no open #77 to merge main into; PR 1 updates the writers, readers and verifiers on `main`'s code directly. Reported to the founder in the PR 1 and PR 2 reports.
 - Evidence: the PR that carries this file.
+
+### 2026-10-28 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: start the replay test. Work in noema on a branch from main. Do not merge. 1. Check whether the artifact from run 40577810935 (run-OPENAI_GPT_6_LUNA.json and diagnostics) holds the raw model responses for each call. Report exactly what it holds, with the file and field names. If it holds the raw responses, go on to step 2. If not, stop and report. 2. Build an integration test that feeds Luna's recorded responses through core end to end, using the existing mock-case. Use no API calls. 3. In the same test, run a second proposer on the same cases, such as a deterministic stub that returns the same proposals. Assert that outcomes and Record events are identical, and that core code is unchanged between the two proposers. 4. Report the head SHA, the file list, and the check run links on the PR. Do not merge. Log every message in status/ENV-08.md."
+- Receiver used it for: step 1 only. The artifact (`bench-live-out-full-40577810935`) is on a host denied by the session's network policy; nothing was opened and its contents are not confirmed. Steps 2 to 4 were not started.
+- Evidence: none in the repository (a report to the founder).
+
+### 2026-10-28 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: the replay plan is dropped. Diagnostics and run files hold no raw responses, so the replay of Luna's outputs can't be built. Do not open the artifact host. Do not wait on the artifact. Build the stub-based swap test on a branch from main, with no network calls and no API spend: 1. Proposer A: a stub that returns a canned, valid proposal. 2. Proposer B: the OpenAI Responses adapter, replaying a canned provider response, with no network. 3. Assert that for the same canned decision, core produces identical outcomes and Record events under both proposers. 4. Assert that for an invalid or prohibited proposal, core refuses it identically under both proposers. 5. Make no changes to core code. The test must fail if core behaves differently depending on which proposer produced the proposal. Report the head SHA, the file list and the check run links. Do not merge. Log every message in status/ENV-08.md."
+- Receiver used it for: the swap test of this PR. Found that the core has no proposal intake, so asked the founder (question: how to bridge it; options were Python proposers with test-only Go glue, or a chained Go test).
+- Evidence: this PR.
+
+### 2026-10-28 (time not recorded) sent · Session B → Founder
+- Purpose: the question above: the core has no intake, so what stands between a proposer's output and `decide`? Recommended: Python proposers plus test-only Go glue.
+- Receiver used it for: answered "A: Python proposers + test-only Go glue".
+- Evidence: none in the repository.
+
+### 2026-10-28 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: option A is approved, with these requirements. 1. The Go glue lives only in test files. Core packages must not import it. Label it in the file header as a stand-in for the Trust intake, not the intake itself. 2. Derive the Intent Object shape from the PERD and the source-of-truth document. Do not invent fields. Cite the sections. 3. Proposer A: a canned-proposal stub. Proposer B: the OpenAI Responses adapter replaying a canned response, with no network. 4. Every proposer's output passes through the same admission, policy and execution checks. The test uses the real decide.Admit and FailAtGate, and the real EscalateCase workflow on mock-case. Do not mock the decision outcomes or simulate writes. 5. Mutation check: if proposer provenance leaks into core's result, the test must fail. Show that it fails. 6. State in the test header and the PR body: this validates the decision path only. It does not validate the unbuilt intake or the complete architecture. 7. No changes to core code. No network calls. No API calls. Report the head SHA, the file list and the check run links. Do not merge. Log every message in status/ENV-08.md."
+- Receiver used it for: the design of this PR (items 1 to 7); the mutation evidence is in the PR body.
+- Evidence: this PR.
+
+### 2026-10-28 (time not recorded) sent · Session B → Founder
+- Purpose: report that a single chained Go test cannot pass `tools/lint` (import-boundary, import-adapters, money-float-area); options: two linked tests, or a lint change.
+- Receiver used it for: answered "Two linked tests".
+- Evidence: none in the repository.
+
+### 2026-10-28 (time not recorded) accepted · Founder → Session B
+- Purpose: "Session B: the founder chooses option 1, two linked tests, with a drift guard. 1. The decision half in trust/decide runs the real Admit and FailAtGate on both proposers' Intent Objects and writes the decisions file. It also fails if the regenerated file differs from the committed one. 2. The execution half in execution/e2e reads the committed decisions file and runs the real EscalateCase on mock-case for each proposer. It compares outcomes and Record events. 3. Both halves keep their mutation controls. 4. Do not merge the drafted chained test at services/core/integration/proposer_swap/. Remove it from the branch. 5. Make no lint change and no core change. Report the head SHA, the file list and the check run links. Do not merge. Log every message in status/ENV-08.md."
+- Receiver used it for: the two linked tests of this PR; the drafted chained test was never committed.
+- Evidence: this PR.
