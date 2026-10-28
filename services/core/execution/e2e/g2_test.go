@@ -298,6 +298,78 @@ func TestG2ARouteGrantBoundToAStaleTokenIsVoidedAtRevalidation(t *testing.T) {
 	}
 }
 
+// US-19, EC-E11, REQ-EXE-004, INV-27: someone else changes the case after revalidation (E7) and before the write. The route
+// carries the version token the grant was bound to, the real mock-case refuses it (409 VERSION_MISMATCH), and:
+// the receipt is REJECTED_STALE_VERSION; the grant is void, with a RecoveryRequest to Trust, in the same step as the receipt;
+// the case holds the other writer's queue and not the grant's (no write applied); and executing the grant again writes
+// nothing (no automatic retry).
+func TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoided(t *testing.T) {
+	mc := startMockCase(t)
+	st := newStack(t, mc)
+	createGrant, _ := st.trust.IssueCreate(bg(t))
+	created, err := bridge.GrantExecutor{Controller: st.ctl}.ExecuteGrant(bg(t), tenant, createGrant)
+	if err != nil || created.State != "ACKNOWLEDGED" {
+		t.Fatalf("create: %+v, %v", created, err)
+	}
+	found := st.casesFor(t, created.IdempotencyKey)
+	if len(found) != 1 {
+		t.Fatalf("%d cases under the create's key, want 1", len(found))
+	}
+	caseID := found[0].CaseID
+	cur, err := st.cases.GetCase(bg(t), tenant, caseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := st.trust.IssueRouteGrant(bg(t), workflows.RouteGrantRequest{TenantID: tenant, CorrelationID: correlation, CaseID: caseID,
+		VersionToken: cur.VersionToken, PlannedQueue: "FRAUD_REVIEW"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rival adapters.WriteResult
+	ctl := *st.ctl
+	ctl.Out = raceDispatcher{inner: st.ctl.Out, rival: func() {
+		rival = st.cases.RouteCase(bg(t), adapters.RouteCaseInput{TenantID: tenant, CaseID: caseID, OwnerQueue: "SETTLEMENT_OPS",
+			ExpectedVersionToken: cur.VersionToken, Timeout: 5 * time.Second})
+	}}
+	run, err := bridge.GrantExecutor{Controller: &ctl}.ExecuteGrant(bg(t), tenant, grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rival.Class != adapters.ClassAck2xx {
+		t.Fatalf("the rival route must have won the race: %+v (run %+v)", rival, run)
+	}
+	if run.Void != "" || run.State != "REJECTED_STALE_VERSION" || run.TransportClass != string(adapters.ClassVersionConflict) || run.ExternalAck != "" {
+		t.Fatalf("raced route: %+v, want REJECTED_STALE_VERSION (VERSION_CONFLICT_409_412) and no acknowledgement", run)
+	}
+	now, err := st.cases.GetCase(bg(t), tenant, caseID)
+	if err != nil || now.OwnerQueue != "SETTLEMENT_OPS" {
+		t.Fatalf("the case is in %q (%v), want the rival's queue SETTLEMENT_OPS: the grant's write must not have been applied", now.OwnerQueue, err)
+	}
+	events := st.eventTypes(t)
+	if n := len(events); n < 2 || events[n-2] != "RECEIPT" || events[n-1] != "GRANT_VOIDED" {
+		t.Fatalf("the Record ends with %v, want RECEIPT then GRANT_VOIDED", events)
+	}
+	if st.count(t, `SELECT count(*) FROM recovery_request WHERE grant_id = $1 AND reason = 'REJECTED_STALE_VERSION' AND status = 'OPEN'`, grant) != 1 ||
+		st.count(t, `SELECT count(*) FROM execution_receipt WHERE grant_id = $1 AND execution_state = 'REJECTED_STALE_VERSION'`, grant) != 1 {
+		t.Fatal("want one REJECTED_STALE_VERSION receipt and one open RecoveryRequest with the same reason")
+	}
+	again, err := bridge.GrantExecutor{Controller: st.ctl}.ExecuteGrant(bg(t), tenant, grant)
+	// Revalidation (E7) runs before the spend check and sees the moved case, so the second execution ends there; either way
+	// it reaches no write and no receipt.
+	if err != nil || again.ReceiptID != "" || again.State != "" {
+		t.Fatalf("second execution: %+v, %v; want no write and no new receipt", again, err)
+	}
+	if after, err := st.cases.GetCase(bg(t), tenant, caseID); err != nil || after.OwnerQueue != "SETTLEMENT_OPS" || after.VersionToken != now.VersionToken {
+		t.Fatalf("the replay changed the case: %+v, %v", after, err)
+	}
+	if st.count(t, `SELECT count(*) FROM recovery_request WHERE grant_id = $1`, grant) != 1 {
+		t.Fatal("a second RecoveryRequest was created")
+	}
+	if _, err := chain.Verify(bg(t), st.admin, tenant); err != nil {
+		t.Fatalf("the Record does not verify: %v", err)
+	}
+}
+
 // REQ-EXE-008: with the tenant kill switch on, no grant is spent and mock-case receives nothing.
 func TestG2TheKillSwitchStopsTheCaseBeforeAnyWrite(t *testing.T) {
 	mc := startMockCase(t)

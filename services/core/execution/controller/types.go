@@ -47,7 +47,8 @@ type SignedGrant struct {
 }
 
 // VoidReason is the reason a grant is void (PERD section 27.1). A void grant produces a RecoveryRequest
-// addressed to Trust and is never retried locally (REQ-EXE-001).
+// addressed to Trust and is never retried locally (REQ-EXE-001). Eight reasons void a grant before its write; the
+// ninth, REJECTED_STALE_VERSION, voids it after the one write, in the same step as the receipt (REQ-EXE-004).
 type VoidReason string
 
 // The reasons of PERD section 27.1 and REQ-EXE-003.

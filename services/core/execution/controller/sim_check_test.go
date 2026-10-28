@@ -92,8 +92,35 @@ func checkSafety(run *Run, s Snapshot, kind int, killFromStart bool) {
 		if n > 1 {
 			run.fail("grant %s voided %d times", g, n)
 		}
-		if s.Spent[g] {
-			run.fail("grant %s is both spent and voided", g)
+	}
+	// A spent grant is void only because its one write was refused as stale (REQ-EXE-004, INV-27): its void is
+	// GRANT_VOIDED{REJECTED_STALE_VERSION} after a REJECTED_STALE_VERSION receipt, with one RecoveryRequest and no retry.
+	stale := map[string]int{}
+	for _, r := range s.Receipts {
+		if r.State == controller.StateRejectedStaleVersion {
+			stale[r.GrantID]++
+		}
+	}
+	for _, e := range s.Record {
+		if e.Type != "GRANT_VOIDED" || !s.Spent[e.GrantID] {
+			continue
+		}
+		if e.Detail != string(controller.VoidTargetVersionStale) || stale[e.GrantID] != 1 {
+			run.fail("grant %s is both spent and voided (%q) without a REJECTED_STALE_VERSION receipt", e.GrantID, e.Detail)
+		}
+	}
+	for g, n := range stale {
+		if voids[g] != 1 {
+			run.fail("REQ-EXE-004: grant %s has %d REJECTED_STALE_VERSION receipts and %d voids, want a void each", g, n, voids[g])
+		}
+	}
+	rec := map[string]int{}
+	for _, g := range s.Recovery {
+		rec[g]++
+	}
+	for g, n := range rec {
+		if n > 1 {
+			run.fail("grant %s produced %d RecoveryRequests, want 1", g, n)
 		}
 	}
 }

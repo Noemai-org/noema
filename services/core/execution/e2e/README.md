@@ -11,5 +11,6 @@
 **Tests.**
 - `TestG2EscalateThroughTheCoreAdapterAgainstMockCase`: create with the idempotency key of PERD §27.2, read back by that key with the version token, route with that token; eight Record events, chain verified, two receipts, two outbox events.
 - A spent create grant executed again writes nothing; a second create for the same transaction and a route bound to a stale token are voided at E7 before any write; with the kill switch on nothing is spent and mock-case receives nothing.
+- `TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoided` (US-19, EC-E11, REQ-EXE-004): another writer routes the case after E7; the real mock-case refuses the grant's token, the receipt is `REJECTED_STALE_VERSION`, the grant is void with a RecoveryRequest, the case holds the other writer's queue, and a second execution writes nothing. The check that no write was applied reads the case through the runtime client; the harness holds no handle on mock-case's truth API.
 
 **Not covered here (and why).** A fault between E7 and E9 (the concurrent-modification and dropped-response cases): they need the fault-plan client, which is not in the core. The adapter's contract tests replay recordings made with real FaultPlans (`adapters/synthetic_tushe/testdata`).

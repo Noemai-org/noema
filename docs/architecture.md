@@ -22,6 +22,7 @@ This file describes what was built. It never defines architecture, requirements 
 
 1. `workflows.EscalateCase` calls the activity `ExecuteGrant` (one attempt).
 2. `bridge.GrantExecutor` runs `controller.Execute`: E1 to E7 read and append `REVALIDATION_*` events; E8 is one SERIALIZABLE transaction in `ledger.Spend` (grant status, kill switch, idempotency record, `grant_spend`, `GRANT_SPENT`, `DISPATCH_ATTEMPTED`); E9 is one call through `bridge.CaseDispatcher`; E10 classifies; E11 is one transaction in `ledger.Complete` (receipt, idempotency record, `RECEIPT`, outbox `outcome.verify`).
+   A conditional write carries the grant's target versions (E9). If the target refuses them (409/412), E10 classifies `REJECTED_STALE_VERSION` and E11 also voids the spent grant in the same transaction as the receipt: a RecoveryRequest to Trust, `recovery.requested` and `GRANT_VOIDED{REJECTED_STALE_VERSION}`, after `RECEIPT` (REQ-EXE-004, INV-27, US-19). Nothing re-dispatches; the grant row stays `SPENT` because `decision_grant_guard` makes a spent grant final.
 3. The workflow reads the case back by the receipt's idempotency key (`ReadBackCase`), asks Trust for a route grant bound to the version token, and runs `ExecuteGrant` again.
 4. Nothing says "succeeded". The workflow ends `AWAITING_VERIFICATION`; Outcome's verdict does not exist yet.
 
