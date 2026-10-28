@@ -4,13 +4,26 @@
 -- ISSUED -> SPENT, VOID or EXPIRED, and SPENT -> VOID only for a confirmed REJECTED_STALE_VERSION refusal.
 -- Every other change of a grant that is SPENT, VOID or EXPIRED stays refused.
 --
--- A refusal is confirmed when the grant's receipt (inserted earlier in the same transaction by execution_rw, and immutable
--- once inserted):
---   (a) has execution_state REJECTED_STALE_VERSION,
---   (b) records the target's version conflict as its transport result: the part of raw_status before the first colon is
---       VERSION_CONFLICT_409_412 (the Ledger writes the transport class, then the raw code, separated by colons),
---   (c) carries no external acknowledgement (NULL or the empty string),
---   (d) is the grant's only receipt, and is the receipt of the attempt that grant_spend recorded.
+-- A refusal is confirmed from the grant's receipt, read from the signed receipt document (execution-receipt.v1, stored in
+-- execution_receipt.json) and cross-checked against the row's own columns and against grant_spend. Execution inserts the
+-- receipt earlier in the same transaction as this update; a receipt row never changes (execution_receipt_immutable).
+-- All of these must hold, and each is also checked in the signed document:
+--   (a) the grant has exactly one receipt;
+--   (b) the receipt is of the same tenant as the grant and of the same tenant as the spend;
+--   (c) it is the receipt of the attempt that grant_spend recorded, with the idempotency key that grant_spend recorded;
+--   (d) execution_state is REJECTED_STALE_VERSION;
+--   (e) transport_result, a typed member of the receipt contract, is VERSION_CONFLICT_409_412: the class that the case
+--       adapter (adapters.ClassVersionConflict) and the controller (TransportVersionConflict) share, and that the adapter
+--       gives only to the real target's version refusal (mock-case: 409 VERSION_MISMATCH on a route). The contract fixes
+--       the shape of transport_result but no value set; that is a limitation of this check, not of the contract;
+--   (f) there is no external acknowledgement: the member is present and null in the signed document, and null or empty in
+--       the row;
+--   (g) the signature in the document is the row's signature (key and value).
+-- raw_status (the class, then the raw status code, e.g. VERSION_CONFLICT_409_412:409:VERSION_MISMATCH) is a diagnostic and
+-- decides nothing, but it must agree with the signed transport_result: its part before the first colon is the same class.
+-- A contradiction makes the receipt ambiguous, and an ambiguous receipt does not void a grant.
+-- The database does not verify the HMAC: the keys are not in the database (PERD 41.1). Only execution_rw can insert a
+-- receipt, and Execution signs it.
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
 -- Outcome's own read follows from the outbox event written in the same transaction; it is not a precondition.
 --
@@ -34,12 +47,24 @@ BEGIN
        AND EXISTS (
          SELECT 1
            FROM execution_receipt r
-           JOIN grant_spend gs ON gs.grant_id = r.grant_id AND gs.attempt = r.attempt
+           JOIN grant_spend gs ON gs.grant_id = r.grant_id
           WHERE r.grant_id = OLD.grant_id
+            AND gs.tenant_id = OLD.tenant_id
             AND r.tenant_id = OLD.tenant_id
+            AND r.attempt = gs.attempt
+            AND r.idempotency_key = gs.idempotency_key
             AND r.execution_state = 'REJECTED_STALE_VERSION'
-            AND split_part(r.raw_status, ':', 1) = 'VERSION_CONFLICT_409_412'
             AND COALESCE(r.external_ack, '') = ''
+            AND r.json->>'tenant_id' = OLD.tenant_id
+            AND r.json->>'grant_id' = OLD.grant_id
+            AND CASE WHEN jsonb_typeof(r.json->'attempt') = 'number' THEN (r.json->>'attempt')::numeric END = gs.attempt
+            AND r.json->>'idempotency_key' = gs.idempotency_key
+            AND r.json->>'execution_state' = 'REJECTED_STALE_VERSION'
+            AND r.json->>'transport_result' = 'VERSION_CONFLICT_409_412'
+            AND jsonb_typeof(r.json->'external_ack') = 'null'
+            AND r.json->'sig'->>'key_id' = r.sig_key_id
+            AND r.json->'sig'->>'value' = r.sig_value
+            AND split_part(r.raw_status, ':', 1) = 'VERSION_CONFLICT_409_412'
        ) THEN
       RETURN NEW;
     END IF;
