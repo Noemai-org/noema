@@ -82,10 +82,13 @@ const (
 	NotFound
 	IdempotencyConflict
 	VersionMismatch
+	// PreconditionFailed: a create with the precondition "no case exists for this subject and epoch" found one. Nothing
+	// was written; the case that exists is returned so the caller can read it back.
+	PreconditionFailed
 )
 
 func (o Outcome) String() string {
-	return [...]string{"CREATED", "REPLAYED", "FOUND", "ROUTED", "NOT_FOUND", "IDEMPOTENCY_CONFLICT", "VERSION_MISMATCH"}[o]
+	return [...]string{"CREATED", "REPLAYED", "FOUND", "ROUTED", "NOT_FOUND", "IDEMPOTENCY_CONFLICT", "VERSION_MISMATCH", "PRECONDITION_FAILED"}[o]
 }
 
 // Status is the HTTP status the outcome maps to.
@@ -97,6 +100,8 @@ func (o Outcome) Status() int {
 		return 200
 	case NotFound:
 		return 404
+	case PreconditionFailed:
+		return 412
 	}
 	return 409
 }
@@ -110,6 +115,8 @@ func (o Outcome) ErrorCode() string {
 		return "IDEMPOTENCY_CONFLICT"
 	case VersionMismatch:
 		return "VERSION_MISMATCH"
+	case PreconditionFailed:
+		return "PRECONDITION_FAILED"
 	}
 	return ""
 }

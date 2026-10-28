@@ -24,6 +24,9 @@ const (
 	ClassAck2xx          TransportClass = "ACK_2XX"
 	ClassVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	ClassDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
+	// ClassDuplicateCreate: the target refused a create conditional on absence because it already holds a case for the
+	// subject and epoch under another key (mock-case: 412 PRECONDITION_FAILED). Same string as the error code DUPLICATE_CREATE.
+	ClassDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	ClassRejected4xx     TransportClass = "REJECTED_4XX"
 	ClassTimeout         TransportClass = "TIMEOUT"
 	ClassConnectionReset TransportClass = "CONNECTION_RESET"
@@ -46,8 +49,12 @@ type WriteResult struct {
 	// KeyCollision is true when the target refused the same idempotency key with a different payload
 	// (EC-E06). The caller raises the security event; the adapter only reports it.
 	KeyCollision bool
-	// CurrentVersionToken is set on a version mismatch (the token the target holds now).
+	// CurrentVersionToken is set on a version mismatch (the token the target holds now) and on a refused
+	// create-if-absent (the token of the case that exists).
 	CurrentVersionToken string
+	// ExistingCaseID is set on a refused create-if-absent: the case the target already holds for the subject and epoch.
+	// It is a name to read back, never this write's result.
+	ExistingCaseID string
 	// RetryAfter is the target's Retry-After on a 429, if it sent one.
 	RetryAfter time.Duration
 	// Case is the case the target returned, when it returned one.

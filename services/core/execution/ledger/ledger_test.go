@@ -49,6 +49,9 @@ func TestACleanRunThroughPostgres(t *testing.T) {
 		`SELECT count(*) FROM idempotency_record WHERE status = 'RECEIPTED' AND attempt = 1 AND external_ref = 'CASE-1'`: 1,
 		`SELECT count(*) FROM outbox_event WHERE topic = 'outcome.verify' AND dispatched_at IS NULL`:                     1,
 		`SELECT count(*) FROM recovery_request`:                                                                          0,
+		// PERD v1.17 section 32.1: Execution is the emitter, and no authenticated person caused these events, so the principal is its own identity.
+		`SELECT count(*) FROM record_event WHERE written_by = 'core-execution' AND actor = 'core-execution' AND schema_version = '3.0'`: 4,
+		`SELECT count(*) FROM record_event WHERE written_by <> 'core-execution' OR actor <> 'core-execution'`:                           0,
 	} {
 		if got := w.count(t, q); got != want {
 			t.Errorf("%s = %d, want %d", q, got, want)

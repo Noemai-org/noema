@@ -22,6 +22,9 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -I drops the script directory from sys.path
+import jcs_ref  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "contracts" / "fixtures"
 GOLDEN = FIXTURES / "golden_vectors.json"
@@ -30,9 +33,8 @@ EMPTY = "sha256:" + hashlib.sha256(b"{}").hexdigest()
 
 
 def jcs(value) -> str:
-    """RFC 8785 for the value types events use: objects, arrays, strings, integers, booleans, null. Keys sort by code point,
-    which equals UTF-16 order for every key and value here (ASCII)."""
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    """RFC 8785 (tools/jcs_ref.py): members sorted by UTF-16 code unit, integers only. Every v2 payload is ASCII integers and strings."""
+    return jcs_ref.jcs(value)
 
 
 def sha256_text(text: str) -> str:
@@ -202,13 +204,7 @@ GOLDEN_KEY = "record_event_chain_vectors"
 def splice_golden(text: str) -> str:
     """golden_vectors.json with the record_event_chain_vectors family set to the current vectors. Only that family is touched:
     the other families keep their bytes, so a regeneration never reformats a vector somebody else owns."""
-    marker = f',\n  "{GOLDEN_KEY}": '
-    if marker in text:
-        text = text[: text.index(marker)] + "\n}\n"
-    body = text.rstrip()
-    assert body.endswith("}"), "golden_vectors.json must end with a closing brace"
-    family = json.dumps(vectors(), indent=2, ensure_ascii=False).replace("\n", "\n  ")
-    return body[:-1].rstrip() + marker + family + "\n}\n"
+    return jcs_ref.splice_family(text, GOLDEN_KEY, vectors())
 
 
 def outputs() -> dict[Path, str]:

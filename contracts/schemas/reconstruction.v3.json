@@ -1,0 +1,688 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/reconstruction.v3.json",
+  "title": "Reconstruction response (v3)",
+  "description": "v3: identical to reconstruction.v2.json except that the Record events it carries are record-event.v3 events (emitter and principal defined, DEC-2026-10-27-actor-and-payload-hash). reconstruction.v1.json and reconstruction.v2.json are unchanged and still describe responses with v1 and v2 events. PERD REQ-AUD-003: the body of GET /v1/reconstructions/{correlation_id}. The PERD fixes the content (structured JSON plus a rendered timeline, in the order who, request, ambiguity, resolution, observed state, policy, authority, decision, action, downstream result, verification, explanation; every element built only from Record events and the objects they reference; each element cites its record event ID) and gives no field names. The field names below are a smallest safe default (AGENT-02) for the founders to confirm. The envelope is served only after the chain over the span verified; otherwise the answer is 409 RECORD_INTEGRITY_FAILURE in the error envelope (errors.v1.json) and no unverified data. The twelve sections are always present and always in that order, empty when the Record has nothing for them. Each item cites one Record event; its facts are scalar values projected from the object the event references, never model text (the model said so is never provenance), and a fact that cannot be traced to an evidence item, a versioned rule or an authenticated principal's action is not served. The fact keys named per section are the ones the benchmark runner reads; other scalar keys are allowed. One EXPLANATION item is one claim: its text and the status of the fact it is bound to. Provider cost is not in the Record and is not part of this response; no source for it is defined (the model harness keeps per-call accounting, PERD 19.1, but nothing exposes it here). Ops and audit role only; masked.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "chain": {
+      "description": "The verification that must have passed before this body is served.",
+      "type": "object",
+      "properties": {
+        "verified": {
+          "const": true
+        },
+        "head_event_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecordEventId"
+        },
+        "head_hash": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+        }
+      },
+      "required": [
+        "verified",
+        "head_event_id",
+        "head_hash"
+      ],
+      "additionalProperties": false
+    },
+    "events": {
+      "description": "Every Record event of the correlation, in chain order (record-event.v3).",
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/record-event.v3.json"
+      }
+    },
+    "sections": {
+      "description": "Exactly twelve, in the order of REQ-AUD-003.",
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "WHO"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "REQUEST"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "AMBIGUITY"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "RESOLUTION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "OBSERVED_STATE"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "POLICY"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "AUTHORITY"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "DECISION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "ACTION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "DOWNSTREAM_RESULT"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "VERIFICATION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Section"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "EXPLANATION"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            }
+          ]
+        }
+      ],
+      "items": false
+    },
+    "timeline": {
+      "description": "The rendered timeline: one entry per event, in chain order. Text is rendered from recorded objects, never written by a model.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TimelineEntry"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "chain",
+    "events",
+    "sections",
+    "timeline"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Section": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "WHO",
+            "REQUEST",
+            "AMBIGUITY",
+            "RESOLUTION",
+            "OBSERVED_STATE",
+            "POLICY",
+            "AUTHORITY",
+            "DECISION",
+            "ACTION",
+            "DOWNSTREAM_RESULT",
+            "VERIFICATION",
+            "EXPLANATION"
+          ]
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Item"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "items"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "AMBIGUITY"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "clarification_asked": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "RESOLUTION"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "resolved_target": {
+                          "oneOf": [
+                            {
+                              "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "candidate_count": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 20
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "OBSERVED_STATE"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "classification": {
+                          "type": "string",
+                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "DECISION"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "decision_outcome": {
+                          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DecisionOutcome"
+                        },
+                        "reason_codes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "decision_outcome"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "ACTION"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "capability_id": {
+                          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+                        },
+                        "execution_state": {
+                          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ExecutionState"
+                        },
+                        "attempt": {
+                          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+                        },
+                        "grant_state": {
+                          "description": "The grant's state at the moment of spend, derived by core from the Record (GRANT_ISSUED, GRANT_SPENT, DISPATCH_ATTEMPTED) and never asserted by a caller: VALID when a grant was issued for this capability, target and parameters, unspent and unexpired at that instant; MISSING when none was issued; EXPIRED, SPENT or UNMATCHED otherwise. Any value but VALID on a dispatch is a breach of INV-03.",
+                          "type": "string",
+                          "enum": [
+                            "VALID",
+                            "MISSING",
+                            "EXPIRED",
+                            "SPENT",
+                            "UNMATCHED"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "capability_id",
+                        "execution_state",
+                        "grant_state"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "VERIFICATION"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "capability_id": {
+                          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+                        },
+                        "verdict": {
+                          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/Verdict"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "EXPLANATION"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "items": {
+                "items": {
+                  "properties": {
+                    "facts": {
+                      "properties": {
+                        "fact_id": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "text": {
+                          "description": "One claim of the rendered explanation, as it was shown (masked).",
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        },
+                        "bound_fact_status": {
+                          "description": "The status of the fact this claim is bound to (KNOWN, INFERRED, ...); null when the claim is bound to no fact, which is itself a finding (INV-13).",
+                          "oneOf": [
+                            {
+                              "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FactStatus"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "disclosed_refs": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+                          },
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "text",
+                        "bound_fact_status"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "record_event_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecordEventId"
+        },
+        "object_ref": {
+          "type": "string",
+          "pattern": "^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$"
+        },
+        "basis": {
+          "description": "The three sources of PERD 32.2: an evidence item, a versioned rule, an authenticated principal's action.",
+          "type": "string",
+          "enum": [
+            "EVIDENCE",
+            "RULE",
+            "PRINCIPAL_ACTION"
+          ]
+        },
+        "facts": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "maxItems": 50
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "record_event_id",
+        "object_ref",
+        "basis",
+        "facts"
+      ],
+      "additionalProperties": false
+    },
+    "TimelineEntry": {
+      "type": "object",
+      "properties": {
+        "record_event_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/RecordEventId"
+        },
+        "at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "event_type": {
+          "$ref": "https://contracts.noema.invalid/record-event.v3.json#/$defs/RecordEventType"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "record_event_id",
+        "at",
+        "event_type",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

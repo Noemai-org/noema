@@ -20,7 +20,13 @@ func impatient(d time.Duration) *http.Client {
 
 func (e *env) createWith(c *http.Client, k string) (resp, error) {
 	e.t.Helper()
-	return e.send(c, "POST", e.caseURL+"/v1/cases", runtimeToken, key(k), caseBody())
+	return e.send(c, "POST", e.caseURL+"/v1/cases", runtimeToken, newKey(k), caseBody())
+}
+
+// createWithFor is createWith for another subject, so it is a second case and not a repeat of the first.
+func (e *env) createWithFor(c *http.Client, k string, i int) (resp, error) {
+	e.t.Helper()
+	return e.send(c, "POST", e.caseURL+"/v1/cases", runtimeToken, newKey(k), caseBodyFor(fmt.Sprintf("TX%05d", i)))
 }
 
 type traceRow struct {
@@ -84,7 +90,7 @@ func TestTimeoutAfterCommitHoldsThenDrops(t *testing.T) {
 	// A patient client waits the whole delay and then loses the connection: it never gets a status.
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "TIMEOUT_AFTER_COMMIT", `{"delay_ms":150}`), ""))
 	start = time.Now()
-	r, err := e.createWith(patient(e), "idk_2")
+	r, err := e.createWithFor(patient(e), "idk_2", 2)
 	if err == nil {
 		t.Fatalf("got a response %d", r.status)
 	}
@@ -174,7 +180,7 @@ func TestLatencyDelaysThenSucceeds(t *testing.T) {
 func TestPaginateFaultForcesSmallPages(t *testing.T) {
 	e := newEnv(t)
 	for i := 0; i < 7; i++ {
-		e.createCase(fmt.Sprintf("idk_%d", i))
+		e.createCaseFor(fmt.Sprintf("idk_%d", i), i)
 	}
 	e.loadPlan(plan(fault("find_cases", `{}`, "PAGINATE", `{"page_size":3}`), ""))
 	var refs []string
@@ -232,7 +238,7 @@ func TestFaultsAreBlindToTheCaller(t *testing.T) {
 	normal := e.createCase("idk_0")
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "HTTP_5XX", `{"status":503}`)+","+fault("create_case", `{"nth_call":2}`, "HTTP_429", `{"retry_after_seconds":1}`), ""))
 	for i := 1; i <= 2; i++ {
-		r := e.createCase(fmt.Sprintf("idk_%d", i))
+		r := e.createCaseFor(fmt.Sprintf("idk_%d", i), i)
 		for k := range r.header {
 			switch http.CanonicalHeaderKey(k) {
 			case "Content-Type", "Cache-Control", "X-Mock-Case-Synthetic", "Date", "Content-Length", "Retry-After":
@@ -267,13 +273,13 @@ func TestMatchKeysSelectTheCall(t *testing.T) {
 func TestMalformedCallIsCountedButNeverFaulted(t *testing.T) {
 	e := newEnv(t)
 	e.loadPlan(plan(fault("create_case", `{"nth_call":2}`, "HTTP_5XX", `{"status":500}`), ""))
-	if r := e.runtime("POST", "/v1/cases", nil, caseBody()); r.status != 400 { // call 1, no key
+	if r := e.runtime("POST", "/v1/cases", ifAbsent(nil), caseBody()); r.status != 400 { // call 1, no key
 		t.Fatalf("%d", r.status)
 	}
 	if r := e.createCase("idk_1"); r.status != 500 { // call 2
 		t.Fatalf("the second call is faulted: %d", r.status)
 	}
-	bad := e.runtime("POST", "/v1/cases", key("idk_2"), `{`) // call 3: nothing to fault
+	bad := e.runtime("POST", "/v1/cases", newKey("idk_2"), `{`) // call 3: nothing to fault
 	if bad.status != 400 {
 		t.Fatalf("%d", bad.status)
 	}
@@ -330,7 +336,7 @@ func TestSimulatedClockStartsAdvancesAndIsLabelledSynthetic(t *testing.T) {
 	if r := e.bench("POST", "/control/v1/clock/advance", map[string]any{"by": "PT1M"}); r.str("now") != "2026-10-01T08:41:31Z" {
 		t.Fatalf("%s", r.raw)
 	}
-	second := e.createCase("idk_2")
+	second := e.createCaseFor("idk_2", 2)
 	if second.str("created_at") != "2026-10-01T08:41:31Z" {
 		t.Fatalf("%s", second.raw)
 	}
@@ -383,7 +389,7 @@ func TestReplayFromTheSameSeedIsIdentical(t *testing.T) {
 func TestCommandLogPaging(t *testing.T) {
 	e := newEnv(t)
 	for i := 0; i < 5; i++ {
-		e.createCase(fmt.Sprintf("idk_%d", i))
+		e.createCaseFor(fmt.Sprintf("idk_%d", i), i)
 	}
 	r := e.bench("GET", "/truth/v1/commands?limit=2", nil)
 	cmds := r.json["commands"].([]any)

@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": "DUPLICATE_CREATE",
+    "message": "A case already exists for this subject.",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9",
+    "details": [
+      {
+        "field": "existing_case_id",
+        "issue": "case exists"
+      }
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -74,7 +75,7 @@ func (w *world) append(t *testing.T, ev chain.Event) chain.Stored {
 }
 
 func event(tenant string, n int) chain.Event {
-	return chain.Event{TenantID: tenant, CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION", EventType: "GRANT_SPENT",
+	return chain.Event{TenantID: tenant, CorrelationID: "corr_abc123", WrittenBy: "core-execution", Actor: "core-execution", EventType: "GRANT_SPENT",
 		ObjectRef: fmt.Sprintf("grt_%04d", n), Payload: map[string]any{"n": n}}
 }
 
@@ -220,6 +221,11 @@ func TestVerifyDetectsEveryKindOfTampering(t *testing.T) {
 		{"an edited payload", `UPDATE record_event SET payload = '{"n": 999}' WHERE seq = 2`, chain.BreakPayloadHash},
 		{"a v1 schema_version in the stored row", `UPDATE record_event SET schema_version = '1.0' WHERE seq = 2`, chain.BreakSchema},
 		{"a v1 schema_version in the hashed body too", `UPDATE record_event SET schema_version = '1.0', body = jsonb_set(body, '{schema_version}', '"1.0"') WHERE seq = 2`, chain.BreakSchema},
+		{"an edited actor column", `UPDATE record_event SET actor = 'customer:usr_1' WHERE seq = 2`, chain.BreakColumns},
+		{"an actor that is not a principal, in the row and the hashed body", `UPDATE record_event SET actor = 'SOMEONE_ELSE', body = jsonb_set(body, '{actor}', '"SOMEONE_ELSE"') WHERE seq = 2`, chain.BreakSchema},
+		{"an emitter outside the closed set, in the row and the hashed body", `UPDATE record_event SET written_by = 'TRUST', actor = 'TRUST', body = jsonb_set(jsonb_set(body, '{actor}', '"TRUST"'), '{written_by}', '"TRUST"') WHERE seq = 2`, chain.BreakSchema},
+		{"a stored payload with a fraction", `UPDATE record_event SET payload = '{"n": 1.5}' WHERE seq = 2`, chain.BreakPayloadHash},
+		{"a v2 schema_version in the stored row", `UPDATE record_event SET schema_version = '2.0' WHERE seq = 2`, chain.BreakSchema},
 		{"an edited event type column", `UPDATE record_event SET event_type = 'GRANT_VOIDED' WHERE seq = 2`, chain.BreakColumns},
 		{"a whole self-consistent rewrite of the last event", ``, chain.BreakHash},
 	}
@@ -244,7 +250,7 @@ func TestVerifyDetectsEveryKindOfTampering(t *testing.T) {
 			if sql == "" {
 				// Rewrites event 4's body and its column but keeps the old stored hash: the stored hash no longer
 				// matches the event.
-				sql = `UPDATE record_event SET body = jsonb_set(body, '{actor}', '"SOMEONE_ELSE"'), actor = 'SOMEONE_ELSE' WHERE seq = 4`
+				sql = `UPDATE record_event SET body = jsonb_set(body, '{actor}', '"customer:usr_1"'), actor = 'customer:usr_1' WHERE seq = 4`
 			}
 			if _, err := conn.Exec(ctx(t), sql); err != nil {
 				t.Fatalf("tamper: %v", err)
@@ -282,8 +288,17 @@ func TestAppendRefusesEventsOutsideTheContract(t *testing.T) {
 		"a tenant that is not ten_":                     func(e *chain.Event) { e.TenantID = "tenant-a" },
 		"a correlation that is not corr_":               func(e *chain.Event) { e.CorrelationID = "x" },
 		"an object_ref with spaces":                     func(e *chain.Event) { e.ObjectRef = "grt 1" },
-		"a lower-case written_bby":                      func(e *chain.Event) { e.WrittenBy = "execution" },
+		"a power name in upper case as the emitter":     func(e *chain.Event) { e.WrittenBy, e.Actor = "EXECUTION", "EXECUTION" },
+		"an emitter outside the closed set":             func(e *chain.Event) { e.WrittenBy, e.Actor = "core-understanding", "core-understanding" },
+		"an unknown emitter acting for a person":        func(e *chain.Event) { e.WrittenBy, e.Actor = "TRUST", "approver:usr_1" },
+		"a logical service the core cannot reach":       func(e *chain.Event) { e.WrittenBy, e.Actor = "fault-controller", "fault-controller" },
 		"a missing actor":                               func(e *chain.Event) { e.Actor = "" },
+		"the v2 form of the actor":                      func(e *chain.Event) { e.Actor = "EXECUTION:usr_88213" },
+		"service as a principal kind":                   func(e *chain.Event) { e.Actor = "service:core-execution" },
+		"a principal kind outside the list":             func(e *chain.Event) { e.Actor = "guest:usr_1" },
+		"a principal without an id":                     func(e *chain.Event) { e.Actor = "customer:" },
+		"a principal id with a colon":                   func(e *chain.Event) { e.Actor = "customer:a:b" },
+		"another emitter's identity as the principal":   func(e *chain.Event) { e.Actor = "core-trust" },
 		"an event type outside PERD 32.2":               func(e *chain.Event) { e.EventType = "NOT_AN_EVENT" },
 		"a security kind outside the schema":            func(e *chain.Event) { e.EventType, e.Kind = "SECURITY_EVENT", "SOMETHING_NEW" },
 		"a SECURITY_EVENT without a kind":               func(e *chain.Event) { e.EventType = "SECURITY_EVENT" },
@@ -291,6 +306,9 @@ func TestAppendRefusesEventsOutsideTheContract(t *testing.T) {
 		"a reason on GRANT_SPENT":                       func(e *chain.Event) { e.Reason = "EXPIRED" },
 		"GRANT_VOIDED without a reason":                 func(e *chain.Event) { e.EventType = "GRANT_VOIDED" },
 		"a fractional number in the payload":            func(e *chain.Event) { e.Payload = map[string]any{"x": json.Number("1.5")} },
+		"an exponent number in the payload":             func(e *chain.Event) { e.Payload = map[string]any{"x": json.Number("1e3")} },
+		"an integer above 2^53-1 in the payload":        func(e *chain.Event) { e.Payload = map[string]any{"x": json.Number("9007199254740992")} },
+		"a float64 in the payload":                      func(e *chain.Event) { e.Payload = map[string]any{"x": mustFloat("2")} },
 	} {
 		ev := good
 		mutate(&ev)
@@ -342,7 +360,7 @@ func TestEveryGrantVoidReasonIsAcceptedKeptAsWrittenAndDistinct(t *testing.T) {
 	}
 	w := newWorld(t, "ten_aa")
 	for i, r := range reasons {
-		w.append(t, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION", EventType: "GRANT_VOIDED", Reason: r,
+		w.append(t, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "core-execution", Actor: "core-execution", EventType: "GRANT_VOIDED", Reason: r,
 			ObjectRef: fmt.Sprintf("grt_%04d", i+1), Payload: map[string]any{"reason": r}})
 	}
 	var distinct, matching int
@@ -365,7 +383,7 @@ func TestAnUnknownGrantVoidReasonIsRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = w.app.Append(ctx(t), tx, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "EXECUTION", Actor: "EXECUTION",
+		_, err = w.app.Append(ctx(t), tx, chain.Event{TenantID: "ten_aa", CorrelationID: "corr_abc123", WrittenBy: "core-execution", Actor: "core-execution",
 			EventType: "GRANT_VOIDED", Reason: bad, ObjectRef: "grt_0001"})
 		_ = tx.Rollback(ctx(t))
 		if err == nil {
@@ -374,5 +392,105 @@ func TestAnUnknownGrantVoidReasonIsRejected(t *testing.T) {
 	}
 	if n, _ := chain.Verify(ctx(t), w.admin, "ten_aa"); n != 0 {
 		t.Fatalf("rejected reasons left %d events", n)
+	}
+}
+
+// mustFloat is a float64 made at run time, so the test file holds no float literal.
+func mustFloat(text string) any {
+	v, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// The identities the contract lists and the core refuses, read from the table: each is refused by the writer, as an emitter acting for a
+// person and as its own principal, and by Verify if a row naming it is ever stored (it can only get there past the writer).
+func TestTheCoreRefusesWhatTheContractListsButTheTableDoesNotMarkAsWrittenByTheCore(t *testing.T) {
+	table := loadActors(t)
+	var refused []string
+	for _, e := range table.Emitters {
+		if e.Scope != "RUNTIME" {
+			refused = append(refused, e.Name)
+		}
+	}
+	if len(refused) == 0 {
+		t.Fatal("the table marks no emitter as refused by the core")
+	}
+	w := newWorld(t, "ten_aa")
+	w.append(t, event("ten_aa", 1))
+	for _, name := range refused {
+		for _, actor := range []string{name, "approver:usr_1", "customer:usr_1"} {
+			tx, err := w.exec.Begin(ctx(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ev := event("ten_aa", 2)
+			ev.WrittenBy, ev.Actor = name, actor
+			_, err = w.app.Append(ctx(t), tx, ev)
+			_ = tx.Rollback(ctx(t))
+			if err == nil {
+				t.Errorf("the core appended as %q for %q", name, actor)
+			}
+		}
+		// A stored row that names it breaks verification: written_by is outside what the core accepts.
+		conn, err := w.admin.Acquire(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx(t), `SET session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		stmt := fmt.Sprintf(`UPDATE record_event SET written_by = '%[1]s', actor = '%[1]s', body = jsonb_set(jsonb_set(body, '{actor}', '"%[1]s"'), '{written_by}', '"%[1]s"') WHERE seq = 1`, name)
+		if _, err := conn.Exec(ctx(t), stmt); err != nil {
+			t.Fatal(err)
+		}
+		conn.Release()
+		var be *chain.BreakError
+		if _, err := chain.Verify(ctx(t), w.admin, "ten_aa"); !errors.As(err, &be) || be.Kind != chain.BreakSchema {
+			t.Errorf("a stored event written by %q: %v, want a SCHEMA break", name, err)
+		}
+	}
+}
+
+// admin is both an emitter (the control plane's own identity, PERD 41.1) and a principal kind (a signed-in administrator, a person). The
+// two meanings are different and the rules keep them apart: as an emitter it is a service identity and only its own principal; as a
+// kind it needs an id and may sit behind any emitter that acts for a person.
+func TestAdminIsBothAnEmitterAndAPrincipalKindWithDistinctMeanings(t *testing.T) {
+	w := newWorld(t, "ten_aa")
+	accept := func(name, writtenBy, actor string) {
+		t.Helper()
+		ev := event("ten_aa", 1)
+		ev.WrittenBy, ev.Actor, ev.EventType, ev.ObjectRef = writtenBy, actor, "POLICY_PUBLISHED", "pol_0001"
+		w.append(t, ev)
+	}
+	refuse := func(name, writtenBy, actor string) {
+		t.Helper()
+		tx, err := w.exec.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev := event("ten_aa", 1)
+		ev.WrittenBy, ev.Actor, ev.EventType, ev.ObjectRef = writtenBy, actor, "POLICY_PUBLISHED", "pol_0001"
+		_, err = w.app.Append(ctx(t), tx, ev)
+		_ = tx.Rollback(ctx(t))
+		if err == nil {
+			t.Errorf("%s: written_by %q with actor %q was appended", name, writtenBy, actor)
+		}
+	}
+	accept("the control plane acting for itself", "admin", "admin")
+	accept("the control plane acting for a signed-in administrator", "admin", "admin:usr_admin_01")
+	accept("another emitter acting for a signed-in administrator", "core-trust", "admin:usr_admin_01")
+	refuse("the bare control-plane identity is not another emitter's principal", "core-trust", "admin")
+	refuse("another emitter's identity is not the control plane's principal", "admin", "core-trust")
+	refuse("an administrator needs an id", "admin", "admin:")
+	refuse("the kind is not an emitter", "customer", "customer:usr_1")
+	refuse("an administrator kind is not a service identity", "admin", "service:admin")
+	if n, err := chain.Verify(ctx(t), w.admin, "ten_aa"); err != nil || n != 3 {
+		t.Fatalf("verify = %d, %v; want the three accepted events", n, err)
+	}
+	var meanings int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(DISTINCT actor) FROM record_event WHERE written_by IN ('admin', 'core-trust')`).Scan(&meanings); err != nil || meanings != 2 {
+		t.Fatalf("distinct principals %d, %v; want admin and admin:usr_admin_01", meanings, err)
 	}
 }

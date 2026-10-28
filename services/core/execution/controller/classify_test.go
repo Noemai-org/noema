@@ -19,6 +19,8 @@ func TestClassifyTable(t *testing.T) {
 		{controller.TransportResult{Class: controller.TransportDuplicate409, ExternalAck: "CMP-1"}, controller.StateAcknowledged},
 		{controller.TransportResult{Class: controller.TransportVersionConflict}, controller.StateRejectedStaleVersion},
 		{controller.TransportResult{Class: controller.TransportRejected4xx}, controller.StateRejectedByTarget},
+		// a create refused because the subject already has a case is a business rejection, not a stale version (D6)
+		{controller.TransportResult{Class: controller.TransportDuplicateCreate, RawCode: "412:PRECONDITION_FAILED"}, controller.StateRejectedByTarget},
 		{controller.TransportResult{Class: controller.TransportDefect}, controller.StateFailedTerminal},
 		{controller.TransportResult{Class: controller.TransportTimeout}, controller.StateOutcomeUnknown},
 		{controller.TransportResult{Class: controller.TransportConnectionReset}, controller.StateOutcomeUnknown},
@@ -37,7 +39,7 @@ func TestClassifyTable(t *testing.T) {
 func TestClassifyProperty(t *testing.T) {
 	rng := rand.New(rand.NewPCG(5, 6))
 	classes := []controller.TransportClass{controller.TransportAck2xx, controller.TransportVersionConflict, controller.TransportDuplicate409,
-		controller.TransportRejected4xx, controller.TransportTimeout, controller.TransportConnectionReset, controller.TransportServer5xx,
+		controller.TransportDuplicateCreate, controller.TransportRejected4xx, controller.TransportTimeout, controller.TransportConnectionReset, controller.TransportServer5xx,
 		controller.TransportNoResponse, controller.TransportDefect, "X", ""}
 	silence := map[controller.TransportClass]bool{controller.TransportTimeout: true, controller.TransportConnectionReset: true,
 		controller.TransportServer5xx: true, controller.TransportNoResponse: true}

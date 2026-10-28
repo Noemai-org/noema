@@ -1,8 +1,8 @@
 {
   "_provenance": {
-    "label": "SYNTHETIC. Wire exchanges recorded from the real mock-case (synthetic/mock_case at noema main 14bbdc0): real PostgreSQL, real handlers, faults from real FaultPlans (REQ-TST-004).",
-    "captured": "2026-10-25",
-    "method": "A throwaway driver (not committed) ran adapters.Case against mock-case's own test harness, recording each request (method, path, query, Idempotency-Key, body) and each response (status, four headers, JSON body) or the transport error. The credential is never recorded.",
+    "label": "SYNTHETIC. Wire exchanges recorded from the real mock-case (synthetic/mock_case at noema main 4e2e1f3 plus the create-if-absent change of this PR): real PostgreSQL, real handlers, faults from real FaultPlans (REQ-TST-004).",
+    "captured": "2026-10-27",
+    "method": "A throwaway driver (not committed) ran adapters.Case against mock-case's own test harness, recording each request (method, path, query, Idempotency-Key, If-None-Match, body) and each response (status, four headers, JSON body) or the transport error. The credential is never recorded. Each faulted create has a subject of its own (TX00002 to TX00008): a create is conditional on there being no case for its transaction and epoch, so a create on a taken subject would be refused (412) before the fault could show.",
     "regenerate": "Re-record when synthetic/mock_case/internal/api/openapi.json changes; the contract test fails first if a recorded request no longer matches what the adapter sends."
   },
   "recordings": [
@@ -18,7 +18,8 @@
           "transaction_ref": "TX88213"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live01"
+          "Idempotency-Key": "idk_v1_live01",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -26,8 +27,8 @@
       },
       "response": {
         "body": {
-          "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-          "created_at": "2026-10-25T17:55:10.008889Z",
+          "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+          "created_at": "2026-10-27T14:50:19.482176Z",
           "created_by_intent": "int_01J9X3",
           "epoch": 0,
           "idempotency_key": "idk_v1_live01",
@@ -60,7 +61,8 @@
           "transaction_ref": "TX88213"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live01"
+          "Idempotency-Key": "idk_v1_live01",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -68,8 +70,8 @@
       },
       "response": {
         "body": {
-          "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-          "created_at": "2026-10-25T17:55:10.008889Z",
+          "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+          "created_at": "2026-10-27T14:50:19.482176Z",
           "created_by_intent": "int_01J9X3",
           "epoch": 0,
           "idempotency_key": "idk_v1_live01",
@@ -103,7 +105,8 @@
           "transaction_ref": "TX99999"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live01"
+          "Idempotency-Key": "idk_v1_live01",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -125,6 +128,50 @@
       }
     },
     {
+      "scenario": "create_precondition_failed_412",
+      "request": {
+        "body": {
+          "created_by_intent": "int_01J9X3",
+          "epoch": 0,
+          "principal_id": "usr_1",
+          "reason_code": "CREDIT_MISSING",
+          "tenant_id": "ten_a",
+          "transaction_ref": "TX88213"
+        },
+        "headers": {
+          "Idempotency-Key": "idk_v1_live09",
+          "If-None-Match": "*"
+        },
+        "method": "POST",
+        "path": "/v1/cases",
+        "query": ""
+      },
+      "response": {
+        "body": {
+          "error": {
+            "code": "PRECONDITION_FAILED",
+            "details": [
+              {
+                "field": "existing_case_id",
+                "issue": "case_01M5YXEEET3WPXX8YBHFEE1QCA"
+              },
+              {
+                "field": "existing_version_token",
+                "issue": "v1"
+              }
+            ],
+            "message": "a case already exists for this transaction and epoch: the create was conditional on there being none",
+            "retryable": false
+          }
+        },
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Mock-Case-Synthetic": "true"
+        },
+        "status": 412
+      }
+    },
+    {
       "scenario": "find_by_key_one",
       "request": {
         "body": null,
@@ -138,8 +185,8 @@
           "complete": true,
           "items": [
             {
-              "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-              "created_at": "2026-10-25T17:55:10.008889Z",
+              "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+              "created_at": "2026-10-27T14:50:19.482176Z",
               "created_by_intent": "int_01J9X3",
               "epoch": 0,
               "idempotency_key": "idk_v1_live01",
@@ -189,13 +236,13 @@
         "body": null,
         "headers": {},
         "method": "GET",
-        "path": "/v1/cases/case_01M5T37F1R3WPXX8YBHFEE1QCA",
+        "path": "/v1/cases/case_01M5YXEEET3WPXX8YBHFEE1QCA",
         "query": "tenant_id=ten_a"
       },
       "response": {
         "body": {
-          "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-          "created_at": "2026-10-25T17:55:10.008889Z",
+          "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+          "created_at": "2026-10-27T14:50:19.482176Z",
           "created_by_intent": "int_01J9X3",
           "epoch": 0,
           "idempotency_key": "idk_v1_live01",
@@ -250,7 +297,7 @@
         },
         "headers": {},
         "method": "POST",
-        "path": "/v1/cases/case_01M5T37F1R3WPXX8YBHFEE1QCA/route",
+        "path": "/v1/cases/case_01M5YXEEET3WPXX8YBHFEE1QCA/route",
         "query": ""
       },
       "response": {
@@ -288,13 +335,13 @@
         },
         "headers": {},
         "method": "POST",
-        "path": "/v1/cases/case_01M5T37F1R3WPXX8YBHFEE1QCA/route",
+        "path": "/v1/cases/case_01M5YXEEET3WPXX8YBHFEE1QCA/route",
         "query": ""
       },
       "response": {
         "body": {
-          "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-          "created_at": "2026-10-25T17:55:10.008889Z",
+          "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+          "created_at": "2026-10-27T14:50:19.482176Z",
           "created_by_intent": "int_01J9X3",
           "epoch": 0,
           "idempotency_key": "idk_v1_live01",
@@ -324,10 +371,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00002"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live02"
+          "Idempotency-Key": "idk_v1_live02",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -354,10 +402,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00003"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live03"
+          "Idempotency-Key": "idk_v1_live03",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -387,10 +436,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00004"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live04"
+          "Idempotency-Key": "idk_v1_live04",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -420,10 +470,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00005"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live05"
+          "Idempotency-Key": "idk_v1_live05",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -453,10 +504,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00006"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live06"
+          "Idempotency-Key": "idk_v1_live06",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -487,10 +539,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00007"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live07"
+          "Idempotency-Key": "idk_v1_live07",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -509,10 +562,11 @@
           "principal_id": "usr_1",
           "reason_code": "CREDIT_MISSING",
           "tenant_id": "ten_a",
-          "transaction_ref": "TX88213"
+          "transaction_ref": "TX00008"
         },
         "headers": {
-          "Idempotency-Key": "idk_v1_live08"
+          "Idempotency-Key": "idk_v1_live08",
+          "If-None-Match": "*"
         },
         "method": "POST",
         "path": "/v1/cases",
@@ -536,8 +590,8 @@
           "complete": false,
           "items": [
             {
-              "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-              "created_at": "2026-10-25T17:55:10.008889Z",
+              "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+              "created_at": "2026-10-27T14:50:19.482176Z",
               "created_by_intent": "int_01J9X3",
               "epoch": 0,
               "idempotency_key": "idk_v1_live01",
@@ -571,7 +625,7 @@
         },
         "headers": {},
         "method": "POST",
-        "path": "/v1/cases/case_01M5T37F1R3WPXX8YBHFEE1QCA/route",
+        "path": "/v1/cases/case_01M5YXEEET3WPXX8YBHFEE1QCA/route",
         "query": ""
       },
       "response": {
@@ -605,13 +659,13 @@
         "body": null,
         "headers": {},
         "method": "GET",
-        "path": "/v1/cases/case_01M5T37F1R3WPXX8YBHFEE1QCA",
+        "path": "/v1/cases/case_01M5YXEEET3WPXX8YBHFEE1QCA",
         "query": "tenant_id=ten_a"
       },
       "response": {
         "body": {
-          "case_id": "case_01M5T37F1R3WPXX8YBHFEE1QCA",
-          "created_at": "2026-10-25T17:55:10.008889Z",
+          "case_id": "case_01M5YXEEET3WPXX8YBHFEE1QCA",
+          "created_at": "2026-10-27T14:50:19.482176Z",
           "created_by_intent": "int_01J9X3",
           "epoch": 0,
           "idempotency_key": "idk_v1_live01",

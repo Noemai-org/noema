@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "chain": {
+    "verified": true,
+    "head_event_id": "recev_1000",
+    "head_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c"
+  },
+  "events": [],
+  "sections": [
+    {
+      "kind": "WHO",
+      "items": []
+    },
+    {
+      "kind": "REQUEST",
+      "items": []
+    },
+    {
+      "kind": "AMBIGUITY",
+      "items": []
+    },
+    {
+      "kind": "RESOLUTION",
+      "items": []
+    },
+    {
+      "kind": "OBSERVED_STATE",
+      "items": []
+    },
+    {
+      "kind": "POLICY",
+      "items": []
+    },
+    {
+      "kind": "AUTHORITY",
+      "items": []
+    },
+    {
+      "kind": "DECISION",
+      "items": []
+    },
+    {
+      "kind": "ACTION",
+      "items": []
+    },
+    {
+      "kind": "DOWNSTREAM_RESULT",
+      "items": []
+    },
+    {
+      "kind": "VERIFICATION",
+      "items": []
+    },
+    {
+      "kind": "EXPLANATION",
+      "items": []
+    }
+  ],
+  "timeline": []
+}

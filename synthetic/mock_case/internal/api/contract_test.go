@@ -49,7 +49,7 @@ func TestSameKeyDifferentPayloadIsADeterministicConflict(t *testing.T) {
 	other["transaction_ref"] = "TX99999"
 	var codes, bodies []string
 	for i := 0; i < 3; i++ {
-		r := e.runtime("POST", "/v1/cases", key("idk_1"), other)
+		r := e.runtime("POST", "/v1/cases", newKey("idk_1"), other)
 		if r.status != 409 || r.errCode() != "IDEMPOTENCY_CONFLICT" {
 			t.Fatalf("%d %s", r.status, r.raw)
 		}
@@ -72,7 +72,7 @@ func TestDefaultsAreEffectivePayload(t *testing.T) {
 	e.createCase("idk_1")
 	explicit := caseBody()
 	explicit["owner_queue"], explicit["priority"] = "PAYMENTS_OPERATIONS", "NORMAL"
-	if r := e.runtime("POST", "/v1/cases", key("idk_1"), explicit); r.status != 200 {
+	if r := e.runtime("POST", "/v1/cases", newKey("idk_1"), explicit); r.status != 200 {
 		t.Fatalf("naming the defaults is the same payload: %d %s", r.status, r.raw)
 	}
 }
@@ -83,10 +83,10 @@ func TestFindCasesAndVersionTokensOnEveryRead(t *testing.T) {
 	c1 := e.createCase("idk_1")
 	b := caseBody()
 	b["transaction_ref"] = "TX2"
-	e.runtime("POST", "/v1/cases", key("idk_2"), b)
+	e.runtime("POST", "/v1/cases", newKey("idk_2"), b)
 	b2 := caseBody()
 	b2["principal_id"] = "usr_2"
-	e.runtime("POST", "/v1/cases", key("idk_3"), b2)
+	e.runtime("POST", "/v1/cases", newKey("idk_3"), b2)
 
 	byKey := e.runtime("GET", "/v1/cases?tenant_id=ten_a&idempotency_key=idk_1", nil, nil)
 	if byKey.status != 200 || len(byKey.items()) != 1 || byKey.items()[0]["case_id"] != c1.str("case_id") || byKey.json["complete"] != true {
@@ -208,27 +208,27 @@ func TestCreateValidation(t *testing.T) {
 		hdr  map[string]string
 		body any
 	}{
-		"no key":            {nil, caseBody()},
-		"key too long":      {key(strings.Repeat("k", 129)), caseBody()},
-		"key with space":    {key("idk 1"), caseBody()},
-		"no tenant":         {key("idk_1"), mutate(func(m map[string]any) { delete(m, "tenant_id") })},
-		"no principal":      {key("idk_1"), mutate(func(m map[string]any) { delete(m, "principal_id") })},
-		"no transaction":    {key("idk_1"), mutate(func(m map[string]any) { delete(m, "transaction_ref") })},
-		"no reason":         {key("idk_1"), mutate(func(m map[string]any) { delete(m, "reason_code") })},
-		"queue not allowed": {key("idk_1"), mutate(func(m map[string]any) { m["owner_queue"] = "ANYWHERE" })},
-		"priority unknown":  {key("idk_1"), mutate(func(m map[string]any) { m["priority"] = "URGENT" })},
-		"unknown field":     {key("idk_1"), mutate(func(m map[string]any) { m["status"] = "CLOSED" })},
-		"status in body":    {key("idk_1"), mutate(func(m map[string]any) { m["case_id"] = "case_x" })},
-		"not json":          {key("idk_1"), "{nope"},
-		"trailing data":     {key("idk_1"), `{"tenant_id":"ten_a"} {}`},
-		"array":             {key("idk_1"), `[]`},
+		"no key":            {ifAbsent(nil), caseBody()},
+		"key too long":      {newKey(strings.Repeat("k", 129)), caseBody()},
+		"key with space":    {newKey("idk 1"), caseBody()},
+		"no tenant":         {newKey("idk_1"), mutate(func(m map[string]any) { delete(m, "tenant_id") })},
+		"no principal":      {newKey("idk_1"), mutate(func(m map[string]any) { delete(m, "principal_id") })},
+		"no transaction":    {newKey("idk_1"), mutate(func(m map[string]any) { delete(m, "transaction_ref") })},
+		"no reason":         {newKey("idk_1"), mutate(func(m map[string]any) { delete(m, "reason_code") })},
+		"queue not allowed": {newKey("idk_1"), mutate(func(m map[string]any) { m["owner_queue"] = "ANYWHERE" })},
+		"priority unknown":  {newKey("idk_1"), mutate(func(m map[string]any) { m["priority"] = "URGENT" })},
+		"unknown field":     {newKey("idk_1"), mutate(func(m map[string]any) { m["status"] = "CLOSED" })},
+		"status in body":    {newKey("idk_1"), mutate(func(m map[string]any) { m["case_id"] = "case_x" })},
+		"not json":          {newKey("idk_1"), "{nope"},
+		"trailing data":     {newKey("idk_1"), `{"tenant_id":"ten_a"} {}`},
+		"array":             {newKey("idk_1"), `[]`},
 	}
 	for name, tc := range cases {
 		if r := e.runtime("POST", "/v1/cases", tc.hdr, tc.body); r.status != 400 || r.errCode() != "INVALID_REQUEST" {
 			t.Errorf("%s: %d %s", name, r.status, r.raw)
 		}
 	}
-	r, err := e.send(e.client, "POST", e.caseURL+"/v1/cases", runtimeToken, map[string]string{"Idempotency-Key": "idk_1", "Content-Type": "text/plain"}, `{}`)
+	r, err := e.send(e.client, "POST", e.caseURL+"/v1/cases", runtimeToken, map[string]string{"Idempotency-Key": "idk_1", "If-None-Match": "*", "Content-Type": "text/plain"}, `{}`)
 	if err != nil || r.status != 415 {
 		t.Errorf("content type: %v %d", err, r.status)
 	}
@@ -260,7 +260,7 @@ func TestComplaintReferences(t *testing.T) {
 	if again.status != 200 || again.str("complaint_ref") != first.str("complaint_ref") || again.header.Get("Idempotent-Replay") != "true" {
 		t.Fatalf("replay: %d %s", again.status, again.raw)
 	}
-	other := e.createCase("idk_2")
+	other := e.createCaseFor("idk_2", 2)
 	conflict := e.runtime("POST", "/v1/cases/"+other.str("case_id")+"/complaints", key("idk_c1"), body)
 	if conflict.status != 409 || conflict.errCode() != "IDEMPOTENCY_CONFLICT" {
 		t.Fatalf("same key, different case: %d %s", conflict.status, conflict.raw)
@@ -336,7 +336,7 @@ func TestEvidenceAppendOnlyWithPayloadHash(t *testing.T) {
 func TestPagination(t *testing.T) {
 	e := newEnv(t)
 	for i := 0; i < 5; i++ {
-		e.createCase(fmt.Sprintf("idk_%d", i))
+		e.createCaseFor(fmt.Sprintf("idk_%d", i), i)
 	}
 	var refs []string
 	cursor := ""

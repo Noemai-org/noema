@@ -1,0 +1,23 @@
+{
+  "ErrorCode__reason_code_not_error.json": "enum",
+  "NonRetryableErrorCode__rate_limited.json": "enum",
+  "RetryableErrorCode__validation_error.json": "enum",
+  "authorization_error_marked_retryable.json": "const",
+  "callback_delivery_failed_marked_retryable.json": "const",
+  "decision_code_marked_retryable.json": "const",
+  "input_invalid_marked_retryable.json": "const",
+  "message_with_account_number.json": "pattern",
+  "missing_correlation_id.json": "required",
+  "not_found_split_from_not_authorized.json": "enum",
+  "not_wrapped_in_error.json": "required",
+  "outcome_unknown_marked_retryable.json": "const",
+  "provider_unavailable_marked_not_retryable.json": "const",
+  "rate_limited_marked_not_retryable.json": "const",
+  "stack_trace_field.json": "additionalProperties",
+  "stale_version_marked_retryable.json": "const",
+  "timeout_marked_not_retryable.json": "const",
+  "unknown_code.json": "enum",
+  "validation_error_marked_retryable.json": "const",
+  "duplicate_create_marked_retryable.json": "const",
+  "ErrorCode__duplicate_creates.json": "enum"
+}

@@ -17,19 +17,19 @@ import (
 
 const (
 	errPrefix = "record: "
-	// SchemaVersion is the record-event contract version this package writes (contracts/schemas/record-event.v2.json).
-	SchemaVersion = "2.0"
+	// SchemaVersion is the record-event contract version this package writes (contracts/schemas/record-event.v3.json).
+	SchemaVersion = "3.0"
 	hashPrefix    = "sha256:"
 	genesisSalt   = "noema:genesis:"
 )
 
-// Patterns from contracts/schemas/common.v1.json and record-event.v1.json: an event that does not match them is
+// Patterns from contracts/schemas/common.v1.json and record-event.v3.json: an event that does not match them is
 // refused before it reaches the database.
 var (
 	tenantRe      = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	objectRefRe   = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
-	writtenByRe   = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	personRe      = regexp.MustCompile(`^([a-z]+):([A-Za-z0-9][A-Za-z0-9_.-]{0,63})$`)
 	eventTypeRe   = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 )
 
@@ -37,8 +37,8 @@ var (
 type Event struct {
 	TenantID      string
 	CorrelationID string
-	WrittenBy     string // the power, upper-case: EXECUTION, TRUST, ...
-	Actor         string // the power or service identity, plus the principal where relevant (PERD 32.1)
+	WrittenBy     string // the emitter: a service identity of the closed set of PERD v1.17 section 32.1, such as core-execution
+	Actor         string // the principal, required: "<kind>:<id>" for a person or administrator, or WrittenBy when no authenticated person caused the event
 	EventType     string // PERD 32.2
 	Kind          string // SECURITY_EVENT only
 	Reason        string // GRANT_VOIDED and PROVIDER_FAILOVER only
@@ -133,7 +133,7 @@ func Hash(prevHash string, body map[string]any) (string, error) {
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// Body is the event as it is hashed and stored: every field of record-event.v2.json except `hash`.
+// Body is the event as it is hashed and stored: every field of record-event.v3.json except `hash`.
 func Body(ev Event, id string, seq int64, prev, payloadHash string, at time.Time) map[string]any {
 	body := map[string]any{
 		"schema_version": SchemaVersion,
@@ -158,8 +158,9 @@ func Body(ev Event, id string, seq int64, prev, payloadHash string, at time.Time
 	return body
 }
 
-// PayloadHash is the hash of the referenced object's canonical JSON, and that JSON; an event that refers to no object
-// (nil) carries the hash of the empty object {} and no stored payload (PERD 32.1).
+// PayloadHash is SHA-256 of the RFC 8785 form of the referenced object, and that JSON (PERD v1.17 section 32.1). Numbers are
+// integers within 2^53-1; any other number is an error and no hash is computed. An event that refers to no object (nil) has the
+// payload {} and carries its hash, and no stored payload.
 func PayloadHash(p any) (hash string, canonical any, err error) { return payloadOf(p) }
 
 func payloadOf(p any) (hash string, js any, err error) {
@@ -182,12 +183,14 @@ func validate(ev Event) error {
 		return fmt.Errorf("%scorrelation_id %q does not match the contract", errPrefix, ev.CorrelationID)
 	case !objectRefRe.MatchString(ev.ObjectRef):
 		return fmt.Errorf("%sobject_ref %q does not match the contract", errPrefix, ev.ObjectRef)
-	case !writtenByRe.MatchString(ev.WrittenBy):
-		return fmt.Errorf("%swritten_by %q does not match the contract", errPrefix, ev.WrittenBy)
+	case !emitters[ev.WrittenBy]:
+		return fmt.Errorf("%swritten_by %q is not an emitter (PERD v1.17 section 32.1)", errPrefix, ev.WrittenBy)
 	case !eventTypeRe.MatchString(ev.EventType):
 		return fmt.Errorf("%sevent_type %q does not match the contract", errPrefix, ev.EventType)
 	case ev.Actor == "":
 		return errors.New(errPrefix + "actor is required")
+	case !validActor(ev.Actor, ev.WrittenBy):
+		return fmt.Errorf("%sactor %q is neither <kind>:<id> with a principal kind nor the emitter's own identity %q (PERD v1.17 section 32.1)", errPrefix, ev.Actor, ev.WrittenBy)
 	case !eventTypes[ev.EventType]:
 		return fmt.Errorf("%sevent_type %q is not a Record event type (PERD 32.2)", errPrefix, ev.EventType)
 	case ev.Kind != "" && !securityKinds[ev.Kind]:
@@ -202,4 +205,14 @@ func validate(ev Event) error {
 		return errors.New(errPrefix + "reason is required on GRANT_VOIDED and PROVIDER_FAILOVER and only there")
 	}
 	return nil
+}
+
+// validActor reports whether actor is a principal PERD v1.17 section 32.1 allows for an event written by writtenBy: a person's or
+// administrator's "<kind>:<id>" (kind from the closed list, id the session subject, no colon), or, when no authenticated person
+// caused the event, the emitter's own service identity.
+func validActor(actor, writtenBy string) bool {
+	if m := personRe.FindStringSubmatch(actor); m != nil {
+		return principalKinds[m[1]]
+	}
+	return emitters[writtenBy] && actor == writtenBy
 }
