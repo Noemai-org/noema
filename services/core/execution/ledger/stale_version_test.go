@@ -12,8 +12,8 @@ func staleAnswer() controller.TransportResult {
 }
 
 // REQ-EXE-004, INV-27, US-19, EC-E11: the write carries the grant's target version, the target refuses it, and the grant is
-// void: the receipt, the RecoveryRequest addressed to Trust and GRANT_VOIDED{REJECTED_STALE_VERSION} are committed together,
-// there is one dispatch and no retry.
+// VOID: the receipt, the status change, the RecoveryRequest addressed to Trust and GRANT_VOIDED{REJECTED_STALE_VERSION} are
+// committed together, there is one dispatch and no retry.
 func TestAStaleVersionVoidsTheSpentGrantTogetherWithItsReceipt(t *testing.T) {
 	w := newWorld(t)
 	w.target.answer = staleAnswer()
@@ -38,11 +38,18 @@ func TestAStaleVersionVoidsTheSpentGrantTogetherWithItsReceipt(t *testing.T) {
 	if n := w.count(t, `SELECT count(*) FROM outbox_event WHERE topic = 'recovery.requested' AND payload->>'grant_id' = $1 AND payload->>'reason' = 'REJECTED_STALE_VERSION'`, g.GrantID); n != 1 {
 		t.Fatalf("%d recovery.requested outbox events, want 1", n)
 	}
-	// The guard on decision_grant makes a spent grant final (migration 0001), so the row stays SPENT; whether it should
-	// read VOID is an open conflict with PERD 38.2 (status/EXE-04.md). A spent grant cannot be executed again.
+	// PERD v1.18 38.2: SPENT -> VOID for a confirmed refusal (migration 0002). The Record keeps both states: GRANT_SPENT
+	// is still there, and GRANT_VOIDED names the change from SPENT to VOID and the receipt that confirmed it.
 	var status string
-	if err := w.admin.QueryRow(ctx(t), `SELECT status FROM decision_grant WHERE grant_id = $1`, g.GrantID).Scan(&status); err != nil || status != "SPENT" {
-		t.Fatalf("grant status %q, %v; want SPENT", status, err)
+	if err := w.admin.QueryRow(ctx(t), `SELECT status FROM decision_grant WHERE grant_id = $1`, g.GrantID).Scan(&status); err != nil || status != "VOID" {
+		t.Fatalf("grant status %q, %v; want VOID", status, err)
+	}
+	if n := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'GRANT_SPENT' AND object_ref = $1`, g.GrantID); n != 1 {
+		t.Fatalf("%d GRANT_SPENT events for the voided grant, want 1: the SPENT state must stay on the Record", n)
+	}
+	if n := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'GRANT_VOIDED' AND object_ref = $1 AND payload->>'from_status' = 'SPENT' AND payload->>'to_status' = 'VOID'
+		AND payload->>'receipt_id' = $2 AND payload->>'reason' = 'REJECTED_STALE_VERSION'`, g.GrantID, out.Receipt.ReceiptID); n != 1 {
+		t.Fatalf("%d GRANT_VOIDED events naming SPENT -> VOID and the receipt, want 1", n)
 	}
 	verifyChain(t, w)
 }
@@ -98,6 +105,10 @@ func TestIfTheVoidCannotBeWrittenNoStaleReceiptIsWrittenEither(t *testing.T) {
 			t.Fatalf("Record has %s although the transaction failed", e)
 		}
 	}
+	var status string
+	if err := w.admin.QueryRow(ctx(t), `SELECT status FROM decision_grant WHERE grant_id = $1`, g.GrantID).Scan(&status); err != nil || status != "SPENT" {
+		t.Fatalf("grant status %q, %v; want SPENT: the status change must roll back with the rest", status, err)
+	}
 	pending, err := w.led.Dispatching(ctx(t), tenant)
 	if err != nil || len(pending) != 1 || pending[0].GrantID != g.GrantID {
 		t.Fatalf("sweeper input %+v, %v; want the one attempt left DISPATCHING", pending, err)
@@ -125,6 +136,9 @@ func TestOnlyAStaleVersionVoidsAGrantThatWasDispatched(t *testing.T) {
 			}
 			if n := w.count(t, `SELECT count(*) FROM recovery_request`) + w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'GRANT_VOIDED'`); n != 0 {
 				t.Fatalf("a %s receipt produced a void or a RecoveryRequest", state)
+			}
+			if n := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'SPENT'`, g.GrantID); n != 1 {
+				t.Fatalf("a %s receipt changed the grant's status", state)
 			}
 		})
 	}

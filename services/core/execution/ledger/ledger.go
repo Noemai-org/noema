@@ -25,6 +25,8 @@ const (
 	pgDeadlockDetected     = "40P01"
 
 	statusIssued = "ISSUED"
+	statusSpent  = "SPENT"
+	statusVoid   = "VOID"
 )
 
 // IDSource makes the prefixed ULIDs of PERD 32.3.

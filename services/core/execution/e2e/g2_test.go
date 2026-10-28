@@ -353,6 +353,11 @@ func TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoid
 		st.count(t, `SELECT count(*) FROM execution_receipt WHERE grant_id = $1 AND execution_state = 'REJECTED_STALE_VERSION'`, grant) != 1 {
 		t.Fatal("want one REJECTED_STALE_VERSION receipt and one open RecoveryRequest with the same reason")
 	}
+	if st.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'VOID'`, grant) != 1 ||
+		st.count(t, `SELECT count(*) FROM record_event WHERE object_ref = $1 AND event_type = 'GRANT_SPENT'`, grant) != 1 ||
+		st.count(t, `SELECT count(*) FROM record_event WHERE object_ref = $1 AND event_type = 'GRANT_VOIDED' AND payload->>'from_status' = 'SPENT' AND payload->>'to_status' = 'VOID'`, grant) != 1 {
+		t.Fatal("want the grant VOID, GRANT_SPENT still on the Record, and one GRANT_VOIDED naming SPENT -> VOID")
+	}
 	again, err := bridge.GrantExecutor{Controller: st.ctl}.ExecuteGrant(bg(t), tenant, grant)
 	// Revalidation (E7) runs before the spend check and sees the moved case, so the second execution ends there; either way
 	// it reaches no write and no receipt.
