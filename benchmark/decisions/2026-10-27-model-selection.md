@@ -136,6 +136,13 @@ The gate wording is the founder's; its mapping onto the bake-off cases is mine a
 | D12 | Spending is carried between runs of a phase by a required `prior_spent_micros` input to the live workflow, taken from the previous run's printed summary; the guard counts it. The pilot's spending is the prior spend of the full run. |
 | D13 | The pilot is the first two base cases of every task and language bucket in case-id order, with their rewrites. |
 
+## Run 40577810935 (full run, cancelled; recorded 28 Oct 2026)
+
+- The full run (https://github.com/Noemai-org/noema/actions/runs/40577810935, `main` at `781465ac5df7fe368f64b6c3a48561a4419c0d3a`, phase `full`, `prior_spent_micros` 167893) was cancelled at the workflow's 90-minute timeout.
+- Per the founder's decision of 28 Oct 2026: Luna completed its calls; Terra did not run to completion and has no result; **no verdict is declared** for either model, and no selection is made. The founder has deferred the full run.
+- Luna is the development model only and is not a selection.
+- The run's artifact (`bench-live-out-full-40577810935`) has not been scored or opened by the author of this entry at the time of writing; nothing in this entry is a measured number.
+
 ## Not claimed
 
 - No live result exists at the freeze. Nothing here is a measured number.
