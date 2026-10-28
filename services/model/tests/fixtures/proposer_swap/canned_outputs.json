@@ -1,0 +1,553 @@
+{
+  "_synthetic": "SYNTHETIC canned provider outputs (AGENT-25), one table per scenario, keyed by schema name or the question ids of the request. Not recorded from a live call: not run: no access.",
+  "scenarios": {
+    "escalate": {
+      "f0,f1": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "f0",
+            "selected": "no"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "f1",
+            "selected": "no"
+          }
+        ]
+      },
+      "intent_node": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.9
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "intent_node",
+            "selected": "o0"
+          }
+        ]
+      },
+      "locale,code_switching": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.9
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "locale",
+            "selected": "o1"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "code_switching",
+            "selected": "no"
+          }
+        ]
+      },
+      "pipeline_slot_mentions": {
+        "amount": {
+          "confidence": 0.9,
+          "present": true,
+          "proposed_value": "20000",
+          "surface_form": "20k"
+        },
+        "counterparty": {
+          "confidence": 0.9,
+          "present": true,
+          "proposed_value": "Tunde",
+          "surface_form": "Tunde"
+        },
+        "when": {
+          "confidence": 0.8,
+          "present": true,
+          "proposed_value": "morning",
+          "surface_form": "this morning"
+        }
+      },
+      "question_type,requested_remedy": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "o3",
+                "p": 0.0
+              },
+              {
+                "option": "o4",
+                "p": 0.9
+              },
+              {
+                "option": "o5",
+                "p": 0.0
+              },
+              {
+                "option": "o6",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "question_type",
+            "selected": "o4"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "o3",
+                "p": 0.0
+              },
+              {
+                "option": "o4",
+                "p": 0.0
+              },
+              {
+                "option": "o5",
+                "p": 0.0
+              },
+              {
+                "option": "o6",
+                "p": 0.0
+              },
+              {
+                "option": "o7",
+                "p": 0.0
+              },
+              {
+                "option": "o8",
+                "p": 0.0
+              },
+              {
+                "option": "o9",
+                "p": 0.0
+              },
+              {
+                "option": "o10",
+                "p": 0.0
+              },
+              {
+                "option": "o11",
+                "p": 0.0
+              },
+              {
+                "option": "o12",
+                "p": 0.0
+              },
+              {
+                "option": "o13",
+                "p": 0.0
+              },
+              {
+                "option": "o14",
+                "p": 0.0
+              },
+              {
+                "option": "o15",
+                "p": 0.0
+              },
+              {
+                "option": "o16",
+                "p": 0.0
+              },
+              {
+                "option": "o17",
+                "p": 0.0
+              },
+              {
+                "option": "o18",
+                "p": 0.0
+              },
+              {
+                "option": "o19",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.9
+              }
+            ],
+            "question_id": "requested_remedy",
+            "selected": "none_or_other"
+          }
+        ]
+      },
+      "s0": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "s0",
+            "selected": "no"
+          }
+        ]
+      }
+    },
+    "invalid": {
+      "intent_node": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o99",
+                "p": 1.0
+              }
+            ],
+            "question_id": "intent_node",
+            "selected": "o99"
+          }
+        ]
+      }
+    },
+    "prohibited": {
+      "f0,f1": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "f0",
+            "selected": "no"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "f1",
+            "selected": "no"
+          }
+        ]
+      },
+      "intent_node": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.9
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "intent_node",
+            "selected": "o0"
+          }
+        ]
+      },
+      "locale,code_switching": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.9
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "locale",
+            "selected": "o1"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "code_switching",
+            "selected": "no"
+          }
+        ]
+      },
+      "pipeline_slot_mentions": {
+        "amount": {
+          "confidence": 0.9,
+          "present": true,
+          "proposed_value": "20000",
+          "surface_form": "20k"
+        },
+        "counterparty": {
+          "confidence": 0.9,
+          "present": true,
+          "proposed_value": "Tunde",
+          "surface_form": "Tunde"
+        },
+        "when": {
+          "confidence": 0.8,
+          "present": true,
+          "proposed_value": "morning",
+          "surface_form": "this morning"
+        }
+      },
+      "question_type,requested_remedy": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "o3",
+                "p": 0.0
+              },
+              {
+                "option": "o4",
+                "p": 0.9
+              },
+              {
+                "option": "o5",
+                "p": 0.0
+              },
+              {
+                "option": "o6",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "question_type",
+            "selected": "o4"
+          },
+          {
+            "probabilities": [
+              {
+                "option": "o0",
+                "p": 0.0
+              },
+              {
+                "option": "o1",
+                "p": 0.0
+              },
+              {
+                "option": "o2",
+                "p": 0.0
+              },
+              {
+                "option": "o3",
+                "p": 0.0
+              },
+              {
+                "option": "o4",
+                "p": 0.0
+              },
+              {
+                "option": "o5",
+                "p": 0.0
+              },
+              {
+                "option": "o6",
+                "p": 0.9
+              },
+              {
+                "option": "o7",
+                "p": 0.0
+              },
+              {
+                "option": "o8",
+                "p": 0.0
+              },
+              {
+                "option": "o9",
+                "p": 0.0
+              },
+              {
+                "option": "o10",
+                "p": 0.0
+              },
+              {
+                "option": "o11",
+                "p": 0.0
+              },
+              {
+                "option": "o12",
+                "p": 0.0
+              },
+              {
+                "option": "o13",
+                "p": 0.0
+              },
+              {
+                "option": "o14",
+                "p": 0.0
+              },
+              {
+                "option": "o15",
+                "p": 0.0
+              },
+              {
+                "option": "o16",
+                "p": 0.0
+              },
+              {
+                "option": "o17",
+                "p": 0.0
+              },
+              {
+                "option": "o18",
+                "p": 0.0
+              },
+              {
+                "option": "o19",
+                "p": 0.0
+              },
+              {
+                "option": "none_or_other",
+                "p": 0.0
+              }
+            ],
+            "question_id": "requested_remedy",
+            "selected": "o6"
+          }
+        ]
+      },
+      "s0": {
+        "answers": [
+          {
+            "probabilities": [
+              {
+                "option": "yes",
+                "p": 0.1
+              },
+              {
+                "option": "no",
+                "p": 0.9
+              }
+            ],
+            "question_id": "s0",
+            "selected": "no"
+          }
+        ]
+      }
+    }
+  }
+}

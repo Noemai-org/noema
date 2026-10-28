@@ -12,4 +12,6 @@
 - `TestG2EscalateThroughTheCoreAdapterAgainstMockCase`: create with the idempotency key of PERD §27.2, read back by that key with the version token, route with that token; eight Record events, chain verified, two receipts, two outbox events.
 - A spent create grant executed again writes nothing; a second create for the same transaction and a route bound to a stale token are voided at E7 before any write; with the kill switch on nothing is spent and mock-case receives nothing.
 
+- `proposer_swap_test.go` (execution half of the proposer swap test, `status/ENV-08.md`): reads `synthetic/proposer_swap/` and runs the real escalation for each proposer; the Record events, workflow result and mock-case state must be identical, a refused proposal writes nothing, and controls show that a leak of proposer provenance is noticed. It validates the decision path only, not the unbuilt intake.
+
 **Not covered here (and why).** A fault between E7 and E9 (the concurrent-modification and dropped-response cases): they need the fault-plan client, which is not in the core. The adapter's contract tests replay recordings made with real FaultPlans (`adapters/synthetic_tushe/testdata`).

@@ -1,0 +1,46 @@
+{
+  "synthetic": true,
+  "note": "SYNTHETIC. The decision of the real trust/decide constructors for each scenario, identical under both proposers. Written by TestSwapBothProposersGetTheSameDecisionAndTheCommittedFileIsCurrent (NOEMA_WRITE_SWAP_DECISIONS=1); read by the execution half.",
+  "decisions": {
+    "escalate": {
+      "gate_step": "T7",
+      "outcome": "ALLOW",
+      "reasons": [],
+      "authority": [
+        "PASS",
+        "PASS",
+        "PASS"
+      ],
+      "intent_version": 1,
+      "transaction": "TX1"
+    },
+    "invalid": {
+      "gate_step": "T1",
+      "outcome": "REJECT",
+      "reasons": [
+        "INTENT_INVALID"
+      ],
+      "authority": [
+        "NOT_EVALUATED",
+        "NOT_EVALUATED",
+        "NOT_EVALUATED"
+      ],
+      "intent_version": 0,
+      "transaction": ""
+    },
+    "prohibited": {
+      "gate_step": "T4",
+      "outcome": "REJECT",
+      "reasons": [
+        "PROHIBITED_CAPABILITY"
+      ],
+      "authority": [
+        "NOT_EVALUATED",
+        "NOT_EVALUATED",
+        "NOT_EVALUATED"
+      ],
+      "intent_version": 1,
+      "transaction": ""
+    }
+  }
+}
