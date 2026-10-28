@@ -427,5 +427,281 @@
       ],
       "payloads_note": ""
     }
+  ],
+  "payload_hash_vectors": [
+    {
+      "name": "empty_object",
+      "payload_json": "{}",
+      "input_bytes_utf8": "{}",
+      "input_bytes_hex": "7b7d",
+      "expected_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
+      "note": "The object an event that refers to no object carries as its payload."
+    },
+    {
+      "name": "nested_object",
+      "payload_json": "{\"b\":{\"z\":[3,2,1],\"a\":{\"y\":true,\"x\":null}},\"a\":\"text\",\"c\":[{\"k2\":2,\"k1\":1}]}",
+      "input_bytes_utf8": "{\"a\":\"text\",\"b\":{\"a\":{\"x\":null,\"y\":true},\"z\":[3,2,1]},\"c\":[{\"k1\":1,\"k2\":2}]}",
+      "input_bytes_hex": "7b2261223a2274657874222c2262223a7b2261223a7b2278223a6e756c6c2c2279223a747275657d2c227a223a5b332c322c315d7d2c2263223a5b7b226b31223a312c226b32223a327d5d7d",
+      "expected_hash": "sha256:9180bef537cc1a058c8fe36b91892594b48c2eba13033aa493d820b593c72267",
+      "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
+      "note": "Members sort at every depth; arrays keep their order."
+    },
+    {
+      "name": "unicode_string",
+      "payload_json": "{\"s\":\"caf\\u00e9 \\u65e5\\u672c\\u8a9e \\ud83d\\ude00 \\u0007 \\\"q\\\" \\\\ /\",\"\\ud83d\\ude00\":1,\"\\uffff\":2}",
+      "input_bytes_utf8": "{\"s\":\"café 日本語 😀 \\u0007 \\\"q\\\" \\\\ /\",\"😀\":1,\"￿\":2}",
+      "input_bytes_hex": "7b2273223a22636166c3a920e697a5e69cace8aa9e20f09f9880205c7530303037205c22715c22205c5c202f222c22f09f9880223a312c22efbfbf223a327d",
+      "expected_hash": "sha256:26745c0f9b993c20e9c8ad47f04467664537c7f48e9f630a060dcfb9c1677928",
+      "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
+      "note": "Non-ASCII is written as UTF-8, not escaped; U+0007 is \\u0007; the member U+1F600 sorts before U+FFFF because UTF-16 order puts the surrogate D83D before FFFF (code point order would put it after)."
+    },
+    {
+      "name": "integers",
+      "payload_json": "{\"n\":[0,-0,1,-7,100,123456789012,9007199254740991,-9007199254740991]}",
+      "input_bytes_utf8": "{\"n\":[0,0,1,-7,100,123456789012,9007199254740991,-9007199254740991]}",
+      "input_bytes_hex": "7b226e223a5b302c302c312c2d372c3130302c3132333435363738393031322c393030373139393235343734303939312c2d393030373139393235343734303939315d7d",
+      "expected_hash": "sha256:a5dc8e40d40fc1bb6d3a22577a87df58a4dd29ea6a123fd8f0f425bf11ebdf89",
+      "computed_by": "node v22 tools/payload_hash_independent.js (RFC 8785 from ECMAScript JSON.stringify and UTF-16 member order); sha256sum of input_bytes_hex agrees",
+      "note": "Integers within 2^53-1 in their shortest form; -0 is written 0."
+    }
+  ],
+  "payload_rejected_vectors": [
+    {
+      "name": "fraction",
+      "payload_json": "{\"n\":1.5}",
+      "expected": "rejected"
+    },
+    {
+      "name": "fraction_with_zero",
+      "payload_json": "{\"n\":1.0}",
+      "expected": "rejected"
+    },
+    {
+      "name": "exponent",
+      "payload_json": "{\"n\":1e3}",
+      "expected": "rejected"
+    },
+    {
+      "name": "upper_case_exponent",
+      "payload_json": "{\"n\":1E3}",
+      "expected": "rejected"
+    },
+    {
+      "name": "negative_fraction",
+      "payload_json": "{\"n\":-0.5}",
+      "expected": "rejected"
+    },
+    {
+      "name": "integer_above_2_pow_53_minus_1",
+      "payload_json": "{\"n\":9007199254740992}",
+      "expected": "rejected"
+    },
+    {
+      "name": "negative_integer_below_minus_2_pow_53_plus_1",
+      "payload_json": "{\"n\":-9007199254740992}",
+      "expected": "rejected"
+    },
+    {
+      "name": "fraction_nested_in_an_array",
+      "payload_json": "{\"a\":[{\"b\":[2,2.5]}]}",
+      "expected": "rejected"
+    }
+  ],
+  "record_event_chain_vectors_v3": [
+    {
+      "name": "single_event_empty_payload",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "expected_genesis_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_2001",
+            "written_by": "core-edge",
+            "actor": "customer:usr_88213",
+            "event_type": "INPUT_RECEIVED",
+            "object_ref": "req_01J9X3",
+            "at": "2026-10-01T09:48:00.410Z"
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+            "actor": "customer:usr_88213",
+            "payload_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+            "hash": "sha256:97d0ff1bd6d37b4c6b2eb8649eefedbdb2314b01ed2c8cbfb511d7518bfd5ceb"
+          }
+        }
+      ]
+    },
+    {
+      "name": "execution_path",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_4c21f9",
+      "expected_genesis_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_2101",
+            "written_by": "core-execution",
+            "event_type": "GRANT_SPENT",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.000Z",
+            "payload": {
+              "grant_id": "grt_0001",
+              "nonce": "n_0001",
+              "idempotency_key": "idk_v1_abababababababababababababababababababababababababababababababab",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+            "actor": "core-execution",
+            "payload_hash": "sha256:cb9d2669dc91ee261ca65c2e1e7d569d6c93744be5a75c08f9b28d5f0dbe2bc8",
+            "hash": "sha256:acf20618d4f52692981d5640c48f9004ca5adc4dc91c1bed3738877a4a661781"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_2102",
+            "written_by": "core-execution",
+            "event_type": "DISPATCH_ATTEMPTED",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.001Z",
+            "payload": {
+              "idempotency_key": "idk_v1_abababababababababababababababababababababababababababababababab",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 2,
+            "prev_hash": "sha256:acf20618d4f52692981d5640c48f9004ca5adc4dc91c1bed3738877a4a661781",
+            "actor": "core-execution",
+            "payload_hash": "sha256:81507d654ca17ac8fcfe2f4c3d2c77848d1214f2c18a38837f63b7061fcf75b9",
+            "hash": "sha256:ab071ee13d6475f337fa8ba417cde5305c4873bfe60364b1ed3b94b7d3ff7494"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_2103",
+            "written_by": "core-execution",
+            "event_type": "RECEIPT",
+            "object_ref": "grt_0001",
+            "at": "2026-10-01T09:48:01.350Z",
+            "payload": {
+              "receipt_id": "rcp_01",
+              "execution_state": "ACKNOWLEDGED",
+              "attempt": 1
+            }
+          },
+          "expected": {
+            "seq": 3,
+            "prev_hash": "sha256:ab071ee13d6475f337fa8ba417cde5305c4873bfe60364b1ed3b94b7d3ff7494",
+            "actor": "core-execution",
+            "payload_hash": "sha256:435626d68a7f1eb3be7744e9188db34a47ffaeba8e63d4d62c859249c576c72a",
+            "hash": "sha256:d23d1e1992cd6de9632d08257cca16299f8745b236c3090f2caf6acd8ecb1561"
+          }
+        }
+      ]
+    },
+    {
+      "name": "security_and_void",
+      "tenant_id": "ten_other",
+      "correlation_id": "corr_9d0e11",
+      "expected_genesis_hash": "sha256:f0fcef8677cd310f66ccfea390fac2bc814900978f0fd7532944e3a183703b9f",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_3001",
+            "written_by": "core-execution",
+            "event_type": "SECURITY_EVENT",
+            "kind": "IDEMPOTENCY_COLLISION",
+            "object_ref": "grt_0002",
+            "at": "2026-10-01T10:00:00.000Z",
+            "payload": {
+              "idempotency_key": "idk_v1_cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+            }
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:f0fcef8677cd310f66ccfea390fac2bc814900978f0fd7532944e3a183703b9f",
+            "actor": "core-execution",
+            "payload_hash": "sha256:096a0ca5c9e600f3f0e96efe2952254c57493858f000436e586f95a75886f53c",
+            "hash": "sha256:81602e19ac00f15ed369bcc312d165a9eeb35a6be17a68099f9eb850f59ac64c"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_3002",
+            "written_by": "core-execution",
+            "event_type": "GRANT_VOIDED",
+            "reason": "BINDING_MISMATCH",
+            "object_ref": "grt_0002",
+            "at": "2026-10-01T10:00:00.002Z",
+            "payload": {
+              "grant_id": "grt_0002",
+              "reason": "BINDING_MISMATCH"
+            }
+          },
+          "expected": {
+            "seq": 2,
+            "prev_hash": "sha256:81602e19ac00f15ed369bcc312d165a9eeb35a6be17a68099f9eb850f59ac64c",
+            "actor": "core-execution",
+            "payload_hash": "sha256:caec13e7ed5f0e222f1f02ac21c8f7c70b90a2549fe5775e2ce242f1421fe5fa",
+            "hash": "sha256:c23591a1eec1a058493c34e8f9faeb9c2c5982870ac21ebff4050f612081612d"
+          }
+        }
+      ]
+    },
+    {
+      "name": "approver_confirms_control_plane_publishes",
+      "tenant_id": "ten_demo",
+      "correlation_id": "corr_77aa01",
+      "expected_genesis_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+      "events": [
+        {
+          "spec": {
+            "event_id": "recev_4001",
+            "written_by": "core-trust",
+            "actor": "approver:usr_synth_014",
+            "event_type": "CONFIRMATION_RECEIVED",
+            "object_ref": "cnf_0001",
+            "at": "2026-10-01T11:00:00.000Z",
+            "payload": {
+              "response": "ACCEPT"
+            }
+          },
+          "expected": {
+            "seq": 1,
+            "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+            "actor": "approver:usr_synth_014",
+            "payload_hash": "sha256:b49269e12e28681580a06285e9de10d26d26f4f7d4c5e186543c01cc9c7af04d",
+            "hash": "sha256:042d96646a682cf75cbe6db086ec7855e2f59b8a1db56d1033f1c8a57607a3d1"
+          }
+        },
+        {
+          "spec": {
+            "event_id": "recev_4002",
+            "written_by": "admin",
+            "actor": "admin:usr_admin_01",
+            "event_type": "POLICY_PUBLISHED",
+            "object_ref": "pol_0001",
+            "at": "2026-10-01T11:00:05.000Z",
+            "payload": {
+              "policy_id": "pol_escalate",
+              "version": 3
+            }
+          },
+          "expected": {
+            "seq": 2,
+            "prev_hash": "sha256:042d96646a682cf75cbe6db086ec7855e2f59b8a1db56d1033f1c8a57607a3d1",
+            "actor": "admin:usr_admin_01",
+            "payload_hash": "sha256:51caf96fdf1551435fcc9e5a4d9f9ec994d9be3277b8e064ce34d5d77ca56f5b",
+            "hash": "sha256:a75ebab080249e870c3220f83df010be45c3682c3cd23646ce661b9c23998db7"
+          }
+        }
+      ]
+    }
   ]
 }

@@ -18,7 +18,7 @@ import (
 
 const (
 	errPrefix = "ledger: "
-	writer    = "EXECUTION"
+	writer    = "core-execution"
 
 	pgUniqueViolation      = "23505"
 	pgSerializationFailure = "40001"

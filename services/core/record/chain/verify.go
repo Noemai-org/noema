@@ -21,7 +21,7 @@ const (
 	BreakHash        BreakKind = "HASH"         // the stored hash is not the hash of the stored event
 	BreakColumns     BreakKind = "COLUMNS"      // a projection column differs from the hashed event
 	BreakPayloadHash BreakKind = "PAYLOAD_HASH" // the stored payload is not the object payload_hash commits to
-	BreakSchema      BreakKind = "SCHEMA"       // the event is not a record-event.v2 event (its schema_version is not the one this verifier checks)
+	BreakSchema      BreakKind = "SCHEMA"       // the event is not a record-event.v3 event (its schema_version, emitter or principal is not one this verifier accepts)
 )
 
 // BreakError is the first break found. Verification stops there.
@@ -46,7 +46,7 @@ type Queryer interface {
 // the number of events checked and a *BreakError at the first break. The chain verifier job (REC-05, REC-06)
 // calls this; it reads only and never repairs.
 func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
-	rows, err := q.Query(ctx, `SELECT seq, event_id, prev_hash, hash, written_by, event_type, object_ref, payload_hash,
+	rows, err := q.Query(ctx, `SELECT seq, event_id, prev_hash, hash, written_by, actor, event_type, object_ref, payload_hash,
 		correlation_id, schema_version, body::text, payload::text FROM record_event WHERE tenant_id = $1 ORDER BY seq`, tenantID)
 	if err != nil {
 		return 0, fmt.Errorf("%sread chain: %w", errPrefix, err)
@@ -56,9 +56,9 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 	var want, checked int64 = 1, 0
 	for rows.Next() {
 		var seq int64
-		var eventID, prevHash, hash, writtenBy, eventType, objectRef, payloadHash, correlation, schemaVersion, bodyText string
+		var eventID, prevHash, hash, writtenBy, actor, eventType, objectRef, payloadHash, correlation, schemaVersion, bodyText string
 		var payloadText *string
-		if err := rows.Scan(&seq, &eventID, &prevHash, &hash, &writtenBy, &eventType, &objectRef, &payloadHash, &correlation, &schemaVersion, &bodyText, &payloadText); err != nil {
+		if err := rows.Scan(&seq, &eventID, &prevHash, &hash, &writtenBy, &actor, &eventType, &objectRef, &payloadHash, &correlation, &schemaVersion, &bodyText, &payloadText); err != nil {
 			return checked, fmt.Errorf("%sscan: %w", errPrefix, err)
 		}
 		brk := func(k BreakKind, d string) error {
@@ -79,7 +79,10 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 		if schemaVersion != SchemaVersion || body["schema_version"] != SchemaVersion {
 			return checked, brk(BreakSchema, "schema_version is not "+SchemaVersion)
 		}
-		for k, v := range map[string]string{"event_id": eventID, "prev_hash": prevHash, "written_by": writtenBy, "event_type": eventType,
+		if !emitters[writtenBy] || !validActor(actor, writtenBy) {
+			return checked, brk(BreakSchema, "written_by or actor is not an emitter or principal of PERD v1.17 section 32.1")
+		}
+		for k, v := range map[string]string{"event_id": eventID, "prev_hash": prevHash, "written_by": writtenBy, "actor": actor, "event_type": eventType,
 			"object_ref": objectRef, "payload_hash": payloadHash, "correlation_id": correlation, "tenant_id": tenantID} {
 			if body[k] != v {
 				return checked, brk(BreakColumns, k+" differs between the column and the hashed event")
@@ -103,7 +106,10 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 				return checked, brk(BreakPayloadHash, "the stored payload is not JSON")
 			}
 			canon, err := crypto.CanonicalJSON(p)
-			if err != nil || crypto.Hash(canon) != payloadHash {
+			if err != nil {
+				return checked, brk(BreakPayloadHash, "the stored payload cannot be hashed: "+err.Error())
+			}
+			if crypto.Hash(canon) != payloadHash {
 				return checked, brk(BreakPayloadHash, "the stored payload does not match payload_hash")
 			}
 		}

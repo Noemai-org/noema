@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 )
@@ -63,7 +64,7 @@ func writeCanonical(out *bytes.Buffer, v any) error {
 		if err != nil || n > maxSafeInt || n < -maxSafeInt {
 			return fmt.Errorf("number %s is outside 2^53-1", s)
 		}
-		out.WriteString(s)
+		out.WriteString(strconv.FormatInt(n, 10)) // RFC 8785: the shortest form, so -0 is written 0
 	case []any:
 		out.WriteByte('[')
 		for i, item := range t {

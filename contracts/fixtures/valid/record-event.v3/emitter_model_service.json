@@ -1,0 +1,15 @@
+{
+  "schema_version": "3.0",
+  "tenant_id": "ten_demo",
+  "correlation_id": "corr_4c21f9",
+  "event_id": "recev_1001",
+  "seq": 1,
+  "prev_hash": "sha256:214fe86072737c56f28c9cabda0aa25914a680a82584aacf38bce57e7055e05c",
+  "written_by": "model-service",
+  "actor": "model-service",
+  "event_type": "INTENT_ADMITTED",
+  "object_ref": "int_01J9X3",
+  "payload_hash": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "at": "2026-10-01T09:47:50.100Z",
+  "hash": "sha256:51000f2aec161bd21fe7c82a8774c93b890e9471cf88327f290040777346bd1f"
+}

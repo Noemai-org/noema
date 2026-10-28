@@ -42,11 +42,20 @@ class DriftGuard(unittest.TestCase):
         removed["record-event.v2.json"]["$defs"]["RecordEventType"]["enum"].remove("CONFIG_CHANGED")
         self.assertTrue(any("record-event.v2.json" in p and "CONFIG_CHANGED" in p for p in drift.check_record_event_types(removed)))
 
-    def test_grant_void_reasons_of_v2_must_be_the_nine_of_perd_27_1(self):
+    def test_grant_void_reasons_of_v2_and_v3_must_be_the_nine_of_perd_27_1(self):
         for mutate in (lambda e: e.remove("EXPIRED"), lambda e: e.append("SOMETHING_ELSE"), lambda e: e.append("EXPIRED")):
-            changed = copy.deepcopy(SCHEMAS)
-            mutate(changed["record-event.v2.json"]["$defs"]["GrantVoidReason"]["enum"])
-            self.assertTrue(any("GrantVoidReason" in p for p in drift.check_record_event_types(changed)))
+            for name in ("record-event.v2.json", "record-event.v3.json"):
+                changed = copy.deepcopy(SCHEMAS)
+                mutate(changed[name]["$defs"]["GrantVoidReason"]["enum"])
+                self.assertTrue(any(name in p and "GrantVoidReason" in p for p in drift.check_record_event_types(changed)), name)
+
+    def test_record_event_types_added_to_or_removed_from_the_v3_schema(self):
+        added = copy.deepcopy(SCHEMAS)
+        added["record-event.v3.json"]["$defs"]["RecordEventType"]["enum"].append("RECORD_ACCESSED")
+        self.assertTrue(any("record-event.v3.json" in p and "RECORD_ACCESSED" in p for p in drift.check_record_event_types(added)))
+        removed = copy.deepcopy(SCHEMAS)
+        removed["record-event.v3.json"]["$defs"]["RecordEventType"]["enum"].remove("CONFIG_CHANGED")
+        self.assertTrue(any("record-event.v3.json" in p and "CONFIG_CHANGED" in p for p in drift.check_record_event_types(removed)))
 
     def test_value_added_to_the_registry(self):
         mutated = REGISTRY.replace("`ALLOW`, `CLARIFY`", "`ALLOW`, `PROCEED`, `CLARIFY`", 1)
