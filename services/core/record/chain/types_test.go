@@ -44,27 +44,9 @@ func TestWriterSetsEqualTheV3SchemaEnums(t *testing.T) {
 	if got, want := chain.GrantVoidReasons(), sortedCopy(s.Defs["GrantVoidReason"].Enum); !reflect.DeepEqual(got, want) {
 		t.Fatalf("grant-void reasons: writer %v, schema %v", got, want)
 	}
-	// The writer accepts every emitter of the contract but one: the benchmark runner's identity, which the core never writes as and
-	// which the architecture lint keeps out of core code (see types.go). Any other difference is drift.
-	writer := map[string]bool{}
-	for _, e := range chain.Emitters() {
-		writer[e] = true
-	}
-	var missing []string
-	schema := map[string]bool{}
-	for _, e := range s.Defs["Emitter"].Enum {
-		schema[e] = true
-		if !writer[e] {
-			missing = append(missing, e)
-		}
-	}
-	for e := range writer {
-		if !schema[e] {
-			t.Fatalf("the writer accepts %q, which the schema does not list", e)
-		}
-	}
-	if len(missing) != 1 {
-		t.Fatalf("emitters the schema lists and the writer refuses: %v, want exactly one", missing)
+	// The contract lists every identity of the table; the core accepts the ones the table marks as written by the core.
+	if got, want := chain.ContractEmitters(), sortedCopy(s.Defs["Emitter"].Enum); !reflect.DeepEqual(got, want) {
+		t.Fatalf("contract emitters: table %v, schema %v", got, want)
 	}
 	if got, want := chain.PrincipalKinds(), sortedCopy(s.Defs["PrincipalKind"].Enum); !reflect.DeepEqual(got, want) {
 		t.Fatalf("principal kinds: writer %v, schema %v", got, want)
@@ -87,5 +69,72 @@ func TestTheClosedSetsAreThoseOfPERD32_1(t *testing.T) {
 	wantKinds := sortedCopy([]string{"customer", "operator", "approver", "auditor", "regulator", "admin"})
 	if got := chain.PrincipalKinds(); !reflect.DeepEqual(got, wantKinds) {
 		t.Fatalf("principal kinds %v, want %v", got, wantKinds)
+	}
+}
+
+type actorsFile struct {
+	Emitters []struct {
+		Name  string `json:"name"`
+		Scope string `json:"scope"`
+	} `json:"emitters"`
+	NotEmitters []struct {
+		Name string `json:"name"`
+	} `json:"not_emitters"`
+	PrincipalKinds []struct {
+		Name string `json:"name"`
+	} `json:"principal_kinds"`
+}
+
+func loadActors(t *testing.T) actorsFile {
+	t.Helper()
+	raw, err := os.ReadFile("actors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f actorsFile
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+// The core's sets are derived from the table (actors.json, embedded) and from nothing else: what the core accepts is exactly the table's
+// emitters with the scope RUNTIME, the contract lists every emitter of the table, and the difference is exactly the identities the
+// table does not mark as written by the core. The names of that difference come from the table, never from this file or the writer.
+func TestTheCoreAcceptsExactlyTheRuntimeEmittersOfTheTable(t *testing.T) {
+	table, schema := loadActors(t), loadSchema(t)
+	var runtime, all, refused []string
+	for _, e := range table.Emitters {
+		all = append(all, e.Name)
+		if e.Scope == "RUNTIME" {
+			runtime = append(runtime, e.Name)
+		} else {
+			refused = append(refused, e.Name)
+		}
+	}
+	if got := chain.Emitters(); !reflect.DeepEqual(got, sortedCopy(runtime)) {
+		t.Fatalf("the core accepts %v, the table marks %v as written by the core", got, sortedCopy(runtime))
+	}
+	if got := chain.ContractEmitters(); !reflect.DeepEqual(got, sortedCopy(all)) || !reflect.DeepEqual(got, sortedCopy(schema.Defs["Emitter"].Enum)) {
+		t.Fatalf("the contract lists %v, the table %v", sortedCopy(schema.Defs["Emitter"].Enum), sortedCopy(all))
+	}
+	if len(all) != 17 || len(runtime) != 16 || len(refused) != 1 {
+		t.Fatalf("%d emitters in the contract, %d accepted by the core, %d refused; want 17, 16 and 1", len(all), len(runtime), len(refused))
+	}
+	for _, n := range table.NotEmitters {
+		for _, set := range [][]string{chain.Emitters(), chain.ContractEmitters(), schema.Defs["Emitter"].Enum} {
+			for _, have := range set {
+				if have == n.Name {
+					t.Fatalf("%q is a non-emitter in the table and appears in an emitter set", n.Name)
+				}
+			}
+		}
+	}
+	var kinds []string
+	for _, k := range table.PrincipalKinds {
+		kinds = append(kinds, k.Name)
+	}
+	if got := chain.PrincipalKinds(); !reflect.DeepEqual(got, sortedCopy(kinds)) || !reflect.DeepEqual(got, sortedCopy(schema.Defs["PrincipalKind"].Enum)) {
+		t.Fatalf("principal kinds: core %v, table %v, schema %v", got, sortedCopy(kinds), sortedCopy(schema.Defs["PrincipalKind"].Enum))
 	}
 }

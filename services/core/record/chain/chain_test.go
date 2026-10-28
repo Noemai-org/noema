@@ -403,3 +403,94 @@ func mustFloat(text string) any {
 	}
 	return v
 }
+
+// The identities the contract lists and the core refuses, read from the table: each is refused by the writer, as an emitter acting for a
+// person and as its own principal, and by Verify if a row naming it is ever stored (it can only get there past the writer).
+func TestTheCoreRefusesWhatTheContractListsButTheTableDoesNotMarkAsWrittenByTheCore(t *testing.T) {
+	table := loadActors(t)
+	var refused []string
+	for _, e := range table.Emitters {
+		if e.Scope != "RUNTIME" {
+			refused = append(refused, e.Name)
+		}
+	}
+	if len(refused) == 0 {
+		t.Fatal("the table marks no emitter as refused by the core")
+	}
+	w := newWorld(t, "ten_aa")
+	w.append(t, event("ten_aa", 1))
+	for _, name := range refused {
+		for _, actor := range []string{name, "approver:usr_1", "customer:usr_1"} {
+			tx, err := w.exec.Begin(ctx(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ev := event("ten_aa", 2)
+			ev.WrittenBy, ev.Actor = name, actor
+			_, err = w.app.Append(ctx(t), tx, ev)
+			_ = tx.Rollback(ctx(t))
+			if err == nil {
+				t.Errorf("the core appended as %q for %q", name, actor)
+			}
+		}
+		// A stored row that names it breaks verification: written_by is outside what the core accepts.
+		conn, err := w.admin.Acquire(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.Exec(ctx(t), `SET session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		stmt := fmt.Sprintf(`UPDATE record_event SET written_by = '%[1]s', actor = '%[1]s', body = jsonb_set(jsonb_set(body, '{actor}', '"%[1]s"'), '{written_by}', '"%[1]s"') WHERE seq = 1`, name)
+		if _, err := conn.Exec(ctx(t), stmt); err != nil {
+			t.Fatal(err)
+		}
+		conn.Release()
+		var be *chain.BreakError
+		if _, err := chain.Verify(ctx(t), w.admin, "ten_aa"); !errors.As(err, &be) || be.Kind != chain.BreakSchema {
+			t.Errorf("a stored event written by %q: %v, want a SCHEMA break", name, err)
+		}
+	}
+}
+
+// admin is both an emitter (the control plane's own identity, PERD 41.1) and a principal kind (a signed-in administrator, a person). The
+// two meanings are different and the rules keep them apart: as an emitter it is a service identity and only its own principal; as a
+// kind it needs an id and may sit behind any emitter that acts for a person.
+func TestAdminIsBothAnEmitterAndAPrincipalKindWithDistinctMeanings(t *testing.T) {
+	w := newWorld(t, "ten_aa")
+	accept := func(name, writtenBy, actor string) {
+		t.Helper()
+		ev := event("ten_aa", 1)
+		ev.WrittenBy, ev.Actor, ev.EventType, ev.ObjectRef = writtenBy, actor, "POLICY_PUBLISHED", "pol_0001"
+		w.append(t, ev)
+	}
+	refuse := func(name, writtenBy, actor string) {
+		t.Helper()
+		tx, err := w.exec.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ev := event("ten_aa", 1)
+		ev.WrittenBy, ev.Actor, ev.EventType, ev.ObjectRef = writtenBy, actor, "POLICY_PUBLISHED", "pol_0001"
+		_, err = w.app.Append(ctx(t), tx, ev)
+		_ = tx.Rollback(ctx(t))
+		if err == nil {
+			t.Errorf("%s: written_by %q with actor %q was appended", name, writtenBy, actor)
+		}
+	}
+	accept("the control plane acting for itself", "admin", "admin")
+	accept("the control plane acting for a signed-in administrator", "admin", "admin:usr_admin_01")
+	accept("another emitter acting for a signed-in administrator", "core-trust", "admin:usr_admin_01")
+	refuse("the bare control-plane identity is not another emitter's principal", "core-trust", "admin")
+	refuse("another emitter's identity is not the control plane's principal", "admin", "core-trust")
+	refuse("an administrator needs an id", "admin", "admin:")
+	refuse("the kind is not an emitter", "customer", "customer:usr_1")
+	refuse("an administrator kind is not a service identity", "admin", "service:admin")
+	if n, err := chain.Verify(ctx(t), w.admin, "ten_aa"); err != nil || n != 3 {
+		t.Fatalf("verify = %d, %v; want the three accepted events", n, err)
+	}
+	var meanings int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(DISTINCT actor) FROM record_event WHERE written_by IN ('admin', 'core-trust')`).Scan(&meanings); err != nil || meanings != 2 {
+		t.Fatalf("distinct principals %d, %v; want admin and admin:usr_admin_01", meanings, err)
+	}
+}

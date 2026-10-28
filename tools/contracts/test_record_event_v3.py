@@ -26,6 +26,9 @@ EMITTERS = ["core-edge", "core-trust", "core-execution", "core-outcome", "core-r
 KINDS = ["customer", "operator", "approver", "auditor", "regulator", "admin"]
 
 
+ACTORS = json.loads((ROOT / "services" / "core" / "record" / "chain" / "actors.json").read_text())
+
+
 def events():
     return {p.stem: json.loads(p.read_text()) for p in sorted(VALID.glob("*.json"))}
 
@@ -72,6 +75,76 @@ class ClosedSets(unittest.TestCase):
     def test_an_unknown_emitter_is_rejected(self):
         for bad in ["TRUST", "core-understanding", "Core-Trust", "core_trust", "", " core-trust", "customer", "service", None, 7]:
             self.assertTrue(check(event(written_by=bad, actor="core-trust")), f"written_by {bad!r}")
+
+
+class TheTable(unittest.TestCase):
+    """services/core/record/chain/actors.json is the one machine-readable source of the emitter and principal-kind sets; the core derives its
+    sets from it. The contract lists every emitter of the table; the core accepts those with the scope RUNTIME (Go tests check the core side)."""
+
+    def names(self, key):
+        return [e["name"] for e in ACTORS[key]]
+
+    def test_the_contract_lists_exactly_the_emitters_of_the_table(self):
+        self.assertEqual(sorted(V3["$defs"]["Emitter"]["enum"]), sorted(self.names("emitters")))
+        self.assertEqual(sorted(self.names("emitters")), sorted(EMITTERS), "the table and the sets typed from the PERD differ")
+
+    def test_the_contract_lists_exactly_the_principal_kinds_of_the_table(self):
+        self.assertEqual(sorted(V3["$defs"]["PrincipalKind"]["enum"]), sorted(self.names("principal_kinds")))
+        self.assertEqual(sorted(self.names("principal_kinds")), sorted(KINDS))
+
+    def test_the_core_accepts_sixteen_of_the_seventeen_and_the_table_says_which_is_not_written_by_the_core(self):
+        scopes = {e["name"]: e["scope"] for e in ACTORS["emitters"]}
+        self.assertEqual(set(scopes.values()), {"RUNTIME", "BENCHMARK_ONLY"})
+        self.assertEqual(sorted(n for n, s in scopes.items() if s != "RUNTIME"), ["benchmark-runner"])
+        self.assertEqual(sum(1 for s in scopes.values() if s == "RUNTIME"), 16)
+        self.assertEqual(len(scopes), 17)
+        note = next(e["note"] for e in ACTORS["emitters"] if e["name"] == "benchmark-runner")
+        self.assertIn("never appends", note)
+
+    def test_every_value_cites_the_perd_section_that_names_it(self):
+        for e in ACTORS["emitters"]:
+            self.assertRegex(e["section"], r"^PERD (41\.1|34\.1)$", e["name"])
+            self.assertEqual(e["section"] == "PERD 34.1", e["name"].startswith("mock-"), e["name"])
+        for k in ACTORS["principal_kinds"]:
+            self.assertTrue(k["section"].startswith("PERD "), k["name"])
+
+    def test_fault_controller_and_fixture_loader_stay_non_emitters(self):
+        self.assertEqual(sorted(self.names("not_emitters")), ["fault-controller", "fixture-loader"])
+        for e in ACTORS["not_emitters"]:
+            self.assertEqual(e["section"], "PERD 34.1")
+            self.assertIn("never reachable from the core", e["reason"])
+            self.assertNotIn(e["name"], V3["$defs"]["Emitter"]["enum"])
+            self.assertNotIn(e["name"], self.names("emitters"))
+
+    def test_service_is_not_a_principal_kind_and_no_name_is_listed_twice(self):
+        self.assertNotIn("service", self.names("principal_kinds"))
+        every = self.names("emitters") + self.names("not_emitters")
+        self.assertEqual(len(every), len(set(every)))
+
+
+class AdminHasTwoMeanings(unittest.TestCase):
+    """admin is an emitter (the control plane's own service identity, PERD 41.1) and a principal kind (a signed-in administrator, a person)."""
+
+    def test_as_an_emitter_it_is_a_service_identity_and_its_own_principal_only(self):
+        self.assertEqual(check(event(written_by="admin", actor="admin")), [])
+        self.assertTrue(check(event(written_by="core-trust", actor="admin")), "the bare identity is not another emitter's principal")
+        self.assertTrue(check(event(written_by="admin", actor="core-trust")), "another emitter's identity is not admin's principal")
+
+    def test_as_a_principal_kind_it_is_a_person_with_an_id_behind_any_emitter(self):
+        for emitter in ("admin", "core-trust", "core-edge"):
+            self.assertEqual(check(event(written_by=emitter, actor="admin:usr_admin_01")), [], emitter)
+        self.assertTrue(check(event(written_by="admin", actor="admin:")), "an administrator needs an id")
+        self.assertTrue(check(event(written_by="admin", actor="service:admin")), "service is not a kind")
+
+    def test_the_two_meanings_have_their_own_fixtures(self):
+        found = events()
+        self.assertEqual((found["emitter_admin"]["written_by"], found["emitter_admin"]["actor"]), ("admin", "admin"))
+        self.assertEqual((found["principal_admin"]["written_by"], found["principal_admin"]["actor"].split(":")[0]), ("admin", "admin"))
+        self.assertNotEqual(found["emitter_admin"]["actor"], found["principal_admin"]["actor"])
+
+    def test_the_kind_is_not_an_emitter_and_the_emitter_is_not_a_kind_without_an_id(self):
+        self.assertTrue(check(event(written_by="customer", actor="customer:usr_1")))
+        self.assertTrue(check(event(actor="customer")))
 
 
 class Principal(unittest.TestCase):

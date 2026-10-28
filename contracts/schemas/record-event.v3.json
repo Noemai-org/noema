@@ -658,7 +658,7 @@
       ]
     },
     "Emitter": {
-      "description": "The service identity that appended the event (PERD v1.17 §32.1). The ten identities of the §41.1 table (core-edge, core-trust, core-execution, core-outcome, core-record, core-evidence, core-workflows, model-service, benchmark-runner, admin) and the seven logical services of §34.1 whose adapters carry a per-adapter service identity (REQ-ENV-001, §34.3): mock-ledger, mock-switch, mock-destination, mock-customer, mock-policy, mock-case, mock-clock. fault-controller and fixture-loader (§34.1) are benchmark-only and never reachable from the core, so they are not emitters.",
+      "description": "The service identity that appended the event (PERD v1.17 §32.1). The ten identities of the §41.1 table (core-edge, core-trust, core-execution, core-outcome, core-record, core-evidence, core-workflows, model-service, benchmark-runner, admin) and the seven logical services of §34.1 whose adapters carry a per-adapter service identity (REQ-ENV-001, §34.3): mock-ledger, mock-switch, mock-destination, mock-customer, mock-policy, mock-case, mock-clock. fault-controller and fixture-loader (§34.1) are benchmark-only and never reachable from the core, so they are not emitters. The machine-readable table of these values, with the section that names each and the scope the core accepts, is services/core/record/chain/actors.json; the core derives its sets from it and a test requires this enum to equal its emitters (all 17, including the identity the core refuses).",
       "type": "string",
       "enum": [
         "core-edge",
@@ -681,7 +681,7 @@
       ]
     },
     "PrincipalKind": {
-      "description": "A principal kind (PERD v1.17 §32.1): customer (§7, REQ-SEC-001), operator (§7, REQ-SEC-001), approver (REQ-SEC-001, §38.2), auditor (§7, REQ-AUD-003), regulator (§7), admin (§41.1). service is not a principal kind.",
+      "description": "A principal kind (PERD v1.17 §32.1): customer (§7, REQ-SEC-001), operator (§7, REQ-SEC-001), approver (REQ-SEC-001, §38.2), auditor (§7, REQ-AUD-003), regulator (§7), admin (§41.1). service is not a principal kind. The same table holds the kinds (principal_kinds).",
       "type": "string",
       "enum": [
         "customer",
