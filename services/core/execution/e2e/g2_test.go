@@ -353,6 +353,15 @@ func TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoid
 		st.count(t, `SELECT count(*) FROM execution_receipt WHERE grant_id = $1 AND execution_state = 'REJECTED_STALE_VERSION'`, grant) != 1 {
 		t.Fatal("want one REJECTED_STALE_VERSION receipt and one open RecoveryRequest with the same reason")
 	}
+	// The mapping of the real target's refusal: mock-case answers 409 VERSION_MISMATCH, the adapter classifies it as
+	// VERSION_CONFLICT_409_412, and that class is the signed transport_result the guard of migration 0002 confirms.
+	var raw, signedClass string
+	if err := st.admin.QueryRow(bg(t), `SELECT raw_status, json->>'transport_result' FROM execution_receipt WHERE grant_id = $1`, grant).Scan(&raw, &signedClass); err != nil {
+		t.Fatal(err)
+	}
+	if raw != "VERSION_CONFLICT_409_412:409:VERSION_MISMATCH" || signedClass != "VERSION_CONFLICT_409_412" {
+		t.Fatalf("receipt raw status %q, signed transport_result %q; want the mock-case refusal 409 VERSION_MISMATCH as VERSION_CONFLICT_409_412", raw, signedClass)
+	}
 	if st.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'VOID'`, grant) != 1 ||
 		st.count(t, `SELECT count(*) FROM record_event WHERE object_ref = $1 AND event_type = 'GRANT_SPENT'`, grant) != 1 ||
 		st.count(t, `SELECT count(*) FROM record_event WHERE object_ref = $1 AND event_type = 'GRANT_VOIDED' AND payload->>'from_status' = 'SPENT' AND payload->>'to_status' = 'VOID'`, grant) != 1 {
