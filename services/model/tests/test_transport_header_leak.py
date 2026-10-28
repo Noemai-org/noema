@@ -17,6 +17,7 @@ from tests.support import run
 
 SECRET = "sk-SYNTHETIC-not-a-credential-7f3a"
 BAD_CREDENTIAL = SECRET + "\n"  # a newline makes the header value invalid, as the stored secret in run 40577810935 did
+NOT_LATIN_1 = SECRET + "\u2019"  # a character outside latin-1: UnicodeEncodeError, another ValueError that holds the value in `.object`
 URL = "http://127.0.0.1:9/v1/responses"  # never connected to: the header check fails first
 
 
@@ -24,10 +25,11 @@ def _everything_the_exception_shows(exc: BaseException) -> str:
     return "\n".join([str(exc), repr(exc), *traceback.format_exception(exc)])
 
 
-def test_the_transport_raises_a_provider_error_without_the_header_value() -> None:
+@pytest.mark.parametrize("credential", [BAD_CREDENTIAL, NOT_LATIN_1])
+def test_the_transport_raises_a_provider_error_without_the_header_value(credential: str) -> None:
     transport = UrllibTransport(allow_loopback_http=True)
     with pytest.raises(ProviderError) as caught:
-        run(transport.post(URL, {"authorization": f"Bearer {BAD_CREDENTIAL}"}, b"{}", 2.0, 1024))
+        run(transport.post(URL, {"authorization": f"Bearer {credential}"}, b"{}", 2.0, 1024))
     exc = caught.value
     assert exc.kind is ProviderFailure.REJECTED
     assert SECRET not in _everything_the_exception_shows(exc)

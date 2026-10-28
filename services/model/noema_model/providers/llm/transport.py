@@ -46,6 +46,7 @@ class UrllibTransport:
         self, url: str, headers: Mapping[str, str], body: bytes, timeout_s: float, max_bytes: int
     ) -> HttpResponse:
         request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
+        invalid_header = False
         try:
             with self._opener.open(request, timeout=timeout_s) as response:
                 data = response.read(max_bytes + 1)
@@ -60,6 +61,12 @@ class UrllibTransport:
             if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, TimeoutError):
                 raise ProviderError(ProviderFailure.TIMEOUT) from exc
             raise ProviderError(ProviderFailure.UNAVAILABLE) from exc
+        except ValueError:
+            # The standard library's text for an invalid header holds the header value (the credential). Drop the exception: it is
+            # raised below, outside this block, so nothing chains to it (INV-29, AGENT-13).
+            invalid_header = True
+        if invalid_header:
+            raise ProviderError(ProviderFailure.REJECTED)
         if len(data) > max_bytes:
             raise ProviderError(ProviderFailure.MALFORMED, status)
         return HttpResponse(status=status, body=data)
