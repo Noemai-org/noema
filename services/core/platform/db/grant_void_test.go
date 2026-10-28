@@ -17,6 +17,9 @@ import (
 // idempotency_key, execution_state, transport_result, external_ack, sig), cross-checked against the row's own columns and
 // against grant_spend. raw_status is a diagnostic and may only agree with the signed transport_result.
 
+// validSig has the shape of an HMAC-SHA-256 as the core writes it: 64 lower-case hex characters (crypto.Sign).
+var validSig = strings.Repeat("ab", 32)
+
 const (
 	conflictClass = "VERSION_CONFLICT_409_412"
 	// conflictRaw is what the Ledger stores for the refusal the real mock-case gives: the adapter class, then the raw
@@ -65,7 +68,7 @@ type rcp struct {
 
 // refusal is a well-formed, confirmed refusal for a grant.
 func refusal(grant string) rcp {
-	return rcp{grant: grant, attempt: 1, state: "REJECTED_STALE_VERSION", raw: conflictRaw, tenant: "ten_a", key: "idk_v1_" + grant, sigKey: "k1", sigVal: "aa"}
+	return rcp{grant: grant, attempt: 1, state: "REJECTED_STALE_VERSION", raw: conflictRaw, tenant: "ten_a", key: "idk_v1_" + grant, sigKey: "k1", sigVal: validSig}
 }
 
 func (r rcp) document() map[string]any {
@@ -164,6 +167,11 @@ func doc(name string, member string, value any) refusedCase {
 	return one(name, func(r *rcp) { r.doc = map[string]any{member: value} })
 }
 
+// one signature on both sides: the document's sig member and the row's columns carry the same key and value
+func sigShape(name, key, value string) refusedCase {
+	return one(name, func(r *rcp) { r.sigKey, r.sigVal = key, value })
+}
+
 func runRefused(t *testing.T, cases []refusedCase) {
 	t.Helper()
 	for _, c := range cases {
@@ -209,9 +217,23 @@ func TestAForgedReceiptDoesNotVoidASpentGrant(t *testing.T) {
 		doc("the signed document carries an acknowledgement while the column is empty", "external_ack", "CASE-1"),
 		one("the column carries an acknowledgement while the signed document has none", func(r *rcp) { r.ack = "CASE-1"; r.doc = map[string]any{"external_ack": jsonNull} }),
 		doc("the signed transport result is not the conflict while the columns say it is", "transport_result", "ACK_2XX"),
-		one("the signature key in the document differs from the row's", func(r *rcp) { r.doc = map[string]any{"sig": map[string]any{"key_id": "k2", "value": "aa"}} }),
-		one("the signature value in the document differs from the row's", func(r *rcp) { r.doc = map[string]any{"sig": map[string]any{"key_id": "k1", "value": "bb"}} }),
+		one("the signature key in the document differs from the row's", func(r *rcp) { r.doc = map[string]any{"sig": map[string]any{"key_id": "k2", "value": validSig}} }),
+		one("the signature value in the document differs from the row's", func(r *rcp) {
+			r.doc = map[string]any{"sig": map[string]any{"key_id": "k1", "value": strings.Repeat("cd", 32)}}
+		}),
 		doc("the signed document has no signature", "sig", absent),
+		// PERD v1.18 REQ-EXE-004, EXE-04: the signature must at least have the shape of an HMAC-SHA-256 (64 lower-case hex
+		// characters, which is what crypto.Verify accepts), on both sides; shape is not verification.
+		sigShape("an empty key and an empty value on both sides", "", ""),
+		sigShape("an empty value on both sides", "k1", ""),
+		sigShape("an empty key on both sides", "", validSig),
+		sigShape("a value that is not hex (64 characters)", "k1", strings.Repeat("zz", 32)),
+		sigShape("a hex value of 63 characters", "k1", validSig[:63]),
+		sigShape("a hex value of 65 characters", "k1", validSig+"a"),
+		sigShape("a short hex value", "k1", "aa"),
+		sigShape("upper-case hex", "k1", strings.ToUpper(validSig)),
+		sigShape("hex with a leading space", "k1", " "+validSig[:63]),
+		sigShape("hex with a trailing newline", "k1", validSig[:63]+"\n"),
 		doc("the signed document has no external_ack member", "external_ack", absent),
 		doc("the signed external_ack is an empty string", "external_ack", ""),
 		doc("the signed document is not about a receipt state at all", "execution_state", absent),

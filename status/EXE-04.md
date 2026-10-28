@@ -33,46 +33,44 @@ The conflict block raised on 28 Oct (PERD v1.17 REQ-EXE-004, SoT §43.3 and US-1
 
 ## The signature question, the provenance of "nothing applied" and the reconciliation (28 Oct, after docs#66 merged)
 
-**Which core code path verifies the receipt's signature before the receipt is written? None.** Stated explicitly, because it is the founder's decision point:
+**Decided by the founder on 28 Oct (options 2 and 3), implemented in this PR and in noema#94:**
+- **Trigger (noema#94 and its mirror here):** the receipt's signature must have a non-empty key and a value of 64 lower-case hex characters (what `crypto.Verify` accepts), on both sides (document and row). Tests refuse an empty pair, an empty value, an empty key, non-hex, 63 and 65 characters, a short value, upper case and padded values; each condition fails a test when removed.
+- **Controller:** `Controller.completeReceipt` verifies the receipt's HMAC (`KeyRing.VerifyWith` over the canonical JSON of the document it signed) before `Ledger.Complete` writes it, for the receipt of a dispatch (E11) and for the recovery sweeper's receipt. A failed verification returns `ErrReceiptSignature` and writes nothing: no receipt, no Record event, no RecoveryRequest, no outbox event, the grant is not voided; the attempt stays `DISPATCHING` and the sweeper, with the honest ring, takes it over as `OUTCOME_UNKNOWN`. Tests (controller package and real Postgres): an empty, non-hex, tampered, 63-character, upper-case, well-formed-but-unrelated and valid-signature-of-another-message signature, each for an acknowledged answer and for a stale-version refusal.
+- Not done, as instructed ("writes nothing"): no security event is appended on a failed verification. REQ-SEC-005 says verification failures "fail closed and raise an alert"; an alert on this path is a follow-up the founder may ask for.
+- What still holds, stated plainly: the database checks the *shape* of the signature, not the HMAC (it holds no key); the core verifies it once, in the Controller, with the key the Controller holds; whoever can write as `execution_rw` without the Controller can still write a well-formed signature that verifies against nothing. The SoT names Outcome (not built) as a further checker of the receipt's signature (SoT §13.1, "Checks" row).
 
-- `KeyRing.VerifyWith` is called in one place, `controller.go` E1, and verifies the **grant's** signature.
-- The receipt is signed by `Controller.sign` (with `ReceiptKeyID`) and written by `ledger.Complete`, which stores `r.Sig` as it is. The sweeper's `OUTCOME_UNKNOWN` receipts take the same path. No code verifies a receipt's signature before or after the write.
-- The SoT puts that check in Outcome (SoT §13.1, the "Checks" row of the constitution table: "Signature of the receipt"). Outcome is not built (OUT-01). PERD v1.18 has no requirement that names it, and REQ-SEC-005 names one HMAC key "for grants and confirmation requests".
-- The database holds no key (PERD §41.1: the key is held by the core, from the secrets manager). The trigger of migration 0002 compares the document's `sig` member with the row's `sig_key_id` and `sig_value`. That is **a consistency check only**: it proves the row was written from that document. It is not a verification, and it is not even a presence check of a non-empty value: a scratch test (not kept) showed that an empty key and an empty value on both sides pass.
-- What is left of the guarantee about a receipt's origin: only `execution_rw` can insert a receipt, and the Controller is the only code that does.
+**Before the decision (kept for the record).** No code path verified the receipt's signature: `KeyRing.VerifyWith` was called only at E1, for the grant; the receipt was signed by `Controller.sign` and written by `ledger.Complete` unchecked; the trigger compared the document's `sig` member with the row's columns and accepted an empty key and value on both sides (shown by a scratch test, not kept).
 
-**Founder's decision.** Options, none applied:
-1. Leave as is (only the consistency check); record it as debt until Outcome exists.
-2. Tighten the trigger to require a non-empty key and a hex value of the expected shape (still not a verification; small; a migration comment, README and test change).
-3. Verify in the core before the receipt is written (`KeyRing.VerifyWith` over the canonical JSON of the document, in `Controller` before `Ledger.Complete`, refusing on failure). It catches a bug between signing and writing; it does not stop anything that can write as `execution_rw` without going through the Controller.
-4. Verify in the database: needs the key in the database, which PERD §41.1 does not allow.
-Options 2 and 3 can both be done. I recommend 2 and 3.
+**Reconciling the two statements.** "The row's signature" is condition (g) of the trigger: the document's `sig` member equals the row's signature columns, and now also has the shape of an HMAC-SHA-256. "The database does not verify the HMAC" is the limit. They do not conflict: (g) is equality plus shape, not a verification; the verification is the Controller's.
 
-**Reconciling the two statements.** "The row's signature" is condition (g) of the trigger: the document's `sig` member equals the row's signature columns. "The database does not verify the HMAC" is the limit. They do not conflict: (g) is an equality check between two copies of the same string, not a check that the string is a valid HMAC. The earlier wording ("the document's signature is the row's signature") read like a verification; it is reworded in the migration comment, the README, the PR bodies and the decision record's amendment.
-
-**Provenance of "nothing applied".** A confirmed refusal is taken as evidence that no write was applied because a refused conditional write applies nothing (INV-27). That guarantee comes from **mock-case's OpenAPI contract** (`synthetic/mock_case/internal/api/openapi.json`, route response 409 "VERSION_MISMATCH: a distinct error; nothing applied") and from mock-case's own tests, not from a real target's contract: Tushe defines no case API (delta v1.2; worksheet AT-14). **It must be re-verified against any real target before production use.** This is also in the decision record (amendment of 28 Oct) and in the migration comment.
+**Provenance of "nothing applied".** A confirmed refusal is taken as evidence that no write was applied because a refused conditional write applies nothing (INV-27). That guarantee comes from **mock-case's OpenAPI contract** (`synthetic/mock_case/internal/api/openapi.json`, route response 409 "VERSION_MISMATCH: a distinct error; nothing applied") and from mock-case's own tests, not from a real target's contract: Tushe defines no case API (delta v1.2; worksheet AT-14). **It must be re-verified against any real target before production use.** This is also in the decision record (amendment of 28 Oct, docs#67) and in the migration comment.
 
 ## Messages
 
-### 2026-10-28 (time not recorded) accepted · Founder → Session A
+### 2026-10-28 (time not recorded) accepted · Relayed by coordinator from founder → Session A
 - Purpose: "4. Then start EXE-04, on the merged #87 base. Report the head SHA and run links when it is ready for review. Do not merge. Log every message in status/ENV-03.md." (the full message is in `status/ENV-03.md`).
 - Used it for: this task and pull request.
 - Evidence: noema#90.
 
-### 2026-10-28 (time not recorded) accepted · Founder → Session A
+### 2026-10-28 (time not recorded) accepted · Relayed by coordinator from founder → Session A
 - Purpose: "#90 is not approved to merge yet. Do not merge. Pause ENV-05 ... Revert the refinement. Restore the original invariant. ... Keep the read through the runtime client. Do not add a truth API handle." (the full message is in `status/ENV-03.md`).
 - Used it for: the conflict block above, the reverted simulation files, the oracle note.
 - Evidence: noema#90.
 
-### 2026-10-28 (time not recorded) accepted · Founder → Session A
+### 2026-10-28 (time not recorded) accepted · Relayed by coordinator from founder → Session A
 - Purpose: "the founder approves Option 1 in principle for #90, with these conditions. Do not merge #90 until the migration, the specification amendment, the decision record and the regression evidence are reviewed. 1. Docs first ... 2. Noema migration ... 3. Tests ... 4. After the docs amendment merges, re-point the vendored copies ... 5. Report ... Do not merge." (the full message is in `status/ENV-03.md`, added by noema#94).
 - Used it for: docs#66, noema#94, and this branch's update.
 - Evidence: docs#66, noema#94, noema#90.
 
-### 2026-10-28 (time not recorded) accepted · Founder → Session A
+### 2026-10-28 (time not recorded) accepted · Relayed by coordinator from founder → Session A
 - Purpose: "do not merge #90, #94 or docs#66. Work in this order ... 1. Status mapping ... 2. Receipt proof ... 3. Typed field ... 4. Simulation ... 5. docs#66 ... 6. After docs#66 merges, re-point ..." (the full message is in `status/ENV-03.md`, added by noema#94).
 - Used it for: the trigger's receipt checks (noema#94, mirrored here), the e2e mapping assertion, the simulation model and invariants (this PR), docs#66.
 - Evidence: noema#94, noema#90, docs#66.
+
+### 2026-10-28 (time not recorded) accepted · Relayed by coordinator from founder → Session A
+- Purpose: "the founder decides as follows. Do not merge anything. 1. Receipt signature (blocking) ... a. Tighten the trigger so the signature must be a non-empty hex value. b. Verify the HMAC in the Controller before ledger.Complete writes the receipt ... 3. Status log ... 4. Check runs ..." (the full message is in `status/ENV-03.md`, added by noema#94).
+- Used it for: the Controller's HMAC verification and its tests (this PR), the mirrored trigger tightening (noema#94), the relabelling of the entries of this file and of `status/ENV-03.md` in this branch.
+- Evidence: noema#90, noema#94, docs#67.
 
 # Session 2026-10-28 12:45 WAT · EXE-04
 

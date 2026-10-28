@@ -18,17 +18,20 @@
 --       the shape of transport_result but no value set; that is a limitation of this check, not of the contract;
 --   (f) there is no external acknowledgement: the member is present and null in the signed document, and null or empty in
 --       the row;
---   (g) the signature member of the document equals the row's signature columns (key and value). This is a consistency
---       check that the row was written from this document. It is not a verification of the HMAC, and it does not require a
---       non-empty value: an empty key and value on both sides pass.
+--   (g) the signature member of the document equals the row's signature columns (key and value), the key is not empty and
+--       the value is 64 lower-case hex characters: the shape of an HMAC-SHA-256 as crypto.Sign writes it and crypto.Verify
+--       accepts it. Equal copies and a valid shape are not a verification of the HMAC; the database cannot verify it. The
+--       Controller verifies the receipt's HMAC before it hands the receipt to the Ledger (EXE-04), and a receipt whose
+--       signature does not verify is never written.
 -- raw_status (the class, then the raw status code, e.g. VERSION_CONFLICT_409_412:409:VERSION_MISMATCH) is a diagnostic and
 -- decides nothing, but it must agree with the signed transport_result: its part before the first colon is the same class.
 -- A contradiction makes the receipt ambiguous, and an ambiguous receipt does not void a grant.
--- Nothing verifies the receipt's HMAC before the receipt is written, in the database or in the core. The database holds no
--- key (PERD 41.1: the grant key is held by the core from the secrets manager). In the core, KeyRing.VerifyWith is called
--- once, at E1, for the grant; the receipt is signed (Controller.sign) and written (ledger.Complete) without being verified.
--- The SoT names Outcome as the checker of the receipt's signature (SoT 13.1, the "Checks" row of the constitution table); Outcome is not built. Only
--- execution_rw can insert a receipt, and Execution signs it; that is the whole of the guarantee about its origin.
+-- The database holds no key (PERD 41.1: the grant key is held by the core from the secrets manager), so it checks the shape
+-- of the signature and not the HMAC. In the core, Controller.completeReceipt verifies the receipt's HMAC with
+-- KeyRing.VerifyWith before Ledger.Complete writes it, for the receipt of a dispatch and for the recovery sweeper's receipt;
+-- a failed verification writes nothing and the attempt stays DISPATCHING. The SoT names Outcome as a further checker of the
+-- receipt's signature (SoT 13.1, the "Checks" row of the constitution table); Outcome is not built. Only execution_rw can
+-- insert a receipt.
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
 -- That guarantee comes from mock-case's OpenAPI contract (route response 409 VERSION_MISMATCH, "nothing applied"), not from a
 -- real target's contract: Tushe defines no case API. It must be re-verified against any real target before production use.
@@ -71,6 +74,8 @@ BEGIN
             AND jsonb_typeof(r.json->'external_ack') = 'null'
             AND r.json->'sig'->>'key_id' = r.sig_key_id
             AND r.json->'sig'->>'value' = r.sig_value
+            AND r.sig_key_id <> ''
+            AND r.sig_value ~ '^[0-9a-f]{64}$'
             AND split_part(r.raw_status, ':', 1) = 'VERSION_CONFLICT_409_412'
        ) THEN
       RETURN NEW;

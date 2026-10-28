@@ -198,7 +198,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	if err := c.at(PointInCompleteBeforeCommit); err != nil {
 		return Outcome{}, err
 	}
-	written, err := c.Ledger.Complete(ctx, rc)
+	written, err := c.completeReceipt(ctx, rc)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("%scomplete: %w", errPrefix, err)
 	}
@@ -275,4 +275,22 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 	}
 	rc.Sig = Sig{KeyID: c.ReceiptKeyID, Value: sig}
 	return rc, nil
+}
+
+// ErrReceiptSignature is returned when a receipt's signature does not verify: nothing is written.
+var ErrReceiptSignature = errors.New(errPrefix + "the receipt's signature does not verify")
+
+// completeReceipt verifies the receipt's HMAC over the canonical JSON of the document it signed, and only then hands the
+// receipt to the Ledger (E11, and the sweeper's receipt). A signature that is empty, not hex, tampered or made with another
+// key or over another document does not verify: nothing is written, the attempt stays DISPATCHING and the sweeper takes it
+// over. The Ledger and the database check the shape of the signature; this is the only place that verifies it.
+func (c *Controller) completeReceipt(ctx context.Context, rc Receipt) (bool, error) {
+	canon, err := crypto.CanonicalJSON(rc.Document())
+	if err != nil {
+		return false, fmt.Errorf("%w: %v", ErrReceiptSignature, err)
+	}
+	if !c.Keys.VerifyWith(rc.Sig.KeyID, canon, rc.Sig.Value) {
+		return false, ErrReceiptSignature
+	}
+	return c.Ledger.Complete(ctx, rc)
 }

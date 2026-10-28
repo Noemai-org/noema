@@ -26,7 +26,7 @@ func (c *Controller) Recover(ctx context.Context, tenantID string) (int, error) 
 		if err != nil {
 			return written, err
 		}
-		ok, err := c.Ledger.Complete(ctx, rc)
+		ok, err := c.completeReceipt(ctx, rc)
 		if err != nil {
 			return written, fmt.Errorf("%scomplete: %w", errPrefix, err)
 		}
