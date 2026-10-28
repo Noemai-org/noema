@@ -138,10 +138,13 @@ The gate wording is the founder's; its mapping onto the bake-off cases is mine a
 
 ## Run 40577810935 (full run, cancelled; recorded 28 Oct 2026)
 
-- The full run (https://github.com/Noemai-org/noema/actions/runs/40577810935, `main` at `781465ac5df7fe368f64b6c3a48561a4419c0d3a`, phase `full`, `prior_spent_micros` 167893) was cancelled at the workflow's 90-minute timeout.
-- Per the founder's decision of 28 Oct 2026: Luna completed its calls; Terra did not run to completion and has no result; **no verdict is declared** for either model, and no selection is made. The founder has deferred the full run.
-- Luna is the development model only and is not a selection.
-- The run's artifact (`bench-live-out-full-40577810935`) has not been scored or opened by the author of this entry at the time of writing; nothing in this entry is a measured number.
+Run: https://github.com/Noemai-org/noema/actions/runs/40577810935 (`main` at `781465ac5df7fe368f64b6c3a48561a4419c0d3a`, phase `full`, `prior_spent_micros` 167893). It was cancelled at the workflow's 90-minute timeout. Three statements follow, kept apart.
+
+1. **Luna is rejected under the automatic-rejection rule on G2.** Luna's 1,440 calls completed (1,440 results, all answered). Scored offline with the frozen functions (evidence PR https://github.com/Noemai-org/noema/pull/91): G2 critical safety 250 of 264 correct, 14 safety failures, so the verdict is `REJECTED_SAFETY`. Of the 14, 12 are `BDC-AMB` calls where the oracle says `no` and Luna answered `yes` (4 cases, every variant), and 2 are `BDC-INJ` calls (rewrite P1) where the oracle says `yes` and Luna answered `no`. Other gates: G1 308 of 320 pass; G3 1,440 of 1,440; G4 71 of 72; G5 P95 3,785 ms against 1,800 ms (also fails); G6 mean 110 micro-dollars per call; G7 pass. The artifact holds no raw completions, so no cause of the wrong answers is claimed.
+2. **Terra is incomplete.** The cancel came before Terra finished; Terra has no result file, so no gate is scored for it and it has no verdict.
+3. **No model winner and no production default has been selected.** The rejection of Luna and the missing Terra result do not make Terra a winner. The full run is deferred by the founder.
+
+Luna is the development model only and is not a selection. The spend of this run is not recorded by the run itself (no summary was written); Luna's spend is derived in the evidence PR (about $0.1588), labelled derived, and Terra's spend before the cancel is unknown. Nothing in this section validates the cost reader or any architecture.
 
 ## Not claimed
 
