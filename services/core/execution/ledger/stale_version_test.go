@@ -38,8 +38,8 @@ func TestAStaleVersionVoidsTheSpentGrantTogetherWithItsReceipt(t *testing.T) {
 	if n := w.count(t, `SELECT count(*) FROM outbox_event WHERE topic = 'recovery.requested' AND payload->>'grant_id' = $1 AND payload->>'reason' = 'REJECTED_STALE_VERSION'`, g.GrantID); n != 1 {
 		t.Fatalf("%d recovery.requested outbox events, want 1", n)
 	}
-	// The guard on decision_grant makes a spent grant final (migration 0001): the void is the Record event and the
-	// RecoveryRequest, and the grant row stays SPENT. A spent grant cannot be executed again.
+	// The guard on decision_grant makes a spent grant final (migration 0001), so the row stays SPENT; whether it should
+	// read VOID is an open conflict with PERD 38.2 (status/EXE-04.md). A spent grant cannot be executed again.
 	var status string
 	if err := w.admin.QueryRow(ctx(t), `SELECT status FROM decision_grant WHERE grant_id = $1`, g.GrantID).Scan(&status); err != nil || status != "SPENT" {
 		t.Fatalf("grant status %q, %v; want SPENT", status, err)

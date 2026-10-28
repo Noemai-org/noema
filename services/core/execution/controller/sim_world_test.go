@@ -320,12 +320,6 @@ func (w *World) Complete(_ context.Context, r controller.Receipt) (bool, error) 
 	}
 	w.receipts[id] = r
 	w.appendLocked("RECEIPT", r.GrantID, string(r.State))
-	if r.State == controller.StateRejectedStaleVersion && w.voids[r.GrantID] == "" {
-		// REQ-EXE-004: a refused version voids the spent grant in the same step as its receipt, like the Postgres Ledger.
-		w.voids[r.GrantID] = controller.VoidTargetVersionStale
-		w.appendLocked("GRANT_VOIDED", r.GrantID, string(controller.VoidTargetVersionStale))
-		w.Recovery = append(w.Recovery, r.GrantID)
-	}
 	return true, nil
 }
 
@@ -413,7 +407,6 @@ type Snapshot struct {
 	Spent      map[string]bool
 	Pending    int
 	Voids      map[string]controller.VoidReason
-	Recovery   []string            // grants that produced a RecoveryRequest
 	Attempts   map[string][]string // key -> grant IDs in attempt order
 }
 
@@ -444,7 +437,6 @@ func (w *World) Snapshot() Snapshot {
 	}
 	s.Dispatches = append(s.Dispatches, w.Dispatches...)
 	s.Record = append(s.Record, w.Record...)
-	s.Recovery = append(s.Recovery, w.Recovery...)
 	return s
 }
 

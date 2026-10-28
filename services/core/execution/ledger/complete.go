@@ -83,7 +83,8 @@ func (l *Ledger) outbox(ctx context.Context, tx pgx.Tx, id, tenantID, topic stri
 // A REJECTED_STALE_VERSION receipt also voids the grant (REQ-EXE-004, INV-27, US-19): in the same transaction, after
 // RECEIPT, it adds the RecoveryRequest to Trust and GRANT_VOIDED{REJECTED_STALE_VERSION}. If the void cannot be written,
 // the receipt is not written either, and the attempt stays DISPATCHING for the sweeper (OUTCOME_UNKNOWN). The grant
-// row stays SPENT: a spent grant is final (decision_grant_guard), and it is already unusable.
+// row stays SPENT because a spent grant is final (decision_grant_guard); whether the row should read VOID is an open
+// conflict with PERD 38.2 (status/EXE-04.md), and the guard is not bypassed.
 func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, error) {
 	written := false
 	err := l.inTx(ctx, pgx.ReadCommitted, func(tx pgx.Tx) error {
