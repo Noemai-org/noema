@@ -87,6 +87,7 @@ type World struct {
 	spentGrants map[string]bool
 	spentNonces map[string]bool
 	voids       map[string]controller.VoidReason
+	status      map[string]string // decision_grant.status; absent means ISSUED
 	idem        map[string]*idemRecord
 	receipts    map[string]controller.Receipt // grantID#attempt
 	Record      []RecordEntry
@@ -111,7 +112,7 @@ func NewWorld(secret []byte) *World {
 		IntentHash:      hashOf("intent-1"),
 		DecisionAllowed: true,
 		TargetVersion:   "v_1",
-		spentGrants:     map[string]bool{}, spentNonces: map[string]bool{}, voids: map[string]controller.VoidReason{},
+		spentGrants:     map[string]bool{}, spentNonces: map[string]bool{}, voids: map[string]controller.VoidReason{}, status: map[string]string{},
 		idem: map[string]*idemRecord{}, receipts: map[string]controller.Receipt{}, Effects: map[string]int{}, Refs: map[string]string{},
 	}
 	w.faults = func() FaultMode { return FaultNone }
@@ -292,6 +293,7 @@ func (w *World) Spend(_ context.Context, cmd controller.SpendCommand) (controlle
 	n := int64(len(rec.Attempts) + 1)
 	rec.Attempts = append(rec.Attempts, attempt{GrantID: cmd.Grant.GrantID, Number: n})
 	w.spentGrants[cmd.Grant.GrantID], w.spentNonces[cmd.Grant.Nonce] = true, true
+	_ = w.moveLocked(cmd.Grant.GrantID, "SPENT") // ISSUED -> SPENT: the replay check above made it legal
 	w.appendLocked("GRANT_SPENT", cmd.Grant.GrantID, cmd.IdempotencyKey)
 	w.appendLocked("DISPATCH_ATTEMPTED", cmd.Grant.GrantID, fmt.Sprintf("%s#%d", cmd.IdempotencyKey, n))
 	return controller.SpendResult{Spent: true, Attempt: n}, nil
@@ -301,8 +303,11 @@ func (w *World) Spend(_ context.Context, cmd controller.SpendCommand) (controlle
 func (w *World) Void(_ context.Context, g controller.Grant, reason controller.VoidReason) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.voids[g.GrantID] != "" || w.spentGrants[g.GrantID] {
+	if w.voids[g.GrantID] != "" || w.statusOf(g.GrantID) != "ISSUED" {
 		return nil
+	}
+	if err := w.moveLocked(g.GrantID, "VOID"); err != nil {
+		return err
 	}
 	w.voids[g.GrantID] = reason
 	w.appendLocked("GRANT_VOIDED", g.GrantID, string(reason))
@@ -319,8 +324,77 @@ func (w *World) Complete(_ context.Context, r controller.Receipt) (bool, error) 
 		return false, nil
 	}
 	w.receipts[id] = r
+	voided := false
+	if r.State == controller.StateRejectedStaleVersion {
+		// REQ-EXE-004: the receipt of a refused version voids the spent grant in the same step, as migration 0002's guard
+		// allows; if the guard refuses, the receipt is not kept either.
+		err := fmt.Errorf("decision_grant: %s is not SPENT", w.statusOf(r.GrantID))
+		if w.statusOf(r.GrantID) == "SPENT" {
+			err = w.moveLocked(r.GrantID, "VOID")
+		}
+		if err != nil {
+			delete(w.receipts, id)
+			return false, err
+		}
+		voided = true
+	}
 	w.appendLocked("RECEIPT", r.GrantID, string(r.State))
+	if voided {
+		w.voids[r.GrantID] = controller.VoidTargetVersionStale
+		w.appendLocked("GRANT_VOIDED", r.GrantID, string(controller.VoidTargetVersionStale))
+		w.Recovery = append(w.Recovery, r.GrantID)
+	}
 	return true, nil
+}
+
+func (w *World) statusOf(grant string) string {
+	if st := w.status[grant]; st != "" {
+		return st
+	}
+	return "ISSUED"
+}
+
+// moveLocked models decision_grant_guard (PERD v1.18 section 38.2, migration 0002): ISSUED -> SPENT, VOID or EXPIRED;
+// SPENT -> VOID only on a confirmed REJECTED_STALE_VERSION refusal; every other change is refused. A move to the same
+// status changes nothing.
+func (w *World) moveLocked(grant, to string) error {
+	from := w.statusOf(grant)
+	switch {
+	case from == to:
+		return nil
+	case from == "ISSUED" && (to == "SPENT" || to == "VOID" || to == "EXPIRED"):
+	case from == "SPENT" && to == "VOID" && w.confirmedRefusalLocked(grant):
+	default:
+		return fmt.Errorf("decision_grant: %s is final (to %s)", from, to)
+	}
+	w.status[grant] = to
+	return nil
+}
+
+// confirmedRefusalLocked is the guard's confirmation for the simulated ledger: the grant has exactly one receipt, it is the
+// receipt of the spent attempt, its state is REJECTED_STALE_VERSION, its signed transport result is the version conflict and
+// it carries no acknowledgement.
+func (w *World) confirmedRefusalLocked(grant string) bool {
+	var only *controller.Receipt
+	n := 0
+	for _, r := range w.receipts {
+		if r.GrantID == grant {
+			r := r
+			only, n = &r, n+1
+		}
+	}
+	if n != 1 || only.State != controller.StateRejectedStaleVersion || only.TransportResult != string(controller.TransportVersionConflict) ||
+		(only.ExternalAck != nil && *only.ExternalAck != "") {
+		return false
+	}
+	for _, rec := range w.idem {
+		for _, a := range rec.Attempts {
+			if a.GrantID == grant {
+				return a.Number == only.Attempt
+			}
+		}
+	}
+	return false
 }
 
 // Dispatching implements controller.Ledger.
@@ -407,6 +481,8 @@ type Snapshot struct {
 	Spent      map[string]bool
 	Pending    int
 	Voids      map[string]controller.VoidReason
+	Status     map[string]string
+	Recovery   []string            // grants that produced a RecoveryRequest
 	Attempts   map[string][]string // key -> grant IDs in attempt order
 }
 
@@ -414,7 +490,7 @@ type Snapshot struct {
 func (w *World) Snapshot() Snapshot {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	s := Snapshot{Effects: map[string]int{}, Receipts: map[string]controller.Receipt{}, Spent: map[string]bool{}, Voids: map[string]controller.VoidReason{}, Attempts: map[string][]string{}}
+	s := Snapshot{Effects: map[string]int{}, Receipts: map[string]controller.Receipt{}, Spent: map[string]bool{}, Voids: map[string]controller.VoidReason{}, Status: map[string]string{}, Attempts: map[string][]string{}}
 	for k, v := range w.Effects {
 		s.Effects[k] = v
 	}
@@ -427,6 +503,9 @@ func (w *World) Snapshot() Snapshot {
 	for k, v := range w.voids {
 		s.Voids[k] = v
 	}
+	for k, v := range w.status {
+		s.Status[k] = v
+	}
 	for k, rec := range w.idem {
 		for _, a := range rec.Attempts {
 			s.Attempts[k] = append(s.Attempts[k], a.GrantID)
@@ -437,6 +516,7 @@ func (w *World) Snapshot() Snapshot {
 	}
 	s.Dispatches = append(s.Dispatches, w.Dispatches...)
 	s.Record = append(s.Record, w.Record...)
+	s.Recovery = append(s.Recovery, w.Recovery...)
 	return s
 }
 
