@@ -4,7 +4,7 @@ Updated 2026-10-28. Plan task EXE-04 (owner C1+AG; REQ-EXE-004; Needs EXE-02 and
 
 ## State
 
-- Built on branch `sa/exe-04-stale-version-void`, from `main` at `0ddbfe1` (includes #87 and #89). Pull request: see the message log below.
+- Built on branch `sa/exe-04-stale-version-void`, from `main` at `0ddbfe1` (includes #87 and #89). Pull request: noema#90.
 - Already in `main` before this task: every conditional write carries the grant's `target_versions` as the expected version (`controller.go` E9, `bridge/dispatch.go`); the real mock-case refuses a stale token with 409 `VERSION_MISMATCH`; the adapter classifies it as `VERSION_CONFLICT_409_412`; `Classify` maps it to `REJECTED_STALE_VERSION`. What was missing, and is built here: the **void**. A stale-version receipt left the grant spent with no RecoveryRequest to Trust and no `GRANT_VOIDED`.
 - Built here: `ledger.Complete` of a `REJECTED_STALE_VERSION` receipt also voids the grant in the same transaction, after `RECEIPT`: one `recovery_request` (reason `REJECTED_STALE_VERSION`), the `recovery.requested` outbox event and `GRANT_VOIDED{REJECTED_STALE_VERSION}`. The part of a void that is shared with the pre-write voids is one function (`addRecoveryRequest`). No contract, migration, interface or threshold changed.
 
@@ -27,12 +27,12 @@ Updated 2026-10-28. Plan task EXE-04 (owner C1+AG; REQ-EXE-004; Needs EXE-02 and
 ### 2026-10-28 (time not recorded) accepted · Founder → Session A
 - Purpose: "4. Then start EXE-04, on the merged #87 base. Report the head SHA and run links when it is ready for review. Do not merge. Log every message in status/ENV-03.md." (the full message is in `status/ENV-03.md`).
 - Used it for: this task and pull request.
-- Evidence: this pull request.
+- Evidence: noema#90.
 
 # Session 2026-10-28 12:45 WAT · EXE-04
 
 ## Session summary
-- What changed (PR links): `execution/ledger/complete.go` (the void inside `Complete`; `addRecoveryRequest` shared with `Void`); tests in `execution/ledger` (`stale_version_test.go`, the nine-reason table now takes the ninth through a real dispatch), `execution/controller` (simulation world and invariants) and `execution/e2e` (US-19 against the real mock-case); READMEs, `docs/architecture.md`, the comment on `VoidReason`.
+- What changed (PR links): noema#90: `execution/ledger/complete.go` (the void inside `Complete`; `addRecoveryRequest` shared with `Void`); tests in `execution/ledger` (`stale_version_test.go`, the nine-reason table now takes the ninth through a real dispatch), `execution/controller` (simulation world and invariants) and `execution/e2e` (US-19 against the real mock-case); READMEs, `docs/architecture.md`, the comment on `VoidReason`.
 - Why: REQ-EXE-004 and INV-27: a refused version voids the grant, the case returns to Trust, no automatic retry.
 - Risks, and how they are contained: a P0 path (Execution, Record). The void is in the transaction that already writes the receipt; a failure rolls both back and the sweeper takes over. Nothing re-dispatches (`TestThereIsOneDispatchAndNoRetryLoop` still passes; the new tests count dispatches).
 - Tests added (REQ, INV, US or EC IDs): `TestAStaleVersionVoidsTheSpentGrantTogetherWithItsReceipt`, `TestAStaleVersionIsNeverRetriedAndIsVoidedOnce`, `TestIfTheVoidCannotBeWrittenNoStaleReceiptIsWrittenEither`, `TestOnlyAStaleVersionVoidsAGrantThatWasDispatched` (REQ-EXE-004, REQ-EXE-006, INV-27); `TestEveryVoidReasonReachesTheRecordAsWritten` (REQ-EXE-003, now with a real path for the ninth reason); `TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoided` (US-19, EC-E11); the simulation invariants (REQ-EXE-004).
