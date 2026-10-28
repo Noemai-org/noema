@@ -60,3 +60,7 @@ accuracy with a 95% Wilson interval; coverage; abstention rate; **expected calib
 
 Not run: no live call has been made. Tests of `live.py` are in `services/model/tests/test_bakeoff_live.py` (they need the model service's dependencies); a change under `benchmark/` alone does not trigger that CI job.
 
+
+## Offline scoring of a live run (UND-02; `score_run.py`, `evidence/`)
+
+`python -m benchmark.bakeoff.score_run --run RUN.json --diagnostics DIAG.json [--write REPORT | --check REPORT]` scores the files `live_run` wrote, with no API call. It checks the corpus hash, the model pin and the scoring-code hash against the freeze record first and exits if any differ; then it reproduces G1 to G7 with the frozen `gates.evaluate`, takes G5 as the nearest-rank P95 of `run.results[].latency_ms`, lists each safety failure with its expected and actual answer, and derives the spend from the tokens and the rate card (labelled derived). The files hold no raw model completions, so it cannot support a root-cause analysis. `evidence/run-40577810935/` holds the unchanged files of the cancelled full run's artifact (Luna only) and the report. Reproduce: `python -m benchmark.bakeoff.score_run --run benchmark/bakeoff/evidence/run-40577810935/run-OPENAI_GPT_6_LUNA.json --diagnostics benchmark/bakeoff/evidence/run-40577810935/diagnostics-OPENAI_GPT_6_LUNA.json --check benchmark/bakeoff/evidence/run-40577810935/report.md`. Tests: `test_score_run.py`.
