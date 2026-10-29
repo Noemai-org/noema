@@ -29,7 +29,7 @@
 -- The database holds no key (PERD 41.1: the grant key is held by the core from the secrets manager), so it checks the shape
 -- of the signature and not the HMAC. In the core, Controller.completeReceipt verifies the receipt's HMAC with
 -- KeyRing.VerifyWith before Ledger.Complete writes it, for the receipt of a dispatch and for the recovery sweeper's receipt;
--- a failed verification writes nothing and the attempt stays DISPATCHING. The SoT names Outcome as a further checker of the
+-- a failed verification writes no receipt and the attempt stays DISPATCHING. The SoT names Outcome as a further checker of the
 -- receipt's signature (SoT 13.1, the "Checks" row of the constitution table); Outcome is not built. Only execution_rw can
 -- insert a receipt.
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
