@@ -8,7 +8,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 - `status/README.md` (this file): the index and the format.
 - Session notes of other sessions, moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status): `ENV-08.md` and `ENV-13.md` (two sessions each, one dated section per session) and `T5-T6.3.md`. Each task's file now holds its state, its sessions and its message log.
-- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
+- One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
 

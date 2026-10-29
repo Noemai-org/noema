@@ -92,8 +92,52 @@ func checkSafety(run *Run, s Snapshot, kind int, killFromStart bool) {
 		if n > 1 {
 			run.fail("grant %s voided %d times", g, n)
 		}
-		if s.Spent[g] {
-			run.fail("grant %s is both spent and voided", g)
+	}
+	// PERD v1.18 section 38.2, REQ-EXE-001 Audit, REQ-EXE-004: a spent grant is void only because its one write was refused
+	// as stale: GRANT_VOIDED{REJECTED_STALE_VERSION} after the grant's one REJECTED_STALE_VERSION receipt, with one
+	// RecoveryRequest. Any other grant that is both spent and voided is a failure.
+	stale := map[string]int{}
+	receipts := map[string]int{}
+	for _, r := range s.Receipts {
+		receipts[r.GrantID]++
+		if r.State == controller.StateRejectedStaleVersion {
+			stale[r.GrantID]++
+		}
+	}
+	for _, e := range s.Record {
+		if e.Type != "GRANT_VOIDED" || !s.Spent[e.GrantID] {
+			continue
+		}
+		if e.Detail != string(controller.VoidTargetVersionStale) || stale[e.GrantID] != 1 || receipts[e.GrantID] != 1 {
+			run.fail("grant %s is both spent and voided (%q) without exactly one REJECTED_STALE_VERSION receipt", e.GrantID, e.Detail)
+		}
+	}
+	for g, n := range stale {
+		if voids[g] != 1 {
+			run.fail("REQ-EXE-004: grant %s has %d REJECTED_STALE_VERSION receipts and %d voids, want a void each", g, n, voids[g])
+		}
+	}
+	recovery := map[string]int{}
+	for _, g := range s.Recovery {
+		recovery[g]++
+	}
+	for g, n := range recovery {
+		if n > 1 || voids[g] != 1 {
+			run.fail("grant %s produced %d RecoveryRequests and %d voids, want one of each", g, n, voids[g])
+		}
+	}
+	for g := range voids {
+		if recovery[g] != 1 {
+			run.fail("grant %s was voided without exactly one RecoveryRequest (%d)", g, recovery[g])
+		}
+	}
+	// The status machine is consistent with the Record: voided grants are VOID, other spent grants are SPENT.
+	for g, spent := range s.Spent {
+		switch {
+		case voids[g] == 1 && s.Status[g] != "VOID":
+			run.fail("grant %s is voided but its status is %q", g, s.Status[g])
+		case voids[g] == 0 && spent && s.Status[g] != "SPENT":
+			run.fail("grant %s is spent and not voided but its status is %q", g, s.Status[g])
 		}
 	}
 }

@@ -32,28 +32,46 @@ func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller
 		if status != statusIssued {
 			return nil
 		}
-		now := l.Clock.Now()
-		rrq, err := l.IDs.ID("rrq")
-		if err != nil {
-			return fmt.Errorf("%srecovery request id: %w", errPrefix, err)
-		}
-		obx, err := l.IDs.ID("obx")
-		if err != nil {
-			return fmt.Errorf("%soutbox id: %w", errPrefix, err)
-		}
 		if _, err := tx.Exec(ctx, `UPDATE decision_grant SET status = 'VOID' WHERE tenant_id = $1 AND grant_id = $2`, g.TenantID, g.GrantID); err != nil {
 			return fmt.Errorf("%smark grant void: %w", errPrefix, err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO recovery_request (recovery_request_id, tenant_id, grant_id, reason, created_at) VALUES ($1, $2, $3, $4, $5)`,
-			rrq, g.TenantID, g.GrantID, string(reason), now); err != nil {
-			return fmt.Errorf("%sinsert recovery request: %w", errPrefix, err)
-		}
-		payload := map[string]any{"recovery_request_id": rrq, "grant_id": g.GrantID, "reason": string(reason)}
-		if err := l.outbox(ctx, tx, obx, g.TenantID, topicRecoveryRequested, payload); err != nil {
-			return err
-		}
-		return l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventGrantVoided, "", string(reason), map[string]any{"grant_id": g.GrantID, "reason": string(reason)})
+		return l.addRecoveryRequest(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, reason, voidChange{from: statusIssued})
 	})
+}
+
+// addRecoveryRequest is the part of a void that is the same whether the grant was void before its write or after it: one
+// RecoveryRequest addressed to Trust (unique per grant), the outbox event that wakes Trust's side, and GRANT_VOIDED on the
+// Record. It runs inside the caller's transaction.
+func (l *Ledger) addRecoveryRequest(ctx context.Context, tx pgx.Tx, tenantID, correlationID, grantID string, reason controller.VoidReason, change voidChange) error {
+	now := l.Clock.Now()
+	rrq, err := l.IDs.ID("rrq")
+	if err != nil {
+		return fmt.Errorf("%srecovery request id: %w", errPrefix, err)
+	}
+	obx, err := l.IDs.ID("obx")
+	if err != nil {
+		return fmt.Errorf("%soutbox id: %w", errPrefix, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO recovery_request (recovery_request_id, tenant_id, grant_id, reason, created_at) VALUES ($1, $2, $3, $4, $5)`,
+		rrq, tenantID, grantID, string(reason), now); err != nil {
+		return fmt.Errorf("%sinsert recovery request: %w", errPrefix, err)
+	}
+	payload := map[string]any{"recovery_request_id": rrq, "grant_id": grantID, "reason": string(reason)}
+	if err := l.outbox(ctx, tx, obx, tenantID, topicRecoveryRequested, payload); err != nil {
+		return err
+	}
+	// The payload names the change of status, so that the earlier state stays visible next to GRANT_SPENT (PERD v1.18 REQ-EXE-004).
+	body := map[string]any{"grant_id": grantID, "reason": string(reason), "from_status": change.from, "to_status": statusVoid}
+	if change.receiptID != "" {
+		body["receipt_id"] = change.receiptID
+	}
+	return l.record(ctx, tx, tenantID, correlationID, grantID, eventGrantVoided, "", string(reason), body)
+}
+
+// voidChange is the status a void leaves and, for a void made by a receipt, the receipt that confirmed it.
+type voidChange struct {
+	from      string
+	receiptID string
 }
 
 func (l *Ledger) outbox(ctx context.Context, tx pgx.Tx, id, tenantID, topic string, payload any) error {
@@ -72,6 +90,12 @@ func (l *Ledger) outbox(ctx context.Context, tx pgx.Tx, id, tenantID, topic stri
 // wins), mark the idempotency record RECEIPTED (only when this is its latest attempt), append RECEIPT and enqueue
 // the Outcome verification. It returns false, and writes nothing else, when a receipt for this grant and attempt
 // already exists.
+//
+// A REJECTED_STALE_VERSION receipt also voids the grant (REQ-EXE-004, INV-27, US-19; PERD v1.18 38.2): in the same
+// transaction, after RECEIPT, the grant moves SPENT -> VOID and the RecoveryRequest to Trust, its outbox event and
+// GRANT_VOIDED{REJECTED_STALE_VERSION} are written. The trigger decision_grant_guard (migration 0002) permits the move
+// only because the receipt is a confirmed refusal. If any write fails, none is kept, and the attempt stays DISPATCHING
+// for the sweeper (OUTCOME_UNKNOWN). GRANT_SPENT stays on the Record.
 func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, error) {
 	written := false
 	err := l.inTx(ctx, pgx.ReadCommitted, func(tx pgx.Tx) error {
@@ -113,7 +137,22 @@ func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, erro
 		}
 		written = true
 		doc["raw_status"] = raw
-		return l.record(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, eventReceipt, "", "", doc)
+		if err := l.record(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, eventReceipt, "", "", doc); err != nil {
+			return err
+		}
+		if r.State == controller.StateRejectedStaleVersion {
+			// PERD v1.18 38.2: SPENT -> VOID. The guard (migration 0002) lets the update through only because the receipt
+			// inserted above is a confirmed refusal; it refuses any other receipt, and the whole transaction with it.
+			tag, err := tx.Exec(ctx, `UPDATE decision_grant SET status = 'VOID' WHERE tenant_id = $1 AND grant_id = $2 AND status = 'SPENT'`, r.TenantID, r.GrantID)
+			if err != nil {
+				return fmt.Errorf("%svoid the spent grant: %w", errPrefix, err)
+			}
+			if tag.RowsAffected() != 1 {
+				return fmt.Errorf("%svoid the spent grant %s: it is not SPENT", errPrefix, r.GrantID)
+			}
+			return l.addRecoveryRequest(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, controller.VoidTargetVersionStale, voidChange{from: statusSpent, receiptID: r.ReceiptID})
+		}
+		return nil
 	})
 	if errors.Is(err, errNothingWritten) {
 		return false, nil

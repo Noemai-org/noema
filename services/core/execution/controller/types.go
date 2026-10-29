@@ -47,7 +47,8 @@ type SignedGrant struct {
 }
 
 // VoidReason is the reason a grant is void (PERD section 27.1). A void grant produces a RecoveryRequest
-// addressed to Trust and is never retried locally (REQ-EXE-001).
+// addressed to Trust and is never retried locally (REQ-EXE-001). Eight reasons void a grant before its write; the
+// ninth, REJECTED_STALE_VERSION, voids it after the one write, in the same step as the receipt (REQ-EXE-004).
 type VoidReason string
 
 // The reasons of PERD section 27.1 and REQ-EXE-003.
@@ -71,6 +72,13 @@ const (
 	eventSecurity             = "SECURITY_EVENT"
 	receiptSchemaVersion      = "1.0"
 	kindIdempotencyCollision  = "IDEMPOTENCY_COLLISION"
+	kindSignatureInvalid      = "SIGNATURE_INVALID"
+)
+
+// The cause carried by the SECURITY_EVENT SIGNATURE_INVALID of a receipt that did not verify (DEC-2026-10-28 section 7).
+const (
+	CauseSignatureNotVerified = "RECEIPT_SIGNATURE_NOT_VERIFIED"
+	CauseDocumentNotCanonical = "RECEIPT_DOCUMENT_NOT_CANONICAL"
 )
 
 // ErrKeyCollision is what a Ledger returns from Spend when the idempotency key already exists with other
