@@ -83,3 +83,99 @@ func TestAReceiptWithAForgedOrEmptySignatureIsNeverWritten(t *testing.T) {
 		})
 	}
 }
+
+// PERD v1.18 REQ-SEC-005 ("verification failures fail closed and raise an alert"), EC-X09, TM-17, §32.2 (Security row);
+// DEC-2026-10-28 §7 (D4). A failed verification appends exactly one SECURITY_EVENT SIGNATURE_INVALID, in its own transaction,
+// and nothing else: no receipt, no RECEIPT or GRANT_VOIDED event, no RecoveryRequest, no outbox event, no change of the
+// grant or of the attempt.
+
+func securityEvents(w *World) (n int, last RecordEntry) {
+	for _, e := range w.Snapshot().Record {
+		if e.Type == "SECURITY_EVENT" {
+			n++
+			last = e
+		}
+	}
+	return n, last
+}
+
+func TestAFailedReceiptVerificationAppendsExactlyOneSecurityEventAndNothingElse(t *testing.T) {
+	for name := range forgeries(NewWorld([]byte("synthetic-simulation-key-not-a-secret")).Keys) {
+		t.Run(name, func(t *testing.T) {
+			w, c, g := setup(t)
+			c.Keys = forgingKeys{inner: w.Keys, forge: func(id, real string) string { return forgeries(w.Keys)[name](id, real) }}
+			if _, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID); !errors.Is(err, controller.ErrReceiptSignature) {
+				t.Fatalf("Execute: %v, want ErrReceiptSignature", err)
+			}
+			s := w.Snapshot()
+			n, last := securityEvents(w)
+			if n != 1 || last.GrantID != g.Grant.GrantID || last.Detail != controller.CauseSignatureNotVerified {
+				t.Fatalf("%d SECURITY_EVENT, last %+v; want exactly one for the grant with cause %s", n, last, controller.CauseSignatureNotVerified)
+			}
+			if s.Record[len(s.Record)-1].Type != "SECURITY_EVENT" {
+				t.Fatalf("the last Record event is %s, want SECURITY_EVENT", s.Record[len(s.Record)-1].Type)
+			}
+			for _, e := range s.Record {
+				if e.Type == "RECEIPT" || e.Type == "GRANT_VOIDED" {
+					t.Fatalf("a %s event was written", e.Type)
+				}
+			}
+			if len(s.Receipts) != 0 || s.Pending != 1 || len(s.Recovery) != 0 {
+				t.Fatalf("receipts %d, attempts without a receipt %d, recovery requests %d; want 0, 1 and 0", len(s.Receipts), s.Pending, len(s.Recovery))
+			}
+			// The sweeper has the same check: one more event for its one failed verification, and still nothing else.
+			if _, err := c.Recover(ctx(t), TenantID); !errors.Is(err, controller.ErrReceiptSignature) {
+				t.Fatalf("Recover: %v, want ErrReceiptSignature", err)
+			}
+			if n, _ := securityEvents(w); n != 2 {
+				t.Fatalf("%d SECURITY_EVENT after the sweeper's failure, want 2 (one per failed verification)", n)
+			}
+			if len(w.Snapshot().Receipts) != 0 {
+				t.Fatal("the sweeper wrote a receipt with a forged signature")
+			}
+		})
+	}
+}
+
+func TestAnHonestReceiptAppendsNoSecurityEvent(t *testing.T) {
+	w, c, g := setup(t)
+	if _, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := securityEvents(w); n != 0 {
+		t.Fatalf("%d SECURITY_EVENT on a clean run, want 0", n)
+	}
+}
+
+// EC-E16 and REQ-AUD-001: when the event cannot be appended, nothing is written either, the caller gets both failures, and
+// the attempt stays DISPATCHING for the sweeper (which, with the honest ring, takes it over as OUTCOME_UNKNOWN).
+func TestIfTheSecurityEventCannotBeAppendedNothingIsWrittenAndBothFailuresAreReturned(t *testing.T) {
+	w, c, g := setup(t)
+	c.Keys = forgingKeys{inner: w.Keys, forge: func(string, string) string { return "" }}
+	refused := errors.New("synthetic: the Record cannot be written")
+	w.FailAppend = func(e controller.Event) error {
+		if e.Type == "SECURITY_EVENT" {
+			return refused
+		}
+		return nil
+	}
+	_, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+	if !errors.Is(err, controller.ErrReceiptSignature) || !errors.Is(err, refused) {
+		t.Fatalf("Execute: %v, want both ErrReceiptSignature and the append failure", err)
+	}
+	if n, _ := securityEvents(w); n != 0 {
+		t.Fatalf("%d SECURITY_EVENT although the append was refused", n)
+	}
+	s := w.Snapshot()
+	if len(s.Receipts) != 0 || s.Pending != 1 || len(s.Recovery) != 0 {
+		t.Fatalf("receipts %d, attempts without a receipt %d, recovery requests %d; want 0, 1 and 0", len(s.Receipts), s.Pending, len(s.Recovery))
+	}
+	w.FailAppend = nil
+	c.Keys = w.Keys
+	if n, err := c.Recover(ctx(t), TenantID); err != nil || n != 1 {
+		t.Fatalf("Recover with the honest ring: %d, %v; want 1", n, err)
+	}
+	if n, _ := securityEvents(w); n != 0 {
+		t.Fatalf("%d SECURITY_EVENT after the honest recovery, want 0: the lost event is not invented later", n)
+	}
+}

@@ -72,6 +72,13 @@ const (
 	eventSecurity             = "SECURITY_EVENT"
 	receiptSchemaVersion      = "1.0"
 	kindIdempotencyCollision  = "IDEMPOTENCY_COLLISION"
+	kindSignatureInvalid      = "SIGNATURE_INVALID"
+)
+
+// The cause carried by the SECURITY_EVENT SIGNATURE_INVALID of a receipt that did not verify (DEC-2026-10-28 section 7).
+const (
+	CauseSignatureNotVerified = "RECEIPT_SIGNATURE_NOT_VERIFIED"
+	CauseDocumentNotCanonical = "RECEIPT_DOCUMENT_NOT_CANONICAL"
 )
 
 // ErrKeyCollision is what a Ledger returns from Spend when the idempotency key already exists with other

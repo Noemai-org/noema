@@ -277,20 +277,40 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 	return rc, nil
 }
 
-// ErrReceiptSignature is returned when a receipt's signature does not verify: nothing is written.
+// ErrReceiptSignature is returned when a receipt's signature does not verify: no receipt is written.
 var ErrReceiptSignature = errors.New(errPrefix + "the receipt's signature does not verify")
 
 // completeReceipt verifies the receipt's HMAC over the canonical JSON of the document it signed, and only then hands the
 // receipt to the Ledger (E11, and the sweeper's receipt). A signature that is empty, not hex, tampered or made with another
-// key or over another document does not verify: nothing is written, the attempt stays DISPATCHING and the sweeper takes it
-// over. The Ledger and the database check the shape of the signature; this is the only place that verifies it.
+// key or over another document does not verify: no receipt is written, the attempt stays DISPATCHING and the sweeper takes it
+// over. The one thing written is a SECURITY_EVENT SIGNATURE_INVALID, in its own transaction (rejectReceipt). The Ledger and
+// the database check the shape of the signature; this is the only place that verifies it.
 func (c *Controller) completeReceipt(ctx context.Context, rc Receipt) (bool, error) {
 	canon, err := crypto.CanonicalJSON(rc.Document())
 	if err != nil {
-		return false, fmt.Errorf("%w: %v", ErrReceiptSignature, err)
+		return false, c.rejectReceipt(ctx, rc, CauseDocumentNotCanonical, err)
 	}
 	if !c.Keys.VerifyWith(rc.Sig.KeyID, canon, rc.Sig.Value) {
-		return false, ErrReceiptSignature
+		return false, c.rejectReceipt(ctx, rc, CauseSignatureNotVerified, nil)
 	}
 	return c.Ledger.Complete(ctx, rc)
+}
+
+// rejectReceipt is the failure branch of completeReceipt (REQ-SEC-005: verification failures fail closed and raise an
+// alert; EC-X09; DEC-2026-10-28 section 7). It appends exactly one SECURITY_EVENT SIGNATURE_INVALID, and nothing else, in a
+// transaction of its own: there is no object write for it to share (REQ-AUD-001), and the receipt is never written. The
+// event names the receipt, the attempt and the cause; it never holds the signature, the key ID the receipt claims or the
+// document (all of them untrusted text). The result always wraps ErrReceiptSignature. If the event cannot be appended, the result also carries
+// that failure, and nothing is written either.
+func (c *Controller) rejectReceipt(ctx context.Context, rc Receipt, cause string, cerr error) error {
+	ev := Event{Type: eventSecurity, Kind: kindSignatureInvalid, GrantID: rc.GrantID, Detail: cause,
+		Payload: map[string]any{"cause": cause, "receipt_id": rc.ReceiptID, "attempt": rc.Attempt}}
+	err := ErrReceiptSignature
+	if cerr != nil {
+		err = fmt.Errorf("%w: %v", ErrReceiptSignature, cerr)
+	}
+	if aerr := c.Ledger.Append(ctx, rc.TenantID, ev); aerr != nil {
+		return errors.Join(err, fmt.Errorf("%sappend %s: %w", errPrefix, kindSignatureInvalid, aerr))
+	}
+	return err
 }

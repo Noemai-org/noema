@@ -82,6 +82,8 @@ type World struct {
 	KillSwitch      bool
 	TargetVersion   string
 	RevalChanged    []string
+	// FailAppend, when set, refuses an Append of an event: the Record cannot be written (EC-E16).
+	FailAppend func(controller.Event) error
 
 	// Ledger state.
 	spentGrants map[string]bool
@@ -269,6 +271,13 @@ func (w *World) appendLocked(typ, grantID, detail string) {
 func (w *World) Append(_ context.Context, _ string, events ...controller.Event) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.FailAppend != nil {
+		for _, e := range events {
+			if err := w.FailAppend(e); err != nil {
+				return err
+			}
+		}
+	}
 	for _, e := range events {
 		w.appendLocked(e.Type, e.GrantID, e.Detail)
 	}
