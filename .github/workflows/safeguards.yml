@@ -2,7 +2,7 @@
 name: safeguards
 on:
   pull_request:
-    # edited: a changed description re-runs the PR trace check.
+    # edited: a changed description re-runs the PR trace check, and only that check (see the job conditions).
     types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
@@ -11,6 +11,9 @@ permissions:
   pull-requests: read
 jobs:
   checks:
+    # An "edited" event fires for a title, body or base change. Only a body change can alter the PR trace result,
+    # so a title-only edit skips the job (a skipped job reports success). Every other step skips on "edited".
+    if: github.event.action != 'edited' || github.event.changes.body != null
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -20,25 +23,32 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install pinned scanners
+        if: github.event.action != 'edited'
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
       # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
       # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
       - name: Secret scan (gitleaks), the commits of this change only
+        if: github.event.action != 'edited'
         env:
           RANGE_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           RANGE_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: python3 -I tools/ci/gitleaks_range.py "$RUNNER_TEMP/bin/gitleaks" "$RANGE_BASE" "$RANGE_HEAD"
       - name: Secret scan range tests
+        if: github.event.action != 'edited'
         env:
           GITLEAKS: ${{ runner.temp }}/bin/gitleaks
         run: python3 -I tools/ci/test_gitleaks_range.py
       - name: Dependency pins
+        if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_pins.py
       - name: Environment references
+        if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_env_refs.py
       - name: Secret names (every secret a workflow reads is listed in .env.example)
+        if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_secret_refs.py
       - name: Secret-name check tests
+        if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
       - name: PR trace
         if: github.event_name == 'pull_request'
@@ -50,10 +60,13 @@ jobs:
           body="$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""')"
           PR_BODY="$body" python3 -I tools/ci/check_pr_trace.py
       - name: Vendored-copy script tests (the current PERD is resolved, not hardcoded)
+        if: github.event.action != 'edited'
         run: python3 -I -m unittest discover -s tools/vendor -p 'test_*.py'
       - name: Canaries (each check must fail for its own reason)
+        if: github.event.action != 'edited'
         run: python3 -I tools/ci/run_canaries.py "$RUNNER_TEMP/bin/gitleaks"
   images:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
