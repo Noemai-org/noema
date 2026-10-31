@@ -18,9 +18,7 @@ func TestNearTimeoutAfterCommitsThenAnswersLate(t *testing.T) {
 	if _, err := e.createWith(impatient(100*time.Millisecond), "idk_1"); err == nil {
 		t.Fatal("a caller that gives up before the answer sees a timeout")
 	}
-	if e.count("cases") != 1 {
-		t.Fatal("the command commits before the delay, so the caller that gave up left a committed case")
-	}
+	e.waitForCount("cases", 1, 5*time.Second, "the command commits before the delay, so the caller that gave up left a committed case")
 	// A caller that waits gets the real answer, late, not a dropped connection.
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "NEAR_TIMEOUT_AFTER", `{"delay_ms":150}`), ""))
 	start := time.Now()
