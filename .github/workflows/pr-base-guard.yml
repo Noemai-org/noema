@@ -16,6 +16,8 @@ permissions:
 jobs:
   pr-base-guard:
     name: pr-base-guard
+    # An "edited" event for a title or body change cannot alter the base; skip it (a skipped job reports success).
+    if: github.event.action != 'edited' || github.event.changes.base != null
     runs-on: ubuntu-24.04
     steps:
       - name: The base branch must be the default branch
