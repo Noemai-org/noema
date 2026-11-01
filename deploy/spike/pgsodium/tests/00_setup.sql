@@ -3,6 +3,13 @@
 CREATE ROLE spike_migration NOLOGIN;
 CREATE ROLE execution_rw LOGIN;
 CREATE EXTENSION pgsodium;                       -- T1: no shared_preload_libraries entry
+-- Finding of the first CI run: pgsodium's event trigger pgsodium_trg_mask_update calls
+-- current_setting('pgsodium.enable_event_trigger') with no default, and that setting is defined only when the library is
+-- preloaded (src/pgsodium.c returns before DefineCustomBoolVariable otherwise). Without preload every DDL command that
+-- fires the trigger fails. Preloading is not an option: it runs a root-key script at server start (server key management,
+-- which we do not want). We do not use Transparent Column Encryption, so the trigger is disabled and the setting is off.
+ALTER EVENT TRIGGER pgsodium_trg_mask_update DISABLE;
+ALTER DATABASE spike SET pgsodium.enable_event_trigger = 'off';
 GRANT USAGE ON SCHEMA pgsodium TO spike_migration;
 GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO spike_migration;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;

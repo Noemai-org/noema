@@ -42,6 +42,8 @@ record T1 "setup and CREATE EXTENSION pgsodium succeed" $([ $rc -eq 0 ] && echo 
 if [ $rc -ne 0 ]; then echo "$out"; fi
 expect_eq T1 "PostgreSQL major is 17" 17 "$(pg -c 'SHOW server_version_num' | cut -c1-2)"
 expect_eq T1 "shared_preload_libraries is empty" "" "$(pg -c 'SHOW shared_preload_libraries')"
+expect_eq T1 "pgsodium's mask event trigger is disabled (evtenabled = D)" D "$(pg -c "SELECT evtenabled FROM pg_event_trigger WHERE evtname='pgsodium_trg_mask_update'")"
+expect_ok   T1 "DDL by the migration role works with the extension installed (ALTER TABLE)" pg "SET ROLE spike_migration; ALTER TABLE spike.trusted_key ADD COLUMN spike_probe int; ALTER TABLE spike.trusted_key DROP COLUMN spike_probe"
 expect_eq T1 "pgsodium version is 3.1.11" 3.1.11 "$(pg -c "SELECT extversion FROM pg_extension WHERE extname='pgsodium'")"
 echo "evidence: $(docker exec "$C" sha256sum /usr/local/lib/postgresql/pgsodium.so | cut -c1-64) pgsodium.so; $(docker exec "$C" sh -c 'ls /usr/local/lib/libsodium.so.*' | head -1)"
 
