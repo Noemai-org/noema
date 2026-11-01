@@ -146,7 +146,7 @@ func TestAPanicInAnyStepBecomesUnknownInternalError(t *testing.T) {
 func TestAnErrorInAnyStepBecomesUnknown(t *testing.T) {
 	for step := decide.T1AdmittedIntent; step <= decide.T15DecisionRecorded; step++ {
 		s := continueAll()
-		s[step-1] = func(context.Context) decide.StepResult { return decide.Fail(errors.New("dependency down")) }
+		s[step-1] = func(context.Context) decide.StepResult { return decide.FailStep(errors.New("dependency down")) }
 		d, trace := decide.Evaluate(context.Background(), version, s)
 		if !isInternalError(d) {
 			t.Fatalf("error at %d gave %s %v", step, d.Outcome(), d.Reasons())
@@ -284,7 +284,7 @@ func TestChaosPropertyNoAllowUnlessEveryStepPassed(t *testing.T) {
 				case b == 0:
 					return decide.Continue()
 				case b == 1:
-					return decide.Fail(errors.New("chaos"))
+					return decide.FailStep(errors.New("chaos"))
 				case b == 2:
 					panic("chaos")
 				case b == 3:
