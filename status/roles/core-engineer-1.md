@@ -1,8 +1,10 @@
-# Role status · Core Engineer 1 (Execution, Record, Recovery, Temporal)
+# Status · core-engineer-1
 
-Only Core Engineer 1 writes this file. Dated entries are appended; history is never rewritten.
+Written only by the core-engineer-1 role (see `README.md`). Append dated entries, newest last. History before 31 Oct 2026 is in `status/<task-id>.md`.
 
-## 2026-11-01 15:45 WAT
+## Entries
+
+### 2026-11-01 15:45 WAT
 
 **Completed.** None. Nothing is Done until a founder approves and it merges.
 
@@ -33,3 +35,24 @@ Only Core Engineer 1 writes this file. Dated entries are appended; history is ne
 - *Question:* do you approve option A, and may I change `.github/workflows/core.yml`? It is a protected path, owned by both founders.
 
 **Next.** On approval, REC-01's property test with `rapid`. I'll pin v1.2.0 (February 2025) rather than v1.3.0, checking the licence and recording it under AGENT-14 in `docs`. Then REC-04 and REC-05. CON-03 resumes as soon as the founders answer.
+
+### 2026-11-01 17:40 WAT
+
+**Completed.** None. Nothing has merged.
+
+**In review (draft PRs).**
+- [Noemai-org/noema#108](https://github.com/Noemai-org/noema/pull/108), PLT-06: core CI on PostgreSQL 17.11 with `-race`. CI is green at `4fee9c2`. The `core` job log prints `test database: PostgreSQL 17.11`, and every package passes under `go test -race` ([run](https://github.com/Noemai-org/noema/actions/runs/41326271241/job/124906747837)). Approved by the Architect; it merges before #107.
+- [Noemai-org/noema#107](https://github.com/Noemai-org/noema/pull/107), REC-03: the ops and audit roles, staff principals only, and masking are added (`78d7fc3`), and `main` is merged in. GitHub created no workflow runs for `78d7fc3`; the merge push gives CI a head to run on.
+
+**Blocked.** CON-03, on the founders: generator A or B, and the scope of migrating hand-written types. The CI and Makefile edit is approved.
+
+**Decisions taken** (in #107):
+- the principal check is an allowlist of staff kinds;
+- masking applies to free text and scalar facts, not to IDs, references or enums.
+
+**Escalations.**
+- The CI Postgres version: answered by the Architect (#108).
+- Open: the `actor` of each served event is not masked, because the events are the hashed Record.
+
+**Next.** REC-01's property test with `rapid`, while CON-03 waits.
+
