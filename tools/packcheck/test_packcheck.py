@@ -108,5 +108,65 @@ class RoutingFuzz(unittest.TestCase):
             self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=pack, graphs_override=graphs), [])
 
 
+class GraphShape(unittest.TestCase):
+    """REQ-AG-001 as amended by DEC-2026-10-31 D9: a graph, never a list of endpoints (PCK-04)."""
+
+    def test_graph_files_are_action_graph_v2(self):
+        # A graph that declares no roots is a v1 document; packcheck loads graphs as action-graph.v2.json only.
+        import tempfile
+
+        base = json.loads((PACKS / "fintech_v1.json").read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            for rel in base["action_graph_files"]:
+                doc = json.loads((PACKS / rel).read_text())
+                doc.pop("roots", None)
+                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
+                (Path(tmp) / rel).write_text(json.dumps(doc))
+            graphs, problems = checks.load_graphs(base, Path(tmp))
+        self.assertEqual(graphs, {})
+        self.assertEqual(len(problems), len(base["action_graph_files"]))
+        self.assertTrue(all(c == "schema" and "'roots' is a required property" in m for c, m in problems), problems)
+
+    def test_connectedness_matches_an_independent_union_find(self):
+        # Seeded, so reproducible: random edge sets over the investigation graph's nodes. packcheck reports "not connected"
+        # exactly when the undirected graph has more than one component.
+        base = json.loads((PACKS / "fintech_v1.json").read_text())
+        rel = "fintech/graph/g1_investigate.json"
+        real = {r: json.loads((PACKS / r).read_text()) for r in base["action_graph_files"]}
+        ids = [n["node_id"] for n in real[rel]["nodes"]]
+        rng = random.Random(20261101)
+        disconnected = connected = 0
+        for _ in range(300):
+            edges = []
+            for i, child in enumerate(ids):
+                for parent in ids[:i]:  # parents before children: never a cycle
+                    if rng.random() < 0.18:
+                        edges.append({"node_id": child, "depends_on": parent, "condition": None})
+            graphs = copy.deepcopy(real)
+            graphs[rel]["edges"] = edges
+            parent_of = {i: i for i in ids}
+
+            def find(x):
+                while parent_of[x] != x:
+                    x = parent_of[x]
+                return x
+
+            for e in edges:
+                parent_of[find(e["node_id"])] = find(e["depends_on"])
+            expect = len({find(i) for i in ids}) > 1
+            problems = checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs)
+            got = any(c == "graph" and "fin.graph.investigate" in m and "not connected" in m for c, m in problems)
+            self.assertEqual(got, expect, edges)
+            disconnected += expect
+            connected += not expect
+        self.assertGreater(disconnected, 50)
+        self.assertGreater(connected, 20)
+
+    def test_a_single_node_graph_needs_no_edge(self):
+        # The complaint graph is one write node: connectedness applies only to graphs with more than one node.
+        problems = checks.run(PACKS / "fintech_v1.json")
+        self.assertFalse([m for c, m in problems if "fin.graph.complaint" in m], problems)
+
+
 if __name__ == "__main__":
     unittest.main()
