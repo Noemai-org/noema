@@ -8,23 +8,15 @@ Updated 2026-10-31. Owner: the Founder (benchmark owner B). Agent: Benchmark Own
 - **The run itself waits for OUT-01 and REC-03.** Neither is on `main` (checked 31 Oct, `origin/main` 34f6a8b): `services/core/outcome/**` holds boundary packages only and `status/EXE-04.md` records OUT-01 as not started. No run ID exists for BEN-05. Nothing here is G1 evidence.
 - **Cases:** in the default suite (seed 20261020, generator 1.3.0, 320 cases, byte-identical on two generations) six cases cover US-01 or US-06: `BEN-CLEAN-0001`, `-0014`, `-0027` (US-01), `BEN-TMO-0001`, `-0018` (US-06), and `BEN-CLEAN-1007` (US-01 with `INJECTION_IN_NAME`). The runner can run the first five today (no unmet fault or event). `BEN-CLEAN-1007` needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault.
 
-## Decision needed from the founders (selection)
+## Decision (founders, 1 Nov 2026): compare the five runnable base cases
 
-Which cases are the G1 evidence for BEN-05?
-
-| Option | Verdict it can reach | Notes |
-|---|---|---|
-| A. All six cases covering US-01 and US-06 (the tool's default) | NOT_COMPARABLE until Tushe's injection fault is wired | Strictest; G1 would wait on a Tushe-held fault that BEN-05's done-when does not name |
-| B. The five base cases (`--exclude-mutated`) | IDENTICAL or DIFFERENT | The report records `BASE_CASES_ONLY` and names the excluded case; the injection mutation is covered by BEN-15 |
-| C. Do nothing | none | G1 evidence stays unproduced |
-
-Recommendation: B, recorded as such in the report, with `BEN-CLEAN-1007` kept in the G2 and G3 runs. This is a change of acceptance scope, so it is the founders' decision (charter §6, item 4). The tool supports either.
+BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`): `BEN-CLEAN-0001`, `-0014`, `-0027` (US-01) and `BEN-TMO-0001`, `-0018` (US-06). `BEN-CLEAN-1007` (US-01, `INJECTION_IN_NAME`) is a **named, open exclusion**, not a drop: it needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault, and stays open until that fault is wired and the case can be run and compared. Every report states "covers 5 of 6 cases" in its selection row and lists the exclusion under "Open exclusions" (`open_exclusions` in `replay.json`). The case stays in the G2 and G3 runs. Nobody may describe the G1 evidence as covering all of US-01 and US-06.
 
 ## How BEN-05 runs the day OUT-01 and REC-03 land
 
 1. Record the commit SHA (the same for both runs) and generate the suite: `python -m benchmark.generator generate --seed 20261020 --out S`.
 2. Two separate runs, each with its own `--run-id` and `--commit-sha`, restricted with `--only` to the selected case IDs, from a clean environment (`make reset`). A rerun is a new run with its own ID; no run is repeated selectively.
-3. `python -m benchmark.replay --suite S --first A --second B --story US-01 --story US-06 [--exclude-mutated] --out OUT`.
+3. `python -m benchmark.replay --suite S --first A --second B --story US-01 --story US-06 --exclude-mutated --out OUT`.
 4. Report the verdict, n, seed, commit and both run IDs exactly as printed. DIFFERENT or NOT_COMPARABLE is reported, not retried.
 
 ## Limits (stated, not hidden)

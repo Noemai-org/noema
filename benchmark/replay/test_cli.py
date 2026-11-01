@@ -110,7 +110,12 @@ class Cli(unittest.TestCase):
         self.assertEqual(0, invoke(*self.args(a, b, "--exclude-mutated"))[0])
         report = json.loads((self.root / "out" / "replay.json").read_text())
         self.assertEqual("BASE_CASES_ONLY", report["selection"])
-        self.assertIn("BASE_CASES_ONLY", (self.root / "out" / "replay.md").read_text())
+        md = (self.root / "out" / "replay.md").read_text()
+        self.assertIn("BASE_CASES_ONLY", md)
+        self.assertIn("covers 2 of 3 cases", md)
+        self.assertIn("Open exclusions", md)
+        self.assertIn("BEN-CLEAN-1007", md)
+        self.assertIn("FAULT:INJECTION_PAYLOAD", md)
 
     def test_stories_default_to_us_01_and_us_06(self) -> None:
         a, b = self.runs()

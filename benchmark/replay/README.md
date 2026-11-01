@@ -22,9 +22,9 @@ Exit codes: **0** IDENTICAL; **1** DIFFERENT or NOT_COMPARABLE (the report is wr
 - A difference outranks NOT_COMPARABLE. The verdict is IDENTICAL only when every selected case is compared and equal and every story has at least one compared case.
 - Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters and the outcome digest. Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
 
-## Selection (decision for the founders, recorded in every report)
+## Selection (founders' decision of 1 Nov 2026, recorded in every report)
 
-The default selects every case whose manifest `covers` names a requested story, mutated ones included. Of the six such cases in the default suite (seed 20261020, generator 1.3.0), the runner can run five today. `BEN-CLEAN-1007` (US-01 with `INJECTION_IN_NAME`) needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault, so with it the verdict is NOT_COMPARABLE. `--exclude-mutated` compares the five base cases and the report records `selection: BASE_CASES_ONLY` and names the excluded cases. Which selection is the G1 evidence is for the founders (see `status/BEN-05.md`); this tool never chooses silently.
+The default selects every case whose manifest `covers` names a requested story, mutated ones included. For BEN-05 the founders chose `--exclude-mutated`: the five runnable base cases. Of the six cases in the default suite (seed 20261020, generator 1.3.0), `BEN-CLEAN-1007` (US-01 with `INJECTION_IN_NAME`) needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault. The report states "covers 5 of 6 cases" and lists the case under **Open exclusions** with its fault tag and status OPEN (`open_exclusions` in `replay.json`). An exclusion is never a pass, and the case stays in the G2 and G3 runs. Detail: `status/BEN-05.md`.
 
 ## What the diff does not cover
 

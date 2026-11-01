@@ -25,3 +25,6 @@ Problem: six cases cover US-01 and US-06; `BEN-CLEAN-1007` needs a Tushe-held in
 
 ### Next
 BEN-05 waits for OUT-01 and REC-03. Next work, in the order DEC-2026-10-31 sets (it wins where it differs from the role prompt's "Start here"): BEN-30, BEN-29 (non-held-out parts), TST-06, UND-13, BEN-31; then the G2 case families BEN-06 to BEN-09 and BEN-12 in tasks.csv order.
+
+## 2026-11-01 · Escalation 1 decided
+The founders chose option B for BEN-05: the five runnable base cases (`--exclude-mutated`), with `BEN-CLEAN-1007` a named, open exclusion tied to the Tushe-held `INJECTION_PAYLOAD` fault. The report now states "covers 5 of 6 cases" and lists open exclusions (noema#102). Next: overlap check and check table on #102, then BEN-30.

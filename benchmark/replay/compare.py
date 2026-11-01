@@ -96,6 +96,10 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
         raise ReplayInputError(f"the suite has no case covering {', '.join(unknown)}")
     covering = [entry for entry in listed if any(s in entry["covers"] for s in stories)]
     excluded = [entry["case_id"] for entry in covering if exclude_mutated and entry["mutation"]]
+    open_exclusions = [{"case_id": entry["case_id"], "status": "OPEN", "mutation": entry["mutation"]["name"],
+                        "faults": sorted(c for c in entry["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"),
+                        "covers": sorted(s for s in stories if s in entry["covers"])}
+                       for entry in covering if exclude_mutated and entry["mutation"]]
     selected = [entry for entry in covering if not (exclude_mutated and entry["mutation"])]
     rows = []
     for entry in selected:
@@ -118,7 +122,7 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
     generator = first_manifest["suite"]["generator"]
     return {
         "verdict": verdict, "stories": list(stories), "selection": "BASE_CASES_ONLY" if exclude_mutated else "ALL_CASES_COVERING_THE_STORIES",
-        "excluded_mutated": excluded, "stories_covered": covered, "counts": counts,
+        "excluded_mutated": excluded, "open_exclusions": open_exclusions, "case_coverage": {"covered": len(selected), "of": len(covering)}, "stories_covered": covered, "counts": counts,
         "first": {"run_id": first_manifest["run_id"], "status": first_manifest["status"]},
         "second": {"run_id": second_manifest["run_id"], "status": second_manifest["status"]},
         "seed": generator["seed"], "generator": {"name": generator["name"], "version": generator["version"]},

@@ -99,6 +99,17 @@ class Selection(unittest.TestCase):
         self.assertEqual("BASE_CASES_ONLY", report["selection"])
         self.assertEqual(["BEN-CLEAN-1007"], report["excluded_mutated"])
 
+    def test_the_report_states_the_coverage_as_n_of_m_and_names_each_exclusion_as_open(self) -> None:
+        report = go(exclude_mutated=True)
+        self.assertEqual({"covered": 2, "of": 3}, report["case_coverage"])
+        self.assertEqual([{"case_id": "BEN-CLEAN-1007", "status": "OPEN", "mutation": "INJECTION_IN_NAME", "faults": ["FAULT:INJECTION_PAYLOAD"],
+                           "covers": ["US-01"]}], report["open_exclusions"])
+
+    def test_the_default_selection_covers_all_and_has_no_exclusions(self) -> None:
+        report = go()
+        self.assertEqual({"covered": 3, "of": 3}, report["case_coverage"])
+        self.assertEqual([], report["open_exclusions"])
+
     def test_an_errored_mutated_case_does_not_block_the_base_only_verdict_but_stays_listed(self) -> None:
         pa, pb = pair()
         for run_id, results in (("run_a", pa), ("run_b", pb)):
