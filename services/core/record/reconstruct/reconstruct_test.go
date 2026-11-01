@@ -575,13 +575,14 @@ func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {
 	w.append(t, tenant, "corr_other01", filler...)
 	w.append(t, tenant, "corr_big0001", filler...)
 	const runs = 20
+	wall := clock.System{} // the measured duration is real time; platform/clock is the only source of it
 	took := make([]time.Duration, 0, runs)
 	for i := 0; i < runs; i++ {
-		start := time.Now()
+		start := wall.Now()
 		if _, err := build(t, w, tenant, "corr_big0001"); err != nil {
 			t.Fatal(err)
 		}
-		took = append(took, time.Since(start))
+		took = append(took, wall.Now().Sub(start))
 	}
 	sort.Slice(took, func(i, j int) bool { return took[i] < took[j] })
 	p95 := took[runs*95/100-1]
