@@ -76,17 +76,19 @@ func TestCommitThenDropIsReproducibleFromAPlan(t *testing.T) {
 
 func TestTimeoutAfterCommitHoldsThenDrops(t *testing.T) {
 	e := newEnv(t)
-	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "TIMEOUT_AFTER_COMMIT", `{"delay_ms":300}`), ""))
+	// The hold is ten times the client's timeout, so "gave up at its own timeout" stays true on a loaded machine:
+	// the bound sits 200 ms below the hold and still cannot be met by a client that waited for it.
+	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "TIMEOUT_AFTER_COMMIT", `{"delay_ms":1000}`), ""))
 	start := time.Now()
 	if _, err := e.createWith(impatient(100*time.Millisecond), "idk_1"); err == nil {
 		t.Fatal("the client must time out")
 	}
-	if time.Since(start) > 250*time.Millisecond {
-		t.Fatal("the client gave up at its own timeout")
+	if took := time.Since(start); took > 800*time.Millisecond {
+		t.Fatalf("the client gave up at its own timeout, not after the hold: %v", took)
 	}
-	if e.count("cases") != 1 {
-		t.Fatal("the case must be committed")
-	}
+	// The command may still be in the database when the client gives up, so the commit is awaited on observable
+	// state with a deadline. A commit that never happens still fails here.
+	e.waitForCount("cases", 1, 5*time.Second, "the case must be committed")
 	// A patient client waits the whole delay and then loses the connection: it never gets a status.
 	e.loadPlan(plan(fault("create_case", `{"nth_call":1}`, "TIMEOUT_AFTER_COMMIT", `{"delay_ms":150}`), ""))
 	start = time.Now()
@@ -437,9 +439,7 @@ func TestPerdExamplePlanLoadsAndOnlyItsMockCaseFaultApplies(t *testing.T) {
 	if _, err := e.createWith(impatient(100*time.Millisecond), "idk_1"); err == nil {
 		t.Fatal("the first create must be held and dropped (TIMEOUT_AFTER_COMMIT, 3500 ms)")
 	}
-	if e.count("cases") != 1 {
-		t.Fatal("the case must be committed")
-	}
+	e.waitForCount("cases", 1, 5*time.Second, "the case must be committed")
 	tr := e.faultTrace()
 	if len(tr) != 1 || tr[0].Effect != "TIMEOUT_AFTER_COMMIT" || !tr[0].Committed {
 		t.Fatalf("%+v", tr)
