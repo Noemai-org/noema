@@ -19,7 +19,9 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 | `outbox_event` | `orchestrator_rw` marks it dispatched |
 | `record_event`, `record_chain_head` | `record_event.schema_version` is "3.0" (`record-event.v3`; `written_by` is an emitter and `actor` a principal, PERD v1.17 §32.1); owned by `record_append`; no power holds any privilege; reached only through `record_lock_head` and `record_insert` |
 
-Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw`. The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
+`0003_record_read.sql` (REC-03, approved escalation E1 of 1 Nov 2026): the role `record_read` (NOLOGIN) and the function `record_read_chain(tenant)`, owned by `record_append`. `EXECUTE` is revoked from PUBLIC and granted only to `record_read`, which holds nothing else on the Record. It is numbered `0003` because noema#94 holds `0002`. `Migrate` has no gap check: it applies every unapplied file in name order, so a database migrated to `0003` takes a later `0002` after it. `platform/db/record_read_test.go` proves that both orders give the same privileges.
+
+Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw` (0001) and `record_read` (0003). The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 
 ## Not built
 

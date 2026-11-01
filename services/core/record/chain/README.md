@@ -2,7 +2,7 @@
 
 **What it does.** Appends events to the per-tenant hash chain inside the caller's transaction, and verifies a chain from genesis.
 
-**REQs.** REQ-AUD-001 (append-only, hash-chained; an append failure fails the enclosing transaction, EC-E16). `Verify` is what REC-05 and REC-06 will run nightly and in CI.
+**REQs.** REQ-AUD-001 (append-only, hash-chained; an append failure fails the enclosing transaction, EC-E16). `Verify` is what REC-05 and REC-06 will run nightly and in CI, and what reconstruction (REC-03) runs before it serves anything. It reads the chain through `record_read_chain` (migration `0003`), the one read path into the Record, so the caller needs `record_read` and no privilege on the tables; `ReadChain` and `VerifyRows` let a caller verify and then serve the same rows.
 
 **How it works.**
 - `Appender.Append(ctx, tx, Event)` calls `record_lock_head` (locks the tenant's chain-head row, so appends are serialised per tenant), computes `hash = SHA-256(prev_hash || JCS(event without hash))` (PERD §32.1) and inserts through `record_insert`, which refuses an event that does not extend the head it locked. No power holds any privilege on the Record tables (`services/core/migrations/README.md`).
