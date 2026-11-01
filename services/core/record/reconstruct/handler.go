@@ -14,10 +14,18 @@ import (
 // Route is the path of REQ-AUD-003 (PERD 39.4), in net/http pattern form.
 const Route = "GET /v1/reconstructions/{correlation_id}"
 
-// RoleAudit is the only role this endpoint serves. REQ-AUD-003 ("Ops and audit role only") and the PERD 39.4 table
-// ("audit") differ; until the founders resolve it, the narrower reading holds (AGENT-20) and the PR records the
-// conflict.
-const RoleAudit = "audit"
+// The roles this endpoint serves: ops and audit, as REQ-AUD-003 says ("Ops and audit role only"; Architect decision
+// of 1 Nov 2026, which settles the difference with the PERD 39.4 table's "audit").
+const (
+	RoleAudit = "audit"
+	RoleOps   = "ops"
+)
+
+// staffKinds are the principal kinds (PERD 32.1) that may hold those roles. Customers and approvers never read a
+// reconstruction, whatever roles a session carries; a kind not listed here is refused too.
+var staffKinds = map[string]bool{"operator": true, "auditor": true, "regulator": true, "admin": true}
+
+var principalRe = regexp.MustCompile(`^([a-z]+):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 
 // Caller is the authenticated party, as the edge's session check establishes it (EDG-01). The tenant comes from the
 // session and only from the session (INV-12): the request path never names it.
@@ -90,7 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.", corr)
 		return
 	}
-	if !hasRole(caller.Roles, RoleAudit) {
+	if !mayRead(caller) {
 		// The same code as not found, so a caller cannot learn that a correlation exists (errors.v2.json).
 		h.access(r.Context(), caller, corr, codeNotFound)
 		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
@@ -130,9 +138,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func hasRole(roles []string, want string) bool {
-	for _, r := range roles {
-		if r == want {
+// mayRead: the caller holds the ops or audit role and is a staff principal.
+func mayRead(c Caller) bool {
+	m := principalRe.FindStringSubmatch(c.Principal)
+	if m == nil || !staffKinds[m[1]] {
+		return false
+	}
+	for _, r := range c.Roles {
+		if r == RoleAudit || r == RoleOps {
 			return true
 		}
 	}

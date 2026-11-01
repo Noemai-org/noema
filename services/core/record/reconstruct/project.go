@@ -129,7 +129,21 @@ var (
 	resourceRe  = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
+	longDigits  = regexp.MustCompile(`[0-9]{5,}`)
 )
+
+// keepDigits is how many digits of a long run a served fact keeps (AGENTS.md section 7: mask to the last four).
+const keepDigits = 4
+
+// mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"). It applies to free text
+// and plain scalar facts; references, IDs and enum values are checked by their contract pattern instead and served
+// as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked
+// is unchanged.
+func mask(s string) string {
+	return longDigits.ReplaceAllStringFunc(s, func(run string) string {
+		return strings.Repeat("*", len(run)-keepDigits) + run[len(run)-keepDigits:]
+	})
+}
 
 // errProjection marks a Record object that cannot be served under the contract. The endpoint refuses rather than serve
 // a partial or invalid narrative.
@@ -174,7 +188,7 @@ func fact(key string, v any) (any, error) {
 		if !ok || s == "" || len([]rune(s)) > maxClaimText {
 			return nil, projErr("%s is not a string of 1 to %d characters", key, maxClaimText)
 		}
-		return s, nil
+		return mask(s), nil
 	case "disclosed_refs":
 		list, err := listFact(key, v)
 		if err != nil {
@@ -194,7 +208,10 @@ func fact(key string, v any) (any, error) {
 		if len([]rune(x)) > maxFactString {
 			return nil, projErr("%s is longer than %d characters", key, maxFactString)
 		}
-		return x, nil
+		if strings.HasSuffix(key, "_id") {
+			return x, nil // an ID cited by other facts; never a personal number (PERD 32.3 prefixes)
+		}
+		return mask(x), nil
 	case json.Number:
 		return intFact(key, x, 0, maxSafeInt)
 	case []any:

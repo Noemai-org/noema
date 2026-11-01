@@ -506,7 +506,7 @@ func TestTheDefaultAuthoriserRefusesEveryRequest(t *testing.T) {
 	}
 }
 
-func TestTheHandlerServesOnlyTheAuditRole(t *testing.T) {
+func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_us06", us06()...)
 	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
@@ -519,7 +519,7 @@ func TestTheHandlerServesOnlyTheAuditRole(t *testing.T) {
 		status int
 		code   string
 	}{
-		{"an operator without the audit role", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, "corr_us06", 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
+		{"an operator with neither the ops nor the audit role", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"viewer"}}, "corr_us06", 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
 		{"an auditor of another tenant", Caller{TenantID: other, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, "corr_us06", 404, "NOT_FOUND_OR_NOT_AUTHORIZED"},
 		{"a malformed correlation ID", audit, "not-a-correlation", 400, "INPUT_INVALID"},
 	} {
@@ -589,5 +589,69 @@ func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {
 	t.Logf("P95 over %d builds of a 200-event case in a 400-event chain: %v (budget 1s)", runs, p95)
 	if p95 >= time.Second {
 		t.Fatalf("P95 %v, budget 1s", p95)
+	}
+}
+
+// Architect decision 1 of 1 Nov 2026 (REQ-AUD-003 Security): the ops and audit roles are served; customers and
+// approvers never are, even if a session wrongly carried an allowed role (INV-12: the principal kind is the session's).
+func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_us06", us06()...)
+	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
+	for _, c := range []struct {
+		name   string
+		caller Caller
+		status int
+	}{
+		{"ops", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, 200},
+		{"audit", Caller{TenantID: tenant, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, 200},
+		{"a customer, even with the audit role", Caller{TenantID: tenant, Principal: "customer:usr_synth_3", Roles: []string{"audit"}}, 404},
+		{"an approver, even with the ops role", Caller{TenantID: tenant, Principal: "approver:usr_synth_4", Roles: []string{"ops"}}, 404},
+		{"a customer role", Caller{TenantID: tenant, Principal: "operator:usr_synth_5", Roles: []string{"customer"}}, 404},
+		{"no principal", Caller{TenantID: tenant, Roles: []string{"audit"}}, 404},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rec, out := serve(t, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{c.caller}, IDs: gen}, "corr_us06")
+			if rec.Code != c.status {
+				t.Fatalf("got %d, want %d", rec.Code, c.status)
+			}
+			if c.status != 200 {
+				if code, _ := errorCode(t, out); code != "NOT_FOUND_OR_NOT_AUTHORIZED" {
+					t.Fatalf("code %s, want NOT_FOUND_OR_NOT_AUTHORIZED", code)
+				}
+			}
+		})
+	}
+}
+
+// REQ-AUD-003 Security ("Masked"), AGENTS.md section 7 (mask to the last four digits): a run of five or more digits in
+// a served free-text or scalar fact keeps only its last four. References and IDs, which the contract patterns check
+// and which the reader matches on, are not facts of this kind and are served as written.
+func TestServedFactsAreMaskedToTheLastFourDigits(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[9].payload = map[string]any{"claims": []any{
+		map[string]any{"fact_id": "f1", "text": "Sent from 0123456789 to 9876543210 on day 12.", "bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
+	}}
+	events[5].payload["source"] = "branch 4402211"
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	if got := b.section("EXPLANATION")[0].Facts["text"]; got != "Sent from ******6789 to ******3210 on day 12." {
+		t.Fatalf("claim text %q, want each long digit run masked to its last four", got)
+	}
+	if got := b.section("OBSERVED_STATE")[0].Facts["source"]; got != "branch ***2211" {
+		t.Fatalf("source %q, want masked", got)
+	}
+	if got := b.section("RESOLUTION")[0].Facts["resolved_target"]; got != target {
+		t.Fatalf("resolved_target %q, want the reference unchanged", got)
+	}
+	for _, digits := range []string{"0123456789", "9876543210", "4402211"} {
+		if bytes.Contains(raw, []byte(digits)) {
+			t.Fatalf("the body still contains %s", digits)
+		}
 	}
 }

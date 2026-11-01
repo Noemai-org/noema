@@ -26,12 +26,11 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Tests added: REQ-AUD-003, INV-10, INV-11, INV-12, INV-03 (grant_state), REQ-AUD-001 (role refusals); `platform/db/record_read_test.go`, `record/reconstruct/*_test.go`, `tools/contracts/test_reconstruction_golden.py`.
 - Regression cases added: a receipt whose `logical_action` is not a pack ID is refused (the ledger writes `ESCALATE_CASE` today).
 - Debt entries: none filed. Proposed (Repo Steward): the access-log line does not pass through the redactor, because `platform/redaction` is empty. It carries IDs and codes only.
-- Conflicts raised: REQ-AUD-003 says "Ops and audit role only"; the PERD §39.4 table says "audit". The narrower reading is applied.
+- Conflicts raised: REQ-AUD-003 says "Ops and audit role only"; the PERD §39.4 table says "audit". Resolved by the Architect's decision of 1 Nov 2026: ops and audit, masked; never customers or approvers.
 
 ### Pre-work for the next agent
 - Exact next step: Codex review; then the founder's approval (the Founder approves PRs from `noemai-systems`).
 - Open questions (owner):
-  - Founders: ops as well as audit?
   - Founders: does the reconstruction envelope keep `schema_version` "1.0" (as the approved v3 fixtures do)?
 - Files to read first: `services/core/record/reconstruct/README.md`, `services/core/migrations/0003_record_read.sql`.
 - Do not touch: noema#94 and noema#90 (held, DEBT-01).
@@ -49,3 +48,8 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
   - confirm the Postgres major in CI.
 - Receiver used it for: this pull request (E1 to E3). The other items are reported in `status/roles/core-engineer-1.md`.
 - Evidence (PR or commit): this pull request.
+
+### 2026-11-01 (time not recorded) accepted · Architect (through the Technical Co-Founder's session) → Core Engineer 1
+- Purpose: (1) the reconstruction serves the ops and audit roles, masked, never customers or approvers; (2) a separate PR for PostgreSQL 17.11 and `-race` in core CI, to merge before this one; (3) CON-03 may edit the CI workflow and Makefile.
+- Receiver used it for: (1) in this pull request (roles, the staff-principal check, masking to the last four digits); (2) noema#108; (3) CON-03.
+- Evidence (PR or commit): this pull request; noema#108.
