@@ -7,7 +7,7 @@ Updated 2026-11-01. Owner: EL (task owner per tasks.csv: EL+AG). Executed by the
 - `packcheck` fails the fintech pack for exactly two nodes, by design, until E2 lands.
 
 ## Open
-- **E2 (Core Engineer 2):** `beneficiary` and `account` evidence descriptors from the signed Tushe worksheet only, then one postcondition each on `lookup_beneficiary` and `lookup_account` (`packs/fintech/graph/g1_investigate.json`). If the worksheet does not define the fields, stop and report.
+- **E2, revised by the Architect on 1 Nov 2026 (Core Engineer 2):** the signed Tushe worksheet does not exist, so the `beneficiary` and `account` descriptors use only the envelope fields every existing evidence descriptor already carries, marked "extend when the worksheet is signed". That PR merges before this one; then `main` is merged in here and one postcondition each is added to `lookup_beneficiary` and `lookup_account`. The packcheck rule is unchanged, and the pack is not exempted.
 - **REQ-AG-003 (Core Engineer 1):** the planner (`services/core/execution/planner/`) is an empty package, so "the planner selects its path through the graph" cannot be shown yet.
 - PCK-02 is a Needs task and is `Unassessed` (OPS-09).
 - Codegen of the v2 model when CON-03 lands.
