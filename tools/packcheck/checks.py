@@ -53,7 +53,7 @@ def load_graphs(pack: dict, base: Path) -> tuple[dict[str, dict], list[Problem]]
     graphs, problems = {}, []
     schemas = validate.load_schemas()
     registry = validate.make_registry(schemas)
-    checker = validate.validator_for("action-graph", schemas, registry)
+    checker = validate.validator_for("action-graph.v2", schemas, registry)
     for rel in pack.get("action_graph_files", []):
         path = base / rel
         if not path.exists():
@@ -260,6 +260,41 @@ def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
 
         if any(state.get(i) is None and cyclic(i) for i in sorted(known)):
             out.append(("graph", f"{g['graph_id']}: the graph has a cycle"))
+        out += check_graph_shape(g, known)
+    return out
+
+
+def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
+    """A graph, never a list of endpoints (PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9; connectedness approved by the Architect,
+    1 Nov 2026). Edges naming unknown nodes are reported by check_graphs and ignored here."""
+    out: list[Problem] = []
+    gid = g["graph_id"]
+    roots = set(g["roots"])
+    for r in sorted(roots - known):
+        out.append(("graph", f"{gid}: root {r!r} is not a node"))
+    edges = [e for e in g["edges"] if e["node_id"] in known and e["depends_on"] in known]
+    has_incoming = {e["node_id"] for e in edges}
+    for n in g["nodes"]:
+        where = f"{gid}.{n['node_id']}"
+        if n["node_id"] not in roots and n["node_id"] not in has_incoming:
+            out.append(("graph", f"{where}: not a declared root and has no incoming edge (depends_on)"))
+        if not n["postconditions"]:
+            out.append(("graph", f"{where}: has no postcondition"))
+        if n["kind"] == "WRITE" and not n["preconditions"]:
+            out.append(("graph", f"{where}: a WRITE node needs a precondition"))
+    if len(known) > 1:
+        component = {i: i for i in known}
+
+        def find(x: str) -> str:
+            while component[x] != x:
+                component[x] = component[component[x]]
+                x = component[x]
+            return x
+
+        for e in edges:
+            component[find(e["node_id"])] = find(e["depends_on"])
+        if len({find(i) for i in known}) > 1:
+            out.append(("graph", f"{gid}: the graph is not connected by its edges (a list of endpoints is not a graph)"))
     return out
 
 
