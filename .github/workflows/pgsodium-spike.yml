@@ -1,0 +1,23 @@
+# SEC-12 spike (test infrastructure only; nothing is adopted). Builds PostgreSQL 17.11 on Alpine with libsodium and
+# pgsodium from pinned sources, then runs checks T1 to T6 of docs/security/w2-ed25519-extension-evaluation.md.
+# No secrets are read and no environment is used. The database runs in a throwaway container on trust auth.
+name: pgsodium-spike
+on:
+  pull_request:
+    paths: ['deploy/spike/pgsodium/**', '.github/workflows/pgsodium-spike.yml']
+  push:
+    branches: [claude/zealous-bohr-twqkij]
+    paths: ['deploy/spike/pgsodium/**', '.github/workflows/pgsodium-spike.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  spike:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build the image (every download is checked against a pin)
+        run: docker build -t pgsodium-spike:ci deploy/spike/pgsodium
+      - name: Run T1 to T6
+        run: deploy/spike/pgsodium/run.sh pgsodium-spike:ci
