@@ -95,7 +95,7 @@ expect_fail T5 "RESTRICTION: SET ROLE to the migration role" ex "SET ROLE spike_
 expect_fail T5 "RESTRICTION: SET session_replication_role" ex "SET session_replication_role = replica" "permission denied"
 # A GRANT by a non-owner only warns and grants nothing, so the assertion is on the privilege itself.
 ex -c "GRANT ALL ON spike.trusted_key TO execution_rw" >/dev/null
-expect_eq   T5 "RESTRICTION: after trying to grant itself rights, execution_rw still cannot INSERT, UPDATE or DELETE trusted_key" "f|f|f" "$(pg -c "SELECT has_table_privilege('execution_rw','spike.trusted_key','INSERT') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','UPDATE') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','DELETE')")"
+expect_eq   T5 "RESTRICTION: after trying to grant itself rights, execution_rw still cannot INSERT, UPDATE or DELETE trusted_key" "false|false|false" "$(pg -c "SELECT has_table_privilege('execution_rw','spike.trusted_key','INSERT') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','UPDATE') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','DELETE')")"
 expect_ok   T5 "restriction control only: REVOKE INSERT is applied by the owner" pg "REVOKE INSERT ON spike.execution_receipt FROM execution_rw"
 expect_fail T5 "RESTRICTION ALONE refuses even a valid receipt (it is not authentication)" ex "$(ins ok_third)" "permission denied"
 expect_ok   T5 "INSERT grant restored for the T6 tests" pg "GRANT INSERT ON spike.execution_receipt TO execution_rw"
