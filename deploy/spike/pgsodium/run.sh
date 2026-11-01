@@ -74,7 +74,8 @@ done
 expect_fail T4 "63-byte receipt signature refused" ex "INSERT INTO spike.execution_receipt SELECT tenant_id, 'g20', attempt, state, key_id, substr(signature,1,63) FROM public.spike_receipt_sig WHERE name='ok'" "must be 64 bytes"
 expect_fail T4 "65-byte receipt signature refused" ex "INSERT INTO spike.execution_receipt SELECT tenant_id, 'g21', attempt, state, key_id, signature || '\\x00'::bytea FROM public.spike_receipt_sig WHERE name='ok'" "must be 64 bytes"
 expect_fail T4 "empty receipt signature refused" ex "INSERT INTO spike.execution_receipt SELECT tenant_id, 'g22', attempt, state, key_id, ''::bytea FROM public.spike_receipt_sig WHERE name='ok'" "must be 64 bytes"
-expect_fail T4 "NULL receipt signature refused" ex "INSERT INTO spike.execution_receipt SELECT tenant_id, 'g23', attempt, state, key_id, NULL FROM public.spike_receipt_sig WHERE name='ok'" "null value"
+# The BEFORE INSERT trigger runs before the NOT NULL check, so the wrapper's refusal is what the writer sees.
+expect_fail T4 "NULL receipt signature refused" ex "INSERT INTO spike.execution_receipt SELECT tenant_id, 'g23', attempt, state, key_id, NULL FROM public.spike_receipt_sig WHERE name='ok'" "NULL argument"
 expect_eq   T4 "only the two valid receipts are in the table" 2 "$(pg -c 'SELECT count(*) FROM spike.execution_receipt')"
 
 # T5: authentication (the trigger refuses a forged receipt) and restriction (the role cannot change the control) are separate tests.
@@ -92,7 +93,9 @@ expect_fail T5 "RESTRICTION: replace the verifier" ex "CREATE OR REPLACE FUNCTIO
 expect_fail T5 "RESTRICTION: alter the verifier's search_path" ex "ALTER FUNCTION spike.verify_receipt() SET search_path = public" "must be owner"
 expect_fail T5 "RESTRICTION: SET ROLE to the migration role" ex "SET ROLE spike_migration" "permission denied"
 expect_fail T5 "RESTRICTION: SET session_replication_role" ex "SET session_replication_role = replica" "permission denied"
-expect_fail T5 "RESTRICTION: grant itself rights on trusted_key" ex "GRANT ALL ON spike.trusted_key TO execution_rw" "permission denied"
+# A GRANT by a non-owner only warns and grants nothing, so the assertion is on the privilege itself.
+ex -c "GRANT ALL ON spike.trusted_key TO execution_rw" >/dev/null
+expect_eq   T5 "RESTRICTION: after trying to grant itself rights, execution_rw still cannot INSERT, UPDATE or DELETE trusted_key" "f|f|f" "$(pg -c "SELECT has_table_privilege('execution_rw','spike.trusted_key','INSERT') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','UPDATE') ||'|'|| has_table_privilege('execution_rw','spike.trusted_key','DELETE')")"
 expect_ok   T5 "restriction control only: REVOKE INSERT is applied by the owner" pg "REVOKE INSERT ON spike.execution_receipt FROM execution_rw"
 expect_fail T5 "RESTRICTION ALONE refuses even a valid receipt (it is not authentication)" ex "$(ins ok_third)" "permission denied"
 expect_ok   T5 "INSERT grant restored for the T6 tests" pg "GRANT INSERT ON spike.execution_receipt TO execution_rw"
