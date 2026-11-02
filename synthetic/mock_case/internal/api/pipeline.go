@@ -38,6 +38,14 @@ func withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, dbTimeout)
 }
 
+// commitsRegardless runs the command of an effect whose contract is "the command commits and only the answer is
+// affected" (README, effects table). The command must not be cancelled because the caller gave up while it was
+// still in the database: that caller is the one the effect exists to produce, and a rolled-back command would make
+// the case system report an effect it did not deliver. The database deadline of exec still bounds it.
+func (c *opCall) commitsRegardless(ctx context.Context, cmd store.Cmd, eff *faultplan.Effect) reply {
+	return c.exec(context.WithoutCancel(ctx), cmd, eff)
+}
+
 // run executes an operation under a database deadline.
 func (c *opCall) exec(ctx context.Context, cmd store.Cmd, eff *faultplan.Effect) reply {
 	ctx, cancel := withDeadline(ctx)
@@ -119,14 +127,14 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 			}
 		case eff.Name == faultplan.EffectHTTP5XX:
 			cmd.StatusOverride = eff.Status
-			if rep := call.exec(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
+			if rep := call.commitsRegardless(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
 				s.respond(w, corr, rep) // the command itself failed: report that, not the injected status
 			} else {
 				writeErr(w, corr, unavailable(eff.Status))
 			}
 		case eff.Name == faultplan.EffectTimeoutAfterCommit || eff.Name == faultplan.EffectDropResponse:
 			cmd.Suppressed = true
-			if rep := call.exec(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
+			if rep := call.commitsRegardless(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
 				s.respond(w, corr, rep)
 				return
 			}
@@ -144,7 +152,7 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 		case eff.Name == faultplan.EffectNearTimeoutAfter:
 			// The command commits at once and the real answer is held for the delay: a caller that gives up first
 			// has a committed case it does not know about.
-			rep := call.exec(ctx, cmd, eff)
+			rep := call.commitsRegardless(ctx, cmd, eff)
 			if !sleep(ctx, eff.Delay) {
 				return
 			}
