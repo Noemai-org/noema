@@ -170,7 +170,7 @@ refused("A4", "admin: DeleteBucket", "admin", "DELETE", f"/{BUCKET}")
 h = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
 record("A4", "after every admin attempt the first version is intact", h[0] == 200 and h[2] == b"SYNTHETIC anchor 1", describe(h))
 exposed = []
-for p in (8888, 9333, 8080, 18888, 19333):
+for p in (8888, 9333, 8080, 18888, 19333, 9001):
     s = socket.socket()
     s.settimeout(2)
     if s.connect_ex(("127.0.0.1", p)) == 0:
@@ -219,19 +219,25 @@ refused("A6", "after the restart the first version is still locked (admin delete
 record("A6", "after the restart the first version is intact", call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})[2] == b"SYNTHETIC anchor 1")
 
 # LIMIT: the operator. Not counted as a pass or a fail: it states what the API-level control does not cover.
-ip = subprocess.run(["docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", CONTAINER], capture_output=True, text=True).stdout.strip()
-import http.client
-for what, path in (("the object's path", f"/buckets/{BUCKET}/head-0001"), ("the locked version's file", f"/buckets/{BUCKET}/head-0001.versions/v_{V1}")):
-    try:
-        c = http.client.HTTPConnection(ip, 8888, timeout=10)
-        c.request("DELETE", path)
-        d = c.getresponse()
-        d.read()
-        gone = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
-        info("LIMIT", f"operator with network access to the filer (not published; reachable on the container network): DELETE {what} beneath the S3 API",
-             f"filer answered {d.status}; S3 read of version 1 now answers {describe(gone)}")
-    except OSError as e:
-        info("LIMIT", f"operator with network access to the filer: DELETE {what}", "could not connect to the filer: " + repr(e))
+if STORE == "seaweedfs":
+    ip = subprocess.run(["docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", CONTAINER], capture_output=True, text=True).stdout.strip()
+    import http.client
+    for what, path in (("the object's path", f"/buckets/{BUCKET}/head-0001"), ("the locked version's file", f"/buckets/{BUCKET}/head-0001.versions/v_{V1}")):
+        try:
+            c = http.client.HTTPConnection(ip, 8888, timeout=10)
+            c.request("DELETE", path)
+            d = c.getresponse()
+            d.read()
+            gone = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
+            info("LIMIT", f"operator with network access to the filer (not published; reachable on the container network): DELETE {what} beneath the S3 API",
+                 f"filer answered {d.status}; S3 read of version 1 now answers {describe(gone)}")
+        except OSError as e:
+            info("LIMIT", f"operator with network access to the filer: DELETE {what}", "could not connect to the filer: " + repr(e))
+else:
+    rm = subprocess.run(["docker", "exec", CONTAINER, "sh", "-c", f"rm -rf /data/{BUCKET}/head-0001"], capture_output=True, text=True)
+    gone = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
+    info("LIMIT", "operator with access to the container removes the object's files under /data, beneath the S3 API",
+         f"rm exit {rm.returncode} {rm.stderr.strip()[:80]}; S3 read of version 1 now answers {describe(gone)}")
 
 out = os.environ.get("GITHUB_STEP_SUMMARY", os.devnull)
 with open(out, "a") as f:
