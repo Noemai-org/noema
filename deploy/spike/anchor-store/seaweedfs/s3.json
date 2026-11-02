@@ -1,0 +1,21 @@
+{
+  "identities": [
+    {
+      "name": "spike_admin",
+      "credentials": [{"accessKey": "SYNTHETICADMINKEY0001", "secretKey": "synthetic-admin-secret-0001-not-a-real-secret"}],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write", "ReadAcp", "WriteAcp", "DeleteBucket", "BypassGovernanceRetention",
+                  "GetObjectRetention", "PutObjectRetention", "GetObjectLegalHold", "PutObjectLegalHold",
+                  "GetBucketObjectLockConfiguration", "PutBucketObjectLockConfiguration", "PutBucketPolicy", "DeleteBucketPolicy"]
+    },
+    {
+      "name": "spike_core_writer",
+      "credentials": [{"accessKey": "SYNTHETICCOREKEY00001", "secretKey": "synthetic-core-secret-0001-not-a-real-secret"}],
+      "actions": ["Write:anchors"]
+    },
+    {
+      "name": "spike_verifier",
+      "credentials": [{"accessKey": "SYNTHETICVERIFYKEY001", "secretKey": "synthetic-verify-secret-001-not-a-real-secret"}],
+      "actions": ["Read:anchors", "List:anchors"]
+    }
+  ]
+}
