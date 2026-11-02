@@ -18,6 +18,7 @@ from benchmark.replay.report import render_markdown
 Json = dict[str, Any]
 FORBIDDEN = "benchmark-heldout"
 DEFAULT_STORIES = ("US-01", "US-06")
+REGISTRY_PATH = Path(__file__).parent / "open_exclusions.json"
 
 
 def _load(path: Path, schema: str, contracts: Contracts) -> Json:
@@ -43,6 +44,20 @@ def _load_run(run_dir: Path, contracts: Contracts) -> tuple[Json, dict[str, Json
     return manifest, results
 
 
+def _registry(path: Path) -> dict[str, Json]:
+    try:
+        document = load_strict(path)
+    except (OSError, ValueError, StrictJsonError) as exc:
+        raise ReplayInputError(f"{path}: {exc}") from exc
+    entries = document.get("exclusions") if isinstance(document, dict) else None
+    if not isinstance(entries, dict) or not entries:
+        raise ReplayInputError(f"{path} has no 'exclusions' object naming at least one case")
+    for case_id, entry in entries.items():
+        if not isinstance(entry, dict) or not all(isinstance(entry.get(k), str) and entry[k] for k in ("reason", "held_by", "opened")):
+            raise ReplayInputError(f"{path}: the exclusion {case_id} needs a reason, held_by and opened")
+    return dict(entries)
+
+
 def _refused(argv: list[str]) -> list[str]:
     return [a for a in argv if FORBIDDEN in a] + [f"${k}" for k, v in os.environ.items() if FORBIDDEN in v]
 
@@ -54,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--first", required=True, help="the first run's output directory")
     parser.add_argument("--second", required=True, help="the second run's output directory")
     parser.add_argument("--story", action="append", help="a user story to compare, repeatable (default: US-01 and US-06)")
-    parser.add_argument("--exclude-mutated", action="store_true", help="compare base cases only; the report records the choice and names the excluded cases")
+    parser.add_argument("--exclude-mutated", action="store_true",
+                        help="leave out only the cases named in the open-exclusions registry; no other case can be dropped, and the report lists each one")
+    parser.add_argument("--open-exclusions", default=str(REGISTRY_PATH), help="the registry of named open exclusions (default: the reviewed file beside this module)")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
     named = _refused(argv)
@@ -71,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
             for m in not_run:
                 print(f"not run, no access: run {m['run_id']}: {m['not_run_reason']}")
             return 3
-        report = compare(suite, first_manifest, first_results, second_manifest, second_results, tuple(args.story or DEFAULT_STORIES), exclude_mutated=args.exclude_mutated)
+        report = compare(suite, first_manifest, first_results, second_manifest, second_results, tuple(args.story or DEFAULT_STORIES),
+                         open_exclusions=_registry(Path(args.open_exclusions)) if args.exclude_mutated else None)
     except ReplayInputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

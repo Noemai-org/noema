@@ -5,6 +5,7 @@ results carry and nothing more. The case result holds the Trust disposition, the
 does not hold the full Record (see LIMITATIONS). An errored case, a missing case or a story with no comparable case is NOT_COMPARABLE, never identical: two
 runs that fail the same way prove nothing about a decision. Generated layer only (INV-22, REQ-AGT-004). SYNTHETIC."""
 import json
+from collections.abc import Mapping
 from typing import Any
 
 Json = dict[str, Any]
@@ -84,7 +85,7 @@ def _compare_case(case_id: str, first: Json | None, second: Json | None) -> Json
 
 
 def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str, Json], second_manifest: Json, second_results: dict[str, Json],
-            stories: tuple[str, ...], *, exclude_mutated: bool = False) -> Json:
+            stories: tuple[str, ...], *, open_exclusions: Mapping[str, Json] | None = None) -> Json:
     if not stories:
         raise ReplayInputError("name the user stories to compare (stories is empty)")
     _check_runs(first_manifest, second_manifest)
@@ -94,13 +95,16 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
     unknown = [s for s in stories if not any(s in entry["covers"] for entry in listed)]
     if unknown:
         raise ReplayInputError(f"the suite has no case covering {', '.join(unknown)}")
+    named = dict(open_exclusions or {})
+    absent = sorted(case_id for case_id in named if not any(entry["case_id"] == case_id for entry in listed))
+    if absent:
+        raise ReplayInputError(f"the open-exclusions registry names {', '.join(absent)}, which the suite does not contain")
     covering = [entry for entry in listed if any(s in entry["covers"] for s in stories)]
-    excluded = [entry["case_id"] for entry in covering if exclude_mutated and entry["mutation"]]
-    open_exclusions = [{"case_id": entry["case_id"], "status": "OPEN", "mutation": entry["mutation"]["name"],
-                        "faults": sorted(c for c in entry["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"),
-                        "covers": sorted(s for s in stories if s in entry["covers"])}
-                       for entry in covering if exclude_mutated and entry["mutation"]]
-    selected = [entry for entry in covering if not (exclude_mutated and entry["mutation"])]
+    dropped = [entry for entry in covering if entry["case_id"] in named]
+    selected = [entry for entry in covering if entry["case_id"] not in named]
+    exclusions = [{"case_id": entry["case_id"], "status": "OPEN", "mutation": entry["mutation"]["name"] if entry["mutation"] else None,
+                   "faults": sorted(c for c in entry["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"),
+                   "covers": sorted(s for s in stories if s in entry["covers"]), **named[entry["case_id"]]} for entry in dropped]
     rows = []
     for entry in selected:
         row = _compare_case(entry["case_id"], first_results.get(entry["case_id"]), second_results.get(entry["case_id"]))
@@ -121,8 +125,8 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
         verdict = "IDENTICAL"
     generator = first_manifest["suite"]["generator"]
     return {
-        "verdict": verdict, "stories": list(stories), "selection": "BASE_CASES_ONLY" if exclude_mutated else "ALL_CASES_COVERING_THE_STORIES",
-        "excluded_mutated": excluded, "open_exclusions": open_exclusions, "case_coverage": {"covered": len(selected), "of": len(covering)}, "stories_covered": covered, "counts": counts,
+        "verdict": verdict, "stories": list(stories), "selection": "NAMED_OPEN_EXCLUSIONS_REMOVED" if exclusions else "ALL_CASES_COVERING_THE_STORIES",
+        "open_exclusions": exclusions, "case_coverage": {"covered": len(selected), "of": len(covering)}, "stories_covered": covered, "counts": counts,
         "first": {"run_id": first_manifest["run_id"], "status": first_manifest["status"]},
         "second": {"run_id": second_manifest["run_id"], "status": second_manifest["status"]},
         "seed": generator["seed"], "generator": {"name": generator["name"], "version": generator["version"]},

@@ -7,7 +7,7 @@ The replay diff. Given two runs of the same cases through Noema's public API, it
 ```
 python -m benchmark.runner --suite S --out RUN_A --run-id <id-a> --commit-sha <sha> ...    # first run
 python -m benchmark.runner --suite S --out RUN_B --run-id <id-b> --commit-sha <sha> ...    # second run, a separate run with its own ID
-python -m benchmark.replay  --suite S --first RUN_A --second RUN_B --out OUT [--story US-01 --story US-06] [--exclude-mutated]
+python -m benchmark.replay  --suite S --first RUN_A --second RUN_B --out OUT [--story US-01 --story US-06] [--exclude-mutated [--open-exclusions FILE]]
 ```
 
 Output: `OUT/replay.json` and `OUT/replay.md`, byte-identical for the same inputs.
@@ -22,9 +22,11 @@ Exit codes: **0** IDENTICAL; **1** DIFFERENT or NOT_COMPARABLE (the report is wr
 - A difference outranks NOT_COMPARABLE. The verdict is IDENTICAL only when every selected case is compared and equal and every story has at least one compared case.
 - Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters and the outcome digest. Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
 
-## Selection (founders' decision of 1 Nov 2026, recorded in every report)
+## Selection (founders' decision of 1 Nov 2026; tightened by the Architect on 2 Nov after Codex's finding)
 
-The default selects every case whose manifest `covers` names a requested story, mutated ones included. For BEN-05 the founders chose `--exclude-mutated`: the five runnable base cases. Of the six cases in the default suite (seed 20261020, generator 1.3.0), `BEN-CLEAN-1007` (US-01 with `INJECTION_IN_NAME`) needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault. The report states "covers 5 of 6 cases" and lists the case under **Open exclusions** with its fault tag and status OPEN (`open_exclusions` in `replay.json`). An exclusion is never a pass, and the case stays in the G2 and G3 runs. Detail: `status/BEN-05.md`.
+The default selects every case whose manifest `covers` names a requested story, mutated ones included. `--exclude-mutated` removes **only the cases named in `open_exclusions.json`** (the reviewed registry beside this module, or the file given by `--open-exclusions`). It never removes a case by kind: an unnamed mutated case stays in, and an errored or missing story-covering case, named or not by anyone else, makes the verdict NOT_COMPARABLE. A registry entry needs a reason, who holds the blocking fault and the date it was opened; an entry for a case the suite does not contain is refused (exit 2).
+
+Today the registry names one case: `BEN-CLEAN-1007` (US-01 with `INJECTION_IN_NAME`), which needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault that is not wired. The report states "covers 5 of 6 cases" and lists the case under **Open exclusions** with its fault tag, holder, date, status OPEN and reason. An exclusion is never a pass, and the case stays in the G2 and G3 runs. Removing an entry is how an exclusion is closed. Detail: `status/BEN-05.md`.
 
 ## What the diff does not cover
 

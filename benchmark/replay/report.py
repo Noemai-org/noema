@@ -44,8 +44,9 @@ def render_markdown(report: Json) -> str:
     if report["open_exclusions"]:
         lines += ["", "## Open exclusions", "",
                   f"This report covers {report['case_coverage']['covered']} of {report['case_coverage']['of']} cases. Each case below is excluded, not passed, and stays "
-                  "open until it can be run and compared.", "", "| Case | Covers | Mutation | Fault it needs | Status |", "|---|---|---|---|---|"]
-        lines += [f"| {e['case_id']} | {', '.join(e['covers'])} | {e['mutation']} | {', '.join(e['faults']) or 'none named'} | {e['status']} |" for e in report["open_exclusions"]]
+                  "open until it can be run and compared.", "", "| Case | Covers | Mutation | Fault it needs | Held by | Opened | Status | Reason |", "|---|---|---|---|---|---|---|---|"]
+        lines += [f"| {e['case_id']} | {', '.join(e['covers'])} | {e['mutation'] or ''} | {', '.join(e['faults']) or 'none named'} | {e['held_by']} | {e['opened']} | {e['status']} "
+                  f"| {_cell(e['reason'])} |" for e in report["open_exclusions"]]
     lines += ["", "## What was compared", "", "Compared: " + ", ".join(report["compared_fields"]) + ".", "",
               "Not compared: " + ", ".join(report["not_compared"]) + " (they legitimately differ between runs).", "", "## Limits", ""]
     lines += [f"- {text}" for text in report["limitations"]]

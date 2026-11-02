@@ -10,7 +10,7 @@ Updated 2026-10-31. Owner: the Founder (benchmark owner B). Agent: Benchmark Own
 
 ## Decision (founders, 1 Nov 2026): compare the five runnable base cases
 
-BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`): `BEN-CLEAN-0001`, `-0014`, `-0027` (US-01) and `BEN-TMO-0001`, `-0018` (US-06). `BEN-CLEAN-1007` (US-01, `INJECTION_IN_NAME`) is a **named, open exclusion**, not a drop: it needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault, and stays open until that fault is wired and the case can be run and compared. Every report states "covers 5 of 6 cases" in its selection row and lists the exclusion under "Open exclusions" (`open_exclusions` in `replay.json`). The case stays in the G2 and G3 runs. Nobody may describe the G1 evidence as covering all of US-01 and US-06.
+BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`, which removes only the cases in `benchmark/replay/open_exclusions.json`): `BEN-CLEAN-0001`, `-0014`, `-0027` (US-01) and `BEN-TMO-0001`, `-0018` (US-06). `BEN-CLEAN-1007` (US-01, `INJECTION_IN_NAME`) is a **named, open exclusion**, not a drop: it needs `mock-customer INJECTION_PAYLOAD`, a Tushe-held fault, and stays open until that fault is wired and the case can be run and compared. Every report states "covers 5 of 6 cases" in its selection row and lists the exclusion under "Open exclusions" (`open_exclusions` in `replay.json`). The case stays in the G2 and G3 runs. Nobody may describe the G1 evidence as covering all of US-01 and US-06.
 
 ## How BEN-05 runs the day OUT-01 and REC-03 land
 
@@ -30,3 +30,8 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`)
 - Purpose: assess BEN-01 to BEN-05 against `main`; prepare BEN-05 so it runs when OUT-01 and REC-03 land; then the G2 case families in tasks.csv order; DEC-2026-10-31 additions in the stated order.
 - Receiver used it for: the assessment (`status/roles/benchmark-owner.md`) and this tooling.
 - Evidence: this PR.
+
+### 2026-11-02 · Architect decision on Codex's finding (noema#102)
+- Purpose: `--exclude-mutated` may exclude only the named open exclusions (`BEN-CLEAN-1007`), never an errored or missing case, and an errored or missing story-covering case makes the overall verdict NOT_COMPARABLE. The Codex text itself was not visible on the PR (no review thread or comment from it); the change follows the Architect's wording.
+- Receiver used it for: `compare(..., open_exclusions=...)` replaces the boolean; the registry `open_exclusions.json`; selection value `NAMED_OPEN_EXCLUSIONS_REMOVED`; 8 new tests (a second unnamed mutated case that errors or goes missing, a registry entry for an absent case, an exclusion that cannot hide a difference).
+- Evidence: the commit that follows on noema#102.

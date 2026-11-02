@@ -9,7 +9,7 @@ from typing import Any
 
 from benchmark.contracts import Contracts, pretty_bytes
 from benchmark.replay.__main__ import main
-from benchmark.replay.test_compare import pair, run_manifest, suite_manifest
+from benchmark.replay.test_compare import REGISTRY, pair, run_manifest, suite_manifest
 
 Json = dict[str, Any]
 
@@ -105,17 +105,38 @@ class Cli(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("benchmark-heldout", err)
 
-    def test_exclude_mutated_is_recorded_in_the_report(self) -> None:
+    def registry(self, entries: dict[str, Json]) -> str:
+        path = self.root / "open_exclusions.json"
+        path.write_bytes(pretty_bytes({"exclusions": entries}))
+        return str(path)
+
+    def test_the_named_open_exclusions_are_applied_and_recorded_in_the_report(self) -> None:
         a, b = self.runs()
-        self.assertEqual(0, invoke(*self.args(a, b, "--exclude-mutated"))[0])
+        reg = self.registry(REGISTRY)
+        self.assertEqual(0, invoke(*self.args(a, b, "--exclude-mutated", "--open-exclusions", reg))[0])
         report = json.loads((self.root / "out" / "replay.json").read_text())
-        self.assertEqual("BASE_CASES_ONLY", report["selection"])
+        self.assertEqual("NAMED_OPEN_EXCLUSIONS_REMOVED", report["selection"])
         md = (self.root / "out" / "replay.md").read_text()
-        self.assertIn("BASE_CASES_ONLY", md)
+        self.assertIn("NAMED_OPEN_EXCLUSIONS_REMOVED", md)
         self.assertIn("covers 2 of 3 cases", md)
         self.assertIn("Open exclusions", md)
         self.assertIn("BEN-CLEAN-1007", md)
         self.assertIn("FAULT:INJECTION_PAYLOAD", md)
+
+    def test_the_packaged_registry_names_ben_clean_1007_and_the_tushe_held_fault(self) -> None:
+        packaged = json.loads((Path(__file__).parent / "open_exclusions.json").read_text())
+        entry = packaged["exclusions"]["BEN-CLEAN-1007"]
+        self.assertEqual("Tushe", entry["held_by"])
+        self.assertIn("INJECTION_PAYLOAD", entry["reason"])
+        self.assertEqual(["BEN-CLEAN-1007"], sorted(packaged["exclusions"]))
+
+    def test_a_malformed_registry_exits_2(self) -> None:
+        a, b = self.runs()
+        bad = self.root / "bad.json"
+        bad.write_text("{}")
+        code, _, err = invoke(*self.args(a, b, "--exclude-mutated", "--open-exclusions", str(bad)))
+        self.assertEqual(2, code)
+        self.assertIn("exclusions", err)
 
     def test_stories_default_to_us_01_and_us_06(self) -> None:
         a, b = self.runs()

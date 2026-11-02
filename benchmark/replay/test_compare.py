@@ -53,6 +53,9 @@ def result(case_id: str, run_id: str, *, disposition: str = "ALLOW", grant: str 
             "path": "CLEAN", "latency_ms": 900 if run_id == "run_a" else 1100, "cost_usd_micros": None, "outcome_digest": "sha256:" + "1" * 64}
 
 
+REGISTRY: dict[str, Json] = {"BEN-CLEAN-1007": {"reason": "needs a Tushe-held fault that is not wired", "held_by": "Tushe", "opened": "2026-11-01"}}
+
+
 def pair(**changes: Any) -> tuple[Json, Json]:
     a = {"BEN-CLEAN-0001": result("BEN-CLEAN-0001", "run_a"), "BEN-CLEAN-1007": result("BEN-CLEAN-1007", "run_a"), "BEN-TMO-0001": result("BEN-TMO-0001", "run_a")}
     b = {k: result(k, "run_b") for k in a}
@@ -62,10 +65,10 @@ def pair(**changes: Any) -> tuple[Json, Json]:
 
 
 def go(a: dict[str, Json] | None = None, b: dict[str, Json] | None = None, *, manifest_b: Json | None = None, stories: tuple[str, ...] = ("US-01", "US-06"),
-       exclude_mutated: bool = False) -> Json:
+       exclusions: dict[str, Json] | None = None, suite: Json | None = None) -> Json:
     pa, pb = pair()
-    return compare(suite_manifest(), run_manifest("run_a"), a if a is not None else pa, manifest_b or run_manifest("run_b"), b if b is not None else pb, stories,
-                   exclude_mutated=exclude_mutated)
+    return compare(suite or suite_manifest(), run_manifest("run_a"), a if a is not None else pa, manifest_b or run_manifest("run_b"), b if b is not None else pb, stories,
+                   open_exclusions=exclusions)
 
 
 class Identical(unittest.TestCase):
@@ -89,36 +92,71 @@ class Identical(unittest.TestCase):
         self.assertEqual(go(), go())
 
 
+def errored(case_id: str, run_id: str) -> Json:
+    r = result(case_id, run_id)
+    r.update({"status": "ERROR", "error": {"code": "FAULT_UNSUPPORTED", "message": "x"}, "observed": None, "environment": None, "outcome_digest": None})
+    return r
+
+
+def second_mutated_suite() -> Json:
+    suite = suite_manifest()
+    extra = dict(suite["cases"][1])
+    extra.update({"case_id": "BEN-CLEAN-1008", "mutation": {"kind": "AMBIGUITY", "name": "PERTURB_AMOUNT"}})
+    suite["cases"].append(extra)
+    return suite
+
+
 class Selection(unittest.TestCase):
     def test_default_selection_is_every_case_covering_the_stories_and_says_so(self) -> None:
-        self.assertEqual("ALL_CASES_COVERING_THE_STORIES", go()["selection"])
-
-    def test_excluding_mutated_cases_drops_them_and_the_report_records_the_choice(self) -> None:
-        report = go(exclude_mutated=True)
-        self.assertEqual(["BEN-CLEAN-0001", "BEN-TMO-0001"], [c["case_id"] for c in report["cases"]])
-        self.assertEqual("BASE_CASES_ONLY", report["selection"])
-        self.assertEqual(["BEN-CLEAN-1007"], report["excluded_mutated"])
-
-    def test_the_report_states_the_coverage_as_n_of_m_and_names_each_exclusion_as_open(self) -> None:
-        report = go(exclude_mutated=True)
-        self.assertEqual({"covered": 2, "of": 3}, report["case_coverage"])
-        self.assertEqual([{"case_id": "BEN-CLEAN-1007", "status": "OPEN", "mutation": "INJECTION_IN_NAME", "faults": ["FAULT:INJECTION_PAYLOAD"],
-                           "covers": ["US-01"]}], report["open_exclusions"])
-
-    def test_the_default_selection_covers_all_and_has_no_exclusions(self) -> None:
         report = go()
-        self.assertEqual({"covered": 3, "of": 3}, report["case_coverage"])
+        self.assertEqual("ALL_CASES_COVERING_THE_STORIES", report["selection"])
         self.assertEqual([], report["open_exclusions"])
 
-    def test_an_errored_mutated_case_does_not_block_the_base_only_verdict_but_stays_listed(self) -> None:
-        pa, pb = pair()
-        for run_id, results in (("run_a", pa), ("run_b", pb)):
-            r = results["BEN-CLEAN-1007"]
-            r.update({"status": "ERROR", "error": {"code": "FAULT_UNSUPPORTED", "message": "x"}, "observed": None, "environment": None, "outcome_digest": None})
-        self.assertEqual("NOT_COMPARABLE", go(pa, pb)["verdict"])
-        report = go(pa, pb, exclude_mutated=True)
+    def test_a_named_open_exclusion_is_dropped_and_listed_with_its_reason(self) -> None:
+        report = go(exclusions=REGISTRY)
+        self.assertEqual(["BEN-CLEAN-0001", "BEN-TMO-0001"], [c["case_id"] for c in report["cases"]])
+        self.assertEqual("NAMED_OPEN_EXCLUSIONS_REMOVED", report["selection"])
+        self.assertEqual({"covered": 2, "of": 3}, report["case_coverage"])
+        self.assertEqual([{"case_id": "BEN-CLEAN-1007", "status": "OPEN", "mutation": "INJECTION_IN_NAME", "faults": ["FAULT:INJECTION_PAYLOAD"], "covers": ["US-01"],
+                           "reason": "needs a Tushe-held fault that is not wired", "held_by": "Tushe", "opened": "2026-11-01"}], report["open_exclusions"])
         self.assertEqual("IDENTICAL", report["verdict"])
-        self.assertEqual(["BEN-CLEAN-1007"], report["excluded_mutated"])
+
+    def test_an_unnamed_mutated_case_is_never_excluded_and_an_error_in_it_makes_the_verdict_not_comparable(self) -> None:
+        pa, pb = pair()
+        pa["BEN-CLEAN-1008"], pb["BEN-CLEAN-1008"] = errored("BEN-CLEAN-1008", "run_a"), errored("BEN-CLEAN-1008", "run_b")
+        report = go(pa, pb, exclusions=REGISTRY, suite=second_mutated_suite())
+        self.assertIn("BEN-CLEAN-1008", [c["case_id"] for c in report["cases"]])
+        self.assertEqual("NOT_COMPARABLE", report["verdict"])
+        self.assertEqual(["BEN-CLEAN-1007"], [e["case_id"] for e in report["open_exclusions"]])
+
+    def test_an_unnamed_mutated_case_missing_from_a_run_makes_the_verdict_not_comparable(self) -> None:
+        pa, pb = pair()
+        pa["BEN-CLEAN-1008"] = result("BEN-CLEAN-1008", "run_a")
+        report = go(pa, pb, exclusions=REGISTRY, suite=second_mutated_suite())
+        self.assertEqual("NOT_COMPARABLE", report["verdict"])
+        self.assertEqual("no result in the second run", next(c for c in report["cases"] if c["case_id"] == "BEN-CLEAN-1008")["reason"])
+
+    def test_an_errored_or_missing_base_case_is_never_excluded(self) -> None:
+        pa, pb = pair()
+        pa["BEN-TMO-0001"], pb["BEN-TMO-0001"] = errored("BEN-TMO-0001", "run_a"), errored("BEN-TMO-0001", "run_b")
+        self.assertEqual("NOT_COMPARABLE", go(pa, pb, exclusions=REGISTRY)["verdict"])
+        pa, pb = pair()
+        del pb["BEN-CLEAN-0001"]
+        self.assertEqual("NOT_COMPARABLE", go(pa, pb, exclusions=REGISTRY)["verdict"])
+
+    def test_a_registry_entry_for_a_case_not_in_the_suite_is_refused(self) -> None:
+        with self.assertRaises(ReplayInputError) as ctx:
+            go(exclusions={"BEN-NOPE-9999": {"reason": "x", "held_by": "Tushe", "opened": "2026-11-01"}})
+        self.assertIn("BEN-NOPE-9999", str(ctx.exception))
+
+    def test_a_registry_entry_outside_the_requested_stories_is_not_applied_and_not_listed(self) -> None:
+        report = go(exclusions=REGISTRY, stories=("US-06",))
+        self.assertEqual([], report["open_exclusions"])
+        self.assertEqual({"covered": 1, "of": 1}, report["case_coverage"])
+
+    def test_an_exclusion_cannot_hide_a_difference_in_another_case(self) -> None:
+        pa, pb = pair(**{"BEN-TMO-0001": result("BEN-TMO-0001", "run_b", disposition="ESCALATE")})
+        self.assertEqual("DIFFERENT", go(pa, pb, exclusions=REGISTRY)["verdict"])
 
 
 class Different(unittest.TestCase):
