@@ -180,8 +180,11 @@ record("A4", "no filer, master or volume port is published to the host (only the
 
 # A5: the verifier's credential reads and cannot write.
 record("A5", "verifier: GetObject returns the anchor", call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})[2] == b"SYNTHETIC anchor 1")
+vers = call("verifier", "GET", f"/{BUCKET}", query={"versions": ""})
+record("A5", "verifier: ListObjectVersions shows the key and version 1", vers[0] == 200 and b"head-0001" in vers[2] and V1.encode() in vers[2], describe(vers))
 lst = call("verifier", "GET", f"/{BUCKET}", query={"list-type": "2"})
-record("A5", "verifier: ListObjectsV2 shows the key", lst[0] == 200 and b"head-0001" in lst[2], describe(lst))
+info("A5", "verifier: the default listing (ListObjectsV2) after the core created a delete marker in A3", f"{describe(lst)}; key shown: {b'head-0001' in lst[2]}. "
+     "A write-only writer can hide a key from the default listing with a delete marker (data intact); the verifier must list versions and address them by version id")
 refused("A5", "verifier: PutObject", "verifier", "PUT", f"/{BUCKET}/head-9999", body=b"x")
 refused("A5", "verifier: delete the version", "verifier", "DELETE", f"/{BUCKET}/head-0001", query={"versionId": V1})
 
@@ -206,23 +209,29 @@ down = put_anchor("core", "head-0002", "SYNTHETIC anchor 2")
 record("A6", "store down: the anchor write fails visibly (no answer), never silently", down[0] is None, describe(down))
 subprocess.run(["docker", "start", CONTAINER], check=True, capture_output=True)
 record("A6", "store restarted and answers again", wait_ready(), "")
+t0 = time.time()
 up = put_anchor("core", "head-0002", "SYNTHETIC anchor 2")
-record("A6", "the retried anchor write succeeds", up[0] == 200, describe(up))
+while up[0] != 200 and time.time() - t0 < 90:  # REQ-AUD-007: a missed anchor is retried. S3 answers before a volume server is ready.
+    time.sleep(3)
+    up = put_anchor("core", "head-0002", "SYNTHETIC anchor 2")
+record("A6", "the anchor write, retried with backoff after the restart, succeeds within 90 s", up[0] == 200, f"{describe(up)} after {int(time.time() - t0)} s")
 refused("A6", "after the restart the first version is still locked (admin delete refused)", "admin", "DELETE", f"/{BUCKET}/head-0001", query={"versionId": V1})
 record("A6", "after the restart the first version is intact", call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})[2] == b"SYNTHETIC anchor 1")
 
 # LIMIT: the operator. Not counted as a pass or a fail: it states what the API-level control does not cover.
 ip = subprocess.run(["docker", "inspect", "--format", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", CONTAINER], capture_output=True, text=True).stdout.strip()
-try:
-    import http.client
-    c = http.client.HTTPConnection(ip, 8888, timeout=5)
-    c.request("DELETE", f"/buckets/{BUCKET}/head-0001")
-    d = c.getresponse()
-    d.read()
-    gone = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
-    info("LIMIT", "operator with network access to the filer (not published, reachable on the container network): DELETE under the S3 API", f"filer answered {d.status}; S3 read of version 1 now answers {describe(gone)}")
-except OSError as e:
-    info("LIMIT", "operator with network access to the filer: DELETE under the S3 API", "could not connect to the filer: " + repr(e))
+import http.client
+for what, path in (("the object's path", f"/buckets/{BUCKET}/head-0001"), ("the locked version's file", f"/buckets/{BUCKET}/head-0001.versions/v_{V1}")):
+    try:
+        c = http.client.HTTPConnection(ip, 8888, timeout=10)
+        c.request("DELETE", path)
+        d = c.getresponse()
+        d.read()
+        gone = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
+        info("LIMIT", f"operator with network access to the filer (not published; reachable on the container network): DELETE {what} beneath the S3 API",
+             f"filer answered {d.status}; S3 read of version 1 now answers {describe(gone)}")
+    except OSError as e:
+        info("LIMIT", f"operator with network access to the filer: DELETE {what}", "could not connect to the filer: " + repr(e))
 
 out = os.environ.get("GITHUB_STEP_SUMMARY", os.devnull)
 with open(out, "a") as f:
