@@ -82,6 +82,7 @@ expect_eq   T4 "only the two valid receipts are in the table" 2 "$(pg -c 'SELECT
 expect_fail T5 "AUTHENTICATION: execution_rw INSERT of a well-formed forged receipt (the DEBT-01 case) is refused" ex "$(ins forged_shape_only)" "does not verify"
 expect_fail T5 "calling the trigger function directly is refused" ex "SELECT spike.verify_receipt()" "trigger"
 expect_fail T5 "pg_temp shadowing of octet_length does not weaken the verifier" ex "CREATE FUNCTION pg_temp.octet_length(bytea) RETURNS int LANGUAGE sql AS 'SELECT 64'; $(ins forged_shape_only)" "does not verify"
+expect_fail T5 "RESTRICTION: execution_rw cannot call pgsodium's verifier directly" ex "SELECT pgsodium.crypto_sign_verify_detached(decode(repeat('00',64),'hex'), '\\x00', decode(repeat('00',32),'hex'))" "permission denied"
 expect_fail T5 "RESTRICTION: INSERT into trusted_key" ex "INSERT INTO spike.trusted_key (key_id, public_key, valid_from) VALUES ('kEvil', decode(repeat('00',32),'hex'), now())" "permission denied"
 expect_fail T5 "RESTRICTION: UPDATE trusted_key" ex "UPDATE spike.trusted_key SET public_key = decode(repeat('01',32),'hex')" "permission denied"
 expect_fail T5 "RESTRICTION: DELETE trusted_key" ex "DELETE FROM spike.trusted_key" "permission denied"
@@ -101,14 +102,25 @@ expect_fail T5 "RESTRICTION ALONE refuses even a valid receipt (it is not authen
 expect_ok   T5 "INSERT grant restored for the T6 tests" pg "GRANT INSERT ON spike.execution_receipt TO execution_rw"
 expect_fail T5 "a superuser in session_replication_role=replica still hits the always-enabled trigger" pg "SET session_replication_role = replica; $(ins forged_well_formed)" "does not verify"
 
-# T6: extension unavailable. The insert must fail closed with the error visible to the writer, and add no row.
+# T6: verification unavailable. Pass condition agreed with the Engineering Lead (GOV-28 D13): with the extension dropped, or its
+# library file missing, or the verification function raising, a correctly signed receipt is refused, no row is added, and no other
+# write of that transaction is kept. No SECURITY_EVENT is expected (no Record append can succeed while verification is
+# unavailable). That the core returns and logs the error is the Controller's test (W4), not this spike's.
+atomic() { echo "INSERT INTO spike.marker VALUES (1); $(ins ok_third)"; }
 docker exec "$C" mv /usr/local/lib/postgresql/pgsodium.so /usr/local/lib/postgresql/pgsodium.so.away
 expect_fail T6 "library file missing: a VALID receipt is refused, not accepted unverified" ex "$(ins ok_third)" "pgsodium"
+expect_fail T6 "library file missing: the transaction's other write is not kept either" ex "$(atomic)" "pgsodium"
 docker exec "$C" mv /usr/local/lib/postgresql/pgsodium.so.away /usr/local/lib/postgresql/pgsodium.so
-expect_eq   T6 "no row was added while the library was missing" 2 "$(pg -c 'SELECT count(*) FROM spike.execution_receipt')"
+expect_eq   T6 "library file missing: no receipt row and no marker row were added" "2|0" "$(pg -c 'SELECT (SELECT count(*) FROM spike.execution_receipt) ||'"'"'|'"'"'|| (SELECT count(*) FROM spike.marker)')"
+expect_ok   T6 "the verification function is made unusable (EXECUTE revoked from the verifier's owner)" pg "REVOKE EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) FROM spike_migration"
+expect_fail T6 "verification function raising: a VALID receipt is refused" ex "$(ins ok_third)" "permission denied"
+expect_fail T6 "verification function raising: the transaction's other write is not kept either" ex "$(atomic)" "permission denied"
+expect_eq   T6 "verification function raising: no receipt row and no marker row were added" "2|0" "$(pg -c 'SELECT (SELECT count(*) FROM spike.execution_receipt) ||'"'"'|'"'"'|| (SELECT count(*) FROM spike.marker)')"
+expect_ok   T6 "the function is made usable again" pg "GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO spike_migration"
 expect_ok   T6 "the extension is dropped" pg "DROP EXTENSION pgsodium"
 expect_fail T6 "extension dropped: a VALID receipt is refused" ex "$(ins ok_third)" "pgsodium"
-expect_eq   T6 "no row was added while the extension was absent" 2 "$(pg -c 'SELECT count(*) FROM spike.execution_receipt')"
+expect_fail T6 "extension dropped: the transaction's other write is not kept either" ex "$(atomic)" "pgsodium"
+expect_eq   T6 "extension dropped: no receipt row and no marker row were added" "2|0" "$(pg -c 'SELECT (SELECT count(*) FROM spike.execution_receipt) ||'"'"'|'"'"'|| (SELECT count(*) FROM spike.marker)')"
 
 {
   echo "## pgsodium spike (SEC-12): PostgreSQL 17.11 on Alpine"
@@ -116,6 +128,6 @@ expect_eq   T6 "no row was added while the extension was absent" 2 "$(pg -c 'SEL
   echo; echo "| Test | Check | Result | Detail |"; echo "|---|---|---|---|"
   printf '%s\n' "${ROWS[@]}"
   echo; echo "**$PASS passed, $FAIL failed.**"
-  echo "T6 shows the insert fails closed. It does not show an alert: the SECURITY_EVENT and DEBT-02 channel belong to the Controller (W4)."
+  echo "T6 shows the insert fails closed and nothing else of its transaction is kept. It does not show that the core logs the error, nor an alert: those are the Controller (W4) and DEBT-02."
 } | tee -a "$SUMMARY"
 [ "$FAIL" -eq 0 ]

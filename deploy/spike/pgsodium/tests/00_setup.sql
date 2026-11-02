@@ -10,6 +10,8 @@ CREATE EXTENSION pgsodium;                       -- T1: no shared_preload_librar
 -- which we do not want). We do not use Transparent Column Encryption, so the trigger is disabled and the setting is off.
 ALTER EVENT TRIGGER pgsodium_trg_mask_update DISABLE;
 ALTER DATABASE spike SET pgsodium.enable_event_trigger = 'off';
+-- As in the GOV-28 design (D10): no pgsodium function is executable by PUBLIC; only the verifier's owner may call this one.
+REVOKE EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) FROM PUBLIC;
 GRANT USAGE ON SCHEMA pgsodium TO spike_migration;
 GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO spike_migration;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
@@ -33,6 +35,8 @@ CREATE TABLE spike.execution_receipt (
   tenant_id text NOT NULL, grant_id text NOT NULL, attempt int NOT NULL, state text NOT NULL,
   key_id text NOT NULL, signature bytea NOT NULL,
   PRIMARY KEY (tenant_id, grant_id, attempt));
+
+CREATE TABLE spike.marker (n int NOT NULL);
 
 CREATE FUNCTION spike.verify_ed25519(sig bytea, msg bytea, pk bytea) RETURNS boolean
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -74,4 +78,5 @@ INSERT INTO spike.trusted_key (key_id, public_key, valid_from, valid_to, revoked
 RESET ROLE;
 -- The runtime role may insert receipts (the verifier decides) but owns nothing and cannot read the key table's writes.
 GRANT INSERT ON spike.execution_receipt TO execution_rw;
+GRANT INSERT ON spike.marker TO execution_rw;
 GRANT SELECT ON spike.trusted_key TO execution_rw;
