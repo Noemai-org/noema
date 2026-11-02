@@ -74,9 +74,20 @@ def describe(r):
     return "no answer: " + body.decode()[:80] if st is None else f"{st} {code_of(body)}".strip()
 
 
+MALFORMED = {"MissingContentMD5", "MalformedXML", "InvalidArgument", "MissingContentLength", "SignatureDoesNotMatch", "InvalidDigest", "BadDigest",
+             "InvalidRequestBody", "XAmzContentSHA256Mismatch"}
+LAYER = {"AccessDenied": "authorization", "InvalidBucketState": "bucket state, NOT the credential", "BucketNotEmpty": "bucket state, NOT the credential",
+         "InvalidRequest": "object-lock rule", "NoSuchVersion": "none"}
+
+
 def refused(cid, label, who, method, path, **kw):
+    """A refusal counts only as a 4xx that is a decision of the store. A request the store could not parse is inconclusive and FAILS."""
     r = call(who, method, path, **kw)
-    record(cid, label, r[0] is not None and 400 <= r[0] < 500, describe(r))
+    code = code_of(r[2]) if r[0] is not None else ""
+    if code in MALFORMED:
+        record(cid, label, False, f"INCONCLUSIVE, the store rejected the request as malformed: {describe(r)}")
+    else:
+        record(cid, label, r[0] is not None and 400 <= r[0] < 500, describe(r) + (f" [{LAYER[code]}]" if code in LAYER else ""))
     return r
 
 

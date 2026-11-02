@@ -4,6 +4,7 @@ It exists so the spike adds no client dependency. `selfcheck()` reproduces the s
 (Amazon S3 'GET Object with a Range header': examplebucket, /test.txt, bytes=0-9, 2013-05-24T00:00:00Z) before any
 request is signed; a wrong implementation stops the run.
 """
+import base64
 import hashlib
 import hmac
 import http.client
@@ -57,6 +58,7 @@ class Client:
             hdrs[k.lower()] = v
         if body:
             hdrs["content-length"] = str(len(body))
+            hdrs["content-md5"] = base64.b64encode(hashlib.md5(body).digest()).decode()  # required by S3 for lock, retention and hold calls
         auth = sign(method, self.host, path, query, hdrs, payload_hash, self.ak, self.sk, amz_date)
         send = {k: v for k, v in hdrs.items() if k != "host"}
         send["Authorization"] = auth
