@@ -27,3 +27,8 @@ Updated 2026-11-01. Owner: C1 in tasks.csv (C1); executed by the Engineering Lea
 - Open questions (owner): the T10 WAIT reading (Architect).
 - Files to read first: `trust/decide/evaluate.go`, PERD v1.19 §23.3.
 - Do not touch: `noema#94`, `noema#90`.
+
+## Review finding, 3 Nov 2026 (Codex, blocking) and its fix
+- Finding: `Evaluate` checked the context only before each step, so a step whose deadline passed while it ran could still return ALLOW at T15 and be accepted (INV-16).
+- Verified: true; reproduced by `TestAContextThatExpiresWhileAStepRunsNeverYieldsItsResult` (failing first, commit `0b73159`).
+- Fix: a context check right after the step returns, before its result is interpreted; a deadline is recorded at the step that was running. `TestADoneContextStopsBeforeTheNextStep` now expects the deadline at the step that cancelled the context (T(n-1)), not the next one: a stricter rule, not a weaker test.

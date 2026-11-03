@@ -176,8 +176,14 @@ func TestADoneContextStopsBeforeTheNextStep(t *testing.T) {
 		if ran || !isInternalError(d) {
 			t.Fatalf("cancelled before %d: ran=%v outcome %s", step, ran, d.Outcome())
 		}
-		if last := trace[len(trace)-1]; last.Step != step || last.Result != decide.StepDeadline {
-			t.Fatalf("cancelled before %d: trace ends %+v", step, last)
+		// The context is seen done where it first happens: before T1 if it was done at the start, otherwise when the step that
+		// cancelled it returns (since the post-call check, a deadline is recorded at that step, not at the next one).
+		want := step
+		if step > 1 {
+			want = step - 1
+		}
+		if last := trace[len(trace)-1]; last.Step != want || last.Result != decide.StepDeadline {
+			t.Fatalf("cancelled before %d: trace ends %+v, want a deadline at T%d", step, last, want)
 		}
 	}
 }

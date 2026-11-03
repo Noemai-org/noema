@@ -77,7 +77,7 @@ var stepOutcomes = map[GateStep][]Outcome{
 
 // Evaluate runs T1 to T15 in the fixed order of §23.3 and stops at the first terminal result (REQ-TRU-002). It returns
 // exactly one decision and the trace of the steps it reached. Every way a step can go wrong ends the evaluation with
-// UNKNOWN INTERNAL_ERROR at that step: a panic, an error, a done context before the step, a missing step function, an
+// UNKNOWN INTERNAL_ERROR at that step: a panic, an error, a done context before the step or when it returns, a missing step function, an
 // outcome the step may not produce, a decision for another intent version or one no constructor built, and a T15 that
 // does not decide. None of them can yield ALLOW (INV-16, REQ-NFR-002).
 func Evaluate(ctx context.Context, intentVersion int, steps Steps) (Decision, []TraceEntry) {
@@ -91,6 +91,10 @@ func Evaluate(ctx context.Context, intentVersion int, steps Steps) (Decision, []
 			return internalError(intentVersion), append(trace, TraceEntry{step, StepInvalidResult})
 		}
 		res, panicked := runStep(ctx, fn)
+		if ctx.Err() != nil {
+			// The deadline passed while the step ran: whatever it returned, even a valid ALLOW, is not trusted (INV-16).
+			return internalError(intentVersion), append(trace, TraceEntry{step, StepDeadline})
+		}
 		switch {
 		case panicked:
 			return internalError(intentVersion), append(trace, TraceEntry{step, StepPanicked})
