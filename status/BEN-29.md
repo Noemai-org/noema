@@ -9,6 +9,8 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-12, BEN-1
 - **Observed locally (3 Nov):** `us` selects 74 cases, `chaos` 149, `evil` 74, `full` 320 (seed 20261020); all four exit 3, record `NOT_RUN` and score nothing, because the runner has no environment. No case was run.
 - **Not executed:** the `make bench-*` target itself (its `reset` step destroys the local Compose project and the authoring session's safety check blocked `make` here). The Makefile recipe is read and each step of it was run directly.
 
+- **BEN-05 pre-staged (founder work order, 3 Nov):** `g1` suite (six cases covering US-01 or US-06) and `make bench-g1`: two legs, each after `make reset`, own run IDs, same commit, then the replay diff with the named open exclusion. Selection tested (`test_g1_is_every_case_covering_us_01_or_us_06_and_nothing_else`); the target itself is not executed here (it needs the environment and `benchmark/replay` from #102).
+
 ## Open
 
 1. **Done-when ("one command runs each suite from `make reset`; run IDs recorded → G3")** is met for the command and the record, not for a run: a real run ID needs the environment (fixture loader, core, oracle counters), the Integration Lead's and Core Engineers' work. Unknown until then.

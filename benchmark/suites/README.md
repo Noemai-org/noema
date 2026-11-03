@@ -20,8 +20,13 @@ python -m benchmark.suites run us --suite benchmark/out/suite --out benchmark/ou
 | `chaos` | every case with an injected fault (a `FAULT:` tag other than `FAULT:NONE`); the SEC-10 dependency-down matrix joins through its FAULT tags when its cases land | 149 | BEN-29, TST-06 |
 | `evil` | the B6 security family, the suite to run with the evil provider | 74 | SEC-06 |
 | `full` | the whole generated suite, at least 320 cases | 320 | BEN-16, BEN-29 |
+| `g1` | every case covering US-01 or US-06, the G1 evidence run | 6 | BEN-05 |
 
 A selector key nobody knows, an empty cell (`each_must_match`), an empty selection or a suite below `min_cases` is an error, never a quiet pass. Selection is a pure function of the manifest (and the case files, for families); the same suite gives the same ids and the same `selection_digest`.
+
+## The G1 evidence run (BEN-05), pre-staged
+
+`make bench-g1` runs the `g1` suite twice, each leg from `make reset`, with its own run ID (`<id>-a`, `<id>-b`) and the same commit, then `python -m benchmark.replay` (noema#102) diffs the Trust decisions and verdicts with `--exclude-mutated`, which removes only the named open exclusion `BEN-CLEAN-1007` (a Tushe-held fault) and reports "5 of 6 cases". Output in `$(BENCH_OUT)/g1/{a,b,replay}`. It needs OUT-01 and REC-03 on `main` and the environment; until then each leg is NOT_RUN and the target stops at exit 3. The target needs `benchmark/replay`, which is on `main` once #102 merges. A rerun is a new pair with its own ID; nothing is rerun selectively.
 
 ## What is recorded (`suite-run.json`)
 

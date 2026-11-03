@@ -89,8 +89,16 @@ class NamedSuites(unittest.TestCase):
         cls.families = load_families(suite_dir())
         cls.suites = load_suites(SUITES)
 
-    def test_the_four_suites_exist(self) -> None:
-        self.assertEqual({"us", "chaos", "evil", "full"}, set(self.suites))
+    def test_the_named_suites_exist(self) -> None:
+        self.assertEqual({"us", "chaos", "evil", "full", "g1"}, set(self.suites))
+
+    def test_g1_is_every_case_covering_us_01_or_us_06_and_nothing_else(self) -> None:
+        # BEN-05: the G1 evidence run. All six, mutated included; the open exclusion is named by benchmark/replay, never dropped here.
+        ids = select(self.manifest, self.suites["g1"], "g1")
+        expected = sorted(e["case_id"] for e in self.manifest["cases"] if {"US-01", "US-06"} & set(e["covers"]))
+        self.assertEqual(expected, ids)
+        self.assertIn("BEN-CLEAN-1007", ids)
+        self.assertEqual(6, len(ids))
 
     def test_us_covers_every_story_from_us_01_to_us_22(self) -> None:
         ids = select(self.manifest, self.suites["us"], "us")

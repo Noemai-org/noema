@@ -49,7 +49,7 @@ contracts-validate:
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench bench-live bench-us bench-chaos bench-evil bench-full
+.PHONY: bench-test bench-venv bench bench-live bench-us bench-chaos bench-evil bench-full bench-g1
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -109,6 +109,20 @@ bench-us bench-chaos bench-evil bench-full: bench-venv
 	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
 	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
 	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- $(BENCH_SUITE_ARGS)
+
+# BEN-05, the G1 evidence run: the g1 suite (every case covering US-01 or US-06) twice, each leg from `make reset` with its own run ID and the same commit, then the replay diff
+# (benchmark/replay, noema#102) of the Trust decisions and verdicts with the named open exclusions. Needs OUT-01 and REC-03 on main and the environment; until then each leg is
+# NOT_RUN (exit 3) and the target stops. BENCH_G1_ID names the pair (default g1-<UTC date>); the legs are <id>-a and <id>-b. A rerun is a new pair with its own ID.
+BENCH_G1_ID ?= g1-$(shell date -u +%Y%m%d-%H%M%S)
+bench-g1: bench-venv
+	@sha=$$(git rev-parse HEAD); \
+	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1/suite > /dev/null || exit $$?; \
+	for leg in a b; do \
+	  if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
+	  $(BENCH_PY) -m benchmark.suites run g1 --suite $(BENCH_OUT)/g1/suite --out $(BENCH_OUT)/g1/$$leg --run-id "$(BENCH_G1_ID)-$$leg" --commit-sha "$$sha" $$reset_flag -- $(BENCH_SUITE_ARGS); \
+	  rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 1 ]; then exit $$rc; fi; \
+	done; \
+	$(BENCH_PY) -m benchmark.replay --suite $(BENCH_OUT)/g1/suite --first $(BENCH_OUT)/g1/a/run --second $(BENCH_OUT)/g1/b/run --story US-01 --story US-06 --exclude-mutated --out $(BENCH_OUT)/g1/replay
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:
