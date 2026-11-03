@@ -44,7 +44,7 @@ def _consistency_section(diag: Json) -> list[str]:
     return [
         "### Consistency and disambiguation diagnostics (REQ-BEN-009)", "",
         "Diagnostics, not gates: no target is set for them until a decision record adopts one after the first full-suite run. "
-        f"Definitions pre-registered {definitions['version']}; Understanding-dependent means families {', '.join(definitions['understanding_families'])}.", "",
+        f"Definitions pre-registered {definitions['version']}; Understanding-dependent means {'family' if len(definitions['understanding_families']) == 1 else 'families'} {', '.join(definitions['understanding_families'])}.", "",
         f"- pass^k over the Understanding-dependent cases: {pk_text}",
         f"- turns to resolution (customer turns, cases auto-resolved correctly): {turns_text}",
         f"- unnecessary clarification (safe to resolve, no clarification expected, one asked): {fmt_rate(diag['unnecessary_clarification'], failure=True)}",

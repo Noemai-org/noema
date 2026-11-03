@@ -10,8 +10,8 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 
 ## Open
 
-1. **B2 in the Understanding-dependent set.** SoT §38 describes B2 State as deterministic reconstruction, so the accepted "B1 and B2" may be wider than intended. It is one constant (`UNDERSTANDING_FAMILIES`) and the scorecard names the set it used. For the founders' review: B1 only, or B1 plus cases tagged otherwise.
-2. **noema#102 (`benchmark/replay`)** validates results against `benchmark-case-result` v1 and must move to v2 in whichever pull request merges second. Not changed here (it is another PR's file).
+1. ~~B2 in the Understanding-dependent set.~~ Closed 3 Nov 2026: the Founder decided B1 only (SoT §38). `UNDERSTANDING_FAMILIES = ("B1",)`, definitions version 2026-11-03, before any live run.
+2. **noema#102 (`benchmark/replay`)** validates results against `benchmark-case-result` v1. Founder's order (3 Nov): #102 merges first, then this PR moves `benchmark/replay` to v2 in the same PR. Not stackable earlier (no PR is based on another PR's branch); done the moment #102 is on `main`.
 3. **Real values** need five live runs per case. No run, no provider call and no spend by this work.
 4. **Rule of three on tiny n** prints values above 100% (for example 150% at n = 2); that is existing scorer behaviour, unchanged.
 5. **Branch.** This work is on a new local branch; pushing it and opening a PR needs the Architect's or founders' go-ahead for the branch name (the session's designated branch carries #102).
@@ -22,3 +22,8 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 - Purpose: BEN-30 approved to add `benchmark-scorecard.v2` (four diagnostics under `tier1.diagnostics`) and `turns` in `benchmark-case-result.v2`, with the runner counting turns; the proposed definitions accepted as pre-registered, published in the scorecard documentation before any live run; live model runs unapproved; build the pass^k calculator on synthetic data.
 - Receiver used it for: this work.
 - Evidence: the commits on `feat/BEN-30-diagnostics`.
+
+### 2026-11-03 (time not recorded) accepted · Founder (work order, relayed by the user) → Benchmark Owner agent
+- Purpose: push `feat/BEN-30-diagnostics` and open its PR (done: noema#112); Understanding-dependent means family B1 only; #102 merges first, then the BEN-30 PR moves `benchmark/replay` to v2 in the same PR.
+- Receiver used it for: `UNDERSTANDING_FAMILIES` amended, version 2026-11-03, fixtures and docs updated; the replay migration is queued for the moment #102 is on `main`.
+- Evidence: this commit.

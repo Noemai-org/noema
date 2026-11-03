@@ -1,7 +1,7 @@
 """The four Tier 1 diagnostics of REQ-BEN-009 (BEN-30; DEC-2026-10-31-proof-depth-and-completeness D5, D6): pass^k, turns to resolution, the
 unnecessary-clarification rate and auto-resolve precision. Diagnostics, not gates: nothing here sets or applies a threshold (AGENT-16).
 
-The definitions are PRE-REGISTERED (Architect, 2 Nov 2026, before any live run) and published in benchmark/scoring/README.md. A changed definition is a new
+The definitions are PRE-REGISTERED (Architect, 2 Nov 2026; amended by the Founder 3 Nov 2026, before any live run) and published in benchmark/scoring/README.md. A changed definition is a new
 DEFINITIONS_VERSION. Pure functions of judgements and result sets: no I/O, no clock. SYNTHETIC test data only until a live run is approved."""
 import math
 from collections.abc import Sequence
@@ -12,10 +12,10 @@ from benchmark.scoring.stats import make_rate, percentile
 
 Json = dict[str, Any]
 
-DEFINITIONS_VERSION = "2026-11-02"
-# Pre-registered: the cases a model decides. B1 Understanding by definition; B2 State was named in the accepted proposal and is a founder review item (SoT §38 lists B2
-# as deterministic reconstruction), kept here as one named constant so an amendment is one visible edit and a new DEFINITIONS_VERSION.
-UNDERSTANDING_FAMILIES = ("B1", "B2")
+DEFINITIONS_VERSION = "2026-11-03"
+# Pre-registered 2026-11-02 as B1 and B2; amended by the Founder on 2026-11-03 to B1 only, before any live run (SoT §38: B1 Understanding is the family a model decides; B2
+# State is deterministic reconstruction). One named constant, so a further amendment is one visible edit and a new DEFINITIONS_VERSION.
+UNDERSTANDING_FAMILIES = ("B1",)
 PASS_K = 5  # REQ-BEN-009, D6: fixed; a different number of runs is reported as unavailable, never rescaled.
 
 

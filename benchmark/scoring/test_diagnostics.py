@@ -109,7 +109,17 @@ class PassK(unittest.TestCase):
 
     def test_the_families_used_are_published_in_the_scorecard(self) -> None:
         defs = diagnostics(self.pairs, runs(self.pairs, 1))["definitions"]
-        self.assertEqual({"version": "2026-11-02", "understanding_families": ["B1", "B2"]}, defs)
+        self.assertEqual({"version": "2026-11-03", "understanding_families": ["B1"]}, defs)
+
+    def test_a_b2_state_case_is_not_understanding_dependent(self) -> None:
+        # Founder amendment of 3 Nov 2026 (SoT §38: B2 is state reconstruction, deterministic): the set is B1 only.
+        pairs = [allow_pair("BEN-CLEAN-0001"), allow_pair("BEN-STATE-0001", families=("B2",)), allow_pair("BEN-STATE-0002", families=("B2", "B5"))]
+        pk = diagnostics(pairs, runs(pairs))["pass_k"]
+        self.assertEqual((1, 1), (pk["rate"]["k"], pk["rate"]["n"]))
+
+    def test_a_case_with_b1_among_other_families_is_counted(self) -> None:
+        pairs = [allow_pair("BEN-CLEAN-0001", families=("B1", "B2", "B5", "B7"))]
+        self.assertEqual(1, diagnostics(pairs, runs(pairs))["pass_k"]["rate"]["n"])
 
     def test_no_understanding_dependent_case_gives_n_zero_not_a_pass(self) -> None:
         pairs = [allow_pair("BEN-STATE-0001", families=("B4",))]

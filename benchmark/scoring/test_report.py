@@ -178,8 +178,8 @@ class DiagnosticsReportTest(unittest.TestCase):
 
     def test_the_pre_registered_definitions_are_named(self) -> None:
         text = self.report()
-        self.assertIn("2026-11-02", text)
-        self.assertIn("B1, B2", text)
+        self.assertIn("2026-11-03", text)
+        self.assertIn("means family B1.", text)
 
 
 if __name__ == "__main__":
