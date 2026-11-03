@@ -128,6 +128,9 @@ func accepts(step GateStep, d Decision, intentVersion int) bool {
 	if d.outcome == Unknown {
 		return true
 	}
+	if (d.outcome == Allow || d.outcome == Confirm) && !d.HasCompleteBasis() {
+		return false // an ALLOW or CONFIRM rests on policy and evidence; with none named it is not trusted (REQ-TRU-001)
+	}
 	for _, o := range stepOutcomes[step] {
 		if o == d.outcome {
 			return true
