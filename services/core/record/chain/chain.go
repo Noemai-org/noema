@@ -68,6 +68,10 @@ type Appender struct {
 	IDs   IDSource
 }
 
+// ValidTenantID reports whether id has the shape of a tenant ID. The verification job uses it to refuse an ID before it
+// reaches a query.
+func ValidTenantID(id string) bool { return tenantRe.MatchString(id) }
+
 // GenesisHash is the prev_hash of the first event of a tenant's chain: SHA-256("noema:genesis:" || tenant_id)
 // (PERD 32.1), written in the contract's `sha256:` form.
 func GenesisHash(tenantID string) string {
