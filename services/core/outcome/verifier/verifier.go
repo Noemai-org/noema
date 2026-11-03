@@ -240,6 +240,21 @@ func (r *run) verdict(success, pending *ip.Program) decision {
 	if !known {
 		return unknown(ReasonPredicateUnknown)
 	}
+	if ok1 && len(byKey) == 1 {
+		// The predicate was read over every case of the transaction, but only the case under our key is our effect. It must
+		// satisfy the predicate on its own: another case cannot make this one a success (INV-04, AGENT-21).
+		ownEnv, ok := r.env(byKey)
+		if !ok {
+			return unknown(ReasonInconsistent)
+		}
+		own, ownKnown := evalBool(success, ownEnv)
+		if !ownKnown {
+			return unknown(ReasonPredicateUnknown)
+		}
+		if !own {
+			return unknown(ReasonInconsistent)
+		}
+	}
 	switch {
 	case ok1 && len(byKey) == 1:
 		return decision{verdict: Achieved, reason: ReasonPredicateTrue, predicate: &ok1}
