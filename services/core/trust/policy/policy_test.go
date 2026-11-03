@@ -461,11 +461,16 @@ func TestTheShippedFintechPolicy(t *testing.T) {
 	if r := at("fin.cap.transfer_funds", predicate.Env{Variables: resolved}); r.Effect != policy.Reject || r.Reason != "PROHIBITED_CAPABILITY" {
 		t.Errorf("a prohibited capability is rejected: %+v", r)
 	}
-	// The shipped pack has a CONFIRM for a complaint and no PERMIT for it, so by PERD §23.4 the complaint is denied until the
-	// pack carries a PERMIT (escalated to the Architect, 3 Nov 2026). The CONFIRM rule is still the strongest match.
-	if r := at("fin.cap.log_complaint_reference", predicate.Env{Variables: resolved}); r.Effect != policy.Reject || !r.ConfirmWithoutPermit ||
-		r.Applied[0].Params["approver_requirement"].Str != "SELF" {
-		t.Errorf("a complaint with no PERMIT is denied: %+v", r)
+	// Decision of 3 Nov 2026: the complaint capability has a PERMIT with exactly the predicates of its CONFIRM rule, so a
+	// complaint reaches CONFIRM with a PERMIT matched (the requester must confirm); no broader permission is added.
+	if r := at("fin.cap.log_complaint_reference", predicate.Env{Variables: resolved}); r.Effect != policy.Confirm || !r.PermitMatched || r.ConfirmWithoutPermit ||
+		r.Winner == nil || r.Winner.Params["approver_requirement"].Str != "SELF" {
+		t.Errorf("a complaint needs a confirmation by the requester: %+v", r)
+	}
+	for _, other := range []string{"fin.cap.log_complaint_other", "fin.cap.close_or_resolve_case", "fin.cap.never_registered"} {
+		if r := at(other, predicate.Env{Variables: resolved}); r.Effect != policy.Reject || r.PermitMatched {
+			t.Errorf("%s must not gain a permission from the complaint PERMIT: %+v", other, r)
+		}
 	}
 	noCase := predicate.Env{Variables: resolved, Entities: map[string][]predicate.Row{"case": {}}}
 	if r := at("fin.cap.create_escalation_case", noCase); r.Effect != policy.Permit {
