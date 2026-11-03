@@ -49,7 +49,7 @@ contracts-validate:
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench bench-live
+.PHONY: bench-test bench-venv bench bench-live bench-us bench-chaos bench-evil bench-full
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -96,6 +96,19 @@ bench: bench-venv
 # The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
 bench-live: bench-venv
 	$(BENCH_PY) -m benchmark.oracle_client.live_check
+
+# BEN-29: one command per named suite (benchmark/suites/suites.json): us, chaos, evil, full. Each starts with `make reset` (Docker), generates the suite, runs the selected
+# cases through the public API, scores exactly those cases and records the run, with its run ID, in $(BENCH_OUT)/<suite>/suite-run.json.
+# BENCH_SUITE_RUN_ID names the run (default: the suite name and the UTC time). BENCH_RESET=0 skips `make reset`; the record then says reset_done false.
+# Exit codes as `make bench`: 0 complete and Tier 0 all zero, 1 incomplete or a gate not zero, 2 bad input, 3 not run, no access. The held-out layer is never run here.
+BENCH_RESET ?= 1
+BENCH_SUITE_ARGS ?=
+bench-us bench-chaos bench-evil bench-full: bench-venv
+	@suite=$(patsubst bench-%,%,$@); \
+	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
+	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
+	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
+	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- $(BENCH_SUITE_ARGS)
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:

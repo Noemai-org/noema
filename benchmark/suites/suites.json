@@ -1,0 +1,28 @@
+{
+  "version": "2026-11-03",
+  "suites": {
+    "us": {
+      "purpose": "US-01 to US-22 smoke, scored by family (BEN-12, BEN-29): every user story has at least one case",
+      "select": {
+        "covers_any": ["US-01", "US-02", "US-03", "US-04", "US-05", "US-06", "US-07", "US-08", "US-09", "US-10", "US-11", "US-12", "US-13", "US-14", "US-15", "US-16", "US-17", "US-18", "US-19", "US-20", "US-21", "US-22"],
+        "each_must_match": ["US-01", "US-02", "US-03", "US-04", "US-05", "US-06", "US-07", "US-08", "US-09", "US-10", "US-11", "US-12", "US-13", "US-14", "US-15", "US-16", "US-17", "US-18", "US-19", "US-20", "US-21", "US-22"]
+      },
+      "min_cases": 22
+    },
+    "chaos": {
+      "purpose": "every generated case with an injected fault, so every fault family is exercised (BEN-29, TST-06); the SEC-10 dependency-down matrix joins through its FAULT tags when its cases land",
+      "select": {"covers_prefix": "FAULT:", "except_covers": ["FAULT:NONE"]},
+      "min_cases": 1
+    },
+    "evil": {
+      "purpose": "the B6 security family, the suite to run with the evil provider (SEC-06, ADV-08)",
+      "select": {"families_any": ["B6"]},
+      "min_cases": 1
+    },
+    "full": {
+      "purpose": "the whole generated suite (PERD 48.1: at least 320 cases). The held-out layer is run by the benchmark owner, never here (INV-22)",
+      "select": {"all": true},
+      "min_cases": 320
+    }
+  }
+}
