@@ -1,9 +1,12 @@
-// Package contracts holds the Go types generated from /contracts and committed here (PERD §64.2; task CON-03). Nothing in this package is hand-written.
+// Package contracts holds the Go types generated from /contracts by tools/codegen and committed here (CON-03; REQ-API-001,
+// PERD §64.2). Nothing in a *_gen.go file is hand-written, and CI fails if regenerating changes any of them.
+//
+// A generated type decodes strictly: unknown members are refused where the schema is closed, required members must be present,
+// a member that may not be null is not null, no member repeats, and an enum or constant holds one of its values. It does not
+// check patterns, bounds or conditional rules; the JSON Schema validator does, at every boundary. Types is the registry used
+// by contract tests to decode a fixture by name.
 //
 // May import: the standard library.
 //
-// Must never: contain a hand-edited type; CI fails if regenerating produces any difference (AGENT-15).
-//
-// This is an empty boundary package created by PLT-01. Its contents arrive with the tasks named in
-// the README of the PERD §64.2 tree; nothing is built here yet.
+// Must never: contain a hand-edited type, or a benchmark, oracle or fault-plan type (tools/codegen/excluded.json).
 package contracts
