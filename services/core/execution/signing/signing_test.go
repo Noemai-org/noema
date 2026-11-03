@@ -336,3 +336,16 @@ func TestTheRotationOverlapIsSuppliedAndBoundsTheMountedKeys(t *testing.T) {
 		t.Errorf("two keys were refused with an overlap of two: %v", err)
 	}
 }
+
+// D3: through the loader, a key file owned by another user is refused. Changing the owner needs privilege, so the test
+// skips where chown is not permitted; the owner rule itself is unit-tested in owner_internal_test.go on every runner.
+func TestLoadRingRefusesAKeyFileOwnedByAnotherUser(t *testing.T) {
+	dir := t.TempDir()
+	writeKey(t, dir, 1, syntheticSeed(1), 0o400)
+	if err := os.Chown(filepath.Join(dir, keyID(1)+".key"), os.Geteuid()+1, -1); err != nil {
+		t.Skipf("cannot change the owner here: %v", err)
+	}
+	if _, err := load(dir); err == nil {
+		t.Fatal("a key file owned by another user was accepted")
+	}
+}

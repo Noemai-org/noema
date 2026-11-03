@@ -175,6 +175,9 @@ func loadKey(identity, path, id string) (Key, error) {
 	if !info.Mode().IsRegular() {
 		return Key{}, fmt.Errorf("%s%q is not a regular file", errPrefix, filepath.Base(path))
 	}
+	if err := checkOwner(info); err != nil {
+		return Key{}, fmt.Errorf("%s%q: %w", errPrefix, filepath.Base(path), err)
+	}
 	if info.Mode().Perm() != keyFileMode {
 		return Key{}, fmt.Errorf("%s%q has mode %v; a key file is 0400", errPrefix, filepath.Base(path), info.Mode().Perm())
 	}
@@ -197,6 +200,19 @@ func loadKey(identity, path, id string) (Key, error) {
 		return Key{}, fmt.Errorf("%s%q does not hold a hex seed", errPrefix, filepath.Base(path))
 	}
 	return Key{identity: identity, version: version, priv: ed25519.NewKeyFromSeed(seed)}, nil
+}
+
+// checkOwner refuses a key file that does not belong to the effective user of the process. It reads the owner from the
+// Stat of the open descriptor, so it describes the file whose bytes are then read.
+func checkOwner(info os.FileInfo) error {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || st == nil {
+		return errors.New("the owner of the file cannot be read")
+	}
+	if st.Uid != uint32(os.Geteuid()) {
+		return errors.New("the file is owned by another user")
+	}
+	return nil
 }
 
 // Signed is a signature and the exact bytes that were signed. The ledger stores both (D8).
