@@ -50,6 +50,7 @@ func (s *stack) verify(t *testing.T, receiptID string) (verifier.Result, error) 
 	s.clk.jump(time.Duration(s.def.SettleWindowSecs+1) * time.Second)
 	req := s.request
 	req.ReceiptID = receiptID
+	req.VerificationID = "vrf_" + receiptID // the id of the outcome.verify delivery
 	return s.v.Verify(bg(t), req)
 }
 
@@ -156,6 +157,18 @@ func TestUS06TheTargetCommitsAndTheResponseIsLostThenOutcomeFindsTheCaseByKey(t 
 	}
 	if n := s.count(t, `SELECT count(*) FROM recovery_request WHERE verdict_id IS NOT NULL`); n != 0 {
 		t.Fatalf("ACHIEVED raised %d recovery requests", n)
+	}
+
+	// The outbox delivers at least once: the same verification again returns the same verdict and touches nothing.
+	again, err := s.verify(t, rc.ReceiptID)
+	if err != nil || !again.Replayed || again.VerdictID != res.VerdictID {
+		t.Fatalf("second delivery: %+v %v", again, err)
+	}
+	if n := s.count(t, `SELECT count(*) FROM outcome_verdict`); n != 1 {
+		t.Fatalf("verdicts after a second delivery = %d, want 1", n)
+	}
+	if received, _ := creates(s.bench.commands(t), theKey()); received != 1 {
+		t.Fatalf("creates received after a second delivery = %d, want 1", received)
 	}
 }
 

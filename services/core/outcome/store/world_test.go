@@ -88,20 +88,34 @@ func (w *world) as(t *testing.T, role string) *pgxpool.Pool {
 	return p
 }
 
-// verdictArgs are the arguments of outcome_record_verdict in order.
+// verdictArgs are the arguments of outcome_record_verdict. verification, correlation and docVerdict default to values that
+// agree with the receipt and the other columns; a test overrides one to show that the database refuses the disagreement.
 type verdictArgs struct {
 	tenant, verdictID, receiptID, verdict, reason string
+	verification, correlation, docVerdict         string
 	predicate                                     *bool
 	reads                                         []string
 	recoveryID, watchID                           *string
 	next, deadline                                *time.Time
 }
 
-const callVerdict = `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'k_out', 'sig', '{}'::jsonb, $11, $12, $13, $14, ARRAY['fin.evt.settlement.updated'])`
+const callVerdict = `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'k_out', 'sig',
+	jsonb_build_object('verdict_id', $2::text, 'tenant_id', $1::text, 'receipt_id', $3::text, 'verdict', $16::text, 'correlation_id', $5::text, 'outcome_definition', $6::text),
+	$12, $13, $14, $15, ARRAY['fin.evt.settlement.updated'])`
 
 func (a verdictArgs) call(c context.Context, p *pgxpool.Pool) error {
-	_, err := p.Exec(c, callVerdict, a.tenant, a.verdictID, a.receiptID, corr, defn, a.verdict, a.reason, a.predicate, a.reads, verifiedAt,
-		a.recoveryID, a.watchID, a.next, a.deadline)
+	verification, correlation, docVerdict := a.verification, a.correlation, a.docVerdict
+	if verification == "" {
+		verification = "vrf_" + a.verdictID
+	}
+	if correlation == "" {
+		correlation = corr
+	}
+	if docVerdict == "" {
+		docVerdict = a.verdict
+	}
+	_, err := p.Exec(c, callVerdict, a.tenant, a.verdictID, a.receiptID, verification, correlation, defn, a.verdict, a.reason, a.predicate, a.reads, verifiedAt,
+		a.recoveryID, a.watchID, a.next, a.deadline, docVerdict)
 	return err
 }
 

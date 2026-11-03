@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func newFlow(t *testing.T, auth verifier.Authenticity, failAppend int32) *flow {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &flow{world: w, clk: clk, pages: pg, v: v, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, TransactionRef: subject, QueryableByKey: true,
+	return &flow{world: w, clk: clk, pages: pg, v: v, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, VerificationID: "vrf_flow1", TransactionRef: subject, QueryableByKey: true,
 		Bindings:   map[string]string{"subject_resource": subject, "intent_id": intentID},
 		Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
 }
@@ -271,4 +272,47 @@ func TestLoadReceiptCarriesTheGrantsCorrelationAndRefusesAForeignTenant(t *testi
 	if _, err := st.LoadReceipt(ctx(t), tenant, "rcp_nope"); err == nil {
 		t.Fatal("a receipt that does not exist was loaded")
 	}
+}
+
+// Duplicate delivery of one verification, concurrently (the outbox is at least once): one verdict, one RecoveryRequest, one
+// VERDICT event and one outbox event, and every caller is given that verdict.
+func TestConcurrentDeliveriesOfOneVerificationStoreOneVerdict(t *testing.T) {
+	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f.pages.byKey, f.pages.byTx = []verifier.CasePage{done()}, []verifier.CasePage{done()} // NOT_ACHIEVED, so a request is at stake
+	const callers = 6
+	results := make([]verifier.Result, callers)
+	errs := make([]error, callers)
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results[i], errs[i] = f.v.Verify(ctx(t), f.req)
+		}()
+	}
+	wg.Wait()
+	replayed := 0
+	for i := range results {
+		if errs[i] != nil || results[i].VerdictID != results[0].VerdictID || results[i].Verdict != verifier.NotAchieved {
+			t.Fatalf("caller %d: %+v %v (first %+v)", i, results[i], errs[i], results[0])
+		}
+		if results[i].Replayed {
+			replayed++
+		}
+	}
+	if replayed != callers-1 {
+		t.Fatalf("replayed = %d, want %d: exactly one caller writes", replayed, callers-1)
+	}
+	for q, want := range map[string]int{
+		`SELECT count(*) FROM outcome_verdict`:                                      1,
+		`SELECT count(*) FROM recovery_request WHERE verdict_id IS NOT NULL`:        1,
+		`SELECT count(*) FROM record_event WHERE event_type = 'VERDICT'`:            1,
+		`SELECT count(*) FROM record_event WHERE event_type = 'RECOVERY_REQUESTED'`: 1,
+		`SELECT count(*) FROM outbox_event WHERE topic = 'recovery.requested'`:      1,
+	} {
+		if n := f.count(t, q); n != want {
+			t.Fatalf("%s = %d, want %d", q, n, want)
+		}
+	}
+	f.verifyChain(t)
 }

@@ -107,6 +107,8 @@ type memStore struct {
 	loadErr error
 	putErr  error
 	writes  []verifier.Write
+	found   map[string]verifier.Found
+	race    map[string]verifier.Found // appear when the insert is attempted: another writer won between lookup and insert
 }
 
 func (m *memStore) LoadReceipt(_ context.Context, tenantID, receiptID string) (verifier.Receipt, error) {
@@ -119,10 +121,33 @@ func (m *memStore) LoadReceipt(_ context.Context, tenantID, receiptID string) (v
 	return m.receipt, nil
 }
 
+func (m *memStore) FindVerdict(_ context.Context, tenantID, verificationID string) (verifier.Found, bool, error) {
+	f, ok := m.found[tenantID+"/"+verificationID]
+	return f, ok, nil
+}
+
 func (m *memStore) RecordVerdict(_ context.Context, w verifier.Write) error {
 	if m.putErr != nil {
 		return m.putErr
 	}
+	k := w.Verdict.TenantID + "/" + w.Verdict.VerificationID
+	if m.race != nil {
+		if m.found == nil {
+			m.found = map[string]verifier.Found{}
+		}
+		for rk, rv := range m.race {
+			m.found[rk] = rv
+		}
+		m.race = nil
+		return verifier.ErrAlreadyVerified
+	}
+	if _, taken := m.found[k]; taken {
+		return verifier.ErrAlreadyVerified
+	}
+	if m.found == nil {
+		m.found = map[string]verifier.Found{}
+	}
+	m.found[k] = verifier.Found{Result: verifier.Result{VerdictID: w.Verdict.VerdictID, Verdict: w.Verdict.Verdict, Reason: w.Verdict.Reason}, ReceiptID: w.Verdict.ReceiptID}
 	m.writes = append(m.writes, w)
 	return nil
 }
@@ -178,7 +203,7 @@ func newWorld(t *testing.T, mutate ...func(*world)) *world {
 		sign: &signer{}, auth: authenticity{verifier.AuthNotChecked},
 		store: &memStore{receipt: verifier.Receipt{ReceiptID: rcpt, TenantID: tenant, GrantID: "grt_0001", PrincipalID: princ, Attempt: 1, IdempotencyKey: key, LogicalAction: "ESCALATE_CASE",
 			State: "OUTCOME_UNKNOWN", CorrelationID: corr, DispatchedAt: t0}},
-		req: verifier.Request{TenantID: tenant, ReceiptID: rcpt, TransactionRef: subject, QueryableByKey: true,
+		req: verifier.Request{TenantID: tenant, ReceiptID: rcpt, VerificationID: "vrf_0001", TransactionRef: subject, QueryableByKey: true,
 			Bindings:   map[string]string{"subject_resource": subject, "intent_id": intent},
 			Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
 	for _, m := range mutate {

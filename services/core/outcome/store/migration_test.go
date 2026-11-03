@@ -129,8 +129,8 @@ func TestOutcomeRwHasNoDirectWrites(t *testing.T) {
 	}
 	p := w.as(t, "outcome_rw")
 	for _, q := range []string{
-		`INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, outcome_definition, verdict, reason, predicate_result, evidence_reads, verified_at, json, sig_key_id, sig_value)
-		 VALUES ('ver_z', 'ten_aa', 'corr_abc123', 'rcp_0001', 'd', 'ACHIEVED', 'r', true, ARRAY['evr_1'], now(), '{}', 'k', 's')`,
+		`INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result, evidence_reads, verified_at, json, sig_key_id, sig_value)
+		 VALUES ('ver_z', 'ten_aa', 'corr_abc123', 'rcp_0001', 'vrf_z', 'd', 'ACHIEVED', 'r', true, ARRAY['evr_1'], now(), '{}', 'k', 's')`,
 		`UPDATE outcome_verdict SET reason = 'x'`,
 		`DELETE FROM outcome_verdict`,
 		`INSERT INTO outcome_watch (watch_id, tenant_id, verdict_id, next_check_at, deadline_at, triggers, created_at) VALUES ('wat_z', 'ten_aa', 'ver_d1', now(), now(), ARRAY[]::text[], now())`,
@@ -174,8 +174,8 @@ func TestExecutionCannotRaiseAVerdictSourcedRecoveryRequest(t *testing.T) {
 func TestConstraintsHoldForEveryInserter(t *testing.T) {
 	w := newWorld(t)
 	insert := func(id, verdict string, predicate string) string {
-		return `INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, outcome_definition, verdict, reason, predicate_result, evidence_reads, verified_at, json, sig_key_id, sig_value)
-		 VALUES ('` + id + `', 'ten_aa', 'corr_abc123', 'rcp_0001', 'd', '` + verdict + `', 'r', ` + predicate + `, ARRAY['evr_1'], now(), '{}', 'k', 's')`
+		return `INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result, evidence_reads, verified_at, json, sig_key_id, sig_value)
+		 VALUES ('` + id + `', 'ten_aa', 'corr_abc123', 'rcp_0001', 'vrf_` + id + `', 'd', '` + verdict + `', 'r', ` + predicate + `, ARRAY['evr_1'], now(), '{}', 'k', 's')`
 	}
 	for name, q := range map[string]string{
 		"NOT_ACHIEVED alone":     insert("ver_c1", "NOT_ACHIEVED", "false"),
@@ -259,5 +259,40 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 	}
 	if err := notAchieved("ver_u2", "rrq_u2").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
 		t.Fatalf("the write path after 0002: %v", err)
+	}
+}
+
+// PERD 32.4, Q1: the function stores only a verdict that agrees with the receipt it names and with its own document. A
+// stolen credential still cannot make the columns say one thing and the signed document another, or file a verdict under
+// another grant's correlation.
+func TestWritePathRefusesAVerdictThatDisagreesWithItsReceiptOrItsDocument(t *testing.T) {
+	w := newWorld(t)
+	p := w.as(t, "outcome_rw")
+	wrongCorrelation := achieved("ver_c1")
+	wrongCorrelation.correlation = "corr_other99"
+	disagreeing := achieved("ver_c2")
+	disagreeing.docVerdict = "NOT_ACHIEVED"
+	for name, a := range map[string]verdictArgs{"another grant's correlation": wrongCorrelation, "a document that says another verdict": disagreeing} {
+		t.Run(name, func(t *testing.T) { wantState(t, a.call(ctx(t), p), integrityClass) })
+	}
+	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`); n != 0 {
+		t.Fatalf("%d verdicts left behind", n)
+	}
+}
+
+// A verification is stored once. A second verdict under the same verification ID is refused by the database, whoever calls.
+func TestAVerificationIsStoredOnce(t *testing.T) {
+	w := newWorld(t)
+	p := w.as(t, "outcome_rw")
+	first := achieved("ver_v1")
+	first.verification = "vrf_same"
+	if err := first.call(ctx(t), p); err != nil {
+		t.Fatal(err)
+	}
+	second := notAchieved("ver_v2", "rrq_v2")
+	second.verification = "vrf_same"
+	wantState(t, second.call(ctx(t), p), "23505")
+	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`) + w.count(t, `SELECT count(*) FROM recovery_request WHERE verdict_id IS NOT NULL`); n != 1 {
+		t.Fatalf("rows after a refused second verdict = %d, want just the first verdict", n)
 	}
 }

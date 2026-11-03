@@ -70,3 +70,38 @@ func TestCompileRefusesAProgramThatIsNotBoolean(t *testing.T) {
 		t.Fatal("a predicate that returns an Integer compiled")
 	}
 }
+
+// A pack that is ambiguous or misspelled does not load: no later duplicate wins, no unknown field is ignored, no settle
+// window is guessed (REQ-VER-002, fail closed).
+func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
+	good := string(fintech(t))
+	dupOutcome := func(s string) string {
+		i := strings.Index(s, `"outcome_definitions": [`) + len(`"outcome_definitions": [`)
+		j := strings.Index(s[i:], "{")
+		k := i + j
+		return s[:k] + `{"outcome_id": "fin.outcome.exception.case_opened", "intent_nodes": ["fin.payments.exception.investigate"], "success_predicate": "exists(case where case.id == case.id)", "intermediate_states": [], "terminal_states": ["ACHIEVED"], "settle_window_seconds": 0, "verification_sources": [{"source": "fin.src.case_system", "priority": 1}], "compensation": "none_required", "explanation_templates": ["x"]}, ` + s[k:]
+	}
+	for name, mutate := range map[string]func(string) string{
+		"a duplicate outcome ID": dupOutcome,
+		"a misspelled definition field": func(s string) string {
+			return strings.Replace(s, `"settle_window_seconds": 30`, `"settle_window_second": 30`, 1)
+		},
+		"a negative settle window": func(s string) string {
+			return strings.Replace(s, `"settle_window_seconds": 30`, `"settle_window_seconds": -30`, 1)
+		},
+		"a missing settle window": func(s string) string { return strings.Replace(s, `"settle_window_seconds": 30,`, ``, 1) },
+		"a duplicate descriptor entity": func(s string) string {
+			return strings.Replace(s, `"entity": "attachment"`, `"entity": "case"`, 1)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := mutate(good)
+			if bad == good {
+				t.Fatal("the mutation did not change the pack")
+			}
+			if _, err := op.LoadPack([]byte(bad)); err == nil {
+				t.Fatal("the pack loaded")
+			}
+		})
+	}
+}
