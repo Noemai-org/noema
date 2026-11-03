@@ -171,3 +171,48 @@ func TestAPackThatIsNotValidJSONFails(t *testing.T) {
 		}
 	}
 }
+
+// REQ-CAP-001: "complete descriptors only" includes "no descriptor member the contract does not define". A misspelled safety field
+// must fail the load, not be ignored: the generated pack types are closed, and these cases keep it that way at every level
+// (Codex review 5757658172 asked for this; the behaviour already held).
+func TestAnUnknownMemberAtAnyLevelFailsTheLoad(t *testing.T) {
+	raw, err := os.ReadFile(fintechPack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(m map[string]any){
+		"the pack":                 func(m map[string]any) { m["zz_unknown"] = 1 },
+		"a capability":             func(m map[string]any) { first(m)["zz_unknown"] = 1 },
+		"a misspelled safety flag": func(m map[string]any) { first(m)["prohibitted"] = true },
+		"limits":                   func(m map[string]any) { first(m)["limits"].(map[string]any)["zz_unknown"] = 1 },
+		"consequence_profile":      func(m map[string]any) { first(m)["consequence_profile"].(map[string]any)["zz_unknown"] = "x" },
+		"authority":                func(m map[string]any) { first(m)["authority"].(map[string]any)["zz_unknown"] = "x" },
+		"verification":             func(m map[string]any) { first(m)["verification"].(map[string]any)["zz_unknown"] = "x" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			var m map[string]any
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatal(err)
+			}
+			mutate(m)
+			out, err := json.Marshal(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := registry.Load(bytes.NewReader(out)); code(err) != registry.CodeIncomplete {
+				t.Fatalf("an unknown member in %s: Load = %v, want a SCHEMA_INVALID refusal", name, err)
+			}
+		})
+	}
+	// A repeated member is refused too (the strict decoder checks it), and so is anything after the pack.
+	dup := strings.Replace(string(raw), `"capabilities"`, `"capabilities": [], "capabilities"`, 1)
+	if _, err := registry.Load(strings.NewReader(dup)); err == nil {
+		t.Error("a pack with a repeated member loaded")
+	}
+	if _, err := registry.Load(strings.NewReader(string(raw) + ` {"x": 1}`)); err == nil {
+		t.Error("a pack with data after its end loaded")
+	}
+}
+
+func first(m map[string]any) map[string]any { return m["capabilities"].([]any)[0].(map[string]any) }
