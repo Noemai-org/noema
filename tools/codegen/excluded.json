@@ -1,0 +1,16 @@
+{
+ "reason": "These contracts belong to the benchmark runner and the synthetic environment, which read them with the JSON Schema validator. The core and the model service hold no benchmark, oracle or fault-plan type (INV-22, REQ-TST-006, PERD 65.1).",
+ "prefixes": [
+  "benchmark-"
+ ],
+ "names": [
+  "arm-manifest.v1",
+  "fault-plan.v1"
+ ],
+ "go_only": {
+  "reason": "memory-observation.v1 has a required member benchmark_case_id (AGENT-23), and the architecture lint (benchmark-branch, tools/lint/golint/terms.go) refuses that term in core Go source. The lint is not weakened for a generated mirror without a founder decision, and nothing in the core uses this contract yet (MEM-03, MEM-04). The Python model is generated.",
+  "names": [
+   "memory-observation.v1"
+  ]
+ }
+}
