@@ -21,7 +21,7 @@ HTTPS on port 443; no credentials, fragment, control character or non-ASCII; a D
 
 ## Tests
 
-`go test ./platform/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: twenty-one deliberate weakenings of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
+`go test ./platform/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: twenty deliberate weakenings (and two more that turned out to be equivalent: a redundant second layer, and a lazy handshake) of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
 
 ## Not covered
 
