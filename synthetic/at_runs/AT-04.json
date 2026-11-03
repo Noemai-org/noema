@@ -1,0 +1,76 @@
+{
+  "synthetic": true,
+  "test": "AT-04 Stale state",
+  "spec": "Write, then read under a stale-state profile. Pass: the read returns the configured prior version; authoritative state stays correct.",
+  "source": "hostility proxy, fault STALE_READ seconds=30 on get_resource (nth_call 2), simulated clock",
+  "seed": 42,
+  "steps": [
+    {
+      "step": "read before the write (the proxy sees this state)",
+      "via": "proxy",
+      "request": "GET /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "initial",
+        "version": 0
+      }
+    },
+    {
+      "step": "write through the proxy",
+      "via": "proxy",
+      "request": "PUT /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "updated",
+        "version": 1
+      }
+    },
+    {
+      "step": "read under the stale-state profile, 60 s after the write",
+      "via": "proxy",
+      "request": "GET /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "initial",
+        "version": 0
+      }
+    },
+    {
+      "step": "authoritative state, read straight from the system",
+      "via": "authoritative (straight to the system)",
+      "request": "GET /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "updated",
+        "version": 1
+      }
+    },
+    {
+      "step": "the next read, no fault: live again",
+      "via": "proxy",
+      "request": "GET /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "updated",
+        "version": 1
+      }
+    }
+  ],
+  "proxy_trace": [
+    {
+      "call_no": 2,
+      "detail": {
+        "served": "stale"
+      },
+      "effect": "STALE_READ",
+      "fault_index": 0,
+      "operation": "get_resource",
+      "params": {
+        "seconds": 30
+      },
+      "seq": 1,
+      "target": "mock-ledger"
+    }
+  ],
+  "verdict": "PASS"
+}
