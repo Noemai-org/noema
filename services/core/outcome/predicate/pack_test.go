@@ -92,6 +92,15 @@ func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 			return strings.Replace(s, `"settle_window_seconds": 30`, `"settle_window_seconds": 9007199254740991`, 1)
 		},
 		"a missing settle window": func(s string) string { return strings.Replace(s, `"settle_window_seconds": 30,`, ``, 1) },
+		"a misspelled outcome_definitions key": func(s string) string {
+			return strings.Replace(s, `"outcome_definitions"`, `"outcome_defintions"`, 1)
+		},
+		"a misspelled evidence_descriptors key": func(s string) string {
+			return strings.Replace(s, `"evidence_descriptors"`, `"evidence_descriptor"`, 1)
+		},
+		"a misspelled predicate_variables key": func(s string) string {
+			return strings.Replace(s, `"predicate_variables"`, `"predicate_variable"`, 1)
+		},
 		"a duplicate descriptor entity": func(s string) string {
 			return strings.Replace(s, `"entity": "attachment"`, `"entity": "case"`, 1)
 		},
