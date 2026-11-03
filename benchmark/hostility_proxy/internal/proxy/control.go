@@ -117,7 +117,13 @@ func (s *Server) clearRun() {
 func (s *Server) getTrace(w http.ResponseWriter, _ *http.Request) {
 	entries := s.trace.snapshot()
 	_, simulated := s.clock.now()
-	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "clock_simulated": simulated, "entries": entries, "trace_hash": hashTrace(entries), "held_events": s.held.pending()})
+	hash, err := hashTrace(entries)
+	if err != nil {
+		s.opt.Log.Error("trace could not be hashed", "err", err.Error())
+		controlJSON(w, 500, map[string]any{"error": "the trace could not be hashed"})
+		return
+	}
+	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "clock_simulated": simulated, "entries": entries, "trace_hash": hash, "held_events": s.held.pending()})
 }
 
 func (s *Server) getStats(w http.ResponseWriter, _ *http.Request) {
