@@ -9,12 +9,24 @@ import (
 	"io/fs"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const errPrefix = "db: "
+
+// cleanupTimeout bounds the cleanup of a request: a rollback, the release of a lock. The cleanup must still be tried when the
+// request's own deadline has passed, so it runs on a context detached from the request's cancellation; and it must never run
+// without a limit, so that a stalled database cannot hold the request after its answer is decided (review of noema#107).
+const cleanupTimeout = 5 * time.Second
+
+// cleanupContext returns the context for a cleanup, and the function that releases it. It is the only place in this package that
+// detaches a context from its parent (a test requires it).
+func cleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
+}
 
 var migrationName = regexp.MustCompile(`^(\d{4})_[a-z0-9_]+\.sql$`)
 
@@ -83,7 +95,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]string, err
 		return nil, fmt.Errorf("%slock: %w", errPrefix, err)
 	}
 	defer func() {
-		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`)
+		c, release := cleanupContext(ctx)
+		defer release()
+		_, _ = conn.Exec(c, `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`)
 	}()
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migration (
 		name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -138,7 +152,11 @@ func applyOne(ctx context.Context, conn *pgxpool.Conn, name, body, checksum stri
 	if err != nil {
 		return fmt.Errorf("%sbegin %s: %w", errPrefix, name, err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer func() {
+		c, release := cleanupContext(ctx)
+		defer release()
+		_ = tx.Rollback(c)
+	}()
 	if _, err := tx.Exec(ctx, body); err != nil {
 		return fmt.Errorf("%sapply %s: %w", errPrefix, name, err)
 	}
