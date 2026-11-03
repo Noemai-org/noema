@@ -2,7 +2,7 @@
 
 Updated 2026-11-03. DEBT-04 (Tier 0): `record_lock_head`, `record_insert` and `record_read_chain` trust a caller-supplied tenant. Option A (a login per tenant and a database-checked mapping) is the fix; the design is in the comment on noema#107. Target: merged by Tue 10 Nov; limit Fri 20 Nov (the Architect).
 
-## State: slices 1 and 2 of 3 built (draft; stacked on noema#107, because it needs migration 0003 and numbers 0004 and 0005)
+## State: slices 1, 2 and 3 built (draft; stacked on noema#107, because it needs migration 0003 and numbers 0004 and 0005)
 
 - **Slice 1 (this branch, `feat/DEBT-04-tenant-bound-record`):** migration `0004_tenant_bound_record.sql` adds `tenant_login` and the tenant-bound functions `record_lock_head_t()`, `record_insert_t(...)`, `record_read_chain_t()`, which find the tenant with `session_user`. The old functions are untouched and still callable (the known gap).
 - **Slice 2 (built):** `Appender.Append` and `chain.ReadChain` use the tenant-bound functions; `chain.Verify` (administrator and verifier path) reads the table directly; `reconstruct.Handler` takes a `TenantDBs` (one pool per tenant, no fallback); `0004` also makes `record_insert_t` refuse an event whose body names another tenant; `0005` drops the three functions that took a tenant argument; the DB-level test skipped in noema#107 is real and the skip is removed; every test world logs in as per-tenant roles (`testpg.TenantLogin`). The `Ledger` is unchanged: it is bound to one pool, so a Ledger is built per tenant on that tenant's login (the held noema#94 and #90 rewrite the ledger and do the same on merge).
@@ -23,3 +23,6 @@ Updated 2026-11-03. DEBT-04 (Tier 0): `record_lock_head`, `record_insert` and `r
 - Exact next step: slice 2 (see above). Answers to the three open points on noema#107 (a login per power; who provisions the logins; the verifier's all-tenant login) shape it; my defaults are per power, the deploy's tenant-creation step, and yes.
 - Files to read first: `services/core/migrations/0004_tenant_bound_record.sql`, `services/core/platform/db/tenant_bound_test.go`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Wider tenant gap: Tier 1, for the Steward (decided 3 Nov 2026: register it, close it before G3 evidence)
+DEBT-04 closes the tenant gap in the Record functions only. The other tenant-scoped tables (`decision_grant`, `grant_spend`, `idempotency_record`, `execution_receipt`, `recovery_request`, `outbox_event`, and their kin) are still selected and written by `tenant_id` values that the caller's SQL supplies, under the per-power group roles, so a power with a pool for one tenant could name another tenant in a query. Fix: bind these tables to the tenant login the same way (row-level security with a policy that reads `session_user` through the `tenant_login` mapping, forced on the table owner too), then test cross-tenant denial per table under the real logins. Owner: Core Engineer 1 with the Engineering Lead and the Security Reviewer. Closed before G3 evidence. Tier 1.

@@ -23,6 +23,10 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 
 `0004_tenant_bound_record.sql` and `0005_drop_untenanted_record_functions.sql` (DEBT-04 option A): the `tenant_login` table maps each LOGIN role to one tenant and one power; `record_lock_head_t()`, `record_insert_t(...)` and `record_read_chain_t()` find the tenant with `session_user`, which a caller cannot change (not by `SET ROLE`, and only a superuser by `SET SESSION AUTHORIZATION`); `record_insert_t` also refuses an event whose body names another tenant. `0005` drops the three functions that took the tenant as an argument. A deployment creates one LOGIN role per tenant and power (for example `execution_rw__ten_aa`, a member of `execution_rw`) and one `tenant_login` row for it.
 
+`0006_record_verify_and_provisioning.sql` (DEBT-04 option A, slice 3): grants the group role `record_verify` SELECT on the Record, the chain heads and the tenant list, and UPDATE on `tenant.kill_switch` only (the verification job, REC-05); and adds `provision_tenant_login(login, power, tenant)`, callable only by the migrating role, which maps an existing login to a tenant after checking that it can log in and belongs to its power's group.
+
+**No migration after 0001 creates a role** (`TestNoMigrationAfter0001CreatesARole`): the migrating role, `noema_core` in Compose, is NOCREATEROLE. `deploy/compose/postgres/init.sh` creates every role, and a migration that needs one checks that it exists and stops with a message that says where to create it. 0001 predates the rule; its guarded creation does nothing when `init.sh` has run first. A database that was initialised before this rule needs the roles created by hand once (initdb scripts run only on an empty volume).
+
 Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw` (0001) and `record_read` (0003). The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 
 ## Not built
