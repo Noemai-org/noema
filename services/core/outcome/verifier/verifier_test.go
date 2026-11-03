@@ -309,6 +309,16 @@ func TestACheckThatCannotRunIsNotAnInvalidSignature(t *testing.T) {
 	}
 }
 
+// P2 (Codex): only the statuses the verifier knows are acted on. Anything else is fail closed, as an error is.
+func TestAnUnrecognizedAuthenticityResultIsNotAPass(t *testing.T) {
+	w := newWorld(t, func(w *world) { w.auth = authenticity{result: verifier.Authenticity("MAYBE")} })
+	res, wr := w.decided(t)
+	want(t, res, verifier.Unknown, verifier.ReasonReceiptUnverifiable)
+	if wr.SignatureInvalid || w.read.reads() != 0 {
+		t.Fatalf("signature invalid %v, reads %d", wr.SignatureInvalid, w.read.reads())
+	}
+}
+
 // outcome-verdict.v1: the verdict is signed by the Signer over its canonical document, and what is stored matches.
 func TestTheVerdictIsSignedOverItsDocument(t *testing.T) {
 	w := newWorld(t)

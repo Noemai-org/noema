@@ -103,6 +103,16 @@ func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 		"a misspelled predicate_variables key": func(s string) string {
 			return strings.Replace(s, `"predicate_variables"`, `"predicate_variable"`, 1)
 		},
+		"an outcome definition with an empty ID": func(s string) string {
+			k := strings.Index(s, `"outcome_id"`)
+			e := k + strings.Index(s[k:], `,`)
+			return s[:k] + `"outcome_id": ""` + s[e:]
+		},
+		"an outcome definition with no ID": func(s string) string {
+			k := strings.Index(s, `"outcome_id"`)
+			e := k + strings.Index(s[k:], `,`) + 1
+			return s[:k] + s[e:]
+		},
 		"a duplicate descriptor entity": func(s string) string {
 			return strings.Replace(s, `"entity": "attachment"`, `"entity": "case"`, 1)
 		},
