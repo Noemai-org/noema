@@ -473,3 +473,31 @@ func TestTheShippedFintechPolicy(t *testing.T) {
 		t.Errorf("default deny: %+v", r)
 	}
 }
+
+// REQ-TRU-004, PERD §23.4 ("No matching PERMIT: REJECT NO_PERMITTING_RULE"), INV-03: a CONFIRM never grants authority by
+// itself. A winning CONFIRM with no PERMIT matched is the default-deny result, marked so the Record can tell it from a
+// target no rule names; with a matching PERMIT the CONFIRM stands and the action needs the approver.
+func TestAConfirmAloneIsDeniedAndWithAPermitRequiresConfirmation(t *testing.T) {
+	alone := must(policy.NewSet(active("p", "1", 100,
+		rule("ask", "WORKFLOW", "CONFIRM", "a", "true", "NEEDS_APPROVER", "AT_DECISION"))))
+	got := eval(t, alone, "a", 200, nil)
+	if got.Effect != policy.Reject || got.Reason != "NO_PERMITTING_RULE" || got.PermitMatched || !got.ConfirmWithoutPermit {
+		t.Fatalf("CONFIRM alone: %+v", got)
+	}
+	if got.Winner != nil || len(got.Applied) != 1 {
+		t.Fatalf("the CONFIRM must stay in Applied, not win: %+v", got)
+	}
+
+	both := must(policy.NewSet(active("p", "1", 100,
+		rule("ask", "WORKFLOW", "CONFIRM", "a", "true", "NEEDS_APPROVER", "AT_DECISION"),
+		rule("ok", "DEFAULT", "PERMIT", "a", "true", "R", "AT_DECISION"))))
+	got = eval(t, both, "a", 200, nil)
+	if got.Effect != policy.Confirm || got.Reason != "NEEDS_APPROVER" || !got.PermitMatched || got.ConfirmWithoutPermit {
+		t.Fatalf("CONFIRM with PERMIT: %+v", got)
+	}
+
+	plain := eval(t, must(policy.NewSet(active("p", "1", 100))), "a", 200, nil)
+	if plain.ConfirmWithoutPermit {
+		t.Fatalf("default deny with no CONFIRM must not carry the marker: %+v", plain)
+	}
+}
