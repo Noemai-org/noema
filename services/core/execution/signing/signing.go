@@ -161,7 +161,14 @@ func loadKey(identity, path, id string) (Key, error) {
 		return Key{}, fmt.Errorf("%s%q is a key of another identity", errPrefix, filepath.Base(path))
 	}
 	version, _ := strconv.Atoi(m[len(m)-1])
-	info, err := os.Lstat(path)
+	// One descriptor serves every check and the read, so a swap of the path after the open cannot change what is read.
+	// O_NOFOLLOW refuses a symbolic link; O_NONBLOCK stops a FIFO from holding the open.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return Key{}, fmt.Errorf("%scannot open %q (a symbolic link is refused): %w", errPrefix, filepath.Base(path), err)
+	}
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot stat %q: %w", errPrefix, filepath.Base(path), err)
 	}
@@ -174,9 +181,12 @@ func loadKey(identity, path, id string) (Key, error) {
 	if info.Size() > int64(maxKeyFileBytes) {
 		return Key{}, fmt.Errorf("%s%q is too large to be a key file", errPrefix, filepath.Base(path))
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := io.ReadAll(io.LimitReader(f, int64(maxKeyFileBytes)+1))
 	if err != nil {
 		return Key{}, fmt.Errorf("%scannot read %q: %w", errPrefix, filepath.Base(path), err)
+	}
+	if len(raw) > maxKeyFileBytes {
+		return Key{}, fmt.Errorf("%s%q is too large to be a key file", errPrefix, filepath.Base(path))
 	}
 	text := strings.TrimSuffix(string(raw), "\n")
 	if !seedRe.MatchString(text) {

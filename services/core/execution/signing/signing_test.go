@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/execution/signing"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -224,6 +226,20 @@ func TestAKeyThatIsNotExactlyWhatTheDeployStepWritesIsRefused(t *testing.T) {
 	}
 	if _, err := load(dir); err == nil {
 		t.Fatal("a symbolic link was accepted as a key file")
+	}
+	fifoDir := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(fifoDir, keyID(1)+".key"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := load(fifoDir); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a FIFO was accepted as a key file")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a FIFO held the loader open")
 	}
 }
 
