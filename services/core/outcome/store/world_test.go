@@ -103,7 +103,10 @@ type verdictArgs struct {
 const callVerdict = `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'k_out', 'sig',
 	(jsonb_build_object('verdict_id', $2::text, 'tenant_id', $1::text, 'receipt_id', $3::text, 'verdict', $16::text, 'correlation_id', $5::text, 'outcome_definition', $6::text,
 		'evidence_reads', to_jsonb($10::text[]), 'predicate_result', COALESCE(to_jsonb($9::boolean), 'null'::jsonb), 'verified_at', to_jsonb($11::timestamptz),
-		'sig', jsonb_build_object('key_id', 'k_out'::text, 'value', 'sig'::text)) || $17::jsonb),
+		'sig', jsonb_build_object('key_id', 'k_out'::text, 'value', 'sig'::text))
+		|| CASE WHEN $13::text IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('watch', jsonb_build_object('watch_id', $13::text,
+			'next_check_at', to_jsonb($14::timestamptz), 'deadline_at', to_jsonb($15::timestamptz), 'triggers', to_jsonb(ARRAY['fin.evt.settlement.updated']))) END
+		|| $17::jsonb),
 	$12, $13, $14, $15, ARRAY['fin.evt.settlement.updated'])`
 
 func (a verdictArgs) call(c context.Context, p *pgxpool.Pool) error {

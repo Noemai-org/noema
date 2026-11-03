@@ -289,6 +289,33 @@ func TestWritePathRefusesAVerdictThatDisagreesWithItsReceiptOrItsDocument(t *tes
 	}
 }
 
+// The durable watch is part of the signed verdict: the row OUT-03 schedules from must say what the signed document says
+// (REQ-VER-004, INV-28), and only a PENDING_EXTERNAL document carries a watch.
+func TestWritePathRefusesAWatchThatDisagreesWithItsDocument(t *testing.T) {
+	w := newWorld(t)
+	p := w.as(t, "outcome_rw")
+	pending := func(id, override string) verdictArgs {
+		return verdictArgs{tenant: tenant, verdictID: id, receiptID: receipt1, verdict: "PENDING_EXTERNAL", reason: "PENDING_CONDITION", predicate: ptr(false),
+			reads: []string{"evr_01"}, recoveryID: ptr("rrq_" + id), watchID: ptr("wat_" + id), next: ptr(verifiedAt.Add(5 * time.Minute)),
+			deadline: ptr(verifiedAt.Add(72 * time.Hour)), docOverride: override}
+	}
+	withWatch := achieved("ver_w6")
+	withWatch.docOverride = `{"watch":{"watch_id":"wat_x","next_check_at":"2026-11-03T10:05:00Z","deadline_at":"2026-11-06T10:00:00Z","triggers":[]}}`
+	for name, a := range map[string]verdictArgs{
+		"a document with another watch id":               pending("ver_w1", `{"watch":{"watch_id":"wat_other","next_check_at":"2026-11-03T10:05:00Z","deadline_at":"2026-11-06T10:00:00Z","triggers":["fin.evt.settlement.updated"]}}`),
+		"a document with another next check":             pending("ver_w2", `{"watch":{"watch_id":"wat_ver_w2","next_check_at":"2026-11-03T10:06:00Z","deadline_at":"2026-11-06T10:00:00Z","triggers":["fin.evt.settlement.updated"]}}`),
+		"a document with another deadline":               pending("ver_w3", `{"watch":{"watch_id":"wat_ver_w3","next_check_at":"2026-11-03T10:05:00Z","deadline_at":"2027-01-01T00:00:00Z","triggers":["fin.evt.settlement.updated"]}}`),
+		"a document with other triggers":                 pending("ver_w4", `{"watch":{"watch_id":"wat_ver_w4","next_check_at":"2026-11-03T10:05:00Z","deadline_at":"2026-11-06T10:00:00Z","triggers":[]}}`),
+		"a pending document with no watch":               pending("ver_w5", `{"watch":null}`),
+		"a document that is not pending but has a watch": withWatch,
+	} {
+		t.Run(name, func(t *testing.T) { wantState(t, a.call(ctx(t), p), integrityClass) })
+	}
+	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`) + w.count(t, `SELECT count(*) FROM outcome_watch`); n != 0 {
+		t.Fatalf("%d rows left behind", n)
+	}
+}
+
 // A verification is stored once. A second verdict under the same verification ID is refused by the database, whoever calls.
 func TestAVerificationIsStoredOnce(t *testing.T) {
 	w := newWorld(t)
