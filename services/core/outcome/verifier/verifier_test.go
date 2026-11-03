@@ -203,6 +203,20 @@ func TestThePredicateDecidesWhenTheKeyIsPresent(t *testing.T) {
 		res, _ := w.decided(t)
 		want(t, res, verifier.NotAchieved, verifier.ReasonPredicateFalse)
 	})
+	// P1 (Codex): the predicate is read over every case of the transaction, but only the case under our key is our effect. A
+	// key case that fails the postcondition must not become ACHIEVED because another case satisfies it (INV-04, AGENT-21).
+	t.Run("the key's own case fails while another case satisfies the predicate", func(t *testing.T) {
+		ours := theCase()
+		ours.Status, ours.CreatedByIntent = "CLOSED", "int_other"
+		other := theCase()
+		other.CaseID, other.IdempotencyKey = "case_2", "idk_v1_other"
+		w := newWorld(t, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(ours)}, []step{complete(ours, other)} })
+		res, _ := w.decided(t)
+		if res.Verdict == verifier.Achieved {
+			t.Fatal("ACHIEVED although the case under our key does not satisfy the predicate")
+		}
+		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
+	})
 	t.Run("an unbound variable evaluates to UNKNOWN, not false", func(t *testing.T) {
 		w := newWorld(t, func(w *world) { delete(w.req.Bindings, "intent_id") })
 		res, _ := w.decided(t)
