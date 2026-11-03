@@ -65,6 +65,8 @@ func TestTheRuntimeLoginCannotDropOrRebuildTheSchema(t *testing.T) {
 		"DROP SCHEMA public CASCADE (drops the Record, the receipts, the grants and the triggers)": `DROP SCHEMA public CASCADE`,
 		"CREATE SCHEMA (a schema of its own to rebuild into)":                                      `CREATE SCHEMA rebuilt`,
 		"ALTER SCHEMA public OWNER TO itself, then everything under it is its to change":           `ALTER SCHEMA public OWNER TO noema_core_like`,
+		"CREATE TABLE in schema public (W1 test 18 iii)":                                           `CREATE TABLE public.sec13_probe (i int)`,
+		"CREATE EXTENSION (a trusted extension needs only CREATE on the database; W1 test 18 iii)": `CREATE EXTENSION IF NOT EXISTS pgcrypto`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := refusedInTx(t, conn, stmt); err == nil {
@@ -105,7 +107,7 @@ func TestAControlLoginThatOwnsNothingIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close(ctx(t)) }()
-	for _, stmt := range []string{`DROP SCHEMA public CASCADE`, `CREATE SCHEMA rebuilt`, `ALTER SCHEMA public OWNER TO control_login`} {
+	for _, stmt := range []string{`DROP SCHEMA public CASCADE`, `CREATE SCHEMA rebuilt`, `ALTER SCHEMA public OWNER TO control_login`, `CREATE TABLE public.sec13_probe (i int)`, `CREATE EXTENSION IF NOT EXISTS pgcrypto`} {
 		if err := refusedInTx(t, conn, stmt); err == nil {
 			t.Fatalf("the control login executed %q", stmt)
 		}
