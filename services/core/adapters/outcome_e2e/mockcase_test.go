@@ -133,14 +133,24 @@ func startMockCase(t *testing.T) mockCase {
 	dbMu.Lock()
 	dbCount++
 	name := fmt.Sprintf("mock_case_e2e_%d_%d", os.Getpid(), dbCount)
+	// Roles are cluster-wide and every test binary on the server creates the same two. A check followed by a create races
+	// across processes (dbMu only orders this one), so the create takes an advisory lock and tolerates a role made meanwhile.
 	_, err = conn.Exec(ctx, `
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_admin') THEN
-    CREATE ROLE mock_case_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_app') THEN
-    CREATE ROLE mock_case_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
-  END IF;
+  PERFORM pg_advisory_lock(7200310001);
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_admin') THEN
+      CREATE ROLE mock_case_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
+    END IF;
+  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+  END;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_app') THEN
+      CREATE ROLE mock_case_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
+    END IF;
+  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+  END;
+  PERFORM pg_advisory_unlock(7200310001);
 END $$`)
 	dbMu.Unlock()
 	if err != nil {
