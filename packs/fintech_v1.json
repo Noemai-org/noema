@@ -1963,6 +1963,24 @@
       }
     },
     {
+      "entity": "beneficiary",
+      "source": "fin.src.core_ledger",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
+      "entity": "account",
+      "source": "fin.src.core_ledger",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
       "entity": "switch_event",
       "source": "fin.src.switch",
       "fields": {

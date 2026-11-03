@@ -12,6 +12,11 @@ Packs are loaded as data, never imported as code (SoT §51). The files are `fint
 - `python tools/packcheck validate [--conformance] <pack>` runs every check: schema, references, capabilities (REQ-CAP-001), predicates (parse and type-check against `evidence_descriptors` and `predicate_variables`), graphs (REQ-AG-001), routing (REQ-AG-002) and reason-code namespaces. `fixtures/bad_packs/` holds one patch per failing case; each names the check that must fail.
 - The predicate grammar and the shared corpus are in `contracts/predicates/`. The Go evaluator (T6.1) must pass the same corpus.
 
+## Minimal evidence descriptors (PCK-04)
+
+- `beneficiary` and `account` in `fintech_v1.json` have one field each, `id` (a Reference), the descriptor's own id. Each `source` is the one the lookup node's capability declares (`verification.source`). Both are **minimal; extend when the Tushe worksheet is signed**: the worksheet does not exist yet, so no richer field is invented. A Founder decision of 3 Nov 2026 set the rule: the key is the descriptor id declared in the pack, not an evidence field.
+- The sources `fin.src.beneficiary` and `fin.src.customer` exist in `evidence_sources` but no capability names them, so the descriptors do not use them. Which source is right is for the signed worksheet to say.
+
 ## Status (Session A, 24 Oct 2026)
 
 - **Built:** the four packs, the fintech Action Graph and the `packcheck` checks. #59 (open) adds the `understanding` block and `matcher_ref`.
