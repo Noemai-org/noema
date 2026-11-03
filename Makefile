@@ -115,14 +115,9 @@ bench-us bench-chaos bench-evil bench-full: bench-venv
 # NOT_RUN (exit 3) and the target stops. BENCH_G1_ID names the pair (default g1-<UTC date>); the legs are <id>-a and <id>-b. A rerun is a new pair with its own ID.
 BENCH_G1_ID ?= g1-$(shell date -u +%Y%m%d-%H%M%S)
 bench-g1: bench-venv
-	@sha=$$(git rev-parse HEAD); \
-	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1/suite > /dev/null || exit $$?; \
-	for leg in a b; do \
-	  if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
-	  $(BENCH_PY) -m benchmark.suites run g1 --suite $(BENCH_OUT)/g1/suite --out $(BENCH_OUT)/g1/$$leg --run-id "$(BENCH_G1_ID)-$$leg" --commit-sha "$$sha" $$reset_flag -- $(BENCH_SUITE_ARGS); \
-	  rc=$$?; if [ $$rc -ne 0 ] && [ $$rc -ne 1 ]; then exit $$rc; fi; \
-	done; \
-	$(BENCH_PY) -m benchmark.replay --suite $(BENCH_OUT)/g1/suite --first $(BENCH_OUT)/g1/a/run --second $(BENCH_OUT)/g1/b/run --story US-01 --story US-06 --exclude-mutated --out $(BENCH_OUT)/g1/replay
+	@$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1/suite > /dev/null || exit $$?; \
+	reset_flag=""; if [ "$(BENCH_RESET)" = "1" ]; then reset_flag="--reset"; fi; \
+	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1/suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" $$reset_flag -- $(BENCH_SUITE_ARGS)
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:

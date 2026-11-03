@@ -1,4 +1,4 @@
-"""python -m benchmark.suites list|run NAME --suite DIR [--out DIR] [--run-id ID] [--commit-sha SHA] [--reset-done] [-- runner args]   (BEN-29)
+"""python -m benchmark.suites list|run NAME --suite DIR  |  g1 --suite DIR --out DIR --run-id ID [--reset] [--out DIR] [--run-id ID] [--commit-sha SHA] [--reset-done] [-- runner args]   (BEN-29)
 
 `list` prints the case ids a named suite selects and their digest. `run` is the one command per suite: select, run the selection through the runner (the public API only),
 score exactly those cases, and write `suite-run.json` with the run ID, the selection digest, the suite manifest digest, the seed and the commit (REQ-BEN-004, REQ-TST-005).
@@ -80,6 +80,31 @@ def _run(args: argparse.Namespace, passthrough: list[str]) -> int:
     return int(max(ran.returncode, scored.returncode))
 
 
+def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
+    import importlib.util
+
+    from benchmark.suites.g1 import run_g1
+    out = Path(args.out)
+
+    def run_leg(leg: str, leg_out: Path) -> int:
+        argv = ["run", "g1", "--suite", args.suite, "--out", str(leg_out), "--run-id", f"{args.run_id}-{leg}"]
+        argv += ["--commit-sha", args.commit_sha] if args.commit_sha else []
+        argv += ["--reset-done"] if args.reset else []
+        return main(argv + (["--"] + passthrough if passthrough else []))
+
+    def run_replay(first: Path, second: Path, replay_out: Path) -> int:
+        if importlib.util.find_spec("benchmark.replay") is None:
+            print("error: benchmark.replay is not in this checkout (noema#102 adds it); the G1 diff cannot be made", file=sys.stderr)
+            return 2
+        return subprocess.run([sys.executable, "-m", "benchmark.replay", "--suite", args.suite, "--first", str(first), "--second", str(second), "--story", "US-01",
+                               "--story", "US-06", "--exclude-mutated", "--out", str(replay_out)], check=False).returncode
+
+    def reset() -> int:
+        return subprocess.run(["make", "reset"], check=False).returncode
+
+    return run_g1(out, run_leg, run_replay, reset if args.reset else None)
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     passthrough: list[str] = []
@@ -92,10 +117,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     parser = argparse.ArgumentParser(prog="benchmark.suites", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    for command in ("list", "run"):
+    for command in ("list", "run", "g1"):
         p = sub.add_parser(command)
-        p.add_argument("name", help="us, chaos, evil or full (benchmark/suites/suites.json)")
+        if command != "g1":
+            p.add_argument("name", help="us, chaos, evil, full or g1 (benchmark/suites/suites.json)")
         p.add_argument("--suite", required=True, help="a suite root written by `python -m benchmark.generator generate`")
+        if command == "g1":
+            p.add_argument("--out", required=True)
+            p.add_argument("--run-id", required=True, help="the pair's id; the legs are <id>-a and <id>-b")
+            p.add_argument("--commit-sha", default=None)
+            p.add_argument("--reset", action="store_true", help="run `make reset` before each leg and record reset_done")
         if command == "run":
             p.add_argument("--out", required=True)
             p.add_argument("--run-id", required=True)
@@ -108,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             print("\n".join(ids))
             print(f"{len(ids)} cases; {selection_digest(ids)}")
             return 0
+        if args.command == "g1":
+            return _g1(args, passthrough)
         return _run(args, passthrough)
     except (SelectionError, ValueError, OSError, KeyError, json.JSONDecodeError) as exc:
         print(f"error: {exc}", file=sys.stderr)

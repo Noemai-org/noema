@@ -98,6 +98,15 @@ class RunCommand(unittest.TestCase):
         invoke("run", "evil", "--suite", str(suite_dir()), "--out", str(out_dir), "--run-id", "g3-evil-1", "--reset-done")
         self.assertTrue(json.loads((out_dir / "suite-run.json").read_text())["reset_done"])
 
+    def test_g1_without_an_environment_stops_at_the_first_leg_with_exit_3_and_runs_no_replay(self) -> None:
+        out_dir = self.root / "g1"
+        code, _, _ = invoke("g1", "--suite", str(suite_dir()), "--out", str(out_dir), "--run-id", "g1-test", "--commit-sha", "b" * 40)
+        self.assertEqual(3, code)
+        record = json.loads((out_dir / "a" / "suite-run.json").read_text())
+        self.assertEqual(("g1", "g1-test-a", "NOT_RUN", 6), (record["suite"], record["run_id"], record["status"], record["selected"]))
+        self.assertFalse((out_dir / "b").exists())
+        self.assertFalse((out_dir / "replay").exists())
+
     def test_an_unknown_suite_exits_2(self) -> None:
         code, _, err = invoke("list", "nope", "--suite", str(suite_dir()))
         self.assertEqual(2, code)

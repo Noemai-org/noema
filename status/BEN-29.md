@@ -23,3 +23,7 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-12, BEN-1
 - Purpose: start tasks when prerequisites are on `main`; no scope cut; decide inside scope; report in the stated order.
 - Receiver used it for: building BEN-29's plumbing ahead of its date.
 - Evidence: the PR for this branch.
+
+### 2026-11-03 · Codex review of noema#117 (noemai-systems, on c188b9a), answered
+- Finding (Major): the G1 recipe could swallow a failing suite exit code: each leg was allowed to return 1, then only the replay's status was returned, so identical partial runs could make `bench-g1` exit 0 even when a leg was incomplete or a Tier 0 gate was nonzero.
+- Done: the orchestration moved out of shell into tested Python (`benchmark/suites/g1.py`, `python -m benchmark.suites g1`). `combine` keeps every failure: not-run (3) and bad input (2) win, then the replay's code, then 1 if any leg reported 1; a leg with exit 1 still lets the replay report be written. Eleven tests (`test_g1.py`) and an end-to-end NOT_RUN test; the Makefile target is now one call. The replay step also checks that `benchmark.replay` exists and exits 2 with a message when it does not (it arrives with #102), so a missing module is never read as a difference.
