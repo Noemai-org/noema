@@ -278,7 +278,7 @@ func (c *CaseClient) send(ctx context.Context, method, path string, query url.Va
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }() // the body is read in full below; a failed close afterwards is not actionable
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxBody))
 	if err != nil {
 		return 0, nil, nil, err
