@@ -22,3 +22,7 @@ Updated 2026-11-03. Plan task PLN-01: owner C1+AG; REQ-PLN-001, REQ-PLN-002; Nee
 - Open questions (owner): whether Trust or the Planner writes `PLAN_CREATED` (Engineering Lead).
 - Files to read first: `services/core/execution/planner/README.md`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-03 (later) · PLN-01 · Codex review 5757658878
+- **Fixed:** `Plan.Document()` returned a shallow copy, so a caller could change the plan and its hash through nested maps, param bytes and predicate lists. It is now a deep copy; `TestMutatingTheReturnedDocumentCannotChangeThePlan` (fails before the change, passes after) mutates every nested collection, and `TestMutatingTheInputSpecsAfterBuildingCannotChangeThePlan` shows the input is copied on ingestion too.
+- **Stack:** this branch now includes noema#131's fix commit (`fea9ebd`: a regression test that an unknown member at any level fails the pack load; Codex's finding on #131 did not reproduce because the generated pack types are closed).

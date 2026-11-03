@@ -86,10 +86,21 @@ func paramValues(in map[string]any) (map[string]contracts.PlanV1StepsItemParamsV
 	return out, nil
 }
 
-// Document returns a copy of the plan.v1 document.
+// Document returns a deep copy of the plan.v1 document: the steps, every params map and each param's bytes, and both predicate
+// lists. Writing into the result cannot change the plan or its hash.
 func (p Plan) Document() contracts.PlanV1 {
 	doc := p.doc
-	doc.Steps = append([]contracts.PlanV1StepsItem(nil), p.doc.Steps...)
+	doc.Steps = make([]contracts.PlanV1StepsItem, len(p.doc.Steps))
+	for i, s := range p.doc.Steps {
+		c := s
+		c.Params = make(map[string]contracts.PlanV1StepsItemParamsValue, len(s.Params))
+		for k, v := range s.Params {
+			c.Params[k] = append(contracts.PlanV1StepsItemParamsValue(nil), v...)
+		}
+		c.Preconditions = append([]contracts.CommonV1Predicate{}, s.Preconditions...)
+		c.ExpectedPostconditions = append([]contracts.CommonV1Predicate{}, s.ExpectedPostconditions...)
+		doc.Steps[i] = c
+	}
 	return doc
 }
 

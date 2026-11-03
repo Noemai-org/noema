@@ -205,3 +205,66 @@ func TestAPlanNeedsStepsAndAVersion(t *testing.T) {
 		t.Error("a plan was built without a registry")
 	}
 }
+
+// A Plan is immutable once built: the document it returns is a deep copy, so no caller can change the plan, or what it hashes to,
+// by writing into the result (Codex review 5757658878). Every nested collection is mutated below.
+func TestMutatingTheReturnedDocumentCannotChangeThePlan(t *testing.T) {
+	r := reg(t)
+	p, err := planner.New(r, "1.0.0", "fin.payments.exception.investigate", twoSteps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := p.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw0, _ := json.Marshal(p.Document())
+
+	d := p.Document()
+	d.GraphVersion = "9.9.9"
+	d.IntentNode = "fin.other"
+	d.Steps[0].NodeId = "changed"
+	d.Steps[0].CapabilityId = "fin.cap.unknown"
+	for k, v := range d.Steps[0].Params { // the bytes of a param value are shared unless they are copied
+		if len(v) > 1 {
+			v[1] = 'X'
+		}
+		d.Steps[0].Params[k] = v
+	}
+	d.Steps[0].Params["added"] = []byte(`"new"`)
+	delete(d.Steps[1].Params, "owner_queue")
+	for i := range d.Steps[0].ExpectedPostconditions {
+		d.Steps[0].ExpectedPostconditions[i] = "changed"
+	}
+	for i := range d.Steps[1].Preconditions {
+		d.Steps[1].Preconditions[i] = "changed"
+	}
+	d.Steps = d.Steps[:1]
+
+	after, err := p.Hash()
+	if err != nil || after != before {
+		t.Fatalf("the hash changed after the returned document was mutated: %s -> %s (%v)", before, after, err)
+	}
+	if raw1, _ := json.Marshal(p.Document()); !bytes.Equal(raw0, raw1) {
+		t.Fatalf("the plan's document changed:\nbefore %s\nafter  %s", raw0, raw1)
+	}
+}
+
+// The input is copied too: changing the specs a plan was built from, after New, cannot change the plan.
+func TestMutatingTheInputSpecsAfterBuildingCannotChangeThePlan(t *testing.T) {
+	r := reg(t)
+	specs := twoSteps()
+	p, err := planner.New(r, "1.0.0", "fin.payments.exception.investigate", specs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, _ := p.Hash()
+	specs[0].Params["transaction_id"] = "txn_CHANGED"
+	specs[0].Params["added"] = "x"
+	specs[0].Postconditions[0] = "changed"
+	specs[1].Preconditions[0] = "changed"
+	specs[1].NodeID = "changed"
+	if after, _ := p.Hash(); after != before {
+		t.Fatalf("the hash followed the caller's later edits: %s -> %s", before, after)
+	}
+}
