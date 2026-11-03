@@ -4,12 +4,15 @@ Written only by the security-reviewer role (see `README.md`). Append dated entri
 
 ## Entries
 
-(none yet)
+### 2026-11-01
 
-### 2026-11-02
+- Completed: SEC-12 evaluation ([docs#78](https://github.com/Noemai-org/docs/pull/78), merged); pgsodium spike green, 58 of 58 at `4206c77` ([run 41314576829](https://github.com/Noemai-org/noema/actions/runs/41314576829), carried by [noema#106](https://github.com/Noemai-org/noema/pull/106)).
+- In progress: SEC-13 failing-first bypass test, draft [noema#105](https://github.com/Noemai-org/noema/pull/105) (red by design, never merged); SEC-14 evaluation [docs#81](https://github.com/Noemai-org/docs/pull/81).
+- Blocked: none. GOV-28 ([docs#80](https://github.com/Noemai-org/docs/pull/80)) and W4 are not mine.
+- Decisions taken: the spike disables pgsodium's event trigger at bootstrap (docs evaluation, section 10).
+- Escalations: pgsodium's DDL behaviour without preload (a bootstrap step W4 carries).
+- Next: align the T6 pass condition with GOV-28 D13; SEC-14 spike A1 to A7 on SeaweedFS, then pgsty/silo; SEC-13 positive test after GOV-28.
 
-- Completed: pgsodium spike extended to the T6 condition agreed with the Engineering Lead; 66 of 66 at `5904374` ([run 41427207979](https://github.com/Noemai-org/noema/actions/runs/41427207979), [noema#106](https://github.com/Noemai-org/noema/pull/106)); the workflow now runs only on its paths or by hand. T6 wording follow-up: [docs#84](https://github.com/Noemai-org/docs/pull/84).
-- Completed: SEC-14 spike A1 to A7 on SeaweedFS 4.51 and pgsty/silo RELEASE.2026-10-26, both pass at `b3a77e2` ([run 41428379854](https://github.com/Noemai-org/noema/actions/runs/41428379854), [noema#110](https://github.com/Noemai-org/noema/pull/110)). The secret scanner flagged one fixed synthetic key in that branch's history, so the spike moved to branch `test/SEC-14-anchor-spike-clean` with run-time random credentials; noema#110 is superseded. Evaluation [docs#81](https://github.com/Noemai-org/docs/pull/81) updated with the results.
-- Blocked: none.
-- Decisions taken: none beyond scope. Architect principle recorded: the production anchor store sits in an account whose credentials the runtime operator does not hold; vendor decided after cloud documentation is verified.
-- Next: SEC-13 positive test after GOV-28 is approved (noema#105 stays a draft and is never merged).
+### 2026-11-03
+
+- SEC-14 spike: spike evidence for SeaweedFS 4.51 and pgsty/silo 2026-10-26 on the clean branch ([noema#111](https://github.com/Noemai-org/noema/pull/111)); the run link is in the PR. Codex found that SeaweedFS lets the writer hide an anchor with a delete marker; recorded as a check, not as a pass (see the PR).
