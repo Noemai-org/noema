@@ -29,6 +29,7 @@ down:
 	$(COMPOSE) down
 
 net-matrix:
+	python3 -I deploy/compose/netcheck/profiles.py --self-test
 	python3 -I deploy/compose/netcheck/matrix.py
 
 reset:
