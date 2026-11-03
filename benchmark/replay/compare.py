@@ -100,17 +100,25 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
     if absent:
         raise ReplayInputError(f"the open-exclusions registry names {', '.join(absent)}, which the suite does not contain")
     covering = [entry for entry in listed if any(s in entry["covers"] for s in stories)]
-    dropped = [entry for entry in covering if entry["case_id"] in named]
-    selected = [entry for entry in covering if entry["case_id"] not in named]
-    exclusions = [{"case_id": entry["case_id"], "status": "OPEN", "mutation": entry["mutation"]["name"] if entry["mutation"] else None,
-                   "faults": sorted(c for c in entry["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"),
-                   "covers": sorted(s for s in stories if s in entry["covers"]), **named[entry["case_id"]]} for entry in dropped]
-    rows = []
-    for entry in selected:
+
+    def row_for(entry: Json) -> Json:
         row = _compare_case(entry["case_id"], first_results.get(entry["case_id"]), second_results.get(entry["case_id"]))
         row["covers"] = sorted(s for s in stories if s in entry["covers"])
         row["mutation"] = entry["mutation"]["name"] if entry["mutation"] else None
-        rows.append(row)
+        return row
+
+    # A named open exclusion is left out of the tally only while it cannot be compared. Every named case is probed: one that can run is compared and
+    # counted (it cannot hide a difference, and it closes itself), one that cannot stays an open exclusion that records what was observed (Codex, noema#102).
+    rows: list[Json] = []
+    exclusions: list[Json] = []
+    for entry in covering:
+        row = row_for(entry)
+        if entry["case_id"] in named and row["result"] == "NOT_COMPARABLE":
+            exclusions.append({"case_id": entry["case_id"], "status": "OPEN", "mutation": row["mutation"],
+                               "faults": sorted(c for c in entry["covers"] if c.startswith("FAULT:") and c != "FAULT:NONE"), "covers": row["covers"],
+                               "observed": {"result": row["result"], "reason": row["reason"]}, **named[entry["case_id"]]})
+        else:
+            rows.append(row)
     tally = {"IDENTICAL": 0, "DIFFERENT": 0, "NOT_COMPARABLE": 0}
     for row in rows:
         tally[row["result"]] += 1
@@ -126,7 +134,7 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
     generator = first_manifest["suite"]["generator"]
     return {
         "verdict": verdict, "stories": list(stories), "selection": "NAMED_OPEN_EXCLUSIONS_REMOVED" if exclusions else "ALL_CASES_COVERING_THE_STORIES",
-        "open_exclusions": exclusions, "case_coverage": {"covered": len(selected), "of": len(covering)}, "stories_covered": covered, "counts": counts,
+        "open_exclusions": exclusions, "case_coverage": {"covered": len(rows), "of": len(covering)}, "full_coverage": not exclusions, "stories_covered": covered, "counts": counts,
         "first": {"run_id": first_manifest["run_id"], "status": first_manifest["status"]},
         "second": {"run_id": second_manifest["run_id"], "status": second_manifest["status"]},
         "seed": generator["seed"], "generator": {"name": generator["name"], "version": generator["version"]},

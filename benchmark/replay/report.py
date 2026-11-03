@@ -13,7 +13,9 @@ def render_markdown(report: Json) -> str:
     lines = [
         f"# Replay diff · {report['first']['run_id']} and {report['second']['run_id']}",
         "",
-        f"**Verdict: {report['verdict']}.** SYNTHETIC data (AGENT-25). Generated layer only.",
+        f"**Verdict: {report['verdict']}"
+        + (f" on {report['case_coverage']['covered']} of {report['case_coverage']['of']} cases ({len(report['open_exclusions'])} open exclusion"
+           f"{'' if len(report['open_exclusions']) == 1 else 's'}, so not full coverage)" if not report["full_coverage"] else "") + ".** SYNTHETIC data (AGENT-25). Generated layer only.",
         "",
         "| | |",
         "|---|---|",
@@ -44,9 +46,9 @@ def render_markdown(report: Json) -> str:
     if report["open_exclusions"]:
         lines += ["", "## Open exclusions", "",
                   f"This report covers {report['case_coverage']['covered']} of {report['case_coverage']['of']} cases. Each case below is excluded, not passed, and stays "
-                  "open until it can be run and compared.", "", "| Case | Covers | Mutation | Fault it needs | Held by | Opened | Status | Reason |", "|---|---|---|---|---|---|---|---|"]
+                  "open until it can be run and compared.", "", "| Case | Covers | Mutation | Fault it needs | Held by | Opened | Status | Observed in these runs | Reason |", "|---|---|---|---|---|---|---|---|---|"]
         lines += [f"| {e['case_id']} | {', '.join(e['covers'])} | {e['mutation'] or ''} | {', '.join(e['faults']) or 'none named'} | {e['held_by']} | {e['opened']} | {e['status']} "
-                  f"| {_cell(e['reason'])} |" for e in report["open_exclusions"]]
+                  f"| {_cell(e['observed']['reason'])} | {_cell(e['reason'])} |" for e in report["open_exclusions"]]
     lines += ["", "## What was compared", "", "Compared: " + ", ".join(report["compared_fields"]) + ".", "",
               "Not compared: " + ", ".join(report["not_compared"]) + " (they legitimately differ between runs).", "", "## Limits", ""]
     lines += [f"- {text}" for text in report["limitations"]]

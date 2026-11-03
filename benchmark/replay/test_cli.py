@@ -9,7 +9,7 @@ from typing import Any
 
 from benchmark.contracts import Contracts, pretty_bytes
 from benchmark.replay.__main__ import main
-from benchmark.replay.test_compare import REGISTRY, pair, run_manifest, suite_manifest
+from benchmark.replay.test_compare import REGISTRY, blocked_pair, pair, run_manifest, suite_manifest
 
 Json = dict[str, Any]
 
@@ -46,9 +46,10 @@ class Cli(unittest.TestCase):
     def args(self, a: Path, b: Path, *extra: str) -> tuple[str, ...]:
         return ("--suite", str(self.root / "suite"), "--first", str(a), "--second", str(b), "--out", str(self.root / "out"), *extra)
 
-    def runs(self, manifest_b: Json | None = None, changed: dict[str, Json] | None = None) -> tuple[Path, Path]:
+    def runs(self, manifest_b: Json | None = None, changed: dict[str, Json] | None = None, blocked: bool = False) -> tuple[Path, Path]:
         write_suite(self.root)
-        pa, pb = pair(**(changed or {}))
+        pa, pb = blocked_pair() if blocked else pair()
+        pb.update(changed or {})
         return write_run(self.root, "a", run_manifest("run_a"), pa), write_run(self.root, "b", manifest_b or run_manifest("run_b"), pb)
 
     def test_identical_runs_exit_0_and_write_both_files(self) -> None:
@@ -111,7 +112,7 @@ class Cli(unittest.TestCase):
         return str(path)
 
     def test_the_named_open_exclusions_are_applied_and_recorded_in_the_report(self) -> None:
-        a, b = self.runs()
+        a, b = self.runs(blocked=True)
         reg = self.registry(REGISTRY)
         self.assertEqual(0, invoke(*self.args(a, b, "--exclude-mutated", "--open-exclusions", reg))[0])
         report = json.loads((self.root / "out" / "replay.json").read_text())
@@ -120,6 +121,8 @@ class Cli(unittest.TestCase):
         self.assertIn("NAMED_OPEN_EXCLUSIONS_REMOVED", md)
         self.assertIn("covers 2 of 3 cases", md)
         self.assertIn("Open exclusions", md)
+        self.assertIn("IDENTICAL on 2 of 3 cases", md)
+        self.assertIn("first run ERROR FAULT_UNSUPPORTED", md)
         self.assertIn("BEN-CLEAN-1007", md)
         self.assertIn("FAULT:INJECTION_PAYLOAD", md)
 
