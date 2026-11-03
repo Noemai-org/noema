@@ -24,7 +24,10 @@ ENV_EVIDENCE_POOL = "NOEMA_MODEL_EVIDENCE_POOL_SIZE"
 
 
 def evidence_pool_size(environ: Mapping[str, str]) -> int:
-    """The evidence link's pool size, read strictly from the environment. There is no default in code (AGENT-16)."""
+    """The evidence link's pool size, read strictly from the environment. There is no default in code (AGENT-16).
+
+    Nothing in the service builds the evidence transport yet, so nothing calls this at start-up. The task that composes the evidence
+    link must call it there, so that a missing or invalid value refuses to start, as the provider transport's does."""
     return require_env_int(environ, ENV_EVIDENCE_POOL, minimum=1)
 
 
