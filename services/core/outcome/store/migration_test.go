@@ -3,8 +3,8 @@ package store_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -138,7 +138,7 @@ func TestWritePathAuthenticatesTheCallingLogin(t *testing.T) {
 		"a login that also holds orchestrator_rw": w.loginWith(t, "outcome_rw", "outcome_rw", "orchestrator_rw"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			wantState(t, achieved("ver_l_"+fmt.Sprint(time.Now().UnixNano())).call(ctx(t), p), privilegeDenied)
+			wantState(t, achieved("ver_l_"+strings.ReplaceAll(name, " ", "_")).call(ctx(t), p), privilegeDenied)
 		})
 	}
 	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`); n != 0 {

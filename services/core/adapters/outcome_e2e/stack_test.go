@@ -260,7 +260,7 @@ func outcomeLogin(t *testing.T, admin *pgxpool.Pool, dsn string) *pgxpool.Pool {
 	t.Helper()
 	bg, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	name := fmt.Sprintf("outcome_e2e_login_%d_%d", time.Now().UnixNano(), outcomeLogins.Add(1))
+	name := fmt.Sprintf("outcome_e2e_login_%d_%d", os.Getpid(), outcomeLogins.Add(1))
 	const password = "synthetic-test-password" // SYNTHETIC
 	for _, q := range []string{`CREATE ROLE ` + name + ` LOGIN NOSUPERUSER PASSWORD '` + password + `'`, `GRANT outcome_rw TO ` + name} {
 		if _, err := admin.Exec(bg, q); err != nil {

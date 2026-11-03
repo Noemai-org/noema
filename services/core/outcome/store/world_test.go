@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ var logins atomic.Int64
 // unique to the process and the call.
 func (w *world) loginWith(t *testing.T, role string, member ...string) *pgxpool.Pool {
 	t.Helper()
-	name := fmt.Sprintf("outcome_test_login_%d_%d", time.Now().UnixNano(), logins.Add(1))
+	name := fmt.Sprintf("outcome_test_login_%d_%d", os.Getpid(), logins.Add(1))
 	const password = "synthetic-test-password" // SYNTHETIC
 	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+name+` LOGIN NOSUPERUSER PASSWORD '`+password+`'`); err != nil {
 		t.Fatal(err)
