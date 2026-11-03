@@ -7,7 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]  # no stubs; adding types-jsonschema needs approval (AGENT-14)
 
 from benchmark.hallucination.corpus import CATEGORIES, DEFAULT_SEED, generate
 from benchmark.hallucination.verify import violated_checks
