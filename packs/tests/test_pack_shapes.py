@@ -101,6 +101,30 @@ class Fintech(unittest.TestCase):
                     self.assertIn(v, {"NONE", "LOW", "HIGH"}, c["capability_id"])
 
 
+class LookupDescriptors(unittest.TestCase):
+    """PCK-04 (REQ-AG-001): a READ node in the investigate graph that looks up an entity has an evidence descriptor for it, so a
+    postcondition over that entity type-checks. Founder decision of 3 Nov 2026: the key is the descriptor id declared in the pack
+    (the entity name), not an evidence field; the source is the one the node's capability declares. Minimal; extend when the Tushe
+    worksheet is signed."""
+    pack = load(FINTECH)
+    graph = load(PACKS / "fintech" / "graph" / "g1_investigate.json")
+    capabilities = {c["capability_id"]: c for c in pack["capabilities"]}
+    descriptors = {d["entity"]: d for d in pack["evidence_descriptors"]}
+
+    def test_beneficiary_and_account_have_a_minimal_descriptor_from_the_declared_source(self):
+        for node_id, entity in (("lookup_beneficiary", "beneficiary"), ("lookup_account", "account")):
+            node = next(n for n in self.graph["nodes"] if n["node_id"] == node_id)
+            declared = self.capabilities[node["capability_id"]]["verification"]["source"]
+            self.assertIn(entity, self.descriptors, f"{node_id} has no evidence descriptor")
+            d = self.descriptors[entity]
+            self.assertEqual(d["source"], declared, f"{entity}: the source is the one the node's capability declares")
+            self.assertEqual(d["fields"], {"id": {"type": "Reference"}}, f"{entity}: one field, the descriptor's own id")
+
+    def test_the_minimal_descriptors_are_marked_in_the_pack_readme(self):
+        text = (PACKS / "README.md").read_text()
+        self.assertIn("minimal; extend when the Tushe worksheet is signed", text)
+
+
 class References(unittest.TestCase):
     """Every ID used exists (a subset of what packcheck enforces)."""
 
