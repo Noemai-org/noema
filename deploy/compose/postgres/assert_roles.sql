@@ -43,6 +43,21 @@ BEGIN
     RAISE EXCEPTION 'noema_core is a member of noema_migrator (directly or not)';
   END IF;
 
+  -- The six power roles exist, cannot log in and are not members of anything that reaches the migrator.
+  SELECT string_agg(r, ', ') INTO bad FROM unnest(ARRAY['trust_rw','execution_rw','outcome_rw','record_append','evidence_rw','orchestrator_rw']) r
+    WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r AND NOT rolcanlogin);
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'power role(s) missing or able to log in: %', bad;
+  END IF;
+  IF EXISTS (
+    WITH RECURSIVE reach(roleid) AS (
+      SELECT oid FROM pg_roles WHERE rolname IN ('trust_rw','execution_rw','outcome_rw','record_append','evidence_rw','orchestrator_rw')
+      UNION
+      SELECT m.roleid FROM pg_auth_members m JOIN reach ON m.member = reach.roleid)
+    SELECT 1 FROM reach JOIN pg_roles r ON r.oid = reach.roleid WHERE r.rolname = 'noema_migrator') THEN
+    RAISE EXCEPTION 'a power role is a member of noema_migrator (directly or not)';
+  END IF;
+
   -- The migrator role cannot log in; only its one login can, and that login is not the core's.
   IF (SELECT rolcanlogin FROM pg_roles WHERE rolname = 'noema_migrator') THEN
     RAISE EXCEPTION 'noema_migrator can log in';

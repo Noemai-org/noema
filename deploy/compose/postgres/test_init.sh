@@ -20,4 +20,9 @@ as_core() { PGPASSWORD="synthetic-noema_core_password" psql -X -q -tA -U noema_c
 for stmt in "create table t(i int)" "create schema s" "create temp table t(i int)" "set role noema_migrator"; do
   if as_core "$stmt" | grep -q "^ERROR"; then :; else echo "noema_core was allowed: $stmt"; exit 1; fi
 done
+# Migration 0001 applies as the migration login with no CREATE ROLE right (it is a plain role).
+for f in "$here"/../../../services/core/migrations/0001_*.sql; do
+  PGPASSWORD="synthetic-noema_migrator_password" psql -v ON_ERROR_STOP=1 -X -q -U noema_migration_login -d noema -f "$f" >/dev/null
+done
+psql -v ON_ERROR_STOP=1 -X -q -U postgres -d noema -f "$here/assert_roles.sql" | grep -q "roles ok"
 echo "init.sh: ok"
