@@ -3,10 +3,13 @@ package store_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"testing"
 	"testing/fstest"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
@@ -31,7 +34,7 @@ func wantState(t *testing.T, err error, prefix string) {
 // with exactly one, addressed by verdict_id and never by grant_id.
 func TestWritePathStoresAchievedAlone(t *testing.T) {
 	w := newWorld(t)
-	if err := achieved("ver_a1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := achieved("ver_a1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	if n := w.count(t, `SELECT count(*) FROM outcome_verdict WHERE verdict_id = 'ver_a1'`); n != 1 {
@@ -44,7 +47,7 @@ func TestWritePathStoresAchievedAlone(t *testing.T) {
 
 func TestWritePathPairsAnyOtherVerdictWithOneRecoveryRequest(t *testing.T) {
 	w := newWorld(t)
-	if err := notAchieved("ver_n1", "rrq_n1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := notAchieved("ver_n1", "rrq_n1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	var grant *string
@@ -62,7 +65,7 @@ func TestWritePathPairsAnyOtherVerdictWithOneRecoveryRequest(t *testing.T) {
 
 func TestWritePathRefusesAVerdictThatBreaksItsShape(t *testing.T) {
 	w := newWorld(t)
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	for name, a := range map[string]verdictArgs{
 		"NOT_ACHIEVED without a recovery request": func() verdictArgs { a := notAchieved("ver_x1", "rrq_x1"); a.recoveryID = nil; return a }(),
 		"ACHIEVED with a recovery request":        func() verdictArgs { a := achieved("ver_x2"); a.recoveryID = ptr("rrq_x2"); return a }(),
@@ -97,14 +100,14 @@ func TestWritePathStoresAPendingVerdictWithItsWatch(t *testing.T) {
 	w := newWorld(t)
 	a := verdictArgs{tenant: tenant, verdictID: "ver_p1", receiptID: receipt1, verdict: "PENDING_EXTERNAL", reason: "PENDING_CONDITION", predicate: ptr(false),
 		reads: []string{"evr_01"}, recoveryID: ptr("rrq_p1"), watchID: ptr("wat_p1"), next: ptr(verifiedAt.Add(5 * time.Minute)), deadline: ptr(verifiedAt.Add(72 * time.Hour))}
-	if err := a.call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := a.call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	if n := w.count(t, `SELECT count(*) FROM outcome_watch WHERE verdict_id = 'ver_p1' AND status = 'OPEN' AND next_check_at <= deadline_at`); n != 1 {
 		t.Fatalf("open watches = %d", n)
 	}
 	a.verdictID, a.recoveryID, a.watchID, a.next, a.deadline = "ver_p2", ptr("rrq_p2"), ptr("wat_p2"), ptr(verifiedAt.Add(2*time.Hour)), ptr(verifiedAt.Add(time.Hour))
-	if err := a.call(ctx(t), w.as(t, "outcome_rw")); err == nil {
+	if err := a.call(ctx(t), w.outcome(t)); err == nil {
 		t.Fatal("a watch whose first check is after its deadline was accepted")
 	}
 }
@@ -122,12 +125,36 @@ func TestOnlyOutcomeRwMayCallTheWritePath(t *testing.T) {
 	}
 }
 
+// Codex blocking finding, Founder's decision on DEBT-03: the function authenticates the calling login, not only the role the
+// session runs as. Outcome's login holds the outcome_rw power and no other; a superuser, or a login that also holds another
+// power, cannot write a verdict by running as outcome_rw. (Who holds the outcome_rw credential is a separate limit, REC-08.)
+func TestWritePathAuthenticatesTheCallingLogin(t *testing.T) {
+	w := newWorld(t)
+	for name, p := range map[string]*pgxpool.Pool{
+		"a superuser that runs as outcome_rw":     w.as(t, "outcome_rw"),
+		"a login that also holds execution_rw":    w.loginWith(t, "outcome_rw", "outcome_rw", "execution_rw"),
+		"a login that also holds trust_rw":        w.loginWith(t, "outcome_rw", "outcome_rw", "trust_rw"),
+		"a login that also holds evidence_rw":     w.loginWith(t, "outcome_rw", "outcome_rw", "evidence_rw"),
+		"a login that also holds orchestrator_rw": w.loginWith(t, "outcome_rw", "outcome_rw", "orchestrator_rw"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			wantState(t, achieved("ver_l_"+fmt.Sprint(time.Now().UnixNano())).call(ctx(t), p), privilegeDenied)
+		})
+	}
+	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`); n != 0 {
+		t.Fatalf("%d verdicts written by a login that is not Outcome's", n)
+	}
+	if err := achieved("ver_l_ok").call(ctx(t), w.outcome(t)); err != nil {
+		t.Fatalf("Outcome's own login was refused: %v", err)
+	}
+}
+
 func TestOutcomeRwHasNoDirectWrites(t *testing.T) {
 	w := newWorld(t)
-	if err := notAchieved("ver_d1", "rrq_d1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := notAchieved("ver_d1", "rrq_d1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	for _, q := range []string{
 		`INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result, evidence_reads, verified_at, json, sig_key_id, sig_value)
 		 VALUES ('ver_z', 'ten_aa', 'corr_abc123', 'rcp_0001', 'vrf_z', 'd', 'ACHIEVED', 'r', true, ARRAY['evr_1'], now(), '{}', 'k', 's')`,
@@ -149,7 +176,7 @@ func TestOutcomeRwHasNoDirectWrites(t *testing.T) {
 // back to Trust. The grant-sourced insert Execution already made keeps working.
 func TestExecutionCannotRaiseAVerdictSourcedRecoveryRequest(t *testing.T) {
 	w := newWorld(t)
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	if err := achieved("ver_e1").call(ctx(t), p); err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +232,7 @@ func TestConstraintsHoldForEveryInserter(t *testing.T) {
 
 func TestARecoveryRequestMustNotPointAtAnAchievedVerdict(t *testing.T) {
 	w := newWorld(t)
-	if err := achieved("ver_k1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := achieved("ver_k1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	_, err := w.admin.Exec(ctx(t), `INSERT INTO recovery_request (recovery_request_id, tenant_id, verdict_id, reason, created_at) VALUES ('rrq_k', 'ten_aa', 'ver_k1', 'r', now())`)
@@ -214,7 +241,7 @@ func TestARecoveryRequestMustNotPointAtAnAchievedVerdict(t *testing.T) {
 
 func TestVerdictsAreInsertOnly(t *testing.T) {
 	w := newWorld(t)
-	if err := achieved("ver_i1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := achieved("ver_i1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range []string{`UPDATE outcome_verdict SET reason = 'x'`, `DELETE FROM outcome_verdict`, `TRUNCATE outcome_verdict CASCADE`} {
@@ -235,7 +262,7 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 		t.Fatalf("the pinned noema#94 migration changed: %s", got)
 	}
 	w := newWorld(t) // 0001 and 0004 only
-	if err := achieved("ver_u1").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := achieved("ver_u1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
 	files := fstest.MapFS{"0002_grant_spent_void.sql": {Data: raw}}
@@ -257,7 +284,7 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 	if len(applied) != 1 || applied[0] != "0002_grant_spent_void.sql" {
 		t.Fatalf("applied = %v, want only 0002", applied)
 	}
-	if err := notAchieved("ver_u2", "rrq_u2").call(ctx(t), w.as(t, "outcome_rw")); err != nil {
+	if err := notAchieved("ver_u2", "rrq_u2").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatalf("the write path after 0002: %v", err)
 	}
 }
@@ -267,7 +294,7 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 // another grant's correlation.
 func TestWritePathRefusesAVerdictThatDisagreesWithItsReceiptOrItsDocument(t *testing.T) {
 	w := newWorld(t)
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	wrongCorrelation := achieved("ver_c1")
 	wrongCorrelation.correlation = "corr_other99"
 	disagreeing := achieved("ver_c2")
@@ -293,7 +320,7 @@ func TestWritePathRefusesAVerdictThatDisagreesWithItsReceiptOrItsDocument(t *tes
 // (REQ-VER-004, INV-28), and only a PENDING_EXTERNAL document carries a watch.
 func TestWritePathRefusesAWatchThatDisagreesWithItsDocument(t *testing.T) {
 	w := newWorld(t)
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	pending := func(id, override string) verdictArgs {
 		return verdictArgs{tenant: tenant, verdictID: id, receiptID: receipt1, verdict: "PENDING_EXTERNAL", reason: "PENDING_CONDITION", predicate: ptr(false),
 			reads: []string{"evr_01"}, recoveryID: ptr("rrq_" + id), watchID: ptr("wat_" + id), next: ptr(verifiedAt.Add(5 * time.Minute)),
@@ -319,7 +346,7 @@ func TestWritePathRefusesAWatchThatDisagreesWithItsDocument(t *testing.T) {
 // A verification is stored once. A second verdict under the same verification ID is refused by the database, whoever calls.
 func TestAVerificationIsStoredOnce(t *testing.T) {
 	w := newWorld(t)
-	p := w.as(t, "outcome_rw")
+	p := w.outcome(t)
 	first := achieved("ver_v1")
 	first.verification = "vrf_same"
 	if err := first.call(ctx(t), p); err != nil {

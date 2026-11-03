@@ -3,6 +3,9 @@ package store_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,6 +89,42 @@ func (w *world) as(t *testing.T, role string) *pgxpool.Pool {
 	}
 	t.Cleanup(p.Close)
 	return p
+}
+
+var logins atomic.Int64
+
+// loginWith creates a LOGIN role that is a member of the given per-power roles and returns a pool that connects as that
+// login and then runs as `role` (SET ROLE), as a deployment maps a login to a power. Roles are cluster-wide, so the name is
+// unique to the process and the call.
+func (w *world) loginWith(t *testing.T, role string, member ...string) *pgxpool.Pool {
+	t.Helper()
+	name := fmt.Sprintf("outcome_test_login_%d_%d", time.Now().UnixNano(), logins.Add(1))
+	const password = "synthetic-test-password" // SYNTHETIC
+	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+name+` LOGIN NOSUPERUSER PASSWORD '`+password+`'`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = w.admin.Exec(context.Background(), `DROP ROLE IF EXISTS `+name) })
+	for _, m := range member {
+		if _, err := w.admin.Exec(ctx(t), `GRANT `+m+` TO `+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u, err := url.Parse(w.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.UserPassword(name, password)
+	p, err := db.OpenAsRole(ctx(t), u.String(), role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// outcome is Outcome's own pool: a login that holds the outcome_rw power and no other.
+func (w *world) outcome(t *testing.T) *pgxpool.Pool {
+	return w.loginWith(t, "outcome_rw", "outcome_rw")
 }
 
 // verdictArgs are the arguments of outcome_record_verdict. verification, correlation and docVerdict default to values that
