@@ -1,7 +1,7 @@
 package policy_test
 
 // TRU-03: the policy model, loader, evaluator, precedence ladder, evaluation_time and default deny (PERD §23.4,
-// REQ-TRU-004, INV-09). The oracle in TestRandomRuleSetsMatchAnIndependentOracle is written from the PERD text alone and
+// REQ-TRU-004, INV-09). The reference in TestRandomRuleSetsMatchAnIndependentReference is written from the PERD text alone and
 // shares no code with the package.
 
 import (
@@ -188,10 +188,11 @@ func TestAdmissionBeforeAnyVersionHasNoAdmissionRules(t *testing.T) {
 	}
 }
 
-// A condition that cannot be evaluated is an error, never a result: the caller turns it into UNKNOWN (INV-16).
+// A condition that cannot be evaluated is an error, never a result: the caller turns it into UNKNOWN (INV-16). A null operand
+// to an ordering is such a case (a null in an equality is just false).
 func TestUnevaluableConditionIsAnError(t *testing.T) {
 	s := must(policy.NewSet(active("p", "1", 100,
-		rule("deny", "WORKFLOW", "REJECT", "a", "x == 1", "R", "AT_DECISION"),
+		rule("deny", "WORKFLOW", "REJECT", "a", "x > 0", "R", "AT_DECISION"),
 		rule("permit", "DEFAULT", "PERMIT", "a", "true", "R", "AT_DECISION"))))
 	_, err := s.Evaluate("p", policy.Request{Target: "a", Now: 200, AdmittedAt: 200, Env: predicate.Env{Variables: map[string]predicate.Value{}}})
 	var pe *predicate.Error
@@ -203,7 +204,7 @@ func TestUnevaluableConditionIsAnError(t *testing.T) {
 // Rule-skipping on error would let a PERMIT through: an erroring rule for ANOTHER target must not matter.
 func TestOnlyRulesForTheTargetAreEvaluated(t *testing.T) {
 	s := must(policy.NewSet(active("p", "1", 100,
-		rule("other", "WORKFLOW", "REJECT", "b", "x == 1", "R", "AT_DECISION"),
+		rule("other", "WORKFLOW", "REJECT", "b", "x > 0", "R", "AT_DECISION"),
 		rule("mine", "DEFAULT", "PERMIT", "a", "true", "R", "AT_DECISION"))))
 	if got := eval(t, s, "a", 200, map[string]predicate.Value{}); got.Effect != policy.Permit {
 		t.Fatalf("%+v", got)
@@ -283,10 +284,10 @@ func TestEvaluationIsDeterministic(t *testing.T) {
 	}
 }
 
-// Independent oracle, from PERD §23.4 only.
+// Independent reference, from PERD §23.4 only.
 var (
-	oracleClasses = []string{"SAFETY", "PROHIBITION", "TENANT_SECURITY", "REGULATORY", "WORKFLOW", "DEFAULT"}
-	oracleEffects = []string{"REJECT", "ESCALATE", "CONFIRM", "WAIT", "PERMIT"}
+	referenceClasses = []string{"SAFETY", "PROHIBITION", "TENANT_SECURITY", "REGULATORY", "WORKFLOW", "DEFAULT"}
+	referenceEffects = []string{"REJECT", "ESCALATE", "CONFIRM", "WAIT", "PERMIT"}
 )
 
 func indexOf(xs []string, x string) int {
@@ -300,7 +301,7 @@ func indexOf(xs []string, x string) int {
 
 type genRule struct{ id, class, effect, target, cond string }
 
-func oracle(rules []genRule, target string, x int64) (effect, ruleID string) {
+func reference(rules []genRule, target string, x int64) (effect, ruleID string) {
 	best := -1
 	for i, r := range rules {
 		matched := r.target == target && (r.cond == "true" || (r.cond == "x == 1" && x == 1))
@@ -312,8 +313,8 @@ func oracle(rules []genRule, target string, x int64) (effect, ruleID string) {
 			continue
 		}
 		b := rules[best]
-		ci, cb := indexOf(oracleClasses, r.class), indexOf(oracleClasses, b.class)
-		ei, eb := indexOf(oracleEffects, r.effect), indexOf(oracleEffects, b.effect)
+		ci, cb := indexOf(referenceClasses, r.class), indexOf(referenceClasses, b.class)
+		ei, eb := indexOf(referenceEffects, r.effect), indexOf(referenceEffects, b.effect)
 		if ci < cb || (ci == cb && ei < eb) || (ci == cb && ei == eb && r.id < b.id) {
 			best = i
 		}
@@ -324,7 +325,7 @@ func oracle(rules []genRule, target string, x int64) (effect, ruleID string) {
 	return rules[best].effect, rules[best].id
 }
 
-func TestRandomRuleSetsMatchAnIndependentOracle(t *testing.T) {
+func TestRandomRuleSetsMatchAnIndependentReference(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261103))
 	conds := []string{"true", "false", "x == 1"}
 	sawDeny, sawWinner := 0, 0
@@ -333,12 +334,12 @@ func TestRandomRuleSetsMatchAnIndependentOracle(t *testing.T) {
 		rules := make([]genRule, count)
 		js := make([]string, count)
 		for i := range rules {
-			rules[i] = genRule{id: fmt.Sprintf("r%02d", i), class: oracleClasses[rng.Intn(6)], effect: oracleEffects[rng.Intn(5)],
+			rules[i] = genRule{id: fmt.Sprintf("r%02d", i), class: referenceClasses[rng.Intn(6)], effect: referenceEffects[rng.Intn(5)],
 				target: []string{"a", "b"}[rng.Intn(2)], cond: conds[rng.Intn(3)]}
 			js[i] = rule(rules[i].id, rules[i].class, rules[i].effect, rules[i].target, rules[i].cond, "R", "AT_DECISION")
 		}
 		x := int64(rng.Intn(3))
-		wantEffect, wantRule := oracle(rules, "a", x)
+		wantEffect, wantRule := reference(rules, "a", x)
 		// the order of the rules in the document must not matter
 		for round := 0; round < 2; round++ {
 			rng.Shuffle(len(js), func(i, j int) { js[i], js[j] = js[j], js[i] })
