@@ -115,6 +115,12 @@ class Exclusions(unittest.TestCase):
         self.assertEqual(len(names), 11)
         self.assertEqual([f for f in generate.load_schemas() if generate.is_excluded(f, "go") and not generate.is_excluded(f)], ["memory-observation.v1.json"])
 
+    def test_an_excluded_contract_stays_excluded_in_every_version(self):
+        for f in ("fault-plan.v1.json", "fault-plan.v2.json", "benchmark-scorecard.v2.json", "arm-manifest.v3.json"):
+            self.assertTrue(generate.is_excluded(f), f)
+        for f in ("faults.v1.json", "action-graph.v2.json", "record-event.v3.json"):
+            self.assertFalse(generate.is_excluded(f), f)
+
     def test_a_service_contract_may_not_refer_to_an_excluded_one(self):
         s = generate.load_schemas()
         s["t.v1.json"] = schema(type="object", properties={"a": {"$ref": "https://contracts.noema.invalid/fault-plan.v1.json"}})

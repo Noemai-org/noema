@@ -23,7 +23,8 @@ EXCLUDED = json.loads((ROOT / "tools" / "codegen" / "excluded.json").read_text()
 
 def excluded(key: str) -> bool:
     """tools/codegen/excluded.json: contracts the services hold no types for."""
-    return key in EXCLUDED["names"] or any(key.startswith(p) for p in EXCLUDED["prefixes"])
+    base = key.rsplit(".v", 1)[0]
+    return base in EXCLUDED["names"] or any(base.startswith(p) for p in EXCLUDED["prefixes"])
 
 
 def key_of(folder: str, file: str) -> str:

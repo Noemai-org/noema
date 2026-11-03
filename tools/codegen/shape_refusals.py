@@ -32,7 +32,8 @@ def classify() -> dict[str, str]:
     out: dict[str, str] = {}
     for folder in sorted(p for p in (FIXTURES / "invalid").iterdir() if p.is_dir()):
         key = folder.name if ".v" in folder.name else folder.name + ".v1"
-        if key in EXCLUDED["names"] or any(key.startswith(pre) for pre in EXCLUDED["prefixes"]):
+        base = key.rsplit(".v", 1)[0]
+        if base in EXCLUDED["names"] or any(base.startswith(pre) for pre in EXCLUDED["prefixes"]):
             continue
         exp_path = folder / "expectations.json"
         expectations = load_strict(exp_path) if exp_path.exists() else {}

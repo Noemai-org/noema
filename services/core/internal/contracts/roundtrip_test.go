@@ -54,13 +54,22 @@ func excluded(t *testing.T, key string) bool {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range append(cfg.Names, cfg.GoOnly.Names...) {
-		if key == n {
+	base := key
+	if i := strings.LastIndex(key, ".v"); i > 0 {
+		base = key[:i]
+	}
+	for _, n := range cfg.Names {
+		if base == n {
 			return true
 		}
 	}
 	for _, p := range cfg.Prefixes {
-		if strings.HasPrefix(key, p) {
+		if strings.HasPrefix(base, p) {
+			return true
+		}
+	}
+	for _, n := range cfg.GoOnly.Names {
+		if key == n {
 			return true
 		}
 	}

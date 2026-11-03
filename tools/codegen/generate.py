@@ -43,7 +43,8 @@ def is_excluded(file: str, lang: str = "") -> bool:
     """excluded.json names the contract, or a prefix of it, so no service holds its types; with lang="go", also the ones held back from Go."""
     cfg = json.loads((HERE / "excluded.json").read_text(encoding="utf-8"))
     key = file.removesuffix(".json")
-    if key in cfg["names"] or any(file.startswith(pre) for pre in cfg["prefixes"]):
+    base = key.rsplit(".v", 1)[0]
+    if base in cfg["names"] or any(base.startswith(pre) for pre in cfg["prefixes"]):
         return True
     return lang == "go" and key in cfg["go_only"]["names"]
 

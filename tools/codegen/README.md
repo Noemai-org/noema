@@ -35,7 +35,7 @@ The generator never guesses. A keyword it does not know, or a combination it doe
 
 `tools/codegen/excluded.json` is the one list, read by the generator and by both test suites.
 
-- `benchmark-*`, `arm-manifest.v1`, `fault-plan.v1`: owned by the benchmark runner and the synthetic environment. The core and the model service hold no benchmark, oracle or fault-plan type (INV-22, REQ-TST-006).
+- `benchmark-*`, `arm-manifest`, `fault-plan` (every version): owned by the benchmark runner and the synthetic environment. The core and the model service hold no benchmark, oracle or fault-plan type (INV-22, REQ-TST-006).
 - Go only: `memory-observation.v1`. It has a required member `benchmark_case_id` (AGENT-23), and the architecture lint (`benchmark-branch`) refuses that term in core Go source. The Python model is generated. Open question in the pull request.
 - An enum value that contains a term the lint refuses (`benchmark-runner` in `record-event.v3` `Emitter`) is carried as data in `enum_values_gen.json`, as `record/chain` does with `actors.json`.
 
