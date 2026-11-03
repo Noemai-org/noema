@@ -1,0 +1,8 @@
+{
+  "fault_plan_id": "fp_quiet",
+  "scenario_id": "SCN-EXEC-001",
+  "seed": 42,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": []
+}
