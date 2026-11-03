@@ -139,6 +139,21 @@ BEGIN
      OR (p_json#>>'{sig,key_id}', p_json#>>'{sig,value}') IS DISTINCT FROM (p_sig_key_id, p_sig_value) THEN
     RAISE EXCEPTION 'outcome_record_verdict: the signed document and the columns disagree on the evidence, the predicate, the instant or the signature' USING ERRCODE = 'integrity_constraint_violation';
   END IF;
+  -- The durable watch is part of the signed document: the row that OUT-03 schedules from says what the verdict says.
+  IF p_verdict = 'PENDING_EXTERNAL' THEN
+    IF p_watch_id IS NULL OR p_next_check_at IS NULL OR p_deadline_at IS NULL OR p_triggers IS NULL THEN
+      RAISE EXCEPTION 'outcome_record_verdict: a PENDING_EXTERNAL verdict needs a watch with a deadline' USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+    IF jsonb_typeof(p_json->'watch') IS DISTINCT FROM 'object'
+       OR (p_json#>>'{watch,watch_id}') IS DISTINCT FROM p_watch_id
+       OR (p_json#>>'{watch,next_check_at}')::timestamptz IS DISTINCT FROM p_next_check_at
+       OR (p_json#>>'{watch,deadline_at}')::timestamptz IS DISTINCT FROM p_deadline_at
+       OR p_json#>'{watch,triggers}' IS DISTINCT FROM to_jsonb(p_triggers) THEN
+      RAISE EXCEPTION 'outcome_record_verdict: the signed document and the watch disagree' USING ERRCODE = 'integrity_constraint_violation';
+    END IF;
+  ELSIF p_json ? 'watch' THEN
+    RAISE EXCEPTION 'outcome_record_verdict: only a PENDING_EXTERNAL verdict has a watch' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
   INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result,
                                evidence_reads, verified_at, json, sig_key_id, sig_value)
   VALUES (p_verdict_id, p_tenant, p_correlation_id, p_receipt_id, p_verification_id, p_outcome_definition, p_verdict, p_reason, p_predicate_result,
