@@ -8,11 +8,12 @@
 -- file depends only on 0001, and the 0002 of noema#94 grants and revokes nothing, so the two orders give the same
 -- privileges (platform/db and record/chain tests prove both orders).
 
--- A NOLOGIN role: the deployment maps the audit and verification login roles to it.
+-- The role record_read is created by the deployment (deploy/compose/postgres/init.sh), never by a migration: the migrating
+-- role cannot create roles. This file only checks that it exists.
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'record_read') THEN
-    CREATE ROLE record_read NOLOGIN;
+    RAISE EXCEPTION 'the role record_read does not exist: create it in deploy/compose/postgres/init.sh before migrating';
   END IF;
 END $$;
 
