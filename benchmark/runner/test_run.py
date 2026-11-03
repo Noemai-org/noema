@@ -94,7 +94,7 @@ def with_timeline(lc: LoadedCase, events: list[str], *, turns: list[str] | None 
 
 
 def errors(result: Json) -> list[str]:
-    return Contracts().errors("benchmark-case-result", result)
+    return Contracts().errors("benchmark-case-result.v2", result)
 
 
 class RunCase(unittest.TestCase):
@@ -258,6 +258,31 @@ class RunCase(unittest.TestCase):
             self.assertEqual(rig.stub.advanced, [{"by": "PT61S"}])
             advance_at = [i for i, (_, p, _) in enumerate(rig.stub.requests) if p == "/control/v1/clock/advance"][0]
             self.assertGreater(advance_at, 0)
+
+    def test_turns_count_the_customer_inputs_the_runner_sent_through_the_public_api(self) -> None:
+        # BEN-30, REQ-BEN-009: the first input plus every follow-up; a confirmation answer is an event, not a turn.
+        with Rig() as rig:
+            self.assertEqual(run_case(rig.env, plain_case())["turns"], 1)
+        with Rig() as rig:
+            self.assertEqual(run_case(rig.env, with_timeline(plain_case(), [], turns=["The one ending 1234", "Yes that one"]))["turns"], 3)
+        with Rig(Script(sse=[("confirmation", {"confirmation_request_id": "cnf_0001"})])) as rig:
+            self.assertEqual(run_case(rig.env, with_timeline(plain_case(), ["confirm:ACCEPT"]))["turns"], 1)
+
+    def test_turns_are_counted_from_the_requests_sent_not_from_the_script(self) -> None:
+        with Rig() as rig:
+            lc = with_timeline(plain_case(), [], turns=["one", "two"])
+            result = run_case(rig.env, lc)
+            posts = [p for m, p, _, _ in rig.noema.requests if m == "POST" and (p == "/v1/conversations" or p.endswith("/messages"))]
+        self.assertEqual(result["turns"], len(posts))
+
+    def test_an_error_counts_the_turns_sent_before_it(self) -> None:
+        lc = pick(lambda x: x.plan is not None and any(f["target"] == "mock-ledger" for f in x.plan["faults"]))
+        with Rig() as rig:
+            result = run_case(rig.env, lc)
+        self.assertEqual((result["status"], result["turns"]), ("ERROR", 0))
+        with Rig(Script(sse=[("progress", {"state": "EVALUATING"})])) as rig:
+            result = run_case(rig.env, with_timeline(plain_case(), ["confirm:ACCEPT"]))
+        self.assertEqual((result["error"]["code"], result["turns"]), ("CONFIRMATION_NOT_FOUND", 1))
 
     def test_a_confirm_event_answers_the_confirmation_request(self) -> None:
         lc = with_timeline(plain_case(), ["confirm:ACCEPT"])

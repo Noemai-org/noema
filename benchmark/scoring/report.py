@@ -30,6 +30,29 @@ def fmt_rate(rate: Json, *, failure: bool = False) -> str:
     return text
 
 
+def _consistency_section(diag: Json) -> list[str]:
+    """The four REQ-BEN-009 diagnostics. Diagnostics, not gates: no threshold is applied and no verdict is printed."""
+    pk, turns, definitions = diag["pass_k"], diag["turns_to_resolution"], diag["definitions"]
+    if pk["available"]:
+        pk_text = f"k = {pk['k_required']} runs, {fmt_rate(pk['rate'])}" + (f"; not passed in every run: {', '.join(pk['failing_cases'])}" if pk["failing_cases"] else "")
+    else:
+        pk_text = f"not available ({pk['reason']})"
+    if turns["n"]:
+        turns_text = f"n = {turns['n']}; mean {turns['mean']}, median {turns['median']}, 90th percentile {turns['p90']}, maximum {turns['max']}"
+    else:
+        turns_text = "n = 0 (no case was auto-resolved correctly)"
+    return [
+        "### Consistency and disambiguation diagnostics (REQ-BEN-009)", "",
+        "Diagnostics, not gates: no target is set for them until a decision record adopts one after the first full-suite run. "
+        f"Definitions pre-registered {definitions['version']}; Understanding-dependent means families {', '.join(definitions['understanding_families'])}.", "",
+        f"- pass^k over the Understanding-dependent cases: {pk_text}",
+        f"- turns to resolution (customer turns, cases auto-resolved correctly): {turns_text}",
+        f"- unnecessary clarification (safe to resolve, no clarification expected, one asked): {fmt_rate(diag['unnecessary_clarification'], failure=True)}",
+        f"- auto-resolve precision (auto-resolved to the correct target): {fmt_rate(diag['auto_resolve_precision'])}",
+        "",
+    ]
+
+
 def _guard(scorecard: Json, manifest: Json) -> None:
     tier0 = scorecard.get("tier0")
     if not isinstance(tier0, dict) or [g.get("gate") for g in tier0.get("gates") or []] != list(GATES):
@@ -108,6 +131,7 @@ def render_markdown(scorecard: Json, manifest: Json) -> str:
     out.append("")
     out.append("Replay: " + (fmt_rate(diag["replay"]) if diag["replay"] else "not run (no second run was supplied)") + ".")
     out.append("")
+    out += _consistency_section(diag)
 
     t2 = scorecard["tier2"]
     out += ["## Tier 2: autonomy (one point of the safety-autonomy curve)", "", _tier0_line(scorecard), "",

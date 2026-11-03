@@ -86,7 +86,7 @@ class ScoringProperties(unittest.TestCase):
         card = card_of(cases, oracles, mutated)
         self.assertEqual(card["tier1"]["reportable"], card["tier0"]["all_zero"])
         self.assertEqual(card["tier0"]["all_zero"], all(g["count"] == 0 for g in card["tier0"]["gates"]))
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
 
     @SETTINGS
     @given(suites())

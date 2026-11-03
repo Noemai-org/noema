@@ -2,7 +2,7 @@
 
 **Implements:** REQ-BEN-002. **Owning track:** T4. **Updated:** 2026-10-21.
 
-Drives a generated suite through Noema's **public API only**, as a partner app would (PERD §39.2), applies each case's fault plan, advances the simulated clock, collects the Record, reads the environment through the oracle client (`benchmark/oracle_client`), and writes one `benchmark-case-result` per case plus a `benchmark-run-manifest` for the run. The scorer (`benchmark/scoring`) reproduces a score from those files. One code path: `run_case` is the only thing that runs a case. Generated layer only; it never reads `benchmark-heldout` or any oracle document (INV-22, REQ-AGT-004).
+Drives a generated suite through Noema's **public API only**, as a partner app would (PERD §39.2), applies each case's fault plan, advances the simulated clock, collects the Record, reads the environment through the oracle client (`benchmark/oracle_client`), and writes one `benchmark-case-result` (v2) per case, with `turns` counted at the public API (BEN-30: the first input plus each follow-up; a confirmation answer is an event, not a turn; an ERROR counts the turns sent before it) plus a `benchmark-run-manifest` for the run. The scorer (`benchmark/scoring`) reproduces a score from those files. One code path: `run_case` is the only thing that runs a case. Generated layer only; it never reads `benchmark-heldout` or any oracle document (INV-22, REQ-AGT-004).
 
 ```
 python -m benchmark.runner --suite benchmark/out/suite --out benchmark/out/run [--support] [options]

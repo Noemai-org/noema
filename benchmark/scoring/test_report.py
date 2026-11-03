@@ -76,7 +76,9 @@ class ReportTest(unittest.TestCase):
             bullets = [line for line in body.splitlines() if line.startswith("- ")]
             self.assertTrue(bullets)
             for line in bullets:
-                self.assertRegex(line, r"\d+ of \d+", line)
+                # A rate shows "k of n". BEN-30 adds two bullets that are not rates: turns to resolution shows "n = N", and pass^k with fewer or more than
+                # five runs prints no number at all and says "not available" with the reason. Every number still shows its n.
+                self.assertRegex(line, r"\d+ of \d+|n = \d+|not available \(", line)
 
     def test_states_how_the_cases_were_generated_and_the_conditions(self) -> None:
         self.assertIn("noema-casegen 0.1.0", self.text)
@@ -143,6 +145,41 @@ class GuardTest(unittest.TestCase):
         manifest["layer_counts"]["GENERATED"] -= 1
         with self.assertRaises(ReportError):
             render_markdown(card, manifest)
+
+
+class DiagnosticsReportTest(unittest.TestCase):
+    """BEN-30, REQ-BEN-009: the four diagnostics appear in every report, with n, and are labelled diagnostics, not gates."""
+
+    def report(self, repeats: int = 0) -> str:
+        cases, oracles, results, manifest = fixture()
+        runs = []
+        for i in range(2, 2 + repeats):
+            runs.append([{**r, "run_id": f"run_{i}"} for r in results])
+        card = card_for(cases, oracles, results, repeat_runs=runs)
+        return render_markdown(card, manifest)
+
+    def test_the_four_diagnostics_are_in_every_report_with_n(self) -> None:
+        text = self.report()
+        for needle in ("pass^k", "turns to resolution", "unnecessary clarification", "auto-resolve precision"):
+            self.assertIn(needle, text)
+        self.assertIn("Diagnostics, not gates", text)
+        self.assertRegex(text, r"turns to resolution \(.*\): n = \d+")
+
+    def test_pass_k_with_one_run_says_not_available_and_prints_no_number(self) -> None:
+        line = next(x for x in self.report().splitlines() if x.startswith("- pass^k"))
+        self.assertIn("not available", line)
+        self.assertIn("1 run supplied", line)
+        self.assertNotRegex(line, r"\d+ of \d+")
+
+    def test_pass_k_with_five_runs_prints_the_rate_and_k(self) -> None:
+        line = next(x for x in self.report(repeats=4).splitlines() if x.startswith("- pass^k"))
+        self.assertIn("k = 5", line)
+        self.assertRegex(line, r"\d+ of \d+")
+
+    def test_the_pre_registered_definitions_are_named(self) -> None:
+        text = self.report()
+        self.assertIn("2026-11-02", text)
+        self.assertIn("B1, B2", text)
 
 
 if __name__ == "__main__":

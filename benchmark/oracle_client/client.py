@@ -34,7 +34,7 @@ class OracleClient:
         return Baseline(self.truth.state(), commands[-1]["seq"] if commands else 0, mark)
 
     def readout(self, baseline: Baseline, record_events: list[Json] | None) -> Json:
-        """The `environment` block of a case result (benchmark-case-result.v1.json)."""
+        """The `environment` block of a case result (benchmark-case-result.v2.json)."""
         accesses = self._refusals().since(baseline.refusal_mark)
         governance = self.governance.count(record_events)
         monetary = self.monetary.value()
