@@ -5,11 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"time"
 
 	ip "github.com/Noemai-org/noema/services/core/internal/predicate"
 )
 
 var errPack = errors.New("outcome predicate")
+
+// MaxSettleSeconds is the largest settle window that converts to a time.Duration. The contract allows more (2^53-1 seconds);
+// beyond this the conversion wraps negative and a verdict would not wait.
+const MaxSettleSeconds = math.MaxInt64 / int64(time.Second)
 
 type fieldType struct {
 	Type   string   `json:"type"`
@@ -137,8 +143,8 @@ func LoadPack(raw []byte) (Pack, error) {
 		if _, dup := out.Definitions[o.OutcomeID]; dup {
 			return Pack{}, fmt.Errorf("%w: two definitions for outcome %q", errPack, o.OutcomeID)
 		}
-		if o.SettleWindowSeconds == nil || *o.SettleWindowSeconds < 0 {
-			return Pack{}, fmt.Errorf("%w: outcome %s needs a settle window of at least 0 seconds", errPack, o.OutcomeID)
+		if o.SettleWindowSeconds == nil || *o.SettleWindowSeconds < 0 || *o.SettleWindowSeconds > MaxSettleSeconds {
+			return Pack{}, fmt.Errorf("%w: outcome %s needs a settle window from 0 to %d seconds", errPack, o.OutcomeID, MaxSettleSeconds)
 		}
 		if _, err := Compile(o.SuccessPredicate, sc); err != nil {
 			return Pack{}, fmt.Errorf("outcome %s: %w", o.OutcomeID, err)

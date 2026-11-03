@@ -131,6 +131,14 @@ BEGIN
      IS DISTINCT FROM (p_verdict_id, p_tenant, p_receipt_id, p_verdict, p_correlation_id, p_outcome_definition) THEN
     RAISE EXCEPTION 'outcome_record_verdict: the document and the columns disagree' USING ERRCODE = 'integrity_constraint_violation';
   END IF;
+  -- Every other field the document and the columns both hold: the evidence the verdict relied on, its predicate result, the
+  -- instant it was made and its signature.
+  IF p_json->'evidence_reads' IS DISTINCT FROM to_jsonb(p_evidence_reads)
+     OR p_json->'predicate_result' IS DISTINCT FROM COALESCE(to_jsonb(p_predicate_result), 'null'::jsonb)
+     OR (p_json->>'verified_at')::timestamptz IS DISTINCT FROM p_verified_at
+     OR (p_json#>>'{sig,key_id}', p_json#>>'{sig,value}') IS DISTINCT FROM (p_sig_key_id, p_sig_value) THEN
+    RAISE EXCEPTION 'outcome_record_verdict: the signed document and the columns disagree on the evidence, the predicate, the instant or the signature' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
   INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result,
                                evidence_reads, verified_at, json, sig_key_id, sig_value)
   VALUES (p_verdict_id, p_tenant, p_correlation_id, p_receipt_id, p_verification_id, p_outcome_definition, p_verdict, p_reason, p_predicate_result,

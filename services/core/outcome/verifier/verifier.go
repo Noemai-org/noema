@@ -8,7 +8,6 @@ import (
 
 	ip "github.com/Noemai-org/noema/services/core/internal/predicate"
 	opredicate "github.com/Noemai-org/noema/services/core/outcome/predicate"
-	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
 
 const (
@@ -155,8 +154,8 @@ func (v *Verifier) replay(ctx context.Context, req Request) (Result, bool, error
 // names a variable that the request does not bind: the same predicate fails to compile against a scope that holds only the
 // bound variables. The compiler decides this, not a scan of the source text.
 func (v *Verifier) compile(req Request) (success, pending *ip.Program, unbound bool, err error) {
-	if req.Definition.SettleWindowSeconds < 0 {
-		return nil, nil, false, errors.New("a negative settle window")
+	if s := req.Definition.SettleWindowSeconds; s < 0 || s > opredicate.MaxSettleSeconds {
+		return nil, nil, false, errors.New("a settle window outside 0 to opredicate.MaxSettleSeconds seconds")
 	}
 	boundVars := make(map[string]ip.Type, len(req.Bindings))
 	for name := range req.Bindings {
@@ -359,101 +358,4 @@ func contains(set []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// readAll reads every page of a query, each page on the retry budget. It returns the cases of a complete answer, or the
-// reason there is none. An answer that is not complete is never read as "no such case" (INV-19).
-func (r *run) readAll(q CaseQuery, kind string) ([]Case, Reason) {
-	var all []Case
-	for page := 1; page <= r.v.cfg.Budget.MaxPages; page++ {
-		pg, reason := r.readPage(q, kind, page)
-		if reason != "" {
-			return nil, reason
-		}
-		all = append(all, pg.Items...)
-		if pg.Complete {
-			return all, ""
-		}
-		if pg.NextCursor == "" {
-			return nil, ReasonIncompleteRead
-		}
-		q.Cursor = pg.NextCursor
-	}
-	return nil, ReasonIncompleteRead
-}
-
-// readPage reads one page. An unavailable source is retried after each backoff of the budget; a malformed or refused
-// answer is final. Every attempt is kept as a VERIFICATION_READ record; the successful reads are the verdict's evidence.
-func (r *run) readPage(q CaseQuery, kind string, page int) (CasePage, Reason) {
-	for attempt := 0; ; attempt++ {
-		pg, err := r.v.cfg.Cases.FindCases(r.ctx, q)
-		rec := ReadRecord{EvidenceID: r.newID(idEvidence), Query: kind, Attempt: attempt + 1, Page: page, At: r.v.cfg.Clock.Now()}
-		var re *ReadError
-		switch {
-		case err == nil:
-			rec.Status, rec.Items = readOK, len(pg.Items)
-			r.reads, r.evidence = append(r.reads, rec), append(r.evidence, rec.EvidenceID)
-			return pg, ""
-		case errors.As(err, &re) && re.Kind == ReadMalformed:
-			rec.Status = readMalformed
-			r.reads = append(r.reads, rec)
-			return CasePage{}, ReasonMalformedRead
-		case errors.As(err, &re) && re.Kind == ReadRefused:
-			rec.Status = readRefused
-			r.reads = append(r.reads, rec)
-			return CasePage{}, ReasonReadRefused
-		}
-		rec.Status = readUnavailable // an error the reader did not classify is an unavailable source, never a result
-		r.reads = append(r.reads, rec)
-		if attempt >= len(r.v.cfg.Budget.Backoffs) {
-			return CasePage{}, ReasonReadsExhausted
-		}
-		if err := r.v.cfg.Waiter.Wait(r.ctx, r.v.cfg.Budget.Backoffs[attempt]); err != nil {
-			r.err = fmt.Errorf("verifier: wait before a read retry: %w", err)
-			return CasePage{}, ReasonReadsExhausted
-		}
-	}
-}
-
-// store signs the verdict and stores it with everything that goes with it, in one call to the Store.
-func (r *run) store(d decision) (Result, error) {
-	verdictID, now := r.newID(idVerdict), r.v.cfg.Clock.Now().UTC()
-	reads := r.evidence
-	if reads == nil {
-		reads = []string{}
-	}
-	w := Write{Reads: r.reads, SignatureInvalid: d.badSig}
-	if d.verdict != Achieved {
-		w.RecoveryRequestID = r.newID(idRecovery)
-	}
-	doc := map[string]any{"schema_version": schemaVersion, "tenant_id": r.req.TenantID, "correlation_id": r.rc.CorrelationID, "verdict_id": verdictID,
-		"receipt_id": r.rc.ReceiptID, "outcome_definition": r.req.Definition.OutcomeID, "evidence_reads": reads, "verdict": string(d.verdict),
-		"verified_at": now.Format(TimestampLayout), "predicate_result": nil}
-	if d.predicate != nil {
-		doc["predicate_result"] = *d.predicate
-	}
-	if d.watch != nil {
-		w.Watch = &WatchRow{WatchID: r.newID(idWatch), NextCheckAt: d.watch.NextCheckAt.UTC(), DeadlineAt: d.watch.DeadlineAt.UTC(), Triggers: append([]string{}, d.watch.Triggers...)}
-		doc["watch"] = map[string]any{"watch_id": w.Watch.WatchID, "next_check_at": w.Watch.NextCheckAt.Format(TimestampLayout),
-			"deadline_at": w.Watch.DeadlineAt.Format(TimestampLayout), "triggers": w.Watch.Triggers}
-	}
-	if r.err != nil {
-		return Result{}, r.err
-	}
-	canonical, err := crypto.CanonicalJSON(doc)
-	if err != nil {
-		return Result{}, fmt.Errorf("verifier: canonical verdict: %w", err)
-	}
-	sig, err := r.v.cfg.Signer.Sign(canonical)
-	if err != nil {
-		return Result{}, fmt.Errorf("verifier: sign verdict: %w", err)
-	}
-	doc["sig"] = map[string]any{"key_id": sig.KeyID, "value": sig.Value}
-	w.Verdict = VerdictDoc{VerdictID: verdictID, VerificationID: r.req.VerificationID, TenantID: r.req.TenantID, CorrelationID: r.rc.CorrelationID, ReceiptID: r.rc.ReceiptID,
-		OutcomeID: r.req.Definition.OutcomeID, Verdict: d.verdict, Reason: d.reason, PredicateResult: d.predicate, EvidenceReads: reads,
-		VerifiedAt: now, Sig: sig, Document: doc, ReceiptSignature: d.auth}
-	if err := r.v.cfg.Store.RecordVerdict(r.ctx, w); err != nil {
-		return Result{}, fmt.Errorf("verifier: store verdict %s: %w", verdictID, err)
-	}
-	return Result{VerdictID: verdictID, Verdict: d.verdict, Reason: d.reason}, nil
 }
