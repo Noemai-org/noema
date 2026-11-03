@@ -28,6 +28,8 @@
 
   Every read writes a `RECORD_ACCESSED` line to the access log: IDs and the outcome only, never Record content.
 
+**Known limit: DEBT-04 (accepted 3 Nov 2026).** The database does not enforce the tenant. `record_read_chain(tenant)`, and the older `record_lock_head` and `record_insert`, take the tenant as an argument, so a connection that holds the role can name any tenant. The handler is the protection today: it uses the authenticated caller's tenant and nothing from the request (`TestTheHandlerServesOnlyTheCallersTenantWhateverTheRequestSays`). Option A, a login per tenant plus a mapping the database checks against `session_user`, **lands before this endpoint is wired into `cmd/core`**; EDG-01 does not wire it earlier. `TestRecordReadChainDeniesAnotherTenantAtTheDatabase` holds the assertion and is skipped with a message citing DEBT-04; delete the skip when option A lands. The Repo Steward files the debt entry.
+
 **Not built here.** The route in `cmd/core` (EDG-01); decision replay (REQ-EXP-004); the payload schemas (REC-04). Reading the whole tenant chain per request is simple and measured inside the budget: P95 38.5 ms for a 200-event case in a 400-event chain, on PostgreSQL 17.11. A long-lived tenant chain will need a verified-head checkpoint (REC-05).
 
 **Tests.** `go test ./record/reconstruct/...` from `services/core/`. They need PostgreSQL server binaries or `NOEMA_TEST_DATABASE_URL`.

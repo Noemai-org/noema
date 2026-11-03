@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -653,5 +654,78 @@ func TestServedFactsAreMaskedToTheLastFourDigits(t *testing.T) {
 		if bytes.Contains(raw, []byte(digits)) {
 			t.Fatalf("the body still contains %s", digits)
 		}
+	}
+}
+
+// REQ-SEC-004, INV-12 (REC-03, work order of 3 Nov 2026, DEBT-04): the handler takes the tenant from the authenticated caller and
+// from nothing else. Two tenants hold the same correlation ID; each caller sees only its own tenant's events, whatever the request
+// says about the tenant. This is the protection the handler gives. The database does not give it yet (DEBT-04, below).
+func TestTheHandlerServesOnlyTheCallersTenantWhateverTheRequestSays(t *testing.T) {
+	w := newWorld(t)
+	mine := w.append(t, tenant, "corr_shared01", us06()...)
+	theirs := w.append(t, other, "corr_shared01", us01()...)
+	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
+	ids := func(st []chain.Stored) map[string]bool {
+		m := map[string]bool{}
+		for _, s := range st {
+			m[s.EventID] = true
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name           string
+		caller         Caller
+		want, mustMiss []chain.Stored
+	}{
+		{"the auditor of the first tenant", Caller{TenantID: tenant, Principal: "auditor:usr_synth_a", Roles: []string{"audit"}}, mine, theirs},
+		{"the auditor of the second tenant", Caller{TenantID: other, Principal: "auditor:usr_synth_b", Roles: []string{"audit"}}, theirs, mine},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for _, ask := range []struct{ query, header string }{
+				{"", ""},
+				{"?tenant_id=" + other + "&tenant=" + other, ""},
+				{"?tenant_id=" + tenant, "Noema-Tenant-Id"},
+			} {
+				mux := http.NewServeMux()
+				mux.Handle(reconstruct.Route, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{c.caller}, IDs: gen})
+				req := httptest.NewRequest(http.MethodGet, "/v1/reconstructions/corr_shared01"+ask.query, nil)
+				for _, h := range []string{"Noema-Tenant-Id", "X-Tenant-Id", "Tenant"} {
+					req.Header.Set(h, map[bool]string{true: tenant, false: other}[c.caller.TenantID == other])
+				}
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, req)
+				if rec.Code != 200 {
+					t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+				}
+				body := parse(t, rec.Body.Bytes())
+				got := map[string]bool{}
+				for _, e := range body.Events {
+					got[e.EventID] = true
+				}
+				if !reflect.DeepEqual(got, ids(c.want)) {
+					t.Fatalf("the caller of %s got events %v, want exactly %v", c.caller.TenantID, got, ids(c.want))
+				}
+				for id := range ids(c.mustMiss) {
+					if got[id] {
+						t.Fatalf("the caller of %s was served %s, which belongs to the other tenant", c.caller.TenantID, id)
+					}
+				}
+			}
+		})
+	}
+}
+
+// DEBT-04 (accepted by the Architect on 3 Nov 2026, option B for this pull request): record_read_chain, record_lock_head and
+// record_insert trust a caller-supplied tenant ID, so a connection that holds the record_read role can read any tenant by naming
+// it. Option A, a login per tenant plus a mapping the database checks against session_user, lands before the endpoint is wired
+// into cmd/core (EDG-01). When it lands, delete the Skip: the body below is the assertion that must then hold.
+func TestRecordReadChainDeniesAnotherTenantAtTheDatabase(t *testing.T) {
+	t.Skip("DEBT-04: record_read_chain trusts a caller-supplied tenant; option A (a login per tenant and a database-checked mapping) lands before the endpoint is wired into cmd/core")
+	w := newWorld(t)
+	w.append(t, other, "corr_us06", us06()...)
+	var n int
+	err := w.reader.QueryRow(ctx(t), `SELECT count(*) FROM record_read_chain($1)`, other).Scan(&n)
+	if err == nil {
+		t.Fatalf("a connection that holds record_read for %s read %d events of %s", tenant, n, other)
 	}
 }

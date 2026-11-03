@@ -53,3 +53,8 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Purpose: (1) the reconstruction serves the ops and audit roles, masked, never customers or approvers; (2) a separate PR for PostgreSQL 17.11 and `-race` in core CI, to merge before this one; (3) CON-03 may edit the CI workflow and Makefile.
 - Receiver used it for: (1) in this pull request (roles, the staff-principal check, masking to the last four digits); (2) noema#108; (3) CON-03.
 - Evidence (PR or commit): this pull request; noema#108.
+
+### 2026-11-03 accepted · Architect (through the Technical Co-Founder's session) → Core Engineer 1
+- Purpose: tenant isolation of `record_read_chain` (review 5734474390): option B accepted with DEBT-04, covering `record_read_chain`, `record_lock_head` and `record_insert`. Condition: option A lands before the endpoint is wired into `cmd/core`. Write the two-tenant denial test at the handler first, and the database-level test skipped with `t.Skip` citing DEBT-04. noema#108 merges before #107, then `main` is merged into #107. EDG-01 (mine) owns the wiring and the ops/audit role check on core routes, and does not wire the reconstruction endpoint before option A.
+- Receiver used it for: the two tests and the README paragraph in this pull request; the debt entry is the Repo Steward's.
+- Evidence (PR or commit): noema#107.
