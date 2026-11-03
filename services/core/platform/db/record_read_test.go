@@ -3,6 +3,7 @@ package db_test
 import (
 	"io/fs"
 	"reflect"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -115,7 +116,7 @@ func TestA0002AppliedAfter0003GivesTheSamePrivilegesAsAFreshDatabase(t *testing.
 	}
 
 	upgraded, _ := testpg.NewDatabase(t)
-	if got, err := db.Migrate(ctx(t), upgraded, migrationsWith(t, nil, "")); err != nil || got[len(got)-1] != "0003_record_read.sql" {
+	if got, err := db.Migrate(ctx(t), upgraded, migrationsWith(t, nil, "")); err != nil || !slices.Contains(got, "0003_record_read.sql") || slices.Contains(got, "0002_standin.sql") {
 		t.Fatalf("first migrate without 0002: applied %v, err %v", got, err)
 	}
 	if got, err := db.Migrate(ctx(t), upgraded, all); err != nil || !reflect.DeepEqual(got, []string{"0002_standin.sql"}) {
