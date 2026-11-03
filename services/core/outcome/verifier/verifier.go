@@ -269,7 +269,12 @@ func (r *run) verdict(success, pending *ip.Program) decision {
 		notAchieved = ReasonPostconditionUnchecked
 	}
 	if pending != nil && len(byKey) == 1 {
-		pend, known := evalBool(pending, env)
+		// Like the success predicate, the pending condition is about the case under our key, not any case of the transaction.
+		ownEnv, ok := r.env(byKey)
+		if !ok {
+			return unknown(ReasonInconsistent)
+		}
+		pend, known := evalBool(pending, ownEnv)
 		if !known {
 			return unknown(ReasonPredicateUnknown)
 		}
