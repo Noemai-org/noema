@@ -2,9 +2,14 @@ package egress_test
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,7 +170,7 @@ func TestTheTransportDialsTheCheckedAddressAndNothingElse(t *testing.T) {
 		return nil, errors.New("test dial: no network")
 	})
 	tr := g.Transport()
-	_, _ = tr.DialContext(context.Background(), "tcp", "cb.example.com:443")
+	_, _ = tr.DialTLSContext(context.Background(), "tcp", "cb.example.com:443")
 	if len(dialed) != 1 || dialed[0] != publicIP+":443" {
 		t.Fatalf("dialed %v, want exactly [%s:443]", dialed, publicIP)
 	}
@@ -186,7 +191,7 @@ func TestTheTransportDialsTheCheckedAddressAndNothingElse(t *testing.T) {
 	r["cb.example.com"] = []string{"127.0.0.1"}
 	dialed = nil
 	g.SetDialForTest(nil) // the real dialer
-	if _, err := tr.DialContext(context.Background(), "tcp", "cb.example.com:443"); !errors.Is(err, egress.ErrEgressDenied) {
+	if _, err := tr.DialTLSContext(context.Background(), "tcp", "cb.example.com:443"); !errors.Is(err, egress.ErrEgressDenied) {
 		t.Fatalf("dial to a rebound host = %v, want ErrEgressDenied", err)
 	}
 	select {
@@ -195,10 +200,10 @@ func TestTheTransportDialsTheCheckedAddressAndNothingElse(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 	r["unregistered.example.com"] = []string{publicIP} // resolves to a public address, but was never registered
-	if _, err := tr.DialContext(context.Background(), "tcp", "unregistered.example.com:443"); !errors.Is(err, egress.ErrEgressDenied) {
+	if _, err := tr.DialTLSContext(context.Background(), "tcp", "unregistered.example.com:443"); !errors.Is(err, egress.ErrEgressDenied) {
 		t.Fatalf("dial to an unregistered host = %v, want ErrEgressDenied", err)
 	}
-	if _, err := tr.DialContext(context.Background(), "tcp", "cb.example.com:8080"); !errors.Is(err, egress.ErrEgressDenied) {
+	if _, err := tr.DialTLSContext(context.Background(), "tcp", "cb.example.com:8080"); !errors.Is(err, egress.ErrEgressDenied) {
 		t.Fatalf("dial to port 8080 = %v, want ErrEgressDenied", err)
 	}
 }
@@ -222,5 +227,118 @@ func TestTheClientNeverFollowsRedirectsOrProxies(t *testing.T) {
 	}
 	if c.Timeout <= 0 {
 		t.Fatal("no timeout")
+	}
+}
+
+// Plaintext is structurally impossible (Architect, 3 Nov, Codex finding on #127): a registered host on port 443 must never be sent an
+// http:// request. ParseCallbackURL refuses the scheme at registration, but the client and the transport are reachable with any request,
+// so the refusal has to hold before any dial.
+func TestAPlainHTTPRequestToARegisteredHostNeverDials(t *testing.T) {
+	g := newGuard(fakeResolver{"cb.example.com": {publicIP}})
+	if err := g.Register(context.Background(), "https://cb.example.com/hook"); err != nil {
+		t.Fatal(err)
+	}
+	dials := 0
+	g.SetDialForTest(func(context.Context, string, string) (net.Conn, error) {
+		dials++
+		return nil, errors.New("test dial: no network")
+	})
+	c := g.Client(2 * time.Second)
+	for _, raw := range []string{"http://cb.example.com:443/hook", "http://cb.example.com/hook", "HTTP://CB.EXAMPLE.COM:443/hook", "ws://cb.example.com:443/", "ftp://cb.example.com:443/"} {
+		req, err := http.NewRequest(http.MethodPost, raw, strings.NewReader("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := c.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			t.Errorf("%s: the request was sent", raw)
+		} else if !errors.Is(err, egress.ErrEgressDenied) {
+			t.Errorf("%s: error %v is not ErrEgressDenied", raw, err)
+		}
+	}
+	if dials != 0 {
+		t.Fatalf("%d connection(s) were attempted for plaintext requests; none may be", dials)
+	}
+	// The transport on its own, with no client in front of it: the plaintext dial path is closed, and the TLS path is the only one.
+	tr := g.Transport()
+	if _, err := tr.DialContext(context.Background(), "tcp", "cb.example.com:443"); !errors.Is(err, egress.ErrEgressDenied) {
+		t.Fatalf("the plaintext dial function = %v, want ErrEgressDenied", err)
+	}
+	if dials != 0 {
+		t.Fatalf("the plaintext dial function connected (%d)", dials)
+	}
+	if tr.DialTLSContext == nil {
+		t.Fatal("no TLS dial function: https requests would use the plaintext path")
+	}
+	// A request URL that is not callback-shaped is refused before any dial, even over https.
+	for _, raw := range []string{"https://cb.example.com:8443/hook", "https://127.0.0.1/hook", "https://user@cb.example.com/hook", "https://unregistered.example.com/hook"} {
+		req, _ := http.NewRequest(http.MethodPost, raw, strings.NewReader("{}"))
+		if resp, err := c.Do(req); err == nil {
+			resp.Body.Close()
+			t.Errorf("%s: the request was sent", raw)
+		} else if !errors.Is(err, egress.ErrEgressDenied) {
+			t.Errorf("%s: error %v is not ErrEgressDenied", raw, err)
+		}
+	}
+	if dials != 0 {
+		t.Fatalf("%d connection(s) were attempted for refused requests", dials)
+	}
+}
+
+// The https path still reaches the pinned, checked address (and only it) through the TLS dial function.
+func TestTheTLSDialFunctionDialsTheCheckedAddress(t *testing.T) {
+	g := newGuard(fakeResolver{"cb.example.com": {publicIP}})
+	if err := g.Register(context.Background(), "https://cb.example.com/hook"); err != nil {
+		t.Fatal(err)
+	}
+	var dialed []string
+	g.SetDialForTest(func(_ context.Context, _, addr string) (net.Conn, error) {
+		dialed = append(dialed, addr)
+		return nil, errors.New("test dial: no network")
+	})
+	_, _ = g.Transport().DialTLSContext(context.Background(), "tcp", "cb.example.com:443")
+	if len(dialed) != 1 || dialed[0] != publicIP+":443" {
+		t.Fatalf("TLS dial went to %v, want exactly [%s:443]", dialed, publicIP)
+	}
+}
+
+// A real TLS delivery through the guard: the connection goes to the checked address (here redirected to a local server by the test dial),
+// the handshake verifies the certificate for the registered name, and a certificate for another name is refused.
+func TestAHTTPSDeliveryVerifiesTheCertificate(t *testing.T) {
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_, _ = w.Write([]byte("got " + string(b)))
+	}))
+	defer ts.Close()
+	pool := x509.NewCertPool()
+	pool.AddCert(ts.Certificate())
+	r := fakeResolver{"example.com": {publicIP}, "mismatch.example.org": {publicIP}}
+	g := newGuard(r)
+	g.SetRootCAsForTest(pool)
+	var dialed []string
+	g.SetDialForTest(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dialed = append(dialed, addr)
+		var d net.Dialer
+		return d.DialContext(ctx, network, ts.Listener.Addr().String())
+	})
+	for _, h := range []string{"example.com", "mismatch.example.org"} {
+		if err := g.Register(context.Background(), "https://"+h+"/hook"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := g.Client(5 * time.Second)
+	resp, err := c.Post("https://example.com/hook", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("a valid https delivery failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "got {}" || len(dialed) != 1 || dialed[0] != publicIP+":443" {
+		t.Fatalf("body %q, dialed %v; want the response and exactly [%s:443]", body, dialed, publicIP)
+	}
+	if resp, err := c.Post("https://mismatch.example.org/hook", "application/json", strings.NewReader("{}")); err == nil {
+		resp.Body.Close()
+		t.Fatal("a certificate that is not valid for the registered name (the test certificate covers example.com and *.example.com) was accepted")
 	}
 }

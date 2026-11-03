@@ -17,11 +17,11 @@ A refusal is `egress.ErrEgressDenied` (`errors.Is`). The caller records `CALLBAC
 
 ## What it enforces
 
-HTTPS on port 443; no credentials, fragment, control character or non-ASCII; a DNS name of at least two labels with an alphabetic top-level label, so no IP literal or numeric spelling (`2130706433`, `0x7f.1`, `127.1`) gets through; at registration every DNS answer public; at every delivery the host registered and re-resolved with every answer public; the connection made to the address that was checked, and the remote address checked again in the dialer; IPv4-mapped, NAT64, 6to4, Teredo, unique-local, link-local, documentation, CGNAT, loopback, multicast and unspecified addresses all refused; no environment proxy; TLS 1.2 or later with verification; a new connection per delivery.
+HTTPS on port 443; no credentials, fragment, control character or non-ASCII; a DNS name of at least two labels with an alphabetic top-level label, so no IP literal or numeric spelling (`2130706433`, `0x7f.1`, `127.1`) gets through; at registration every DNS answer public; at every delivery the host registered and re-resolved with every answer public; the connection made to the address that was checked, and the remote address checked again in the dialer; IPv4-mapped, NAT64, 6to4, Teredo, unique-local, link-local, documentation, CGNAT, loopback, multicast and unspecified addresses all refused; **plaintext is structurally impossible** (the plain dial function always refuses, only the TLS dial connects, and a request that is not https, port 443, callback-shaped and registered is refused before the transport); no environment proxy; TLS 1.2 or later with verification; a new connection per delivery.
 
 ## Tests
 
-`go test ./platform/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: fifteen deliberate weakenings of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
+`go test ./platform/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: twenty-one deliberate weakenings of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
 
 ## Not covered
 

@@ -3,6 +3,7 @@ package egress
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
@@ -160,6 +161,7 @@ type Guard struct {
 	mu       sync.RWMutex
 	hosts    map[string]struct{}
 	dial     func(ctx context.Context, network, addr string) (net.Conn, error)
+	rootCAs  *x509.CertPool // nil in production: the system roots. Set only by tests.
 }
 
 // NewGuard returns a guard with no registered host. A nil resolver means the system resolver. Both timeouts must be positive.
@@ -224,8 +226,37 @@ func (g *Guard) Resolve(ctx context.Context, raw string) (netip.Addr, error) {
 	return g.checked(ctx, u.Host)
 }
 
-// Transport returns a transport that can reach a registered host on port 443 and nothing else. It ignores the environment's proxy
-// settings, verifies certificates, requires TLS 1.2, and opens a new connection per delivery so that every delivery is re-checked.
+// dialChecked connects to the address that was checked for a registered host on port 443, and to nothing else.
+func (g *Guard) dialChecked(ctx context.Context, d *net.Dialer, network, addr string) (net.Conn, string, error) {
+	if network != "tcp" && network != "tcp4" && network != "tcp6" {
+		return nil, "", denied("only TCP is allowed")
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port != callbackPort {
+		return nil, "", denied("the port must be %s", callbackPort)
+	}
+	host = strings.ToLower(host)
+	if !g.registered(host) {
+		return nil, "", denied("the host is not a registered callback host")
+	}
+	ip, err := g.checked(ctx, host)
+	if err != nil {
+		return nil, "", err
+	}
+	target := net.JoinHostPort(ip.String(), callbackPort)
+	var conn net.Conn
+	if g.dial != nil {
+		conn, err = g.dial(ctx, network, target)
+	} else {
+		conn, err = d.DialContext(ctx, network, target)
+	}
+	return conn, host, err
+}
+
+// Transport returns a transport that can reach a registered host on port 443 over TLS and nothing else. Plaintext is structurally
+// impossible: DialContext, which net/http uses for http:// requests, always refuses, and only DialTLSContext connects. It ignores the
+// environment's proxy settings, verifies certificates, requires TLS 1.2, and opens a new connection per delivery so that every
+// delivery is re-checked.
 func (g *Guard) Transport() *http.Transport {
 	d := &net.Dialer{Timeout: g.opts.DialTimeout, Control: func(_, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
@@ -237,31 +268,29 @@ func (g *Guard) Transport() *http.Transport {
 		}
 		return nil
 	}}
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: g.rootCAs}
 	return &http.Transport{
 		Proxy: nil,
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if network != "tcp" && network != "tcp4" && network != "tcp6" {
-				return nil, denied("only TCP is allowed")
-			}
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil || port != callbackPort {
-				return nil, denied("the port must be %s", callbackPort)
-			}
-			host = strings.ToLower(host)
-			if !g.registered(host) {
-				return nil, denied("the host is not a registered callback host")
-			}
-			ip, err := g.checked(ctx, host)
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return nil, denied("plaintext connections are refused; callbacks use https only")
+		},
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, host, err := g.dialChecked(ctx, d, network, addr)
 			if err != nil {
 				return nil, err
 			}
-			target := net.JoinHostPort(ip.String(), callbackPort)
-			if g.dial != nil {
-				return g.dial(ctx, network, target)
+			cfg := tlsCfg.Clone()
+			cfg.ServerName = host
+			tc := tls.Client(conn, cfg)
+			ctx, cancel := context.WithTimeout(ctx, g.opts.DialTimeout)
+			defer cancel()
+			if err := tc.HandshakeContext(ctx); err != nil {
+				_ = conn.Close()
+				return nil, err
 			}
-			return d.DialContext(ctx, network, target)
+			return tc, nil
 		},
-		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSClientConfig:        tlsCfg,
 		TLSHandshakeTimeout:    g.opts.DialTimeout,
 		ResponseHeaderTimeout:  g.opts.DialTimeout,
 		MaxResponseHeaderBytes: maxHeaderBytes,
@@ -269,11 +298,32 @@ func (g *Guard) Transport() *http.Transport {
 	}
 }
 
+// guardedRoundTripper refuses a request before it reaches the transport unless its URL is callback-shaped (https, port 443, a valid DNS
+// name, no credentials) and its host is registered.
+type guardedRoundTripper struct {
+	g    *Guard
+	next http.RoundTripper
+}
+
+func (rt guardedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+		return nil, denied("the scheme must be https")
+	}
+	u, err := ParseCallbackURL(req.URL.String())
+	if err != nil {
+		return nil, err
+	}
+	if !rt.g.registered(u.Host) {
+		return nil, denied("the host is not a registered callback host")
+	}
+	return rt.next.RoundTrip(req)
+}
+
 // Client returns an HTTP client over Transport that never follows a redirect: a 3xx is returned to the caller, which treats it as a failed
 // delivery.
 func (g *Guard) Client(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport:     g.Transport(),
+		Transport:     guardedRoundTripper{g: g, next: g.Transport()},
 		Timeout:       timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
