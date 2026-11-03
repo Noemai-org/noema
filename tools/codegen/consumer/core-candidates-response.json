@@ -1,0 +1,28 @@
+{
+ "candidates": [
+  {
+   "account_last4": "6789",
+   "amount_minor": 200000,
+   "beneficiary_alias_match": true,
+   "candidate_id": "cand_synth02",
+   "counterparty_display": "ACME SUPPLIES",
+   "currency": "NGN",
+   "direction": "OUTGOING",
+   "occurred_at": "2026-11-02T10:15:00Z",
+   "resource_ref": "test.transaction:TX0002"
+  },
+  {
+   "account_last4": "6789",
+   "amount_minor": 150000,
+   "candidate_id": "cand_synth01",
+   "counterparty_display": "ACME SUPPLIES LTD",
+   "currency": "NGN",
+   "direction": "INCOMING",
+   "occurred_at": "2026-11-01T09:00:00Z",
+   "resource_ref": "test.transaction:TX0001"
+  }
+ ],
+ "correlation_id": "corr_consumer01",
+ "schema_version": "1.0",
+ "tenant_id": "ten_synth01"
+}

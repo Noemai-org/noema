@@ -4,10 +4,13 @@ Written only by the security-reviewer role (see `README.md`). Append dated entri
 
 ## Entries
 
-(none yet)
+### 2026-11-01
 
-### 2026-11-03
+- Completed: SEC-12 evaluation ([docs#78](https://github.com/Noemai-org/docs/pull/78), merged); pgsodium spike green, 58 of 58 at `4206c77` ([run 41314576829](https://github.com/Noemai-org/noema/actions/runs/41314576829), carried by [noema#106](https://github.com/Noemai-org/noema/pull/106)).
+- In progress: SEC-13 failing-first bypass test, draft [noema#105](https://github.com/Noemai-org/noema/pull/105) (red by design, never merged); SEC-14 evaluation [docs#81](https://github.com/Noemai-org/docs/pull/81).
+- Blocked: none. GOV-28 ([docs#80](https://github.com/Noemai-org/docs/pull/80)) and W4 are not mine.
+- Decisions taken: the spike disables pgsodium's event trigger at bootstrap (docs evaluation, section 10).
+- Escalations: pgsodium's DDL behaviour without preload (a bootstrap step W4 carries).
+- Next: align the T6 pass condition with GOV-28 D13; SEC-14 spike A1 to A7 on SeaweedFS, then pgsty/silo; SEC-13 positive test after GOV-28.
 
-- Completed: SEC-01 threat-to-test map, control REQs for TM-01 to TM-27 and three gaps ([docs#86](https://github.com/Noemai-org/docs/pull/86)); SEC-14 spike on the clean branch ([noema#111](https://github.com/Noemai-org/noema/pull/111)); #106 by-hand run at `5904374`, 66 of 66 ([run 41580943855](https://github.com/Noemai-org/noema/actions/runs/41580943855)).
-- In progress: SEC-11 static topology check of the dev, ci, bench and demo profiles (this branch).
-- Finding: the runtime matrix runs under the dev profile only; SEC-11's "bench and demo profiles" is met statically by `profiles.py`, and the runtime probes of ci, bench and demo are not run. Raised to the Integration Lead.
+- 2026-11-03 SEC-11: static topology check of the dev, ci, bench and demo profiles (`deploy/compose/netcheck/profiles.py`), now with the exact service set of each profile and 26 mutations in its self-test ([noema#114](https://github.com/Noemai-org/noema/pull/114)).

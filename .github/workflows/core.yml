@@ -11,6 +11,23 @@ jobs:
   core:
     runs-on: ubuntu-24.04
     environment: core-ci
+    # The tests run against the same PostgreSQL as deploy/compose (17.11, pinned by digest), never the runner image's
+    # own server. Trust authentication is for this throwaway, job-local container only; it holds synthetic data.
+    services:
+      postgres:
+        image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      NOEMA_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+      EXPECTED_POSTGRES: "17.11"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -31,9 +48,12 @@ jobs:
       - if: steps.changed.outputs.run == 'true'
         working-directory: services/core
         run: |
+          server="$(psql "$NOEMA_TEST_DATABASE_URL" -tAc 'SHOW server_version' | cut -d' ' -f1)"
+          echo "test database: PostgreSQL $server"
+          test "$server" = "$EXPECTED_POSTGRES"
           test -z "$(gofmt -l .)"
           go vet ./...
-          go test ./...
+          go test -race ./...
           go build ./...
       - if: steps.changed.outputs.run == 'true'
         run: docker build -t noema-core:ci services/core
