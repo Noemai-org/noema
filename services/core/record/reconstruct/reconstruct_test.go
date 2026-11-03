@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -727,5 +728,51 @@ func TestRecordReadChainDeniesAnotherTenantAtTheDatabase(t *testing.T) {
 	err := w.reader.QueryRow(ctx(t), `SELECT count(*) FROM record_read_chain($1)`, other).Scan(&n)
 	if err == nil {
 		t.Fatalf("a connection that holds record_read for %s read %d events of %s", tenant, n, other)
+	}
+}
+
+// A transaction whose reads fail and whose rollback is observed: the cleanup of a request must be bounded.
+type observedTx struct {
+	pgx.Tx
+	called      bool
+	errAtCall   error     // the context's state at the moment Rollback was called
+	deadline    time.Time // and its deadline then
+	hasDeadline bool
+}
+
+func (o *observedTx) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("the database is not answering")
+}
+
+func (o *observedTx) Rollback(ctx context.Context) error {
+	o.called, o.errAtCall = true, ctx.Err()
+	o.deadline, o.hasDeadline = ctx.Deadline()
+	return nil
+}
+
+type observedDB struct{ tx *observedTx }
+
+func (d observedDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) { return d.tx, nil }
+
+// Review of noema#107 (major): the rollback of a request must neither depend on a deadline that has already passed nor run
+// without a limit. A stalled database must not hold the request after the answer has been decided.
+func TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline(t *testing.T) {
+	tx := &observedTx{}
+	parent, cancel := context.WithTimeout(context.Background(), time.Minute)
+	cancel() // the request's own context is already over
+	if _, err := reconstruct.Build(parent, observedDB{tx}, tenant, "corr_us06"); err == nil {
+		t.Fatal("a read that fails was reported as success")
+	}
+	if !tx.called {
+		t.Fatal("the transaction was not rolled back")
+	}
+	if tx.errAtCall != nil {
+		t.Fatalf("the rollback was given a context that was already over (%v): it could never run", tx.errAtCall)
+	}
+	if !tx.hasDeadline {
+		t.Fatal("the rollback has no deadline: a stalled database would hold the request for ever")
+	}
+	if left := tx.deadline.Sub(clock.System{}.Now()); left > 10*time.Second {
+		t.Fatalf("the rollback may run for %v; it must be bounded to seconds", left)
 	}
 }

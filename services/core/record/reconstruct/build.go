@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 )
+
+// rollbackTimeout bounds the cleanup of a request. The rollback must still be tried when the request's own deadline has passed,
+// so it runs on a context detached from that deadline, and never without a limit: a stalled database must not hold the request
+// after its answer has been decided (review of noema#107).
+const rollbackTimeout = 5 * time.Second
 
 // SchemaVersion is the version of the reconstruction envelope, as in the contract's approved fixtures
 // (contracts/fixtures/valid/reconstruction.v3/); the events inside carry record-event "3.0".
@@ -45,7 +51,11 @@ func Build(ctx context.Context, db TxBeginner, tenantID, correlationID string) (
 	if err != nil {
 		return nil, fmt.Errorf("reconstruct: begin: %w", err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+		defer cancel()
+		_ = tx.Rollback(rctx)
+	}()
 	rows, err := chain.ReadChain(ctx, tx, tenantID)
 	if err != nil {
 		return nil, err

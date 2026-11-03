@@ -58,3 +58,9 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Purpose: tenant isolation of `record_read_chain` (review 5734474390): option B accepted with DEBT-04, covering `record_read_chain`, `record_lock_head` and `record_insert`. Condition: option A lands before the endpoint is wired into `cmd/core`. Write the two-tenant denial test at the handler first, and the database-level test skipped with `t.Skip` citing DEBT-04. noema#108 merges before #107, then `main` is merged into #107. EDG-01 (mine) owns the wiring and the ops/audit role check on core routes, and does not wire the reconstruction endpoint before option A.
 - Receiver used it for: the two tests and the README paragraph in this pull request; the debt entry is the Repo Steward's.
 - Evidence (PR or commit): noema#107.
+
+### 2026-11-03 · Codex review 5747595303 (major) fixed
+- Finding: `Build` rolled back with `context.WithoutCancel(ctx)`, which removes the deadline, so a stalled database could hold the request for ever.
+- Fix: the rollback runs on a context detached from the request's cancellation and bounded to 5 seconds (`rollbackTimeout`). Test first: `TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline` (fails on the old code with "the rollback has no deadline"; passes on the fix).
+- Same pattern elsewhere, outside this PR's scope: `services/core/platform/db/db.go:86` and `:141` (PLT-06) and `services/core/execution/ledger/ledger.go:68` (EXE-02). Both are mine; they need their own small change with the same helper and test.
+- Tenant finding (the other blocking item): answered in the PR; option B with DEBT-04 was accepted by the Architect; see above.
