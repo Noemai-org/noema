@@ -272,7 +272,16 @@ func TestWritePathRefusesAVerdictThatDisagreesWithItsReceiptOrItsDocument(t *tes
 	wrongCorrelation.correlation = "corr_other99"
 	disagreeing := achieved("ver_c2")
 	disagreeing.docVerdict = "NOT_ACHIEVED"
-	for name, a := range map[string]verdictArgs{"another grant's correlation": wrongCorrelation, "a document that says another verdict": disagreeing} {
+	field := func(id, override string) verdictArgs { a := achieved(id); a.docOverride = override; return a }
+	for name, a := range map[string]verdictArgs{
+		"another grant's correlation":            wrongCorrelation,
+		"a document that says another verdict":   disagreeing,
+		"a document with other evidence reads":   field("ver_c3", `{"evidence_reads":["evr_other"]}`),
+		"a document with another predicate":      field("ver_c4", `{"predicate_result":false}`),
+		"a document verified at another instant": field("ver_c5", `{"verified_at":"2026-11-03T10:00:00Z"}`),
+		"a document signed with another key id":  field("ver_c6", `{"sig":{"key_id":"k_other","value":"sig"}}`),
+		"a document with another signature":      field("ver_c7", `{"sig":{"key_id":"k_out","value":"other"}}`),
+	} {
 		t.Run(name, func(t *testing.T) { wantState(t, a.call(ctx(t), p), integrityClass) })
 	}
 	if n := w.count(t, `SELECT count(*) FROM outcome_verdict`); n != 0 {

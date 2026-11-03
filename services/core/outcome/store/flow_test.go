@@ -316,3 +316,17 @@ func TestConcurrentDeliveriesOfOneVerificationStoreOneVerdict(t *testing.T) {
 	}
 	f.verifyChain(t)
 }
+
+// The verdict's instant is in the signed document as text and in a column as a timestamp with microsecond precision. A real
+// clock has nanoseconds; the two must still agree, or the database refuses the verdict.
+func TestAVerdictAtNanosecondPrecisionIsStoredAndAgrees(t *testing.T) {
+	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f.clk.Advance(123_456_789 * time.Nanosecond)
+	res, err := f.v.Verify(ctx(t), f.req)
+	if err != nil || res.Verdict != verifier.Achieved {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if n := f.count(t, `SELECT count(*) FROM outcome_verdict WHERE (json->>'verified_at')::timestamptz = verified_at`); n != 1 {
+		t.Fatalf("verdicts whose document instant equals the column = %d", n)
+	}
+}

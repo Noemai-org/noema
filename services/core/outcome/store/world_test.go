@@ -93,6 +93,7 @@ func (w *world) as(t *testing.T, role string) *pgxpool.Pool {
 type verdictArgs struct {
 	tenant, verdictID, receiptID, verdict, reason string
 	verification, correlation, docVerdict         string
+	docOverride                                   string // JSON merged over the signed document, to make one field disagree with its column
 	predicate                                     *bool
 	reads                                         []string
 	recoveryID, watchID                           *string
@@ -100,7 +101,9 @@ type verdictArgs struct {
 }
 
 const callVerdict = `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'k_out', 'sig',
-	jsonb_build_object('verdict_id', $2::text, 'tenant_id', $1::text, 'receipt_id', $3::text, 'verdict', $16::text, 'correlation_id', $5::text, 'outcome_definition', $6::text),
+	(jsonb_build_object('verdict_id', $2::text, 'tenant_id', $1::text, 'receipt_id', $3::text, 'verdict', $16::text, 'correlation_id', $5::text, 'outcome_definition', $6::text,
+		'evidence_reads', to_jsonb($10::text[]), 'predicate_result', COALESCE(to_jsonb($9::boolean), 'null'::jsonb), 'verified_at', to_jsonb($11::timestamptz),
+		'sig', jsonb_build_object('key_id', 'k_out'::text, 'value', 'sig'::text)) || $17::jsonb),
 	$12, $13, $14, $15, ARRAY['fin.evt.settlement.updated'])`
 
 func (a verdictArgs) call(c context.Context, p *pgxpool.Pool) error {
@@ -114,8 +117,12 @@ func (a verdictArgs) call(c context.Context, p *pgxpool.Pool) error {
 	if docVerdict == "" {
 		docVerdict = a.verdict
 	}
+	override := a.docOverride
+	if override == "" {
+		override = "{}"
+	}
 	_, err := p.Exec(c, callVerdict, a.tenant, a.verdictID, a.receiptID, verification, correlation, defn, a.verdict, a.reason, a.predicate, a.reads, verifiedAt,
-		a.recoveryID, a.watchID, a.next, a.deadline, docVerdict)
+		a.recoveryID, a.watchID, a.next, a.deadline, docVerdict, override)
 	return err
 }
 

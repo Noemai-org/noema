@@ -88,6 +88,9 @@ func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 		"a negative settle window": func(s string) string {
 			return strings.Replace(s, `"settle_window_seconds": 30`, `"settle_window_seconds": -30`, 1)
 		},
+		"a settle window that overflows a duration": func(s string) string {
+			return strings.Replace(s, `"settle_window_seconds": 30`, `"settle_window_seconds": 9007199254740991`, 1)
+		},
 		"a missing settle window": func(s string) string { return strings.Replace(s, `"settle_window_seconds": 30,`, ``, 1) },
 		"a duplicate descriptor entity": func(s string) string {
 			return strings.Replace(s, `"entity": "attachment"`, `"entity": "case"`, 1)

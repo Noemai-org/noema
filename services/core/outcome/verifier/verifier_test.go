@@ -2,6 +2,7 @@ package verifier_test
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -410,4 +411,21 @@ func TestUnboundVariablesAreFoundByTheCompilerNotByTextScan(t *testing.T) {
 		res, _ := w.decided(t)
 		want(t, res, verifier.Achieved, verifier.ReasonPredicateTrue)
 	})
+}
+
+// The settle window is converted to a time.Duration. A schema-valid value above MaxInt64 nanoseconds would wrap negative and let
+// a verdict through without waiting; it is refused, and the largest value that fits is accepted.
+func TestASettleWindowThatOverflowsADurationIsRefused(t *testing.T) {
+	const largest = math.MaxInt64 / int64(time.Second)
+	for _, secs := range []int64{largest + 1, 1<<53 - 1, math.MaxInt64} {
+		w := newWorld(t, func(w *world) { w.req.Definition.SettleWindowSeconds = secs })
+		if _, err := w.verify(t); !errors.Is(err, verifier.ErrDefinition) || w.read.reads() != 0 || len(w.store.writes) != 0 {
+			t.Fatalf("settle window %d: err = %v, reads %d", secs, err, w.read.reads())
+		}
+	}
+	w := newWorld(t, func(w *world) { w.req.Definition.SettleWindowSeconds = largest })
+	var open *verifier.ErrSettleWindowOpen
+	if _, err := w.verify(t); !errors.As(err, &open) {
+		t.Fatalf("the largest window that fits must be accepted and still open, got %v", err)
+	}
 }
