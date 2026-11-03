@@ -49,7 +49,11 @@ func Main(m *testing.M) {
 // need to create roles or databases of their own (a second service with its own database).
 func ServerURL(t testing.TB) string {
 	t.Helper()
-	once.Do(func() { baseURL, baseErr = start() })
+	once.Do(func() {
+		if baseURL, baseErr = start(); baseErr == nil {
+			baseErr = ensureRoles(baseURL)
+		}
+	})
 	if baseErr != nil {
 		t.Fatalf("testpg: %v", baseErr)
 	}
@@ -60,7 +64,11 @@ func ServerURL(t testing.TB) string {
 // superuser (the migrating role). The database is dropped when the test ends.
 func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	t.Helper()
-	once.Do(func() { baseURL, baseErr = start() })
+	once.Do(func() {
+		if baseURL, baseErr = start(); baseErr == nil {
+			baseErr = ensureRoles(baseURL)
+		}
+	})
 	if baseErr != nil {
 		t.Fatalf("testpg: %v", baseErr)
 	}
@@ -92,6 +100,36 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 		_, _ = a.Exec(c, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
 	return pool, dsn
+}
+
+// clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
+// migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
+var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read"}
+
+func ensureRoles(url string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return fmt.Errorf("connect to create the cluster roles: %w", err)
+	}
+	defer admin.Close()
+	// One advisory lock: several test binaries may share one server and start together.
+	conn, err := admin.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7770001)`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7770001)`) }()
+	for _, r := range clusterRoles {
+		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` NOLOGIN; END IF; END $$`); err != nil {
+			return fmt.Errorf("create role %s: %w", r, err)
+		}
+	}
+	return nil
 }
 
 func start() (string, error) {
