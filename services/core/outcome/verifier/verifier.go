@@ -201,10 +201,15 @@ func (r *run) decide(success, pending *ip.Program) decision {
 		// A check that cannot run is not a pass, and not a finding either: fail closed without calling the signature invalid.
 		return unknown(ReasonReceiptUnverifiable)
 	}
-	if auth == AuthInvalid {
+	switch auth {
+	case AuthValid, AuthNotChecked:
+	case AuthInvalid:
 		d := unknown(ReasonReceiptUnverifiable)
 		d.auth, d.badSig = auth, true
 		return d
+	default:
+		// A status this verifier does not know is neither a pass nor a finding: fail closed, raise nothing.
+		return unknown(ReasonReceiptUnverifiable)
 	}
 	if r.unbound {
 		// The language reads an unbound variable as null and a comparison with null as false; a verdict must not follow

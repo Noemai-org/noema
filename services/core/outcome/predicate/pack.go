@@ -151,6 +151,9 @@ func LoadPack(raw []byte) (Pack, error) {
 		if err := strict(rawDef, &o); err != nil {
 			return Pack{}, fmt.Errorf("%w: outcome definition %d: %v", errPack, i, err)
 		}
+		if o.OutcomeID == "" {
+			return Pack{}, fmt.Errorf("%w: outcome definition %d has no outcome_id", errPack, i)
+		}
 		if _, dup := out.Definitions[o.OutcomeID]; dup {
 			return Pack{}, fmt.Errorf("%w: two definitions for outcome %q", errPack, o.OutcomeID)
 		}
