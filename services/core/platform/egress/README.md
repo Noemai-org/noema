@@ -1,13 +1,13 @@
-# outcome/callbacks/egress
+# platform/egress
 
-Date: 2026-11-03. Task: SEC-05 (SR+AG). Requirements: REQ-SEC-009, REQ-API-006 (the signed event it protects). Threat: TM-25. Status: built; used by OUT-05 (C1), not yet wired.
+Date: 2026-11-03. Task: SEC-05 (SR+AG). Requirements: REQ-SEC-009, REQ-API-006 (the signed event it protects). Threat: TM-25. Status: built; used by `outcome/callbacks` (OUT-05, C1), not yet wired. It lives in `platform/` because it is a network-safety capability, not decision code (the `threshold-literal` rule governs `trust`, `execution` and `outcome`).
 
 The callback safety guard. It decides which URLs a signed `outcome.updated` callback may go to, and it is the only thing the delivery code uses to open a connection. Standard library only.
 
 ## Use (for OUT-05)
 
 ```go
-g := egress.NewGuard(nil)                         // nil: the system resolver
+g, err := egress.NewGuard(nil, egress.Options{LookupTimeout: cfg.EgressLookup, DialTimeout: cfg.EgressDial}) // nil: the system resolver; both timeouts come from configuration and have no default
 err := g.Register(ctx, "https://cb.partner.example/hook") // admin API: PUT /v1/admin/tenants/{id}/callback
 client := g.Client(15 * time.Second)              // the only client that delivers; never follows a redirect
 addr, err := g.Resolve(ctx, url)                  // before every delivery: registered, re-resolved, all answers public
@@ -21,7 +21,7 @@ HTTPS on port 443; no credentials, fragment, control character or non-ASCII; a D
 
 ## Tests
 
-`go test ./outcome/callbacks/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: fifteen deliberate weakenings of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
+`go test ./platform/egress/` (add `-race`). No test uses the network: the resolver and the dial function are injected. The suite was checked by mutation: fifteen deliberate weakenings of the code (a dropped range, a skipped check, a followed redirect, an environment proxy, dialling the name, accepting `http`, ...) are each caught by a test.
 
 ## Not covered
 

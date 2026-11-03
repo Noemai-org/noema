@@ -26,14 +26,20 @@ func (e *deniedError) Is(target error) bool { return target == ErrEgressDenied }
 
 func denied(format string, args ...any) error { return &deniedError{fmt.Sprintf(format, args...)} }
 
+// Protocol limits, not tunable thresholds: the HTTPS port (RFC 9110), the DNS name and label lengths (RFC 1035) and the header bound.
 const (
 	callbackPort   = "443"
-	lookupTimeout  = 5 * time.Second
-	dialTimeout    = 10 * time.Second
 	maxHostLen     = 253
 	maxLabelLen    = 63
 	maxHeaderBytes = 16 << 10
 )
+
+// Options carries the timeouts. They are required and have no default: a safety timeout is configuration with a change record
+// (REQ-OPS-003, AGENT-16), so the caller passes the configured value.
+type Options struct {
+	LookupTimeout time.Duration // DNS resolution, at registration and at every delivery
+	DialTimeout   time.Duration // the TCP connect, the TLS handshake and the wait for response headers
+}
 
 // Resolver is what the guard needs from DNS; *net.Resolver satisfies it.
 type Resolver interface {
@@ -150,22 +156,26 @@ func checkHostName(host string) error {
 // Guard holds the registered callback hosts and is the only thing that opens a callback connection.
 type Guard struct {
 	resolver Resolver
+	opts     Options
 	mu       sync.RWMutex
 	hosts    map[string]struct{}
 	dial     func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
-// NewGuard returns a guard with no registered host. A nil resolver means the system resolver.
-func NewGuard(r Resolver) *Guard {
+// NewGuard returns a guard with no registered host. A nil resolver means the system resolver. Both timeouts must be positive.
+func NewGuard(r Resolver, o Options) (*Guard, error) {
+	if o.LookupTimeout <= 0 || o.DialTimeout <= 0 {
+		return nil, errors.New("egress: both timeouts must be positive; they come from configuration and have no default")
+	}
 	if r == nil {
 		r = net.DefaultResolver
 	}
-	return &Guard{resolver: r, hosts: map[string]struct{}{}}
+	return &Guard{resolver: r, opts: o, hosts: map[string]struct{}{}}, nil
 }
 
 // checked resolves host and requires at least one answer and every answer public. It returns the first address, which is the one dialled.
 func (g *Guard) checked(ctx context.Context, host string) (netip.Addr, error) {
-	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	ctx, cancel := context.WithTimeout(ctx, g.opts.LookupTimeout)
 	defer cancel()
 	addrs, err := g.resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil || len(addrs) == 0 {
@@ -217,7 +227,7 @@ func (g *Guard) Resolve(ctx context.Context, raw string) (netip.Addr, error) {
 // Transport returns a transport that can reach a registered host on port 443 and nothing else. It ignores the environment's proxy
 // settings, verifies certificates, requires TLS 1.2, and opens a new connection per delivery so that every delivery is re-checked.
 func (g *Guard) Transport() *http.Transport {
-	d := &net.Dialer{Timeout: dialTimeout, Control: func(_, address string, _ syscall.RawConn) error {
+	d := &net.Dialer{Timeout: g.opts.DialTimeout, Control: func(_, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			return denied("the dial address is malformed")
@@ -252,8 +262,8 @@ func (g *Guard) Transport() *http.Transport {
 			return d.DialContext(ctx, network, target)
 		},
 		TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout:    dialTimeout,
-		ResponseHeaderTimeout:  dialTimeout,
+		TLSHandshakeTimeout:    g.opts.DialTimeout,
+		ResponseHeaderTimeout:  g.opts.DialTimeout,
 		MaxResponseHeaderBytes: maxHeaderBytes,
 		DisableKeepAlives:      true,
 	}

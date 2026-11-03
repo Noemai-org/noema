@@ -4,6 +4,8 @@
 // Implements: REQ-SEC-009 (egress control and callback safety), REQ-API-006 (the signed outbound event it protects); TM-25 (callback
 // server-side request forgery). PERD 39.4 "Callback registration safety".
 //
+// It lives in platform/ because it is a network-safety capability, not decision code; outcome/callbacks (OUT-05) imports it.
+//
 // Rules, each with a test in egress_test.go:
 //
 //   - A callback URL is HTTPS on port 443, has no credentials, no fragment and no control characters, and its host is a DNS name with

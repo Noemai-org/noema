@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Noemai-org/noema/services/core/outcome/callbacks/egress"
+	"github.com/Noemai-org/noema/services/core/platform/egress"
 )
 
 // SEC-05, REQ-SEC-009, REQ-API-006, TM-25, PERD 39.4 "Callback registration safety". Acceptance (REQ-SEC-009): registering a callback to a
@@ -62,7 +62,7 @@ func TestRegistrationRefusesMalformedAndSmugglingURLs(t *testing.T) {
 		"", "http://cb.example.com/hook", "ftp://cb.example.com/", "//cb.example.com/", "cb.example.com/hook", "https:///hook",
 		"https://user@cb.example.com/", "https://user:pw@cb.example.com/", "https://evil.example.com@127.0.0.1/", "https://cb.example.com:8443/", "https://cb.example.com:80/",
 		"https://127.0.0.1/", "https://[::1]/", "https://[::ffff:127.0.0.1]/", "https://169.254.169.254/latest/meta-data/", "https://93.184.216.34/",
-		"https://2130706433/", "https://0x7f.1/", "https://0x7f000001/", "https://017700000001/", "https://127.1/", "https://127.0.0.1.nip.io.",
+		"https://2130706433/", "https://0x7f.1/", "https://0x7f000001/", "https://017700000001/", "https://127.1/", "https://127.0.0.1.rebind.example.com.",
 		"https://localhost/", "https://intranet/", "https://cb/", "https://cb.example.com./hook", "https://.example.com/", "https://cb..example.com/",
 		"https://cb.example.com#frag", "https://cb_x.example.com/", "https://-cb.example.com/", "https://cb.example.com\t/", "https://cb.example.com\\@127.0.0.1/",
 		"https://bücher.example.com/", "https://cb.example.com/\x00", "https://cb.example.com/%0d%0aHost:x", "https://1.2.3.4.5/", "https://example.123/",
@@ -84,7 +84,21 @@ func TestRegistrationRefusesMalformedAndSmugglingURLs(t *testing.T) {
 	}
 }
 
-func newGuard(r fakeResolver) *egress.Guard { return egress.NewGuard(r) }
+func newGuard(r fakeResolver) *egress.Guard {
+	g, err := egress.NewGuard(r, egress.Options{LookupTimeout: 2 * time.Second, DialTimeout: 2 * time.Second})
+	if err != nil {
+		panic(err)
+	}
+	return g
+}
+
+func TestTimeoutsAreRequired(t *testing.T) {
+	for _, o := range []egress.Options{{}, {LookupTimeout: time.Second}, {DialTimeout: time.Second}, {LookupTimeout: -1, DialTimeout: time.Second}} {
+		if _, err := egress.NewGuard(nil, o); err == nil {
+			t.Errorf("NewGuard accepted %+v; the timeouts have no default", o)
+		}
+	}
+}
 
 // REQ-SEC-009 acceptance, first half: registering a callback whose host resolves to a private, loopback or link-local address fails,
 // and so does a host with ANY non-public answer among public ones.
