@@ -316,3 +316,34 @@ func TestChaosPropertyNoAllowUnlessEveryStepPassed(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// REQ-NFR-002 / INV-16 (Codex review of noema#109): a step whose context expires WHILE it runs must not decide. Whatever such
+// a step returns, even a valid ALLOW at T15, the evaluation ends in UNKNOWN INTERNAL_ERROR with a deadline trace at that step.
+func TestAContextThatExpiresWhileAStepRunsNeverYieldsItsResult(t *testing.T) {
+	for step := decide.T1AdmittedIntent; step <= decide.T15DecisionRecorded; step++ {
+		returns := map[string]func() decide.StepResult{"continue": decide.Continue}
+		outcome := decide.Unknown
+		if allowed := permitted[step]; len(allowed) > 0 {
+			outcome = allowed[0]
+		}
+		returns["stop with "+string(outcome)] = func() decide.StepResult { return decide.Stop(decisionFor(outcome)) }
+		for name, result := range returns {
+			ctx, cancel := context.WithCancel(context.Background())
+			laterRan := false
+			s := continueAll()
+			s[step-1] = func(context.Context) decide.StepResult { cancel(); return result() }
+			for later := step; later < decide.T15DecisionRecorded; later++ {
+				inner := s[later]
+				s[later] = func(c context.Context) decide.StepResult { laterRan = true; return inner(c) }
+			}
+			d, trace := decide.Evaluate(ctx, version, s)
+			cancel()
+			if !isInternalError(d) || laterRan {
+				t.Fatalf("T%d expiring while running, returning %s: outcome %s, later step ran=%v", step, name, d.Outcome(), laterRan)
+			}
+			if last := trace[len(trace)-1]; last.Step != step || last.Result != decide.StepDeadline {
+				t.Fatalf("T%d expiring while running, returning %s: trace ends %+v", step, name, last)
+			}
+		}
+	}
+}
