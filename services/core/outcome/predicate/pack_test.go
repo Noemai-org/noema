@@ -93,7 +93,9 @@ func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 		},
 		"a missing settle window": func(s string) string { return strings.Replace(s, `"settle_window_seconds": 30,`, ``, 1) },
 		"a misspelled outcome_definitions key": func(s string) string {
-			return strings.Replace(s, `"outcome_definitions"`, `"outcome_defintions"`, 1)
+			// Nested trust profiles repeat this key; the pack's own top-level key is the last occurrence.
+			k := strings.LastIndex(s, `"outcome_definitions"`)
+			return s[:k] + `"outcome_defintions"` + s[k+len(`"outcome_definitions"`):]
 		},
 		"a misspelled evidence_descriptors key": func(s string) string {
 			return strings.Replace(s, `"evidence_descriptors"`, `"evidence_descriptor"`, 1)

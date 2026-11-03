@@ -104,6 +104,17 @@ func LoadPack(raw []byte) (Pack, error) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return Pack{}, fmt.Errorf("%w: %v", errPack, err)
 	}
+	// A pack holds many other top-level keys that Outcome does not read, so unknown keys cannot be refused here. The three it does
+	// read must be present: a misspelled one would otherwise decode to nothing and load as an empty, unusable pack.
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		return Pack{}, fmt.Errorf("%w: %v", errPack, err)
+	}
+	for _, key := range []string{"evidence_descriptors", "predicate_variables", "outcome_definitions"} {
+		if v, ok := top[key]; !ok || string(v) == "null" {
+			return Pack{}, fmt.Errorf("%w: the pack has no %q", errPack, key)
+		}
+	}
 	sc := ip.Scope{Entities: map[string]map[string]ip.Type{}, Variables: map[string]ip.Type{}}
 	for i, rawDesc := range f.Descriptors {
 		var d descriptor
