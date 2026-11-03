@@ -24,6 +24,10 @@ KEYS = {name: (os.environ[f"SPIKE_{name.upper()}_AK"], os.environ[f"SPIKE_{name.
 NS = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"'
 BUCKET = "anchors"
 ROWS, FAILS = [], 0
+# Known failures, recorded with evidence rather than hidden: a check named here is reported as "FAIL (recorded)" and does not fail the
+# job. If it ever passes the job fails ("UNEXPECTED PASS") so that the record is updated. The reason is printed with the row.
+KNOWN_FAILURES = {}
+RECORDED, UNEXPECTED = 0, 0
 
 
 def now():
@@ -47,7 +51,20 @@ def code_of(body):
 
 
 def record(cid, label, ok, detail=""):
-    global FAILS
+    global FAILS, RECORDED, UNEXPECTED
+    key = (cid, label)
+    if key in KNOWN_FAILURES.get(STORE, {}):
+        why = KNOWN_FAILURES[STORE][key]
+        if ok:
+            UNEXPECTED += 1
+            FAILS += 1
+            ROWS.append((cid, label, "**UNEXPECTED PASS**", "update the recorded failure: " + why))
+            print("FAIL " + cid + " " + label + ": UNEXPECTED PASS of a recorded failure (" + why + ")", flush=True)
+        else:
+            RECORDED += 1
+            ROWS.append((cid, label, "**FAIL (recorded)**", detail + " | " + why))
+            print("FAIL(recorded) " + cid + " " + label + ": " + detail + " | " + why, flush=True)
+        return
     if not ok:
         FAILS += 1
     ROWS.append((cid, label, "PASS" if ok else "**FAIL**", detail))
@@ -127,6 +144,12 @@ info("A1", "image id of the running container", digest)
 # A2: Object Lock bucket, default COMPLIANCE retention.
 ok_call("A2", "create the bucket with Object Lock enabled", "admin", "PUT", f"/{BUCKET}", headers={"x-amz-bucket-object-lock-enabled": "true"})
 ok_call("A2", "set default retention COMPLIANCE, 1 day", "admin", "PUT", f"/{BUCKET}", query={"object-lock": ""}, body=lock_cfg("COMPLIANCE", 1))
+if STORE == "seaweedfs":
+    # Try to close the gap with configuration: its "Write" action also covers delete, so deny delete to the writer by bucket policy.
+    policy = ('{"Version":"2012-10-17","Statement":[{"Sid":"NoDeleteForTheWriter","Effect":"Deny","Principal":{"AWS":["arn:aws:iam::*:user/spike_core_writer"]},'
+              '"Action":["s3:DeleteObject","s3:DeleteObjectVersion"],"Resource":["arn:aws:s3:::anchors/*"]}]}').encode()
+    pr = call("admin", "PUT", f"/{BUCKET}", query={"policy": ""}, body=policy)
+    info("A3", "SeaweedFS: bucket policy denying delete to the writer (the attempted fix)", describe(pr))
 r = call("admin", "GET", f"/{BUCKET}", query={"object-lock": ""})
 record("A2", "the bucket reports COMPLIANCE default retention", r[0] == 200 and b"COMPLIANCE" in r[2], describe(r))
 w1 = put_anchor("core", "head-0001", "SYNTHETIC anchor 1")
@@ -160,9 +183,9 @@ V2 = w2[1].get("x-amz-version-id", "")
 record("A3", "core: writing the same key again creates a new version and never replaces the first", w2[0] == 200 and V2 != "" and V2 != V1, describe(w2))
 r1 = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
 record("A3", "the first version is intact after the overwrite attempt", r1[0] == 200 and r1[2] == b"SYNTHETIC anchor 1", describe(r1))
-dm = call("core", "DELETE", f"/{BUCKET}/head-0001")
+DM_LABEL = "core: DeleteObject without a version id is refused (a delete marker would hide the anchor from the default listing)"
+dm = refused("A3", DM_LABEL, "core", "DELETE", f"/{BUCKET}/head-0001")
 r1 = call("verifier", "GET", f"/{BUCKET}/head-0001", query={"versionId": V1})
-info("A3", "core: DeleteObject without a version id", describe(dm))
 record("A3", "whatever that answered, version 1 is still readable (a delete marker, if any, does not remove data)", r1[0] == 200 and r1[2] == b"SYNTHETIC anchor 1", describe(r1))
 
 # A4: the administrator identity cannot shorten or remove COMPLIANCE retention through the API.
@@ -252,5 +275,5 @@ with open(out, "a") as f:
     f.write(f"## Anchor-store spike (SEC-14): {STORE}\nTest infrastructure only; nothing is adopted. SYNTHETIC keys and data.\n\n| Check | What | Result | Detail |\n|---|---|---|---|\n")
     for cid, label, res, det in ROWS:
         f.write(f"| {cid} | {label} | {res} | {det.replace('|', '/')[:200]} |\n")
-    f.write(f"\n**{len([r for r in ROWS if r[2] == "PASS"])} passed, {FAILS} failed.** Rows marked INFO and LIMIT are evidence, not pass or fail.\n")
+    f.write(f"\n**{len([r for r in ROWS if r[2] == 'PASS'])} passed, {RECORDED} failed and recorded, {FAILS} failed unexpectedly.** This is spike evidence, not a claim that a store passes. Rows marked INFO and LIMIT are evidence, not pass or fail.\n")
 sys.exit(1 if FAILS else 0)
