@@ -1,0 +1,90 @@
+# Hand-dispatched run of one named benchmark suite (BEN-29; REQ-BEN-004, REQ-TST-005): us, chaos, evil, full, or the BEN-05 g1 pair.
+# It exists so each `make bench-*` target is executed for real in CI at least once, where `make reset` is safe (a fresh runner), and its run link is recorded.
+# workflow_dispatch only. It reads no secret and calls no model provider. Inputs reach the shell only through the environment, never expanded into the script.
+# Until the environment (fixture loader, core, oracle counters) exists the runner reports "not run, no access" (exit 3) and the job passes with that said plainly:
+# nothing is run, scored or faked. Any other non-zero exit fails the job. The held-out layer is never run here (INV-22, REQ-AGT-004).
+name: bench-suites
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "us, chaos, evil, full, or g1 (the BEN-05 G1 evidence pair)"
+        type: choice
+        options: [us, chaos, evil, full, g1]
+        required: true
+      reset:
+        description: "Run `make reset` first (the recorded reset_done is true). Uncheck only to test without Docker."
+        type: boolean
+        default: true
+      run_id:
+        description: "Run ID to record (default: <suite>-gh<github run id>)"
+        type: string
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: bench-suites
+  cancel-in-progress: false
+jobs:
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - id: bench
+        env:
+          SUITE: ${{ inputs.suite }}
+          RESET: ${{ inputs.reset && '1' || '0' }}
+          GIVEN_RUN_ID: ${{ inputs.run_id }}
+          GITHUB_RUN: ${{ github.run_id }}
+        run: |
+          set +e
+          run_id="${GIVEN_RUN_ID:-$SUITE-gh$GITHUB_RUN}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if [ "$SUITE" = "g1" ]; then
+            make bench-g1 BENCH_RESET="$RESET" BENCH_G1_ID="$run_id"
+          else
+            make "bench-$SUITE" BENCH_RESET="$RESET" BENCH_SUITE_RUN_ID="$run_id"
+          fi
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        env:
+          SUITE: ${{ inputs.suite }}
+          CODE: ${{ steps.bench.outputs.code }}
+          RUN_ID: ${{ steps.bench.outputs.run_id }}
+        run: |
+          {
+            echo "## bench-suites: $SUITE, run id $RUN_ID, exit code $CODE"
+            case "$CODE" in
+              0) echo "Complete, and Tier 0 at zero." ;;
+              3) echo "**Not run: no access.** A required part of the environment is missing; nothing was run, scored or faked. The record says why." ;;
+              1) echo "Scored, but the run is incomplete or a gate is not at zero." ;;
+              2) echo "Bad input or a missing part of this checkout (for g1: benchmark.replay)." ;;
+              *) echo "Failed with exit code $CODE." ;;
+            esac
+            for record in benchmark/out/*/suite-run.json benchmark/out/g1/*/suite-run.json; do
+              [ -f "$record" ] && { echo; echo "### $record"; echo '```json'; cat "$record"; echo '```'; }
+            done
+            [ -f benchmark/out/g1/replay/replay.md ] && { echo; cat benchmark/out/g1/replay/replay.md; }
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: bench-suites-${{ inputs.suite }}-${{ github.run_id }}
+          path: |
+            benchmark/out/**/suite-run.json
+            benchmark/out/**/run-manifest.json
+            benchmark/out/g1/replay/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Result
+        env:
+          CODE: ${{ steps.bench.outputs.code }}
+        run: |
+          case "$CODE" in
+            0|3) exit 0 ;;
+            *) exit 1 ;;
+          esac
