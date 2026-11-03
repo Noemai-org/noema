@@ -5,7 +5,7 @@
 **REQs.** REQ-AUD-003 (SoT US-12, POC-FR-12, INV-10, INV-11).
 
 **How it works.**
-- `Build(ctx, db, tenant, correlation)` opens one read-only `REPEATABLE READ` transaction as `record_read`. It reads the tenant's whole chain once through `record_read_chain` (migration `0003`), verifies it from genesis with `chain.VerifyRows`, then builds the body from those same rows. What is served is exactly what was verified.
+- `Build(ctx, db, tenant, correlation)` opens one read-only `REPEATABLE READ` transaction as `record_read`. It reads the tenant's whole chain once through `record_read_chain_t` (migrations `0003` and `0004`), logged in as that tenant's `record_read` login, verifies it from genesis with `chain.VerifyRows`, then builds the body from those same rows. What is served is exactly what was verified.
 - A chain that does not verify gives `ErrIntegrity`, and the handler answers 409 `RECORD_INTEGRITY_FAILURE` with no events (INV-11). A break anywhere in the tenant's chain refuses every correlation of that tenant. That is the safe reading of "the chain verification for that span".
 - The body follows `contracts/schemas/reconstruction.v3.json`:
   - twelve sections, in the REQ-AUD-003 order;
@@ -28,12 +28,12 @@
 
   Every read writes a `RECORD_ACCESSED` line to the access log: IDs and the outcome only, never Record content.
 
-**Known limit: DEBT-04 (accepted 3 Nov 2026).** The database does not enforce the tenant. `record_read_chain(tenant)`, and the older `record_lock_head` and `record_insert`, take the tenant as an argument, so a connection that holds the role can name any tenant. The handler is the protection today: it uses the authenticated caller's tenant and nothing from the request (`TestTheHandlerServesOnlyTheCallersTenantWhateverTheRequestSays`). Option A, a login per tenant plus a mapping the database checks against `session_user`, **lands before this endpoint is wired into `cmd/core`**; EDG-01 does not wire it earlier. `TestRecordReadChainDeniesAnotherTenantAtTheDatabase` holds the assertion and is skipped with a message citing DEBT-04; delete the skip when option A lands. The Repo Steward files the debt entry.
+**Tenant isolation: DEBT-04 option A (slice 2).** The database, not the handler, decides which tenant's chain a connection can read. `record_read_chain_t()` has no tenant argument; it finds the tenant with `session_user`, the login the connection authenticated as (a `tenant_login` row maps each login to one tenant). The handler gets a pool per tenant from `TenantDBs.For(tenant)` and never falls back to another tenant's pool. `TestRecordReadChainDeniesAnotherTenantAtTheDatabase` shows two logins each read only their own chain; the old function that took a tenant is dropped (migration `0005`). What remains before the endpoint is wired into `cmd/core`: tenant provisioning (the logins and their mapping rows, slice 3) and EDG-01's ops and audit role check. A test in `cmd/core` fails if the process imports this package before then.
 
 **Not built here.** The route in `cmd/core` (EDG-01); decision replay (REQ-EXP-004); the payload schemas (REC-04). Reading the whole tenant chain per request is simple and measured inside the budget: P95 38.5 ms for a 200-event case in a 400-event chain, on PostgreSQL 17.11. A long-lived tenant chain will need a verified-head checkpoint (REC-05).
 
 **Tests.** `go test ./record/reconstruct/...` from `services/core/`. They need PostgreSQL server binaries or `NOEMA_TEST_DATABASE_URL`.
-- US-01 and US-06 are appended through the real appender as `execution_rw` and reconstructed as `record_read`.
+- US-01 and US-06 are appended through the real appender as the tenant's `execution_rw` login and reconstructed as its `record_read` login.
 - The output is reproducible and matches the committed golden files in `testdata/`.
 - Seven kinds of tampering are each refused, including a break in another correlation of the tenant.
 - Tenant isolation; only `record_read` can reconstruct.

@@ -55,12 +55,12 @@ func (zeros) Read(p []byte) (int, error) {
 }
 
 type world struct {
-	admin  *pgxpool.Pool
-	writer *pgxpool.Pool // appends as execution_rw, through record_lock_head and record_insert only
-	reader *pgxpool.Pool // reads as record_read, through record_read_chain only (migration 0003)
-	dsn    string
-	clk    *clock.Manual
-	app    *chain.Appender
+	admin   *pgxpool.Pool
+	writers map[string]*pgxpool.Pool // per tenant: appends as that tenant's execution_rw login, through record_lock_head_t and record_insert_t only
+	readers map[string]*pgxpool.Pool // per tenant: reads as that tenant's record_read login, through record_read_chain_t only (migration 0004)
+	dsn     string
+	clk     *clock.Manual
+	app     *chain.Appender
 }
 
 const (
@@ -79,19 +79,27 @@ func newWorld(t *testing.T) *world {
 			t.Fatal(err)
 		}
 	}
-	writer, err := db.OpenAsRole(ctx(t), dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
+	writers, readers := map[string]*pgxpool.Pool{}, map[string]*pgxpool.Pool{}
+	for _, id := range []string{tenant, other} {
+		writers[id] = testpg.TenantLogin(t, admin, dsn, "execution_rw", id)
+		readers[id] = testpg.TenantLogin(t, admin, dsn, "record_read", id)
 	}
-	t.Cleanup(writer.Close)
-	reader, err := db.OpenAsRole(ctx(t), dsn, "record_read")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(reader.Close)
 	clk := clock.NewManual(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC))
-	return &world{admin: admin, writer: writer, reader: reader, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{})}}
+	return &world{admin: admin, writers: writers, readers: readers, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{})}}
 }
+
+// dbs is the TenantDBs of the world's per-tenant read logins.
+type dbs struct{ pools map[string]*pgxpool.Pool }
+
+func (d dbs) For(tenantID string) (reconstruct.TxBeginner, error) {
+	p, ok := d.pools[tenantID]
+	if !ok {
+		return nil, errors.New("no pool for tenant " + tenantID)
+	}
+	return p, nil
+}
+
+func (w *world) dbs() reconstruct.TenantDBs { return dbs{w.readers} }
 
 // ev is one Record event of a story, before it is appended.
 type ev struct {
@@ -104,7 +112,7 @@ func (w *world) append(t *testing.T, tenantID, corr string, events ...ev) []chai
 	var out []chain.Stored
 	for _, e := range events {
 		w.clk.Advance(time.Second)
-		tx, err := w.writer.Begin(ctx(t))
+		tx, err := w.writers[tenantID].Begin(ctx(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,7 +184,7 @@ func us06() []ev {
 
 func build(t *testing.T, w *world, tenantID, corr string) ([]byte, error) {
 	t.Helper()
-	return reconstruct.Build(ctx(t), w.reader, tenantID, corr)
+	return reconstruct.Build(ctx(t), w.readers[tenantID], tenantID, corr)
 }
 
 type body struct {
@@ -435,7 +443,7 @@ func TestAnotherTenantsCorrelationIsNotFound(t *testing.T) {
 func TestOnlyRecordReadCanReconstruct(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_us06", us06()...)
-	_, err := reconstruct.Build(ctx(t), w.writer, tenant, "corr_us06")
+	_, err := reconstruct.Build(ctx(t), w.writers[tenant], tenant, "corr_us06")
 	if err == nil || errors.Is(err, reconstruct.ErrIntegrity) || !strings.Contains(err.Error(), "42501") {
 		t.Fatalf("execution_rw: got %v, want a permission refusal (42501)", err)
 	}
@@ -456,7 +464,7 @@ func TestAReceiptWithoutAPackCapabilityIsRefused(t *testing.T) {
 
 func TestBuildNeedsAContextDeadline(t *testing.T) {
 	w := newWorld(t)
-	if _, err := reconstruct.Build(context.Background(), w.reader, tenant, "corr_us06"); err == nil {
+	if _, err := reconstruct.Build(context.Background(), w.readers[tenant], tenant, "corr_us06"); err == nil {
 		t.Fatal("Build without a deadline did not fail")
 	}
 }
@@ -526,7 +534,7 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 		{"a malformed correlation ID", audit, "not-a-correlation", 400, "INPUT_INVALID"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rec, out := serve(t, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{c.caller}, IDs: gen}, c.corr)
+			rec, out := serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{c.caller}, IDs: gen}, c.corr)
 			if code, _ := errorCode(t, out); rec.Code != c.status || code != c.code {
 				t.Fatalf("got %d %s, want %d %s", rec.Code, code, c.status, c.code)
 			}
@@ -534,7 +542,7 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 	}
 
 	t.Run("an auditor of the tenant", func(t *testing.T) {
-		rec, _ := serve(t, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
+		rec, _ := serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
 		want, err := build(t, w, tenant, "corr_us06")
 		if err != nil {
 			t.Fatal(err)
@@ -546,7 +554,7 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 
 	t.Run("a broken chain answers 409 and serves nothing", func(t *testing.T) {
 		tamper(t, w, `UPDATE record_event SET payload = '{"verdict": "ACHIEVED"}' WHERE seq = 7`)
-		rec, out := serve(t, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
+		rec, out := serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
 		if code, retry := errorCode(t, out); rec.Code != http.StatusConflict || code != "RECORD_INTEGRITY_FAILURE" || retry {
 			t.Fatalf("got %d %s, want 409 RECORD_INTEGRITY_FAILURE, not retryable", rec.Code, code)
 		}
@@ -558,7 +566,7 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 			t.Fatal(err)
 		}
 		closed.Close()
-		rec, out := serve(t, &reconstruct.Handler{DB: closed, Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
+		rec, out := serve(t, &reconstruct.Handler{DBs: dbs{map[string]*pgxpool.Pool{tenant: closed}}, Auth: fixedAuth{audit}, IDs: gen}, "corr_us06")
 		if code, retry := errorCode(t, out); rec.Code != http.StatusServiceUnavailable || code != "DEPENDENCY_UNAVAILABLE" || !retry {
 			t.Fatalf("got %d %s retryable=%v, want 503 DEPENDENCY_UNAVAILABLE, retryable", rec.Code, code, retry)
 		}
@@ -613,7 +621,7 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 		{"no principal", Caller{TenantID: tenant, Roles: []string{"audit"}}, 404},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			rec, out := serve(t, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{c.caller}, IDs: gen}, "corr_us06")
+			rec, out := serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{c.caller}, IDs: gen}, "corr_us06")
 			if rec.Code != c.status {
 				t.Fatalf("got %d, want %d", rec.Code, c.status)
 			}
@@ -688,7 +696,7 @@ func TestTheHandlerServesOnlyTheCallersTenantWhateverTheRequestSays(t *testing.T
 				{"?tenant_id=" + tenant, "Noema-Tenant-Id"},
 			} {
 				mux := http.NewServeMux()
-				mux.Handle(reconstruct.Route, &reconstruct.Handler{DB: w.reader, Auth: fixedAuth{c.caller}, IDs: gen})
+				mux.Handle(reconstruct.Route, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{c.caller}, IDs: gen})
 				req := httptest.NewRequest(http.MethodGet, "/v1/reconstructions/corr_shared01"+ask.query, nil)
 				for _, h := range []string{"Noema-Tenant-Id", "X-Tenant-Id", "Tenant"} {
 					req.Header.Set(h, map[bool]string{true: tenant, false: other}[c.caller.TenantID == other])
@@ -716,18 +724,43 @@ func TestTheHandlerServesOnlyTheCallersTenantWhateverTheRequestSays(t *testing.T
 	}
 }
 
-// DEBT-04 (accepted by the Architect on 3 Nov 2026, option B for this pull request): record_read_chain, record_lock_head and
-// record_insert trust a caller-supplied tenant ID, so a connection that holds the record_read role can read any tenant by naming
-// it. Option A, a login per tenant plus a mapping the database checks against session_user, lands before the endpoint is wired
-// into cmd/core (EDG-01). When it lands, delete the Skip: the body below is the assertion that must then hold.
+// DEBT-04 option A (REQ-SEC-004, INV-12): at the database, a record_read login reads its own tenant's chain and no other. The
+// function has no tenant argument and takes the tenant from the login, so naming another tenant is not possible. This replaces
+// the test that was skipped while the staging exception of 3 Nov 2026 stood.
 func TestRecordReadChainDeniesAnotherTenantAtTheDatabase(t *testing.T) {
-	t.Skip("DEBT-04: record_read_chain trusts a caller-supplied tenant; option A (a login per tenant and a database-checked mapping) lands before the endpoint is wired into cmd/core")
 	w := newWorld(t)
-	w.append(t, other, "corr_us06", us06()...)
-	var n int
-	err := w.reader.QueryRow(ctx(t), `SELECT count(*) FROM record_read_chain($1)`, other).Scan(&n)
+	mine := w.append(t, tenant, "corr_us06", us06()...)
+	theirs := w.append(t, other, "corr_us06", us06()...)
+	for name, c := range map[string]struct {
+		login     string
+		want, not []chain.Stored
+	}{"the first tenant's login": {tenant, mine, theirs}, "the second tenant's login": {other, theirs, mine}} {
+		rows, err := chain.ReadChain(ctx(t), w.readers[c.login])
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := map[string]bool{}
+		for _, r := range rows {
+			got[r.EventID] = true
+		}
+		if len(got) != len(c.want) {
+			t.Fatalf("%s read %d events, want exactly its own %d", name, len(got), len(c.want))
+		}
+		for _, s := range c.want {
+			if !got[s.EventID] {
+				t.Errorf("%s did not read its own event %s", name, s.EventID)
+			}
+		}
+		for _, s := range c.not {
+			if got[s.EventID] {
+				t.Errorf("%s read %s, which belongs to the other tenant", name, s.EventID)
+			}
+		}
+	}
+	// The old function that took a tenant as an argument is gone, so there is no way to name another tenant.
+	_, err := w.readers[tenant].Exec(ctx(t), `SELECT count(*) FROM record_read_chain($1)`, other)
 	if err == nil {
-		t.Fatalf("a connection that holds record_read for %s read %d events of %s", tenant, n, other)
+		t.Fatal("record_read_chain(tenant) still exists")
 	}
 }
 

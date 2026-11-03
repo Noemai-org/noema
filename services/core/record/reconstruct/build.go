@@ -56,7 +56,7 @@ func Build(ctx context.Context, db TxBeginner, tenantID, correlationID string) (
 		defer cancel()
 		_ = tx.Rollback(rctx)
 	}()
-	rows, err := chain.ReadChain(ctx, tx, tenantID)
+	rows, err := chain.ReadChain(ctx, tx)
 	if err != nil {
 		return nil, err
 	}

@@ -85,10 +85,10 @@ func (w *tenantWorld) login(t *testing.T, role string) *pgxpool.Pool {
 	return pool
 }
 
-const insertT = `SELECT record_insert_t($1, $2, $3, $4, 'core-execution', 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', $5, '3.0', 'core-execution', '{}'::jsonb, NULL)`
+const insertT = `SELECT record_insert_t($1, $2, $3, $4, 'core-execution', 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', $5, '3.0', 'core-execution', jsonb_build_object('tenant_id', $6::text), NULL)`
 
 // appendAs appends one event through the login's own tenant-bound functions and returns the new head hash.
-func (w *tenantWorld) appendAs(t *testing.T, pool *pgxpool.Pool, id string, seqWant int64, hash string) {
+func (w *tenantWorld) appendAs(t *testing.T, pool *pgxpool.Pool, tenant, id string, seqWant int64, hash string) {
 	t.Helper()
 	tx, err := pool.Begin(ctx(t))
 	if err != nil {
@@ -103,7 +103,7 @@ func (w *tenantWorld) appendAs(t *testing.T, pool *pgxpool.Pool, id string, seqW
 	if seq+1 != seqWant {
 		t.Fatalf("head seq %d, want %d", seq, seqWant-1)
 	}
-	if _, err := tx.Exec(ctx(t), insertT, id, seqWant, head, hash, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+	if _, err := tx.Exec(ctx(t), insertT, id, seqWant, head, hash, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), tenant); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	if err := tx.Commit(ctx(t)); err != nil {
@@ -117,9 +117,9 @@ func hashOf(n string) string { return "sha256:" + strings.Repeat(n, 64) }
 func TestTenantBoundWritesGoToTheLoginsOwnTenant(t *testing.T) {
 	w := newTenantWorld(t)
 	a, b := w.login(t, w.name("execution_rw", "ten_a")), w.login(t, w.name("execution_rw", "ten_b"))
-	w.appendAs(t, a, "recev_a1", 1, hashOf("1"))
-	w.appendAs(t, a, "recev_a2", 2, hashOf("2"))
-	w.appendAs(t, b, "recev_b1", 1, hashOf("3"))
+	w.appendAs(t, a, "ten_a", "recev_a1", 1, hashOf("1"))
+	w.appendAs(t, a, "ten_a", "recev_a2", 2, hashOf("2"))
+	w.appendAs(t, b, "ten_b", "recev_b1", 1, hashOf("3"))
 	rows, err := w.admin.Query(ctx(t), `SELECT event_id, tenant_id FROM record_event ORDER BY event_id`)
 	if err != nil {
 		t.Fatal(err)
@@ -173,9 +173,9 @@ func TestTenantBoundFunctionsTakeNoTenantArgument(t *testing.T) {
 func TestTenantBoundReadSeesOnlyTheLoginsTenant(t *testing.T) {
 	w := newTenantWorld(t)
 	a, b := w.login(t, w.name("execution_rw", "ten_a")), w.login(t, w.name("execution_rw", "ten_b"))
-	w.appendAs(t, a, "recev_a1", 1, hashOf("1"))
-	w.appendAs(t, a, "recev_a2", 2, hashOf("2"))
-	w.appendAs(t, b, "recev_b1", 1, hashOf("3"))
+	w.appendAs(t, a, "ten_a", "recev_a1", 1, hashOf("1"))
+	w.appendAs(t, a, "ten_a", "recev_a2", 2, hashOf("2"))
+	w.appendAs(t, b, "ten_b", "recev_b1", 1, hashOf("3"))
 	for role, want := range map[string][]string{w.name("record_read", "ten_a"): {"recev_a1", "recev_a2"}, w.name("record_read", "ten_b"): {"recev_b1"}} {
 		rows, err := w.login(t, role).Query(ctx(t), `SELECT event_id FROM record_read_chain_t()`)
 		if err != nil {
@@ -244,4 +244,23 @@ func TestSetRoleToTheGroupRoleDoesNotChangeTheTenant(t *testing.T) {
 	if err := w.admin.QueryRow(ctx(t), `SELECT tenant_id FROM record_chain_head WHERE hash = $1`, head).Scan(&tenant); err != nil || tenant != "ten_a" {
 		t.Fatalf("after SET ROLE the head belongs to %q (%v), want ten_a", tenant, err)
 	}
+}
+
+// An event whose hashed body names another tenant than the login's is refused by the database, so the chain of the login's
+// tenant can never hold an event that says it belongs to another (it would otherwise break verification).
+func TestAnEventNamingAnotherTenantIsRefused(t *testing.T) {
+	w := newTenantWorld(t)
+	a := w.login(t, w.name("execution_rw", "ten_a"))
+	tx, err := a.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	var seq int64
+	var head string
+	if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx(t), insertT, "recev_x1", seq+1, head, hashOf("9"), time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), "ten_b")
+	wantCode(t, err, denied, "an event naming ten_b written by ten_a's login")
 }

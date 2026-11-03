@@ -54,9 +54,16 @@ type IDSource interface {
 	ID(prefix string) (string, error)
 }
 
+// TenantDBs gives the database handle for one tenant: a pool whose connections authenticate as that tenant's record_read
+// login, so the database, not this code, decides which tenant's chain they can read (DEBT-04, migration 0004). A tenant with
+// no handle is an error and never falls back to another tenant's.
+type TenantDBs interface {
+	For(tenantID string) (TxBeginner, error)
+}
+
 // Handler serves REQ-AUD-003. It is not wired into cmd/core (EDG-01 does that, approved escalation E2 of REC-03).
 type Handler struct {
-	DB      TxBeginner // connections run as record_read
+	DBs     TenantDBs  // one pool per tenant; every connection logs in as that tenant's record_read login (DEBT-04)
 	Auth    Authorizer // nil means DenyAll
 	IDs     IDSource
 	Log     *slog.Logger  // the access log: RECORD_ACCESSED lines, never the chain
@@ -115,7 +122,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
-	body, err := Build(ctx, h.DB, caller.TenantID, corr)
+	db, err := h.DBs.For(caller.TenantID)
+	if err != nil {
+		h.access(ctx, caller, corr, codeSafetyBlock)
+		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.", corr)
+		return
+	}
+	body, err := Build(ctx, db, caller.TenantID, corr)
 	switch {
 	case err == nil:
 		h.access(ctx, caller, corr, "SERVED")

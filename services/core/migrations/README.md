@@ -17,9 +17,11 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 | `execution_receipt` | insert-only; unique on (`grant_id`, `attempt`) |
 | `recovery_request` | `execution_rw` inserts, `trust_rw` updates `status`; unique per grant |
 | `outbox_event` | `orchestrator_rw` marks it dispatched |
-| `record_event`, `record_chain_head` | `record_event.schema_version` is "3.0" (`record-event.v3`; `written_by` is an emitter and `actor` a principal, PERD v1.17 §32.1); owned by `record_append`; no power holds any privilege; reached only through `record_lock_head` and `record_insert` |
+| `record_event`, `record_chain_head` | `record_event.schema_version` is "3.0" (`record-event.v3`; `written_by` is an emitter and `actor` a principal, PERD v1.17 §32.1); owned by `record_append`; no power holds any privilege; reached only through `record_lock_head_t` and `record_insert_t` (writes) and `record_read_chain_t` (reads), which take the tenant from the login (0004) |
 
 `0003_record_read.sql` (REC-03, approved escalation E1 of 1 Nov 2026): the role `record_read` (NOLOGIN) and the function `record_read_chain(tenant)`, owned by `record_append`. `EXECUTE` is revoked from PUBLIC and granted only to `record_read`, which holds nothing else on the Record. It is numbered `0003` because noema#94 holds `0002`. `Migrate` has no gap check: it applies every unapplied file in name order, so a database migrated to `0003` takes a later `0002` after it. `platform/db/record_read_test.go` proves that both orders give the same privileges.
+
+`0004_tenant_bound_record.sql` and `0005_drop_untenanted_record_functions.sql` (DEBT-04 option A): the `tenant_login` table maps each LOGIN role to one tenant and one power; `record_lock_head_t()`, `record_insert_t(...)` and `record_read_chain_t()` find the tenant with `session_user`, which a caller cannot change (not by `SET ROLE`, and only a superuser by `SET SESSION AUTHORIZATION`); `record_insert_t` also refuses an event whose body names another tenant. `0005` drops the three functions that took the tenant as an argument. A deployment creates one LOGIN role per tenant and power (for example `execution_rw__ten_aa`, a member of `execution_rw`) and one `tenant_login` row for it.
 
 Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw` (0001) and `record_read` (0003). The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 

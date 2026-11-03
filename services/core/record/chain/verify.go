@@ -42,7 +42,7 @@ type Queryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-// Row is one stored event exactly as record_read_chain returns it: the hashed body, the projection columns and the
+// Row is one stored event exactly as record_read_chain_t returns it: the hashed body, the projection columns and the
 // payload stored beside the event (migration 0003).
 type Row struct {
 	Seq                                                             int64
@@ -51,15 +51,28 @@ type Row struct {
 	Payload                                                         *string
 }
 
-// ReadChain returns a tenant's whole chain in chain order through record_read_chain, the one read path into the
-// Record (migration 0003): the caller needs EXECUTE on that function (record_read) and no privilege on the tables.
+// ReadChain returns the whole chain of the tenant the connection is logged in as, in chain order, through
+// record_read_chain_t, the one read path into the Record (migrations 0003 and 0004): the caller needs EXECUTE on that
+// function (record_read) and no privilege on the tables, and the database takes the tenant from the login, not from the
+// caller (DEBT-04).
 // Run it inside a REPEATABLE READ transaction when what is verified must be what is served (REQ-AUD-003).
-func ReadChain(ctx context.Context, q Queryer, tenantID string) ([]Row, error) {
+func ReadChain(ctx context.Context, q Queryer) ([]Row, error) {
+	return readRows(ctx, q, `SELECT seq, event_id, prev_hash, hash, written_by, actor, event_type, object_ref, payload_hash,
+		correlation_id, schema_version, body, payload FROM record_read_chain_t()`)
+}
+
+// readTenantChain reads one named tenant's chain straight from the Record table. It needs SELECT on record_event, which
+// no power and no per-tenant login has: only the administrator and the verification login (REC-05) can run it.
+func readTenantChain(ctx context.Context, q Queryer, tenantID string) ([]Row, error) {
+	return readRows(ctx, q, `SELECT seq, event_id, prev_hash, hash, written_by, actor, event_type, object_ref, payload_hash,
+		correlation_id, schema_version, body::text, payload::text FROM record_event WHERE tenant_id = $1 ORDER BY seq`, tenantID)
+}
+
+func readRows(ctx context.Context, q Queryer, sql string, args ...any) ([]Row, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil, errors.New(errPrefix + "the context needs a deadline")
 	}
-	rows, err := q.Query(ctx, `SELECT seq, event_id, prev_hash, hash, written_by, actor, event_type, object_ref, payload_hash,
-		correlation_id, schema_version, body, payload FROM record_read_chain($1)`, tenantID)
+	rows, err := q.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%sread chain: %w", errPrefix, err)
 	}
@@ -81,10 +94,11 @@ func ReadChain(ctx context.Context, q Queryer, tenantID string) ([]Row, error) {
 
 // Verify recomputes every hash of a tenant's chain from genesis, in order, from the stored event bodies, and
 // checks the projection columns and the stored payloads against them (REQ-AUD-001, REQ-AUD-005). It returns
-// the number of events checked and a *BreakError at the first break. The chain verifier job (REC-05, REC-06)
-// and reconstruction (REC-03) call this; it reads only and never repairs.
+// the number of events checked and a *BreakError at the first break. The chain verifier job (REC-05, REC-06) calls this
+// under its own privileged login; it reads only and never repairs. Reconstruction (REC-03) uses ReadChain and VerifyRows
+// under the tenant's own login instead.
 func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
-	rows, err := ReadChain(ctx, q, tenantID)
+	rows, err := readTenantChain(ctx, q, tenantID)
 	if err != nil {
 		return 0, err
 	}

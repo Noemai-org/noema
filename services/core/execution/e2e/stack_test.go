@@ -162,15 +162,8 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	if _, err := admin.Exec(bg, `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic bank A')`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	exec, err := db.OpenAsRole(bg, dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	trustPool, err := db.OpenAsRole(bg, dsn, "trust_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { exec.Close(); trustPool.Close() })
+	exec := testpg.TenantLogin(t, admin, dsn, "execution_rw", tenant) // the tenant's own logins (DEBT-04)
+	trustPool := testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant)
 
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)

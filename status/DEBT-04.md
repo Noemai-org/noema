@@ -2,10 +2,10 @@
 
 Updated 2026-11-03. DEBT-04 (Tier 0): `record_lock_head`, `record_insert` and `record_read_chain` trust a caller-supplied tenant. Option A (a login per tenant and a database-checked mapping) is the fix; the design is in the comment on noema#107. Target: merged by Tue 10 Nov; limit Fri 20 Nov (the Architect).
 
-## State: slice 1 of 3 in review (draft; stacked on noema#107, because it needs migration 0003 and numbers 0004)
+## State: slices 1 and 2 of 3 built (draft; stacked on noema#107, because it needs migration 0003 and numbers 0004 and 0005)
 
 - **Slice 1 (this branch, `feat/DEBT-04-tenant-bound-record`):** migration `0004_tenant_bound_record.sql` adds `tenant_login` and the tenant-bound functions `record_lock_head_t()`, `record_insert_t(...)`, `record_read_chain_t()`, which find the tenant with `session_user`. The old functions are untouched and still callable (the known gap).
-- **Slice 2:** the Go callers (`record/chain` Appender, `record/reconstruct`, the verifier) move to the new functions; `platform/db` gets the per-tenant, per-power pool router; a migration `0005` revokes EXECUTE on the old functions from every role; the DB-level test skipped in noema#107 becomes real and the skip is removed.
+- **Slice 2 (built):** `Appender.Append` and `chain.ReadChain` use the tenant-bound functions; `chain.Verify` (administrator and verifier path) reads the table directly; `reconstruct.Handler` takes a `TenantDBs` (one pool per tenant, no fallback); `0004` also makes `record_insert_t` refuse an event whose body names another tenant; `0005` drops the three functions that took a tenant argument; the DB-level test skipped in noema#107 is real and the skip is removed; every test world logs in as per-tenant roles (`testpg.TenantLogin`). The `Ledger` is unchanged: it is bound to one pool, so a Ledger is built per tenant on that tenant's login (the held noema#94 and #90 rewrite the ledger and do the same on merge).
 - **Slice 3:** the verifier's all-tenant login and function (REC-05), the tenant provisioning step (create the logins and the mapping row), and the deploy secrets.
 
 ## Session 2026-11-03 · DEBT-04

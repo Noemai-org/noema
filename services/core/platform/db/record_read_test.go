@@ -14,15 +14,16 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/db"
 )
 
-const readChain = `SELECT count(*) FROM record_read_chain('ten_a')`
+const readChain = `SELECT count(*) FROM record_read_chain_t()`
 
 // REQ-AUD-003, REQ-AUD-005 (REC-03, approved escalation E1): record_read reaches the Record through
 // record_read_chain and nothing else. It cannot read or write the tables, and it cannot append.
 func TestRecordReadRoleReadsOnlyThroughTheReadFunction(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	seed(t, pool)
-	if err := try(t, pool, "record_read", readChain); err != nil {
-		t.Fatalf("record_read calling record_read_chain: %v", err)
+	login := testpg.TenantLogin(t, pool, dsn, "record_read", "ten_a")
+	if _, err := login.Exec(ctx(t), readChain); err != nil {
+		t.Fatalf("a record_read login calling record_read_chain_t: %v", err)
 	}
 	for _, stmt := range []string{
 		`SELECT * FROM record_event`,
@@ -30,7 +31,7 @@ func TestRecordReadRoleReadsOnlyThroughTheReadFunction(t *testing.T) {
 		`INSERT INTO record_event (event_id, tenant_id, seq, prev_hash, hash, written_by, event_type, object_ref, payload_hash, correlation_id, at, schema_version, actor, body)
 		 VALUES ('recev_x', 'ten_a', 1, 'p', 'h', 'w', 'T', 'o', 'ph', 'c', now(), '1', 'a', '{}')`,
 		`UPDATE record_chain_head SET seq = 99`,
-		`SELECT * FROM record_lock_head('ten_a')`,
+		`SELECT * FROM record_lock_head_t()`,
 		`SELECT * FROM decision_grant`,
 		`SELECT * FROM execution_receipt`,
 	} {
@@ -50,6 +51,18 @@ func TestEveryOtherRoleIsRefusedTheReadFunction(t *testing.T) {
 	t.Cleanup(func() { _, _ = pool.Exec(ctx(t), `DROP ROLE IF EXISTS some_later_role`) })
 	for _, role := range []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "some_later_role"} {
 		wantCode(t, try(t, pool, role, readChain), denied, role+" calling record_read_chain")
+	}
+}
+
+// DEBT-04 (migration 0005): no Record function takes its tenant from the caller.
+func TestNoRecordFunctionTakesATenantFromTheCaller(t *testing.T) {
+	pool := migrated(t)
+	var n int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM pg_proc WHERE proname IN ('record_lock_head', 'record_insert', 'record_read_chain')`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("%d Record functions with a tenant argument remain", n)
 	}
 }
 
@@ -127,10 +140,12 @@ func TestA0002AppliedAfter0003GivesTheSamePrivilegesAsAFreshDatabase(t *testing.
 		t.Fatalf("privileges differ between the two orders:\nfresh:    %v\nupgraded: %v", a, b)
 	}
 	for _, pool := range []*pgxpool.Pool{fresh, upgraded} {
-		seed(t, pool)
-		if err := try(t, pool, "record_read", readChain); err != nil {
-			t.Fatalf("record_read after both orders: %v", err)
+		var reads, writerReads bool
+		if err := pool.QueryRow(ctx(t), `SELECT has_function_privilege('record_read', 'record_read_chain_t()', 'EXECUTE'), has_function_privilege('execution_rw', 'record_read_chain_t()', 'EXECUTE')`).Scan(&reads, &writerReads); err != nil {
+			t.Fatal(err)
 		}
-		wantCode(t, try(t, pool, "execution_rw", readChain), denied, "execution_rw after both orders")
+		if !reads || writerReads {
+			t.Fatalf("after both orders record_read may execute the read function: %v, execution_rw may: %v", reads, writerReads)
+		}
 	}
 }

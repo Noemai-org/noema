@@ -53,6 +53,9 @@ CREATE FUNCTION record_insert_t(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_tenant text := record_login_tenant('write'); head record_chain_head%ROWTYPE;
 BEGIN
+  IF p_body ->> 'tenant_id' IS DISTINCT FROM v_tenant THEN
+    RAISE EXCEPTION 'record chain: the event names another tenant than the login''s' USING ERRCODE = 'insufficient_privilege';
+  END IF;
   SELECT * INTO head FROM record_chain_head h WHERE h.tenant_id = v_tenant FOR UPDATE;
   IF NOT FOUND OR head.seq + 1 <> p_seq OR head.hash <> p_prev_hash THEN
     RAISE EXCEPTION 'record chain: the event does not extend the head of the login''s tenant' USING ERRCODE = 'serialization_failure';

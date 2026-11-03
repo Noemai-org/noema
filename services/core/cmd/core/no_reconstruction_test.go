@@ -1,9 +1,9 @@
 package main
 
-// DEBT-04 (Tier 0), REQ-SEC-004, INV-12: until option A (a login per tenant and a database-checked mapping) has landed,
-// the reconstruction handler must not be reachable from the core process. record_read_chain trusts the tenant it is
-// given, so the only protection today is that nothing serves it. This test fails the moment cmd/core imports the
-// handler or the verifier endpoint, directly or through any other package.
+// DEBT-04 (Tier 0), REQ-SEC-004, INV-12: the database now binds the tenant to the login (migrations 0004 and 0005), but the
+// reconstruction endpoint must not be reachable from the core process until tenant provisioning (the logins and their
+// mapping rows) and EDG-01's ops and audit role check have landed. This test fails the moment cmd/core imports the handler,
+// directly or through any other package. Remove it in the PR that wires the endpoint, with those two in place.
 
 import (
 	"os/exec"
