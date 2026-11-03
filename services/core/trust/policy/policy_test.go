@@ -82,6 +82,12 @@ func TestPrecedenceLadder(t *testing.T) {
 						rule("lo", lo, el, "a", "true", "R_LO", "AT_DECISION"),
 						rule("hi", hi, eh, "a", "true", "R_HI", "AT_DECISION"))))
 					got := eval(t, s, "a", 200, nil)
+					if eh == "CONFIRM" && el != "PERMIT" { // a CONFIRM with no PERMIT matched is default deny, but it still ranks first
+						if got.Effect != policy.Reject || !got.ConfirmWithoutPermit || got.Applied[0].RuleID != "hi" {
+							t.Fatalf("%s/CONFIRM over %s/%s: %+v", hi, lo, el, got)
+						}
+						continue
+					}
 					if got.Winner == nil || got.Winner.RuleID != "hi" || string(got.Effect) != eh {
 						t.Fatalf("%s/%s over %s/%s: winner %+v effect %s", hi, eh, lo, el, got.Winner, got.Effect)
 					}
@@ -94,8 +100,8 @@ func TestPrecedenceLadder(t *testing.T) {
 			s := must(policy.NewSet(active("p", "1", 100,
 				rule("w", "WORKFLOW", weak, "a", "true", "R_W", "AT_DECISION"),
 				rule("s", "WORKFLOW", strong, "a", "true", "R_S", "AT_DECISION"))))
-			if got := eval(t, s, "a", 200, nil); got.Winner.RuleID != "s" {
-				t.Fatalf("%s should beat %s within a class, got %s", strong, weak, got.Winner.RuleID)
+			if got := eval(t, s, "a", 200, nil); got.Applied[0].RuleID != "s" {
+				t.Fatalf("%s should beat %s within a class, got %s", strong, weak, got.Applied[0].RuleID)
 			}
 		}
 	}
@@ -303,11 +309,13 @@ type genRule struct{ id, class, effect, target, cond string }
 
 func reference(rules []genRule, target string, x int64) (effect, ruleID string) {
 	best := -1
+	permit := false
 	for i, r := range rules {
 		matched := r.target == target && (r.cond == "true" || (r.cond == "x == 1" && x == 1))
 		if !matched {
 			continue
 		}
+		permit = permit || r.effect == "PERMIT"
 		if best < 0 {
 			best = i
 			continue
@@ -319,7 +327,7 @@ func reference(rules []genRule, target string, x int64) (effect, ruleID string) 
 			best = i
 		}
 	}
-	if best < 0 {
+	if best < 0 || (rules[best].effect == "CONFIRM" && !permit) { // a CONFIRM alone is default deny (PERD §23.4, INV-03)
 		return "REJECT", ""
 	}
 	return rules[best].effect, rules[best].id
@@ -453,8 +461,11 @@ func TestTheShippedFintechPolicy(t *testing.T) {
 	if r := at("fin.cap.transfer_funds", predicate.Env{Variables: resolved}); r.Effect != policy.Reject || r.Reason != "PROHIBITED_CAPABILITY" {
 		t.Errorf("a prohibited capability is rejected: %+v", r)
 	}
-	if r := at("fin.cap.log_complaint_reference", predicate.Env{Variables: resolved}); r.Effect != policy.Confirm || r.Winner.Params["approver_requirement"].Str != "SELF" {
-		t.Errorf("a complaint needs a confirmation by the requester: %+v", r)
+	// The shipped pack has a CONFIRM for a complaint and no PERMIT for it, so by PERD §23.4 the complaint is denied until the
+	// pack carries a PERMIT (escalated to the Architect, 3 Nov 2026). The CONFIRM rule is still the strongest match.
+	if r := at("fin.cap.log_complaint_reference", predicate.Env{Variables: resolved}); r.Effect != policy.Reject || !r.ConfirmWithoutPermit ||
+		r.Applied[0].Params["approver_requirement"].Str != "SELF" {
+		t.Errorf("a complaint with no PERMIT is denied: %+v", r)
 	}
 	noCase := predicate.Env{Variables: resolved, Entities: map[string][]predicate.Row{"case": {}}}
 	if r := at("fin.cap.create_escalation_case", noCase); r.Effect != policy.Permit {

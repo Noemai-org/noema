@@ -12,8 +12,11 @@
 // What the evaluator decides, and what it leaves to the caller:
 //   - It returns the winning rule's effect (REJECT, ESCALATE, CONFIRM, WAIT or PERMIT) and every rule that matched, with the
 //     policy version each came from (INV-09). With no matching rule the effect is REJECT NO_PERMITTING_RULE.
+//   - A CONFIRM never grants authority by itself: a winning CONFIRM with no PERMIT matched is REJECT NO_PERMITTING_RULE with
+//     Result.ConfirmWithoutPermit set (PERD §23.4, INV-03). With a PERMIT matched, the CONFIRM stands and the action needs
+//     the approver.
 //   - It does not turn an effect into a Trust decision. Whether a winning CONFIRM or WAIT can later lead to an ALLOW (the
-//     confirmation flow, TRU-07) is the caller's: Result.PermitMatched reports whether a PERMIT rule matched at all.
+//     confirmation flow, TRU-07) is the caller's.
 //   - A condition that cannot be evaluated is an error (ErrCondition), never a result: the caller turns it into UNKNOWN
 //     (INV-16). It never skips the rule.
 package policy

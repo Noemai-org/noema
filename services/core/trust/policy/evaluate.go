@@ -109,6 +109,9 @@ type Result struct {
 	Winner *Applied
 	// PermitMatched reports whether any PERMIT rule matched, whatever won.
 	PermitMatched bool
+	// ConfirmWithoutPermit is true when a CONFIRM won and no PERMIT matched: the result is default deny, because a CONFIRM
+	// never grants authority by itself (PERD §23.4, INV-03). The CONFIRM rule stays in Applied.
+	ConfirmWithoutPermit bool
 	// Applied lists every matching rule, strongest first.
 	Applied []Applied
 	// Versions lists the policy versions used, oldest first: the ACTIVE one for AT_DECISION rules and the one in force at
@@ -178,6 +181,10 @@ func (s Set) Evaluate(policyID string, req Request) (Result, error) {
 		return res, nil
 	}
 	w := res.Applied[0]
+	if w.Effect == Confirm && !res.PermitMatched {
+		res.Effect, res.Reason, res.ConfirmWithoutPermit = Reject, NoPermittingRule, true
+		return res, nil
+	}
 	res.Winner, res.Effect, res.Reason = &w, w.Effect, w.ReasonCode
 	return res, nil
 }
