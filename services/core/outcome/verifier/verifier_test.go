@@ -269,6 +269,10 @@ func TestPendingExternalHasAWatchWithADeadline(t *testing.T) {
 		"a first check after deadline": func(p *verifier.Pending) { p.NextCheckAt = p.DeadlineAt.Add(time.Second) },
 		"a first check in the past":    func(p *verifier.Pending) { p.NextCheckAt = t0 },
 		"no deadline":                  func(p *verifier.Pending) { p.DeadlineAt = time.Time{} },
+		// outcome-verdict.v1: watch.triggers are unique PackIds. A value the contract refuses must not be signed.
+		"a duplicate trigger":         func(p *verifier.Pending) { p.Triggers = []string{"fin.evt.a", "fin.evt.a"} },
+		"a trigger that is no PackId": func(p *verifier.Pending) { p.Triggers = []string{"Not A Pack Id"} },
+		"an empty trigger":            func(p *verifier.Pending) { p.Triggers = []string{""} },
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, pend, func(w *world) { mut(w.req.Definition.Pending) })
