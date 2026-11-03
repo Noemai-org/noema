@@ -198,7 +198,8 @@ func unknown(reason Reason) decision {
 func (r *run) decide(success, pending *ip.Program) decision {
 	auth, err := r.v.cfg.Authenticity.Check(r.ctx, r.rc)
 	if err != nil {
-		auth = AuthInvalid // a check that cannot run is not a pass
+		// A check that cannot run is not a pass, and not a finding either: fail closed without calling the signature invalid.
+		return unknown(ReasonReceiptUnverifiable)
 	}
 	if auth == AuthInvalid {
 		d := unknown(ReasonReceiptUnverifiable)
