@@ -214,8 +214,9 @@ record("A5", "verifier: GetObject returns the anchor", call("verifier", "GET", f
 vers = call("verifier", "GET", f"/{BUCKET}", query={"versions": ""})
 record("A5", "verifier: ListObjectVersions shows the key and version 1", vers[0] == 200 and b"head-0001" in vers[2] and V1.encode() in vers[2], describe(vers))
 lst = call("verifier", "GET", f"/{BUCKET}", query={"list-type": "2"})
-info("A5", "verifier: the default listing (ListObjectsV2) after the core created a delete marker in A3", f"{describe(lst)}; key shown: {b'head-0001' in lst[2]}. "
-     "A write-only writer can hide a key from the default listing with a delete marker (data intact); the verifier must list versions and address them by version id")
+info("A5", "verifier: the default listing (ListObjectsV2) after the writer's delete attempt in A3", f"{describe(lst)}; key shown: {b'head-0001' in lst[2]}. "
+     "Without a deny-delete policy a SeaweedFS writer CAN create a delete marker (DeleteObject answered 204 and the key vanished from the default listing, run 41428379854); "
+     "the verifier lists versions and addresses them by version id in any case")
 refused("A5", "verifier: PutObject", "verifier", "PUT", f"/{BUCKET}/head-9999", body=b"x")
 refused("A5", "verifier: delete the version", "verifier", "DELETE", f"/{BUCKET}/head-0001", query={"versionId": V1})
 
