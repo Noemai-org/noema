@@ -7,6 +7,7 @@ problem it finds, sorted. It decides nothing about whether a number is good; it 
 - the method is the one the scorer used (Wilson 95%), a zero-failure rate carries the scorer's rule-of-three bound, and every number written in the claim's text is one of the claim's own;
 - outcomes are judged against the final state of the systems (`ORACLE_FINAL_STATE`), and the Tier 0 status of the run is stated and equals the scorecard's;
 - the run is complete; a run that is not a release result says so in the claim's population; pass^k is publishable only when it was available (exactly five runs);
+- the text avoids the words the release rules forbid (claims.md section 3);
 - every run cited has a Tier 0 claim, and the FULL distribution (every family and every category the scorecard has, with matching counts) is present: nothing is cherry-picked.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
@@ -71,9 +72,13 @@ def _allowed_numbers(claim: Json) -> set[str]:
     return allowed
 
 
+FORBIDDEN_WORDS = re.compile(r"\b(tamper[- ]proof|immutable|compliant|certified|guaranteed|zero risk|proven in production)\b", re.IGNORECASE)
+
+
 def _text_problems(claim: Json) -> list[str]:
     allowed = _allowed_numbers(claim)
-    out = []
+    out = [f"claim {claim.get('id')}: the word '{m.group(0)}' is one the release rules forbid (docs/poc/execution/release/claims.md section 3; the Record is tamper-evident)"
+           for m in FORBIDDEN_WORDS.finditer(str(claim.get("text", "")))]
     for token in _NUMBER.findall(_STRIPPED.sub(" ", str(claim.get("text", "")))):
         if token.replace(",", "") not in allowed:
             out.append(f"claim {claim.get('id')}: the number {token} in its text is not one of the claim's own k, n, rate, interval or bound")

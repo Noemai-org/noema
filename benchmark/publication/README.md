@@ -29,6 +29,7 @@ The public benchmark format and the publication rules, with a check that enforce
 | R6 | A run that is not complete is not published; one that is not a release result says so | `complete` must be true; a non-release run's population must say "not a release result" |
 | R7 | Outcomes are judged against the final state of the systems | `outcome_basis` is `ORACLE_FINAL_STATE` |
 | R8 | pass^k only when it was measured | A pass^k claim requires `available` (exactly five runs) in the scorecard |
+| R11 | None of the words the release rules forbid (tamper-proof, immutable, compliant, certified, guaranteed, zero risk, proven in production); the Record is tamper-evident | The words are refused in a claim's text (`docs/poc/execution/release/claims.md` section 3). Other prose stays a review item |
 | R9 | Demos run from the engine, never scripted; voice is shown live only if G5 passes | Not machine-checkable here: the G7 dry run (DEM-02) and the G5 record decide. Listed so the checklist names them |
 | R10 | No external number without a source in the SoT, no ROI claim, no regulatory-compliance claim | Review item at G7 (AGENT-18, SoT §50.2); the check cannot judge prose |
 
@@ -47,4 +48,4 @@ It cannot judge prose, a demo or a chart. R9 and R10 stay with the founders at G
 
 ## Tests
 
-`make bench-test`: `test_check.py` (27 tests: a built publication passes; each rule has a case that breaks it and is named in the problem).
+`make bench-test`: `test_check.py` (29 tests: a built publication passes; each rule has a case that breaks it and is named in the problem).

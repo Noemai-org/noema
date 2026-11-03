@@ -151,6 +151,17 @@ class Broken(unittest.TestCase):
         got = self.one(lambda p, c: p["claims"][1].update(tier0_all_zero=False))
         self.assertTrue(any("tier0_all_zero" in x for x in got), got)
 
+    def test_words_the_release_rules_forbid_are_refused_in_a_claim_text(self) -> None:
+        # docs/poc/execution/release/claims.md section 3: "Words we do not use".
+        for word in ("tamper-proof", "immutable", "compliant", "certified", "guaranteed", "zero risk", "proven in production", "Tamper-Proof"):
+            got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}"))
+            self.assertTrue(any(word.lower() in x.lower() and "claims.md" in x for x in got), (word, got))
+
+    def test_tamper_evident_is_allowed(self) -> None:
+        pub, cards = publication()
+        pub["claims"][1]["text"] = "The Record is tamper-evident"
+        self.assertEqual([], problems(pub, cards))
+
     def test_the_input_is_not_changed(self) -> None:
         pub, cards = publication()
         before = (copy.deepcopy(pub), copy.deepcopy(cards))
