@@ -103,8 +103,9 @@ CREATE CONSTRAINT TRIGGER outcome_verdict_complete AFTER INSERT ON outcome_verdi
 -- The only way to store a verdict, its RecoveryRequest and its watch. EXECUTE goes to outcome_rw alone; the role has
 -- no INSERT, UPDATE or DELETE on these tables. The Record events of the verdict are appended by the caller in the
 -- same transaction through record_insert, which outcome_rw may already call (the hash is computed outside the
--- database). Until Record events are signed per writer (REC-08, REQ-AUD-006), anyone holding the outcome_rw
--- credential can call this function: the function bounds what is written, not who wrote it.
+-- database). The function authenticates the calling login (below). Until Record events are signed per writer (REC-08,
+-- REQ-AUD-006), anyone holding Outcome's own login credential can still call it: the function bounds what is written, not
+-- which holder of that credential wrote it (accepted limit, DEBT-03).
 
 CREATE FUNCTION outcome_record_verdict(
   p_tenant text, p_verdict_id text, p_receipt_id text, p_verification_id text, p_correlation_id text, p_outcome_definition text,
@@ -116,6 +117,14 @@ CREATE FUNCTION outcome_record_verdict(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_attempt bigint; v_corr text;
 BEGIN
+  -- Authenticate the calling login. EXECUTE already limits the call to members of outcome_rw, but a login can run as that role
+  -- (SET ROLE) while also being something else. session_user is the login that connected, whatever role it runs as. Outcome's
+  -- login holds the outcome_rw power and no other per-power role (BD-05, INV-04). A superuser counts as a member of every
+  -- role, so it is refused here too. This is not proof of who holds the credential; that is REC-08.
+  IF pg_has_role(session_user, 'trust_rw', 'MEMBER') OR pg_has_role(session_user, 'execution_rw', 'MEMBER')
+     OR pg_has_role(session_user, 'evidence_rw', 'MEMBER') OR pg_has_role(session_user, 'orchestrator_rw', 'MEMBER') THEN
+    RAISE EXCEPTION 'outcome_record_verdict: the calling login is not Outcome''s own' USING ERRCODE = 'insufficient_privilege';
+  END IF;
   SELECT r.attempt, g.json->>'correlation_id' INTO v_attempt, v_corr
     FROM execution_receipt r JOIN decision_grant g ON g.grant_id = r.grant_id AND g.tenant_id = r.tenant_id
     WHERE r.receipt_id = p_receipt_id AND r.tenant_id = p_tenant;
