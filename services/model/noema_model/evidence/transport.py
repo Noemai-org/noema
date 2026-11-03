@@ -6,6 +6,7 @@ when the caller constructs the transport that way (a test of the real wire path)
 """
 
 import asyncio
+import functools
 import ipaddress
 import ssl
 import urllib.error
@@ -15,7 +16,16 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlsplit
 
+from noema_model.platform.blocking import BoundedBlockingPool, PoolSaturated
+from noema_model.platform.config import require_env_int
 from noema_model.understanding.pipeline.types import CandidateSourceError
+
+ENV_EVIDENCE_POOL = "NOEMA_MODEL_EVIDENCE_POOL_SIZE"
+
+
+def evidence_pool_size(environ: Mapping[str, str]) -> int:
+    """The evidence link's pool size, read strictly from the environment. There is no default in code (AGENT-16)."""
+    return require_env_int(environ, ENV_EVIDENCE_POOL, minimum=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +57,9 @@ def _is_loopback(host: str) -> bool:
 
 
 class UrllibEvidenceTransport:
-    def __init__(self, ssl_context: ssl.SSLContext | None, *, allow_loopback_http: bool = False) -> None:
+    def __init__(self, ssl_context: ssl.SSLContext | None, *, pool_size: int, allow_loopback_http: bool = False) -> None:
+        # Its own bounded pool, separate from the provider transport's (see platform/blocking).
+        self._pool = BoundedBlockingPool(pool_size, name="evidence-transport")
         self._allow_loopback_http = allow_loopback_http
         handlers: list[urllib.request.BaseHandler] = [_NoRedirect()]
         if ssl_context is not None:
@@ -85,7 +97,9 @@ class UrllibEvidenceTransport:
         self._check_url(url)
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._post_blocking, url, headers, body, timeout_s, max_bytes), timeout_s
+                self._pool.run(functools.partial(self._post_blocking, url, headers, body, timeout_s, max_bytes)), timeout_s
             )
+        except PoolSaturated as exc:
+            raise CandidateSourceError("the evidence link is busy") from exc
         except TimeoutError as exc:
             raise CandidateSourceError("the evidence API timed out") from exc

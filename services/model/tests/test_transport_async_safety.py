@@ -302,7 +302,12 @@ def test_neither_transport_uses_the_shared_default_executor(module: Any) -> None
 # --- 4. the pool size is configuration, never a default in code ------------------------------------------------------
 
 
-@pytest.mark.parametrize("factory", [lambda: UrllibTransport(), lambda: UrllibEvidenceTransport(None)], ids=["llm", "evidence"])
+@pytest.mark.parametrize(
+    "factory",
+    # The missing argument is the point of the test, so the type checker is told to look away.
+    [lambda: UrllibTransport(), lambda: UrllibEvidenceTransport(None)],  # type: ignore[call-arg]
+    ids=["llm", "evidence"],
+)
 def test_a_transport_cannot_be_built_without_a_pool_size(factory: Callable[[], Any]) -> None:
     with pytest.raises(TypeError):
         factory()

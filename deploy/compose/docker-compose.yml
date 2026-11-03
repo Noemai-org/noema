@@ -133,6 +133,9 @@ services:
     networks: *model_networks
     environment:
       NOEMA_MODEL_ADDR: ":8081"
+      # Worker threads per blocking transport (UND-12). The Architect's initial values; tune from measured load. The service holds no default.
+      NOEMA_MODEL_LLM_POOL_SIZE: "16"
+      NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).status == 200 else 1)"]
       interval: 3s
