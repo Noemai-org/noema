@@ -11,6 +11,7 @@ CREATE TABLE outcome_verdict (
   tenant_id          text NOT NULL REFERENCES tenant (tenant_id),
   correlation_id     text NOT NULL,
   receipt_id         text NOT NULL REFERENCES execution_receipt (receipt_id),
+  verification_id    text NOT NULL,
   outcome_definition text NOT NULL,
   verdict            text NOT NULL CHECK (verdict IN ('ACHIEVED', 'NOT_ACHIEVED', 'PARTIALLY_ACHIEVED', 'PENDING_EXTERNAL', 'UNKNOWN', 'COMPENSATED')),
   reason             text NOT NULL CHECK (reason <> ''),
@@ -20,6 +21,9 @@ CREATE TABLE outcome_verdict (
   json               jsonb NOT NULL,
   sig_key_id         text NOT NULL,
   sig_value          text NOT NULL,
+  -- One verdict per verification: the outbox delivers outcome.verify at least once, and a replay must find this verdict, not
+  -- store a second one with a second RecoveryRequest. A watch check is a new verification with its own ID.
+  CONSTRAINT outcome_verdict_verification_key UNIQUE (tenant_id, verification_id),
   -- outcome-verdict.v1.json: ACHIEVED needs a true predicate and at least one read; NOT_ACHIEVED needs a false one.
   CONSTRAINT outcome_verdict_achieved_shape CHECK (verdict <> 'ACHIEVED' OR (predicate_result IS TRUE AND cardinality(evidence_reads) >= 1)),
   CONSTRAINT outcome_verdict_not_achieved_shape CHECK (verdict <> 'NOT_ACHIEVED' OR predicate_result IS FALSE)
@@ -103,22 +107,33 @@ CREATE CONSTRAINT TRIGGER outcome_verdict_complete AFTER INSERT ON outcome_verdi
 -- credential can call this function: the function bounds what is written, not who wrote it.
 
 CREATE FUNCTION outcome_record_verdict(
-  p_tenant text, p_verdict_id text, p_receipt_id text, p_correlation_id text, p_outcome_definition text,
+  p_tenant text, p_verdict_id text, p_receipt_id text, p_verification_id text, p_correlation_id text, p_outcome_definition text,
   p_verdict text, p_reason text, p_predicate_result boolean, p_evidence_reads text[], p_verified_at timestamptz,
   p_sig_key_id text, p_sig_value text, p_json jsonb,
   p_recovery_request_id text,
   p_watch_id text, p_next_check_at timestamptz, p_deadline_at timestamptz, p_triggers text[]
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE v_attempt bigint;
+DECLARE v_attempt bigint; v_corr text;
 BEGIN
-  SELECT r.attempt INTO v_attempt FROM execution_receipt r WHERE r.receipt_id = p_receipt_id AND r.tenant_id = p_tenant;
+  SELECT r.attempt, g.json->>'correlation_id' INTO v_attempt, v_corr
+    FROM execution_receipt r JOIN decision_grant g ON g.grant_id = r.grant_id AND g.tenant_id = r.tenant_id
+    WHERE r.receipt_id = p_receipt_id AND r.tenant_id = p_tenant;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'outcome_record_verdict: receipt % does not exist for tenant %', p_receipt_id, p_tenant USING ERRCODE = 'integrity_constraint_violation';
   END IF;
-  INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, outcome_definition, verdict, reason, predicate_result,
+  -- The verdict belongs to the receipt's own grant and says in its columns what its signed document says. This bounds a
+  -- caller that is not Outcome; it does not prove who called (REC-08).
+  IF v_corr IS DISTINCT FROM p_correlation_id THEN
+    RAISE EXCEPTION 'outcome_record_verdict: the correlation id is not the one of the receipt''s grant' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF (p_json->>'verdict_id', p_json->>'tenant_id', p_json->>'receipt_id', p_json->>'verdict', p_json->>'correlation_id', p_json->>'outcome_definition')
+     IS DISTINCT FROM (p_verdict_id, p_tenant, p_receipt_id, p_verdict, p_correlation_id, p_outcome_definition) THEN
+    RAISE EXCEPTION 'outcome_record_verdict: the document and the columns disagree' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  INSERT INTO outcome_verdict (verdict_id, tenant_id, correlation_id, receipt_id, verification_id, outcome_definition, verdict, reason, predicate_result,
                                evidence_reads, verified_at, json, sig_key_id, sig_value)
-  VALUES (p_verdict_id, p_tenant, p_correlation_id, p_receipt_id, p_outcome_definition, p_verdict, p_reason, p_predicate_result,
+  VALUES (p_verdict_id, p_tenant, p_correlation_id, p_receipt_id, p_verification_id, p_outcome_definition, p_verdict, p_reason, p_predicate_result,
           p_evidence_reads, p_verified_at, p_json, p_sig_key_id, p_sig_value);
   IF p_verdict <> 'ACHIEVED' THEN
     IF p_recovery_request_id IS NULL THEN
@@ -142,8 +157,8 @@ END $$;
 
 -- Privileges ---------------------------------------------------------------------------------------------------
 
-REVOKE ALL ON FUNCTION outcome_record_verdict(text, text, text, text, text, text, text, boolean, text[], timestamptz, text, text, jsonb, text, text, timestamptz, timestamptz, text[]) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION outcome_record_verdict(text, text, text, text, text, text, text, boolean, text[], timestamptz, text, text, jsonb, text, text, timestamptz, timestamptz, text[]) TO outcome_rw;
+REVOKE ALL ON FUNCTION outcome_record_verdict(text, text, text, text, text, text, text, text, boolean, text[], timestamptz, text, text, jsonb, text, text, timestamptz, timestamptz, text[]) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION outcome_record_verdict(text, text, text, text, text, text, text, text, boolean, text[], timestamptz, text, text, jsonb, text, text, timestamptz, timestamptz, text[]) TO outcome_rw;
 
 GRANT SELECT ON outcome_verdict, outcome_watch TO outcome_rw;
 GRANT SELECT ON outcome_verdict, outcome_watch TO trust_rw;

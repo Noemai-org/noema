@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	ip "github.com/Noemai-org/noema/services/core/internal/predicate"
+	opredicate "github.com/Noemai-org/noema/services/core/outcome/predicate"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
 
@@ -27,15 +27,13 @@ const (
 	readMalformed   = "MALFORMED"
 	readRefused     = "REFUSED"
 
-	caseEntity      = "case"
-	receiptAcked    = "ACKNOWLEDGED"
-	timestampLayout = "2006-01-02T15:04:05.999999999Z07:00"
+	caseEntity   = "case"
+	receiptAcked = "ACKNOWLEDGED"
 )
 
-// identifierPath matches a name or a dotted path in a predicate source (after string literals are removed).
-var identifierPath = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*`)
-
-var stringLiteral = regexp.MustCompile(`'[^']*'`)
+// knownStates are the execution states a receipt can hold (execution-receipt.v1). Any other value is corrupt data.
+var knownStates = map[string]bool{"DISPATCHED": true, "ACKNOWLEDGED": true, "OUTCOME_UNKNOWN": true, "REJECTED_BY_TARGET": true,
+	"REJECTED_STALE_VERSION": true, "FAILED_TERMINAL": true}
 
 var errNoDeadline = errors.New("verifier: the context needs a deadline")
 
@@ -75,6 +73,7 @@ type run struct {
 	rc       Receipt
 	reads    []ReadRecord
 	evidence []string
+	unbound  bool  // a predicate variable the definition names has no binding
 	err      error // the first fault of the run itself (an ID source, the waiter): no verdict is stored
 }
 
@@ -94,7 +93,13 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Result, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return Result{}, errNoDeadline
 	}
-	success, pending, err := v.compile(req)
+	if req.VerificationID == "" {
+		return Result{}, errors.New("verifier: a verification needs an ID, so that a redelivery finds its verdict")
+	}
+	if res, found, err := v.replay(ctx, req); err != nil || found {
+		return res, err
+	}
+	success, pending, unbound, err := v.compile(req)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrDefinition, err)
 	}
@@ -108,44 +113,75 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Result, error) {
 	if rc.PrincipalID == "" {
 		return Result{}, fmt.Errorf("verifier: receipt %s names no principal: the transaction read cannot be scoped", req.ReceiptID)
 	}
+	if !knownStates[rc.State] {
+		return Result{}, fmt.Errorf("verifier: receipt %s is in a state no execution produces", req.ReceiptID)
+	}
 	if ready := rc.DispatchedAt.Add(time.Duration(req.Definition.SettleWindowSeconds) * time.Second); v.cfg.Clock.Now().Before(ready) {
 		return Result{}, &ErrSettleWindowOpen{ReadyAt: ready}
 	}
-	r := &run{v: v, ctx: ctx, req: req, rc: rc}
+	r := &run{v: v, ctx: ctx, req: req, rc: rc, unbound: unbound}
 	d := r.decide(success, pending)
 	if r.err != nil {
 		return Result{}, r.err
 	}
-	return r.store(d)
-}
-
-// compile type-checks the definition's predicates against the scope the verifier can serve and checks the bindings.
-func (v *Verifier) compile(req Request) (success, pending *ip.Program, err error) {
-	for name := range req.Bindings {
-		if _, ok := v.scope.Variables[name]; !ok {
-			return nil, nil, fmt.Errorf("%q is not a predicate variable", name)
+	res, err := r.store(d)
+	if errors.Is(err, ErrAlreadyVerified) {
+		// Another delivery of the same verification stored its verdict first: that verdict stands.
+		if res, found, rerr := v.replay(ctx, req); rerr != nil || found {
+			return res, rerr
 		}
 	}
-	if success, err = compileBool(req.Definition.SuccessPredicate, v.scope); err != nil {
-		return nil, nil, fmt.Errorf("success predicate: %w", err)
+	return res, err
+}
+
+// replay returns the stored verdict of a verification that has been decided, without reading or writing anything.
+func (v *Verifier) replay(ctx context.Context, req Request) (Result, bool, error) {
+	found, ok, err := v.cfg.Store.FindVerdict(ctx, req.TenantID, req.VerificationID)
+	if err != nil {
+		return Result{}, false, fmt.Errorf("verifier: look up verification %s: %w", req.VerificationID, err)
+	}
+	if !ok {
+		return Result{}, false, nil
+	}
+	if found.ReceiptID != req.ReceiptID {
+		return Result{}, false, fmt.Errorf("verifier: verification %s was made for another receipt", req.VerificationID)
+	}
+	res := found.Result
+	res.Replayed = true
+	return res, true, nil
+}
+
+// compile type-checks the definition's predicates against the scope the verifier can serve. unbound is true when a predicate
+// names a variable that the request does not bind: the same predicate fails to compile against a scope that holds only the
+// bound variables. The compiler decides this, not a scan of the source text.
+func (v *Verifier) compile(req Request) (success, pending *ip.Program, unbound bool, err error) {
+	if req.Definition.SettleWindowSeconds < 0 {
+		return nil, nil, false, errors.New("a negative settle window")
+	}
+	boundVars := make(map[string]ip.Type, len(req.Bindings))
+	for name := range req.Bindings {
+		t, ok := v.scope.Variables[name]
+		if !ok {
+			return nil, nil, false, fmt.Errorf("%q is not a predicate variable", name)
+		}
+		boundVars[name] = t
+	}
+	bound := ip.Scope{Entities: v.scope.Entities, Variables: boundVars}
+	if success, err = opredicate.Compile(req.Definition.SuccessPredicate, v.scope); err != nil {
+		return nil, nil, false, fmt.Errorf("success predicate: %w", err)
+	}
+	if _, berr := opredicate.Compile(req.Definition.SuccessPredicate, bound); berr != nil {
+		unbound = true
 	}
 	if p := req.Definition.Pending; p != nil {
-		if pending, err = compileBool(p.Predicate, v.scope); err != nil {
-			return nil, nil, fmt.Errorf("pending condition: %w", err)
+		if pending, err = opredicate.Compile(p.Predicate, v.scope); err != nil {
+			return nil, nil, false, fmt.Errorf("pending condition: %w", err)
+		}
+		if _, berr := opredicate.Compile(p.Predicate, bound); berr != nil {
+			unbound = true
 		}
 	}
-	return success, pending, nil
-}
-
-func compileBool(src string, scope ip.Scope) (*ip.Program, error) {
-	p, err := ip.Compile(src, scope)
-	if err != nil {
-		return nil, err
-	}
-	if p.Type().Kind != ip.KindBoolean {
-		return nil, errors.New("not a Boolean")
-	}
-	return p, nil
+	return success, pending, unbound, nil
 }
 
 func (r *run) newID(prefix string) string {
@@ -170,7 +206,7 @@ func (r *run) decide(success, pending *ip.Program) decision {
 		d.auth, d.badSig = auth, true
 		return d
 	}
-	if missing := r.unbound(); missing != "" {
+	if r.unbound {
 		// The language reads an unbound variable as null and a comparison with null as false; a verdict must not follow
 		// from a variable nobody bound (REQ-VER-002: a missing field is UNKNOWN, not false).
 		d := unknown(ReasonPredicateUnknown)
@@ -180,25 +216,6 @@ func (r *run) decide(success, pending *ip.Program) decision {
 	d := r.verdict(success, pending)
 	d.auth = auth
 	return d
-}
-
-// unbound returns the first predicate variable of the definition that the request does not bind, or "".
-func (r *run) unbound() string {
-	sources := []string{r.req.Definition.SuccessPredicate}
-	if p := r.req.Definition.Pending; p != nil {
-		sources = append(sources, p.Predicate)
-	}
-	for _, src := range sources {
-		for _, name := range identifierPath.FindAllString(stringLiteral.ReplaceAllString(src, ""), -1) {
-			if _, isVariable := r.v.scope.Variables[name]; !isVariable {
-				continue
-			}
-			if _, bound := r.req.Bindings[name]; !bound {
-				return name
-			}
-		}
-	}
-	return ""
 }
 
 func (r *run) verdict(success, pending *ip.Program) decision {
@@ -411,14 +428,14 @@ func (r *run) store(d decision) (Result, error) {
 	}
 	doc := map[string]any{"schema_version": schemaVersion, "tenant_id": r.req.TenantID, "correlation_id": r.rc.CorrelationID, "verdict_id": verdictID,
 		"receipt_id": r.rc.ReceiptID, "outcome_definition": r.req.Definition.OutcomeID, "evidence_reads": reads, "verdict": string(d.verdict),
-		"verified_at": now.Format(timestampLayout), "predicate_result": nil}
+		"verified_at": now.Format(TimestampLayout), "predicate_result": nil}
 	if d.predicate != nil {
 		doc["predicate_result"] = *d.predicate
 	}
 	if d.watch != nil {
 		w.Watch = &WatchRow{WatchID: r.newID(idWatch), NextCheckAt: d.watch.NextCheckAt.UTC(), DeadlineAt: d.watch.DeadlineAt.UTC(), Triggers: append([]string{}, d.watch.Triggers...)}
-		doc["watch"] = map[string]any{"watch_id": w.Watch.WatchID, "next_check_at": w.Watch.NextCheckAt.Format(timestampLayout),
-			"deadline_at": w.Watch.DeadlineAt.Format(timestampLayout), "triggers": w.Watch.Triggers}
+		doc["watch"] = map[string]any{"watch_id": w.Watch.WatchID, "next_check_at": w.Watch.NextCheckAt.Format(TimestampLayout),
+			"deadline_at": w.Watch.DeadlineAt.Format(TimestampLayout), "triggers": w.Watch.Triggers}
 	}
 	if r.err != nil {
 		return Result{}, r.err
@@ -432,7 +449,7 @@ func (r *run) store(d decision) (Result, error) {
 		return Result{}, fmt.Errorf("verifier: sign verdict: %w", err)
 	}
 	doc["sig"] = map[string]any{"key_id": sig.KeyID, "value": sig.Value}
-	w.Verdict = VerdictDoc{VerdictID: verdictID, TenantID: r.req.TenantID, CorrelationID: r.rc.CorrelationID, ReceiptID: r.rc.ReceiptID,
+	w.Verdict = VerdictDoc{VerdictID: verdictID, VerificationID: r.req.VerificationID, TenantID: r.req.TenantID, CorrelationID: r.rc.CorrelationID, ReceiptID: r.rc.ReceiptID,
 		OutcomeID: r.req.Definition.OutcomeID, Verdict: d.verdict, Reason: d.reason, PredicateResult: d.predicate, EvidenceReads: reads,
 		VerifiedAt: now, Sig: sig, Document: doc, ReceiptSignature: d.auth}
 	if err := r.v.cfg.Store.RecordVerdict(r.ctx, w); err != nil {

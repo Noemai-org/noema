@@ -24,6 +24,7 @@ This file describes what was built. It never defines architecture, requirements 
 
 ## How a verdict is made (OUT-01)
 
+0. A verification carries an ID (the delivery's). If a verdict is stored under it, `Verify` returns that verdict and reads and writes nothing; if another delivery wins the insert, the loser returns the winner's verdict.
 1. `verifier.Verify` loads the receipt through `store.LoadReceipt` as a pointer (key, principal, `dispatched_at`), compiles the definition against the `case` entity only, and returns `ErrSettleWindowOpen` while `dispatched_at` plus the settle window is ahead of the clock. Nothing is read or written until then.
 2. `ReceiptAuthenticity` runs before any read. No implementation ships; the verdict records `NOT_CHECKED` (W1, GOV-28, supplies Execution's public key).
 3. Outcome reads the case system itself: by idempotency key, then by transaction within the grant's principal. Each page is read on the retry budget; every attempt is a `VERIFICATION_READ`. An incomplete, malformed, refused, inconsistent or unbound read is `UNKNOWN`, never a negative and never a success.

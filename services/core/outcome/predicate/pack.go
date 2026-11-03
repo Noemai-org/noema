@@ -18,20 +18,35 @@ type fieldType struct {
 
 type descriptor struct {
 	Entity string               `json:"entity"`
+	Source json.RawMessage      `json:"source"`
 	Fields map[string]fieldType `json:"fields"`
 }
 
+// definition lists every field of outcome-definition.v1 so that a misspelled one is an unknown field and not a silent zero.
 type definition struct {
-	OutcomeID         string   `json:"outcome_id"`
-	SuccessPredicate  string   `json:"success_predicate"`
-	SettleWindowSecs  int64    `json:"settle_window_seconds"`
-	IntermediateState []string `json:"intermediate_states"`
+	OutcomeID            string          `json:"outcome_id"`
+	IntentNodes          json.RawMessage `json:"intent_nodes"`
+	SuccessPredicate     string          `json:"success_predicate"`
+	IntermediateStates   json.RawMessage `json:"intermediate_states"`
+	TerminalStates       json.RawMessage `json:"terminal_states"`
+	SettleWindowSeconds  *int64          `json:"settle_window_seconds"`
+	VerificationSources  json.RawMessage `json:"verification_sources"`
+	Compensation         json.RawMessage `json:"compensation"`
+	ExplanationTemplates json.RawMessage `json:"explanation_templates"`
+	SLA                  json.RawMessage `json:"sla"`
 }
 
 type packFile struct {
-	Descriptors []descriptor         `json:"evidence_descriptors"`
-	Variables   map[string]fieldType `json:"predicate_variables"`
-	Outcomes    []definition         `json:"outcome_definitions"`
+	Descriptors []json.RawMessage          `json:"evidence_descriptors"`
+	Variables   map[string]json.RawMessage `json:"predicate_variables"`
+	Outcomes    []json.RawMessage          `json:"outcome_definitions"`
+}
+
+// strict decodes one value and refuses a field it does not know.
+func strict(raw []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
 }
 
 // Definition is an outcome definition as the verifier needs it (SoT 15.3): the success predicate and the settle window.
@@ -71,17 +86,27 @@ func typeOf(f fieldType) (ip.Type, error) {
 	return ip.Type{}, fmt.Errorf("%w: unknown field type %q", errPack, f.Type)
 }
 
-// LoadPack reads a pack's descriptors, variables and outcome definitions and type-checks every success predicate
-// against them. A pack with a predicate that names an unknown entity, field or variable, or mixes types, does not
-// load (REQ-VER-002, fail closed); the error says which outcome and why.
+// LoadPack reads a pack's descriptors, variables and outcome definitions and type-checks every success predicate against
+// them. It is strict where a mistake would otherwise be silent: a field it does not know, a duplicate entity or outcome ID, a
+// missing or negative settle window, and a predicate that names an unknown entity, field or variable or is not Boolean all
+// stop the load (REQ-VER-002, fail closed). The error says which outcome and why.
+//
+// The pack schema has no pending condition yet (only intermediate_states), so no pack can produce PENDING_EXTERNAL; the caller
+// supplies a pending condition to the verifier until OUT-02 defines one in the schema.
 func LoadPack(raw []byte) (Pack, error) {
 	var f packFile
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&f); err != nil {
+	if err := json.Unmarshal(raw, &f); err != nil {
 		return Pack{}, fmt.Errorf("%w: %v", errPack, err)
 	}
 	sc := ip.Scope{Entities: map[string]map[string]ip.Type{}, Variables: map[string]ip.Type{}}
-	for _, d := range f.Descriptors {
+	for i, rawDesc := range f.Descriptors {
+		var d descriptor
+		if err := strict(rawDesc, &d); err != nil {
+			return Pack{}, fmt.Errorf("%w: evidence descriptor %d: %v", errPack, i, err)
+		}
+		if _, dup := sc.Entities[d.Entity]; dup {
+			return Pack{}, fmt.Errorf("%w: two descriptors for entity %q", errPack, d.Entity)
+		}
 		fields := map[string]ip.Type{}
 		for name, ft := range d.Fields {
 			t, err := typeOf(ft)
@@ -92,7 +117,11 @@ func LoadPack(raw []byte) (Pack, error) {
 		}
 		sc.Entities[d.Entity] = fields
 	}
-	for name, ft := range f.Variables {
+	for name, rawVar := range f.Variables {
+		var ft fieldType
+		if err := strict(rawVar, &ft); err != nil {
+			return Pack{}, fmt.Errorf("%w: variable %s: %v", errPack, name, err)
+		}
 		t, err := typeOf(ft)
 		if err != nil {
 			return Pack{}, fmt.Errorf("variable %s: %w", name, err)
@@ -100,11 +129,21 @@ func LoadPack(raw []byte) (Pack, error) {
 		sc.Variables[name] = t
 	}
 	out := Pack{Scope: sc, Definitions: map[string]Definition{}}
-	for _, o := range f.Outcomes {
+	for i, rawDef := range f.Outcomes {
+		var o definition
+		if err := strict(rawDef, &o); err != nil {
+			return Pack{}, fmt.Errorf("%w: outcome definition %d: %v", errPack, i, err)
+		}
+		if _, dup := out.Definitions[o.OutcomeID]; dup {
+			return Pack{}, fmt.Errorf("%w: two definitions for outcome %q", errPack, o.OutcomeID)
+		}
+		if o.SettleWindowSeconds == nil || *o.SettleWindowSeconds < 0 {
+			return Pack{}, fmt.Errorf("%w: outcome %s needs a settle window of at least 0 seconds", errPack, o.OutcomeID)
+		}
 		if _, err := Compile(o.SuccessPredicate, sc); err != nil {
 			return Pack{}, fmt.Errorf("outcome %s: %w", o.OutcomeID, err)
 		}
-		out.Definitions[o.OutcomeID] = Definition{OutcomeID: o.OutcomeID, SuccessPredicate: o.SuccessPredicate, SettleWindowSecs: o.SettleWindowSecs}
+		out.Definitions[o.OutcomeID] = Definition{OutcomeID: o.OutcomeID, SuccessPredicate: o.SuccessPredicate, SettleWindowSecs: *o.SettleWindowSeconds}
 	}
 	return out, nil
 }

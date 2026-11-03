@@ -4,11 +4,11 @@
 
 **REQs.** REQ-VER-001, REQ-VER-002, REQ-VER-003, REQ-VER-004 (the watch row only), REQ-RCV-002; INV-04, INV-07, INV-19, INV-28.
 
-**Status.** OUT-01 (verify by key) is built. Not built: receipt-signature verification (the `ReceiptAuthenticity` port is wired and no implementation holds a key; W1, GOV-28), Outcome's own Ed25519 signer (an interim signer is supplied by the caller), the other pack outcomes (OUT-02), the Temporal watch workflow and sweeper (OUT-03), the inbound event inbox (OUT-04), and the trigger that calls `Verify` from the `outcome.verify` outbox event. Configuration (the read budget, the pending-watch timing) is supplied by the caller; the defaults of PERD §29.2 are OPS-01's.
+**Status.** OUT-01 (verify by key) is built. Not built: receipt-signature verification (the `ReceiptAuthenticity` port is wired and no implementation holds a key; W1, GOV-28), Outcome's own Ed25519 signer (an interim signer is supplied by the caller), the other pack outcomes (OUT-02), the Temporal watch workflow and sweeper (OUT-03), the inbound event inbox (OUT-04), and the trigger that calls `Verify` from the `outcome.verify` outbox event (it must pass the delivery's id as `Request.VerificationID`). Configuration (the read budget, the pending-watch timing) is supplied by the caller; the defaults of PERD §29.2 are OPS-01's.
 
 | Package | What it is |
 |---|---|
-| `verifier` | `Verify(ctx, Request)`: settle window, read budget, verify by key, fail closed, signing through a port. Reads only through `CaseReader`, which has no write method. |
+| `verifier` | `Verify(ctx, Request)`: settle window, read budget, verify by key, fail closed, signing through a port. A verification has an ID; a redelivery returns the stored verdict and reads and writes nothing. Reads only through `CaseReader`, which has no write method. |
 | `predicate` | `LoadPack`: scope from a pack's descriptors and variables, every success predicate type-checked at load. |
 | `store` | `Store` over PostgreSQL as `outcome_rw`: `LoadReceipt`, and `RecordVerdict` (one transaction through `outcome_record_verdict`). |
 

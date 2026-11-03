@@ -79,8 +79,11 @@ type Pending struct {
 
 // Request is one verification.
 type Request struct {
-	TenantID       string
-	ReceiptID      string
+	TenantID  string
+	ReceiptID string
+	// VerificationID identifies this verification across redeliveries: the id of the outcome.verify outbox event, or of a watch
+	// check. A second Verify with the same id returns the stored verdict (the outbox is at least once).
+	VerificationID string
 	Definition     Definition
 	Bindings       map[string]string // reference variables of the predicate (subject_resource, intent_id, ...), from the plan and the intent
 	TransactionRef string            // the subject whose cases are read
@@ -92,7 +95,21 @@ type Result struct {
 	VerdictID string
 	Verdict   Verdict
 	Reason    Reason
+	Replayed  bool // the verification had already been decided: this is the stored verdict, and nothing was read or written
 }
+
+// Found is a verdict already stored for a verification, with the receipt it was made for.
+type Found struct {
+	Result
+	ReceiptID string
+}
+
+// ErrAlreadyVerified is returned by Store.RecordVerdict when another writer stored a verdict for the same verification between
+// the lookup and the insert. The verifier then returns that verdict.
+var ErrAlreadyVerified = errors.New("verifier: the verification already has a verdict")
+
+// TimestampLayout is the RFC 3339 layout of the contract's Timestamp in UTC; the signed document and the Record events use it.
+const TimestampLayout = "2006-01-02T15:04:05.999999999Z07:00"
 
 // ErrSettleWindowOpen is returned, with nothing read and nothing written, while the settle window has not passed.
 type ErrSettleWindowOpen struct{ ReadyAt time.Time }
@@ -222,6 +239,7 @@ type WatchRow struct {
 // VerdictDoc is the outcome-verdict.v1 object and the fields stored beside it.
 type VerdictDoc struct {
 	VerdictID        string
+	VerificationID   string
 	TenantID         string
 	CorrelationID    string
 	ReceiptID        string
@@ -247,6 +265,8 @@ type Write struct {
 
 // Store loads the receipt a verification starts from and stores its result.
 type Store interface {
+	// FindVerdict returns the verdict already stored for a verification, if any.
+	FindVerdict(ctx context.Context, tenantID, verificationID string) (Found, bool, error)
 	LoadReceipt(ctx context.Context, tenantID, receiptID string) (Receipt, error)
 	RecordVerdict(ctx context.Context, w Write) error
 }

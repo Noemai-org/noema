@@ -76,9 +76,8 @@ func TestCompileRefusesAProgramThatIsNotBoolean(t *testing.T) {
 func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 	good := string(fintech(t))
 	dupOutcome := func(s string) string {
-		i := strings.Index(s, `"outcome_definitions": [`) + len(`"outcome_definitions": [`)
-		j := strings.Index(s[i:], "{")
-		k := i + j
+		// Insert a second definition with an existing ID in front of the first real definition (the first "outcome_id" key).
+		k := strings.LastIndex(s[:strings.Index(s, `"outcome_id"`)], "{")
 		return s[:k] + `{"outcome_id": "fin.outcome.exception.case_opened", "intent_nodes": ["fin.payments.exception.investigate"], "success_predicate": "exists(case where case.id == case.id)", "intermediate_states": [], "terminal_states": ["ACHIEVED"], "settle_window_seconds": 0, "verification_sources": [{"source": "fin.src.case_system", "priority": 1}], "compensation": "none_required", "explanation_templates": ["x"]}, ` + s[k:]
 	}
 	for name, mutate := range map[string]func(string) string{

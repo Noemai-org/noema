@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/outcome/verifier"
@@ -18,15 +19,17 @@ const (
 	errPrefix = "outcome store: "
 	writer    = "core-outcome"
 
-	eventRead       = "VERIFICATION_READ"
-	eventVerdict    = "VERDICT"
-	eventRecovery   = "RECOVERY_REQUESTED"
-	eventWatch      = "WATCH_CREATED"
-	eventSecurity   = "SECURITY_EVENT"
-	securityKind    = "SIGNATURE_INVALID"
-	topicRecovery   = "recovery.requested"
-	idOutbox        = "obx"
-	timestampLayout = "2006-01-02T15:04:05.999999999Z07:00"
+	eventRead     = "VERIFICATION_READ"
+	eventVerdict  = "VERDICT"
+	eventRecovery = "RECOVERY_REQUESTED"
+	eventWatch    = "WATCH_CREATED"
+	eventSecurity = "SECURITY_EVENT"
+	securityKind  = "SIGNATURE_INVALID"
+	topicRecovery = "recovery.requested"
+	idOutbox      = "obx"
+
+	pgUniqueViolation  = "23505"
+	verificationKeyCon = "outcome_verdict_verification_key"
 )
 
 // IDSource makes the prefixed ULIDs of PERD 32.3.
@@ -84,7 +87,28 @@ func (s *Store) LoadReceipt(ctx context.Context, tenantID, receiptID string) (ve
 	return r, nil
 }
 
-// RecordVerdict stores a verification: see Store.
+// FindVerdict returns the verdict already stored for a verification, so a redelivery of outcome.verify finds it (INV-04 needs
+// one verdict per verification, and a second RecoveryRequest would send Trust the same case twice).
+func (s *Store) FindVerdict(ctx context.Context, tenantID, verificationID string) (verifier.Found, bool, error) {
+	if err := needDeadline(ctx); err != nil {
+		return verifier.Found{}, false, err
+	}
+	var f verifier.Found
+	var verdict, reason string
+	err := s.Pool.QueryRow(ctx, `SELECT verdict_id, receipt_id, verdict, reason FROM outcome_verdict WHERE tenant_id = $1 AND verification_id = $2`,
+		tenantID, verificationID).Scan(&f.VerdictID, &f.ReceiptID, &verdict, &reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return verifier.Found{}, false, nil
+	}
+	if err != nil {
+		return verifier.Found{}, false, fmt.Errorf("%sfind verdict: %w", errPrefix, err)
+	}
+	f.Verdict, f.Reason = verifier.Verdict(verdict), verifier.Reason(reason)
+	return f, true, nil
+}
+
+// RecordVerdict stores a verification: see Store. If another delivery of the same verification stored its verdict first, it
+// returns verifier.ErrAlreadyVerified and stores nothing.
 func (s *Store) RecordVerdict(ctx context.Context, w verifier.Write) error {
 	if err := needDeadline(ctx); err != nil {
 		return err
@@ -95,6 +119,10 @@ func (s *Store) RecordVerdict(ctx context.Context, w verifier.Write) error {
 	}
 	if err := s.write(ctx, tx, w); err != nil {
 		_ = tx.Rollback(context.WithoutCancel(ctx))
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == pgUniqueViolation && pe.ConstraintName == verificationKeyCon {
+			return verifier.ErrAlreadyVerified
+		}
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -121,7 +149,7 @@ func (s *Store) write(ctx context.Context, tx pgx.Tx, w verifier.Write) error {
 	}
 	for _, r := range w.Reads {
 		payload := map[string]any{"receipt_id": v.ReceiptID, "verdict_id": v.VerdictID, "query": r.Query, "attempt": r.Attempt, "page": r.Page, "status": r.Status,
-			"items": r.Items, "read_at": r.At.UTC().Format(timestampLayout)}
+			"items": r.Items, "read_at": r.At.UTC().Format(verifier.TimestampLayout)}
 		if err := s.record(ctx, tx, v, eventRead, "", r.EvidenceID, payload); err != nil {
 			return err
 		}
@@ -139,12 +167,12 @@ func (s *Store) write(ctx context.Context, tx pgx.Tx, w verifier.Write) error {
 	if w.Watch != nil {
 		watchID, next, deadline, triggers = &w.Watch.WatchID, w.Watch.NextCheckAt, w.Watch.DeadlineAt, w.Watch.Triggers
 	}
-	if _, err := tx.Exec(ctx, `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15, $16, $17, $18)`,
-		v.TenantID, v.VerdictID, v.ReceiptID, v.CorrelationID, v.OutcomeID, string(v.Verdict), string(v.Reason), v.PredicateResult, v.EvidenceReads, v.VerifiedAt,
+	if _, err := tx.Exec(ctx, `SELECT outcome_record_verdict($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15, $16, $17, $18, $19)`,
+		v.TenantID, v.VerdictID, v.ReceiptID, v.VerificationID, v.CorrelationID, v.OutcomeID, string(v.Verdict), string(v.Reason), v.PredicateResult, v.EvidenceReads, v.VerifiedAt,
 		v.Sig.KeyID, v.Sig.Value, string(doc), recovery, watchID, next, deadline, triggers); err != nil {
 		return fmt.Errorf("%swrite verdict %s: %w", errPrefix, v.VerdictID, err)
 	}
-	verdictPayload := map[string]any{"verdict": v.Document, "reason": string(v.Reason), "receipt_signature": string(v.ReceiptSignature)}
+	verdictPayload := map[string]any{"verdict": v.Document, "reason": string(v.Reason), "receipt_signature": string(v.ReceiptSignature), "verification_id": v.VerificationID}
 	if err := s.record(ctx, tx, v, eventVerdict, "", v.VerdictID, verdictPayload); err != nil {
 		return err
 	}
@@ -158,8 +186,8 @@ func (s *Store) write(ctx context.Context, tx pgx.Tx, w verifier.Write) error {
 		}
 	}
 	if w.Watch != nil {
-		payload := map[string]any{"watch_id": w.Watch.WatchID, "verdict_id": v.VerdictID, "next_check_at": w.Watch.NextCheckAt.UTC().Format(timestampLayout),
-			"deadline_at": w.Watch.DeadlineAt.UTC().Format(timestampLayout), "triggers": w.Watch.Triggers}
+		payload := map[string]any{"watch_id": w.Watch.WatchID, "verdict_id": v.VerdictID, "next_check_at": w.Watch.NextCheckAt.UTC().Format(verifier.TimestampLayout),
+			"deadline_at": w.Watch.DeadlineAt.UTC().Format(verifier.TimestampLayout), "triggers": w.Watch.Triggers}
 		return s.record(ctx, tx, v, eventWatch, "", w.Watch.WatchID, payload)
 	}
 	return nil
@@ -176,7 +204,7 @@ func (s *Store) outbox(ctx context.Context, tx pgx.Tx, tenantID string, payload 
 		return fmt.Errorf("%soutbox payload: %w", errPrefix, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO outbox_event (outbox_id, tenant_id, topic, payload, created_at) VALUES ($1, $2, $3, $4::jsonb, $5)`,
-		id, tenantID, topicRecovery, string(body), s.Clock.Now()); err != nil {
+		id, tenantID, topicRecovery, string(body), s.Clock.Now().UTC()); err != nil {
 		return fmt.Errorf("%sinsert outbox event: %w", errPrefix, err)
 	}
 	return nil
