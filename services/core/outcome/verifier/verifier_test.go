@@ -283,7 +283,7 @@ func TestPendingExternalHasAWatchWithADeadline(t *testing.T) {
 
 // SoT 13.1 slot: an invalid receipt signature stops the verification before any read.
 func TestAnInvalidReceiptSignatureStopsBeforeAnyRead(t *testing.T) {
-	w := newWorld(t, func(w *world) { w.auth = authenticity{verifier.AuthInvalid} })
+	w := newWorld(t, func(w *world) { w.auth = authenticity{result: verifier.AuthInvalid} })
 	res, wr := w.decided(t)
 	want(t, res, verifier.Unknown, verifier.ReasonReceiptUnverifiable)
 	if !wr.SignatureInvalid || w.read.reads() != 0 {
@@ -292,6 +292,20 @@ func TestAnInvalidReceiptSignatureStopsBeforeAnyRead(t *testing.T) {
 	w = newWorld(t)
 	if _, wr := w.decided(t); wr.Verdict.ReceiptSignature != verifier.AuthNotChecked {
 		t.Fatalf("an unchecked receipt is recorded as %q", wr.Verdict.ReceiptSignature)
+	}
+}
+
+// P2 (Codex): a signature check that cannot run is not an invalid signature. It stays fail closed (UNKNOWN, no read), but no
+// SECURITY_EVENT SIGNATURE_INVALID is raised and the receipt is recorded as not checked.
+func TestACheckThatCannotRunIsNotAnInvalidSignature(t *testing.T) {
+	w := newWorld(t, func(w *world) { w.auth = authenticity{err: errors.New("verification key unavailable")} })
+	res, wr := w.decided(t)
+	want(t, res, verifier.Unknown, verifier.ReasonReceiptUnverifiable)
+	if wr.SignatureInvalid {
+		t.Fatal("SIGNATURE_INVALID was raised for a check that never ran")
+	}
+	if wr.Verdict.ReceiptSignature != verifier.AuthNotChecked || w.read.reads() != 0 {
+		t.Fatalf("receipt signature %q, reads %d", wr.Verdict.ReceiptSignature, w.read.reads())
 	}
 }
 
