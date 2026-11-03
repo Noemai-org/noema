@@ -291,16 +291,6 @@ func (r *run) verdict(success, pending *ip.Program) decision {
 	return decision{verdict: NotAchieved, reason: notAchieved, predicate: &ok1}
 }
 
-// pendingExternal accepts the watch only if it can be kept: a first check and a deadline, both ahead of now and in order
-// (INV-28). A PENDING_EXTERNAL verdict without a usable watch is never stored.
-func (r *run) pendingExternal(predicate *bool) decision {
-	p, now := r.req.Definition.Pending, r.v.cfg.Clock.Now()
-	if p.DeadlineAt.IsZero() || !p.DeadlineAt.After(now) || !p.NextCheckAt.After(now) || p.NextCheckAt.After(p.DeadlineAt) {
-		return unknown(ReasonWatchUnusable)
-	}
-	return decision{verdict: PendingExternal, reason: ReasonPendingCondition, predicate: predicate, watch: p}
-}
-
 // evalBool evaluates a Boolean program. known is false when the result is null or the evaluation fails: UNKNOWN
 // propagates and is never read as false (REQ-VER-002).
 func evalBool(p *ip.Program, env ip.Env) (value, known bool) {

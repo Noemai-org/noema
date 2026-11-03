@@ -245,7 +245,7 @@ func TestAFailedRecordAppendStoresNothing(t *testing.T) {
 			f := newFlow(t, verifier.AuthNotChecked, failAt)
 			f.pages.byKey, f.pages.byTx = []verifier.CasePage{done(theCase("CLOSED"))}, []verifier.CasePage{done(theCase("CLOSED"))}
 			now := f.clk.Now()
-			f.req.Definition.Pending = &verifier.Pending{Predicate: "exists(case where case.status == 'CLOSED')", Triggers: []string{"x"}, NextCheckAt: now.Add(time.Minute), DeadlineAt: now.Add(time.Hour)}
+			f.req.Definition.Pending = &verifier.Pending{Predicate: "exists(case where case.status == 'CLOSED')", Triggers: []string{"fin.evt.settlement.updated"}, NextCheckAt: now.Add(time.Minute), DeadlineAt: now.Add(time.Hour)}
 			if _, err := f.v.Verify(ctx(t), f.req); err == nil {
 				t.Fatal("Verify reported success although a Record append failed")
 			}
