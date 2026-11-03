@@ -250,6 +250,20 @@ func TestPendingExternalHasAWatchWithADeadline(t *testing.T) {
 	if wr.Watch == nil || wr.Watch.WatchID == "" || !wr.Watch.DeadlineAt.After(wr.Watch.NextCheckAt) || wr.RecoveryRequestID == "" {
 		t.Fatalf("PENDING_EXTERNAL without a usable watch or recovery request: %+v", wr)
 	}
+	// P2 (Codex): the pending condition is about the case under our key, as the success predicate is. Another case that
+	// matches it must not hold a watch open for this receipt.
+	t.Run("another case matches the pending condition but the key's case does not", func(t *testing.T) {
+		ours := theCase()
+		ours.CreatedByIntent = "int_other"
+		other := theCase()
+		other.CaseID, other.IdempotencyKey, other.Status, other.CreatedByIntent = "case_2", "idk_v1_other", "CLOSED", "int_other"
+		w := newWorld(t, pend, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(ours)}, []step{complete(ours, other)} })
+		res, wr := w.decided(t)
+		want(t, res, verifier.NotAchieved, verifier.ReasonPredicateFalse)
+		if wr.Watch != nil {
+			t.Fatal("a watch was stored for an effect that is not this receipt's")
+		}
+	})
 	for name, mut := range map[string]func(*verifier.Pending){
 		"a deadline already past":      func(p *verifier.Pending) { p.DeadlineAt = t0 },
 		"a first check after deadline": func(p *verifier.Pending) { p.NextCheckAt = p.DeadlineAt.Add(time.Second) },
