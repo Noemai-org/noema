@@ -58,3 +58,30 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StandInWiring(unittest.TestCase):
+    """Option B for G1: `--standin-url` (with the bench credential) replaces the missing fixture loader with the Noema-side stand-in's."""
+
+    def reason(self, *extra: str) -> str:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import main
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            cred = Path(tmp) / "cred"
+            cred.write_text("bench-credential\n")
+            with redirect_stdout(io.StringIO()):
+                code = main(["--suite", str(suite_dir()), "--out", str(out), "--bench-credential-file", str(cred), "--only", "BEN-CLEAN-0001", *extra])
+            self.assertEqual(3, code)
+            return str(json.loads((out / "run-manifest.json").read_text())["not_run_reason"])
+
+    def test_without_a_stand_in_the_fixture_loader_is_the_named_gap(self) -> None:
+        self.assertIn("fixture loader", self.reason())
+
+    def test_with_a_stand_in_the_fixture_loader_is_no_longer_a_gap_and_the_others_still_are(self) -> None:
+        reason = self.reason("--standin-url", "http://127.0.0.1:9")
+        self.assertNotIn("fixture loader", reason)
+        self.assertIn("session provider", reason)

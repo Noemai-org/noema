@@ -14,6 +14,7 @@ Generated layer only. `make bench-test` runs every test and `mypy --strict`; `ma
 | `scoring/` | The tiered scorecard and report, a pure function of recorded results | BEN-12 |
 | `oracle_client/` | The runner's one reader of ground truth (mock-case's truth endpoint, bench credential) | BEN-03 |
 | `runner/` | Drives a suite through the public API, applies fault plans, writes results and a run manifest | BEN-03 |
+| `fixtures/` | The fixture-loader client and the data contract of the Noema-side stand-in for the Tushe-held US-01 and US-06 data (G1 option B; evidence labelled stand-in) | BEN-05 |
 | `nightly/` | Files one regression issue per failing case, de-duplicated by case ID | TST-02 |
 | `bakeoff/` | The decision-model bake-off: case set, metrics, runner, comparison | BEN-21 |
 | `evil_provider/` | The adversarial provider, in the bench profile only | SEC-06 |
