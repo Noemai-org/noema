@@ -223,8 +223,10 @@ func TestAGrantBindsTheNewestPolicyVersionNamedInTheBasis(t *testing.T) {
 		}
 	}
 	// a version string the contract cannot carry is refused, not guessed at
-	if g, err := i.Issue(decisionWithRules(t, rule("a", "fin.pol", "three")), step()); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
-		t.Errorf("a malformed version: %v", err)
+	for _, bad := range []string{"three", "03.1", "3..1", "3.", "", "-1.0", "3.1-rc1"} {
+		if g, err := i.Issue(decisionWithRules(t, rule("a", "fin.pol", bad)), step()); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
+			t.Errorf("a malformed version %q: %v", bad, err)
+		}
 	}
 }
 

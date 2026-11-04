@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
@@ -148,7 +150,6 @@ type Step struct {
 	PlanHash            contracts.CommonV1Hash
 	PlanStep            int64
 	TargetVersions      []contracts.DecisionGrantV1TargetVersionsItem
-	PolicyVersion       string // policy_id@version; must be one the decision's basis names (INV-09)
 	ConfirmationEventID string // optional: the confirmation this grant follows
 }
 
@@ -162,7 +163,8 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 	if err := s.check(); err != nil {
 		return contracts.DecisionGrantV1{}, err
 	}
-	if !policyNamed(basis, s.PolicyVersion) || s.PlanStep < 0 {
+	policy, ok := newestPolicy(basis)
+	if !ok || s.PlanStep < 0 || !shapes["policy"].MatchString(policy) {
 		return contracts.DecisionGrantV1{}, fmt.Errorf("%w: policy version or plan step", ErrStep)
 	}
 	grantID, err := i.ids.ID("grt")
@@ -180,7 +182,7 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 		IntentHash: s.IntentHash, CapabilityId: contracts.CommonV1PackId(s.CapabilityID), TargetRef: contracts.CommonV1ResourceRef(s.TargetRef),
 		ParamsHash: s.ParamsHash, EvidenceSetHash: s.EvidenceSetHash, PlanHash: s.PlanHash, PlanStep: s.PlanStep,
 		TargetVersions: append([]contracts.DecisionGrantV1TargetVersionsItem{}, s.TargetVersions...),
-		PolicyVersion:  s.PolicyVersion, PackVersion: basis.PackVersion,
+		PolicyVersion:  policy, PackVersion: basis.PackVersion,
 		NotBefore: contracts.CommonV1Timestamp(at.Format(timeLayout)), ExpiresAt: contracts.CommonV1Timestamp(at.Add(i.validity).Format(timeLayout)),
 		Nonce: "n_" + hex.EncodeToString(n[:]), SingleUse: true,
 	}
@@ -226,7 +228,7 @@ func (s Step) check() error {
 	for _, c := range []struct{ name, value string }{
 		{"tenant", s.TenantID}, {"correlation", s.CorrelationID}, {"decision", s.DecisionID}, {"principal", s.PrincipalID},
 		{"capability", s.CapabilityID}, {"target", s.TargetRef}, {"hash", string(s.IntentHash)}, {"hash", string(s.ParamsHash)},
-		{"hash", string(s.EvidenceSetHash)}, {"hash", string(s.PlanHash)}, {"policy", s.PolicyVersion},
+		{"hash", string(s.EvidenceSetHash)}, {"hash", string(s.PlanHash)},
 	} {
 		if !shapes[c.name].MatchString(c.value) {
 			return fmt.Errorf("%w: the %s is not in the form the contract requires", ErrStep, c.name)
@@ -243,12 +245,54 @@ func (s Step) check() error {
 	return nil
 }
 
-// policyNamed reports whether version (policy_id@version) is one of the policy versions the decision's basis names.
-func policyNamed(b decide.Basis, version string) bool {
-	for _, r := range b.PolicyRules {
-		if r.PolicyID+"@"+r.Version == version {
-			return true
+// newestPolicy returns policy_id@version of the newest policy version the decision's basis names (the Architect's decision of 4 Nov
+// 2026): versions compare as dotted numbers (3.10 is newer than 3.9), and with equal versions the smaller policy ID wins, so the choice
+// never depends on the order of the rules. A version that is not dotted numbers makes the result unusable (false), not a guess. The
+// grant is voided if any version named in the basis is superseded (REQ-TRU-005; TRU-08 reads the basis from the Decision Record).
+func newestPolicy(b decide.Basis) (string, bool) {
+	var best decide.PolicyRuleVersion
+	var bestNums []int
+	for n, r := range b.PolicyRules {
+		nums, ok := dotted(r.Version)
+		if !ok {
+			return "", false
+		}
+		if n == 0 || newer(nums, bestNums) > 0 || (newer(nums, bestNums) == 0 && r.PolicyID < best.PolicyID) {
+			best, bestNums = r, nums
 		}
 	}
-	return false
+	if len(bestNums) == 0 {
+		return "", false
+	}
+	return best.PolicyID + "@" + best.Version, true
+}
+
+// dotted parses "3.10.1" into its numbers.
+func dotted(v string) ([]int, bool) {
+	var out []int
+	for _, part := range strings.Split(v, ".") {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || part != strconv.Itoa(n) {
+			return nil, false
+		}
+		out = append(out, n)
+	}
+	return out, len(out) > 0
+}
+
+// newer compares two number lists: positive when a is newer than b, zero when equal (a missing trailing part counts as zero).
+func newer(a, b []int) int {
+	for i := 0; i < len(a) || i < len(b); i++ {
+		var x, y int
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			return x - y
+		}
+	}
+	return 0
 }

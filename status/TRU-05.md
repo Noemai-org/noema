@@ -11,11 +11,12 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
 ## Not built (named; TRU-05 is not Done)
-- **The `decision_record` table and the durable write before any grant.** The table does not exist (migration `0001` says the Trust tables arrive later), and the migration numbers 0004 to 0006 are claimed by noema#145 and 0004 by noema#136. I need a migration number and the Steward's or Architect's confirmation of which comes first before I write it. **Question to the Architect:** which number do I take, and does the `decision_record` migration go before or after noema#145's?
+- **The `decision_record` table and the durable write before any grant.** The table does not exist (migration `0001` says the Trust tables arrive later), and the migration numbers 0004 to 0006 are claimed by noema#145 and 0004 by noema#136. I need a migration number and the Steward's or Architect's confirmation of which comes first before I write it. (Answered 4 Nov 2026: 0008, after noema#136's 0007.)
 - The database trigger that forbids a `decision_grant` row whose decision is not ALLOW (needs the table).
 - Grants persisted in the same transaction as their `GRANT_ISSUED` events, and the `KEY_ROTATED` event (need the Record writer wiring).
 - The key source: keys come from a file-mounted secret in `cmd/core` (OQ-09 default); loading is not built. The validity (10 minutes, ADOPTED) is a constructor input.
-- Open (INV-09): a decision can use rules of two policy versions; the grant binds one `policy_version`. The caller names it and `Issue` checks it is one the basis names. Which one the Execution void-on-supersession (REQ-TRU-005) should follow is for the Architect.
+- Policy version (decided by the Architect, 4 Nov 2026): the grant binds the newest policy version named in its decision's basis (dotted numbers, 3.10 newer than 3.9; equal versions: the smaller policy ID), and is voided if any version named in the basis is superseded (fail closed). `Issue` computes it; the caller no longer names it. The void is TRU-08's and reads the basis from the Decision Record. Tests added, seen failing first; 5 of 5 mutants of the comparison caught (one survivor, the leading-zero check, got a test).
+- Migration number (decided, 4 Nov 2026): `decision_record` is migration **0008**, after noema#136's 0007. Not yet written.
 
 ## Pre-work for the next agent
 - Exact next step: the `decision_record` migration (after the number is settled), the trigger, the Record-first write in one transaction with the grants, and the 2-key rotation test against the database.
