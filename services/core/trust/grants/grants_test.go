@@ -72,12 +72,27 @@ func decision(t *testing.T, o decide.Outcome) decide.Decision {
 	return d
 }
 
+func decisionWithRules(t *testing.T, rules ...decide.PolicyRuleVersion) decide.Decision {
+	t.Helper()
+	r, _ := decide.Admit(decide.IntentView{Version: 2}).Resolved()
+	d, err := r.Allow(decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := basis()
+	b.PolicyRules = rules
+	d, err = d.WithBasis(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func step() grants.Step {
 	return grants.Step{
 		TenantID: "ten_aa", CorrelationID: "corr_ABC123", DecisionID: "dec_01", PrincipalID: "usr_88213", IntentHash: sha("1"), CapabilityID: "fin.cap.create_escalation_case",
 		TargetRef: "fin.transaction:TX88213", ParamsHash: sha("2"), EvidenceSetHash: sha("3"), PlanHash: sha("4"), PlanStep: 1,
 		TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: "fin.transaction:TX88213", Source: "fin.src.ledger", VersionToken: "v7"}},
-		PolicyVersion:  "fin.pol@3.1",
 	}
 }
 
@@ -165,22 +180,51 @@ func TestAStepThatDoesNotMatchTheDecisionIsRefused(t *testing.T) {
 	i := issuer(t, keys(t))
 	d := decision(t, decide.Allow)
 	for name, mod := range map[string]func(*grants.Step){
-		"a policy version the decision did not use": func(s *grants.Step) { s.PolicyVersion = "fin.pol@9.9" },
-		"no policy version":                         func(s *grants.Step) { s.PolicyVersion = "" },
-		"no tenant":                                 func(s *grants.Step) { s.TenantID = "" },
-		"no principal":                              func(s *grants.Step) { s.PrincipalID = "" },
-		"a negative plan step":                      func(s *grants.Step) { s.PlanStep = -1 },
-		"no params hash":                            func(s *grants.Step) { s.ParamsHash = "" },
-		"no evidence set hash":                      func(s *grants.Step) { s.EvidenceSetHash = "" },
-		"no plan hash":                              func(s *grants.Step) { s.PlanHash = "" },
-		"no capability":                             func(s *grants.Step) { s.CapabilityID = "" },
-		"no target":                                 func(s *grants.Step) { s.TargetRef = "" },
+		"no tenant":            func(s *grants.Step) { s.TenantID = "" },
+		"no principal":         func(s *grants.Step) { s.PrincipalID = "" },
+		"a negative plan step": func(s *grants.Step) { s.PlanStep = -1 },
+		"no params hash":       func(s *grants.Step) { s.ParamsHash = "" },
+		"no evidence set hash": func(s *grants.Step) { s.EvidenceSetHash = "" },
+		"no plan hash":         func(s *grants.Step) { s.PlanHash = "" },
+		"no capability":        func(s *grants.Step) { s.CapabilityID = "" },
+		"no target":            func(s *grants.Step) { s.TargetRef = "" },
 	} {
 		s := step()
 		mod(&s)
 		if g, err := i.Issue(d, s); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// Decision of the Architect, 4 Nov 2026: a grant binds the newest policy version named in its decision's basis (versions compare as dotted
+// numbers, not as text: 3.10 is newer than 3.9); with equal versions the policy ID decides, so the choice never depends on order. The grant is
+// voided if any version named in the basis is superseded (REQ-TRU-005; the void is TRU-08's, the basis lives in the Decision Record).
+func TestAGrantBindsTheNewestPolicyVersionNamedInTheBasis(t *testing.T) {
+	i := issuer(t, keys(t))
+	rule := func(id, pol, ver string) decide.PolicyRuleVersion {
+		return decide.PolicyRuleVersion{RuleID: id, PolicyID: pol, Version: ver}
+	}
+	for name, c := range map[string]struct {
+		rules []decide.PolicyRuleVersion
+		want  string
+	}{
+		"one version":                {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1")}, "fin.pol@3.1"},
+		"two versions, newest last":  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.2")}, "fin.pol@3.2"},
+		"two versions, newest first": {[]decide.PolicyRuleVersion{rule("b", "fin.pol", "3.2"), rule("a", "fin.pol", "3.1")}, "fin.pol@3.2"},
+		"numeric, not text":          {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.10")}, "fin.pol@3.10"},
+		"three parts":                {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1.2")}, "fin.pol@3.1.2"},
+		"repeated version":           {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "fin.pol@3.1"},
+		"equal versions, two policies: the ID decides, in any order": {[]decide.PolicyRuleVersion{rule("a", "fin.zzz", "1.0"), rule("b", "fin.aaa", "1.0")}, "fin.aaa@1.0"},
+	} {
+		g, err := i.Issue(decisionWithRules(t, c.rules...), step())
+		if err != nil || g.PolicyVersion != c.want {
+			t.Errorf("%s: got %q, %v, want %q", name, g.PolicyVersion, err, c.want)
+		}
+	}
+	// a version string the contract cannot carry is refused, not guessed at
+	if g, err := i.Issue(decisionWithRules(t, rule("a", "fin.pol", "three")), step()); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
+		t.Errorf("a malformed version: %v", err)
 	}
 }
 
