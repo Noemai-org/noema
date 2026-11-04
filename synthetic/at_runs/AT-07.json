@@ -1,0 +1,217 @@
+{
+  "synthetic": true,
+  "test": "AT-07 Out-of-order event",
+  "spec": "Reorder configured events. Pass: events arrive in the configured order with sequence metadata intact.",
+  "source": "hostility proxy, fault REORDER_EVENTS on events_feed (nth_call 1): the plan's seed picks the adjacent pair; one run per seed",
+  "runs": [
+    {
+      "synthetic": true,
+      "test": "AT-07 seed 1",
+      "spec": "",
+      "source": "REORDER_EVENTS",
+      "seed": 1,
+      "steps": [
+        {
+          "step": "delivery through the proxy",
+          "via": "proxy",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              3,
+              2,
+              4
+            ]
+          }
+        },
+        {
+          "step": "what the system emitted, in its own order",
+          "via": "authoritative (straight to the system)",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        }
+      ],
+      "proxy_trace": [
+        {
+          "call_no": 1,
+          "detail": {
+            "applied": true,
+            "swapped": 1
+          },
+          "effect": "REORDER_EVENTS",
+          "fault_index": 0,
+          "operation": "events_feed",
+          "seq": 1,
+          "target": "mock-destination"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "synthetic": true,
+      "test": "AT-07 seed 2",
+      "spec": "",
+      "source": "REORDER_EVENTS",
+      "seed": 2,
+      "steps": [
+        {
+          "step": "delivery through the proxy",
+          "via": "proxy",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              3,
+              2,
+              4
+            ]
+          }
+        },
+        {
+          "step": "what the system emitted, in its own order",
+          "via": "authoritative (straight to the system)",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        }
+      ],
+      "proxy_trace": [
+        {
+          "call_no": 1,
+          "detail": {
+            "applied": true,
+            "swapped": 1
+          },
+          "effect": "REORDER_EVENTS",
+          "fault_index": 0,
+          "operation": "events_feed",
+          "seq": 1,
+          "target": "mock-destination"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "synthetic": true,
+      "test": "AT-07 seed 3",
+      "spec": "",
+      "source": "REORDER_EVENTS",
+      "seed": 3,
+      "steps": [
+        {
+          "step": "delivery through the proxy",
+          "via": "proxy",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              2,
+              1,
+              3,
+              4
+            ]
+          }
+        },
+        {
+          "step": "what the system emitted, in its own order",
+          "via": "authoritative (straight to the system)",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        }
+      ],
+      "proxy_trace": [
+        {
+          "call_no": 1,
+          "detail": {
+            "applied": true,
+            "swapped": 0
+          },
+          "effect": "REORDER_EVENTS",
+          "fault_index": 0,
+          "operation": "events_feed",
+          "seq": 1,
+          "target": "mock-destination"
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "synthetic": true,
+      "test": "AT-07 seed 4",
+      "spec": "",
+      "source": "REORDER_EVENTS",
+      "seed": 4,
+      "steps": [
+        {
+          "step": "delivery through the proxy",
+          "via": "proxy",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              2,
+              4,
+              3
+            ]
+          }
+        },
+        {
+          "step": "what the system emitted, in its own order",
+          "via": "authoritative (straight to the system)",
+          "request": "GET /v1/events",
+          "status": 200,
+          "observed": {
+            "sequences": [
+              1,
+              2,
+              3,
+              4
+            ]
+          }
+        }
+      ],
+      "proxy_trace": [
+        {
+          "call_no": 1,
+          "detail": {
+            "applied": true,
+            "swapped": 2
+          },
+          "effect": "REORDER_EVENTS",
+          "fault_index": 0,
+          "operation": "events_feed",
+          "seq": 1,
+          "target": "mock-destination"
+        }
+      ],
+      "verdict": "PASS"
+    }
+  ],
+  "verdict": "PASS"
+}

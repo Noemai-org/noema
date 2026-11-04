@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -119,13 +120,13 @@ type traceEntry struct {
 	StatusCode         int             `json:"status_code"`
 }
 
-func sha(v any) string {
+func sha(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err) // fixed structs of plain values
+		return "", fmt.Errorf("hash the digest input: %w", err)
 	}
 	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // truthDigest returns the hashes that let a replay be compared in one call: two runs of the same plan and seed
@@ -146,9 +147,17 @@ func (s *Server) truthDigest(w http.ResponseWriter, r *http.Request) {
 		trace = append(trace, traceEntry{c.Operation, c.CallNo, c.FaultIndex, c.FaultEffect, c.FaultParams, c.Committed, c.ResponseSuppressed, c.StatusCode})
 	}
 	_, simulated := s.now()
+	stateHash, err := sha(snap)
+	if !s.benchDB(w, err) {
+		return
+	}
+	traceHash, err := sha(trace)
+	if !s.benchDB(w, err) {
+		return
+	}
 	writeJSON(w, 200, map[string]any{
 		"clock_source": clockSource, "clock_simulated": simulated,
-		"state_hash": sha(snap), "fault_trace_hash": sha(trace), "fault_trace_length": len(trace),
+		"state_hash": stateHash, "fault_trace_hash": traceHash, "fault_trace_length": len(trace),
 	})
 }
 

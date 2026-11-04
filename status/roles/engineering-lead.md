@@ -26,3 +26,23 @@ Written only by the engineering-lead role (see `README.md`). Append dated entrie
 - **Decisions taken:** the T10 row read as ESCALATE only (safer), raised in the TRU-02 PR.
 - **Escalations:** the four GOV-30 decisions (docs#83, §4).
 - **Next task:** TRU-05, then TRU-04 (the G1 slice).
+
+### 2026-11-03 evening WAT (Architect's reply of 3 Nov)
+
+- **Request to the Repo Steward (task row, for `tasks.csv` and plan v1.11; I do not edit either):** Codex's basis-binding follow-up on noema#118 ("the basis remains caller-supplied; it is not proof the rules or evidence were evaluated until the decision path and the Decision Record bind it").
+
+  | Field | Value |
+  |---|---|
+  | task_id | TRU-13 |
+  | week / date | 1 / 2026-11-06 |
+  | workstream | TRU |
+  | task | Basis binding: the Decision's basis (policy rule versions, evidence snapshot, freshness) is built by the gate steps from what T9 and T11 actually read and evaluated, never supplied by the caller; the Decision Record refuses a decision whose basis differs from the evaluated set |
+  | owner | C1+AG (EL) |
+  | req_ids | REQ-TRU-001;REQ-TRU-004;REQ-TRU-007 |
+  | needs | TRU-02;TRU-03;TRU-05 |
+  | done_when | A test that changes the basis between evaluation and recording is refused; 0 ALLOW or CONFIRM whose basis is not the evaluated set (property test) |
+  | current_status | Backlog |
+
+  The first half is already in noema#133 (TRU-02: `Evaluate` refuses an ALLOW or CONFIRM with an incomplete basis). Binding to what was evaluated needs TRU-05's Decision Record.
+- **Done today:** noema#121 TRU-03 (CONFIRM alone is default deny), docs#87 (supersession clause), docs#88 (D5 removed), noema#139 (init.sh).
+- **Asked of the Architect:** a distinct reason code needs a PERD §23.3 change and an AGENT-15 contract bump (closed enum); the fintech pack has no PERMIT for `log_complaint_reference`, so a complaint is now denied.
