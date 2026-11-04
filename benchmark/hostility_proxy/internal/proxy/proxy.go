@@ -235,7 +235,7 @@ func (s *Server) apply(ctx context.Context, c *call) {
 	e := c.eff
 	if e != nil {
 		switch e.Name {
-		case plan.Latency, plan.NearTimeoutBefore, plan.NearTimeoutAfter:
+		case plan.Latency, plan.NearTimeoutBefore:
 			s.record(c, nil)
 			if !sleep(ctx, e.Delay) {
 				return
@@ -286,6 +286,13 @@ func (s *Server) apply(ctx context.Context, c *call) {
 	}
 	if e != nil {
 		switch e.Name {
+		case plan.NearTimeoutAfter:
+			// EC-T09, "a late success": the request has been forwarded and applied; only the answer is held. A caller that gave up
+			// first leaves an applied request behind and must learn the outcome some other way. One that waits gets the real answer.
+			s.record(c, nil)
+			if !sleep(ctx, e.Delay) {
+				return
+			}
 		case plan.TimeoutAfterCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)
