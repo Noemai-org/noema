@@ -29,10 +29,13 @@ class ProviderFailure(StrEnum):
 class ProviderError(Exception):
     """A call failed before there was an answer to judge. The message never carries a body, a header or a credential."""
 
-    def __init__(self, kind: ProviderFailure, status: int | None = None) -> None:
+    def __init__(self, kind: ProviderFailure, status: int | None = None, *, local: bool = False) -> None:
         super().__init__(f"provider call failed: {kind.value}" + (f" (HTTP {status})" if status is not None else ""))
         self.kind = kind
         self.status = status
+        # True when the refusal came from this service (a full worker pool) and no provider was contacted. The call still fails
+        # over, but it says nothing about the provider's health, so it is never charged to the provider's breaker.
+        self.local = local
 
 
 @dataclass(frozen=True, slots=True)

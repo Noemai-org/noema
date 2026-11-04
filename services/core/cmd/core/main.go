@@ -67,7 +67,7 @@ func probeHealth(addr string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // the status is all that is read; a failed close of an unread body is not actionable
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("healthz returned %d", resp.StatusCode)
 	}
@@ -94,7 +94,7 @@ func main() {
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout) // ctx is already done: keep its values, not its cancellation
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			logger.Error("shutdown", "error", err.Error())

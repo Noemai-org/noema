@@ -1,6 +1,6 @@
 """packcheck: every pack check, with one code path for the command line, the tests and CI (SoT 15.4, REQ-CAP-001, REQ-AG-001, REQ-AG-002).
 
-Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, reasons, conformance.
+Each problem is (check, message). Checks: schema, references, capability, predicate, graph, routing, reasons, templates, conformance.
 Not checked here: 'a capability has no benchmark cases' (AGENT-06): no benchmark case set exists yet.
 """
 from __future__ import annotations
@@ -313,6 +313,53 @@ def check_understanding(pack: dict, pack_dir: Path, conformance: bool = False) -
     return out
 
 
+def pack_slug(pack: dict) -> str:
+    """The pack's own folder under packs/: the first path component of its action graph files (fintech/graph/...)."""
+    return Path(pack["action_graph_files"][0]).parts[0]
+
+
+def template_locales(pack: dict) -> list[str]:
+    """The locales the pack declares (understanding.locales), in the order it lists them."""
+    return [loc["code"] for loc in (pack.get("understanding") or {}).get("locales", [])]
+
+
+def required_template_keys(pack: dict, pack_dir: Path) -> list[str]:
+    """Every <outcome_id>/<classification> a fallback template must exist for (REQ-EXP-002, PERD 22.3). The classifications are the ones the
+    pack's reconciliation rules can produce: each rule's classification plus the fallback's. They are pack data, never listed in code."""
+    rules = json.loads((pack_dir / pack_slug(pack) / "recon_rules" / "rules.v1.json").read_text())
+    classes = sorted({r["classification"] for r in rules["rules"]} | {rules["fallback"]["classification"]})
+    return [f"{o['outcome_id']}/{c}" for o in pack["outcome_definitions"] for c in classes]
+
+
+def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
+    """REQ-EXP-002: one JSON file per locale, <pack>/templates/<locale>.json, an object keyed <outcome_id>/<classification> whose values are
+    non-empty text. A missing file, a missing key, an empty text, a key that is not required and a file that is not JSON each fail, and each
+    names the locale and the key. Coverage is exact: 100% of the required keys in every locale."""
+    out: list[Problem] = []
+    folder = pack_dir / pack_slug(pack) / "templates"
+    required = set(required_template_keys(pack, pack_dir))
+    for loc in template_locales(pack):
+        path = folder / f"{loc}.json"
+        if not path.is_file():
+            out.append(("templates", f"{loc}: template file {path.name} is missing"))
+            continue
+        try:
+            doc = json.loads(path.read_text())
+        except ValueError:
+            out.append(("templates", f"{loc}: {path.name} is not valid JSON"))
+            continue
+        if not isinstance(doc, dict):
+            out.append(("templates", f"{loc}: {path.name} must be an object keyed <outcome_id>/<classification>"))
+            continue
+        for key in sorted(required - doc.keys()):
+            out.append(("templates", f"{loc}: no template for {key}"))
+        for key in sorted(doc.keys() - required):
+            out.append(("templates", f"{loc}: template key {key} is not an outcome/classification of this pack"))
+        for key in sorted(k for k in doc.keys() & required if not isinstance(doc[k], str) or not doc[k].strip()):
+            out.append(("templates", f"{loc}: the template for {key} is empty"))
+    return out
+
+
 def check_conformance(pack: dict) -> list[Problem]:
     """SoT 15.4 cap: at most 3 intent nodes, 1 trust profile, 1 outcome definition, no adapters, no executed capabilities."""
     out: list[Problem] = []
@@ -328,7 +375,10 @@ def check_conformance(pack: dict) -> list[Problem]:
     return out
 
 
-def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, graphs_override: dict[str, dict] | None = None) -> list[Problem]:
+def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, graphs_override: dict[str, dict] | None = None,
+        templates: str = "off") -> list[Problem]:
+    """templates="enforce" adds the REQ-EXP-002 coverage check. It is off by default only until EXP-04 delivers the real pack's templates;
+    EXP-04 cannot close until the real pack passes with it on (decision of 3 Nov 2026), and it turns it on in CI."""
     global CORE_REASON_CODES
     if not CORE_REASON_CODES:
         enums = validate.load_strict(validate.SCHEMAS / "enums.v1.json")
@@ -349,4 +399,6 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     problems += check_graphs(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
+    if templates == "enforce":
+        problems += check_templates(pack, pack_path.parent)
     return problems

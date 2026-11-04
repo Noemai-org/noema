@@ -216,7 +216,8 @@ def build_real_decider(label: str, config_path: str, environ: dict[str, str], gu
     (name, provider), = config.providers.items()
     if provider.rate is None or provider.max_output_tokens is None:
         raise DeciderUnavailable("the harness configuration needs a rate card and max_output_tokens for a budgeted run")
-    use = transport if transport is not None else wire.UrllibTransport()
+    # The bake-off makes one call at a time, so one worker is exact: a second concurrent call would be refused, not queued.
+    use = transport if transport is not None else wire.UrllibTransport(pool_size=1)
 
     def build(reported: str | None) -> Any:
         body = copy.deepcopy(raw)
