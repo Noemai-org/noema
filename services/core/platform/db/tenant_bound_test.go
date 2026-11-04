@@ -268,11 +268,11 @@ func TestAnEventNamingAnotherTenantIsRefused(t *testing.T) {
 // Security review of noema#145, finding 1 (REQ-SEC-004, INV-12, REQ-AUD-003): record_insert_t refuses a written_by that is not
 // the emitter of the login's power. Without this, a login of one power could write Record events in another power's name.
 // Powers map to emitters as PERD 41.1 names them: trust to core-trust, execution to core-execution, outcome to core-outcome,
-// evidence to core-evidence, orchestrator to core-workflows. Emitters that are not a power are open question Q-DEBT04-1.
+// evidence to core-evidence, orchestrator to core-workflows. Every other emitter (DEBT-07, docs#106 R16) is refused to a power login and can be written only by a login mapped to that emitter.
 func TestRecordInsertRefusesAnEmitterThatIsNotTheLoginsPower(t *testing.T) {
 	w := newTenantWorld(t)
 	a := w.login(t, w.name("execution_rw", "ten_a"))
-	for _, emitter := range []string{"core-trust", "core-outcome", "core-evidence", "core-workflows"} {
+	for _, emitter := range []string{"core-trust", "core-outcome", "core-evidence", "core-workflows", "core-edge", "core-record", "admin", "model-service", "mock-ledger", "benchmark-runner", "TRUST", ""} {
 		t.Run("execution login as "+emitter, func(t *testing.T) {
 			tx, err := a.Begin(ctx(t))
 			if err != nil {
@@ -292,5 +292,36 @@ func TestRecordInsertRefusesAnEmitterThatIsNotTheLoginsPower(t *testing.T) {
 	var n int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM record_event`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("a refused insert left %d rows (%v)", n, err)
+	}
+}
+
+// DEBT-07 (docs#106 R16, Codex review of noema#145): an emitter that is not a power is written only by a login that the
+// mapping binds to that emitter, and such a login writes nothing else. Cross-emitter forgery is refused both ways.
+func TestAnEmitterThatIsNotAPowerIsWrittenOnlyByItsOwnBoundLogin(t *testing.T) {
+	w := newTenantWorld(t)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_c', 'C')`); err != nil {
+		t.Fatal(err)
+	}
+	edge := testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", "ten_c", "core-edge")
+	one := func(pool *pgxpool.Pool, emitter string) error {
+		tx, err := pool.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(ctx(t)) }()
+		var seq int64
+		var head string
+		if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
+			t.Fatal(err)
+		}
+		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_y', $1, $2, $3, $4, 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', now(), '3.0', $4, jsonb_build_object('tenant_id', 'ten_c'), NULL)`,
+			seq+1, head, hashOf("8"), emitter)
+		return err
+	}
+	if err := one(edge, "core-edge"); err != nil {
+		t.Fatalf("the login bound to core-edge could not write as core-edge: %v", err)
+	}
+	for _, other := range []string{"core-execution", "core-trust", "admin", "model-service", "mock-ledger", "TRUST", ""} {
+		wantCode(t, one(edge, other), denied, "the core-edge login writing as "+other)
 	}
 }

@@ -65,22 +65,25 @@ func (w *world) pool(tenant string) *pgxpool.Pool {
 	return p
 }
 
-// groupOfEmitter is the group role whose login may write as an emitter: a power writes as its own identity (migration 0004,
-// security review of noema#145). An emitter that is not a power is written through the execution login in these tests.
-var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
+// groupOfEmitter is the group role whose login writes as a power's own emitter (migration 0004, DEBT-07). Any other emitter is
+// written through a login that the mapping binds to it, with the execution group's privileges.
+var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-execution": "execution_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
 
-// writer is the pool of the login that may write the tenant's chain as the emitter. Logins are created on first use.
+// writer is the pool of the login bound to the emitter for the tenant. Logins are created on first use.
 func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
 	t.Helper()
-	group, ok := groupOfEmitter[emitter]
-	if !ok {
-		return w.pool(tenant)
-	}
-	key := tenant + "/" + group
+	key := tenant + "/" + emitter
 	if p, ok := w.pools[key]; ok {
 		return p
 	}
-	w.pools[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	if group, ok := groupOfEmitter[emitter]; ok {
+		if emitter == "core-execution" {
+			return w.pool(tenant)
+		}
+		w.pools[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	} else {
+		w.pools[key] = testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", tenant, emitter)
+	}
 	return w.pools[key]
 }
 
@@ -218,7 +221,7 @@ func TestRecordInsertRefusesAnEventThatDoesNotExtendTheHead(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_X1',$1,$2,'sha256:h','EXECUTION','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'1.0','EXECUTION','{"tenant_id":"ten_aa"}'::jsonb,NULL)`, s, prev)
+		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_X1',$1,$2,'sha256:h','core-execution','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'3.0','core-execution','{"tenant_id":"ten_aa"}'::jsonb,NULL)`, s, prev)
 		if err != nil {
 			_, _ = tx.Exec(ctx(t), `ROLLBACK TO SAVEPOINT s`)
 		}

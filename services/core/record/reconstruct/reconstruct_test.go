@@ -107,22 +107,25 @@ type ev struct {
 	payload                                              map[string]any
 }
 
-// groupOfEmitter is the group role whose login may write as an emitter: a power writes as its own identity (migration 0004,
-// security review of noema#145). An emitter that is not a power is written through the execution login in these tests.
-var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
+// groupOfEmitter is the group role whose login writes as a power's own emitter (migration 0004, DEBT-07). Any other emitter is
+// written through a login that the mapping binds to it, with the execution group's privileges.
+var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-execution": "execution_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
 
-// writer is the pool of the login that may write the tenant's chain as the emitter. Logins are created on first use.
+// writer is the pool of the login bound to the emitter for the tenant. Logins are created on first use.
 func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
 	t.Helper()
-	group, ok := groupOfEmitter[emitter]
-	if !ok {
+	if emitter == "core-execution" {
 		return w.writers[tenant]
 	}
-	key := tenant + "/" + group
+	key := tenant + "/" + emitter
 	if p, ok := w.writers[key]; ok {
 		return p
 	}
-	w.writers[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	if group, ok := groupOfEmitter[emitter]; ok {
+		w.writers[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	} else {
+		w.writers[key] = testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", tenant, emitter)
+	}
 	return w.writers[key]
 }
 

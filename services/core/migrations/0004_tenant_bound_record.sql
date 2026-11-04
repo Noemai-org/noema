@@ -13,7 +13,11 @@
 CREATE TABLE tenant_login (
   login_role text PRIMARY KEY,
   power      text NOT NULL CHECK (power IN ('trust', 'execution', 'outcome', 'evidence', 'orchestrator', 'record_read')),
-  tenant_id  text NOT NULL REFERENCES tenant (tenant_id)
+  tenant_id  text NOT NULL REFERENCES tenant (tenant_id),
+  -- NULL: the login writes as its power's own emitter. Set: the login writes as this one emitter and nothing else. This is how an
+  -- emitter that is not a power (edge, record, admin, the model service, the mocks) gets an identity the database can check
+  -- (DEBT-07, docs#106 R16). No production login sets it until EDG-01 provisions the writers.
+  emitter    text CHECK (emitter IS NULL OR emitter ~ '^[a-z][a-z0-9-]*$')
 );
 ALTER TABLE tenant_login OWNER TO record_append;
 REVOKE ALL ON tenant_login FROM PUBLIC;
@@ -53,15 +57,14 @@ CREATE FUNCTION record_insert_t(
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE v_tenant text := record_login_tenant('write'); head record_chain_head%ROWTYPE; v_emitter text;
 BEGIN
-  -- A power's own emitter identity is written only by a login of that power (security review of noema#145, finding 1): a login
-  -- of one power cannot write the Record in another power's name. The emitters that are not a power (edge, record, admin, the
-  -- model service, the mocks) have no login of their own yet; they stay open to a power login until the Architect decides
-  -- how they are bound (open question in status/DEBT-04.md). The core refuses the ones outside the closed set before this.
-  SELECT CASE l.power WHEN 'trust' THEN 'core-trust' WHEN 'execution' THEN 'core-execution' WHEN 'outcome' THEN 'core-outcome'
-                      WHEN 'evidence' THEN 'core-evidence' WHEN 'orchestrator' THEN 'core-workflows' END
+  -- The emitter must be the one the login is bound to (security review of noema#145, finding 1; DEBT-07): a login of one power
+  -- cannot write the Record in another power's name, and an emitter that is not a power is written only by a login that the
+  -- mapping binds to it. Anything else is refused, including every emitter that has no bound login yet.
+  SELECT COALESCE(l.emitter, CASE l.power WHEN 'trust' THEN 'core-trust' WHEN 'execution' THEN 'core-execution' WHEN 'outcome' THEN 'core-outcome'
+                      WHEN 'evidence' THEN 'core-evidence' WHEN 'orchestrator' THEN 'core-workflows' END)
     INTO v_emitter FROM tenant_login l WHERE l.login_role = session_user::text;
-  IF p_written_by IN ('core-trust', 'core-execution', 'core-outcome', 'core-evidence', 'core-workflows') AND p_written_by IS DISTINCT FROM v_emitter THEN
-    RAISE EXCEPTION 'record chain: written_by names a power other than the login''s' USING ERRCODE = 'insufficient_privilege';
+  IF p_written_by IS DISTINCT FROM v_emitter THEN
+    RAISE EXCEPTION 'record chain: written_by is not the emitter bound to the login' USING ERRCODE = 'insufficient_privilege';
   END IF;
   IF p_body ->> 'tenant_id' IS DISTINCT FROM v_tenant THEN
     RAISE EXCEPTION 'record chain: the event names another tenant than the login''s' USING ERRCODE = 'insufficient_privilege';

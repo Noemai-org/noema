@@ -8,6 +8,7 @@ package testpg
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/url"
@@ -146,6 +147,18 @@ var powerOf = map[string]string{
 // group is the per-power group role, for example "execution_rw".
 func TenantLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant string) *pgxpool.Pool {
 	t.Helper()
+	return login(t, admin, dsn, group, tenant, "")
+}
+
+// EmitterLogin is TenantLogin for a login that the mapping binds to one emitter that is not a power (DEBT-07, docs#106 R16):
+// record_insert_t lets it write that emitter and nothing else. group gives its privileges; the emitter is, for example, core-edge.
+func EmitterLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
+	return login(t, admin, dsn, group, tenant, emitter)
+}
+
+func login(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
 	power, ok := powerOf[group]
 	if !ok {
 		t.Fatalf("testpg: %q is not a group role that logs in per tenant", group)
@@ -156,6 +169,10 @@ func TenantLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant string) *
 	}
 	dbName := strings.TrimPrefix(u.Path, "/")
 	role := group + "__" + tenant + "_" + dbName
+	if emitter != "" {
+		sum := sha256.Sum256([]byte(emitter))
+		role = fmt.Sprintf("%s__%s_e%x_%s", group, tenant, sum[:3], dbName)
+	}
 	quoted := pgx.Identifier{role}.Sanitize()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -170,7 +187,7 @@ func TenantLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant string) *
 			a.Close()
 		}
 	})
-	if _, err := admin.Exec(ctx, `INSERT INTO tenant_login (login_role, power, tenant_id) VALUES ($1, $2, $3)`, role, power, tenant); err != nil {
+	if _, err := admin.Exec(ctx, `INSERT INTO tenant_login (login_role, power, tenant_id, emitter) VALUES ($1, $2, $3, NULLIF($4, ''))`, role, power, tenant, emitter); err != nil {
 		t.Fatalf("testpg: map %s to %s: %v", role, tenant, err)
 	}
 	u.User = url.User(role)
