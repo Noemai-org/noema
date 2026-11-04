@@ -2,6 +2,7 @@ package controller_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -160,5 +161,43 @@ func TestAContextWithoutADeadlineIsRefused(t *testing.T) {
 	_, c, g := setup(t)
 	if _, err := c.Execute(context.Background(), TenantID, g.Grant.GrantID); err == nil {
 		t.Fatal("must refuse")
+	}
+}
+
+// An entropy failure while a receipt ID is minted (INV-07, INV-03): the controller refuses before the grant is spent and
+// before anything is dispatched. It neither panics nor leaves a half-written run. The grant stays unspent, so a later
+// presentation after the entropy source recovers can still run.
+func TestAFailedIDSourceRefusesBeforeSpendAndDispatch(t *testing.T) {
+	w, c, g := setup(t)
+	w.IDErr = errors.New("injected: the entropy source is unavailable")
+	out, err := func() (out controller.Outcome, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("the controller panicked on an entropy failure: %v", r)
+			}
+		}()
+		return c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+	}()
+	if err == nil || out.Receipt != nil || out.Void != "" {
+		t.Fatalf("outcome %+v, error %v; want a refusal with an error", out, err)
+	}
+	if !errors.Is(err, controller.ErrIDSource) {
+		t.Fatalf("error %v is not ErrIDSource", err)
+	}
+	s := w.Snapshot()
+	for _, e := range s.Record {
+		if e.Type == "GRANT_SPENT" || e.Type == "DISPATCH_ATTEMPTED" || e.Type == "RECEIPT" {
+			t.Fatalf("record event %s written although no receipt ID could be minted", e.Type)
+		}
+	}
+	for _, n := range s.Effects {
+		if n != 0 {
+			t.Fatalf("effects %v: a write was dispatched", s.Effects)
+		}
+	}
+	w.IDErr = nil
+	out, err = c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+	if err != nil || out.Receipt == nil {
+		t.Fatalf("after the source recovered, the unspent grant did not run: %+v %v", out, err)
 	}
 }
