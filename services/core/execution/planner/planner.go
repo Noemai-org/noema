@@ -124,6 +124,9 @@ func HashDocument(reg *registry.Registry, doc contracts.PlanV1) (string, error) 
 	if reg == nil {
 		return "", refuse("no registry")
 	}
+	if doc.SchemaVersion != schemaVersion {
+		return "", refuse("schema version %q is not plan.v1 %s; only that version has a plan hash", doc.SchemaVersion, schemaVersion)
+	}
 	if doc.GraphVersion == "" || doc.IntentNode == "" || len(doc.Steps) == 0 {
 		return "", refuse("a plan needs a graph version, an intent node and at least one step")
 	}

@@ -163,6 +163,11 @@ func TestADocumentWithAProhibitedOrUnregisteredIDCannotBeHashed(t *testing.T) {
 		"repeated number":  func(d *contracts.PlanV1) { d.Steps[1].Step = 0 },
 		"no graph version": func(d *contracts.PlanV1) { d.GraphVersion = "" },
 		"no intent node":   func(d *contracts.PlanV1) { d.IntentNode = "" },
+		// Codex review of noema#142: only plan.v1 at schema version 1.0 has a hash (REQ-PLN-002, INV-18).
+		"no schema version":      func(d *contracts.PlanV1) { d.SchemaVersion = "" },
+		"a future schema":        func(d *contracts.PlanV1) { d.SchemaVersion = "2.0" },
+		"a near miss of 1.0":     func(d *contracts.PlanV1) { d.SchemaVersion = "1.0.0" },
+		"a padded schema string": func(d *contracts.PlanV1) { d.SchemaVersion = " 1.0" },
 	} {
 		doc := good.Document()
 		doc.Steps = append([]contracts.PlanV1StepsItem(nil), doc.Steps...)
