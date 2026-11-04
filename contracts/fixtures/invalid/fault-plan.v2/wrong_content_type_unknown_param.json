@@ -1,0 +1,17 @@
+{
+  "fault_plan_id": "fp_x",
+  "scenario_id": "SCN-CORRUPT-001",
+  "seed": 15,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "header": "text/html"
+      }
+    }
+  ]
+}

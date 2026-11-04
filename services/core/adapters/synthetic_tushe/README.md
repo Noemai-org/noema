@@ -33,3 +33,7 @@ Clients of the synthetic enterprise behind the interfaces in `adapters` (PERD §
 
 - SYNTHETIC only; no real credential or data.
 - Open: a live CI run against a running mock-case (workflow change); the Execution bridge; complaint and evidence operations.
+
+## Corrupted payloads (ENV-15, REQ-ENV-005 as amended)
+
+`testdata/corrupted_recordings.json` holds 18 exchanges: three operations (get by id, find by key, create) under six corrupted-payload families (truncated body, invalid JSON, wrong `Content-Type`, empty body with a success status, extra field, missing required field). They were made by the real hostility proxy, over a real connection, in front of responses recorded from the real mock-case; nothing is written by hand. `benchmark/hostility_proxy` regenerates the file in memory and fails if the committed copy differs (`NOEMA_RECORD_CORRUPTED=1 go test ./internal/proxy -run TestCorruptedCaseExchanges` re-records it). `TestEveryCorruptedPayloadIsNeverAFactOrASuccess` requires each read to be `MALFORMED` or `UNAVAILABLE` and each write to be an unknown outcome (`NO_RESPONSE`, `201:UNRECOGNISED`, no acknowledgement). A 2xx body is read only when the response declares `application/json`; error statuses keep their classification whatever their `Content-Type`.

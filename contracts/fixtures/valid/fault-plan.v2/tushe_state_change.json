@@ -1,0 +1,22 @@
+{
+  "fault_plan_id": "fp_split_state",
+  "scenario_id": "SCN-STATE-003",
+  "seed": 3,
+  "deterministic": true,
+  "source": "TUSHE",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_settlement",
+      "effect": "DELAYED_SETTLEMENT",
+      "params": {
+        "minutes": 30
+      }
+    },
+    {
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "DEBIT_WITHOUT_CREDIT"
+    }
+  ]
+}

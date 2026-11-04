@@ -27,7 +27,7 @@ def _everything_the_exception_shows(exc: BaseException) -> str:
 
 @pytest.mark.parametrize("credential", [BAD_CREDENTIAL, NOT_LATIN_1])
 def test_the_transport_raises_a_provider_error_without_the_header_value(credential: str) -> None:
-    transport = UrllibTransport(allow_loopback_http=True)
+    transport = UrllibTransport(pool_size=2, allow_loopback_http=True)
     with pytest.raises(ProviderError) as caught:
         run(transport.post(URL, {"authorization": f"Bearer {credential}"}, b"{}", 2.0, 1024))
     exc = caught.value
@@ -38,7 +38,7 @@ def test_the_transport_raises_a_provider_error_without_the_header_value(credenti
 
 def test_the_adapter_surfaces_the_same_failure_without_the_credential() -> None:
     settings = AdapterSettings(endpoint="http://127.0.0.1:9", credential=BAD_CREDENTIAL, api_version=None, timeout_ms=2000, max_response_bytes=1024)
-    adapter = OpenAIResponses("openai", settings, UrllibTransport(allow_loopback_http=True))
+    adapter = OpenAIResponses("openai", settings, UrllibTransport(pool_size=2, allow_loopback_http=True))
     request = ProviderRequest("gpt-6-luna", "system", "user", "schema", {"type": "object"}, 100, 0.0)
     with pytest.raises(ProviderError) as caught:
         run(adapter.complete(request))
