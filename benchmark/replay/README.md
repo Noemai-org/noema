@@ -14,6 +14,10 @@ Output: `OUT/replay.json` and `OUT/replay.md`, byte-identical for the same input
 
 Exit codes: **0** IDENTICAL; **1** DIFFERENT or NOT_COMPARABLE (the report is written); **2** an input is unusable or the two runs cannot be compared (nothing is written); **3** a run is NOT_RUN, no access (nothing is written, nothing is faked).
 
+## The whole suite (BEN-18)
+
+`--all` compares every case of the suite instead of the cases of two stories; it cannot be combined with `--story`. BEN-18's check ("replay the full suite twice from a clean environment, zero mismatches in Tier 0 and Tier 1") is a run of this mode on two `full` runs: the compared fields are everything Tier 0 and Tier 1 are computed from, so an IDENTICAL verdict on every case means identical Tier 0 and Tier 1. The same rules apply: an errored or missing case is NOT_COMPARABLE, so the check cannot pass until every case can be run (today 177 of 320 cannot, which the report states, not hides); a named open exclusion is non-full coverage, never a pass.
+
 ## Rules the tool enforces
 
 - The two runs must differ in `run_id` and agree on the commit (and it must be recorded), the suite digest, the generator version and seed, the pack version and the policy version. Anything else is a refusal (exit 2), not a comparison.
