@@ -7,20 +7,22 @@ a 2xx/3xx/5xx, a connection that answers with data) is a FAIL. A 5xx is a FAIL: 
 Until Tushe documents the exact status and body, any 4xx without data passes; tighten EXPECTED_STATUS when it arrives.
 The Tushe admin credential is never used here; the key comes from a file named on the command line.
 
-    python3 -I check_isolation.py --base-url URL --key-file FILE [--probes probes.json]
+    python3 -I -m benchmark.isolation.check_isolation --base-url URL --key-file FILE [--probes probes.json]
 """
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
+from typing import Any, Dict, List, Optional, Tuple
 
 ERROR_KEYS = {"error", "code", "message", "detail", "status", "request_id", "type", "title"}
-EXPECTED_STATUS = None  # set to an int when Tushe documents the refusal status
+EXPECTED_STATUS: Optional[int] = None  # set to an int when Tushe documents the refusal status
 MAX_BODY = 1024
 
 
-def judge(status, body):
+def judge(status: int, body: str) -> Tuple[bool, str]:
     """Returns (ok, reason). Pure function, so the mutation self-test can drive it."""
     if EXPECTED_STATUS is not None and status != EXPECTED_STATUS:
         return False, "status %s, expected %s" % (status, EXPECTED_STATUS)
@@ -44,7 +46,7 @@ def judge(status, body):
     return True, "refused with an error envelope"
 
 
-def call(base, key, method, path, timeout=10):
+def call(base: str, key: str, method: str, path: str, timeout: int = 10) -> Tuple[int, str]:
     req = urllib.request.Request(base.rstrip("/") + path, method=method, data=(b"{}" if method in ("POST", "PUT") else None))
     req.add_header("Authorization", "Bearer " + key)
     req.add_header("Content-Type", "application/json")
@@ -55,7 +57,7 @@ def call(base, key, method, path, timeout=10):
         return e.code, e.read(MAX_BODY + 1).decode("utf-8", "replace")
 
 
-def run(base, key, probes):
+def run(base: str, key: str, probes: List[Dict[str, Any]]) -> int:
     failed = 0
     for p in probes:
         try:
@@ -68,11 +70,11 @@ def run(base, key, probes):
     return failed
 
 
-def main():
+def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base-url", required=True)
     ap.add_argument("--key-file", required=True)
-    ap.add_argument("--probes", default=__file__.rsplit("/", 1)[0] + "/probes.json" if "/" in __file__ else "probes.json")
+    ap.add_argument("--probes", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "probes.json"))
     a = ap.parse_args()
     with open(a.key_file, encoding="utf-8") as f:
         key = f.read().strip()

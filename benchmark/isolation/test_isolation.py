@@ -1,20 +1,25 @@
 """Tests for the isolation check against a stdlib test double (AT-02, INV-22). The double is SYNTHETIC. Run: python3 -I -m unittest."""
 import http.server
 import json
+import os
 import threading
 import unittest
+from typing import Any, Callable, Dict, List, Tuple
 
-import check_isolation as ci
+from benchmark.isolation import check_isolation as ci
 
-PROBES = json.load(open(__file__.rsplit("/", 1)[0] + "/probes.json" if "/" in __file__ else "probes.json"))["probes"]
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "probes.json"), encoding="utf-8") as _f:
+    PROBES: List[Dict[str, Any]] = json.load(_f)["probes"]
+
+HandlerFn = Callable[[str, str], Tuple[int, str]]
 
 
-def serve(handler_fn):
+def serve(handler_fn: HandlerFn) -> http.server.ThreadingHTTPServer:
     class H(http.server.BaseHTTPRequestHandler):
-        def log_message(self, *a):
+        def log_message(self, *a: Any) -> None:
             pass
 
-        def _do(self):
+        def _do(self) -> None:
             code, body = handler_fn(self.command, self.path)
             raw = body.encode()
             self.send_response(code)
@@ -29,19 +34,19 @@ def serve(handler_fn):
 
 
 class Isolation(unittest.TestCase):
-    def run_against(self, fn):
+    def run_against(self, fn: HandlerFn) -> int:
         s = serve(fn)
         try:
             return ci.run("http://127.0.0.1:%d" % s.server_address[1], "synthetic-key", PROBES)
         finally:
             s.shutdown()
 
-    def test_refusing_double_passes(self):
+    def test_refusing_double_passes(self) -> None:
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "forbidden", "code": "scope"}))), 0)
         self.assertEqual(self.run_against(lambda m, p: (404, "")), 0)
 
     # mutations: each leak must be caught
-    def test_leaks_fail(self):
+    def test_leaks_fail(self) -> None:
         n = len(PROBES)
         self.assertEqual(self.run_against(lambda m, p: (200, "{}")), n)                                   # served
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"events": [{"id": 1}]}))), n)    # 4xx with data
@@ -53,10 +58,10 @@ class Isolation(unittest.TestCase):
         # a partial leak: only /partner/events served
         self.assertEqual(self.run_against(lambda m, p: (200, "[]") if p == "/partner/events" else (403, "")), 1)
 
-    def test_unreachable_is_fail_not_pass(self):
+    def test_unreachable_is_fail_not_pass(self) -> None:
         self.assertEqual(ci.run("http://127.0.0.1:1", "k", PROBES[:1]), 1)
 
-    def test_tightened_status(self):
+    def test_tightened_status(self) -> None:
         ci.EXPECTED_STATUS = 403
         try:
             self.assertEqual(self.run_against(lambda m, p: (404, "")), len(PROBES))
