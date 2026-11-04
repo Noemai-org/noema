@@ -156,6 +156,7 @@ type call struct {
 	header  http.Header
 	body    []byte
 	staleID string
+	page    *pageReq // set when the request carries one of the proxy's own cursors
 }
 
 func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +175,20 @@ func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 	target := *up
 	target.Path = strings.TrimRight(up.Path, "/") + s.rewrite(r.URL.Path, numbers.ToReal)
 	target.RawQuery = s.rewrite(r.URL.RawQuery, numbers.ToReal)
+	var page *pageReq
+	if rt.Page != nil {
+		if raw := r.URL.Query().Get(rt.Page.CursorParam); raw != "" || r.URL.Query().Has(rt.Page.CursorParam) {
+			pr, ok := parseCursor(raw)
+			if !ok {
+				writeError(w, http.StatusBadRequest, "invalid cursor")
+				return
+			}
+			page = &pr
+			q := r.URL.Query()
+			q.Del(rt.Page.CursorParam) // the cursor is the proxy's own and never reaches Tushe
+			target.RawQuery = s.rewrite(q.Encode(), numbers.ToReal)
+		}
+	}
 	attrs := rt.Extract(r)
 	for k, v := range attrs {
 		attrs[k] = s.rewrite(v, numbers.ToReal) // plans are written with Tushe's own values
@@ -181,7 +196,7 @@ func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 	dec := s.engine.Next(rt.Target, rt.Operation, attrs)
 	now, _ := s.clock.now()
 	c := &call{w: w, r: r, rt: rt, dec: dec, eff: dec.Effect, now: now, method: r.Method, target: &target,
-		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody)}
+		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody), page: page}
 	c.header = r.Header.Clone()
 	for h := range hopByHop {
 		c.header.Del(h)
@@ -322,19 +337,18 @@ func (s *Server) deliver(c *call, resp *upstreamResponse) {
 			body = jsonx.Encode(tree)
 		} else {
 			body = []byte(s.rewrite(string(body), numbers.ToSynthetic))
-			if e != nil && e.Name != plan.StaleRead && e.Name != plan.Malformed {
+			if e != nil && e.Name != plan.StaleRead && !bodyEffect(e.Name) {
 				detail["applied"] = false
 			}
 		}
 	} else {
 		body = []byte(s.rewrite(string(body), numbers.ToSynthetic))
-		if e != nil && e.Name != plan.StaleRead && e.Name != plan.Malformed {
+		if e != nil && e.Name != plan.StaleRead && !bodyEffect(e.Name) {
 			detail["applied"] = false
 		}
 	}
-	if e != nil && e.Name == plan.Malformed {
-		body = body[:len(body)/2]
-		detail["bytes"] = len(body)
+	if e != nil {
+		resp, body = corruptBody(e, resp, body, detail)
 	}
 	if e != nil {
 		if len(detail) == 0 {
