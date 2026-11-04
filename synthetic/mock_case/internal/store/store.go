@@ -216,13 +216,13 @@ func nullable(s string) *string {
 	return &s
 }
 
-func hashJSON(v any) string {
+func hashJSON(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		panic(err) // a fixed struct of strings always marshals
+		return "", fmt.Errorf("hash a request: %w", err)
 	}
 	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 // PayloadHash is the hash an attachment carries: SHA-256 of the exact bytes received, as "sha256:<hex>".

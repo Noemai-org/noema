@@ -130,7 +130,7 @@ func adminConn(t *testing.T, db testpg.DB) *pgx.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) }) // cleanup; a close error cannot change what the test saw
 	return conn
 }
 
@@ -140,7 +140,7 @@ func appConn(t *testing.T, db testpg.DB) *pgx.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close(context.Background()) })
+	t.Cleanup(func() { _ = conn.Close(context.Background()) }) // cleanup; a close error cannot change what the test saw
 	return conn
 }
 
@@ -271,9 +271,11 @@ func TestEvidenceIsAppendOnlyWithPayloadHash(t *testing.T) {
 func TestDatabaseRefusesWhatTheServiceDoesNotOffer(t *testing.T) {
 	s, db := open(t)
 	ctx := context.Background()
-	c, _, _ := s.CreateCase(ctx, cmd("create_case"), newCase("idk_1"))
-	s.CreateComplaint(ctx, cmd("create_complaint"), "ten_a", c.CaseID, "idk_c1")
-	s.AppendEvidence(ctx, cmd("append_evidence"), "ten_a", c.CaseID, "idk_e1", "x")
+	c := mustCase(t, s, newCase("idk_1"))
+	if _, _, err := s.CreateComplaint(ctx, cmd("create_complaint"), "ten_a", c.CaseID, "idk_c1"); err != nil {
+		t.Fatal(err)
+	}
+	mustEvidence(t, s, c.CaseID, "idk_e1")
 	app := appConn(t, db)
 	admin := adminConn(t, db)
 	refused := []struct{ role, name, sql string }{
@@ -318,7 +320,7 @@ func TestDatabaseRefusesWhatTheServiceDoesNotOffer(t *testing.T) {
 func TestDatabaseAllowsOnlyOpenToRoutedAndFixesIntentAndEpoch(t *testing.T) {
 	s, db := open(t)
 	ctx := context.Background()
-	s.CreateCase(ctx, cmd("create_case"), newCase("idk_1"))
+	mustCase(t, s, newCase("idk_1"))
 	app, admin := appConn(t, db), adminConn(t, db)
 	refused := []struct{ role, name, sql string }{
 		{"app", "rewrite the intent", `UPDATE cases SET created_by_intent = 'int_x', version = version + 1`},
@@ -360,8 +362,8 @@ func TestDatabaseAllowsOnlyOpenToRoutedAndFixesIntentAndEpoch(t *testing.T) {
 func TestResetEmptiesAndRestartsNumbering(t *testing.T) {
 	s, db := open(t)
 	ctx := context.Background()
-	first, _, _ := s.CreateCase(ctx, cmd("create_case"), newCase("idk_1"))
-	s.AppendEvidence(ctx, cmd("append_evidence"), "ten_a", first.CaseID, "idk_e", "x")
+	first := mustCase(t, s, newCase("idk_1"))
+	mustEvidence(t, s, first.CaseID, "idk_e")
 	if err := s.Reset(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +371,7 @@ func TestResetEmptiesAndRestartsNumbering(t *testing.T) {
 	if err != nil || oc != store.Created || c.Reference != "CMP-2026-00001" || c.CaseID != first.CaseID {
 		t.Fatalf("a reset run must reproduce the same identifiers: %v %v %+v vs %+v", oc, err, c, first)
 	}
-	s.AppendEvidence(ctx, cmd("append_evidence"), "ten_a", c.CaseID, "idk_e", "x")
+	mustEvidence(t, s, c.CaseID, "idk_e")
 	// The triggers are back on after a reset: it does not leave the tables editable.
 	if _, err := adminConn(t, db).Exec(ctx, `DELETE FROM evidence`); err == nil {
 		t.Fatal("evidence became deletable after a reset")
@@ -380,7 +382,7 @@ func TestPagingHasAnExplicitCompletenessMarker(t *testing.T) {
 	s, _ := open(t)
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
-		s.CreateCase(ctx, cmd("create_case"), newCaseFor(fmt.Sprintf("idk_%d", i), fmt.Sprintf("TX%05d", i)))
+		mustCase(t, s, newCaseFor(fmt.Sprintf("idk_%d", i), fmt.Sprintf("TX%05d", i)))
 	}
 	f := store.CaseFilter{TenantID: "ten_a", PrincipalID: "usr_1"}
 	var seen []string
@@ -523,5 +525,23 @@ func TestConcurrentCreatesForOneSubjectYieldOneCase(t *testing.T) {
 	var n int
 	if err := adminConn(t, db).QueryRow(ctx, `SELECT count(*) FROM cases`).Scan(&n); err != nil || n != 2 {
 		t.Fatalf("%d cases, %v", n, err)
+	}
+}
+
+// mustCase and mustEvidence create what a test needs as its setup and fail the test if the store refuses: a setup error
+// that is ignored lets an assertion pass for the wrong reason.
+func mustCase(t *testing.T, s *store.Store, in store.CreateCaseInput) store.Case {
+	t.Helper()
+	c, _, err := s.CreateCase(context.Background(), cmd("create_case"), in)
+	if err != nil {
+		t.Fatalf("setup: create case: %v", err)
+	}
+	return c
+}
+
+func mustEvidence(t *testing.T, s *store.Store, caseID, key string) {
+	t.Helper()
+	if _, _, err := s.AppendEvidence(context.Background(), cmd("append_evidence"), "ten_a", caseID, key, "x"); err != nil {
+		t.Fatalf("setup: append evidence: %v", err)
 	}
 }

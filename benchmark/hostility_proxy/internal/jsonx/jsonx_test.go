@@ -16,7 +16,7 @@ func mustDecode(t *testing.T, s string) any {
 
 func TestDecodeKeepsNumbersAndRefusesTrailingData(t *testing.T) {
 	v := mustDecode(t, `{"amount_minor":9007199254740991,"ratio":0.35,"big":12345678901234567890}`)
-	if got := string(Encode(v)); got != `{"amount_minor":9007199254740991,"big":12345678901234567890,"ratio":0.35}` {
+	if got := string(mustEncode(t, v)); got != `{"amount_minor":9007199254740991,"big":12345678901234567890,"ratio":0.35}` {
 		t.Fatalf("numbers must survive exactly: %s", got)
 	}
 	if _, err := Decode([]byte(`{} {}`)); err == nil {
@@ -28,14 +28,14 @@ func TestDecodeKeepsNumbersAndRefusesTrailingData(t *testing.T) {
 }
 
 func TestEncodeDoesNotEscapeHTML(t *testing.T) {
-	if got := string(Encode(mustDecode(t, `{"a":"<b>&"}`))); got != `{"a":"<b>&"}` {
+	if got := string(mustEncode(t, mustDecode(t, `{"a":"<b>&"}`))); got != `{"a":"<b>&"}` {
 		t.Fatal(got)
 	}
 }
 
 func TestMapStringsReachesKeysAndNestedValues(t *testing.T) {
 	v := MapStrings(mustDecode(t, `{"k":["x",{"y":"x"}],"x":"v"}`), func(s string) string { return strings.ToUpper(s) })
-	if got := string(Encode(v)); got != `{"K":["X",{"Y":"X"}],"X":"V"}` {
+	if got := string(mustEncode(t, v)); got != `{"K":["X",{"Y":"X"}],"X":"V"}` {
 		t.Fatal(got)
 	}
 }
@@ -54,8 +54,8 @@ func TestDrift(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, field := Drift(mustDecode(t, c.in), c.change, c.field)
-		if string(Encode(got)) != c.out || field != c.changed {
-			t.Errorf("%s %q on %s: got %s (%q), want %s (%q)", c.change, c.field, c.in, Encode(got), field, c.out, c.changed)
+		if string(mustEncode(t, got)) != c.out || field != c.changed {
+			t.Errorf("%s %q on %s: got %s (%q), want %s (%q)", c.change, c.field, c.in, mustEncode(t, got), field, c.out, c.changed)
 		}
 	}
 }
@@ -64,19 +64,19 @@ func TestSkewShiftsTimestampsOnlyAndKeepsTheirShape(t *testing.T) {
 	in := `{"at":"2026-10-01T09:40:00+01:00","frac":"2026-10-01T09:40:00.250Z","not":"2026-10-01","id":"2026-10-01T09:40:00","n":5}`
 	got, n := Skew(mustDecode(t, in), 90)
 	want := `{"at":"2026-10-01T09:41:30+01:00","frac":"2026-10-01T09:41:30.250Z","id":"2026-10-01T09:40:00","n":5,"not":"2026-10-01"}`
-	if string(Encode(got)) != want || n != 2 {
-		t.Fatalf("%d shifted: %s", n, Encode(got))
+	if string(mustEncode(t, got)) != want || n != 2 {
+		t.Fatalf("%d shifted: %s", n, mustEncode(t, got))
 	}
 	back, _ := Skew(got, -90)
-	if string(Encode(back)) != string(Encode(mustDecode(t, in))) {
-		t.Fatalf("skew then un-skew must round trip: %s", Encode(back))
+	if string(mustEncode(t, back)) != string(mustEncode(t, mustDecode(t, in))) {
+		t.Fatalf("skew then un-skew must round trip: %s", mustEncode(t, back))
 	}
 }
 
 func TestInject(t *testing.T) {
 	v, field := Inject(mustDecode(t, `{"beneficiary":{"name":"Tunde A"}}`), "name", 1)
-	if field != "name" || !strings.Contains(string(Encode(v)), "SYNTHETIC INJECTION TEST") {
-		t.Fatalf("%s %q", Encode(v), field)
+	if field != "name" || !strings.Contains(string(mustEncode(t, v)), "SYNTHETIC INJECTION TEST") {
+		t.Fatalf("%s %q", mustEncode(t, v), field)
 	}
 	if _, field := Inject(mustDecode(t, `{"name":5}`), "name", 0); field != "" {
 		t.Fatal("only a string can be replaced")
@@ -97,7 +97,7 @@ func TestEventArray(t *testing.T) {
 	if !ok || len(a) != 2 {
 		t.Fatal("events not found")
 	}
-	if got := string(Encode(SetEventArray(doc, "events", []any{"x"}))); got != `{"events":["x"],"next":"c"}` {
+	if got := string(mustEncode(t, SetEventArray(doc, "events", []any{"x"}))); got != `{"events":["x"],"next":"c"}` {
 		t.Fatal(got)
 	}
 	top := mustDecode(t, `[1]`)
@@ -107,4 +107,13 @@ func TestEventArray(t *testing.T) {
 	if _, ok := EventArray(mustDecode(t, `{"events":"no"}`), "events"); ok {
 		t.Fatal("a non-array is not an event list")
 	}
+}
+
+func mustEncode(t testing.TB, v any) []byte {
+	t.Helper()
+	b, err := Encode(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

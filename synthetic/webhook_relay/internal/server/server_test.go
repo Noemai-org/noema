@@ -2,9 +2,11 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -34,7 +36,12 @@ func newRig(t *testing.T, path string) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() {
+		// a test may have closed the store itself to simulate a restart; closing it again is expected to say so
+		if err := st.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Errorf("close store: %v", err)
+		}
+	})
 	v := verify.New(key)
 	tok := verify.PullToken(key)
 	ts := httptest.NewServer(New(v, st, tok, func() time.Time { return now }).Handler())
@@ -51,8 +58,10 @@ func (r *rig) post(id string, ts int64, body, sig string) int {
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		r.t.Fatal(err)
+	}
 	return resp.StatusCode
 }
 
@@ -69,8 +78,11 @@ func (r *rig) get(path, token string) (int, []byte) {
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		r.t.Fatal(err)
+	}
 	return resp.StatusCode, b
 }
 
@@ -100,7 +112,9 @@ func TestRefusedDeliveriesAreNeverStored(t *testing.T) { // REQ-API-008, DEC-202
 	}
 	_, b := r.get("/v1/stats", r.tok)
 	var stats struct{ Counters map[string]int64 }
-	json.Unmarshal(b, &stats)
+	if err := json.Unmarshal(b, &stats); err != nil {
+		t.Fatal(err)
+	}
 	for _, k := range []string{"refused_bad_signature", "refused_timestamp_too_old", "refused_timestamp_in_the_future", "refused_missing_header", "refused_bad_id"} {
 		if stats.Counters[k] == 0 {
 			t.Errorf("counter %s is zero: %v", k, stats.Counters)
@@ -141,7 +155,9 @@ func TestPersistsAcrossRestart(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "s")
 	r := newRig(t, p)
 	r.signed("m1", now.Unix(), `{"n":1}`)
-	r.st.Close()
+	if err := r.st.Close(); err != nil {
+		t.Fatal(err)
+	}
 	r2 := newRig(t, p)
 	code, b := r2.get("/v1/deliveries", r2.tok)
 	if code != 200 || !strings.Contains(string(b), `"id":"m1"`) {
@@ -180,17 +196,23 @@ func TestPagingAfterCursor(t *testing.T) {
 		NextAfter  int64         `json:"next_after"`
 	}
 	_, b := r.get("/v1/deliveries?limit=2", r.tok)
-	json.Unmarshal(b, &page)
+	if err := json.Unmarshal(b, &page); err != nil {
+		t.Fatal(err)
+	}
 	if len(page.Deliveries) != 2 || page.NextAfter != 2 {
 		t.Fatalf("page 1: %+v", page)
 	}
 	_, b = r.get("/v1/deliveries?after=2&limit=10", r.tok)
-	json.Unmarshal(b, &page)
+	if err := json.Unmarshal(b, &page); err != nil {
+		t.Fatal(err)
+	}
 	if len(page.Deliveries) != 3 || page.Deliveries[0].ID != "m3" || page.NextAfter != 5 || string(page.Deliveries[0].Body) != `{"i":3}` {
 		t.Fatalf("page 2: %+v", page)
 	}
 	_, b = r.get("/v1/deliveries?after=5", r.tok)
-	json.Unmarshal(b, &page)
+	if err := json.Unmarshal(b, &page); err != nil {
+		t.Fatal(err)
+	}
 	if len(page.Deliveries) != 0 || page.NextAfter != 5 {
 		t.Fatalf("empty page: %+v", page)
 	}
