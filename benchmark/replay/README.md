@@ -17,10 +17,10 @@ Exit codes: **0** IDENTICAL; **1** DIFFERENT or NOT_COMPARABLE (the report is wr
 ## Rules the tool enforces
 
 - The two runs must differ in `run_id` and agree on the commit (and it must be recorded), the suite digest, the generator version and seed, the pack version and the policy version. Anything else is a refusal (exit 2), not a comparison.
-- Every result file must validate against `benchmark-case-result.v1` and belong to the run whose manifest sits beside it.
+- Every result file must validate against `benchmark-case-result.v2` and belong to the run whose manifest sits beside it.
 - **An errored case, a case missing from one run, or a story with no comparable case is NOT_COMPARABLE, never identical.** Two runs that fail the same way prove nothing about a decision.
 - A difference outranks NOT_COMPARABLE. The verdict is IDENTICAL only when every selected case is compared and equal and every story has at least one compared case.
-- Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters and the outcome digest. Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
+- Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters, the outcome digest and the number of customer turns the runner sent (`turns`, benchmark-case-result v2). Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
 
 ## Selection (founders' decision of 1 Nov 2026; tightened by the Architect on 2 Nov after Codex's finding)
 
