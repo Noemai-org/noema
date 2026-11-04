@@ -66,10 +66,10 @@ func (s *Store) LoadReceipt(ctx context.Context, tenantID, receiptID string) (ve
 	var r verifier.Receipt
 	var corr, principal *string
 	err := s.Pool.QueryRow(ctx, `SELECT r.receipt_id, r.tenant_id, r.grant_id, r.attempt, r.idempotency_key, r.logical_action, r.execution_state,
-			g.json->>'correlation_id', g.json->>'principal_id', r.dispatched_at, r.json, r.sig_key_id, r.sig_value
+			g.json->>'correlation_id', g.json->>'principal_id', r.dispatched_at, r.raw_status, r.external_ack, r.json, r.sig_key_id, r.sig_value
 		FROM execution_receipt r JOIN decision_grant g ON g.grant_id = r.grant_id AND g.tenant_id = r.tenant_id
 		WHERE r.tenant_id = $1 AND r.receipt_id = $2`, tenantID, receiptID).
-		Scan(&r.ReceiptID, &r.TenantID, &r.GrantID, &r.Attempt, &r.IdempotencyKey, &r.LogicalAction, &r.State, &corr, &principal, &r.DispatchedAt, &r.Document, &r.SigKeyID, &r.SigValue)
+		Scan(&r.ReceiptID, &r.TenantID, &r.GrantID, &r.Attempt, &r.IdempotencyKey, &r.LogicalAction, &r.State, &corr, &principal, &r.DispatchedAt, &r.RawStatus, &r.ExternalAck, &r.Document, &r.SigKeyID, &r.SigValue)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return verifier.Receipt{}, fmt.Errorf("%sreceipt %s does not exist for tenant %s", errPrefix, receiptID, tenantID)
 	}

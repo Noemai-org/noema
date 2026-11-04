@@ -84,7 +84,7 @@ func (f fixture) receipt(t *testing.T, id string, sig []byte) verifier.Receipt {
 	}
 	return verifier.Receipt{ReceiptID: "rcp_0001", TenantID: "ten_aa", GrantID: "grt_0001", Attempt: 1, IdempotencyKey: "idk_v1_abc",
 		LogicalAction: "ESCALATE_CASE", State: "OUTCOME_UNKNOWN", CorrelationID: "corr_abc123", DispatchedAt: dispatched,
-		Document: raw, SigKeyID: id, SigValue: value}
+		RawStatus: "TIMEOUT", Document: raw, SigKeyID: id, SigValue: value}
 }
 
 func (f fixture) signed(t *testing.T) verifier.Receipt {
@@ -148,6 +148,50 @@ func TestEveryBoundFieldIsBound(t *testing.T) {
 			r.Document, _ = json.Marshal(doc)
 			if got := check(t, c, r); got != verifier.AuthInvalid {
 				t.Fatalf("got %s", got)
+			}
+		})
+	}
+}
+
+// D7: the signed document also carries the transport result and the external acknowledgement, and the row keeps its own copies
+// (raw_status, external_ack). A row that disagrees with the signed document is not that receipt.
+func TestTheRowsTransportResultAndAcknowledgementAreTheDocuments(t *testing.T) {
+	f := newFixture(t) // transport_result TIMEOUT, external_ack null
+	ref := "ack_ref_1"
+	other := "ack_ref_2"
+	acked := newFixture(t)
+	acked.doc["execution_state"], acked.doc["transport_result"], acked.doc["external_ack"] = "ACKNOWLEDGED", "ACKNOWLEDGED", ref
+	empty := newFixture(t) // a document with no transport result at all is not a receipt, even if the row is empty too
+	empty.doc["transport_result"] = ""
+	for name, tc := range map[string]struct {
+		f      fixture
+		mutate func(*verifier.Receipt)
+		want   verifier.Authenticity
+	}{
+		"a null acknowledgement in the document and the row":                 {f, func(r *verifier.Receipt) {}, verifier.AuthValid},
+		"the row has an acknowledgement the document does not":               {f, func(r *verifier.Receipt) { r.ExternalAck = &ref }, verifier.AuthInvalid},
+		"the row's raw status carries a raw code after the transport result": {f, func(r *verifier.Receipt) { r.RawStatus = "TIMEOUT:504" }, verifier.AuthValid},
+		"the row's raw status is another transport result":                   {f, func(r *verifier.Receipt) { r.RawStatus = "ACKNOWLEDGED" }, verifier.AuthInvalid},
+		"the row's raw status only starts like the transport result":         {f, func(r *verifier.Receipt) { r.RawStatus = "TIMEOUTS" }, verifier.AuthInvalid},
+		"the row's raw status is empty":                                      {f, func(r *verifier.Receipt) { r.RawStatus = "" }, verifier.AuthInvalid},
+		"an empty transport result in the document and an empty raw status":  {empty, func(r *verifier.Receipt) { r.RawStatus = "" }, verifier.AuthInvalid},
+		"the same acknowledgement in the document and the row": {acked, func(r *verifier.Receipt) {
+			r.ExternalAck = &ref
+			r.State = "ACKNOWLEDGED"
+			r.RawStatus = "ACKNOWLEDGED"
+		}, verifier.AuthValid},
+		"the row has another acknowledgement": {acked, func(r *verifier.Receipt) {
+			r.ExternalAck = &other
+			r.State = "ACKNOWLEDGED"
+			r.RawStatus = "ACKNOWLEDGED"
+		}, verifier.AuthInvalid},
+		"the row has no acknowledgement but the document has one": {acked, func(r *verifier.Receipt) { r.ExternalAck = nil; r.State = "ACKNOWLEDGED"; r.RawStatus = "ACKNOWLEDGED" }, verifier.AuthInvalid},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := tc.f.signed(t)
+			tc.mutate(&r)
+			if got := check(t, tc.f.checker(receiptsig.Active), r); got != tc.want {
+				t.Fatalf("got %s, want %s", got, tc.want)
 			}
 		})
 	}

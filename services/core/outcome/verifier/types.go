@@ -55,7 +55,9 @@ type Receipt struct {
 	State          string // the execution state the receipt claims
 	CorrelationID  string
 	DispatchedAt   time.Time
-	Document       []byte // the signed receipt as stored, for ReceiptAuthenticity
+	RawStatus      string  // the row's raw_status: the transport result, then ":" and a raw code when there is one
+	ExternalAck    *string // the row's external_ack, nil when the target gave none
+	Document       []byte  // the signed receipt as stored, for ReceiptAuthenticity
 	SigKeyID       string
 	SigValue       string
 }

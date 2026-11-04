@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/outcome/verifier"
@@ -119,6 +120,9 @@ func documentIsTheRow(doc map[string]any, r verifier.Receipt) bool {
 			return false
 		}
 	}
+	if !transportResultIsTheRows(doc, r) || !acknowledgementIsTheRows(doc, r) {
+		return false
+	}
 	attempt, ok := doc["attempt"].(json.Number)
 	if !ok {
 		return false
@@ -138,4 +142,22 @@ func documentIsTheRow(doc map[string]any, r verifier.Receipt) bool {
 	// or rounded by how it was sent. So the row's time must be the document's time at that precision. The signature still binds the
 	// exact value in the document, so nothing is loosened beyond the stored precision.
 	return parsed.Equal(r.DispatchedAt) || parsed.Truncate(time.Microsecond).Equal(r.DispatchedAt) || parsed.Round(time.Microsecond).Equal(r.DispatchedAt)
+}
+
+// transportResultIsTheRows holds when the row's raw_status is the document's transport_result, followed by a raw code when there is one.
+func transportResultIsTheRows(doc map[string]any, r verifier.Receipt) bool {
+	tr, ok := doc["transport_result"].(string)
+	return ok && tr != "" && (r.RawStatus == tr || strings.HasPrefix(r.RawStatus, tr+":"))
+}
+
+// acknowledgementIsTheRows holds when the document's external_ack and the row's are both absent, or both present and equal.
+func acknowledgementIsTheRows(doc map[string]any, r verifier.Receipt) bool {
+	switch ack := doc["external_ack"].(type) {
+	case nil:
+		return r.ExternalAck == nil
+	case string:
+		return r.ExternalAck != nil && *r.ExternalAck == ack
+	default:
+		return false
+	}
 }
