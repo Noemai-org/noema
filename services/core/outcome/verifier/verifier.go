@@ -302,7 +302,7 @@ func evalBool(p *ip.Program, env ip.Env) (value, known bool) {
 }
 
 // consistent checks that every case read belongs to this tenant and transaction, that the key's case is the case under
-// that key, that at most one case holds the key, and that the key's case is among the transaction's cases.
+// that key, that at most one case holds the key, and that the key's case is among the transaction's cases and identical in both reads.
 func (r *run) consistent(byKey, byTx []Case) bool {
 	if len(byKey) > 1 {
 		return false
@@ -318,9 +318,11 @@ func (r *run) consistent(byKey, byTx []Case) bool {
 		}
 	}
 	if len(byKey) == 1 {
+		// The two reads are separate. The case under our key must be the very same record in both (every field), or it changed
+		// between them and neither read can be relied on.
 		for _, c := range byTx {
 			if c.CaseID == byKey[0].CaseID {
-				return true
+				return c == byKey[0]
 			}
 		}
 		return false
