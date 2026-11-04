@@ -65,9 +65,28 @@ func (w *world) pool(tenant string) *pgxpool.Pool {
 	return p
 }
 
+// groupOfEmitter is the group role whose login may write as an emitter: a power writes as its own identity (migration 0004,
+// security review of noema#145). An emitter that is not a power is written through the execution login in these tests.
+var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
+
+// writer is the pool of the login that may write the tenant's chain as the emitter. Logins are created on first use.
+func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
+	group, ok := groupOfEmitter[emitter]
+	if !ok {
+		return w.pool(tenant)
+	}
+	key := tenant + "/" + group
+	if p, ok := w.pools[key]; ok {
+		return p
+	}
+	w.pools[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	return w.pools[key]
+}
+
 func (w *world) append(t *testing.T, ev chain.Event) chain.Stored {
 	t.Helper()
-	tx, err := w.pool(ev.TenantID).Begin(ctx(t))
+	tx, err := w.writer(t, ev.TenantID, ev.WrittenBy).Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}

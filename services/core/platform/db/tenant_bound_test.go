@@ -264,3 +264,33 @@ func TestAnEventNamingAnotherTenantIsRefused(t *testing.T) {
 	_, err = tx.Exec(ctx(t), insertT, "recev_x1", seq+1, head, hashOf("9"), time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), "ten_b")
 	wantCode(t, err, denied, "an event naming ten_b written by ten_a's login")
 }
+
+// Security review of noema#145, finding 1 (REQ-SEC-004, INV-12, REQ-AUD-003): record_insert_t refuses a written_by that is not
+// the emitter of the login's power. Without this, a login of one power could write Record events in another power's name.
+// Powers map to emitters as PERD 41.1 names them: trust to core-trust, execution to core-execution, outcome to core-outcome,
+// evidence to core-evidence, orchestrator to core-workflows. Emitters that are not a power are open question Q-DEBT04-1.
+func TestRecordInsertRefusesAnEmitterThatIsNotTheLoginsPower(t *testing.T) {
+	w := newTenantWorld(t)
+	a := w.login(t, w.name("execution_rw", "ten_a"))
+	for _, emitter := range []string{"core-trust", "core-outcome", "core-evidence", "core-workflows"} {
+		t.Run("execution login as "+emitter, func(t *testing.T) {
+			tx, err := a.Begin(ctx(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = tx.Rollback(ctx(t)) }()
+			var seq int64
+			var head string
+			if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
+				t.Fatal(err)
+			}
+			_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_x', $1, $2, $3, $4, 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', now(), '3.0', $4, jsonb_build_object('tenant_id', 'ten_a'), NULL)`,
+				seq+1, head, hashOf("9"), emitter)
+			wantCode(t, err, denied, "execution login writing as "+emitter)
+		})
+	}
+	var n int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM record_event`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a refused insert left %d rows (%v)", n, err)
+	}
+}

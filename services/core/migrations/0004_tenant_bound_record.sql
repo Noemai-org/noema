@@ -51,8 +51,18 @@ CREATE FUNCTION record_insert_t(
   p_object_ref text, p_payload_hash text, p_correlation_id text, p_at timestamptz, p_schema_version text, p_actor text, p_body jsonb, p_payload jsonb
 ) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE v_tenant text := record_login_tenant('write'); head record_chain_head%ROWTYPE;
+DECLARE v_tenant text := record_login_tenant('write'); head record_chain_head%ROWTYPE; v_emitter text;
 BEGIN
+  -- A power's own emitter identity is written only by a login of that power (security review of noema#145, finding 1): a login
+  -- of one power cannot write the Record in another power's name. The emitters that are not a power (edge, record, admin, the
+  -- model service, the mocks) have no login of their own yet; they stay open to a power login until the Architect decides
+  -- how they are bound (open question in status/DEBT-04.md). The core refuses the ones outside the closed set before this.
+  SELECT CASE l.power WHEN 'trust' THEN 'core-trust' WHEN 'execution' THEN 'core-execution' WHEN 'outcome' THEN 'core-outcome'
+                      WHEN 'evidence' THEN 'core-evidence' WHEN 'orchestrator' THEN 'core-workflows' END
+    INTO v_emitter FROM tenant_login l WHERE l.login_role = session_user::text;
+  IF p_written_by IN ('core-trust', 'core-execution', 'core-outcome', 'core-evidence', 'core-workflows') AND p_written_by IS DISTINCT FROM v_emitter THEN
+    RAISE EXCEPTION 'record chain: written_by names a power other than the login''s' USING ERRCODE = 'insufficient_privilege';
+  END IF;
   IF p_body ->> 'tenant_id' IS DISTINCT FROM v_tenant THEN
     RAISE EXCEPTION 'record chain: the event names another tenant than the login''s' USING ERRCODE = 'insufficient_privilege';
   END IF;

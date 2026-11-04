@@ -156,3 +156,18 @@ func TestProvisionTenantLoginChecksTheLoginAndItsPower(t *testing.T) {
 	_, err := xa.Exec(ctx(t), `SELECT provision_tenant_login($1, 'execution', 'ten_b')`, good)
 	wantCode(t, err, denied, "a tenant login calling provision_tenant_login")
 }
+
+// Security review of noema#145, finding 2: provision_tenant_login runs as the migrating role (the provisioning script uses
+// noema_core). No group role, so no runtime login, and not PUBLIC may execute it.
+func TestNoRuntimeRoleCanExecuteProvisionTenantLogin(t *testing.T) {
+	w := newTenantWorld(t)
+	for _, role := range []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_read", "record_verify", "record_append", "public"} {
+		var ok bool
+		if err := w.admin.QueryRow(ctx(t), `SELECT has_function_privilege($1, 'provision_tenant_login(text, text, text)', 'EXECUTE')`, role).Scan(&ok); err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		if ok && role != "record_append" { // record_append owns the function; it has no login
+			t.Errorf("%s can execute provision_tenant_login", role)
+		}
+	}
+}
