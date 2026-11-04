@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"sort"
@@ -28,15 +29,16 @@ func Decode(b []byte) (any, error) {
 	return v, nil
 }
 
-// Encode writes v compactly, with keys sorted and no HTML escaping.
-func Encode(v any) []byte {
+// Encode writes v compactly, with keys sorted and no HTML escaping. A tree decoded from JSON always encodes, but a caller
+// that was handed something else must see the failure, not a crash.
+func Encode(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(v); err != nil {
-		panic(err) // a tree decoded from JSON always encodes
+		return nil, fmt.Errorf("encode JSON: %w", err)
 	}
-	return bytes.TrimRight(buf.Bytes(), "\n")
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 func sortedKeys(m map[string]any) []string {

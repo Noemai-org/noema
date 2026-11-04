@@ -1,0 +1,57 @@
+{
+  "synthetic": true,
+  "test": "AT-14 Concurrent update",
+  "spec": "Modify a resource between read and mutation. Pass: stale/concurrent mutation detected as documented.",
+  "source": "mock-case, fault CONCURRENT_MODIFICATION on route_case (nth_call 1), simulated clock",
+  "seed": 42,
+  "fault_plan_id": "fp_test",
+  "steps": [
+    {
+      "step": "create the case",
+      "request": "POST /v1/cases",
+      "status": 201,
+      "version_token": "v1",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    },
+    {
+      "step": "read: the caller learns version v1",
+      "request": "GET /v1/cases/{case_id}",
+      "status": 200,
+      "version_token": "v1",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    },
+    {
+      "step": "mutate on v1 after another party modified the case: detected",
+      "request": "POST /v1/cases/{case_id}/route",
+      "status": 409,
+      "error_code": "VERSION_MISMATCH",
+      "current_version_token": "v2"
+    },
+    {
+      "step": "read again: the competing modification is real, the mutation was not applied",
+      "request": "GET /v1/cases/{case_id}",
+      "status": 200,
+      "version_token": "v2",
+      "owner_queue": "PAYMENTS_OPERATIONS"
+    },
+    {
+      "step": "mutate on the current version: applied",
+      "request": "POST /v1/cases/{case_id}/route",
+      "status": 200,
+      "version_token": "v3",
+      "owner_queue": "DISPUTES"
+    },
+    {
+      "step": "repeat the mutation on the old version: still detected",
+      "request": "POST /v1/cases/{case_id}/route",
+      "status": 409,
+      "error_code": "VERSION_MISMATCH",
+      "current_version_token": "v3"
+    }
+  ],
+  "digest": {
+    "state_hash": "sha256:ac3d2d8d199ec260c3c52fc51ed519f51821e66b853df5f89a455f46d5b13170",
+    "fault_trace_hash": "sha256:f402e3914f0f25c35cb53d0cdc10e44ac0afe5ad36238c390b7153545810a8b6"
+  },
+  "verdict": "PASS"
+}

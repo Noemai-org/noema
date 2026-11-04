@@ -23,6 +23,16 @@ type EventFeed struct {
 	Events string `json:"events"`
 }
 
+// Page marks a route that returns a list in pages and says where the parts are. The proxy's PAGINATE effect splits
+// the list at the proxy; it needs to know the list, the completeness marker, the cursor and the query parameter that
+// carries the cursor back. Names only: the proxy invents no field.
+type Page struct {
+	Items       string `json:"items"`        // top-level key holding the array
+	Complete    string `json:"complete"`     // top-level boolean: true when this page is the last
+	NextCursor  string `json:"next_cursor"`  // top-level string: absent or empty on the last page
+	CursorParam string `json:"cursor_param"` // query parameter that carries the cursor
+}
+
 // Route is one entry of the table.
 type Route struct {
 	Method    string            `json:"method"`
@@ -32,6 +42,7 @@ type Route struct {
 	Operation string            `json:"operation"`
 	Attrs     map[string]string `json:"attrs,omitempty"` // attribute -> path:<var> | query:<name> | header:<Name>
 	EventFeed *EventFeed        `json:"event_feed,omitempty"`
+	Page      *Page             `json:"page,omitempty"`
 }
 
 // Table is the parsed route table.
@@ -128,6 +139,19 @@ func (t *Table) add(r Route, seen map[string]bool) error {
 	}
 	if r.EventFeed != nil && r.Method != "GET" {
 		return errors.New("an event feed is read with GET")
+	}
+	if r.Page != nil {
+		if r.Method != "GET" {
+			return errors.New("a paged list is read with GET")
+		}
+		for name, v := range map[string]string{"items": r.Page.Items, "complete": r.Page.Complete, "next_cursor": r.Page.NextCursor, "cursor_param": r.Page.CursorParam} {
+			if !nameRE.MatchString(v) {
+				return fmt.Errorf("page.%s %q is not a plain name", name, v)
+			}
+		}
+		if r.EventFeed != nil {
+			return errors.New("a route is a paged list or an event feed, not both")
+		}
 	}
 	idx := len(t.routes)
 	var conflict error

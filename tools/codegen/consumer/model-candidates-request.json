@@ -1,0 +1,19 @@
+{
+ "correlation_id": "corr_consumer01",
+ "filters": {
+  "amount_range": {
+   "currency": "NGN",
+   "max_minor": 250000,
+   "min_minor": 100000
+  },
+  "counterparty_surface": "ACME",
+  "time_window": {
+   "from": "2026-10-25T00:00:00Z",
+   "to": "2026-11-02T12:00:00Z"
+  }
+ },
+ "principal_ref": "usr_synth014",
+ "resource_kind": "test.transaction",
+ "schema_version": "1.0",
+ "tenant_id": "ten_synth01"
+}
