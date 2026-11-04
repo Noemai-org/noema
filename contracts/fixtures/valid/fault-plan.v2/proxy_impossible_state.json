@@ -1,0 +1,20 @@
+{
+  "fault_plan_id": "fp_impossible_credit",
+  "scenario_id": "SCN-STATE-020",
+  "seed": 20,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-destination",
+      "operation": "get_status",
+      "match": {
+        "transaction_ref": "TX88213"
+      },
+      "effect": "IMPOSSIBLE_STATE",
+      "params": {
+        "fixture": "credited_before_debited"
+      }
+    }
+  ]
+}
