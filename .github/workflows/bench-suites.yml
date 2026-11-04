@@ -1,8 +1,9 @@
 # Hand-dispatched run of one named benchmark suite (BEN-29; REQ-BEN-004, REQ-TST-005): us, chaos, evil, full, or the BEN-05 g1 pair.
 # It exists so each `make bench-*` target is executed for real in CI at least once, where `make reset` is safe (a fresh runner), and its run link is recorded.
 # workflow_dispatch only. It reads no secret and calls no model provider. Inputs reach the shell only through the environment, never expanded into the script.
-# Until the environment (fixture loader, core, oracle counters) exists the runner reports "not run, no access" (exit 3) and the job passes with that said plainly:
-# nothing is run, scored or faked. Any other non-zero exit fails the job. The held-out layer is never run here (INV-22, REQ-AGT-004).
+# Only a suite that RAN and was scored with Tier 0 at zero (exit 0) passes. A suite that did not run ("not run, no access", exit 3) FAILS the job: a skipped execution is
+# never presented as passing evidence (Codex review of noema#138). The summary still records NOT_RUN and why, so the run link is the honest record. Any other non-zero exit
+# also fails. The held-out layer is never run here (INV-22, REQ-AGT-004).
 name: bench-suites
 on:
   workflow_dispatch:
@@ -60,7 +61,7 @@ jobs:
             echo "## bench-suites: $SUITE, run id $RUN_ID, exit code $CODE"
             case "$CODE" in
               0) echo "Complete, and Tier 0 at zero." ;;
-              3) echo "**Not run: no access.** A required part of the environment is missing; nothing was run, scored or faked. The record says why." ;;
+              3) echo "**NOT RUN: no access. This is not a pass and not evidence.** A required part of the environment is missing; nothing was run, scored or faked. The record below says why. This job fails on purpose." ;;
               1) echo "Scored, but the run is incomplete or a gate is not at zero." ;;
               2) echo "Bad input or a missing part of this checkout (for g1: benchmark.replay)." ;;
               *) echo "Failed with exit code $CODE." ;;
@@ -80,11 +81,12 @@ jobs:
             benchmark/out/g1/replay/
           if-no-files-found: warn
           retention-days: 30
-      - name: Result
+      - name: Result (only a suite that ran, with Tier 0 at zero, passes)
         env:
           CODE: ${{ steps.bench.outputs.code }}
         run: |
           case "$CODE" in
-            0|3) exit 0 ;;
-            *) exit 1 ;;
+            0) exit 0 ;;
+            3) echo "::error::The suite did not run (exit 3, not run: no access). A suite that did not run is not a pass."; exit 1 ;;
+            *) echo "::error::The suite ended with exit code $CODE."; exit 1 ;;
           esac
