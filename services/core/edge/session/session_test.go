@@ -6,6 +6,7 @@ package session_test
 // input here, not a literal). Keys and tokens are SYNTHETIC, made in the test.
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -183,6 +184,39 @@ func TestTimeBoundariesAreExact(t *testing.T) {
 	maxLife["iat"], maxLife["exp"] = epoch.Unix(), epoch.Add(lifetime).Unix()
 	if _, err := v.Verify(mint(t, k.priv, goodHeader(), maxLife)); err != nil {
 		t.Errorf("a token living exactly the maximum is valid: %v", err)
+	}
+}
+
+// Regression (found by the fuzz test in CI, 4 Nov 2026): the last character of a base64url segment carries unused bits that a lenient decoder
+// ignores, so a token whose final signature character is respelled still decodes to the same bytes and verified. One token must have one
+// spelling (a cache or a deny list keyed on the token string would otherwise be bypassed), so the decoder is strict.
+func TestARespelledButEquivalentTokenIsRejected(t *testing.T) {
+	k := newKeys(t)
+	v, _ := verifier(t, k, epoch)
+	good := mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	if _, err := v.Verify(good); err != nil {
+		t.Fatal(err)
+	}
+	alphabet := "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := good[len(good)-1]
+	respelled := 0
+	for i := 0; i < len(alphabet); i++ {
+		c := alphabet[i]
+		if c == last {
+			continue
+		}
+		tok := good[:len(good)-1] + string(c)
+		sigBytes, err := base64.RawURLEncoding.DecodeString(strings.Split(tok, ".")[2])
+		orig, _ := base64.RawURLEncoding.DecodeString(strings.Split(good, ".")[2])
+		if err == nil && bytes.Equal(sigBytes, orig) { // a lenient decoder reads this as the same signature
+			respelled++
+			if _, err := v.Verify(tok); !errors.Is(err, session.ErrInvalid) {
+				t.Errorf("a respelling of the signature (%q) was accepted: %v", string(c), err)
+			}
+		}
+	}
+	if respelled == 0 {
+		t.Fatal("the test found no equivalent respelling; it proves nothing")
 	}
 }
 
