@@ -41,7 +41,7 @@ func New(t testing.TB) DB {
 	if err != nil {
 		t.Fatalf("connect to the test server: %v", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }() // setup is over by now; a close error cannot change what the test sees
 
 	// Roles are cluster-wide and test packages run in parallel, so create them under an advisory lock.
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7402602)`); err != nil {
@@ -77,8 +77,10 @@ END $$`)
 		if err != nil {
 			return
 		}
-		defer cc.Close(c2)
-		cc.Exec(c2, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`) //nolint:errcheck
+		defer func() { _ = cc.Close(c2) }() // cleanup; a close error cannot change what the test sees
+		if _, err := cc.Exec(c2, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`); err != nil {
+			t.Logf("drop test database %s: %v", name, err)
+		}
 	})
 	return DB{Name: name, AppDSN: dsnFor(t, base, "mock_case_app", name), AdminDSN: dsnFor(t, base, "mock_case_admin", name)}
 }

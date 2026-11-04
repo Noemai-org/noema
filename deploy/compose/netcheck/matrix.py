@@ -453,6 +453,80 @@ def check_webhook_relay() -> None:
             fail(f"webhook relay {name}: expected {want}, saw {status}")
 
 
+# Per-profile runtime probes (PLT-04). WHAT each profile must start is checked statically against PERD §65.1 by profiles.py (SEC-11,
+# noema#114), from `docker compose config`; keeping a second copy of that table here would let the two drift. This check does the part
+# a static read cannot: it starts each run profile on its own and probes from the networks of core, model and ui against what
+# REALLY runs, and requires that what runs is exactly what Compose says the profile is.
+DEV_SERVICES = {"core", "model", "ui", "postgres", "temporal"}
+LIVE_PROFILES = ("ci", "bench", "demo")
+ONE_SHOT = ("-credentials", "-anchor")  # sidecars that may have exited by the time the stack is up; never required to be running
+# the compose service behind each probe target (the truth and control listeners belong to the container that serves them)
+SERVICE_OF = {"mock-case-truth": "mock-case", "hostility-proxy-control": "hostility-proxy"}
+PROFILE_TARGETS = [t for t in TARGETS if not t.startswith("sentinel-")]  # the sentinels belong to the netcheck profile, not to a run profile
+
+
+def live_expectation(source: str, target: str, running: set) -> str:
+    """What a probe carrying `source`'s networks must see at `target` while exactly `running` runs: open only when the target's
+    service runs and a network is shared. Pure: tested offline."""
+    service = SERVICE_OF.get(target, target)
+    return "open" if service in running and NETWORKS[source] & NETWORKS[target] else "refused"
+
+
+def live_findings(profile: str, declared: set, running: set) -> list[str]:
+    """What is wrong with the set of services that really runs: anything running that Compose does not declare for the profile, or a
+    declared service that should be running and is not. Pure: tested offline."""
+    found = [f"{profile}: {name} is running but is not part of this profile" for name in sorted(running - declared)]
+    required = {n for n in declared if not n.endswith(ONE_SHOT)}
+    found += [f"{profile}: {name} should be running and is not" for name in sorted(required - running)]
+    return found
+
+
+def check_profiles() -> None:
+    print("9. each run profile started on its own, probed from core, model and ui (ci, bench, demo)")
+    plain = ["docker", "compose", "-f", str(HERE.parent / "docker-compose.yml")]
+    for profile in LIVE_PROFILES:
+        check_profile_live(profile, plain)
+
+
+def check_profile_live(profile: str, plain: list) -> None:
+    """Starts one profile on its own (never with netcheck, which would start everything), requires that exactly its services run,
+    and repeats the probes of check 2 from the networks of core, model and ui against what really runs."""
+    run_profile = plain + ["--profile", profile]
+    with_probes = run_profile + ["--profile", "netcheck"]
+    declared = set(run(run_profile + ["config", "--services"]).stdout.split())
+    running: set = set()
+    up = run(run_profile + ["up", "-d", "--wait"])
+    if up.returncode != 0:
+        fail(f"{profile}: the profile did not start: {up.stderr.strip()[-300:]}")
+        run(run_profile + ["down", "--remove-orphans"])
+        return
+    try:
+        running = set(run(run_profile + ["ps", "--services", "--status", "running"]).stdout.split())
+        for f in live_findings(profile, declared, running):
+            fail(f)
+        targets = [TARGETS[t] for t in PROFILE_TARGETS]
+        for source in ("core", "model", "ui"):
+            out = run(with_probes + ["run", "--rm", "--no-deps", "-T", f"probe-{source}", "python", "/probe.py"] + targets)
+            try:
+                seen = json.loads(out.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                fail(f"{profile}: probe-{source} gave no result: {out.stderr.strip()[:200]}")
+                continue
+            cells = []
+            for target in PROFILE_TARGETS:
+                if target == source:
+                    continue
+                want, got = live_expectation(source, target, running), seen.get(TARGETS[target], "none")
+                cells.append(f"{target}={got}" if got == want else f"{target}={got}!={want}")
+                if got != want:
+                    fail(f"{profile}: {source} -> {target}: expected {want}, saw {got}")
+            print(f"  {profile:6} from {source:5} " + " ".join(cells))
+    finally:
+        extras = sorted(running - DEV_SERVICES)
+        if extras:
+            run(run_profile + ["rm", "-sf"] + extras)
+
+
 def main() -> int:
     up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay"])
     if up.returncode != 0:
@@ -470,6 +544,7 @@ def main() -> int:
     check_evil_provider()
     check_webhook_relay()
     run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
+    check_profiles()
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1

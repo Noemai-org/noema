@@ -116,7 +116,7 @@ func caseRig(t *testing.T, upstream http.Handler) (data, control *httptest.Serve
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		b, _ := io.ReadAll(res.Body)
 		return res.StatusCode, string(b)
 	}
@@ -181,7 +181,7 @@ func recordCorrupted(t *testing.T) []byte {
 				t.Fatalf("%s/%s: %v", b.scenario, c.family, err)
 			}
 			rb, _ := io.ReadAll(res.Body)
-			res.Body.Close()
+			_ = res.Body.Close() // read to the end; a close error cannot change what was recorded
 			ex := corruptedExchange{Scenario: b.scenario + "__" + c.family, Base: b.scenario, Operation: b.operation, Family: c.family, Effect: c.effect, Params: json.RawMessage(c.params)}
 			ex.Response.Status, ex.Response.ContentType, ex.Response.Body = res.StatusCode, res.Header.Get("Content-Type"), string(rb)
 			out = append(out, ex)

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -48,13 +49,13 @@ func (t *trace) reset() {
 }
 
 // hashTrace is the digest of the whole trace, for comparing two runs in one call.
-func hashTrace(entries []TraceEntry) string {
+func hashTrace(entries []TraceEntry) (string, error) {
 	b, err := json.Marshal(entries)
 	if err != nil {
-		panic(err)
+		return "", fmt.Errorf("hash the trace: %w", err)
 	}
 	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
 type clockHolder struct {

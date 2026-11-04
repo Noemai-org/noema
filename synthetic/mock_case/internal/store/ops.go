@@ -38,7 +38,7 @@ type CreateCaseInput struct {
 	Epoch           int64
 }
 
-func (in CreateCaseInput) requestHash() string {
+func (in CreateCaseInput) requestHash() (string, error) {
 	return hashJSON(struct {
 		Op             string `json:"op"`
 		TenantID       string `json:"tenant_id"`
@@ -63,7 +63,10 @@ const subjectEpochIndex = "cases_subject_epoch_uq"
 // cannot both succeed.
 func (s *Store) CreateCase(ctx context.Context, cmd Cmd, in CreateCaseInput) (Case, Outcome, error) {
 	var out Case
-	hash := in.requestHash()
+	hash, err := in.requestHash()
+	if err != nil {
+		return out, 0, err
+	}
 	oc, err := s.run(ctx, cmd, func(tx pgx.Tx) (result, error) {
 		res := result{tenant: in.TenantID, key: in.IdempotencyKey, reqHash: hash}
 		existing, existingHash, err := scanCase(tx.QueryRow(ctx, `SELECT `+caseColumns+` FROM cases WHERE tenant_id = $1 AND idempotency_key = $2`, in.TenantID, in.IdempotencyKey))
@@ -237,11 +240,14 @@ const complaintColumns = `complaint_ref, seq, tenant_id, case_id, idempotency_ke
 // CreateComplaint logs a complaint reference against a case, with the same idempotency rules as a case.
 func (s *Store) CreateComplaint(ctx context.Context, cmd Cmd, tenant, caseID, key string) (Complaint, Outcome, error) {
 	var out Complaint
-	hash := hashJSON(struct {
+	hash, err := hashJSON(struct {
 		Op     string `json:"op"`
 		Tenant string `json:"tenant_id"`
 		CaseID string `json:"case_id"`
 	}{"create_complaint", tenant, caseID})
+	if err != nil {
+		return out, 0, err
+	}
 	oc, err := s.run(ctx, cmd, func(tx pgx.Tx) (result, error) {
 		res := result{tenant: tenant, caseID: caseID, key: key, reqHash: hash}
 		existing, existingHash, err := scanComplaint(tx.QueryRow(ctx, `SELECT `+complaintColumns+` FROM complaints WHERE tenant_id = $1 AND idempotency_key = $2`, tenant, key))
@@ -353,12 +359,15 @@ func scanAttachment(row pgx.Row) (Attachment, string, error) {
 func (s *Store) AppendEvidence(ctx context.Context, cmd Cmd, tenant, caseID, key, payload string) (Attachment, Outcome, error) {
 	var out Attachment
 	payloadHash := PayloadHash(payload)
-	hash := hashJSON(struct {
+	hash, err := hashJSON(struct {
 		Op          string `json:"op"`
 		Tenant      string `json:"tenant_id"`
 		CaseID      string `json:"case_id"`
 		PayloadHash string `json:"payload_hash"`
 	}{"append_evidence", tenant, caseID, payloadHash})
+	if err != nil {
+		return out, 0, err
+	}
 	oc, err := s.run(ctx, cmd, func(tx pgx.Tx) (result, error) {
 		res := result{tenant: tenant, caseID: caseID, key: key, reqHash: hash}
 		existing, existingHash, err := scanAttachment(tx.QueryRow(ctx, `SELECT `+evidenceColumns+` FROM evidence WHERE tenant_id = $1 AND idempotency_key = $2`, tenant, key))
