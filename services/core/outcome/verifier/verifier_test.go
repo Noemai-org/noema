@@ -264,6 +264,23 @@ func TestPendingExternalHasAWatchWithADeadline(t *testing.T) {
 			t.Fatal("a watch was stored for an effect that is not this receipt's")
 		}
 	})
+	// Codex: times are stored to the microsecond. A time less than one microsecond ahead truncates to now, which is not ahead.
+	for name, mut := range map[string]func(p *verifier.Pending, now time.Time){
+		"a first check less than a microsecond ahead": func(p *verifier.Pending, now time.Time) { p.NextCheckAt = now.Add(500 * time.Nanosecond) },
+		"a deadline less than a microsecond ahead": func(p *verifier.Pending, now time.Time) {
+			p.NextCheckAt, p.DeadlineAt = now.Add(500*time.Nanosecond), now.Add(500*time.Nanosecond)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, pend)
+			mut(w.req.Definition.Pending, w.clk.Now())
+			res, wr := w.decided(t)
+			want(t, res, verifier.Unknown, verifier.ReasonWatchUnusable)
+			if wr.Watch != nil {
+				t.Fatal("a watch that is due at the instant it is stored was accepted")
+			}
+		})
+	}
 	for name, mut := range map[string]func(*verifier.Pending){
 		"a deadline already past":      func(p *verifier.Pending) { p.DeadlineAt = t0 },
 		"a first check after deadline": func(p *verifier.Pending) { p.NextCheckAt = p.DeadlineAt.Add(time.Second) },
