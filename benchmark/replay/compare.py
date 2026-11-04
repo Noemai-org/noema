@@ -13,7 +13,7 @@ Json = dict[str, Any]
 OBSERVED_ORDERED = ("disposition", "classification", "resolved_target", "clarification_asked", "escalation_opened", "audit_events")
 OBSERVED_UNORDERED = ("dispatches", "verdicts", "claims", "disclosed_refs")
 ENVIRONMENT_COUNTERS = ("oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls")
-COMPARED_FIELDS = (*OBSERVED_ORDERED, *OBSERVED_UNORDERED, "effects", *ENVIRONMENT_COUNTERS, "outcome_digest")
+COMPARED_FIELDS = (*OBSERVED_ORDERED, *OBSERVED_UNORDERED, "effects", *ENVIRONMENT_COUNTERS, "outcome_digest", "turns")
 NOT_COMPARED = ("latency_ms", "cost_usd_micros", "run_id")
 LIMITATIONS = (
     "The diff covers the fields of the recorded case result. The result holds the Trust disposition, the dispatches with their grant state, the verdicts, the claims, "
@@ -41,6 +41,7 @@ def _view(result: Json) -> Json:
     view["effects"] = _unordered(environment["effects"])
     view.update({name: environment[name] for name in ENVIRONMENT_COUNTERS})
     view["outcome_digest"] = result["outcome_digest"]
+    view["turns"] = result["turns"]
     return view
 
 
