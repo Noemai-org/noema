@@ -28,7 +28,7 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 
 ### 2026-10-31 (time not recorded) accepted · Founder (role prompt) → Benchmark Owner agent
 - Purpose: assess BEN-01 to BEN-05 against `main`; prepare BEN-05 so it runs when OUT-01 and REC-03 land; then the G2 case families in tasks.csv order; DEC-2026-10-31 additions in the stated order.
-- Receiver used it for: the assessment (`status/roles/benchmark-owner.md`) and this tooling.
+- Receiver used it for: the assessment (`status/roles/benchmark-agent.md`) and this tooling.
 - Evidence: this PR.
 
 ### 2026-11-02 · Architect decision on Codex's finding (noema#102)
