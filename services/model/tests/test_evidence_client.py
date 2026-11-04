@@ -314,7 +314,7 @@ def core() -> Iterator[Core]:
 
 def client_for(url: str, transport: Any = None, timeout_ms: int = 500, max_bytes: int = 65536) -> EvidenceClient:
     config = EvidenceClientConfig(url, timeout_ms, max_bytes)
-    return EvidenceClient(config, transport or UrllibEvidenceTransport(None, allow_loopback_http=True))
+    return EvidenceClient(config, transport or UrllibEvidenceTransport(None, pool_size=2, allow_loopback_http=True))
 
 
 def test_a_real_round_trip_sends_the_contract_request_and_returns_candidates(core: Core) -> None:
@@ -355,9 +355,9 @@ def test_a_closed_port_is_a_source_error() -> None:
 def test_the_default_transport_refuses_plaintext_and_needs_a_client_certificate() -> None:
     for url in ("http://core.example.invalid", "http://127.0.0.1:1", "https://core.example.invalid"):
         with pytest.raises(CandidateSourceError, match="client certificate"):  # refused before any connection is tried
-            run(UrllibEvidenceTransport(None).post(url, {}, b"{}", 1.0, 100))
+            run(UrllibEvidenceTransport(None, pool_size=2).post(url, {}, b"{}", 1.0, 100))
     with pytest.raises(CandidateSourceError, match="client certificate"):
-        run(UrllibEvidenceTransport(None, allow_loopback_http=True).post("http://example.invalid", {}, b"{}", 1.0, 100))
+        run(UrllibEvidenceTransport(None, pool_size=2, allow_loopback_http=True).post("http://example.invalid", {}, b"{}", 1.0, 100))
 
 
 def test_a_mismatched_answer_over_the_wire_is_refused(core: Core) -> None:
@@ -400,7 +400,7 @@ def test_mutual_tls_presents_the_client_certificate_and_verifies_the_server(pki:
     try:
         context = client_ssl_context(str(pki / "client.pem"), str(pki / "client.key"), str(pki / "ca.pem"))
         assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname and context.minimum_version >= ssl.TLSVersion.TLSv1_2
-        got = run(client_for(core.url, UrllibEvidenceTransport(context)).fetch(query()))
+        got = run(client_for(core.url, UrllibEvidenceTransport(context, pool_size=2)).fetch(query()))
         assert len(got) == 2
         assert core.peer_cert and core.peer_cert[0]["subject"][0][0] == ("commonName", "client")
     finally:
@@ -413,10 +413,10 @@ def test_without_a_client_certificate_or_with_the_wrong_ca_nothing_is_read(pki: 
     try:
         no_cert = ssl.create_default_context(cafile=str(pki / "ca.pem"))
         with pytest.raises(CandidateSourceError):
-            run(client_for(core.url, UrllibEvidenceTransport(no_cert)).fetch(query()))
+            run(client_for(core.url, UrllibEvidenceTransport(no_cert, pool_size=2)).fetch(query()))
         wrong_ca = client_ssl_context(str(pki / "client.pem"), str(pki / "client.key"), str(pki / "rogue.pem"))
         with pytest.raises(CandidateSourceError):
-            run(client_for(core.url, UrllibEvidenceTransport(wrong_ca)).fetch(query()))
+            run(client_for(core.url, UrllibEvidenceTransport(wrong_ca, pool_size=2)).fetch(query()))
         assert core.seen == []
     finally:
         core.close()

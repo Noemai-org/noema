@@ -1,0 +1,78 @@
+{
+  "synthetic": true,
+  "test": "AT-05 Event loss",
+  "spec": "Drop a configured event. Pass: state changes; the event is absent from normal delivery; diagnostics show the drop.",
+  "source": "hostility proxy, fault DROP_WEBHOOK on events_feed (nth_call 1): the first event of that delivery is dropped",
+  "seed": 42,
+  "steps": [
+    {
+      "step": "state changes: write first (the system emits an event)",
+      "via": "proxy",
+      "request": "PUT /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "first",
+        "version": 1
+      }
+    },
+    {
+      "step": "state changes: write second (the system emits an event)",
+      "via": "proxy",
+      "request": "PUT /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "second",
+        "version": 2
+      }
+    },
+    {
+      "step": "normal delivery through the proxy",
+      "via": "proxy",
+      "request": "GET /v1/events",
+      "status": 200,
+      "observed": {
+        "sequences": [
+          2
+        ]
+      }
+    },
+    {
+      "step": "what the system emitted, read straight from it (stands in for the producer's delivery log)",
+      "via": "authoritative (straight to the system)",
+      "request": "GET /v1/events",
+      "status": 200,
+      "observed": {
+        "sequences": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "step": "authoritative state",
+      "via": "authoritative (straight to the system)",
+      "request": "GET /v1/resources/r1",
+      "status": 200,
+      "observed": {
+        "value": "second",
+        "version": 2
+      }
+    }
+  ],
+  "proxy_trace": [
+    {
+      "call_no": 1,
+      "detail": {
+        "applied": true,
+        "dropped_index": 0,
+        "remaining": 1
+      },
+      "effect": "DROP_WEBHOOK",
+      "fault_index": 0,
+      "operation": "events_feed",
+      "seq": 1,
+      "target": "mock-destination"
+    }
+  ],
+  "verdict": "PASS"
+}

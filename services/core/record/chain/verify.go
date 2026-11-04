@@ -46,6 +46,9 @@ type Queryer interface {
 // the number of events checked and a *BreakError at the first break. The chain verifier job (REC-05, REC-06)
 // calls this; it reads only and never repairs.
 func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
+	if actorsErr != nil {
+		return 0, fmt.Errorf("%w: %v", ErrActorsTable, actorsErr)
+	}
 	rows, err := q.Query(ctx, `SELECT seq, event_id, prev_hash, hash, written_by, actor, event_type, object_ref, payload_hash,
 		correlation_id, schema_version, body::text, payload::text FROM record_event WHERE tenant_id = $1 ORDER BY seq`, tenantID)
 	if err != nil {
@@ -79,7 +82,7 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 		if schemaVersion != SchemaVersion || body["schema_version"] != SchemaVersion {
 			return checked, brk(BreakSchema, "schema_version is not "+SchemaVersion)
 		}
-		if !emitters[writtenBy] || !validActor(actor, writtenBy) {
+		if !actors.emitters[writtenBy] || !validActor(actor, writtenBy) {
 			return checked, brk(BreakSchema, "written_by or actor is not an emitter or principal of PERD v1.17 section 32.1")
 		}
 		for k, v := range map[string]string{"event_id": eventID, "prev_hash": prevHash, "written_by": writtenBy, "actor": actor, "event_type": eventType,
