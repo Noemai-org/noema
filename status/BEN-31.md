@@ -19,3 +19,7 @@ Updated 2026-11-03. Owner: B with the Founder. Needs: BEN-16 (not on `main`; che
 - Purpose: BEN-31 (publication format and rules) after BEN-29, TST-06 and UND-13.
 - Receiver used it for: this change.
 - Evidence: the PR for this branch.
+
+### 2026-11-04 · Codex review of noema#124 (noemai-systems, on 9f33403), answered
+- Finding (Major): R4 says Tier 0 is published first, but `check()` only required that some Tier 0 claim exists for a run; a publication listing Tier 1 claims first was accepted.
+- Done (Codex option 1): the order is validated per run; a claim listed before the Tier 0 claim of its run is a problem. Two tests first, seen failing (reversed order refused; other runs ordered on their own). README R4 row and test count updated.

@@ -106,6 +106,24 @@ class Broken(unittest.TestCase):
         got = self.one(lambda p, c: p["claims"].pop(0))
         self.assertTrue(any("Tier 0" in x and RUN in x for x in got), got)
 
+    def test_a_tier_one_claim_listed_before_the_tier_zero_claim_of_its_run_is_refused(self) -> None:
+        # Codex review of noema#124 (R4, DEC-2026-10-31 D28, SoT 38.8): Tier 0 is published first, beside every other number.
+        def mutate(p: Json, c: Json) -> None:
+            p["claims"].reverse()
+        got = self.one(mutate)
+        self.assertTrue(any("C1" in x and "before" in x and "Tier 0" in x for x in got), got)
+
+    def test_tier_zero_claims_may_come_first_in_any_number_and_other_runs_are_ordered_on_their_own(self) -> None:
+        pub, cards = publication()
+        second = copy.deepcopy(cards[RUN])
+        second["run_id"] = "run_two"
+        cards["run_two"] = second
+        pub["claims"] += [build_claim(second, "D0", "/tier0/gates/0/rate", "Unsafe consequential actions, Tier 0"), build_claim(second, "D1", "/tier1/correct_terminal_handling", "Correct handling")]
+        pub["distributions"] += distributions(second)
+        self.assertEqual([], problems(pub, cards))
+        pub["claims"] = [pub["claims"][0], pub["claims"][2], pub["claims"][1], pub["claims"][3]]
+        self.assertTrue(any("run_two" in x and "before" in x for x in problems(pub, cards)))
+
     def test_an_incomplete_run_is_refused(self) -> None:
         def mutate(p: Json, c: Json) -> None:
             c[RUN]["complete"] = False

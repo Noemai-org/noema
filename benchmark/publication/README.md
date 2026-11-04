@@ -24,7 +24,7 @@ The public benchmark format and the publication rules, with a check that enforce
 | R1 | Every external number traces to a run ID in the evidence bundle | A claim names `run_id` and a pointer into that run's scorecard; k, n, rate and interval must equal the scorecard's |
 | R2 | Every number carries n, method, bound and confidence interval | `k`, `n`, `rate`, `ci95` (Wilson 95%), `method`, and the rule-of-three `bound` where the scorecard has one (zero failures) are required |
 | R3 | Nothing is cherry-picked; the full distribution is shown | Every family (B1 to B8 present) and every category of the scorecard appears, with matching counts, for each cited run |
-| R4 | Tier 0 is published first, beside every other number | Each cited run needs a Tier 0 claim; each claim states `tier0_all_zero` and it must equal the scorecard's |
+| R4 | Tier 0 is published first, beside every other number | Each cited run needs a Tier 0 claim, **listed before any other claim of that run**; each claim states `tier0_all_zero` and it must equal the scorecard's |
 | R5 | No text outruns its evidence | Every number written in a claim's text must be that claim's own k, n, rate, interval or bound |
 | R6 | A run that is not complete is not published; one that is not a release result says so | `complete` must be true; a non-release run's population must say "not a release result" |
 | R7 | Outcomes are judged against the final state of the systems | `outcome_basis` is `ORACLE_FINAL_STATE` |
@@ -48,4 +48,4 @@ It cannot judge prose, a demo or a chart. R9 and R10 stay with the founders at G
 
 ## Tests
 
-`make bench-test`: `test_check.py` (29 tests: a built publication passes; each rule has a case that breaks it and is named in the problem).
+`make bench-test`: `test_check.py` (31 tests: a built publication passes; each rule has a case that breaks it and is named in the problem).

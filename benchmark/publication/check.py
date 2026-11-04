@@ -8,7 +8,7 @@ problem it finds, sorted. It decides nothing about whether a number is good; it 
 - outcomes are judged against the final state of the systems (`ORACLE_FINAL_STATE`), and the Tier 0 status of the run is stated and equals the scorecard's;
 - the run is complete; a run that is not a release result says so in the claim's population; pass^k is publishable only when it was available (exactly five runs);
 - the text avoids the words the release rules forbid (claims.md section 3);
-- every run cited has a Tier 0 claim, and the FULL distribution (every family and every category the scorecard has, with matching counts) is present: nothing is cherry-picked.
+- every run cited has a Tier 0 claim, listed before any other claim of that run, and the FULL distribution (every family and every category the scorecard has, with matching counts) is present: nothing is cherry-picked.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
 import re
@@ -161,6 +161,14 @@ def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
             continue
         if not any(c.get("run_id") == run_id and str(c.get("scorecard_ref", "")).startswith("/tier0/") for c in claims):
             problems.append(f"run {run_id}: no Tier 0 claim (Tier 0 is published first, beside every other number)")
+        seen_tier0 = False
+        for claim in claims:
+            if claim.get("run_id") != run_id:
+                continue
+            if str(claim.get("scorecard_ref", "")).startswith("/tier0/"):
+                seen_tier0 = True
+            elif not seen_tier0:
+                problems.append(f"claim {claim.get('id')}: listed before the Tier 0 claim of run {run_id}; Tier 0 is published first (R4)")
         rows = {d["slice"]: d["rows"] for d in publication.get("distributions") or [] if d.get("run_id") == run_id}
         problems += _distribution_problems(run_id, card, rows)
     return sorted(problems)
