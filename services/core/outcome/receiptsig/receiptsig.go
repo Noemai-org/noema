@@ -131,5 +131,11 @@ func documentIsTheRow(doc map[string]any, r verifier.Receipt) bool {
 		return false
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, at)
-	return err == nil && parsed.Equal(r.DispatchedAt)
+	if err != nil {
+		return false
+	}
+	// Execution signs the time to the nanosecond; the row holds a timestamptz, which PostgreSQL keeps to the microsecond, truncated
+	// or rounded by how it was sent. So the row's time must be the document's time at that precision. The signature still binds the
+	// exact value in the document, so nothing is loosened beyond the stored precision.
+	return parsed.Equal(r.DispatchedAt) || parsed.Truncate(time.Microsecond).Equal(r.DispatchedAt) || parsed.Round(time.Microsecond).Equal(r.DispatchedAt)
 }
