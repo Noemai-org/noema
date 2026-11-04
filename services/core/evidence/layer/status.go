@@ -57,5 +57,49 @@ type Source struct {
 // unhandled case is UNKNOWN. It never returns INFERRED, AMBIGUOUS or CONTRADICTORY (those need more than one item) and never
 // turns absence into a negative fact (INV-19).
 func AssignStatus(r Read, s Source, now time.Time) contracts.EnumsV1FactStatus {
-	return contracts.EnumsV1FactStatusUNKNOWN
+	switch r.Class {
+	case ReadOutOfScope:
+		return contracts.EnumsV1FactStatusUNAUTHORIZED
+	case ReadTimeout, ReadServerError, ReadRateLimited, ReadCircuitOpen:
+		return contracts.EnumsV1FactStatusUNAVAILABLE
+	case ReadMalformed:
+		return contracts.EnumsV1FactStatusUNKNOWN
+	case ReadNotFound:
+		// Absence is never a negative fact. Its one exception is a source that declares AUTHORITATIVE_NEGATIVE and returned a
+		// not-found with the terminal flag; that answer is then judged like any other read, so it is KNOWN only from an
+		// authoritative source within its limit. Every other not-found is
+		// UNKNOWN: the record is absent where absence is not meaningful (PERD §21.1).
+		if !(s.Absence == AbsenceAuthoritativeNegative && r.Terminal) {
+			return contracts.EnumsV1FactStatusUNKNOWN
+		}
+	case ReadOK:
+		if !r.Determinate {
+			return contracts.EnumsV1FactStatusUNKNOWN
+		}
+	default:
+		return contracts.EnumsV1FactStatusUNKNOWN
+	}
+	if s.Authority != AuthAuthoritative {
+		return contracts.EnumsV1FactStatusUNKNOWN // corroboration and a customer's claim never confer KNOWN on their own
+	}
+	limit, ok := effectiveLimit(s)
+	if !ok || r.ReadAt.After(now) {
+		return contracts.EnumsV1FactStatusUNKNOWN
+	}
+	if now.Sub(r.ReadAt) > limit {
+		return contracts.EnumsV1FactStatusSTALE
+	}
+	return contracts.EnumsV1FactStatusKNOWN
+}
+
+// effectiveLimit is the stricter of the source's limit and the profile's (SoT §43.5, INV-23): a profile can only tighten. A source
+// limit that is zero or negative, or a negative profile limit, is no usable limit.
+func effectiveLimit(s Source) (time.Duration, bool) {
+	if s.SourceLimit <= 0 || s.ProfileLimit < 0 {
+		return 0, false
+	}
+	if s.ProfileLimit > 0 && s.ProfileLimit < s.SourceLimit {
+		return s.ProfileLimit, true
+	}
+	return s.SourceLimit, true
 }
