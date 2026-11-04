@@ -7,6 +7,7 @@ toolchain go1.24.7
 require (
 	github.com/jackc/pgx/v5 v5.7.6
 	go.temporal.io/sdk v1.37.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
