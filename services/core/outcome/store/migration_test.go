@@ -250,9 +250,9 @@ func TestVerdictsAreInsertOnly(t *testing.T) {
 	}
 }
 
-// Q2: migrations apply by name and a gap is allowed. 0004 on a fresh database, and 0002 (noema#94, pinned) applied
-// afterwards on a database that already has 0004, leave the same working write path.
-func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
+// Q2: migrations apply by name and a gap is allowed. 0007 on a fresh database, and 0002 (noema#94, pinned) applied
+// afterwards on a database that already has 0007, leave the same working write path.
+func TestUpgradeWhere0002ArrivesAfter0007(t *testing.T) {
 	raw, err := os.ReadFile("../../migrations/testdata/0002_grant_spent_void.noema94.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +261,7 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 	if got := hex.EncodeToString(sum[:]); got != "faafb174516bd197acc8935d8b7c8fcfc7f587f6b730096ccf9273bfd4a32626" {
 		t.Fatalf("the pinned noema#94 migration changed: %s", got)
 	}
-	w := newWorld(t) // 0001 and 0004 only
+	w := newWorld(t) // 0001 and 0007 only
 	if err := achieved("ver_u1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestUpgradeWhere0002ArrivesAfter0004(t *testing.T) {
 	}
 	applied, err := db.Migrate(ctx(t), w.admin, files)
 	if err != nil {
-		t.Fatalf("0002 after 0004: %v", err)
+		t.Fatalf("0002 after 0007: %v", err)
 	}
 	if len(applied) != 1 || applied[0] != "0002_grant_spent_void.sql" {
 		t.Fatalf("applied = %v, want only 0002", applied)

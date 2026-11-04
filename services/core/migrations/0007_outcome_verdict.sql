@@ -1,4 +1,4 @@
--- 0004: Outcome's verdict, its durable watch and its one write path.
+-- 0007: Outcome's verdict, its durable watch and its one write path.
 -- Task OUT-01; REQ-VER-001, REQ-VER-003, REQ-VER-004, REQ-RCV-002; INV-04, INV-15, INV-28.
 -- Numbering: 0002 is reserved for noema#94 and 0003 for the record_read migration. The migrator applies by name
 -- and a gap is allowed (platform/db.Migrate); outcome/store tests a fresh database and an upgrade where 0002 arrives

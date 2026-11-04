@@ -21,7 +21,7 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 
 Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw`. The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 
-`0004_outcome_verdict.sql` (OUT-01). Numbering: `0002` is reserved for noema#94 and `0003` for the `record_read` migration; the migrator applies by name and accepts the gap (tested on a fresh database and on an upgrade where `0002` arrives after `0004`).
+`0007_outcome_verdict.sql` (OUT-01). Numbering: `0002` is reserved for noema#94, `0003` is the `record_read` migration and `0004` to `0006` are DEBT-04's (noema#145); OUT-01 took `0007` so that no two migrations share a number. The migrator applies by name and accepts a gap (tested on a fresh database and on an upgrade where `0002` arrives after `0007`).
 
 | Object | Rule |
 |---|---|
