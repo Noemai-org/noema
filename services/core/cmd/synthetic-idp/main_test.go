@@ -21,7 +21,7 @@ import (
 
 var epoch = time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 
-func keygen(t *testing.T) (dir string) {
+func newKeyDir(t *testing.T) (dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	var out bytes.Buffer
@@ -48,7 +48,7 @@ func verifierFor(t *testing.T, dir, kid string, clk clock.Clock) *session.Verifi
 	return v
 }
 
-func issue(t *testing.T, dir string, clk clock.Clock, extra ...string) (string, error) {
+func mintToken(t *testing.T, dir string, clk clock.Clock, extra ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	args := append([]string{"issue", "-key", filepath.Join(dir, "private.pem"), "-kid", "idp-k1", "-aud", "noema-core", "-tenant", "tnt_a", "-principal", "cust_1", "-role", "customer", "-ttl", "10m"}, extra...)
@@ -57,7 +57,7 @@ func issue(t *testing.T, dir string, clk clock.Clock, extra ...string) (string, 
 }
 
 func TestKeygenWritesAPrivateKeyOnlyTheOwnerCanReadAndAPublicKeyTheCoreParses(t *testing.T) {
-	dir := keygen(t)
+	dir := newKeyDir(t)
 	st, err := os.Stat(filepath.Join(dir, "private.pem"))
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("private key: %v %v", err, st)
@@ -82,9 +82,9 @@ func TestKeygenWritesAPrivateKeyOnlyTheOwnerCanReadAndAPublicKeyTheCoreParses(t 
 }
 
 func TestATokenTheIssuerMakesIsAcceptedByTheCoresVerifier(t *testing.T) {
-	dir := keygen(t)
+	dir := newKeyDir(t)
 	clk := clock.NewManual(epoch)
-	tok, err := issue(t, dir, clk, "-role", "approver")
+	tok, err := mintToken(t, dir, clk, "-role", "approver")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,16 +103,16 @@ func TestATokenTheIssuerMakesIsAcceptedByTheCoresVerifier(t *testing.T) {
 }
 
 func TestATokenFromAnotherKeyOrKidIsRejectedByTheCore(t *testing.T) {
-	a, b := keygen(t), keygen(t)
+	a, b := newKeyDir(t), newKeyDir(t)
 	clk := clock.NewManual(epoch)
-	tok, err := issue(t, b, clk)
+	tok, err := mintToken(t, b, clk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := verifierFor(t, a, "idp-k1", clk).Verify(tok); !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("a token signed by another key must be rejected: %v", err)
 	}
-	other, err := issue(t, a, clk, "-kid", "idp-k2")
+	other, err := mintToken(t, a, clk, "-kid", "idp-k2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestATokenFromAnotherKeyOrKidIsRejectedByTheCore(t *testing.T) {
 }
 
 func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
-	dir := keygen(t)
+	dir := newKeyDir(t)
 	clk := clock.NewManual(epoch)
 	for name, extra := range map[string][]string{
 		"zero ttl":       {"-ttl", "0s"},
@@ -133,7 +133,7 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 		"empty audience": {"-aud", ""},
 		"empty kid":      {"-kid", ""},
 	} {
-		if tok, err := issue(t, dir, clk, extra...); err == nil || tok != "" {
+		if tok, err := mintToken(t, dir, clk, extra...); err == nil || tok != "" {
 			t.Errorf("%s: issued %q, err %v", name, tok, err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 
 // The issuer never prints a private key, and an error never carries one.
 func TestNothingSecretIsPrinted(t *testing.T) {
-	dir := keygen(t)
+	dir := newKeyDir(t)
 	raw, _ := os.ReadFile(filepath.Join(dir, "private.pem"))
 	var out bytes.Buffer
 	_ = run([]string{"issue", "-key", filepath.Join(dir, "private.pem")}, &out, clock.NewManual(epoch))
