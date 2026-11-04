@@ -40,8 +40,9 @@ class IdpSession(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def provider(self, binary: Path, **kw: object) -> IdpSessionProvider:
-        return IdpSessionProvider(binary, self.key, kid="idp-k1", audience="noema-core", tenant_id="tnt_a", now=self.clock, **kw)  # type: ignore[arg-type]
+    def provider(self, binary: Path, ttl_s: int = 600, refresh_margin_s: int = 60, timeout_s: float = 10.0) -> IdpSessionProvider:
+        return IdpSessionProvider(binary, self.key, kid="idp-k1", audience="noema-core", tenant_id="tnt_a", ttl_s=ttl_s,
+                                  refresh_margin_s=refresh_margin_s, timeout_s=timeout_s, now=self.clock)
 
     def count(self, binary: Path) -> int:
         return int(Path(str(binary) + ".count").read_text())
