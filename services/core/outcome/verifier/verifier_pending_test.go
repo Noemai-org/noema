@@ -75,3 +75,29 @@ func TestPendingExternalHasAWatchWithADeadline(t *testing.T) {
 		})
 	}
 }
+
+// P2 (Codex): the pending condition is only needed when the success predicate does not hold. A variable the pending condition
+// names but the request does not bind must not turn a fully bound, true success predicate into UNKNOWN; it matters only when the
+// pending condition has to be evaluated, and then it is UNKNOWN, never false.
+func TestAnUnboundPendingVariableMattersOnlyWhenThePendingConditionIsEvaluated(t *testing.T) {
+	unboundPending := func(w *world) {
+		now := w.clk.Now()
+		w.req.Definition.Pending = &verifier.Pending{Predicate: "exists(case where case.id == case_id)", Triggers: []string{"fin.evt.settlement.updated"},
+			NextCheckAt: now.Add(5 * time.Minute), DeadlineAt: now.Add(72 * time.Hour)}
+	}
+	t.Run("the success predicate holds", func(t *testing.T) {
+		w := newWorld(t, unboundPending)
+		res, _ := w.decided(t)
+		want(t, res, verifier.Achieved, verifier.ReasonPredicateTrue)
+	})
+	t.Run("the success predicate does not hold, so the pending condition is needed", func(t *testing.T) {
+		closed := theCase()
+		closed.Status = "CLOSED"
+		w := newWorld(t, unboundPending, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(closed)}, []step{complete(closed)} })
+		res, wr := w.decided(t)
+		want(t, res, verifier.Unknown, verifier.ReasonPredicateUnknown)
+		if wr.Watch != nil {
+			t.Fatal("a watch was stored from a pending condition that could not be evaluated")
+		}
+	})
+}
