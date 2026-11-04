@@ -71,12 +71,10 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 	if err := f.Truncate(int64(valid)); err != nil {
-		f.Close()
-		return nil, fmt.Errorf("trim store: %w", err)
+		return nil, errors.Join(fmt.Errorf("trim store: %w", err), f.Close())
 	}
 	if _, err := f.Seek(int64(valid), 0); err != nil {
-		f.Close()
-		return nil, err
+		return nil, errors.Join(err, f.Close())
 	}
 	s.f = f
 	return s, nil
