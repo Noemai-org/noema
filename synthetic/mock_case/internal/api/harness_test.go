@@ -153,7 +153,7 @@ func (e *env) send(client *http.Client, method, url, token string, hdr map[strin
 	if err != nil {
 		return resp{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, err := io.ReadAll(res.Body)
 	if err != nil {
 		return resp{}, err

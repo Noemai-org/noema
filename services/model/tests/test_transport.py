@@ -82,7 +82,7 @@ def other() -> Iterator[Server]:
 
 def adapter(url: str, *, timeout_ms: int = 500, max_bytes: int = 65536) -> OpenAIChat:
     settings = AdapterSettings(url, "SECRET-CRED", None, timeout_ms, max_bytes)
-    return OpenAIChat("alpha", settings, UrllibTransport(allow_loopback_http=True))
+    return OpenAIChat("alpha", settings, UrllibTransport(pool_size=2, allow_loopback_http=True))
 
 
 def request() -> Any:
@@ -137,7 +137,7 @@ def test_a_closed_port_is_unavailable() -> None:
 
 @pytest.mark.parametrize("url", ["http://127.0.0.1:1", "http://example.invalid", "ftp://example.invalid", "file:///etc/passwd", "https://"])
 def test_the_default_transport_refuses_plaintext_and_odd_schemes(url: str) -> None:
-    transport = UrllibTransport()
+    transport = UrllibTransport(pool_size=2)
     with pytest.raises(ProviderError) as caught:
         run(transport.post(url, {}, b"{}", 1.0, 100))
     assert caught.value.kind is ProviderFailure.REJECTED
@@ -145,7 +145,7 @@ def test_the_default_transport_refuses_plaintext_and_odd_schemes(url: str) -> No
 
 def test_plaintext_is_refused_even_when_loopback_is_allowed_for_other_hosts() -> None:
     with pytest.raises(ProviderError):
-        run(UrllibTransport(allow_loopback_http=True).post("http://example.invalid", {}, b"{}", 1.0, 100))
+        run(UrllibTransport(pool_size=2, allow_loopback_http=True).post("http://example.invalid", {}, b"{}", 1.0, 100))
 
 
 def test_full_stack_failover_over_real_sockets(server: Server, other: Server) -> None:
@@ -156,7 +156,7 @@ def test_full_stack_failover_over_real_sockets(server: Server, other: Server) ->
         for (n, p), url in zip(cfg.providers.items(), (server.url, other.url), strict=True)
     }
     config = HarnessConfig(cfg.account_run_min_digits, cfg.data_limits, cfg.breaker, providers, cfg.routes)
-    transport = UrllibTransport(allow_loopback_http=True)
+    transport = UrllibTransport(pool_size=2, allow_loopback_http=True)
     adapters = {n: OpenAIChat(n, AdapterSettings(p.endpoint, "CRED", None, p.timeout_ms, p.max_response_bytes), transport) for n, p in providers.items()}
     other.behaviour = {"status": 200, "body": OK_BODY.replace(b"model-alpha", b"model-beta")}
     harness = Harness(config, adapters, ManualClock(), InMemoryTelemetry())

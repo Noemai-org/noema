@@ -13,3 +13,8 @@ Written only by the security-reviewer role (see `README.md`). Append dated entri
 - Escalations: pgsodium's DDL behaviour without preload (a bootstrap step W4 carries).
 - Next: align the T6 pass condition with GOV-28 D13; SEC-14 spike A1 to A7 on SeaweedFS, then pgsty/silo; SEC-13 positive test after GOV-28.
 - 2026-11-03 (later): SEC-05 callback egress guard built with a mutation-checked suite (`services/core/platform/egress`); noema#106 merged (`44c957c`); noema#114 green at 16 checks; W1 (docs#80) revisions reviewed at `a3196a6`, Codex READY; SEC-13 evidence branch extended (schema-drop test, receipt matrix, signing pin) at `847a0e3`.
+
+
+### 2026-11-03
+
+- SEC-14 spike: spike evidence for SeaweedFS 4.51 and pgsty/silo 2026-10-26 on the clean branch ([noema#111](https://github.com/Noemai-org/noema/pull/111)); the run link is in the PR. Codex found that SeaweedFS lets the writer hide an anchor with a delete marker; recorded as a check, not as a pass (see the PR).

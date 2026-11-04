@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from noema_model.harness import Harness, assemble_harness
-from noema_model.harness.assemble import ENV_CONFIG
+from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL
 from noema_model.platform.telemetry import InMemoryTelemetry, cost_files_from_environment
 from noema_model.providers.llm.base import HttpResponse
 from tests.support import ManualClock, RecordingTransport, raw_config, run
@@ -20,7 +20,7 @@ from tests.test_harness_call import request, version
 def write(tmp_path: Path, body: Any) -> dict[str, str]:
     path = tmp_path / "harness.json"
     path.write_text(body if isinstance(body, str) else json.dumps(body))
-    return {ENV_CONFIG: str(path)}
+    return {ENV_CONFIG: str(path), ENV_LLM_POOL: "2"}
 
 
 def chat_reply(model: str) -> HttpResponse:
