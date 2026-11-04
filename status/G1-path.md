@@ -1,6 +1,6 @@
 # G1 critical path: US-01 and US-06 end to end through the public API
 
-**A snapshot taken 4 Nov 2026 at 05:45 UTC, not a live view.** It ages with every push; the live source for heads, draft state and checks is each PR itself. Owner: Engineering Lead role agent. Heads and draft/ready state are from the live open-PR list at this time; task states are from `tasks.csv` on `main` of 3 Nov (the board owner moves status). **A check-run result is stated only where I looked at it; "unknown" otherwise.** G1: target Mon 9 Nov, evidence Wed 11 Nov, review Thu 12 Nov 10:00 (DEC-2026-11-03). Assertions: PERD §65 US-01 (ALLOW, zero grants, explanation cites masked account, one candidate with margin ≥ 0.35) and US-06 (receipt `OUTCOME_UNKNOWN`, verdict ACHIEVED by key, dispatch count 1).
+**A snapshot taken 4 Nov 2026 (refreshed 13:00 UTC), not a live view.** It ages with every push; the live source for heads, draft state and checks is each PR itself. Owner: Engineering Lead role agent. Heads and draft/ready state are from the live open-PR list at this time; task states are from `tasks.csv` on `main` of 3 Nov (the board owner moves status). **A check-run result is stated only where I looked at it; "unknown" otherwise.** G1: target Mon 9 Nov, evidence Wed 11 Nov, review Thu 12 Nov 10:00 (DEC-2026-11-03). Assertions: PERD §65 US-01 (ALLOW, zero grants, explanation cites masked account, one candidate with margin ≥ 0.35) and US-06 (receipt `OUTCOME_UNKNOWN`, verdict ACHIEVED by key, dispatch count 1).
 
 One line per node: `node · task · PR (head) · state · blocker`.
 
@@ -47,6 +47,16 @@ One line per node: `node · task · PR (head) · state · blocker`.
 
 ## The end-to-end test and its home
 - Decision 8 of 3 Nov: repo-level `e2e/`, run by `make e2e` and a CI job. Not started; needs the public API (EDG-01 Backlog) and every node above. I write it with C1 and C2 once TRU-05 and OUT-01 have merged.
+
+## Claims the G1 evidence may not make (Architect, 4 Nov 2026)
+- **"Writer identity enforced"** is not true yet. A power's login can still write a Record event as a non-power emitter (`core-edge`, `core-record`, `admin`, `model-service`, `mock-*`). noema#145 binds the five power emitters to their own power's login; the rest waits for noema#145 to merge, then a migration (a login per such emitter, `core-edge` first; see `status/EDG-01.md` on noema#156). The evidence must say "power emitters bound to their logins (noema#145); non-power emitters not yet".
+- **"Signatures verified"** is not true yet (DEBT-01 and DEBT-03 open; W3 and W4 not built).
+
+## Updates since the snapshot above (4 Nov 13:00 UTC)
+- Merged: noema#121 (TRU-03), #139, #130, #140, #149 (PCK-02 mechanism), #154, docs#87, docs#88. Ready with Codex READY: #133, #132, #150, #155, #157.
+- Public API session · EDG-01 · noema#156, draft; slice 1 (the verifier) and slice 2 (the IdP issuer and the benchmark session provider) are in it; blocked on Codex (its claim-names finding is answered by OD-P-74 in docs#107, which the Architect accepts once Codex clears it).
+- Writer binding for non-power emitters · after noema#145 merges.
+- TRU-05 · still blocked on REC-01 (noema#122).
 
 ## noema#94 and noema#90
 - **Not on the path.** They carry EXE-04 (migration 0002 and the void of a spent grant after a confirmed `REJECTED_STALE_VERSION`). Neither US-01 nor US-06 has a stale-version refusal. I did not touch them (instruction).
