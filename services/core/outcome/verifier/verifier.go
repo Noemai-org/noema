@@ -202,13 +202,14 @@ func (r *run) decide(success, pending *ip.Program) decision {
 		return unknown(ReasonReceiptUnverifiable)
 	}
 	switch auth {
-	case AuthValid, AuthNotChecked:
+	case AuthValid:
 	case AuthInvalid:
 		d := unknown(ReasonReceiptUnverifiable)
 		d.auth, d.badSig = auth, true
 		return d
 	default:
-		// A status this verifier does not know is neither a pass nor a finding: fail closed, raise nothing.
+		// NOT_CHECKED, or a status this verifier does not know, is neither a pass nor a finding: fail closed with no read and no
+		// security event. A receipt whose signature was not verified is never proof (INV-04); only VALID goes on to the reads.
 		return unknown(ReasonReceiptUnverifiable)
 	}
 	if r.unbound {

@@ -288,6 +288,35 @@ func TestTheDocumentsSigMustMatchTheColumns(t *testing.T) {
 	}
 }
 
+// The stored document carries its own sig member. If that differs from the row's signature, the row and the document are two
+// different receipts, even though the row's signature is valid over the document.
+func TestTheSigMemberOfTheDocumentMustBeTheRowsSignature(t *testing.T) {
+	f := newFixture(t)
+	c := f.checker(receiptsig.Active)
+	for name, sig := range map[string]map[string]any{
+		"another value":  {"key_id": keyID, "value": hex.EncodeToString(make([]byte, ed25519.SignatureSize))},
+		"another key id": {"key_id": "core-execution.ed25519.2", "value": f.signed(t).SigValue},
+		"no sig object":  nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := f.signed(t)
+			var doc map[string]any
+			if err := json.Unmarshal(r.Document, &doc); err != nil {
+				t.Fatal(err)
+			}
+			if sig == nil {
+				delete(doc, "sig")
+			} else {
+				doc["sig"] = sig
+			}
+			r.Document, _ = json.Marshal(doc)
+			if got := check(t, c, r); got != verifier.AuthInvalid {
+				t.Fatalf("got %s", got)
+			}
+		})
+	}
+}
+
 func TestADocumentThatIsNotAReceiptIsInvalid(t *testing.T) {
 	f := newFixture(t)
 	c := f.checker(receiptsig.Active)

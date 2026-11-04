@@ -2,6 +2,9 @@ package outcomee2e_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +25,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/outcome/predicate"
+	"github.com/Noemai-org/noema/services/core/outcome/receiptsig"
 	"github.com/Noemai-org/noema/services/core/outcome/store"
 	"github.com/Noemai-org/noema/services/core/outcome/verifier"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -31,13 +35,16 @@ import (
 )
 
 const (
-	tenant       = "ten_aa"
-	principal    = "usr_100"
-	correlation  = "corr_us06a"
-	txRef        = "TX1"
-	reasonCode   = "CUSTOMER_DISPUTE_UNRECOGNIZED"
-	intentRef    = "int_demo01"
-	execKeyID    = "k_synthetic"
+	tenant      = "ten_aa"
+	principal   = "usr_100"
+	correlation = "corr_us06a"
+	txRef       = "TX1"
+	reasonCode  = "CUSTOMER_DISPUTE_UNRECOGNIZED"
+	intentRef   = "int_demo01"
+	execKeyID   = "k_synthetic"
+	// receiptKeyID is core-execution's Ed25519 key (DEC-2026-11-01-receipt-and-record-signing D4). The signer behind it is a
+	// SYNTHETIC stand-in for EXE-07; the key is generated for each run and is never mounted anywhere else.
+	receiptKeyID = "core-execution.ed25519.1"
 	outcomeKeyID = "k_outcome_test"
 	policyScope  = "pol_escalate"
 	dispatchMS   = 1000 // shorter than the fault's 3500 ms hold, so the client gives up first
@@ -175,10 +182,33 @@ func (o outcomeSigner) Sign(b []byte) (verifier.Sig, error) {
 	return verifier.Sig{KeyID: outcomeKeyID, Value: v}, err
 }
 
-type notChecked struct{}
+// receiptRing is the controller's key source in this test: HMAC for grants as today, and Ed25519 for receipts under
+// receiptKeyID, signing the domain tag followed by the canonical receipt (D6). It stands in for EXE-07's signer.
+type receiptRing struct {
+	hmac *crypto.KeyRing
+	priv ed25519.PrivateKey
+}
 
-func (notChecked) Check(context.Context, verifier.Receipt) (verifier.Authenticity, error) {
-	return verifier.AuthNotChecked, nil
+func (r receiptRing) SignWith(keyID string, msg []byte) (string, error) {
+	if keyID != receiptKeyID {
+		return r.hmac.SignWith(keyID, msg)
+	}
+	return hex.EncodeToString(ed25519.Sign(r.priv, append([]byte("noema/receipt/v1\n"), msg...))), nil
+}
+
+func (r receiptRing) VerifyWith(keyID string, msg []byte, sigHex string) bool {
+	if keyID == receiptKeyID {
+		return false // nothing but Outcome's checker verifies a receipt here
+	}
+	return r.hmac.VerifyWith(keyID, msg, sigHex)
+}
+
+// publicKeys is Outcome's verify-only view of Execution's keys (a stand-in for the signing_key reader, W4).
+type publicKeys map[string]receiptsig.PublicKey
+
+func (p publicKeys) Lookup(_ context.Context, id string) (receiptsig.PublicKey, bool, error) {
+	k, ok := p[id]
+	return k, ok, nil
 }
 
 // stack is Execution and Outcome wired as production is wired, around a real mock-case and a real PostgreSQL.
@@ -192,6 +222,7 @@ type stack struct {
 	bench   bench
 	def     predicate.Definition
 	request verifier.Request
+	pubs    publicKeys // Outcome's view of Execution's public keys; a test replaces an entry to show a receipt is refused
 }
 
 func newStack(t *testing.T, mc mockCase) *stack {
@@ -218,6 +249,11 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
+	receiptPub, receiptPriv, err := ed25519.GenerateKey(rand.Reader) // a random key per run
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring := receiptRing{hmac: execKeys, priv: receiptPriv}
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
 	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
@@ -225,7 +261,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: pool["trust_rw"], keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: execKeys, ReceiptKeyID: execKeyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	ctl := &controller.Controller{Clock: clk, Keys: ring, ReceiptKeyID: receiptKeyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 
 	raw, err := os.ReadFile("../../../../packs/fintech_v1.json")
@@ -238,12 +274,13 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	def := pack.Definitions[caseOpened]
 	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
-	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: notChecked{}, Scope: pack.Scope,
+	pubs := publicKeys{receiptKeyID: {Key: receiptPub, Status: receiptsig.Active}}
+	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &stack{admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def,
+	return &stack{admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
 		request: verifier.Request{TenantID: tenant, TransactionRef: txRef, QueryableByKey: true,
 			Bindings:   map[string]string{"subject_resource": txRef, "intent_id": intentRef},
 			Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
