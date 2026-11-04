@@ -20,3 +20,7 @@ On `main`: the appender and verifier, the INSERT-only privileges, eight kinds of
 ### Pre-work for the next agent
 - Exact next step: TST-01 (INV-03, INV-07, INV-08, INV-05, INV-18 property tests for Execution).
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-04 · REC-01 · Codex review 5763774796
+- **Finding (Major), real:** the tampering properties did `SET session_replication_role = replica` on a pooled administrator connection and released it with the setting still on, so a later iteration (or test) could run with the immutability triggers disabled. **Fixed:** tampering now goes through `propDB.tamper`, which runs the statement in a transaction with `SET LOCAL`, so the setting ends with the transaction, then `assertTriggersEnabled` checks every idle connection the pool can hand out and fails unless it is `origin`. `TestTamperingLeavesNoConnectionWithTriggersDisabled` proves it, including that an ordinary UPDATE of the Record is refused afterwards. Mutation: `SET` instead of `SET LOCAL` fails both that test and the tampering property (run and reverted).
+- **Not changed, and why:** `chain_test.go` (on `main`) has the same pattern in two tests; each runs on its own per-test pool that is closed at the end, so nothing leaks to another test. Left alone so this PR does not collide with noema#145, which rewrites that file's world.

@@ -228,18 +228,10 @@ func TestAnySingleTamperingIsDetectedAtTheEventItTouches(t *testing.T) {
 			}
 		}
 		tp := rapid.SampledFrom(usable).Draw(t, "tampering")
-		conn, err := p.admin.Acquire(p.ctx)
-		if err != nil {
-			t.Fatal(err)
+		if rows, err := p.tamper(t, tp.sql, tn, seq); err != nil || rows != 1 {
+			t.Fatalf("tamper %q: %v (%d rows)", tp.name, err, rows)
 		}
-		defer conn.Release()
-		if _, err := conn.Exec(p.ctx, `SET session_replication_role = replica`); err != nil {
-			t.Fatal(err)
-		}
-		if tag, err := conn.Exec(p.ctx, tp.sql, tn, seq); err != nil || tag.RowsAffected() != 1 {
-			t.Fatalf("tamper %q: %v (%d rows)", tp.name, err, tag.RowsAffected())
-		}
-		_, err = chain.Verify(p.ctx, p.admin, tn)
+		_, err := chain.Verify(p.ctx, p.admin, tn)
 		var be *chain.BreakError
 		if !errors.As(err, &be) {
 			t.Fatalf("%s at seq %d of %d was not detected: %v", tp.name, seq, n, err)
@@ -263,15 +255,7 @@ func TestTruncatingTheTailIsNotDetectedByTheChainAlone(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		conn, err := p.admin.Acquire(p.ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer conn.Release()
-		if _, err := conn.Exec(p.ctx, `SET session_replication_role = replica`); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := conn.Exec(p.ctx, `DELETE FROM record_event WHERE tenant_id = $1 AND seq = $2`, tn, n); err != nil {
+		if _, err := p.tamper(t, `DELETE FROM record_event WHERE tenant_id = $1 AND seq = $2`, tn, n); err != nil {
 			t.Fatal(err)
 		}
 		checked, err := chain.Verify(p.ctx, p.admin, tn)
@@ -312,5 +296,86 @@ func TestANulCharacterInAPayloadFailsTheAppendAndLeavesNoGap(t *testing.T) {
 	}
 	if n, err := chain.Verify(p.ctx, p.admin, tn); err != nil || n != 2 {
 		t.Fatalf("Verify = %d, %v; want 2, nil", n, err)
+	}
+}
+
+// testingT is what the helpers need of a test; *testing.T and *rapid.T both have it.
+type testingT interface {
+	Helper()
+	Fatal(args ...any)
+	Fatalf(format string, args ...any)
+}
+
+// tamper edits the Record as an administrator would, past the immutability triggers, and leaves nothing behind on the pooled
+// connection. The setting is SET LOCAL inside a transaction, so it ends with the transaction: the connection that goes back to the
+// pool is never one with triggers disabled, whatever the statement does (Codex review 5763774796). It returns the rows affected.
+func (p *propDB) tamper(t testingT, sql string, args ...any) (int64, error) {
+	t.Helper()
+	tx, err := p.admin.Begin(p.ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(p.ctx) }()
+	if _, err := tx.Exec(p.ctx, `SET LOCAL session_replication_role = replica`); err != nil {
+		return 0, err
+	}
+	tag, err := tx.Exec(p.ctx, sql, args...)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(p.ctx); err != nil {
+		return 0, err
+	}
+	p.assertTriggersEnabled(t)
+	return tag.RowsAffected(), nil
+}
+
+// assertTriggersEnabled fails unless every connection the pool can hand out next runs with triggers enabled. It takes the whole
+// pool's idle connections at once, so a connection left in replica mode cannot hide behind one that is not.
+func (p *propDB) assertTriggersEnabled(t testingT) {
+	t.Helper()
+	var held []*pgxpool.Conn
+	defer func() {
+		for _, c := range held {
+			c.Release()
+		}
+	}()
+	for i := int32(0); i < p.admin.Stat().IdleConns()+1; i++ {
+		c, err := p.admin.Acquire(p.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, c)
+		var role string
+		if err := c.QueryRow(p.ctx, `SHOW session_replication_role`).Scan(&role); err != nil {
+			t.Fatal(err)
+		}
+		if role != "origin" {
+			t.Fatalf("a pooled connection has session_replication_role = %q: the triggers are disabled for the next user of the pool", role)
+		}
+	}
+}
+
+// The helper itself: after a tamper, no connection of the pool has triggers disabled, and the immutability trigger still refuses an
+// ordinary administrator statement (so the setting did not leak into the next test of the pool).
+func TestTamperingLeavesNoConnectionWithTriggersDisabled(t *testing.T) {
+	p := newPropDB(t)
+	tn := "ten_leak"
+	if _, err := p.admin.Exec(p.ctx, `INSERT INTO tenant (tenant_id, name) VALUES ($1, $1)`, tn); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := p.exec.Begin(p.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.app.Append(p.ctx, tx, chain.Event{TenantID: tn, CorrelationID: "corr_leak", WrittenBy: "core-execution", Actor: "core-execution",
+		EventType: "GRANT_SPENT", ObjectRef: "grt_leak1", Payload: map[string]any{"a": 1}}); err != nil || tx.Commit(p.ctx) != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if rows, err := p.tamper(t, `UPDATE record_event SET event_type = 'GRANT_VOIDED' WHERE tenant_id = $1 AND seq = 1`, tn); err != nil || rows != 1 {
+		t.Fatalf("tamper = %d, %v", rows, err)
+	}
+	if _, err := p.admin.Exec(p.ctx, `UPDATE record_event SET event_type = 'GRANT_SPENT' WHERE tenant_id = $1 AND seq = 1`, tn); err == nil {
+		t.Fatal("an ordinary UPDATE of the Record succeeded: the triggers were left disabled on a pooled connection")
 	}
 }
