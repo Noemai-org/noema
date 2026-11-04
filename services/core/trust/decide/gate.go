@@ -1,9 +1,11 @@
 package decide
 
-// GateStep is a step of the fail-closed evaluation order that comes before target resolution (PERD §23.3, T1 to T6).
+// GateStep is a step of the fail-closed evaluation order T1 to T15 (PERD §23.3). FailAtGate builds the fixed decisions
+// of T1 to T6; Evaluate runs all fifteen in order.
 type GateStep int
 
-// Steps T1 to T6. Each can end an evaluation, and none reads evidence about a target.
+// Steps T1 to T6 come before target resolution: each can end an evaluation, and none reads evidence about a target.
+// Steps T7 to T15 follow them (§23.3), and only they may read.
 const (
 	T1AdmittedIntent GateStep = iota + 1
 	T2Session
@@ -11,6 +13,15 @@ const (
 	T4Capability
 	T5Scope
 	T6TechnicalAuthority
+	T7TargetResolution
+	T8BusinessOwnership
+	T9Evidence
+	T10Reconciliation
+	T11Policy
+	T12Clocks
+	T13Confirmation
+	T14Plan
+	T15DecisionRecorded
 )
 
 type gateResult struct {

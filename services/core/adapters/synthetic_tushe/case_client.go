@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -103,6 +104,23 @@ type wireError struct {
 	} `json:"error"`
 }
 
+// isJSONResponse reports whether a response declares application/json. A body under any other Content-Type is not
+// the contract's document, whatever the bytes look like (REQ-ENV-005 as amended: a wrong Content-Type is never a fact).
+func isJSONResponse(h http.Header) bool {
+	mediaType, _, err := mime.ParseMediaType(h.Get("Content-Type"))
+	return err == nil && mediaType == "application/json"
+}
+
+var errNotJSON = errors.New("the response is not declared application/json")
+
+// strictJSON is strict for a 2xx body: the response must say it is JSON first.
+func strictJSON(h http.Header, raw []byte, v any) error {
+	if !isJSONResponse(h) {
+		return errNotJSON
+	}
+	return strict(raw, v)
+}
+
 func strict(raw []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -171,7 +189,7 @@ func (c *CaseClient) GetCase(ctx context.Context, tenantID, caseID string) (adap
 		return adapters.CaseRecord{}, e
 	}
 	var w wireCase
-	if err := strict(raw, &w); err != nil {
+	if err := strictJSON(hdr, raw, &w); err != nil {
 		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
 	}
 	rec, ok := w.record()
@@ -212,7 +230,7 @@ func (c *CaseClient) FindCases(ctx context.Context, q adapters.CaseQuery) (adapt
 		return adapters.CasePage{}, e
 	}
 	var w wirePage
-	if err := strict(raw, &w); err != nil || w.Complete == nil || (!*w.Complete && w.NextCursor == "") || (*w.Complete && w.NextCursor != "") {
+	if err := strictJSON(hdr, raw, &w); err != nil || w.Complete == nil || (!*w.Complete && w.NextCursor == "") || (*w.Complete && w.NextCursor != "") {
 		return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
 	}
 	page := adapters.CasePage{Complete: *w.Complete, NextCursor: w.NextCursor}
@@ -375,7 +393,7 @@ func classifyCreate(status int, h http.Header, raw []byte) adapters.WriteResult 
 		return r
 	case http.StatusCreated, http.StatusOK:
 		var w wireCase
-		if err := strict(raw, &w); err == nil {
+		if err := strictJSON(h, raw, &w); err == nil {
 			if rec, ok := w.record(); ok {
 				rc := "201"
 				if status == http.StatusOK {
@@ -393,7 +411,7 @@ func classifyCreate(status int, h http.Header, raw []byte) adapters.WriteResult 
 			Status string `json:"status"`
 			Detail string `json:"detail"`
 		}
-		if status == http.StatusOK && json.Unmarshal(raw, &p) == nil && p.Status == "PENDING" {
+		if status == http.StatusOK && isJSONResponse(h) && json.Unmarshal(raw, &p) == nil && p.Status == "PENDING" {
 			return adapters.WriteResult{Class: adapters.ClassAck2xx, RawCode: "200:PENDING"}
 		}
 		return unrecognised(status)
@@ -415,7 +433,7 @@ func classifyRoute(status int, h http.Header, raw []byte) adapters.WriteResult {
 	switch status {
 	case http.StatusOK:
 		var w wireCase
-		if err := strict(raw, &w); err == nil {
+		if err := strictJSON(h, raw, &w); err == nil {
 			if rec, ok := w.record(); ok {
 				return adapters.WriteResult{Class: adapters.ClassAck2xx, ExternalAck: rec.Reference, RawCode: "200", Case: &rec}
 			}

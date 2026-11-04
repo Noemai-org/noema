@@ -75,7 +75,52 @@ EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model":
                    "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
+# TEN-01 (internal, task ENV-14): "No runtime container can reach the oracle (network and credential)". In this stack the
+# oracle's stand-ins are the mock-case truth endpoint and its database, the bench_net sentinel and the hostility proxy's control
+# API; the credentials that open them live in the named volumes below. Tushe's own oracle is Tushe's, and Noema holds no route
+# to it (G0-T).
+RUNTIME = ("core", "model", "ui")
+ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control")
+ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential"}
+ORACLE_MARKERS = ("ORACLE", "BENCH", "HELDOUT", "ADMIN", "FIXTURE_CRED")  # in a runtime service's variable names, values, secrets or volumes
+RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}
 failures: list[str] = []
+
+
+def ten01_findings(observed: dict, config: dict) -> list[str]:
+    """Every way a runtime container could reach the oracle: by network (a probe from the runtime reached an oracle target) or
+    by credential (an oracle credential in its environment, secrets or volumes). Empty when TEN-01 holds. Pure: tested offline."""
+    found = []
+    for service in RUNTIME:
+        for target in ORACLE_TARGETS:
+            seen = observed.get(service, {}).get(TARGETS[target], "none")
+            if seen != "refused":
+                found.append(f"network: {service} -> {target} was {seen}, not refused")
+        spec = config["services"][service]
+        env = spec.get("environment") or {}
+        items = list(env.items()) if isinstance(env, dict) else [tuple(str(e).split("=", 1) + [""])[:2] for e in env]
+        for name, value in items:
+            text = f"{name}={value}".upper()
+            if any(m in text for m in ORACLE_MARKERS):
+                found.append(f"credential: {service} environment {name} names an oracle credential")
+        secrets = {x if isinstance(x, str) else x.get("source") for x in spec.get("secrets") or []}
+        if secrets - RUNTIME_SECRETS[service]:
+            found.append(f"credential: {service} has secrets {sorted(secrets - RUNTIME_SECRETS[service])}")
+        for vol in spec.get("volumes") or []:
+            source = vol if isinstance(vol, str) else (vol.get("source") or "")
+            if any(c in str(source) for c in ORACLE_CREDENTIAL_VOLUMES) or any(m in str(source).upper() for m in ORACLE_MARKERS):
+                found.append(f"credential: {service} mounts {source}")
+    return found
+
+
+def check_ten01(observed: dict) -> None:
+    print("TEN-01. no runtime container can reach the oracle: network and credential")
+    config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
+    findings = ten01_findings(observed, config)
+    for f in findings:
+        fail("TEN-01 " + f)
+    print(f"  {len(RUNTIME) * len(ORACLE_TARGETS)} network paths refused, {len(RUNTIME)} runtime services free of oracle credentials: {'ok' if not findings else 'MISMATCH'}")
+    print(f"TEN_RESULT id=TEN-01 seed=none pass={str(not findings).lower()}")
 
 
 def run(cmd: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -391,7 +436,8 @@ def main() -> int:
         print(up.stderr)
         return 2
     check_membership()
-    check_matrix()
+    observed = check_matrix()
+    check_ten01(observed)
     check_real_model()
     check_database()
     check_egress()
