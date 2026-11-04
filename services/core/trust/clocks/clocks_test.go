@@ -7,6 +7,7 @@ package clocks_test
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"testing"
 
@@ -113,7 +114,7 @@ func TestInputsThatCannotBeEvaluatedAreErrorsNeverGuesses(t *testing.T) {
 			return e
 		},
 		"anchor too large": func() error {
-			x := int64(1) << 62
+			x := int64(math.MaxInt64) - 10
 			_, e := clocks.Evaluate(clock(contracts.ClockV1LabelSYNTHETIC), &x, x, quarter)
 			return e
 		},
@@ -139,13 +140,13 @@ func TestPhaseIsMonotoneInTime(t *testing.T) {
 			if order[st.Phase] < prev {
 				t.Fatalf("phase went backwards at +%d: %+v", last-start, st)
 			}
-			if int(*st.Remaining) > prevRem {
+			if *st.Remaining > prevRem {
 				t.Fatalf("remaining grew at +%d: %+v", last-start, st)
 			}
 			if st.Phase != clocks.Breached && st.Elapsed+*st.Remaining != duration {
 				t.Fatalf("elapsed + remaining != duration: %+v", st)
 			}
-			prev, prevRem = order[st.Phase], int(*st.Remaining)
+			prev, prevRem = order[st.Phase], *st.Remaining
 		}
 	}
 }
