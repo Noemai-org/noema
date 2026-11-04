@@ -1,6 +1,6 @@
 # G1 critical path: US-01 and US-06 end to end through the public API
 
-Date: 4 Nov 2026, refreshed 05:30 UTC (first written 3 Nov evening) · Owner: Engineering Lead role agent · Status: current. Heads and draft/ready state are from the live open-PR list at this time; task states are from `tasks.csv` on `main` of 3 Nov (the board owner moves status). **A check-run result is stated only where I looked at it; "unknown" otherwise.** G1: target Mon 9 Nov, evidence Wed 11 Nov, review Thu 12 Nov 10:00 (DEC-2026-11-03). Assertions: PERD §65 US-01 (ALLOW, zero grants, explanation cites masked account, one candidate with margin ≥ 0.35) and US-06 (receipt `OUTCOME_UNKNOWN`, verdict ACHIEVED by key, dispatch count 1).
+**A snapshot taken 4 Nov 2026 at 05:45 UTC, not a live view.** It ages with every push; the live source for heads, draft state and checks is each PR itself. Owner: Engineering Lead role agent. Heads and draft/ready state are from the live open-PR list at this time; task states are from `tasks.csv` on `main` of 3 Nov (the board owner moves status). **A check-run result is stated only where I looked at it; "unknown" otherwise.** G1: target Mon 9 Nov, evidence Wed 11 Nov, review Thu 12 Nov 10:00 (DEC-2026-11-03). Assertions: PERD §65 US-01 (ALLOW, zero grants, explanation cites masked account, one candidate with margin ≥ 0.35) and US-06 (receipt `OUTCOME_UNKNOWN`, verdict ACHIEVED by key, dispatch count 1).
 
 One line per node: `node · task · PR (head) · state · blocker`.
 
@@ -23,7 +23,7 @@ One line per node: `node · task · PR (head) · state · blocker`.
 ## Trust (mine)
 - Seven outcomes, basis · TRU-01 · noema#118 · **merged**.
 - Gate order T1–T15 · TRU-02 · noema#109 · **merged**; follow-up noema#133 (`920079d`, Ready, Codex READY, 16 checks green).
-- Policy evaluator · TRU-03 · noema#121 (`34b1d9b`, draft; Codex READY at the earlier head `4825b87`; the head adds the complaint PERMIT of the Architect's decision 2, not yet reviewed by Codex) · awaiting Codex on `34b1d9b`.
+- Policy evaluator · TRU-03 · noema#121 (`34b1d9b`, Ready, Codex READY at that head) · awaiting founder approval.
 - Decision determinism · TRU-09 · noema#132 (`fdbb1c9`, draft; Codex READY at `b8e6c16`; main merged in) · not on the US-01/US-06 assertions; G2. Its `codegen-diff` is red because main is red since noema#115; the fix is noema#154 (open).
 - Three-layer authority and ownership read · TRU-04 · no PR · **Backlog; Needs EVD-01** · on the path for T8 (not-owned looks like not-found).
 - Decision Record, grants · TRU-05 · no PR · **Backlog; Needs REC-01**. Starts the moment REC-01 is Done.
@@ -39,7 +39,7 @@ One line per node: `node · task · PR (head) · state · blocker`.
 - Execution Controller · EXE-02 · **Done** (follow-up noema#137, `e1d7ca1`, non-draft, entropy failure is a typed error).
 - Idempotency key · EXE-03 · In progress.
 - Outbox · PLT-08 · In progress.
-- Property tests INV-03/07/08 · TST-01 · noema#123 (`516bde0`, draft) · In progress.
+- Property tests INV-03/07/08 · TST-01 · noema#123 (`ff15b27`, non-draft) · In progress.
 - Outcome Verifier, verify by key, US-06 end to end · OUT-01 · noema#136 (`fe8224e`, non-draft) · open. **DEBT-03 decision (3 Nov): it must authenticate the calling login before `outcome_record_verdict` runs (C2).**
 - Recovery · RCV-01 Needs OUT-01 · Backlog.
 - Template-only explanations · EXP-01 · no PR · Backlog (Needs OUT-01); US-01 requires the explanation to cite the masked account.
