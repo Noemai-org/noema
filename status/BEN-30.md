@@ -27,3 +27,7 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 - Purpose: push `feat/BEN-30-diagnostics` and open its PR (done: noema#112); Understanding-dependent means family B1 only; #102 merges first, then the BEN-30 PR moves `benchmark/replay` to v2 in the same PR.
 - Receiver used it for: `UNDERSTANDING_FAMILIES` amended, version 2026-11-03, fixtures and docs updated; the replay migration is queued for the moment #102 is on `main`.
 - Evidence: this commit.
+
+### 2026-11-04 · Codex review of noema#112 (noemai-systems, on a033ba6), answered
+- Finding (Major): `turns.sent` was incremented only after `start`/`message` returned, so a timeout after the request left undercounted the customer turns of an ERROR result.
+- Done: the turn is counted when the request is sent, before any response (Codex option 1: turns mean requests issued). Test first, seen failing: a `start` that times out gives `turns == 1`, a follow-up that times out gives `turns == 2`. The `turns` description in `benchmark-case-result.v2` and the runner and scoring READMEs say so. A connection that was never established (core down) also counts the attempt; the metric is "issued", not "confirmed received" (option 2 would need the API wrapper to report transmission; not needed for REQ-BEN-009).

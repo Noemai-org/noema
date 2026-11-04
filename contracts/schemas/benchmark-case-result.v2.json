@@ -105,7 +105,7 @@
       ]
     },
     "turns": {
-      "description": "The number of customer turns the runner sent through the public API for this case: the first input plus every follow-up it sent. An ERROR result counts the turns sent before the error. It is a count the runner makes itself, never read from the model or the reconstruction.",
+      "description": "The number of customer turns the runner sent through the public API for this case: the first input plus every follow-up it sent, counted when each request is sent and before any response (a request that timed out after it left still counts). An ERROR result counts the turns sent before the error. It is a count the runner makes itself, never read from the model or the reconstruction.",
       "type": "integer",
       "minimum": 0,
       "maximum": 1000

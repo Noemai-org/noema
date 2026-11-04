@@ -87,8 +87,8 @@ def _drive(env: RunEnv, token: str, case: Json, events: list[tuple[str, str]], c
 
 
 class _Turns:
-    """The customer turns sent through the public API so far (BEN-30, REQ-BEN-009): the first input and each follow-up. Counted here, at the call, never read from the
-    model or the reconstruction. A confirmation answer is an event, not a turn."""
+    """The customer turns sent through the public API so far (BEN-30, REQ-BEN-009): the first input and each follow-up. Counted here, when the request is sent and before any
+    response, never read from the model or the reconstruction; a request that timed out after it left still counts. A confirmation answer is an event, not a turn."""
 
     def __init__(self) -> None:
         self.sent = 0
@@ -120,13 +120,13 @@ def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
             _kill_switch(env, case, argument)
         elif kind == "clock_advance":
             env.control.advance(argument)
+    turns.sent += 1  # counted when the request is sent: a timeout can come after the core received it (Codex review of noema#112)
     conv = env.api.start(token, f"{case['case_id']}-t1", texts[0], locale_hint=locale)
-    turns.sent += 1
     env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     _drive(env, token, case, after, conv)
     for number, text in enumerate(texts[1:], start=2):
-        env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)
         turns.sent += 1
+        env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     parsed = parse(env.api.reconstruction(token, conv.correlation_id))
     environment = env.oracle.readout(baseline, parsed.record_events)

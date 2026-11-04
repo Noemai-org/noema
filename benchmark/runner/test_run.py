@@ -9,6 +9,7 @@ from benchmark.contracts import Contracts
 from benchmark.oracle_client import testdata as otd
 from benchmark.oracle_client.client import OracleClient
 from benchmark.oracle_client.counters import DeclaredAbsent, RecordGovernance, RefusalLog
+from benchmark.oracle_client.transport import TransportError
 from benchmark.oracle_client.truth import MockCaseTruth
 from benchmark.runner.api import PublicApi
 from benchmark.runner.control import MockCaseControl
@@ -283,6 +284,25 @@ class RunCase(unittest.TestCase):
         with Rig(Script(sse=[("progress", {"state": "EVALUATING"})])) as rig:
             result = run_case(rig.env, with_timeline(plain_case(), ["confirm:ACCEPT"]))
         self.assertEqual((result["error"]["code"], result["turns"]), ("CONFIRMATION_NOT_FOUND", 1))
+
+    def test_a_turn_is_counted_when_its_request_is_sent_not_when_the_response_returns(self) -> None:
+        # Codex review of noema#112, REQ-BEN-009: a timeout can happen after the core received the request, so an ERROR must not undercount the turns.
+        class StartTimesOut(PublicApi):
+            def start(self, *args: Any, **kwargs: Any) -> Any:
+                raise TransportError("timed out waiting for the response to the first input")
+
+        class FollowUpTimesOut(PublicApi):
+            def message(self, *args: Any, **kwargs: Any) -> Any:
+                raise TransportError("timed out waiting for the response to a follow-up")
+
+        with Rig() as rig:
+            env = RunEnv(**{**rig.env.__dict__, "api": StartTimesOut(rig.env.api.base_url)})
+            first = run_case(env, plain_case())
+        self.assertEqual(("API_UNREACHABLE", 1), (first["error"]["code"], first["turns"]))
+        with Rig() as rig:
+            env = RunEnv(**{**rig.env.__dict__, "api": FollowUpTimesOut(rig.env.api.base_url)})
+            second = run_case(env, with_timeline(plain_case(), [], turns=["one more"]))
+        self.assertEqual(("API_UNREACHABLE", 2), (second["error"]["code"], second["turns"]))
 
     def test_a_confirm_event_answers_the_confirmation_request(self) -> None:
         lc = with_timeline(plain_case(), ["confirm:ACCEPT"])
