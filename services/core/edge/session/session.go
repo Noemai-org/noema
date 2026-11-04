@@ -104,13 +104,17 @@ func invalid(why string) error { return fmt.Errorf("%w: %s", ErrInvalid, why) }
 
 const sigLen = 64
 
+// b64 is strict: the unused trailing bits of a segment must be zero, so one token has exactly one spelling. A lenient decoder ignores them,
+// and a token with a respelled last character would verify as the same bytes (found by the fuzz test in CI, 4 Nov 2026).
+var b64 = base64.RawURLEncoding.Strict()
+
 // Verify returns the principal of a valid token, or an error that satisfies errors.Is(err, ErrInvalid).
 func (v *Verifier) Verify(token string) (Principal, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return Principal{}, invalid("not three parts")
 	}
-	hb, err := base64.RawURLEncoding.DecodeString(parts[0])
+	hb, err := b64.DecodeString(parts[0])
 	if err != nil {
 		return Principal{}, invalid("header encoding")
 	}
@@ -125,7 +129,7 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if !ok {
 		return Principal{}, invalid("key")
 	}
-	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	sig, err := b64.DecodeString(parts[2])
 	if err != nil || len(sig) != sigLen {
 		return Principal{}, invalid("signature")
 	}
@@ -134,7 +138,7 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if !ecdsa.Verify(key, sum[:], r, s) {
 		return Principal{}, invalid("signature")
 	}
-	cb, err := base64.RawURLEncoding.DecodeString(parts[1])
+	cb, err := b64.DecodeString(parts[1])
 	if err != nil {
 		return Principal{}, invalid("claims encoding")
 	}

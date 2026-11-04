@@ -32,3 +32,9 @@
 ## Pre-work for the next agent
 - Exact next step: (1) Codex on docs#107, then on this PR; (2) after noema#145 merges: a migration binding each non-power emitter to its own login (`core-edge` first), with the test that a power login naming it is refused; (3) wire `session.Middleware` into `cmd/core` with the first public route and a configured key file.
 - Do not touch: `noema#94`, `noema#90`.
+
+## Regression found by CI, 4 Nov 2026: a token had two spellings
+- Finding: `TestFuzzedTokensAreNeverAccepted` failed in CI (core, noema#156): 1 of 20,000 mutated tokens was accepted. The test is seeded, but the key and the ECDSA nonce are random, so a run differs from the next. The earlier red `core` check at `66aa1a9`, which passed on re-run, was the same failure, not an infrastructure flake: I wrongly called it a flake.
+- Root cause: Go's lenient base64url decoder ignores the unused trailing bits of a segment's last character. A token whose final signature character was respelled decoded to the same bytes and verified. The principal was the same, so no one else could be impersonated, but one token had many spellings, which defeats any cache or deny list keyed on the token string.
+- Fix: the decoder is `base64.RawURLEncoding.Strict()` for all three segments. Test first (commit "failing test first, a respelled but equivalent token is accepted"): `TestARespelledButEquivalentTokenIsRejected` tries every equivalent respelling of the final character and fails if none exists; it failed on 30 respellings before the fix. The fuzz test plus the regression test pass 40 runs in a row.
+- Lesson (for AGENTS.md section 15 through a PR, not stored elsewhere): a fuzz failure that passes on re-run is a finding until a seed or a cause says otherwise; do not call it a flake.
