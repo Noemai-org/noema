@@ -5,7 +5,7 @@ set -eu
 dir="$(cd "$(dirname "$0")" && pwd)/secrets"
 mkdir -p "$dir"
 chmod 700 "$dir"
-for name in postgres_superuser_password noema_core_password temporal_password noema_verify_password noema_tenant_login_password; do
+for name in postgres_superuser_password noema_core_password temporal_password noema_migrator_password noema_verify_password noema_tenant_login_password; do
   if [ ! -s "$dir/$name" ]; then
     python3 -c 'import secrets; print(secrets.token_hex(24))' > "$dir/$name"
   fi

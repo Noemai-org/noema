@@ -19,7 +19,7 @@ GRANT SELECT ON record_event, record_chain_head, tenant TO record_verify;
 GRANT UPDATE (kill_switch) ON tenant TO record_verify;
 
 -- Adds the mapping row of one tenant login, after the deployment has created the login role. Callable only by the role that
--- owns the deployment (the migrating role, noema_core in Compose): no power, no tenant login and no PUBLIC. It checks that the
+-- owns the deployment (the migrating role, noema_migration_login in Compose): no power, no tenant login and no PUBLIC. It checks that the
 -- login exists and is a member of the group role of its power, so a typo or a login of another power cannot be mapped.
 CREATE FUNCTION provision_tenant_login(p_login text, p_power text, p_tenant text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$

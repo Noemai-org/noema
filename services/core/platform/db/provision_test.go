@@ -18,7 +18,7 @@ import (
 
 var createRole = regexp.MustCompile(`(?i)\bCREATE\s+ROLE\b`)
 
-// The migrating role (noema_core in Compose) cannot create roles, so a migration that needs CREATE ROLE cannot run there.
+// The migrating role (noema_migration_login in Compose) cannot create roles, so a migration that needs CREATE ROLE cannot run there.
 // 0001 predates the rule: its creation is guarded and is a no-op because init.sh creates the roles first. Every later
 // migration must only grant.
 func TestNoMigrationAfter0001CreatesARole(t *testing.T) {
@@ -158,7 +158,7 @@ func TestProvisionTenantLoginChecksTheLoginAndItsPower(t *testing.T) {
 }
 
 // Security review of noema#145, finding 2: provision_tenant_login runs as the migrating role (the provisioning script uses
-// noema_core). No group role, so no runtime login, and not PUBLIC may execute it.
+// noema_migration_login). No group role, so no runtime login, and not PUBLIC may execute it.
 func TestNoRuntimeRoleCanExecuteProvisionTenantLogin(t *testing.T) {
 	w := newTenantWorld(t)
 	for _, role := range []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_read", "record_verify", "record_append", "public"} {

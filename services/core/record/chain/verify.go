@@ -107,6 +107,9 @@ func Verify(ctx context.Context, q Queryer, tenantID string) (int64, error) {
 
 // VerifyRows is Verify over rows already read with ReadChain, so a caller can verify and then serve the same rows.
 func VerifyRows(tenantID string, rows []Row) (int64, error) {
+	if actorsErr != nil {
+		return 0, fmt.Errorf("%w: %v", ErrActorsTable, actorsErr)
+	}
 	prev := GenesisHash(tenantID)
 	var want, checked int64 = 1, 0
 	for _, r := range rows {
@@ -128,7 +131,7 @@ func VerifyRows(tenantID string, rows []Row) (int64, error) {
 		if r.SchemaVersion != SchemaVersion || body["schema_version"] != SchemaVersion {
 			return checked, brk(BreakSchema, "schema_version is not "+SchemaVersion)
 		}
-		if !emitters[r.WrittenBy] || !validActor(r.Actor, r.WrittenBy) {
+		if !actors.emitters[r.WrittenBy] || !validActor(r.Actor, r.WrittenBy) {
 			return checked, brk(BreakSchema, "written_by or actor is not an emitter or principal of PERD v1.17 section 32.1")
 		}
 		for k, v := range map[string]string{"event_id": r.EventID, "prev_hash": r.PrevHash, "written_by": r.WrittenBy, "actor": r.Actor, "event_type": r.EventType,
