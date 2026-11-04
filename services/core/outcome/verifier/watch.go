@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"regexp"
+	"time"
 )
 
 // packID is the contract's PackId (common.v1.json): namespaced, lower-case.
@@ -22,12 +23,16 @@ func validTriggers(triggers []string) bool {
 // pendingExternal accepts the watch only if it can be kept: a first check and a deadline, both ahead of now and in order
 // (INV-28). A PENDING_EXTERNAL verdict without a usable watch is never stored.
 func (r *run) pendingExternal(predicate *bool) decision {
-	p, now := r.req.Definition.Pending, r.v.cfg.Clock.Now()
+	// Times are stored to the microsecond, so they are checked at that precision: a time less than a microsecond ahead would be
+	// stored as now, and the watch would be due the moment it is created.
+	p := *r.req.Definition.Pending
+	now := r.v.cfg.Clock.Now().UTC().Truncate(time.Microsecond)
+	p.NextCheckAt, p.DeadlineAt = p.NextCheckAt.UTC().Truncate(time.Microsecond), p.DeadlineAt.UTC().Truncate(time.Microsecond)
 	if !validTriggers(p.Triggers) {
 		return unknown(ReasonWatchUnusable)
 	}
 	if p.DeadlineAt.IsZero() || !p.DeadlineAt.After(now) || !p.NextCheckAt.After(now) || p.NextCheckAt.After(p.DeadlineAt) {
 		return unknown(ReasonWatchUnusable)
 	}
-	return decision{verdict: PendingExternal, reason: ReasonPendingCondition, predicate: predicate, watch: p}
+	return decision{verdict: PendingExternal, reason: ReasonPendingCondition, predicate: predicate, watch: &p}
 }
