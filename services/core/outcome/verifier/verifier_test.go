@@ -240,7 +240,9 @@ func TestThePredicateDecidesWhenTheKeyIsPresent(t *testing.T) {
 	t.Run("a second case under the same key in the transaction read", func(t *testing.T) {
 		second := theCase()
 		second.CaseID = "case_2"
-		w := newWorld(t, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(theCase())}, []step{complete(theCase(), second)} })
+		w := newWorld(t, func(w *world) {
+			w.read.byKey, w.read.byTx = []step{complete(theCase())}, []step{complete(theCase(), second)}
+		})
 		res, _ := w.decided(t)
 		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
 	})

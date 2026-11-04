@@ -318,6 +318,17 @@ func (r *run) consistent(byKey, byTx []Case) bool {
 			return false
 		}
 	}
+	// The transaction read may show no more cases under our key than the key read found: more means the reads contradict each other
+	// (a case the key read missed, or two cases under one key).
+	holders := 0
+	for _, c := range byTx {
+		if c.IdempotencyKey == r.rc.IdempotencyKey {
+			holders++
+		}
+	}
+	if holders > len(byKey) {
+		return false
+	}
 	if len(byKey) == 1 {
 		// The two reads are separate. The case under our key must be the very same record in both (every field), or it changed
 		// between them and neither read can be relied on.
