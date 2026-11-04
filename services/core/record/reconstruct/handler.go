@@ -1,0 +1,197 @@
+package reconstruct
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"regexp"
+	"time"
+
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
+)
+
+// Route is the path of REQ-AUD-003 (PERD 39.4), in net/http pattern form.
+const Route = "GET /v1/reconstructions/{correlation_id}"
+
+// The roles this endpoint serves: ops and audit, as REQ-AUD-003 says ("Ops and audit role only"; Architect decision
+// of 1 Nov 2026, which settles the difference with the PERD 39.4 table's "audit").
+const (
+	RoleAudit = "audit"
+	RoleOps   = "ops"
+)
+
+// staffKinds are the principal kinds (PERD 32.1) that may hold those roles. Customers and approvers never read a
+// reconstruction, whatever roles a session carries; a kind not listed here is refused too.
+var staffKinds = map[string]bool{"operator": true, "auditor": true, "regulator": true, "admin": true}
+
+var principalRe = regexp.MustCompile(`^([a-z]+):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+
+// Caller is the authenticated party, as the edge's session check establishes it (EDG-01). The tenant comes from the
+// session and only from the session (INV-12): the request path never names it.
+type Caller struct {
+	TenantID  string
+	Principal string // "<kind>:<id>", for the access log
+	Roles     []string
+}
+
+// Authorizer authenticates a request. EDG-01 supplies the real one when it wires this handler into cmd/core.
+type Authorizer interface {
+	Authenticate(r *http.Request) (Caller, error)
+}
+
+// ErrUnauthenticated is what DenyAll returns for every request.
+var ErrUnauthenticated = errors.New("reconstruct: no authenticated session")
+
+// DenyAll is the default Authorizer: it refuses every request. Nothing reaches the Record until EDG-01 replaces it.
+type DenyAll struct{}
+
+// Authenticate refuses.
+func (DenyAll) Authenticate(*http.Request) (Caller, error) { return Caller{}, ErrUnauthenticated }
+
+// IDSource makes the correlation ID of an error answer when the request named no valid one.
+type IDSource interface {
+	ID(prefix string) (string, error)
+}
+
+// TenantDBs gives the database handle for one tenant: a pool whose connections authenticate as that tenant's record_read
+// login, so the database, not this code, decides which tenant's chain they can read (DEBT-04, migration 0004). A tenant with
+// no handle is an error and never falls back to another tenant's.
+type TenantDBs interface {
+	For(tenantID string) (TxBeginner, error)
+}
+
+// Handler serves REQ-AUD-003. It is not wired into cmd/core (EDG-01 does that, approved escalation E2 of REC-03).
+type Handler struct {
+	DBs     TenantDBs  // one pool per tenant; every connection logs in as that tenant's record_read login (DEBT-04)
+	Auth    Authorizer // nil means DenyAll
+	IDs     IDSource
+	Log     *slog.Logger  // the access log: RECORD_ACCESSED lines, never the chain
+	Timeout time.Duration // the deadline for one reconstruction; zero means DefaultTimeout
+}
+
+// DefaultTimeout bounds one reconstruction. REQ-AUD-003 asks P95 < 1 s for 200 events [REC]; the deadline is wider
+// so that a slow read fails as DEPENDENCY_UNAVAILABLE instead of hanging.
+const DefaultTimeout = 5 * time.Second
+
+var correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+
+// Error codes of contracts/schemas/errors.v2.json this handler answers with, and whether each is retryable there.
+const (
+	codeUnauthenticated = "UNAUTHENTICATED"
+	codeNotFound        = "NOT_FOUND_OR_NOT_AUTHORIZED"
+	codeInputInvalid    = "INPUT_INVALID"
+	codeIntegrity       = "RECORD_INTEGRITY_FAILURE"
+	codeSafetyBlock     = "INTERNAL_SAFETY_BLOCK"
+	codeDependency      = "DEPENDENCY_UNAVAILABLE"
+)
+
+var retryable = map[string]bool{codeDependency: true}
+
+const headerCorrelation = "Noema-Correlation-Id"
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	auth := h.Auth
+	if auth == nil {
+		auth = DenyAll{}
+	}
+	corr := r.PathValue("correlation_id")
+	if !correlationRe.MatchString(corr) {
+		corr = ""
+	}
+	caller, err := auth.Authenticate(r)
+	if err != nil {
+		h.access(r.Context(), Caller{}, corr, codeUnauthenticated)
+		h.fail(w, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.", corr)
+		return
+	}
+	if !mayRead(caller) {
+		// The same code as not found, so a caller cannot learn that a correlation exists (errors.v2.json).
+		h.access(r.Context(), caller, corr, codeNotFound)
+		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+		return
+	}
+	if corr == "" {
+		h.access(r.Context(), caller, "", codeInputInvalid)
+		h.fail(w, http.StatusBadRequest, codeInputInvalid, "The correlation ID is not valid.", "")
+		return
+	}
+	timeout := h.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	db, err := h.DBs.For(caller.TenantID)
+	if err != nil {
+		h.access(ctx, caller, corr, codeSafetyBlock)
+		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.", corr)
+		return
+	}
+	body, err := Build(ctx, db, caller.TenantID, corr)
+	switch {
+	case err == nil:
+		h.access(ctx, caller, corr, "SERVED")
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerCorrelation, corr)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	case errors.Is(err, ErrIntegrity):
+		h.access(ctx, caller, corr, codeIntegrity)
+		h.fail(w, http.StatusConflict, codeIntegrity, "The Record did not verify, so it is not served.", corr)
+	case errors.Is(err, ErrNotFound):
+		h.access(ctx, caller, corr, codeNotFound)
+		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+	case errors.Is(err, ErrUnprojectable):
+		h.access(ctx, caller, corr, codeSafetyBlock)
+		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.", corr)
+	default:
+		h.access(ctx, caller, corr, codeDependency)
+		h.fail(w, http.StatusServiceUnavailable, codeDependency, "The Record is not available.", corr)
+	}
+}
+
+// mayRead: the caller holds the ops or audit role and is a staff principal.
+func mayRead(c Caller) bool {
+	m := principalRe.FindStringSubmatch(c.Principal)
+	if m == nil || !staffKinds[m[1]] {
+		return false
+	}
+	for _, r := range c.Roles {
+		if r == RoleAudit || r == RoleOps {
+			return true
+		}
+	}
+	return false
+}
+
+// access writes the RECORD_ACCESSED line (REQ-AUD-003: reads are logged in the access log, not the chain). It carries
+// IDs and codes only, never Record content.
+func (h *Handler) access(ctx context.Context, c Caller, corr, outcome string) {
+	if h.Log == nil {
+		return
+	}
+	h.Log.LogAttrs(ctx, slog.LevelInfo, "RECORD_ACCESSED", slog.String("tenant_id", c.TenantID), slog.String("principal", c.Principal),
+		slog.String("correlation_id", corr), slog.String("outcome", outcome))
+}
+
+// fail writes the error envelope of errors.v2.json. Every envelope carries a correlation ID: the request's when it was
+// valid, otherwise a fresh one.
+func (h *Handler) fail(w http.ResponseWriter, status int, code, message, corr string) {
+	if corr == "" && h.IDs != nil {
+		if id, err := h.IDs.ID("corr"); err == nil {
+			corr = id
+		}
+	}
+	body, err := crypto.CanonicalJSON(map[string]any{"error": map[string]any{"code": code, "message": message, "retryable": retryable[code], "correlation_id": corr}})
+	if err != nil {
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if corr != "" {
+		w.Header().Set(headerCorrelation, corr)
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
+}

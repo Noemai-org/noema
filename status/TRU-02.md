@@ -32,3 +32,8 @@ Updated 2026-11-01. Owner: C1 in tasks.csv (C1); executed by the Engineering Lea
 - Finding: `Evaluate` checked the context only before each step, so a step whose deadline passed while it ran could still return ALLOW at T15 and be accepted (INV-16).
 - Verified: true; reproduced by `TestAContextThatExpiresWhileAStepRunsNeverYieldsItsResult` (failing first, commit `0b73159`).
 - Fix: a context check right after the step returns, before its result is interpreted; a deadline is recorded at the step that was running. `TestADoneContextStopsBeforeTheNextStep` now expects the deadline at the step that cancelled the context (T(n-1)), not the next one: a stricter rule, not a weaker test.
+
+## Follow-up, 3 Nov 2026 (Codex, tracked separately): Evaluate requires a complete basis for ALLOW and CONFIRM
+- Finding: `Evaluate` accepted an ALLOW or CONFIRM with no policy version and no evidence (REQ-TRU-001, INV-16).
+- Fix: `accepts` refuses an ALLOW or CONFIRM whose `HasCompleteBasis()` is false; the result is UNKNOWN INTERNAL_ERROR with an INVALID_RESULT trace entry at that step. Failing test first (commit `0587b77`): `TestEvaluateRefusesAnAllowOrConfirmWithoutABasis`. Mutation (check replaced by `false`): caught by 1 test.
+- Touches only `trust/decide/evaluate.go` and `evaluate_test.go`.
