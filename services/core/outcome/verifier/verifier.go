@@ -66,14 +66,15 @@ func New(cfg Config) (*Verifier, error) {
 
 // run is one verification in progress.
 type run struct {
-	v        *Verifier
-	ctx      context.Context
-	req      Request
-	rc       Receipt
-	reads    []ReadRecord
-	evidence []string
-	unbound  bool  // a predicate variable the definition names has no binding
-	err      error // the first fault of the run itself (an ID source, the waiter): no verdict is stored
+	v              *Verifier
+	ctx            context.Context
+	req            Request
+	rc             Receipt
+	reads          []ReadRecord
+	evidence       []string
+	unbound        bool  // a variable the success predicate names has no binding
+	pendingUnbound bool  // a variable the pending condition names has no binding; it matters only if that condition is evaluated
+	err            error // the first fault of the run itself (an ID source, the waiter): no verdict is stored
 }
 
 type decision struct {
@@ -98,7 +99,7 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Result, error) {
 	if res, found, err := v.replay(ctx, req); err != nil || found {
 		return res, err
 	}
-	success, pending, unbound, err := v.compile(req)
+	success, pending, unbound, pendingUnbound, err := v.compile(req)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrDefinition, err)
 	}
@@ -118,7 +119,7 @@ func (v *Verifier) Verify(ctx context.Context, req Request) (Result, error) {
 	if ready := rc.DispatchedAt.Add(time.Duration(req.Definition.SettleWindowSeconds) * time.Second); v.cfg.Clock.Now().Before(ready) {
 		return Result{}, &ErrSettleWindowOpen{ReadyAt: ready}
 	}
-	r := &run{v: v, ctx: ctx, req: req, rc: rc, unbound: unbound}
+	r := &run{v: v, ctx: ctx, req: req, rc: rc, unbound: unbound, pendingUnbound: pendingUnbound}
 	d := r.decide(success, pending)
 	if r.err != nil {
 		return Result{}, r.err
@@ -152,35 +153,36 @@ func (v *Verifier) replay(ctx context.Context, req Request) (Result, bool, error
 
 // compile type-checks the definition's predicates against the scope the verifier can serve. unbound is true when a predicate
 // names a variable that the request does not bind: the same predicate fails to compile against a scope that holds only the
-// bound variables. The compiler decides this, not a scan of the source text.
-func (v *Verifier) compile(req Request) (success, pending *ip.Program, unbound bool, err error) {
+// bound variables. The compiler decides this, not a scan of the source text. It is reported for the success predicate and for
+// the pending condition separately, because the pending condition is only evaluated when the success predicate does not hold.
+func (v *Verifier) compile(req Request) (success, pending *ip.Program, unbound, pendingUnbound bool, err error) {
 	if s := req.Definition.SettleWindowSeconds; s < 0 || s > opredicate.MaxSettleSeconds {
-		return nil, nil, false, errors.New("a settle window outside 0 to opredicate.MaxSettleSeconds seconds")
+		return nil, nil, false, false, errors.New("a settle window outside 0 to opredicate.MaxSettleSeconds seconds")
 	}
 	boundVars := make(map[string]ip.Type, len(req.Bindings))
 	for name := range req.Bindings {
 		t, ok := v.scope.Variables[name]
 		if !ok {
-			return nil, nil, false, fmt.Errorf("%q is not a predicate variable", name)
+			return nil, nil, false, false, fmt.Errorf("%q is not a predicate variable", name)
 		}
 		boundVars[name] = t
 	}
 	bound := ip.Scope{Entities: v.scope.Entities, Variables: boundVars}
 	if success, err = opredicate.Compile(req.Definition.SuccessPredicate, v.scope); err != nil {
-		return nil, nil, false, fmt.Errorf("success predicate: %w", err)
+		return nil, nil, false, false, fmt.Errorf("success predicate: %w", err)
 	}
 	if _, berr := opredicate.Compile(req.Definition.SuccessPredicate, bound); berr != nil {
 		unbound = true
 	}
 	if p := req.Definition.Pending; p != nil {
 		if pending, err = opredicate.Compile(p.Predicate, v.scope); err != nil {
-			return nil, nil, false, fmt.Errorf("pending condition: %w", err)
+			return nil, nil, false, false, fmt.Errorf("pending condition: %w", err)
 		}
 		if _, berr := opredicate.Compile(p.Predicate, bound); berr != nil {
-			unbound = true
+			pendingUnbound = true
 		}
 	}
-	return success, pending, unbound, nil
+	return success, pending, unbound, pendingUnbound, nil
 }
 
 func (r *run) newID(prefix string) string {
@@ -276,6 +278,10 @@ func (r *run) verdict(success, pending *ip.Program) decision {
 		notAchieved = ReasonPostconditionUnchecked
 	}
 	if pending != nil && len(byKey) == 1 {
+		if r.pendingUnbound {
+			// The pending condition names a variable nobody bound, and it is needed now: UNKNOWN, never false.
+			return unknown(ReasonPredicateUnknown)
+		}
 		// Like the success predicate, the pending condition is about the case under our key, not any case of the transaction.
 		ownEnv, ok := r.env(byKey)
 		if !ok {
