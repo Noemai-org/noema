@@ -3,7 +3,7 @@
   "synthetic": true,
   "routes": [
     { "method": "GET", "path": "/v1/transactions/{transaction_ref}", "upstream": "tushe", "target": "mock-ledger", "operation": "get_transaction", "attrs": { "transaction_ref": "path:transaction_ref" } },
-    { "method": "GET", "path": "/v1/transactions", "upstream": "tushe", "target": "mock-ledger", "operation": "list_transactions", "attrs": { "account": "query:account" } },
+    { "method": "GET", "path": "/v1/transactions", "upstream": "tushe", "target": "mock-ledger", "operation": "list_transactions", "attrs": { "account": "query:account" }, "page": { "items": "items", "complete": "complete", "next_cursor": "next_cursor", "cursor_param": "cursor" } },
     { "method": "GET", "path": "/v1/status/{transaction_ref}", "upstream": "tushe", "target": "mock-switch", "operation": "get_status", "attrs": { "transaction_ref": "path:transaction_ref" } },
     { "method": "GET", "path": "/v1/accounts/{account}/entries", "upstream": "tushe", "target": "mock-ledger", "operation": "get_entries", "attrs": { "account": "path:account" } },
     { "method": "GET", "path": "/v1/beneficiaries", "upstream": "tushe", "target": "mock-customer", "operation": "get_beneficiaries", "attrs": { "principal_id": "header:X-Principal" } },
