@@ -112,6 +112,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -318,6 +319,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -386,6 +388,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -454,6 +457,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -522,6 +526,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -590,6 +595,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -658,6 +664,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -726,6 +733,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -801,6 +809,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -886,6 +895,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -970,6 +980,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1053,6 +1064,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1136,6 +1148,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1210,6 +1223,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1278,6 +1292,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1346,6 +1361,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1414,6 +1430,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1482,6 +1499,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1550,6 +1568,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1618,6 +1637,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1686,6 +1706,7 @@
         "fin.pol.prohibition.remedy",
         "fin.pol.workflow.case_dedupe",
         "fin.pol.regulatory.complaint_confirm",
+        "fin.pol.default.permit_complaint",
         "fin.pol.default.permit_reads",
         "fin.pol.default.permit_case_writes",
         "fin.pol.default.permit_routing"
@@ -1874,6 +1895,17 @@
         "params": {
           "approver_requirement": "SELF"
         }
+      },
+      {
+        "rule_id": "fin.pol.default.permit_complaint",
+        "class": "DEFAULT",
+        "evaluation_time": "AT_DECISION",
+        "applies_to": [
+          "fin.cap.log_complaint_reference"
+        ],
+        "condition": "true",
+        "effect": "PERMIT",
+        "reason_code": "fin.reason.permitted"
       },
       {
         "rule_id": "fin.pol.default.permit_reads",

@@ -287,6 +287,29 @@ def check_database() -> None:
             fail(f"{user} -> {db}: expected {'connect' if allowed else 'refusal'}")
 
 
+def check_migrator_boundary() -> None:
+    """W1 D14a: the migrator credential is in postgres (bootstrap) only, and the database is not the core's."""
+    print("4b. migrator boundary")
+    config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
+    def secret_names(svc: dict) -> set:
+        listed = svc.get("secrets") or []
+        return {(x.get("source") if isinstance(x, dict) else x) for x in (listed.values() if isinstance(listed, dict) else listed)}
+
+    holders = sorted(name for name, svc in config["services"].items() if "noema_migrator_password" in secret_names(svc))
+    print(f"  noema_migrator_password mounted into: {holders}")
+    if holders != ["postgres"]:
+        fail(f"the migrator secret must be mounted into postgres only, found {holders}")
+    core = config["services"]["core"]
+    leaked = [k for k, v in (core.get("environment") or {}).items() if "migrat" in k.lower() or "migrat" in str(v).lower()]
+    if leaked or "env_file" in core:
+        fail(f"the core's environment carries a migrator setting or an env_file: {leaked}")
+    sql = (HERE.parent / "postgres" / "assert_roles.sql").read_text()
+    out = run(COMPOSE + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-X", "-q", "-U", "postgres", "-d", "noema"], sql)
+    print(f"  assert_roles.sql: {out.stdout.strip() or out.stderr.strip()[:300]}")
+    if out.returncode != 0 or "roles ok" not in out.stdout:
+        fail(f"database roles: {out.stderr.strip()[:300]}")
+
+
 # What the identity probe must see on mock-case (REQ-ENV-002, REQ-ENV-008): the bench credential opens the truth
 # endpoint, and every runtime identity (the case adapter's credential, no credential, a guessed one) is refused there.
 MOCK_CASE_EXPECTED = {
@@ -440,6 +463,7 @@ def main() -> int:
     check_ten01(observed)
     check_real_model()
     check_database()
+    check_migrator_boundary()
     check_egress()
     check_mock_case()
     check_hostility_proxy()

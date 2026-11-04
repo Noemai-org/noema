@@ -1,6 +1,7 @@
 """Builds the service's Harness from its mounted configuration (the composition step of REQ-INT-002; INV-29).
 
-The configuration is one JSON file named by NOEMA_MODEL_HARNESS_CONFIG, in the shape `load_harness_config` reads. Every
+The configuration is one JSON file named by NOEMA_MODEL_HARNESS_CONFIG (the provider transport's worker count comes from
+NOEMA_MODEL_LLM_POOL_SIZE; both are required, and nothing here defaults), in the shape `load_harness_config` reads. Every
 provider, pinned model version, route and rate is a value in that file; this module holds none of them (AGENT-16). It reads
 credentials only through `build_providers`, from the files the configuration names.
 
@@ -16,12 +17,13 @@ from pathlib import Path
 from noema_model.harness.config import build_providers, load_harness_config
 from noema_model.harness.core import Harness
 from noema_model.platform.clock import Clock
-from noema_model.platform.config import ConfigError
+from noema_model.platform.config import ConfigError, require_env_int
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.llm.base import Transport
 from noema_model.providers.llm.transport import UrllibTransport
 
 ENV_CONFIG = "NOEMA_MODEL_HARNESS_CONFIG"
+ENV_LLM_POOL = "NOEMA_MODEL_LLM_POOL_SIZE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +49,12 @@ def assemble_harness(
         return _refused("harness configuration file: unreadable", telemetry)
     try:
         config = load_harness_config(json.loads(text))
-        providers = build_providers(config, transport if transport is not None else UrllibTransport())
+        if transport is None:
+            # The pool size is configuration the service must be given: a missing or invalid one refuses to start (AGENT-16).
+            workers = require_env_int(environ, ENV_LLM_POOL, minimum=1)
+            transport = UrllibTransport(pool_size=workers)
+            telemetry.event("TRANSPORT_POOL_CONFIGURED", "service-start", {"transport": "llm", "workers": workers})
+        providers = build_providers(config, transport)
     except json.JSONDecodeError as exc:
         return _refused(f"harness configuration file: not valid JSON (line {exc.lineno})", telemetry)
     except ConfigError as exc:
