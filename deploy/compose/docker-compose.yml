@@ -49,6 +49,14 @@ secrets:
     file: ./secrets/noema_core_password
   temporal_password:
     file: ./secrets/temporal_password
+  # The migration login's password (W1 D14a). Mounted into postgres (bootstrap) only; the one-shot migrate step (W4) will be
+  # the second and last holder. The core never holds it.
+  noema_migrator_password:
+    file: ./secrets/noema_migrator_password
+  noema_verify_password:
+    file: ./secrets/noema_verify_password
+  noema_tenant_login_password:
+    file: ./secrets/noema_tenant_login_password
 
 volumes:
   postgres_data: {}
@@ -61,7 +69,9 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
-    secrets: [postgres_superuser_password, noema_core_password, temporal_password]
+      # Tenant IDs (ten_...) that get a login per power at first start (DEBT-04 option A). Empty: none.
+      NOEMA_TENANTS: ${NOEMA_TENANTS:-}
+    secrets: [postgres_superuser_password, noema_core_password, temporal_password, noema_migrator_password, noema_verify_password, noema_tenant_login_password]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -133,6 +143,10 @@ services:
     networks: *model_networks
     environment:
       NOEMA_MODEL_ADDR: ":8081"
+      # Worker threads of the provider transport (UND-12). The Architect's initial value; tune from measured load. The service holds no default.
+      NOEMA_MODEL_LLM_POOL_SIZE: "16"
+      # NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8" is the Architect's initial value for the evidence link. Nothing builds the evidence transport yet, so the
+      # service does not read it; it is set here, as an active value, when the evidence link is composed.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).status == 200 else 1)"]
       interval: 3s

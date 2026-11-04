@@ -3,6 +3,7 @@
 Run: python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 """
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -110,9 +111,17 @@ class Determinism(unittest.TestCase):
 
 class Exclusions(unittest.TestCase):
     def test_only_the_benchmark_arm_and_fault_plan_contracts_are_excluded(self):
+        # excluded.json matches a contract's base name in every version, so this does too: a new version of an excluded contract
+        # (fault-plan.v2 came with ENV-15) is excluded, and nothing but those contracts is. No literal count or version to bump.
+        def base(name):
+            return re.sub(r"\.v[0-9]+\.json$", "", name)
+
+        def belongs(name):
+            return base(name).startswith("benchmark-") or base(name) in ("arm-manifest", "fault-plan")
+
         names = sorted(f for f in generate.load_schemas() if generate.is_excluded(f))
-        self.assertTrue(all(n.startswith("benchmark-") for n in names if n not in ("arm-manifest.v1.json", "fault-plan.v1.json")), names)
-        self.assertEqual(len(names), 11)
+        self.assertTrue(all(belongs(n) for n in names), names)
+        self.assertEqual(names, sorted(f for f in generate.load_schemas() if belongs(f)), "every version of those contracts is excluded")
         self.assertEqual([f for f in generate.load_schemas() if generate.is_excluded(f, "go") and not generate.is_excluded(f)], ["memory-observation.v1.json"])
 
     def test_an_excluded_contract_stays_excluded_in_every_version(self):

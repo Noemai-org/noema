@@ -9,12 +9,24 @@ import (
 	"io/fs"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const errPrefix = "db: "
+
+// cleanupTimeout bounds the cleanup of a request: a rollback, the release of a lock. The cleanup must still be tried when the
+// request's own deadline has passed, so it runs on a context detached from the request's cancellation; and it must never run
+// without a limit, so that a stalled database cannot hold the request after its answer is decided (review of noema#107).
+const cleanupTimeout = 5 * time.Second
+
+// cleanupContext returns the context for a cleanup, and the function that releases it. It is the only place in this package that
+// detaches a context from its parent (a test requires it).
+func cleanupContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(parent), cleanupTimeout)
+}
 
 var migrationName = regexp.MustCompile(`^(\d{4})_[a-z0-9_]+\.sql$`)
 
@@ -56,11 +68,32 @@ func OpenAsRole(ctx context.Context, dsn, role string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// unlockStatement releases the migration lock. It is a variable only so that a test can make the release fail or stall on a real
+// connection; nothing else changes it.
+var unlockStatement = `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`
+
+// unlockMigrations releases the session-level migration lock, within the cleanup limit. If the release fails, times out or is
+// uncertain in any way, the lock may still be held by the session, so the connection is NOT returned to the pool: it is taken out
+// of the pool and closed, which ends the session and with it the lock, and the failure is returned. Returning a still-locked
+// session to the pool would make the next migration wait on it forever (Codex review 5763745105).
+func unlockMigrations(ctx context.Context, conn *pgxpool.Conn) error {
+	c, release := cleanupContext(ctx)
+	defer release()
+	if _, err := conn.Exec(c, unlockStatement); err != nil {
+		raw := conn.Hijack() // the pool no longer owns it; conn.Release becomes a no-op
+		cc, closeRelease := cleanupContext(ctx)
+		defer closeRelease()
+		closeErr := raw.Close(cc)
+		return fmt.Errorf("%srelease the migration lock (the connection was closed so the lock cannot outlive it): %w", errPrefix, errors.Join(err, closeErr))
+	}
+	return nil
+}
+
 // Migrate applies, in file-name order, every migration in fsys that is not yet applied. It is forward-only: a
 // migration that was applied and whose file has since changed is an error, and nothing is ever rolled back
 // (AGENTS.md section 7). Each file runs in its own transaction with its record in schema_migration. One
 // advisory lock serialises concurrent migrators. It returns the names it applied.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]string, error) {
+func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) (result []string, retErr error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil, errors.New(errPrefix + "the context needs a deadline")
 	}
@@ -83,7 +116,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]string, err
 		return nil, fmt.Errorf("%slock: %w", errPrefix, err)
 	}
 	defer func() {
-		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`)
+		if err := unlockMigrations(ctx, conn); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
 	}()
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migration (
 		name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -138,7 +173,11 @@ func applyOne(ctx context.Context, conn *pgxpool.Conn, name, body, checksum stri
 	if err != nil {
 		return fmt.Errorf("%sbegin %s: %w", errPrefix, name, err)
 	}
-	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	defer func() {
+		c, release := cleanupContext(ctx)
+		defer release()
+		_ = tx.Rollback(c)
+	}()
 	if _, err := tx.Exec(ctx, body); err != nil {
 		return fmt.Errorf("%sapply %s: %w", errPrefix, name, err)
 	}

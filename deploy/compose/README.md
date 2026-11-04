@@ -19,14 +19,14 @@ Profiles: `dev`, `ci`, `bench`, `demo` all start the same five services for now.
 
 ## Database and secrets
 
-Postgres creates `noema` (owner `noema_core`, a role that is not a superuser and cannot create roles or databases) and, separately, `temporal` and `temporal_visibility` (owner `temporal`, its own password). Noema code never uses the Temporal role. Passwords are random files in `deploy/compose/secrets/` (git-ignored), mounted at `/run/secrets/`. The model service receives no secret and no DB or Temporal variable. The webhook relay is not part of Compose (PERD §65.1).
+Postgres creates `noema` (owner `noema_migrator`, a `NOLOGIN` role whose only login is `noema_migration_login`; W1 D14a). The core's login `noema_core` is not a superuser, cannot create roles or databases, owns nothing and has no `CREATE` on the database or on `public`; it is never a member of `noema_migrator`. The migration login's password (`noema_migrator_password`) is mounted into `postgres` (the bootstrap) and nowhere else; the one-shot migrate step (EXE-08) will be the second holder. `postgres/assert_roles.sql` pins all of this, run by `make net-matrix` against the stack and by `postgres/test_init.sh` against a throwaway local cluster. Separately, it creates `temporal` and `temporal_visibility` (owner `temporal`, its own password). Noema code never uses the Temporal role. Passwords are random files in `deploy/compose/secrets/` (git-ignored), mounted at `/run/secrets/`. The model service receives no secret and no DB or Temporal variable. The webhook relay is not part of Compose (PERD §65.1).
 
 ## The matrix (`netcheck/matrix.py`)
 
 1. The Compose configuration gives each service exactly the networks of PERD §65.1 (written out in the script, independent of the Compose file).
 2. A probe that carries each service's networks tries every target. A target must be reachable exactly when a network is shared.
 3. The forbidden paths are repeated from inside the real model container.
-4. Database roles: `noema_core` is a plain role; neither the core's role nor Temporal's role can connect to the other's databases.
+4. Database roles: `init.sh` creates every role (a migration never does): the group roles `trust_rw`, `execution_rw`, `outcome_rw`, `evidence_rw`, `orchestrator_rw`, `record_append`, `record_read` and `record_verify` (NOLOGIN), the verifier's login `noema_verify`, and, for each tenant in `NOEMA_TENANTS` (for example `NOEMA_TENANTS="ten_aa ten_bb"`), one login per power named `<group>__<tenant>`. After the migrations, `postgres/provision-tenants.sh` (run as `noema_core`) adds the `tenant_login` mapping rows; it is idempotent. The passwords are file-mounted secrets (`noema_verify_password`, `noema_tenant_login_password`; one shared tenant-login password in the POC, because the core process holds every login and the boundary is the database's mapping). Also: `noema_core` is a plain role; neither the core's role nor Temporal's role can connect to the other's databases.
 5. Egress: the core and the model without `provider_egress` cannot reach an outside address; the UI still serves on its published port.
 
 ## Routes out
