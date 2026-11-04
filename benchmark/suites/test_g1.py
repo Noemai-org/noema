@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from benchmark.suites.g1 import combine, run_g1
+from benchmark.suites.g1 import combine, evidence_record, run_g1
 
 
 class Combine(unittest.TestCase):
@@ -26,6 +26,52 @@ class Combine(unittest.TestCase):
     def test_a_replay_input_error_is_kept(self) -> None:
         self.assertEqual(2, combine([0, 0], 2))
         self.assertEqual(2, combine([1, 1], 2))
+
+
+REPORT = {"verdict": "IDENTICAL", "full_coverage": False, "case_coverage": {"covered": 5, "of": 6}, "open_exclusions": [{"case_id": "BEN-CLEAN-1007"}],
+          "first": {"run_id": "g1-x-a"}, "second": {"run_id": "g1-x-b"}, "commit_sha": "a" * 40, "seed": 20261020}
+
+
+class Evidence(unittest.TestCase):
+    """Option B for G1 (Founder, 4 Nov 2026): the evidence is labelled with its data source, so stand-in evidence is never read as Tushe evidence."""
+
+    def test_a_stand_in_run_says_so_in_the_headline_and_says_it_is_not_about_tushe(self) -> None:
+        record = evidence_record("stand-in", "g1-x", 0, REPORT)
+        self.assertEqual("stand-in", record["data_source"])
+        self.assertIn("STAND-IN", record["headline"])
+        self.assertIn("not Tushe", record["headline"])
+        self.assertIn("IDENTICAL on 5 of 6", record["headline"])
+        self.assertIn("1 open exclusion", record["headline"])
+        self.assertTrue(record["rerun_against_tushe_required"])
+
+    def test_a_tushe_run_does_not_carry_the_stand_in_warning(self) -> None:
+        record = evidence_record("tushe", "g1-x", 0, REPORT)
+        self.assertNotIn("STAND-IN", record["headline"])
+        self.assertFalse(record["rerun_against_tushe_required"])
+
+    def test_a_run_that_did_not_run_is_not_evidence_whatever_the_label(self) -> None:
+        record = evidence_record("stand-in", "g1-x", 3, None)
+        self.assertIn("NOT RUN", record["headline"])
+        self.assertFalse(record["is_evidence"])
+        self.assertIsNone(record["replay_verdict"])
+
+    def test_a_failed_leg_is_not_evidence_even_with_an_identical_replay(self) -> None:
+        record = evidence_record("stand-in", "g1-x", 1, REPORT)
+        self.assertFalse(record["is_evidence"])
+        self.assertEqual("IDENTICAL", record["replay_verdict"])
+
+    def test_only_a_clean_identical_run_is_evidence_and_it_names_both_run_ids_the_commit_and_the_seed(self) -> None:
+        record = evidence_record("stand-in", "g1-x", 0, REPORT)
+        self.assertTrue(record["is_evidence"])
+        self.assertEqual(["g1-x-a", "g1-x-b"], record["run_ids"])
+        self.assertEqual(("a" * 40, 20261020, False), (record["commit_sha"], record["seed"], record["full_coverage"]))
+
+    def test_a_replay_that_is_not_identical_is_not_evidence(self) -> None:
+        self.assertFalse(evidence_record("stand-in", "g1-x", 1, {**REPORT, "verdict": "DIFFERENT"})["is_evidence"])
+
+    def test_an_unknown_label_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            evidence_record("mock", "g1-x", 0, REPORT)
 
 
 class Run(unittest.TestCase):

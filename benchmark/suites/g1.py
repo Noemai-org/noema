@@ -31,3 +31,29 @@ def run_g1(out: Path, run_leg: Callable[[str, Path], int], run_replay: Callable[
             return combine(codes, 0)
     replay_code = run_replay(out / "a" / "run", out / "b" / "run", out / "replay")
     return combine(codes, replay_code)
+
+
+LABELS = ("stand-in", "tushe")
+
+
+def evidence_record(label: str, run_id: str, code: int, report: dict | None) -> dict:  # type: ignore[type-arg]
+    """The G1 evidence record, labelled with where its data came from (Founder, 4 Nov 2026). Only a clean run (exit 0) whose replay is IDENTICAL is evidence; a run that did not run,
+    a failed leg or a replay that is not identical is not, whatever the label. Stand-in evidence says so in its headline and must be rerun against live Tushe."""
+    if label not in LABELS:
+        raise ValueError(f"data source must be one of {LABELS}, not {label!r}")
+    stand_in = label == "stand-in"
+    verdict = report["verdict"] if report else None
+    evidence = bool(report) and code == 0 and verdict == "IDENTICAL"
+    if report is None:
+        headline = f"NOT RUN: no evidence ({label} data). Exit code {code}."
+    else:
+        cov = report["case_coverage"]
+        scope = f"on {cov['covered']} of {cov['of']} cases" + (f" ({len(report['open_exclusions'])} open exclusion{'' if len(report['open_exclusions']) == 1 else 's'})" if not report["full_coverage"] else "")
+        prefix = "G1 evidence (STAND-IN data, not Tushe)" if stand_in else "G1 evidence (Tushe data)"
+        headline = f"{prefix}: {verdict} {scope}" if evidence else f"NOT EVIDENCE ({label} data): replay {verdict} {scope}; exit code {code}"
+    return {
+        "data_source": label, "headline": headline, "is_evidence": evidence, "rerun_against_tushe_required": stand_in, "exit_code": code, "replay_verdict": verdict,
+        "full_coverage": report["full_coverage"] if report else None, "run_ids": [report["first"]["run_id"], report["second"]["run_id"]] if report else [f"{run_id}-a", f"{run_id}-b"],
+        "commit_sha": report["commit_sha"] if report else None, "seed": report["seed"] if report else None,
+        "open_exclusions": [e["case_id"] for e in report["open_exclusions"]] if report else [],
+    }

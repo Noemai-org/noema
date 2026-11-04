@@ -83,7 +83,7 @@ def _run(args: argparse.Namespace, passthrough: list[str]) -> int:
 def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
     import importlib.util
 
-    from benchmark.suites.g1 import run_g1
+    from benchmark.suites.g1 import evidence_record, run_g1
     out = Path(args.out)
 
     def run_leg(leg: str, leg_out: Path) -> int:
@@ -102,7 +102,14 @@ def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
     def reset() -> int:
         return subprocess.run(["make", "reset"], check=False).returncode
 
-    return run_g1(out, run_leg, run_replay, reset if args.reset else None)
+    code = run_g1(out, run_leg, run_replay, reset if args.reset else None)
+    replay_json = out / "replay" / "replay.json"
+    report = json.loads(replay_json.read_text(encoding="utf-8")) if replay_json.is_file() else None
+    record = evidence_record(args.data_source, args.run_id, code, report)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "g1-evidence.json").write_bytes(pretty_bytes(record))
+    print(record["headline"])
+    return code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--run-id", required=True, help="the pair's id; the legs are <id>-a and <id>-b")
             p.add_argument("--commit-sha", default=None)
             p.add_argument("--reset", action="store_true", help="run `make reset` before each leg and record reset_done")
+            p.add_argument("--data-source", required=True, choices=["stand-in", "tushe"],
+                           help="where the scenario data came from; the evidence is labelled with it (Option B: stand-in, rerun against Tushe once its OpenAPI is frozen)")
         if command == "run":
             p.add_argument("--out", required=True)
             p.add_argument("--run-id", required=True)

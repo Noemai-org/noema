@@ -100,12 +100,20 @@ class RunCommand(unittest.TestCase):
 
     def test_g1_without_an_environment_stops_at_the_first_leg_with_exit_3_and_runs_no_replay(self) -> None:
         out_dir = self.root / "g1"
-        code, _, _ = invoke("g1", "--suite", str(suite_dir()), "--out", str(out_dir), "--run-id", "g1-test", "--commit-sha", "b" * 40)
+        code, _, _ = invoke("g1", "--suite", str(suite_dir()), "--out", str(out_dir), "--run-id", "g1-test", "--commit-sha", "b" * 40, "--data-source", "stand-in")
         self.assertEqual(3, code)
         record = json.loads((out_dir / "a" / "suite-run.json").read_text())
         self.assertEqual(("g1", "g1-test-a", "NOT_RUN", 6), (record["suite"], record["run_id"], record["status"], record["selected"]))
         self.assertFalse((out_dir / "b").exists())
         self.assertFalse((out_dir / "replay").exists())
+        evidence = json.loads((out_dir / "g1-evidence.json").read_text())
+        self.assertEqual(("stand-in", False), (evidence["data_source"], evidence["is_evidence"]))
+        self.assertIn("NOT RUN", evidence["headline"])
+
+    def test_g1_needs_a_data_source_label(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            invoke("g1", "--suite", str(suite_dir()), "--out", str(self.root / "g1b"), "--run-id", "g1-test")
+        self.assertEqual(2, ctx.exception.code)
 
     def test_an_unknown_suite_exits_2(self) -> None:
         code, _, err = invoke("list", "nope", "--suite", str(suite_dir()))
