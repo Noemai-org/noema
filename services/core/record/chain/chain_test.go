@@ -82,7 +82,7 @@ func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
 		}
 		w.pools[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
 	} else {
-		w.pools[key] = testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", tenant, emitter)
+		w.pools[key] = testpg.EmitterLogin(t, w.admin, w.dsn, tenant, emitter)
 	}
 	return w.pools[key]
 }

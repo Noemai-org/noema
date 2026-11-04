@@ -10,14 +10,23 @@
 -- with session_user (the login the connection authenticated as). session_user is not changed by SECURITY DEFINER or by
 -- SET ROLE, and only a superuser can change it, so a caller cannot choose the tenant.
 
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'record_emitter') THEN
+    RAISE EXCEPTION 'the role record_emitter does not exist: create it in deploy/compose/postgres/init.sh before migrating';
+  END IF;
+END $$;
+
 CREATE TABLE tenant_login (
   login_role text PRIMARY KEY,
-  power      text NOT NULL CHECK (power IN ('trust', 'execution', 'outcome', 'evidence', 'orchestrator', 'record_read')),
+  power      text NOT NULL CHECK (power IN ('trust', 'execution', 'outcome', 'evidence', 'orchestrator', 'record_read', 'record_emitter')),
   tenant_id  text NOT NULL REFERENCES tenant (tenant_id),
   -- NULL: the login writes as its power's own emitter. Set: the login writes as this one emitter and nothing else. This is how an
   -- emitter that is not a power (edge, record, admin, the model service, the mocks) gets an identity the database can check
-  -- (DEBT-07, docs#106 R16). No production login sets it until EDG-01 provisions the writers.
-  emitter    text CHECK (emitter IS NULL OR emitter ~ '^[a-z][a-z0-9-]*$')
+  -- (DEBT-07, docs#106 R16). Such a login is a member of record_emitter, not of a power role: it holds the Record append
+  -- functions and nothing else (Codex review of noema#145). No production login has it until EDG-01 provisions the writers.
+  emitter    text CHECK (emitter IS NULL OR emitter ~ '^[a-z][a-z0-9-]*$'),
+  -- A login of the power 'record_emitter' is bound to exactly one emitter; no other login has one.
+  CONSTRAINT tenant_login_emitter_binding CHECK ((power = 'record_emitter') = (emitter IS NOT NULL))
 );
 ALTER TABLE tenant_login OWNER TO record_append;
 REVOKE ALL ON tenant_login FROM PUBLIC;
@@ -96,5 +105,6 @@ ALTER FUNCTION record_read_chain_t() OWNER TO record_append;
 
 REVOKE ALL ON FUNCTION record_lock_head_t(), record_insert_t(text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb), record_read_chain_t() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION record_lock_head_t(), record_insert_t(text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb)
-  TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw;
+  TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_emitter;
 GRANT EXECUTE ON FUNCTION record_read_chain_t() TO record_read;
+GRANT USAGE ON SCHEMA public TO record_emitter;

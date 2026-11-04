@@ -124,7 +124,7 @@ func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
 	if group, ok := groupOfEmitter[emitter]; ok {
 		w.writers[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
 	} else {
-		w.writers[key] = testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", tenant, emitter)
+		w.writers[key] = testpg.EmitterLogin(t, w.admin, w.dsn, tenant, emitter)
 	}
 	return w.writers[key]
 }

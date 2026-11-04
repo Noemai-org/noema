@@ -107,7 +107,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 
 // clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
 // migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
-var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify"}
+var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter"}
 
 func ensureRoles(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -138,7 +138,7 @@ func ensureRoles(url string) error {
 // powerOf is the tenant_login power of each group role that logs in per tenant.
 var powerOf = map[string]string{
 	"trust_rw": "trust", "execution_rw": "execution", "outcome_rw": "outcome", "evidence_rw": "evidence",
-	"orchestrator_rw": "orchestrator", "record_read": "record_read",
+	"orchestrator_rw": "orchestrator", "record_read": "record_read", "record_emitter": "record_emitter",
 }
 
 // TenantLogin creates a LOGIN role for one tenant and one power, maps it to the tenant in tenant_login, and returns a pool
@@ -150,11 +150,12 @@ func TenantLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant string) *
 	return login(t, admin, dsn, group, tenant, "")
 }
 
-// EmitterLogin is TenantLogin for a login that the mapping binds to one emitter that is not a power (DEBT-07, docs#106 R16):
-// record_insert_t lets it write that emitter and nothing else. group gives its privileges; the emitter is, for example, core-edge.
-func EmitterLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant, emitter string) *pgxpool.Pool {
+// EmitterLogin is TenantLogin for a login that the mapping binds to one emitter that is not a power (DEBT-07, docs#106 R16), for
+// example core-edge. It is a member of record_emitter, which holds the Record append functions and nothing else, never of a
+// power role: record_insert_t lets it write that emitter and the database lets it do nothing more.
+func EmitterLogin(t testing.TB, admin *pgxpool.Pool, dsn, tenant, emitter string) *pgxpool.Pool {
 	t.Helper()
-	return login(t, admin, dsn, group, tenant, emitter)
+	return login(t, admin, dsn, "record_emitter", tenant, emitter)
 }
 
 func login(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant, emitter string) *pgxpool.Pool {

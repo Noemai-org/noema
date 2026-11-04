@@ -53,7 +53,7 @@ func (p *propDB) pool(tenant, emitter string) *pgxpool.Pool {
 	if group, ok := groupOfEmitter[emitter]; ok {
 		p.pools[key] = testpg.TenantLogin(p.t, p.admin, p.dsn, group, tenant)
 	} else {
-		p.pools[key] = testpg.EmitterLogin(p.t, p.admin, p.dsn, "execution_rw", tenant, emitter)
+		p.pools[key] = testpg.EmitterLogin(p.t, p.admin, p.dsn, tenant, emitter)
 	}
 	return p.pools[key]
 }

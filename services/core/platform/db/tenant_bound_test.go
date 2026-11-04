@@ -302,7 +302,7 @@ func TestAnEmitterThatIsNotAPowerIsWrittenOnlyByItsOwnBoundLogin(t *testing.T) {
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_c', 'C')`); err != nil {
 		t.Fatal(err)
 	}
-	edge := testpg.EmitterLogin(t, w.admin, w.dsn, "execution_rw", "ten_c", "core-edge")
+	edge := testpg.EmitterLogin(t, w.admin, w.dsn, "ten_c", "core-edge")
 	one := func(pool *pgxpool.Pool, emitter string) error {
 		tx, err := pool.Begin(ctx(t))
 		if err != nil {
@@ -323,5 +323,38 @@ func TestAnEmitterThatIsNotAPowerIsWrittenOnlyByItsOwnBoundLogin(t *testing.T) {
 	}
 	for _, other := range []string{"core-execution", "core-trust", "admin", "model-service", "mock-ledger", "TRUST", ""} {
 		wantCode(t, one(edge, other), denied, "the core-edge login writing as "+other)
+	}
+}
+
+// Codex review of noema#145 (head 94e6299): a login bound to an emitter that is not a power holds the Record append functions
+// and nothing else. It is not a member of any power role, so it cannot act as that power (four-power separation, INV-29).
+func TestAnEmitterLoginHoldsNothingButTheRecordAppendFunctions(t *testing.T) {
+	w := newTenantWorld(t)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_c', 'C')`); err != nil {
+		t.Fatal(err)
+	}
+	edge := testpg.EmitterLogin(t, w.admin, w.dsn, "ten_c", "core-edge")
+	for _, stmt := range []string{
+		`SELECT * FROM grant_spend`,
+		`SELECT * FROM execution_receipt`,
+		`SELECT * FROM decision_grant`,
+		`UPDATE decision_grant SET tenant_id = tenant_id`,
+		`INSERT INTO grant_spend (tenant_id) VALUES ('ten_c')`,
+		`SELECT * FROM record_event`,
+		`SELECT * FROM record_chain_head`,
+		`SELECT * FROM tenant_login`,
+		`SELECT * FROM record_read_chain_t()`,
+		`SELECT provision_tenant_login('x', 'execution', 'ten_c')`,
+	} {
+		_, err := edge.Exec(ctx(t), stmt)
+		wantCode(t, err, denied, "the core-edge login: "+stmt)
+	}
+	var member bool
+	if err := w.admin.QueryRow(ctx(t), `SELECT EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid JOIN pg_roles u ON u.oid = m.member
+		WHERE u.rolname LIKE 'record_emitter\_\_ten_c%' AND r.rolname IN ('trust_rw','execution_rw','outcome_rw','evidence_rw','orchestrator_rw','record_read','record_append','record_verify'))`).Scan(&member); err != nil {
+		t.Fatal(err)
+	}
+	if member {
+		t.Fatal("an emitter login is a member of a power role")
 	}
 }

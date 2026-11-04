@@ -31,6 +31,8 @@ GRANT record_append TO noema_migrator WITH ADMIN OPTION;
 -- The read and verification group roles (REC-03, REC-05; DEBT-04 option A). Migrations 0003 and 0006 grant to them and never create them.
 CREATE ROLE record_read NOLOGIN;
 CREATE ROLE record_verify NOLOGIN;
+-- The Record-only role of a login bound to an emitter that is not a power (DEBT-07): migration 0004 grants it the append functions and nothing else.
+CREATE ROLE record_emitter NOLOGIN;
 -- The verification job logs in as this; migration 0006 grants record_verify its privileges.
 CREATE ROLE noema_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'verify_pw' IN ROLE record_verify;
 CREATE DATABASE noema OWNER noema_migrator;
@@ -40,7 +42,7 @@ REVOKE ALL ON DATABASE noema FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 -- The core may connect and nothing more: no CREATE, no TEMPORARY. Rights on tables come from the per-power roles (migrations).
-GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify;
+GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter;
 \connect noema
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO noema_core;
