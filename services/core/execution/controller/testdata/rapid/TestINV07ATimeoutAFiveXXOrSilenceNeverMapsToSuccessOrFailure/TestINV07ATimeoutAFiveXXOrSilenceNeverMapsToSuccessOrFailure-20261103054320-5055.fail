@@ -1,6 +1,0 @@
-# 2026/11/03 05:43:20.039443 [TestINV07ATimeoutAFiveXXOrSilenceNeverMapsToSuccessOrFailure] [rapid] draw fault: 3
-# 2026/11/03 05:43:20.039708 [TestINV07ATimeoutAFiveXXOrSilenceNeverMapsToSuccessOrFailure] fault 3 gave state FAILED_TERMINAL, want OUTCOME_UNKNOWN
-# 
-v0.4.8#6455156150416368364
-0x38e38e38e38e4
-0x3

@@ -1,9 +1,0 @@
-# 2026/11/03 05:42:13.338087 [TestINV08EveryWriteCarriesAKeyCommittedBeforeTheCall] [rapid] draw point: 0
-# 2026/11/03 05:42:13.338093 [TestINV08EveryWriteCarriesAKeyCommittedBeforeTheCall] [rapid] draw fault: 0
-# 2026/11/03 05:42:13.338226 [TestINV08EveryWriteCarriesAKeyCommittedBeforeTheCall] crash at BeforeE1, fault 0: no DISPATCH_ATTEMPTED for grt_1 precedes its dispatch
-# 
-v0.4.8#15878915591929955822
-0x0
-0x0
-0x0
-0x0
