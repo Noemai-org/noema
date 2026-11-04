@@ -9,6 +9,7 @@ type Decision struct {
 	intentVersion int
 	reevaluateAt  int64
 	clarification *Clarification
+	basis         Basis
 }
 
 // Outcome is the decision's outcome.
