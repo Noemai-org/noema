@@ -68,11 +68,32 @@ func OpenAsRole(ctx context.Context, dsn, role string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// unlockStatement releases the migration lock. It is a variable only so that a test can make the release fail or stall on a real
+// connection; nothing else changes it.
+var unlockStatement = `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`
+
+// unlockMigrations releases the session-level migration lock, within the cleanup limit. If the release fails, times out or is
+// uncertain in any way, the lock may still be held by the session, so the connection is NOT returned to the pool: it is taken out
+// of the pool and closed, which ends the session and with it the lock, and the failure is returned. Returning a still-locked
+// session to the pool would make the next migration wait on it forever (Codex review 5763745105).
+func unlockMigrations(ctx context.Context, conn *pgxpool.Conn) error {
+	c, release := cleanupContext(ctx)
+	defer release()
+	if _, err := conn.Exec(c, unlockStatement); err != nil {
+		raw := conn.Hijack() // the pool no longer owns it; conn.Release becomes a no-op
+		cc, closeRelease := cleanupContext(ctx)
+		defer closeRelease()
+		closeErr := raw.Close(cc)
+		return fmt.Errorf("%srelease the migration lock (the connection was closed so the lock cannot outlive it): %w", errPrefix, errors.Join(err, closeErr))
+	}
+	return nil
+}
+
 // Migrate applies, in file-name order, every migration in fsys that is not yet applied. It is forward-only: a
 // migration that was applied and whose file has since changed is an error, and nothing is ever rolled back
 // (AGENTS.md section 7). Each file runs in its own transaction with its record in schema_migration. One
 // advisory lock serialises concurrent migrators. It returns the names it applied.
-func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]string, error) {
+func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) (result []string, retErr error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil, errors.New(errPrefix + "the context needs a deadline")
 	}
@@ -95,9 +116,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) ([]string, err
 		return nil, fmt.Errorf("%slock: %w", errPrefix, err)
 	}
 	defer func() {
-		c, release := cleanupContext(ctx)
-		defer release()
-		_, _ = conn.Exec(c, `SELECT pg_advisory_unlock(hashtext('noema:migrate'))`)
+		if err := unlockMigrations(ctx, conn); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
 	}()
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migration (
 		name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
