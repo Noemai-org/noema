@@ -3,6 +3,7 @@
 Run: python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 """
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -110,9 +111,13 @@ class Determinism(unittest.TestCase):
 
 class Exclusions(unittest.TestCase):
     def test_only_the_benchmark_arm_and_fault_plan_contracts_are_excluded(self):
+        # Every version of arm-manifest and fault-plan, and every benchmark-* contract, and nothing else. The expected set is
+        # computed from the schema files, so a new version of an excluded contract (fault-plan.v2) needs no edit here.
         names = sorted(f for f in generate.load_schemas() if generate.is_excluded(f))
-        self.assertTrue(all(n.startswith("benchmark-") for n in names if n not in ("arm-manifest.v1.json", "fault-plan.v1.json")), names)
-        self.assertEqual(len(names), 11)
+        expected = sorted(f for f in generate.load_schemas()
+                          if f.startswith("benchmark-") or re.fullmatch(r"(arm-manifest|fault-plan)\.v\d+\.json", f))
+        self.assertEqual(names, expected)
+        self.assertGreaterEqual(len(names), 11)
         self.assertEqual([f for f in generate.load_schemas() if generate.is_excluded(f, "go") and not generate.is_excluded(f)], ["memory-observation.v1.json"])
 
     def test_an_excluded_contract_stays_excluded_in_every_version(self):
