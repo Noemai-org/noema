@@ -33,3 +33,8 @@ Updated 2026-11-01. Owner: EL (task owner per tasks.csv: EL+AG). Executed by the
 - Open questions (owner): whether a declared root may also have an incoming edge (not stated by REQ-AG-001; not checked; EL to raise with the Architect).
 - Files to read first: `tools/packcheck/checks.py` (`check_graph_shape`), `contracts/schemas/action-graph.v2.json`, `packs/fintech/graph/README.md`.
 - Do not touch: `noema#94`, `noema#90`.
+
+## Session 2026-11-04 · Codex's reviews on noema#104
+- docs#88 is merged (DEC-2026-11-03-action-graph-shape, D1 to D4). Done now, test first: D3 "a root has no incoming edge" (fixture `graph_18_root_with_incoming_edge.json` failed first; the rule in `check_graph_shape` now passes it); main merged in; `make codegen` run for `action-graph.v2` (generated Go and Python types plus the registry; `codegen-check` is clean).
+- PCK-04's Need on PCK-02: the Architect's decision of 3 Nov 2026 splits PCK-02: the template-coverage mechanism (merged, noema#149) is what PCK-04 needs; enforcement on the real pack moves to EXP-04. The Steward records that decision; until it is committed Codex's blocking finding on the Need stands.
+- Still blocked (not mine to fix): the fintech graph's `lookup_beneficiary` and `lookup_account` nodes have no postcondition because no authoritative evidence descriptors exist. noema#148 proposes minimal ones and Codex says their source mappings are unsupported by the governing worksheet. The four tests that run the real pack (`test_fintech_passes`, `test_a_fixture_never_passes_the_unpatched_pack`, the routing allowlist test and the real-pack template-coverage test) fail for that reason only; they pass the moment the two postconditions exist. The pack is not exempted.

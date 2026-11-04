@@ -265,8 +265,8 @@ def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
 
 
 def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
-    """A graph, never a list of endpoints (PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9; connectedness approved by the Architect,
-    1 Nov 2026). Edges naming unknown nodes are reported by check_graphs and ignored here."""
+    """A graph, never a list of endpoints (PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9; roots and connectedness committed in
+    DEC-2026-11-03-action-graph-shape D1 to D4). Edges naming unknown nodes are reported by check_graphs and ignored here."""
     out: list[Problem] = []
     gid = g["graph_id"]
     roots = set(g["roots"])
@@ -278,6 +278,8 @@ def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
         where = f"{gid}.{n['node_id']}"
         if n["node_id"] not in roots and n["node_id"] not in has_incoming:
             out.append(("graph", f"{where}: not a declared root and has no incoming edge (depends_on)"))
+        if n["node_id"] in roots and n["node_id"] in has_incoming:
+            out.append(("graph", f"{where}: is a root and has an incoming edge; a root has none (DEC-2026-11-03-action-graph-shape D3)"))
         if not n["postconditions"]:
             out.append(("graph", f"{where}: has no postcondition"))
         if n["kind"] == "WRITE" and not n["preconditions"]:
