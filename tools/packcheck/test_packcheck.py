@@ -9,6 +9,7 @@ import json
 import random
 import string
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -166,6 +167,81 @@ class GraphShape(unittest.TestCase):
         # The complaint graph is one write node: connectedness applies only to graphs with more than one node.
         problems = checks.run(PACKS / "fintech_v1.json")
         self.assertFalse([m for c, m in problems if "fin.graph.complaint" in m], problems)
+
+class TemplateCoverage(unittest.TestCase):
+    """REQ-EXP-002 (PCK-02, decision of 3 Nov 2026): a fallback template exists for every outcome x classification, in every locale of the
+    pack. One file per locale, packs/<pack>/templates/<locale>.json, keyed <outcome_id>/<classification>. The classifications are the ones
+    the pack's reconciliation rules can produce. The real pack is not enforced until EXP-04 delivers its templates; the mechanism is tested
+    here on a pack built in a temporary folder, SYNTHETIC text."""
+
+    def pack_dir(self, root: Path, drop=None, extra=None, empty=None, skip_locale=None, broken=None):
+        """A copy of the real pack's manifest, recon rules and a complete set of synthetic templates, then one thing wrong."""
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        (root / "fintech/recon_rules").mkdir(parents=True)
+        (root / "fintech/recon_rules/rules.v1.json").write_text((PACKS / "fintech/recon_rules/rules.v1.json").read_text())
+        (root / "fintech/templates").mkdir()
+        keys = checks.required_template_keys(pack, root)
+        for loc in checks.template_locales(pack):
+            if loc == skip_locale:
+                continue
+            doc = {k: f"SYNTHETIC {loc} {k}" for k in keys}
+            if drop and loc == drop[0]:
+                del doc[drop[1]]
+            if extra and loc == extra[0]:
+                doc[extra[1]] = "SYNTHETIC extra"
+            if empty and loc == empty[0]:
+                doc[empty[1]] = "  "
+            text = json.dumps(doc)
+            (root / f"fintech/templates/{loc}.json").write_text("{not json" if broken == loc else text)
+        return pack
+
+    def test_the_key_set_is_every_outcome_times_every_classification(self):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        keys = checks.required_template_keys(pack, PACKS)
+        outcomes = {o["outcome_id"] for o in pack["outcome_definitions"]}
+        classes = {k.split("/", 1)[1] for k in keys}
+        self.assertEqual({k.split("/", 1)[0] for k in keys}, outcomes)
+        self.assertIn("EXECUTION_OUTCOME_UNKNOWN", classes)  # PERD 22.3
+        self.assertIn("INSUFFICIENT_EVIDENCE", classes)  # the fallback rule's classification
+        self.assertEqual(len(keys), len(outcomes) * len(classes))
+        self.assertEqual(checks.template_locales(pack), ["en-NG", "pcm", "yo", "ha", "ig"])
+
+    def test_a_complete_set_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp))
+            self.assertEqual(checks.check_templates(pack, Path(tmp)), [])
+
+    def test_a_missing_key_fails_and_names_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = checks.required_template_keys(json.loads((PACKS / "fintech_v1.json").read_text()), PACKS)
+            victim = sorted(keys)[3]
+            pack = self.pack_dir(Path(tmp), drop=("yo", victim))
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertEqual(len(problems), 1, problems)
+            self.assertEqual(problems[0][0], "templates")
+            self.assertIn(victim, problems[0][1])
+            self.assertIn("yo", problems[0][1])
+
+    def test_a_missing_locale_file_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), skip_locale="ig")
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertTrue(any("ig.json" in m and "missing" in m for _, m in problems), problems)
+
+    def test_an_empty_text_an_unknown_key_and_broken_json_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), extra=("ha", "fin.outcome.nope/SUCCESS_CONFIRMED"), empty=("pcm", "x"), broken="en-NG")
+            keys = sorted(checks.required_template_keys(pack, Path(tmp)))
+            (Path(tmp) / "fintech/templates/pcm.json").write_text(json.dumps({keys[0]: " ", **{k: "SYNTHETIC" for k in keys[1:]}}))
+            joined = " | ".join(m for _, m in checks.check_templates(pack, Path(tmp)))
+            self.assertIn("not valid JSON", joined)
+            self.assertIn("fin.outcome.nope/SUCCESS_CONFIRMED", joined)
+            self.assertIn("empty", joined)
+
+    def test_the_real_pack_reports_its_coverage_without_failing_the_default_run(self):
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
+        enforced = checks.run(PACKS / "fintech_v1.json", templates="enforce")
+        self.assertTrue(enforced and all(c == "templates" for c, _ in enforced), enforced[:2])
 
 
 if __name__ == "__main__":

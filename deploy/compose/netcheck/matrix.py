@@ -75,7 +75,52 @@ EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model":
                    "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
+# TEN-01 (internal, task ENV-14): "No runtime container can reach the oracle (network and credential)". In this stack the
+# oracle's stand-ins are the mock-case truth endpoint and its database, the bench_net sentinel and the hostility proxy's control
+# API; the credentials that open them live in the named volumes below. Tushe's own oracle is Tushe's, and Noema holds no route
+# to it (G0-T).
+RUNTIME = ("core", "model", "ui")
+ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control")
+ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential"}
+ORACLE_MARKERS = ("ORACLE", "BENCH", "HELDOUT", "ADMIN", "FIXTURE_CRED")  # in a runtime service's variable names, values, secrets or volumes
+RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}
 failures: list[str] = []
+
+
+def ten01_findings(observed: dict, config: dict) -> list[str]:
+    """Every way a runtime container could reach the oracle: by network (a probe from the runtime reached an oracle target) or
+    by credential (an oracle credential in its environment, secrets or volumes). Empty when TEN-01 holds. Pure: tested offline."""
+    found = []
+    for service in RUNTIME:
+        for target in ORACLE_TARGETS:
+            seen = observed.get(service, {}).get(TARGETS[target], "none")
+            if seen != "refused":
+                found.append(f"network: {service} -> {target} was {seen}, not refused")
+        spec = config["services"][service]
+        env = spec.get("environment") or {}
+        items = list(env.items()) if isinstance(env, dict) else [tuple(str(e).split("=", 1) + [""])[:2] for e in env]
+        for name, value in items:
+            text = f"{name}={value}".upper()
+            if any(m in text for m in ORACLE_MARKERS):
+                found.append(f"credential: {service} environment {name} names an oracle credential")
+        secrets = {x if isinstance(x, str) else x.get("source") for x in spec.get("secrets") or []}
+        if secrets - RUNTIME_SECRETS[service]:
+            found.append(f"credential: {service} has secrets {sorted(secrets - RUNTIME_SECRETS[service])}")
+        for vol in spec.get("volumes") or []:
+            source = vol if isinstance(vol, str) else (vol.get("source") or "")
+            if any(c in str(source) for c in ORACLE_CREDENTIAL_VOLUMES) or any(m in str(source).upper() for m in ORACLE_MARKERS):
+                found.append(f"credential: {service} mounts {source}")
+    return found
+
+
+def check_ten01(observed: dict) -> None:
+    print("TEN-01. no runtime container can reach the oracle: network and credential")
+    config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
+    findings = ten01_findings(observed, config)
+    for f in findings:
+        fail("TEN-01 " + f)
+    print(f"  {len(RUNTIME) * len(ORACLE_TARGETS)} network paths refused, {len(RUNTIME)} runtime services free of oracle credentials: {'ok' if not findings else 'MISMATCH'}")
+    print(f"TEN_RESULT id=TEN-01 seed=none pass={str(not findings).lower()}")
 
 
 def run(cmd: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -242,6 +287,29 @@ def check_database() -> None:
             fail(f"{user} -> {db}: expected {'connect' if allowed else 'refusal'}")
 
 
+def check_migrator_boundary() -> None:
+    """W1 D14a: the migrator credential is in postgres (bootstrap) only, and the database is not the core's."""
+    print("4b. migrator boundary")
+    config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
+    def secret_names(svc: dict) -> set:
+        listed = svc.get("secrets") or []
+        return {(x.get("source") if isinstance(x, dict) else x) for x in (listed.values() if isinstance(listed, dict) else listed)}
+
+    holders = sorted(name for name, svc in config["services"].items() if "noema_migrator_password" in secret_names(svc))
+    print(f"  noema_migrator_password mounted into: {holders}")
+    if holders != ["postgres"]:
+        fail(f"the migrator secret must be mounted into postgres only, found {holders}")
+    core = config["services"]["core"]
+    leaked = [k for k, v in (core.get("environment") or {}).items() if "migrat" in k.lower() or "migrat" in str(v).lower()]
+    if leaked or "env_file" in core:
+        fail(f"the core's environment carries a migrator setting or an env_file: {leaked}")
+    sql = (HERE.parent / "postgres" / "assert_roles.sql").read_text()
+    out = run(COMPOSE + ["exec", "-T", "postgres", "psql", "-v", "ON_ERROR_STOP=1", "-X", "-q", "-U", "postgres", "-d", "noema"], sql)
+    print(f"  assert_roles.sql: {out.stdout.strip() or out.stderr.strip()[:300]}")
+    if out.returncode != 0 or "roles ok" not in out.stdout:
+        fail(f"database roles: {out.stderr.strip()[:300]}")
+
+
 # What the identity probe must see on mock-case (REQ-ENV-002, REQ-ENV-008): the bench credential opens the truth
 # endpoint, and every runtime identity (the case adapter's credential, no credential, a guessed one) is refused there.
 MOCK_CASE_EXPECTED = {
@@ -385,21 +453,98 @@ def check_webhook_relay() -> None:
             fail(f"webhook relay {name}: expected {want}, saw {status}")
 
 
+# Per-profile runtime probes (PLT-04). WHAT each profile must start is checked statically against PERD §65.1 by profiles.py (SEC-11,
+# noema#114), from `docker compose config`; keeping a second copy of that table here would let the two drift. This check does the part
+# a static read cannot: it starts each run profile on its own and probes from the networks of core, model and ui against what
+# REALLY runs, and requires that what runs is exactly what Compose says the profile is.
+DEV_SERVICES = {"core", "model", "ui", "postgres", "temporal"}
+LIVE_PROFILES = ("ci", "bench", "demo")
+ONE_SHOT = ("-credentials", "-anchor")  # sidecars that may have exited by the time the stack is up; never required to be running
+# the compose service behind each probe target (the truth and control listeners belong to the container that serves them)
+SERVICE_OF = {"mock-case-truth": "mock-case", "hostility-proxy-control": "hostility-proxy"}
+PROFILE_TARGETS = [t for t in TARGETS if not t.startswith("sentinel-")]  # the sentinels belong to the netcheck profile, not to a run profile
+
+
+def live_expectation(source: str, target: str, running: set) -> str:
+    """What a probe carrying `source`'s networks must see at `target` while exactly `running` runs: open only when the target's
+    service runs and a network is shared. Pure: tested offline."""
+    service = SERVICE_OF.get(target, target)
+    return "open" if service in running and NETWORKS[source] & NETWORKS[target] else "refused"
+
+
+def live_findings(profile: str, declared: set, running: set) -> list[str]:
+    """What is wrong with the set of services that really runs: anything running that Compose does not declare for the profile, or a
+    declared service that should be running and is not. Pure: tested offline."""
+    found = [f"{profile}: {name} is running but is not part of this profile" for name in sorted(running - declared)]
+    required = {n for n in declared if not n.endswith(ONE_SHOT)}
+    found += [f"{profile}: {name} should be running and is not" for name in sorted(required - running)]
+    return found
+
+
+def check_profiles() -> None:
+    print("9. each run profile started on its own, probed from core, model and ui (ci, bench, demo)")
+    plain = ["docker", "compose", "-f", str(HERE.parent / "docker-compose.yml")]
+    for profile in LIVE_PROFILES:
+        check_profile_live(profile, plain)
+
+
+def check_profile_live(profile: str, plain: list) -> None:
+    """Starts one profile on its own (never with netcheck, which would start everything), requires that exactly its services run,
+    and repeats the probes of check 2 from the networks of core, model and ui against what really runs."""
+    run_profile = plain + ["--profile", profile]
+    with_probes = run_profile + ["--profile", "netcheck"]
+    declared = set(run(run_profile + ["config", "--services"]).stdout.split())
+    running: set = set()
+    up = run(run_profile + ["up", "-d", "--wait"])
+    if up.returncode != 0:
+        fail(f"{profile}: the profile did not start: {up.stderr.strip()[-300:]}")
+        run(run_profile + ["down", "--remove-orphans"])
+        return
+    try:
+        running = set(run(run_profile + ["ps", "--services", "--status", "running"]).stdout.split())
+        for f in live_findings(profile, declared, running):
+            fail(f)
+        targets = [TARGETS[t] for t in PROFILE_TARGETS]
+        for source in ("core", "model", "ui"):
+            out = run(with_probes + ["run", "--rm", "--no-deps", "-T", f"probe-{source}", "python", "/probe.py"] + targets)
+            try:
+                seen = json.loads(out.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                fail(f"{profile}: probe-{source} gave no result: {out.stderr.strip()[:200]}")
+                continue
+            cells = []
+            for target in PROFILE_TARGETS:
+                if target == source:
+                    continue
+                want, got = live_expectation(source, target, running), seen.get(TARGETS[target], "none")
+                cells.append(f"{target}={got}" if got == want else f"{target}={got}!={want}")
+                if got != want:
+                    fail(f"{profile}: {source} -> {target}: expected {want}, saw {got}")
+            print(f"  {profile:6} from {source:5} " + " ".join(cells))
+    finally:
+        extras = sorted(running - DEV_SERVICES)
+        if extras:
+            run(run_profile + ["rm", "-sf"] + extras)
+
+
 def main() -> int:
     up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
     check_membership()
-    check_matrix()
+    observed = check_matrix()
+    check_ten01(observed)
     check_real_model()
     check_database()
+    check_migrator_boundary()
     check_egress()
     check_mock_case()
     check_hostility_proxy()
     check_evil_provider()
     check_webhook_relay()
     run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
+    check_profiles()
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
         return 1

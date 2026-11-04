@@ -174,6 +174,7 @@ func permissiveEnv(t *testing.T, raw []byte) Env {
 	_ = json.Unmarshal(raw, &p)
 	tab := map[string]map[string]string{} // target/op -> attrs
 	feed := map[string]bool{}
+	paged := map[string]bool{}
 	meth := map[string]string{}
 	for _, f := range p.Faults {
 		k := f.Target + "/" + f.Operation
@@ -188,6 +189,8 @@ func permissiveEnv(t *testing.T, raw []byte) Env {
 		switch f.Effect {
 		case "DROP_WEBHOOK", "DUPLICATE_WEBHOOK", "REORDER_EVENTS", "LATE_EVENT":
 			feed[k] = true
+		case "PAGINATE":
+			paged[k] = true
 		}
 		meth[k] = "GET"
 	}
@@ -207,6 +210,9 @@ func permissiveEnv(t *testing.T, raw []byte) Env {
 		if feed[k] {
 			ev = `,"event_feed":{"events":"events"}`
 		}
+		if paged[k] {
+			ev = `,"page":{"items":"items","complete":"complete","next_cursor":"next_cursor","cursor_param":"cursor"}`
+		}
 		routesJSON = append(routesJSON, `{"method":"GET","path":"/r`+string(rune('a'+i))+`","upstream":"u","target":"`+target+`","operation":"`+op+`","attrs":`+string(attrs)+ev+`}`)
 	}
 	if len(routesJSON) == 0 {
@@ -222,7 +228,13 @@ func permissiveEnv(t *testing.T, raw []byte) Env {
 const fixtures = "../../../../contracts/fixtures/"
 
 func TestContractFixturesValid(t *testing.T) {
-	files, _ := filepath.Glob(fixtures + "valid/fault-plan/*.json")
+	for _, dir := range []string{"fault-plan", "fault-plan.v2"} {
+		t.Run(dir, func(t *testing.T) { contractFixturesValid(t, dir) })
+	}
+}
+
+func contractFixturesValid(t *testing.T, dir string) {
+	files, _ := filepath.Glob(fixtures + "valid/" + dir + "/*.json")
 	if len(files) < 6 {
 		t.Fatalf("found %d valid fixtures: the path is wrong", len(files))
 	}
@@ -240,8 +252,14 @@ var otherProducers = map[string]string{
 }
 
 func TestContractFixturesInvalid(t *testing.T) {
-	files, _ := filepath.Glob(fixtures + "invalid/fault-plan/*.json")
-	if len(files) < 20 {
+	for _, dir := range []string{"fault-plan", "fault-plan.v2"} {
+		t.Run(dir, func(t *testing.T) { contractFixturesInvalid(t, dir) })
+	}
+}
+
+func contractFixturesInvalid(t *testing.T, dir string) {
+	files, _ := filepath.Glob(fixtures + "invalid/" + dir + "/*.json")
+	if len(files) < 10 {
 		t.Fatalf("found %d invalid fixtures: the path is wrong", len(files))
 	}
 	for _, path := range files {
@@ -253,6 +271,13 @@ func TestContractFixturesInvalid(t *testing.T) {
 		_, err := Parse(raw, permissiveEnv(t, raw))
 		var p Plan
 		_ = json.Unmarshal(raw, &p)
+		if why, ok := relaxedByV2[name]; ok && dir == "fault-plan" {
+			// invalid under v1 and valid under v2 by design: the proxy reads the effect, not the file, so it takes the union
+			if err != nil || !planHasEffect(p, why) {
+				t.Errorf("%s: v1 refuses it only because v2 relaxed %s; the proxy must accept it (err %v)", name, why, err)
+			}
+			continue
+		}
 		if err == nil && p.Source == SourceProxy {
 			t.Errorf("%s: the schema refuses it, the proxy applies it", name)
 		}
@@ -263,6 +288,85 @@ func TestContractFixturesInvalid(t *testing.T) {
 	_ = otherProducers
 }
 
+// v1 fixtures that v2 made valid (ENV-15), with the effect that did it. The v2 side of the same change is
+// valid/fault-plan.v2/proxy_paginate.json.
+var relaxedByV2 = map[string]string{"proxy_source_with_a_tushe_effect.json": Paginate}
+
+func planHasEffect(p Plan, effect string) bool {
+	for _, f := range p.Faults {
+		if f.Effect == effect {
+			return true
+		}
+	}
+	return false
+}
+
 // A TUSHE or MOCK_CASE plan is accepted by the proxy when the invalidity is in a fault the proxy ignores: its own
 // checks are for the faults it applies, and the producers check the rest.
 func onlyOtherProducersFaults(p Plan) bool { return p.Source != SourceProxy }
+
+// The proxy's effect lists are copied from the contract. A copy that drifts is a plan the schema accepts and the proxy
+// does not produce (or the reverse), so the lists are checked against fault-plan.v2.json itself (REQ-ENV-005, AGENT-15).
+func TestEffectListsMatchTheV2Schema(t *testing.T) {
+	raw, err := os.ReadFile(fixtures + "../schemas/fault-plan.v2.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema struct {
+		Defs struct {
+			Fault struct {
+				Properties struct {
+					Effect struct {
+						Enum []string `json:"enum"`
+					} `json:"effect"`
+				} `json:"properties"`
+			} `json:"Fault"`
+		} `json:"$defs"`
+		AllOf []struct {
+			Then struct {
+				Properties struct {
+					Faults struct {
+						Items struct {
+							AnyOf []struct {
+								Properties struct {
+									Effect struct {
+										Enum []string `json:"enum"`
+									} `json:"effect"`
+								} `json:"properties"`
+							} `json:"anyOf"`
+						} `json:"items"`
+					} `json:"faults"`
+				} `json:"properties"`
+			} `json:"then"`
+		} `json:"allOf"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]bool{}
+	for _, e := range schema.Defs.Fault.Properties.Effect.Enum {
+		all[e] = true
+	}
+	if len(all) != len(allEffects) {
+		t.Errorf("allEffects has %d effects, the schema %d", len(allEffects), len(all))
+	}
+	for e := range all {
+		if !allEffects[e] {
+			t.Errorf("the schema has %s; allEffects does not", e)
+		}
+	}
+	// the PROXY branch is the second allOf entry, its second anyOf alternative
+	proxyList := schema.AllOf[1].Then.Properties.Faults.Items.AnyOf[1].Properties.Effect.Enum
+	byName := map[string]bool{}
+	for _, e := range proxyList {
+		byName[e] = true
+	}
+	if len(byName) != len(proxyEffects) {
+		t.Errorf("proxyEffects has %d effects, the schema's PROXY branch %d", len(proxyEffects), len(byName))
+	}
+	for e := range byName {
+		if !proxyEffects[e] {
+			t.Errorf("the schema's PROXY branch has %s; proxyEffects does not", e)
+		}
+	}
+}

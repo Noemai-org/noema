@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed" // actors.json
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -65,50 +66,57 @@ var (
 	providerFailoverReasons = setOf("PROVIDER_ERROR", "TIMEOUT", "REFUSED_REPLY")
 )
 
-// The sets are derived from actors.json when the package loads. A table that is malformed, repeats a name, names an emitter that is also
-// a non-emitter, or leaves a set empty stops the program at start-up: the sets are static data and a wrong one must never run.
-var (
+// ErrActorsTable is returned when the embedded actors.json cannot be loaded: it is malformed, repeats a name, names an emitter that
+// is also a non-emitter, or leaves a set empty. The sets are static data and a wrong one must never be used, so a table that did not
+// load makes every append and every verification refuse (fail closed); nothing here panics (REQ-TST-010).
+var ErrActorsTable = errors.New(errPrefix + "actors.json is invalid")
+
+// actorSets are the sets derived from actors.json.
+type actorSets struct {
 	emitters       map[string]bool // identities the core may append as: scope RUNTIME
 	contractSet    map[string]bool // every identity the contract lists, whatever the scope
 	principalKinds map[string]bool
-)
+}
 
-func init() {
+// actors and actorsErr are loaded once, when the package is initialised. On an error actors is the zero value, whose nil maps answer
+// "not an emitter" and "not a principal kind" to every question.
+var actors, actorsErr = loadActors(actorsJSON)
+
+func loadActors(data []byte) (actorSets, error) {
 	var t actorTable
-	dec := json.NewDecoder(bytes.NewReader(actorsJSON))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&t); err != nil {
-		panic(fmt.Sprintf("%sactors.json: %v", errPrefix, err))
+		return actorSets{}, fmt.Errorf("%w: %v", ErrActorsTable, err)
 	}
-	emitters, contractSet, principalKinds = map[string]bool{}, map[string]bool{}, map[string]bool{}
+	sets := actorSets{emitters: map[string]bool{}, contractSet: map[string]bool{}, principalKinds: map[string]bool{}}
 	seen := map[string]bool{}
 	for _, e := range t.Emitters {
 		if !nameRe.MatchString(e.Name) || e.Section == "" || e.Scope == "" || seen[e.Name] {
-			panic(fmt.Sprintf("%sactors.json: emitter %q is malformed or repeated", errPrefix, e.Name))
+			return actorSets{}, fmt.Errorf("%w: emitter %q is malformed or repeated", ErrActorsTable, e.Name)
 		}
 		seen[e.Name] = true
-		contractSet[e.Name] = true
+		sets.contractSet[e.Name] = true
 		if e.Scope == scopeRuntime {
-			emitters[e.Name] = true
+			sets.emitters[e.Name] = true
 		}
 	}
 	for _, n := range t.NotEmitters {
 		if !nameRe.MatchString(n.Name) || seen[n.Name] {
-			panic(fmt.Sprintf("%sactors.json: non-emitter %q is malformed or also an emitter", errPrefix, n.Name))
+			return actorSets{}, fmt.Errorf("%w: non-emitter %q is malformed or also an emitter", ErrActorsTable, n.Name)
 		}
 		seen[n.Name] = true
 	}
-	kinds := map[string]bool{}
 	for _, k := range t.PrincipalKinds {
-		if !nameRe.MatchString(k.Name) || kinds[k.Name] {
-			panic(fmt.Sprintf("%sactors.json: principal kind %q is malformed or repeated", errPrefix, k.Name))
+		if !nameRe.MatchString(k.Name) || sets.principalKinds[k.Name] {
+			return actorSets{}, fmt.Errorf("%w: principal kind %q is malformed or repeated", ErrActorsTable, k.Name)
 		}
-		kinds[k.Name] = true
-		principalKinds[k.Name] = true
+		sets.principalKinds[k.Name] = true
 	}
-	if len(emitters) == 0 || len(principalKinds) == 0 {
-		panic(errPrefix + "actors.json: an empty set")
+	if len(sets.emitters) == 0 || len(sets.principalKinds) == 0 {
+		return actorSets{}, fmt.Errorf("%w: an empty set", ErrActorsTable)
 	}
+	return sets, nil
 }
 
 func setOf(members ...string) map[string]bool {
@@ -129,14 +137,14 @@ func sorted(set map[string]bool) []string {
 }
 
 // Emitters lists the identities the core accepts as written_by, sorted: the table's emitters with the scope RUNTIME.
-func Emitters() []string { return sorted(emitters) }
+func Emitters() []string { return sorted(actors.emitters) }
 
 // ContractEmitters lists every identity the contract (record-event.v3.json) lists as written_by, sorted. The core accepts the
 // ones in Emitters; the difference is what the table marks as not written by the core.
-func ContractEmitters() []string { return sorted(contractSet) }
+func ContractEmitters() []string { return sorted(actors.contractSet) }
 
 // PrincipalKinds lists the accepted kinds of a person's principal, sorted.
-func PrincipalKinds() []string { return sorted(principalKinds) }
+func PrincipalKinds() []string { return sorted(actors.principalKinds) }
 
 // GrantVoidReasons lists the accepted GRANT_VOIDED reasons, sorted.
 func GrantVoidReasons() []string { return sorted(grantVoidReasons) }

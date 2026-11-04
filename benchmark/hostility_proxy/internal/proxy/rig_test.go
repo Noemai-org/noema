@@ -57,7 +57,11 @@ func newFakeTushe(t testing.TB) *fakeTushe {
 	mux.HandleFunc("GET /v1/transactions", func(w http.ResponseWriter, r *http.Request) {
 		f.note(r, nil)
 		w.Header().Set("Location", "/v1/accounts/9999041234/entries")
-		writeJSON(w, map[string]any{"items": []any{map[string]any{"account": "9999041234"}}})
+		var items []any
+		for i := 1; i <= 5; i++ { // five items, so a pagination fault has something to split
+			items = append(items, map[string]any{"account": "9999041234", "n": i})
+		}
+		writeJSON(w, map[string]any{"items": items, "complete": true})
 	})
 	mux.HandleFunc("GET /v1/accounts/{account}/entries", func(w http.ResponseWriter, r *http.Request) {
 		f.note(r, nil)
@@ -177,7 +181,7 @@ func (r *rig) do(client *http.Client, method, base, path, token string, body str
 	if err != nil {
 		return response{}, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		return response{}, err

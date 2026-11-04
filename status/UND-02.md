@@ -1,5 +1,7 @@
 # Status: UND-02 (model service: harness, pipeline, ranking, matcher, Decisions adapter)
 
+> **Note, 31 Oct 2026 (Repo Steward; founder decision: the plan ID is the authority).** Plan row UND-02 is the Input Gateway, which this file does not describe. The work described here maps to UND-03 (provider adapters and failover) and AMB-01 (deterministic ranking); the harness, the decision pipeline and the recipient matcher have no matching task. The text below is unchanged.
+
 Owner: Session D. Branch: `claude/python-harness-ranking-dm6gmm`. Paths: `services/model/**`, `packs/fintech/lexicons/`, `status/T5-T6.3.md`, this file.
 
 ## OpenAI Responses adapter (model selection, step 2)

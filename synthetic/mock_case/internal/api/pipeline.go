@@ -38,6 +38,14 @@ func withDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(ctx, dbTimeout)
 }
 
+// commitsRegardless runs the command of an effect whose contract is "the command commits and only the answer is
+// affected" (README, effects table). The command must not be cancelled because the caller gave up while it was
+// still in the database: that caller is the one the effect exists to produce, and a rolled-back command would make
+// the case system report an effect it did not deliver. The database deadline of exec still bounds it.
+func (c *opCall) commitsRegardless(ctx context.Context, cmd store.Cmd, eff *faultplan.Effect) reply {
+	return c.exec(context.WithoutCancel(ctx), cmd, eff)
+}
+
 // run executes an operation under a database deadline.
 func (c *opCall) exec(ctx context.Context, cmd store.Cmd, eff *faultplan.Effect) reply {
 	ctx, cancel := withDeadline(ctx)
@@ -105,7 +113,8 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 				return
 			}
 			sleep(ctx, eff.Delay)
-			panic(http.ErrAbortHandler)
+			abortConnection(w)
+			return
 		case eff.Name == faultplan.EffectHTTP429:
 			e := newErr(429, "RATE_LIMITED", "too many requests", true)
 			e.RetryAfter = eff.RetryAfter
@@ -119,19 +128,20 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 			}
 		case eff.Name == faultplan.EffectHTTP5XX:
 			cmd.StatusOverride = eff.Status
-			if rep := call.exec(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
+			if rep := call.commitsRegardless(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
 				s.respond(w, corr, rep) // the command itself failed: report that, not the injected status
 			} else {
 				writeErr(w, corr, unavailable(eff.Status))
 			}
 		case eff.Name == faultplan.EffectTimeoutAfterCommit || eff.Name == faultplan.EffectDropResponse:
 			cmd.Suppressed = true
-			if rep := call.exec(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
+			if rep := call.commitsRegardless(ctx, cmd, eff); rep.err != nil && rep.err.Status >= 500 {
 				s.respond(w, corr, rep)
 				return
 			}
 			sleep(ctx, eff.Delay)
-			panic(http.ErrAbortHandler)
+			abortConnection(w)
+			return
 		case eff.Name == faultplan.EffectNearTimeoutBefore:
 			// The delay comes before the commit: a caller that gives up first leaves nothing behind, one that waits
 			// gets the real answer. The plan's delay_ms puts the answer just inside or just outside the caller's timeout.
@@ -144,7 +154,7 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 		case eff.Name == faultplan.EffectNearTimeoutAfter:
 			// The command commits at once and the real answer is held for the delay: a caller that gives up first
 			// has a committed case it does not know about.
-			rep := call.exec(ctx, cmd, eff)
+			rep := call.commitsRegardless(ctx, cmd, eff)
 			if !sleep(ctx, eff.Delay) {
 				return
 			}
@@ -166,6 +176,18 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 			s.respond(w, corr, call.exec(ctx, cmd, eff))
 		}
 	}
+}
+
+// abortConnection ends the connection with no response at all, as a server that died would. It hijacks the connection and
+// closes it, so the handler returns normally and no panic is needed. A connection that cannot be hijacked (it is not HTTP/1)
+// cannot be dropped; nothing was sent yet, so a 500 is the nearest honest answer. Callers return straight after it.
+func abortConnection(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		writeErr(w, "", internalErr())
+		return
+	}
+	_ = conn.Close() // the connection ending is the fault; a close error changes nothing the caller can observe
 }
 
 // pendingAnswer is HTTP_200_SEMANTIC_PENDING: a transport success that says the work is pending and carries none of

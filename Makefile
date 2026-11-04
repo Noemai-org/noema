@@ -1,5 +1,5 @@
 # Targets for local work and CI. Python commands use a venv in .venv.
-.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate env-mock-case-test env-mock-case-build env-relay-test env-relay-build env-proxy-test env-proxy-build model-bench-up
+.PHONY: build test lint arch-lint up down net-matrix reset bench-smoke contracts-validate codegen codegen-check env-mock-case-test env-mock-case-build env-relay-test env-relay-build env-proxy-test env-proxy-build model-bench-up
 
 build:
 	docker build -t noema-core:dev services/core
@@ -29,6 +29,8 @@ down:
 	$(COMPOSE) down
 
 net-matrix:
+	python3 deploy/compose/netcheck/test_ten01.py
+	python3 deploy/compose/netcheck/test_profiles.py
 	python3 -I deploy/compose/netcheck/matrix.py
 
 reset:
@@ -47,6 +49,15 @@ contracts-validate:
 	.venv-contracts/bin/python -m unittest discover -s tools/packcheck -p 'test_*.py'
 	.venv-contracts/bin/python tools/packcheck validate packs/fintech_v1.json
 	for p in packs/conformance/*.json; do .venv-contracts/bin/python tools/packcheck validate --conformance $$p || exit 1; done
+	.venv-contracts/bin/python tools/codegen/shape_refusals.py --check
+
+# Generated Go and Pydantic types (CON-03). `make codegen` rewrites them from contracts/schemas; `make codegen-check` is what CI runs.
+codegen:
+	python3 -I tools/codegen/generate.py --write
+
+codegen-check:
+	python3 -I tools/codegen/generate.py --check
+	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
 .PHONY: bench-test bench-venv bench bench-live

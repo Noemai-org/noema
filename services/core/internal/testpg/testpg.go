@@ -8,8 +8,10 @@ package testpg
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -49,7 +52,11 @@ func Main(m *testing.M) {
 // need to create roles or databases of their own (a second service with its own database).
 func ServerURL(t testing.TB) string {
 	t.Helper()
-	once.Do(func() { baseURL, baseErr = start() })
+	once.Do(func() {
+		if baseURL, baseErr = start(); baseErr == nil {
+			baseErr = ensureRoles(baseURL)
+		}
+	})
 	if baseErr != nil {
 		t.Fatalf("testpg: %v", baseErr)
 	}
@@ -60,7 +67,11 @@ func ServerURL(t testing.TB) string {
 // superuser (the migrating role). The database is dropped when the test ends.
 func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	t.Helper()
-	once.Do(func() { baseURL, baseErr = start() })
+	once.Do(func() {
+		if baseURL, baseErr = start(); baseErr == nil {
+			baseErr = ensureRoles(baseURL)
+		}
+	})
 	if baseErr != nil {
 		t.Fatalf("testpg: %v", baseErr)
 	}
@@ -92,6 +103,101 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 		_, _ = a.Exec(c, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
 	return pool, dsn
+}
+
+// clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
+// migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
+var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter"}
+
+func ensureRoles(url string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	admin, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return fmt.Errorf("connect to create the cluster roles: %w", err)
+	}
+	defer admin.Close()
+	// One advisory lock: several test binaries may share one server and start together.
+	conn, err := admin.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7770001)`); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7770001)`) }()
+	for _, r := range clusterRoles {
+		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` NOLOGIN; END IF; END $$`); err != nil {
+			return fmt.Errorf("create role %s: %w", r, err)
+		}
+	}
+	return nil
+}
+
+// powerOf is the tenant_login power of each group role that logs in per tenant.
+var powerOf = map[string]string{
+	"trust_rw": "trust", "execution_rw": "execution", "outcome_rw": "outcome", "evidence_rw": "evidence",
+	"orchestrator_rw": "orchestrator", "record_read": "record_read", "record_emitter": "record_emitter",
+}
+
+// TenantLogin creates a LOGIN role for one tenant and one power, maps it to the tenant in tenant_login, and returns a pool
+// whose connections authenticate as that login (DEBT-04 option A). SET ROLE would leave session_user as the administrator,
+// so the Record functions would not see a tenant. The tenant row must exist. The role is dropped when the test ends.
+// group is the per-power group role, for example "execution_rw".
+func TenantLogin(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant string) *pgxpool.Pool {
+	t.Helper()
+	return login(t, admin, dsn, group, tenant, "")
+}
+
+// EmitterLogin is TenantLogin for a login that the mapping binds to one emitter that is not a power (DEBT-07, docs#106 R16), for
+// example core-edge. It is a member of record_emitter, which holds the Record append functions and nothing else, never of a
+// power role: record_insert_t lets it write that emitter and the database lets it do nothing more.
+func EmitterLogin(t testing.TB, admin *pgxpool.Pool, dsn, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
+	return login(t, admin, dsn, "record_emitter", tenant, emitter)
+}
+
+func login(t testing.TB, admin *pgxpool.Pool, dsn, group, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
+	power, ok := powerOf[group]
+	if !ok {
+		t.Fatalf("testpg: %q is not a group role that logs in per tenant", group)
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("testpg: parse dsn: %v", err)
+	}
+	dbName := strings.TrimPrefix(u.Path, "/")
+	role := group + "__" + tenant + "_" + dbName
+	if emitter != "" {
+		sum := sha256.Sum256([]byte(emitter))
+		role = fmt.Sprintf("%s__%s_e%x_%s", group, tenant, sum[:3], dbName)
+	}
+	quoted := pgx.Identifier{role}.Sanitize()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.Exec(ctx, `CREATE ROLE `+quoted+` LOGIN IN ROLE `+pgx.Identifier{group}.Sanitize()); err != nil {
+		t.Fatalf("testpg: create %s: %v", role, err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if a, err := pgxpool.New(c, strings.Replace(dsn, "/"+dbName+"?", "/postgres?", 1)); err == nil {
+			_, _ = a.Exec(c, `DROP ROLE IF EXISTS `+quoted)
+			a.Close()
+		}
+	})
+	if _, err := admin.Exec(ctx, `INSERT INTO tenant_login (login_role, power, tenant_id, emitter) VALUES ($1, $2, $3, NULLIF($4, ''))`, role, power, tenant, emitter); err != nil {
+		t.Fatalf("testpg: map %s to %s: %v", role, tenant, err)
+	}
+	u.User = url.User(role)
+	pool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("testpg: connect as %s: %v", role, err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 func start() (string, error) {
@@ -153,6 +259,6 @@ func freePort() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }() // the port number is all that is needed; the listener only reserved it
 	return l.Addr().(*net.TCPAddr).Port, nil
 }
