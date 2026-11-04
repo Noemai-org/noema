@@ -124,16 +124,22 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 		"no sub":                                 mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { delete(c, "sub") })),
 		"empty sub":                              mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["sub"] = "" })),
 		"no exp":                                 mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { delete(c, "exp") })),
-		"already expired":                        mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["exp"] = epoch.Add(-time.Second).Unix(); c["iat"] = epoch.Add(-time.Minute).Unix() })),
-		"issued in the future":                   mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["iat"] = epoch.Add(time.Hour).Unix(); c["exp"] = epoch.Add(2 * time.Hour).Unix() })),
-		"lifetime longer than the maximum":       mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["exp"] = epoch.Add(lifetime + time.Second).Unix() })),
-		"unknown role":                           mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"root"} })),
-		"no roles":                               mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{} })),
-		"not three parts":                        "abc.def",
-		"empty":                                  "",
-		"bad base64":                             "!!!.???.***",
-		"payload is not JSON":                    parts[0] + "." + b64([]byte("nope")) + "." + parts[2],
-		"signature of the wrong length":          parts[0] + "." + parts[1] + "." + b64([]byte("short")),
+		"already expired": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) {
+			c["exp"] = epoch.Add(-time.Second).Unix()
+			c["iat"] = epoch.Add(-time.Minute).Unix()
+		})),
+		"issued in the future": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) {
+			c["iat"] = epoch.Add(time.Hour).Unix()
+			c["exp"] = epoch.Add(2 * time.Hour).Unix()
+		})),
+		"lifetime longer than the maximum": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["exp"] = epoch.Add(lifetime + time.Second).Unix() })),
+		"unknown role":                     mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"root"} })),
+		"no roles":                         mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{} })),
+		"not three parts":                  "abc.def",
+		"empty":                            "",
+		"bad base64":                       "!!!.???.***",
+		"payload is not JSON":              parts[0] + "." + b64([]byte("nope")) + "." + parts[2],
+		"signature of the wrong length":    parts[0] + "." + parts[1] + "." + b64([]byte("short")),
 	}
 	for name, tok := range cases {
 		if _, err := v.Verify(tok); !errors.Is(err, session.ErrInvalid) {
@@ -151,6 +157,33 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 }
 
 // Token fuzzing (REQ-SEC-001): thousands of seeded random mutations of a valid token are all rejected; none is accepted as another principal.
+// The boundaries on their own: a token that expires exactly now is expired, and one issued a second from now is not yet valid (each
+// with a lifetime inside the maximum, so no other check can reject it).
+func TestTimeBoundariesAreExact(t *testing.T) {
+	k := newKeys(t)
+	v, _ := verifier(t, k, epoch)
+	exactlyNow := goodClaims(epoch)
+	exactlyNow["iat"], exactlyNow["exp"] = epoch.Add(-time.Minute).Unix(), epoch.Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), exactlyNow)); !errors.Is(err, session.ErrInvalid) {
+		t.Errorf("a token that expires now must be rejected: %v", err)
+	}
+	oneSecondLeft := goodClaims(epoch)
+	oneSecondLeft["iat"], oneSecondLeft["exp"] = epoch.Add(-time.Minute).Unix(), epoch.Add(time.Second).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), oneSecondLeft)); err != nil {
+		t.Errorf("a token with a second left is valid: %v", err)
+	}
+	notYet := goodClaims(epoch)
+	notYet["iat"], notYet["exp"] = epoch.Add(time.Second).Unix(), epoch.Add(time.Minute).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), notYet)); !errors.Is(err, session.ErrInvalid) {
+		t.Errorf("a token issued in the future must be rejected: %v", err)
+	}
+	maxLife := goodClaims(epoch)
+	maxLife["iat"], maxLife["exp"] = epoch.Unix(), epoch.Add(lifetime).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), maxLife)); err != nil {
+		t.Errorf("a token living exactly the maximum is valid: %v", err)
+	}
+}
+
 func TestFuzzedTokensAreNeverAccepted(t *testing.T) {
 	k := newKeys(t)
 	v, _ := verifier(t, k, epoch)
