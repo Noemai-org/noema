@@ -22,3 +22,6 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 - Open questions (owner): where the S1 incident and the alert go in the POC (an `Alerts` implementation; Ops Lead); whether the nightly run is a Temporal schedule or a CI workflow (REC-06 and the orchestrator).
 - Files to read first: `services/core/record/verify/README.md`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-04 · REC-05
+- Merged `main` (noema#145 is on `main`) and adapted the verify test world to per-tenant `execution_rw` logins (`testpg.TenantLogin`); no production code change. The Verifier still runs as the administrator in these tests; its own `record_verify` login (`noema_verify`) is slice 2.

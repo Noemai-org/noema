@@ -32,7 +32,7 @@ func ctx(t testing.TB) context.Context {
 
 type world struct {
 	admin *pgxpool.Pool
-	exec  *pgxpool.Pool
+	pools map[string]*pgxpool.Pool // one execution_rw login per tenant (DEBT-04)
 	app   *chain.Appender
 	alert *recordingAlerts
 	met   *recordingMetrics
@@ -64,13 +64,12 @@ func newWorld(t *testing.T, tenants ...string) *world {
 			t.Fatal(err)
 		}
 	}
-	exec, err := db.OpenAsRole(ctx(t), dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
+	pools := map[string]*pgxpool.Pool{}
+	for _, id := range tenants {
+		pools[id] = testpg.TenantLogin(t, admin, dsn, "execution_rw", id)
 	}
-	t.Cleanup(exec.Close)
 	clk := clock.NewManual(time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC))
-	w := &world{admin: admin, exec: exec, alert: &recordingAlerts{}, met: &recordingMetrics{},
+	w := &world{admin: admin, pools: pools, alert: &recordingAlerts{}, met: &recordingMetrics{},
 		app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
 	w.v = &verify.Verifier{DB: admin, Alerts: w.alert, Metrics: w.met, Clock: clk}
 	return w
@@ -79,7 +78,7 @@ func newWorld(t *testing.T, tenants ...string) *world {
 func (w *world) appendN(t *testing.T, tenant string, n int) {
 	t.Helper()
 	for i := 1; i <= n; i++ {
-		tx, err := w.exec.Begin(ctx(t))
+		tx, err := w.pools[tenant].Begin(ctx(t))
 		if err != nil {
 			t.Fatal(err)
 		}
