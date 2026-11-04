@@ -1,0 +1,73 @@
+{
+  "fault_plan_id": "fp_proxy_corrupted_payloads",
+  "scenario_id": "SCN-CORRUPT-001",
+  "seed": 15,
+  "deterministic": true,
+  "source": "PROXY",
+  "faults": [
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "MALFORMED_RESPONSE"
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 2
+      },
+      "effect": "INVALID_JSON"
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 3
+      },
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 4
+      },
+      "effect": "WRONG_CONTENT_TYPE"
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 5
+      },
+      "effect": "EMPTY_BODY_SUCCESS"
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 6
+      },
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      }
+    },
+    {
+      "target": "mock-switch",
+      "operation": "get_status",
+      "match": {
+        "nth_call": 7
+      },
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "semantic_status"
+      }
+    }
+  ]
+}
