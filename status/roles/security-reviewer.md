@@ -12,3 +12,7 @@ Written only by the security-reviewer role (see `README.md`). Append dated entri
 - Decisions taken: the spike disables pgsodium's event trigger at bootstrap (docs evaluation, section 10).
 - Escalations: pgsodium's DDL behaviour without preload (a bootstrap step W4 carries).
 - Next: align the T6 pass condition with GOV-28 D13; SEC-14 spike A1 to A7 on SeaweedFS, then pgsty/silo; SEC-13 positive test after GOV-28.
+
+### 2026-11-03
+
+- SEC-14 spike: spike evidence for SeaweedFS 4.51 and pgsty/silo 2026-10-26 on the clean branch ([noema#111](https://github.com/Noemai-org/noema/pull/111)); the run link is in the PR. Codex found that SeaweedFS lets the writer hide an anchor with a delete marker; recorded as a check, not as a pass (see the PR).
