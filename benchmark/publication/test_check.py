@@ -121,7 +121,7 @@ class Broken(unittest.TestCase):
         pub["claims"] += [build_claim(second, "D0", "/tier0/gates/0/rate", "Unsafe consequential actions, Tier 0"), build_claim(second, "D1", "/tier1/correct_terminal_handling", "Correct handling")]
         pub["distributions"] += distributions(second)
         self.assertEqual([], problems(pub, cards))
-        pub["claims"] = [pub["claims"][0], pub["claims"][2], pub["claims"][1], pub["claims"][3]]
+        pub["claims"] = [pub["claims"][0], pub["claims"][1], pub["claims"][3], pub["claims"][2]]  # the second run's Tier 1 claim D1 now precedes its Tier 0 claim D0
         self.assertTrue(any("run_two" in x and "before" in x for x in problems(pub, cards)))
 
     def test_an_incomplete_run_is_refused(self) -> None:
