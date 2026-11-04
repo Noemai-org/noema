@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -237,15 +235,9 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	pool := map[string]*pgxpool.Pool{}
-	for _, role := range []string{"execution_rw", "trust_rw"} {
-		p, err := db.OpenAsRole(bg, dsn, role)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(p.Close)
-		pool[role] = p
+	for _, role := range []string{"execution_rw", "trust_rw", "outcome_rw"} {
+		pool[role] = testpg.TenantLogin(t, admin, dsn, role, tenant) // the tenant's own logins (DEBT-04)
 	}
-	pool["outcome_rw"] = outcomeLogin(t, admin, dsn)
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
@@ -288,32 +280,3 @@ func newStack(t *testing.T, mc mockCase) *stack {
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
 func jsonMarshal(v any) ([]byte, error)   { return json.Marshal(v) }
-
-var outcomeLogins atomic.Int64
-
-// outcomeLogin opens Outcome's pool as a deployment would: a login that holds the outcome_rw power and no other, running as
-// outcome_rw. outcome_record_verdict refuses any other login (a superuser, or one that also holds another power).
-func outcomeLogin(t *testing.T, admin *pgxpool.Pool, dsn string) *pgxpool.Pool {
-	t.Helper()
-	bg, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	name := fmt.Sprintf("outcome_e2e_login_%d_%d", os.Getpid(), outcomeLogins.Add(1))
-	const password = "synthetic-test-password" // SYNTHETIC
-	for _, q := range []string{`CREATE ROLE ` + name + ` LOGIN NOSUPERUSER PASSWORD '` + password + `'`, `GRANT outcome_rw TO ` + name} {
-		if _, err := admin.Exec(bg, q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Cleanup(func() { _, _ = admin.Exec(context.Background(), `DROP ROLE IF EXISTS `+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u.User = url.UserPassword(name, password)
-	p, err := db.OpenAsRole(bg, u.String(), "outcome_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.Close)
-	return p
-}

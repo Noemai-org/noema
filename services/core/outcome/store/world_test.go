@@ -40,6 +40,7 @@ func ctx(t testing.TB) context.Context {
 // migrating role would see them). admin is the superuser; Outcome gets its own pool as outcome_rw.
 type world struct {
 	admin *pgxpool.Pool
+	out   *pgxpool.Pool // Outcome's tenant login, made on first use
 	dsn   string
 }
 
@@ -123,9 +124,13 @@ func (w *world) loginWith(t *testing.T, role string, member ...string) *pgxpool.
 	return p
 }
 
-// outcome is Outcome's own pool: a login that holds the outcome_rw power and no other.
+// outcome is Outcome's own pool: the tenant's outcome login, which holds the outcome_rw power and no other and is mapped to the
+// tenant, so the Record functions find the tenant from the login (DEBT-04 option A).
 func (w *world) outcome(t *testing.T) *pgxpool.Pool {
-	return w.loginWith(t, "outcome_rw", "outcome_rw")
+	if w.out == nil { // one login per world: a role name is unique per tenant and database
+		w.out = testpg.TenantLogin(t, w.admin, w.dsn, "outcome_rw", tenant)
+	}
+	return w.out
 }
 
 // verdictArgs are the arguments of outcome_record_verdict. verification, correlation and docVerdict default to values that
