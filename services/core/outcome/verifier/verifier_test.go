@@ -227,6 +227,23 @@ func TestThePredicateDecidesWhenTheKeyIsPresent(t *testing.T) {
 		res, _ := w.decided(t)
 		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
 	})
+	// P2 (Codex): the two reads must agree about who holds the key. A transaction read that shows a case under our key while the
+	// key read found none (or found a different one), or two cases under one key, is contradictory evidence: UNKNOWN, never a
+	// NOT_ACHIEVED with a recovery request built on it.
+	t.Run("the key read finds nothing but the transaction read shows a case under the key", func(t *testing.T) {
+		held := theCase()
+		held.Status = "CLOSED"
+		w := newWorld(t, func(w *world) { w.read.byKey, w.read.byTx = []step{complete()}, []step{complete(held)} })
+		res, _ := w.decided(t)
+		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
+	})
+	t.Run("a second case under the same key in the transaction read", func(t *testing.T) {
+		second := theCase()
+		second.CaseID = "case_2"
+		w := newWorld(t, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(theCase())}, []step{complete(theCase(), second)} })
+		res, _ := w.decided(t)
+		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
+	})
 	t.Run("an unbound variable evaluates to UNKNOWN, not false", func(t *testing.T) {
 		w := newWorld(t, func(w *world) { delete(w.req.Bindings, "intent_id") })
 		res, _ := w.decided(t)
