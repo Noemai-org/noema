@@ -23,7 +23,8 @@ A plan (`contracts/schemas/fault-plan.v1.json`, or `fault-plan.v2.json`, which a
 
 | Effect | Params | What the system under test observes |
 |---|---|---|
-| `LATENCY`, `NEAR_TIMEOUT_BEFORE`, `NEAR_TIMEOUT_AFTER` | `delay_ms` | the real answer, `delay_ms` late (set it just under or just over the caller's timeout) |
+| `LATENCY`, `NEAR_TIMEOUT_BEFORE` | `delay_ms` | the request is held `delay_ms`, then forwarded, and the real answer follows (set it just under or just over the caller's timeout). A caller that gives up first leaves nothing behind: the request was never forwarded |
+| `NEAR_TIMEOUT_AFTER` | `delay_ms` | EC-T09, a late success: the request is forwarded and applied at once, and only the real answer is held `delay_ms`. A caller that gives up first leaves an applied request behind; one that waits gets the answer late |
 | `TIMEOUT_BEFORE_COMMIT` | `delay_ms` | nothing reaches Tushe; the connection is held `delay_ms`, then dropped |
 | `TIMEOUT_AFTER_COMMIT` | `delay_ms` | the request reaches Tushe; the answer is held `delay_ms`, then the connection is dropped |
 | `DROP_RESPONSE` | none | the request reaches Tushe; the connection is dropped at once |
