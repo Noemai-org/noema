@@ -268,6 +268,31 @@ def test_the_breaker_opens_after_the_threshold_skips_the_provider_and_probes_aft
     assert again.provider == "alpha"  # the probe's success closed the breaker
 
 
+def test_a_local_pool_refusal_does_not_charge_the_providers_breaker() -> None:
+    # Codex on UND-12: a full local worker pool contacts no provider, so it says nothing about the provider's health. The harness
+    # still fails over, but the refusal must not open the breaker of a healthy provider (BD-16, REQ-NFR-002).
+    refusal = ProviderError(ProviderFailure.UNAVAILABLE, local=True)
+    h, providers, _, telemetry = build(
+        {"alpha": [refusal, ProviderError(ProviderFailure.UNAVAILABLE, local=True), good("alpha")], "beta": [good("beta"), good("beta"), good("beta")]},
+        failure_threshold=1,
+    )
+    first, second = run(h.generate(request())).call, run(h.generate(request())).call
+    assert first.provider == "beta" and second.provider == "beta"  # failed over each time
+    assert len(providers["alpha"].calls) == 2  # alpha was asked again: its breaker never opened
+    assert telemetry.total("noema_provider_breaker_open_total", provider="alpha") == 0
+    assert run(h.generate(request())).call.provider == "alpha"
+
+
+def test_a_provider_that_is_unavailable_still_opens_its_breaker() -> None:
+    h, providers, _, telemetry = build(
+        {"alpha": [ProviderError(ProviderFailure.UNAVAILABLE)], "beta": [good("beta"), good("beta")]}, failure_threshold=1
+    )
+    run(h.generate(request()))
+    run(h.generate(request()))
+    assert len(providers["alpha"].calls) == 1
+    assert telemetry.total("noema_provider_breaker_open_total", provider="alpha") == 1
+
+
 def test_a_failed_probe_reopens_the_breaker_for_a_full_cooldown() -> None:
     h, providers, clock, _ = build({"alpha": [timeout_error()], "beta": [good("beta")]}, failure_threshold=1)
     run(h.generate(request()))
