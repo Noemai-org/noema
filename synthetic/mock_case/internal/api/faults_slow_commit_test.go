@@ -33,7 +33,9 @@ func (e *env) holdInserts() (release func()) {
 		if _, err := conn.Exec(ctx, `COMMIT`); err != nil {
 			e.t.Errorf("release the lock: %v", err)
 		}
-		conn.Close(ctx)
+		if err := conn.Close(ctx); err != nil {
+			e.t.Logf("close the lock connection: %v", err)
+		}
 	}
 	e.t.Cleanup(release)
 	return release

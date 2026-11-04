@@ -57,7 +57,7 @@ func probe() int {
 	if err != nil {
 		return 1
 	}
-	conn.Close()
+	_ = conn.Close() // the probe has its answer; a close error does not change it
 	return 0
 }
 
