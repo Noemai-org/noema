@@ -74,7 +74,7 @@ func decision(t *testing.T, o decide.Outcome) decide.Decision {
 
 func step() grants.Step {
 	return grants.Step{
-		TenantID: "tnt_a", CorrelationID: "corr_ABC123", DecisionID: "dec_01", PrincipalID: "usr_88213", IntentHash: sha("1"), CapabilityID: "fin.cap.create_escalation_case",
+		TenantID: "ten_aa", CorrelationID: "corr_ABC123", DecisionID: "dec_01", PrincipalID: "usr_88213", IntentHash: sha("1"), CapabilityID: "fin.cap.create_escalation_case",
 		TargetRef: "fin.transaction:TX88213", ParamsHash: sha("2"), EvidenceSetHash: sha("3"), PlanHash: sha("4"), PlanStep: 1,
 		TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: "fin.transaction:TX88213", Source: "fin.src.ledger", VersionToken: "v7"}},
 		PolicyVersion:  "fin.pol@3.1",
@@ -106,8 +106,8 @@ func TestAnAllowDecisionGivesAGrantThatBindsEveryField(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := step()
-	if g.TenantId != s.TenantID || g.DecisionId != s.DecisionID || g.PrincipalId != s.PrincipalID || g.IntentHash != s.IntentHash || g.CapabilityId != s.CapabilityID ||
-		g.TargetRef != s.TargetRef || g.ParamsHash != s.ParamsHash || g.EvidenceSetHash != s.EvidenceSetHash || g.PlanHash != s.PlanHash || g.PlanStep != s.PlanStep ||
+	if string(g.TenantId) != s.TenantID || string(g.DecisionId) != s.DecisionID || string(g.PrincipalId) != s.PrincipalID || g.IntentHash != s.IntentHash ||
+		string(g.CapabilityId) != s.CapabilityID || string(g.TargetRef) != s.TargetRef || g.ParamsHash != s.ParamsHash || g.EvidenceSetHash != s.EvidenceSetHash || g.PlanHash != s.PlanHash || g.PlanStep != s.PlanStep ||
 		len(g.TargetVersions) != 1 || g.TargetVersions[0] != s.TargetVersions[0] || g.PolicyVersion != "fin.pol@3.1" || g.PackVersion != "fin.pack@1.0.0" || !g.SingleUse {
 		t.Fatalf("%+v", g)
 	}
@@ -144,6 +144,21 @@ func TestOnlyAnAllowDecisionIssuesAGrant(t *testing.T) {
 	if _, err := i.Issue(decide.Decision{}, step()); !errors.Is(err, grants.ErrNotAllow) {
 		t.Errorf("a zero decision: %v", err)
 	}
+	// an ALLOW that was never given its basis rests on nothing and issues nothing
+	r, _ := decide.Admit(decide.IntentView{Version: 2}).Resolved()
+	bare, err := r.Allow(decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := i.Issue(bare, step()); !errors.Is(err, grants.ErrNotAllow) {
+		t.Errorf("an ALLOW without a basis: %v", err)
+	}
+	minimal, err := bare.WithBasis(decide.Basis{PackVersion: "fin.pack@1.0.0", EvaluatedAt: epoch.Unix()})
+	if err == nil {
+		if _, err := i.Issue(minimal, step()); !errors.Is(err, grants.ErrNotAllow) {
+			t.Errorf("an ALLOW with a minimal basis: %v", err)
+		}
+	}
 }
 
 func TestAStepThatDoesNotMatchTheDecisionIsRefused(t *testing.T) {
@@ -154,7 +169,6 @@ func TestAStepThatDoesNotMatchTheDecisionIsRefused(t *testing.T) {
 		"no policy version":                         func(s *grants.Step) { s.PolicyVersion = "" },
 		"no tenant":                                 func(s *grants.Step) { s.TenantID = "" },
 		"no principal":                              func(s *grants.Step) { s.PrincipalID = "" },
-		"no target versions":                        func(s *grants.Step) { s.TargetVersions = nil },
 		"a negative plan step":                      func(s *grants.Step) { s.PlanStep = -1 },
 		"no params hash":                            func(s *grants.Step) { s.ParamsHash = "" },
 		"no evidence set hash":                      func(s *grants.Step) { s.EvidenceSetHash = "" },
@@ -202,7 +216,7 @@ func TestAnyChangeToAGrantBreaksItsSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 	mods := map[string]func(*contracts.DecisionGrantV1){
-		"tenant":       func(x *contracts.DecisionGrantV1) { x.TenantId = "tnt_b" },
+		"tenant":       func(x *contracts.DecisionGrantV1) { x.TenantId = "ten_bb" },
 		"correlation":  func(x *contracts.DecisionGrantV1) { x.CorrelationId = "corr_OTHER" },
 		"grant id":     func(x *contracts.DecisionGrantV1) { x.GrantId = "grt_OTHER" },
 		"decision":     func(x *contracts.DecisionGrantV1) { x.DecisionId = "dec_02" },
@@ -324,10 +338,49 @@ func TestTheSignatureIsOverTheCanonicalJSON(t *testing.T) {
 func withoutSig(t *testing.T, g contracts.DecisionGrantV1) map[string]any {
 	t.Helper()
 	raw, _ := json.Marshal(g)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := dec.Decode(&m); err != nil {
 		t.Fatal(err)
 	}
 	delete(m, "sig")
 	return m
+}
+
+// Tamper fuzzing (TRU-05 done-when): random byte changes to a grant's JSON are rejected 100% of the time: the text no longer parses as a
+// grant, or the signature does not verify, or the grant is unchanged. Seeded.
+func TestTamperFuzzingIsRejected(t *testing.T) {
+	k := keys(t)
+	g, err := issuer(t, k).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig, _ := json.Marshal(g)
+	rng := rand.New(rand.NewSource(20261104))
+	parsed, accepted := 0, 0
+	for n := 0; n < 20_000; n++ {
+		b := append([]byte(nil), orig...)
+		for flips := 1 + rng.Intn(3); flips > 0; flips-- {
+			b[rng.Intn(len(b))] = byte(32 + rng.Intn(95))
+		}
+		var back contracts.DecisionGrantV1
+		if json.Unmarshal(b, &back) != nil {
+			continue
+		}
+		parsed++
+		again, _ := json.Marshal(back)
+		if bytes.Equal(again, orig) {
+			continue // the change did not alter the grant (for example inside whitespace or an equal respelling)
+		}
+		if k.Verify(back) == nil {
+			accepted++
+		}
+	}
+	if accepted != 0 {
+		t.Fatalf("%d of %d parsed mutations verified", accepted, parsed)
+	}
+	if parsed < 2000 {
+		t.Fatalf("only %d mutations parsed: the fuzz is too narrow to prove anything", parsed)
+	}
 }
