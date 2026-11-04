@@ -203,7 +203,7 @@ func newWorld(t *testing.T, mutate ...func(*world)) *world {
 	def := pack.Definitions[caseOK]
 	clk := clock.NewManual(t0.Add(time.Duration(def.SettleWindowSecs) * time.Second)) // exactly at the end of the settle window
 	w := &world{clk: clk, wait: &waiter{clk: clk}, read: &reader{byKey: []step{complete(theCase())}, byTx: []step{complete(theCase())}},
-		sign: &signer{}, auth: authenticity{result: verifier.AuthNotChecked},
+		sign: &signer{}, auth: authenticity{result: verifier.AuthValid},
 		store: &memStore{receipt: verifier.Receipt{ReceiptID: rcpt, TenantID: tenant, GrantID: "grt_0001", PrincipalID: princ, Attempt: 1, IdempotencyKey: key, LogicalAction: "ESCALATE_CASE",
 			State: "OUTCOME_UNKNOWN", CorrelationID: corr, DispatchedAt: t0}},
 		req: verifier.Request{TenantID: tenant, ReceiptID: rcpt, VerificationID: "vrf_0001", TransactionRef: subject, QueryableByKey: true,

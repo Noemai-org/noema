@@ -149,7 +149,7 @@ func (f *flow) verifyChain(t *testing.T) {
 
 // REQ-VER-001, REQ-AUD-001: an ACHIEVED verdict is auditable: its reads, then the verdict, on a chain that verifies.
 func TestAchievedIsOnTheRecordWithItsReads(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	res, err := f.v.Verify(ctx(t), f.req)
 	if err != nil || res.Verdict != verifier.Achieved {
 		t.Fatalf("%+v %v", res, err)
@@ -169,7 +169,7 @@ func TestAchievedIsOnTheRecordWithItsReads(t *testing.T) {
 
 // REQ-VER-003: every other verdict reaches the Record with its RecoveryRequest, and Trust's side is woken by the outbox.
 func TestNotAchievedRaisesOneRecoveryRequestOnTheRecordAndTheOutbox(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	f.pages.byKey, f.pages.byTx = []verifier.CasePage{done()}, []verifier.CasePage{done()}
 	res, err := f.v.Verify(ctx(t), f.req)
 	if err != nil || res.Verdict != verifier.NotAchieved || res.Reason != verifier.ReasonVerifiedAbsent {
@@ -189,7 +189,7 @@ func TestNotAchievedRaisesOneRecoveryRequestOnTheRecordAndTheOutbox(t *testing.T
 
 // REQ-VER-004, INV-28: a pending verdict has its watch in the database and on the Record.
 func TestPendingExternalIsOnTheRecordWithItsWatch(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	f.pages.byKey, f.pages.byTx = []verifier.CasePage{done(theCase("CLOSED"))}, []verifier.CasePage{done(theCase("CLOSED"))}
 	now := f.clk.Now()
 	f.req.Definition.Pending = &verifier.Pending{Predicate: "exists(case where case.status == 'CLOSED')", Triggers: []string{"fin.evt.settlement.updated"},
@@ -209,7 +209,7 @@ func TestPendingExternalIsOnTheRecordWithItsWatch(t *testing.T) {
 
 // AGENT-16: every read attempt is on the Record, not only the one that worked.
 func TestEveryReadAttemptIsOnTheRecord(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	f.pages.err = &verifier.ReadError{Kind: verifier.ReadUnavailable}
 	res, err := f.v.Verify(ctx(t), f.req)
 	if err != nil || res.Verdict != verifier.Unknown || res.Reason != verifier.ReasonReadsExhausted {
@@ -242,7 +242,7 @@ func TestAnInvalidReceiptSignatureRaisesASecurityEvent(t *testing.T) {
 func TestAFailedRecordAppendStoresNothing(t *testing.T) {
 	for failAt := int32(1); failAt <= 5; failAt++ { // 2 reads + VERDICT + RECOVERY_REQUESTED + WATCH_CREATED
 		t.Run(fmt.Sprintf("append %d", failAt), func(t *testing.T) {
-			f := newFlow(t, verifier.AuthNotChecked, failAt)
+			f := newFlow(t, verifier.AuthValid, failAt)
 			f.pages.byKey, f.pages.byTx = []verifier.CasePage{done(theCase("CLOSED"))}, []verifier.CasePage{done(theCase("CLOSED"))}
 			now := f.clk.Now()
 			f.req.Definition.Pending = &verifier.Pending{Predicate: "exists(case where case.status == 'CLOSED')", Triggers: []string{"fin.evt.settlement.updated"}, NextCheckAt: now.Add(time.Minute), DeadlineAt: now.Add(time.Hour)}
@@ -260,7 +260,7 @@ func TestAFailedRecordAppendStoresNothing(t *testing.T) {
 }
 
 func TestLoadReceiptCarriesTheGrantsCorrelationAndRefusesAForeignTenant(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	st := &store.Store{Pool: f.outcome(t)}
 	r, err := st.LoadReceipt(ctx(t), tenant, receipt1)
 	if err != nil || r.CorrelationID != corr || r.PrincipalID != "usr_100" || r.IdempotencyKey != theKey || !r.DispatchedAt.Equal(verifiedAt) || r.State != "OUTCOME_UNKNOWN" {
@@ -277,7 +277,7 @@ func TestLoadReceiptCarriesTheGrantsCorrelationAndRefusesAForeignTenant(t *testi
 // Duplicate delivery of one verification, concurrently (the outbox is at least once): one verdict, one RecoveryRequest, one
 // VERDICT event and one outbox event, and every caller is given that verdict.
 func TestConcurrentDeliveriesOfOneVerificationStoreOneVerdict(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	f.pages.byKey, f.pages.byTx = []verifier.CasePage{done()}, []verifier.CasePage{done()} // NOT_ACHIEVED, so a request is at stake
 	const callers = 6
 	results := make([]verifier.Result, callers)
@@ -320,7 +320,7 @@ func TestConcurrentDeliveriesOfOneVerificationStoreOneVerdict(t *testing.T) {
 // The verdict's instant is in the signed document as text and in a column as a timestamp with microsecond precision. A real
 // clock has nanoseconds; the two must still agree, or the database refuses the verdict.
 func TestAVerdictAtNanosecondPrecisionIsStoredAndAgrees(t *testing.T) {
-	f := newFlow(t, verifier.AuthNotChecked, 0)
+	f := newFlow(t, verifier.AuthValid, 0)
 	f.clk.Advance(123_456_789 * time.Nanosecond)
 	res, err := f.v.Verify(ctx(t), f.req)
 	if err != nil || res.Verdict != verifier.Achieved {

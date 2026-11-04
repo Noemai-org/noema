@@ -252,8 +252,22 @@ func TestAnInvalidReceiptSignatureStopsBeforeAnyRead(t *testing.T) {
 		t.Fatalf("signature invalid %v, reads %d", wr.SignatureInvalid, w.read.reads())
 	}
 	w = newWorld(t)
-	if _, wr := w.decided(t); wr.Verdict.ReceiptSignature != verifier.AuthNotChecked {
-		t.Fatalf("an unchecked receipt is recorded as %q", wr.Verdict.ReceiptSignature)
+	if _, wr := w.decided(t); wr.Verdict.ReceiptSignature != verifier.AuthValid {
+		t.Fatalf("a verified receipt is recorded as %q", wr.Verdict.ReceiptSignature)
+	}
+}
+
+// Founder decision of 4 Nov 2026 (OUT-01, INV-04): the verifier fails closed. A receipt whose signature was not checked is never
+// proof, so NOT_CHECKED can never produce a verdict from the target's state: no read, UNKNOWN, no security event.
+func TestANotCheckedReceiptNeverGivesAchieved(t *testing.T) {
+	w := newWorld(t, func(w *world) { w.auth = authenticity{result: verifier.AuthNotChecked} })
+	res, wr := w.decided(t)
+	want(t, res, verifier.Unknown, verifier.ReasonReceiptUnverifiable)
+	if res.Verdict == verifier.Achieved || w.read.reads() != 0 || wr.SignatureInvalid {
+		t.Fatalf("verdict %v, reads %d, signature invalid %v", res.Verdict, w.read.reads(), wr.SignatureInvalid)
+	}
+	if wr.Verdict.ReceiptSignature != verifier.AuthNotChecked {
+		t.Fatalf("the receipt is recorded as %q, not as not checked", wr.Verdict.ReceiptSignature)
 	}
 }
 
