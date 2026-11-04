@@ -10,8 +10,10 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	mrand "math/rand"
@@ -248,5 +250,35 @@ func TestAVerifierWithoutWhatItNeedsDoesNotStart(t *testing.T) {
 	other, _ := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
 	if _, err := session.NewVerifier(session.Config{Keys: map[string]*ecdsa.PublicKey{kid: &other.PublicKey}, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Clock: clk}); err == nil {
 		t.Error("only P-256 keys are accepted for ES256")
+	}
+}
+
+// The core reads the IdP's public keys from PEM files (PKIX); only a P-256 public key is accepted (REQ-SEC-001).
+func TestParsePublicKeyPEMAcceptsOnlyAP256PublicKey(t *testing.T) {
+	k := newKeys(t)
+	der, err := x509.MarshalPKIXPublicKey(&k.priv.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	got, err := session.ParsePublicKeyPEM(good)
+	if err != nil || !got.Equal(&k.priv.PublicKey) {
+		t.Fatalf("a P-256 public key must parse: %v", err)
+	}
+	p384, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	der384, _ := x509.MarshalPKIXPublicKey(&p384.PublicKey)
+	priv, _ := x509.MarshalPKCS8PrivateKey(k.priv)
+	for name, in := range map[string][]byte{
+		"P-384 key":     pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der384}),
+		"private key":   pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: priv}),
+		"not PEM":       []byte("nope"),
+		"empty":         nil,
+		"bad DER":       pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte("x")}),
+		"two blocks":    append(append([]byte{}, good...), good...),
+		"trailing junk": append(append([]byte{}, good...), []byte("junk")...),
+	} {
+		if _, err := session.ParsePublicKeyPEM(in); err == nil {
+			t.Errorf("%s must be refused", name)
+		}
 	}
 }
