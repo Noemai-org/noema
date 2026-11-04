@@ -83,33 +83,20 @@ func TestAbsenceIsNeverANegativeFact(t *testing.T) {
 	}
 }
 
-// The one exception, and only that: a source that declares AUTHORITATIVE_NEGATIVE, is authoritative, and returned a terminal not-found.
-func TestOnlyADeclaredAuthoritativeNegativeWithATerminalFlagMakesAbsenceKnown(t *testing.T) {
-	neg := layer.Source{Authority: layer.AuthAuthoritative, Absence: layer.AbsenceAuthoritativeNegative, SourceLimit: fiveMinutes}
-	notFound := func(terminal bool, at time.Time) layer.Read {
-		return layer.Read{Class: layer.ReadNotFound, Terminal: terminal, Determinate: true, ReadAt: at}
-	}
-	if got := layer.AssignStatus(notFound(true, now), neg, now); got != known {
-		t.Fatalf("declared, authoritative, terminal, fresh: %s", got)
-	}
-	if got := layer.AssignStatus(notFound(true, now.Add(-time.Hour)), neg, now); got != stale {
-		t.Fatalf("the same, but stale: %s", got)
-	}
-	for name, tc := range map[string]struct {
-		read layer.Read
-		src  layer.Source
-	}{
-		"no terminal flag":           {notFound(false, now), neg},
-		"not declared":               {notFound(true, now), authoritative},
-		"declared but corroborating": {notFound(true, now), layer.Source{Authority: layer.AuthCorroborating, Absence: layer.AbsenceAuthoritativeNegative, SourceLimit: fiveMinutes}},
-		"declared but no authority":  {notFound(true, now), layer.Source{Authority: layer.AuthNone, Absence: layer.AbsenceAuthoritativeNegative, SourceLimit: fiveMinutes}},
-		"an unknown absence value":   {notFound(true, now), layer.Source{Authority: layer.AuthAuthoritative, Absence: "SOMETHING", SourceLimit: fiveMinutes}},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := layer.AssignStatus(tc.read, tc.src, now); got != unavailable && got != unknown {
-				t.Fatalf("got %s", got)
+// P1 (Codex): evidence-item.v1 requires a missing record to be UNAVAILABLE or UNKNOWN, and evidence-source.v1 has no field with which
+// a source could declare that absence is meaningful. So even a terminal not-found from an authoritative source that "declares"
+// AUTHORITATIVE_NEGATIVE is never KNOWN here. (PERD §21.1 allows the exception [REC]; it needs a contract change first, AGENT-15.)
+func TestNoDeclarationMakesAbsenceKnown(t *testing.T) {
+	for _, absence := range []layer.Absence{layer.AbsenceNone, layer.AbsenceAuthoritativeNegative, "SOMETHING"} {
+		for _, terminal := range []bool{false, true} {
+			for _, at := range []time.Time{now, now.Add(-time.Hour)} {
+				s := layer.Source{Authority: layer.AuthAuthoritative, Absence: absence, SourceLimit: fiveMinutes}
+				got := layer.AssignStatus(layer.Read{Class: layer.ReadNotFound, Terminal: terminal, Determinate: true, ReadAt: at}, s, now)
+				if got != unavailable && got != unknown {
+					t.Fatalf("absence %q, terminal %v, read at %s: a missing record is %s", absence, terminal, at, got)
+				}
 			}
-		})
+		}
 	}
 }
 
@@ -156,7 +143,7 @@ func TestTotalDeterministicAndNeverMultiItemOverGeneratedInput(t *testing.T) {
 		if again := layer.AssignStatus(r, s, at); again != got {
 			t.Fatalf("not deterministic: %s then %s", got, again)
 		}
-		if r.Class == layer.ReadNotFound && got == known && !(s.Authority == layer.AuthAuthoritative && s.Absence == layer.AbsenceAuthoritativeNegative && r.Terminal) {
+		if r.Class == layer.ReadNotFound && got != unavailable && got != unknown {
 			t.Fatalf("%+v %+v: absence became KNOWN", r, s)
 		}
 		if got == known && (s.Authority != layer.AuthAuthoritative || s.SourceLimit <= 0 || s.ProfileLimit < 0 || r.ReadAt.After(at)) {
