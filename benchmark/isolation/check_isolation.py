@@ -12,12 +12,18 @@ The Tushe admin credential is never used here; the key comes from a file named o
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
-ERROR_KEYS = {"error", "code", "message", "detail", "status", "request_id", "type", "title"}
+# Only machine-readable fields pass. Free-text fields (message, detail, title) are NOT allowed: they can carry sensitive data
+# (an account number, a name, a ground-truth value) and still look like an error. Widen this only when Tushe documents the
+# envelope, and then only with a value shape, not a key.
+ERROR_KEYS = {"error", "code", "status", "request_id", "type"}
+_TOKEN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,63}$")
+_DIGIT_RUN = re.compile(r"[0-9]{6,}")
 EXPECTED_STATUS: Optional[int] = None  # set to an int when Tushe documents the refusal status
 MAX_BODY = 1024
 
@@ -38,11 +44,15 @@ def judge(status: int, body: str) -> Tuple[bool, str]:
         return False, "non-JSON body on a refusal"
     if not isinstance(doc, dict):
         return False, "body is not an object"
-    extra = sorted(set(doc) - ERROR_KEYS)
+    extra = set(doc) - ERROR_KEYS
     if extra:
-        return False, "body carries keys outside the error envelope: %s" % ",".join(extra)
-    if any(isinstance(v, (dict, list)) for v in doc.values()):
-        return False, "body nests data"
+        # Count only: the key names come from the remote side and are not echoed.
+        return False, "body carries %d field(s) outside the error envelope" % len(extra)
+    for k, v in doc.items():
+        if k == "status" and isinstance(v, int) and not isinstance(v, bool) and 400 <= v <= 499:
+            continue
+        if not isinstance(v, str) or not _TOKEN.match(v) or _DIGIT_RUN.search(v):
+            return False, "field %s is not a short code token" % k
     return True, "refused with an error envelope"
 
 

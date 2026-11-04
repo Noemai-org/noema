@@ -55,8 +55,23 @@ class Isolation(unittest.TestCase):
         self.assertEqual(self.run_against(lambda m, p: (302, "")), n)                                      # redirect
         self.assertEqual(self.run_against(lambda m, p: (403, "x" * 2000)), n)                              # large body
         self.assertEqual(self.run_against(lambda m, p: (403, "<html>events</html>")), n)                  # non-JSON
+        # Codex: scalar fields that pass a shape check but carry sensitive data
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"message": "account 0123456789 belongs to A. Name"}))), n)
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "forbidden", "detail": "balance 5000"}))), n)
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "acct_0123456789"}))), n)       # digit run
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "a b c d"}))), n)               # free text
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "x" * 80}))), n)               # long value
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "forbidden", "status": 200}))), n)
         # a partial leak: only /partner/events served
         self.assertEqual(self.run_against(lambda m, p: (200, "[]") if p == "/partner/events" else (403, "")), 1)
+
+    def test_the_check_never_prints_the_remote_body(self) -> None:
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.run_against(lambda m, p: (403, json.dumps({"message": "SECRET-ACCOUNT-0123456789", "SECRET-KEY-NAME": "x"})))
+        self.assertNotIn("SECRET", buf.getvalue())
 
     def test_unreachable_is_fail_not_pass(self) -> None:
         self.assertEqual(ci.run("http://127.0.0.1:1", "k", PROBES[:1]), 1)
