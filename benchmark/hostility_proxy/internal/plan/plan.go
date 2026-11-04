@@ -44,6 +44,10 @@ const (
 	LateEvent           = "LATE_EVENT"
 	ImpossibleState     = "IMPOSSIBLE_STATE"
 	InjectionPayload    = "INJECTION_PAYLOAD"
+	InvalidJSON         = "INVALID_JSON"
+	WrongContentType    = "WRONG_CONTENT_TYPE"
+	EmptyBodySuccess    = "EMPTY_BODY_SUCCESS"
+	Paginate            = "PAGINATE"
 )
 
 // Source and target names.
@@ -57,11 +61,19 @@ const (
 // maxDelayMS only catches seconds written as milliseconds; it is not a product threshold.
 const maxDelayMS = 600_000
 
+// maxPageSize only catches a page size written as a count of bytes; it is not a product threshold.
+const maxPageSize = 10_000
+
+// DefaultWrongContentType is what WRONG_CONTENT_TYPE sends when the plan names none.
+const DefaultWrongContentType = "text/html"
+
+var wrongContentTypes = map[string]bool{"text/html": true, "text/plain": true, "application/xml": true}
+
 var proxyEffects = map[string]bool{
 	Latency: true, TimeoutBeforeCommit: true, TimeoutAfterCommit: true, NearTimeoutBefore: true, NearTimeoutAfter: true,
 	DropResponse: true, HTTP5XX: true, HTTP429: true, Malformed: true, ServiceUnavailable: true, StaleRead: true,
 	SchemaDrift: true, ClockSkew: true, DropWebhook: true, DuplicateWebhook: true, ReorderEvents: true, LateEvent: true,
-	ImpossibleState: true, InjectionPayload: true,
+	ImpossibleState: true, InjectionPayload: true, InvalidJSON: true, WrongContentType: true, EmptyBodySuccess: true, Paginate: true,
 }
 
 // allEffects, targets and sources are copied from the schema and checked against it by the contract test.
@@ -72,6 +84,7 @@ var allEffects = map[string]bool{
 	"STALE_READ": true, "PAGINATE": true, "SCHEMA_DRIFT": true, "CLOCK_SKEW": true, "SERVICE_UNAVAILABLE": true,
 	"SPLIT_STATE": true, "DEBIT_WITHOUT_CREDIT": true, "DELAYED_SETTLEMENT": true, "DELAYED_REVERSAL": true, "IMPOSSIBLE_STATE": true,
 	"CONCURRENT_MODIFICATION": true, "POLICY_MUTATION": true, "IDEMPOTENCY_COLLISION": true, "INJECTION_PAYLOAD": true,
+	"INVALID_JSON": true, "WRONG_CONTENT_TYPE": true, "EMPTY_BODY_SUCCESS": true,
 }
 
 var targets = map[string]bool{"mock-ledger": true, "mock-switch": true, "mock-destination": true, "mock-customer": true, "mock-policy": true,
@@ -146,6 +159,8 @@ type fault struct {
 	change      string
 	field       string
 	fixture     string
+	contentType string
+	pageSize    int
 }
 
 // Compiled is a validated plan.
@@ -400,7 +415,27 @@ func compile(index int, f Fault, env Env) (fault, error) {
 		if !env.HasFixture(ft.fixture) {
 			return ft, fmt.Errorf("the proxy has no fixture %q", ft.fixture)
 		}
-	case DropWebhook, DuplicateWebhook, ReorderEvents:
+	case WrongContentType:
+		ft.contentType = DefaultWrongContentType
+		if raw, ok := opt("content_type"); ok {
+			if e := json.Unmarshal(raw, &ft.contentType); e != nil || !wrongContentTypes[ft.contentType] {
+				return ft, errors.New("params.content_type must be text/html, text/plain or application/xml")
+			}
+		}
+	case Paginate:
+		raw, e := need("page_size")
+		if e != nil {
+			return ft, e
+		}
+		n, e := intParam(raw)
+		if e != nil || n < 1 || n > maxPageSize {
+			return ft, fmt.Errorf("params.page_size must be an integer from 1 to %d", maxPageSize)
+		}
+		ft.pageSize = n
+		if rt.Page == nil || rt.Method != "GET" {
+			return ft, fmt.Errorf("PAGINATE needs a list route with a page descriptor; %s %s is not one", f.Target, f.Operation)
+		}
+	case DropWebhook, DuplicateWebhook, ReorderEvents, InvalidJSON, EmptyBodySuccess:
 		// no params
 	}
 	switch f.Effect {
@@ -435,6 +470,8 @@ type Effect struct {
 	Change      string
 	Field       string
 	Fixture     string
+	ContentType string
+	PageSize    int
 	Params      json.RawMessage
 	// Pick is a number drawn from (seed, fault, nth match): the same plan and seed always give the same Pick.
 	Pick uint64
@@ -519,7 +556,7 @@ func (e *Engine) Next(target, op string, attrs map[string]string) Decision {
 			continue
 		}
 		d.Effect = &Effect{Index: f.planIndex, Name: f.effect, Delay: f.delay, Status: f.status, AfterCommit: f.afterCommit,
-			RetryAfter: f.retryAfter, Seconds: f.seconds, Skew: f.skew, Change: f.change, Field: f.field, Fixture: f.fixture,
+			RetryAfter: f.retryAfter, Seconds: f.seconds, Skew: f.skew, Change: f.change, Field: f.field, Fixture: f.fixture, ContentType: f.contentType, PageSize: f.pageSize,
 			Params: f.paramsRaw, Pick: Draw(d.Seed, f.planIndex, -e.seen[i])}
 	}
 	return d
