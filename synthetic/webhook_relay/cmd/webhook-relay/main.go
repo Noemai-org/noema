@@ -63,7 +63,11 @@ func main() {
 		log.Error("store refused", "error", err.Error())
 		os.Exit(1)
 	}
-	defer st.Close()
+	defer func() {
+		if err := st.Close(); err != nil {
+			log.Error("store close failed", "error", err.Error())
+		}
+	}()
 	srv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           server.New(verify.New(cfg.Key), st, verify.PullToken(cfg.Key), time.Now).Handler(),
@@ -76,7 +80,7 @@ func main() {
 	defer stop()
 	go func() {
 		<-ctx.Done()
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second) // the cancelled parent is the signal itself; shutdown needs its values, not its cancellation
 		defer cancel()
 		_ = srv.Shutdown(sctx)
 	}()
@@ -101,7 +105,7 @@ func healthcheck() int {
 	if err != nil {
 		return 1
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // the status is all the probe reads; a close error cannot change it
 	if resp.StatusCode != 200 {
 		return 1
 	}

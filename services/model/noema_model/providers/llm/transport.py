@@ -6,12 +6,14 @@ transport with allow_loopback_http (a test of the real wire path); the harness c
 """
 
 import asyncio
+import functools
 import ipaddress
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
+from noema_model.platform.blocking import BoundedBlockingPool, PoolSaturated
 from noema_model.providers.llm.base import HttpResponse, ProviderError, ProviderFailure
 
 
@@ -30,7 +32,10 @@ def _is_loopback(host: str) -> bool:
 
 
 class UrllibTransport:
-    def __init__(self, *, allow_loopback_http: bool = False) -> None:
+    def __init__(self, *, pool_size: int, allow_loopback_http: bool = False) -> None:
+        # The blocking call runs on this transport's own bounded pool, never on the event loop and never on the shared default
+        # executor. The size is configuration (NOEMA_MODEL_LLM_POOL_SIZE); this class holds no default (AGENT-16).
+        self._pool = BoundedBlockingPool(pool_size, name="llm-transport")
         self._allow_loopback_http = allow_loopback_http
         self._opener = urllib.request.build_opener(_NoRedirect)
 
@@ -77,7 +82,10 @@ class UrllibTransport:
         self._check_url(url)
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self._post_blocking, url, headers, body, timeout_s, max_bytes), timeout_s
+                self._pool.run(functools.partial(self._post_blocking, url, headers, body, timeout_s, max_bytes)), timeout_s
             )
+        except PoolSaturated as exc:
+            # Every worker is busy: fail at once, so the harness can fail over to the next provider (BD-16). Nothing was sent.
+            raise ProviderError(ProviderFailure.UNAVAILABLE, local=True) from exc
         except TimeoutError as exc:
             raise ProviderError(ProviderFailure.TIMEOUT) from exc

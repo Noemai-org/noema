@@ -3,7 +3,8 @@
 // authority layers to pass (REQ-AMB-001, REQ-TRU-001). It also builds the clarification question by attribute (D4,
 // REQ-AMB-004) and binds an answer to a candidate set (REQ-AMB-005).
 //
-// Implements REQ-AMB-001, REQ-AMB-004, REQ-AMB-005, REQ-TRU-001, REQ-TRU-002 (the gate steps T1 to T6).
+// Implements REQ-AMB-001, REQ-AMB-004, REQ-AMB-005, REQ-TRU-001, REQ-TRU-002 (the fixed decisions of T1 to T6, and
+// Evaluate, the fail-closed runner of T1 to T15 with its evaluation trace), REQ-NFR-002.
 //
 // May import: the standard library.
 //
