@@ -153,6 +153,40 @@ func TestEveryBoundFieldIsBound(t *testing.T) {
 	}
 }
 
+// P1 (Codex): the document carries the dispatch time to the nanosecond (Execution signs it so), while PostgreSQL stores a
+// timestamptz to the microsecond, truncated or rounded depending on how it was sent. A genuine receipt must still verify when the
+// row's time is the stored one; a time that differs by more than that precision is a different receipt.
+func TestTheRowsTimeIsTheStoredPrecisionOfTheDocumentsTime(t *testing.T) {
+	f := newFixture(t) // dispatched at ...123456789 ns
+	c := f.checker(receiptsig.Active)
+	for name, stored := range map[string]time.Time{
+		"truncated to the microsecond": dispatched.Truncate(time.Microsecond),
+		"rounded to the microsecond":   dispatched.Round(time.Microsecond),
+		"exact":                        dispatched,
+	} {
+		t.Run(name+" is valid", func(t *testing.T) {
+			r := f.signed(t)
+			r.DispatchedAt = stored
+			if got := check(t, c, r); got != verifier.AuthValid {
+				t.Fatalf("got %s", got)
+			}
+		})
+	}
+	for name, stored := range map[string]time.Time{
+		"two microseconds later":   dispatched.Add(2 * time.Microsecond),
+		"two microseconds earlier": dispatched.Add(-2 * time.Microsecond),
+		"a millisecond later":      dispatched.Add(time.Millisecond),
+	} {
+		t.Run(name+" is invalid", func(t *testing.T) {
+			r := f.signed(t)
+			r.DispatchedAt = stored
+			if got := check(t, c, r); got != verifier.AuthInvalid {
+				t.Fatalf("got %s", got)
+			}
+		})
+	}
+}
+
 // D6: the domain tag is part of the message. A signature over the bare JCS, or over another object's tag, is not a receipt's.
 func TestTheDomainTagIsPartOfTheMessage(t *testing.T) {
 	f := newFixture(t)
