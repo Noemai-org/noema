@@ -272,7 +272,7 @@ func TestAnEventNamingAnotherTenantIsRefused(t *testing.T) {
 func TestRecordInsertRefusesAnEmitterThatIsNotTheLoginsPower(t *testing.T) {
 	w := newTenantWorld(t)
 	a := w.login(t, w.name("execution_rw", "ten_a"))
-	for _, emitter := range []string{"core-trust", "core-outcome", "core-evidence", "core-workflows", "core-edge", "core-record", "admin", "model-service", "mock-ledger", "benchmark-runner", "TRUST", ""} {
+	for _, emitter := range []string{"core-trust", "core-outcome", "core-evidence", "core-workflows", "core-edge", "core-record", "admin", "model-service", "mock-ledger", "unknown-emitter", "TRUST", ""} {
 		t.Run("execution login as "+emitter, func(t *testing.T) {
 			tx, err := a.Begin(ctx(t))
 			if err != nil {
