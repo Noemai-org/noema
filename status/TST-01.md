@@ -20,3 +20,7 @@ TST-01 is **not** Done until INV-05 and INV-18 are proved too. They ship with EX
 ### Pre-work for the next agent
 - Exact next step: EXE-01 (registry loader, static scan, INV-05) and PLN-01 (planner, plan hash, INV-18) once noema#120 is on `main`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-04 · TST-01 · Codex review 5763774986
+- **Finding:** deleting the five `rapid` replay files removes durable regression evidence. **Checked, and not accepted as stated:** the INV-03 file replays the defect "a target that does not match, validly signed", which my first draft had wrong (the controller correctly dispatches such a grant; I removed the defect, so the file's draw no longer means that case); the INV-07 and INV-08 files came from my own deliberate mutation runs (a 5xx classified as failed, a different key). None was a counterexample against the real code, and replaying them would mislead.
+- **What I did with the substance:** the evidence should be durable and seed-free. Each property body is now a check function; `rapid` draws it, and three new tests run it exhaustively (`TestINV03EveryDefectUnderEveryFault`: 14 defects × 7 faults × 1 and 3 presentations; `TestINV07EveryFaultAndEveryCrashPoint`; `TestINV08EveryCrashPointUnderEveryFault`). The four mutations (signature check skipped, expiry skipped, key differs, 5xx as terminal failure) are each caught by the exhaustive tests alone (run and reverted).
