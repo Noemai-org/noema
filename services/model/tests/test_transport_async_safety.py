@@ -92,12 +92,17 @@ def _llm_is(kind: ProviderFailure) -> Callable[[BaseException], bool]:
     return lambda e: isinstance(e, ProviderError) and e.kind is kind
 
 
+def _llm_saturated(e: BaseException) -> bool:
+    # UNAVAILABLE, and marked local: no provider was contacted, so the harness must not charge a breaker for it.
+    return isinstance(e, ProviderError) and e.kind is ProviderFailure.UNAVAILABLE and e.local
+
+
 def _evidence_is(e: BaseException) -> bool:
     return isinstance(e, CandidateSourceError)
 
 
 KITS = [
-    Kit("llm", lambda n: UrllibTransport(pool_size=n, allow_loopback_http=True), _llm_is(ProviderFailure.UNAVAILABLE), _llm_is(ProviderFailure.TIMEOUT)),
+    Kit("llm", lambda n: UrllibTransport(pool_size=n, allow_loopback_http=True), _llm_saturated, _llm_is(ProviderFailure.TIMEOUT)),
     Kit("evidence", lambda n: UrllibEvidenceTransport(None, pool_size=n, allow_loopback_http=True), _evidence_is, _evidence_is),
 ]
 BY_NAME = {k.name: k for k in KITS}

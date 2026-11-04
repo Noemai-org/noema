@@ -86,6 +86,6 @@ class UrllibTransport:
             )
         except PoolSaturated as exc:
             # Every worker is busy: fail at once, so the harness can fail over to the next provider (BD-16). Nothing was sent.
-            raise ProviderError(ProviderFailure.UNAVAILABLE) from exc
+            raise ProviderError(ProviderFailure.UNAVAILABLE, local=True) from exc
         except TimeoutError as exc:
             raise ProviderError(ProviderFailure.TIMEOUT) from exc

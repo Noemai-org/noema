@@ -415,6 +415,7 @@ class Harness:
                     continue
                 response: ProviderResponse | NativeResponse | None = None
                 outcome: AttemptOutcome
+                local_refusal = False
                 with self._telemetry.span("harness.provider_call", correlation_id,
                                           {"route": route, "provider": name}) as attempt_span:
                     try:
@@ -439,12 +440,15 @@ class Harness:
                         outcome = AttemptOutcome.TIMEOUT
                     except ProviderError as exc:
                         outcome = _FAILURE_OUTCOME[exc.kind]
+                        local_refusal = exc.local
                     except BaseException:
                         breaker.release_probe()
                         raise
                     if response is not None and response.model_version_reported != (cfg.reported_model_version or cfg.model_version):
                         outcome = AttemptOutcome.VERSION_MISMATCH
-                    if outcome in PROVIDER_FAILURES:
+                    if local_refusal:
+                        breaker.release_probe()  # nothing was sent: the provider was not judged, so its breaker is not charged
+                    elif outcome in PROVIDER_FAILURES:
                         breaker.record_failure(self._clock.monotonic_ms())
                         if breaker.state is BreakerState.OPEN:
                             breakers_opened.append(name)
