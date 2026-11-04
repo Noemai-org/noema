@@ -87,13 +87,13 @@ func TestAbsenceIsNeverANegativeFact(t *testing.T) {
 // a source could declare that absence is meaningful. So even a terminal not-found from an authoritative source that "declares"
 // AUTHORITATIVE_NEGATIVE is never KNOWN here. (PERD §21.1 allows the exception [REC]; it needs a contract change first, AGENT-15.)
 func TestNoDeclarationMakesAbsenceKnown(t *testing.T) {
-	for _, absence := range []layer.Absence{layer.AbsenceNone, layer.AbsenceAuthoritativeNegative, "SOMETHING"} {
+	for range []struct{}{{}} {
 		for _, terminal := range []bool{false, true} {
 			for _, at := range []time.Time{now, now.Add(-time.Hour)} {
-				s := layer.Source{Authority: layer.AuthAuthoritative, Absence: absence, SourceLimit: fiveMinutes}
+				s := layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: fiveMinutes}
 				got := layer.AssignStatus(layer.Read{Class: layer.ReadNotFound, Terminal: terminal, Determinate: true, ReadAt: at}, s, now)
 				if got != unavailable && got != unknown {
-					t.Fatalf("absence %q, terminal %v, read at %s: a missing record is %s", absence, terminal, at, got)
+					t.Fatalf("terminal %v, read at %s: a missing record is %s", terminal, at, got)
 				}
 			}
 		}
@@ -121,9 +121,8 @@ func generated(rng *rand.Rand) (layer.Read, layer.Source, time.Time) {
 		at = time.Time{}
 	}
 	auths := []layer.Authority{layer.AuthAuthoritative, layer.AuthCorroborating, layer.AuthNone, "", "ANYTHING"}
-	absences := []layer.Absence{layer.AbsenceNone, layer.AbsenceAuthoritativeNegative, "SOMETHING"}
 	r := layer.Read{Class: classes[rng.Intn(len(classes))], Terminal: rng.Intn(2) == 0, Determinate: rng.Intn(2) == 0, ReadAt: at}
-	s := layer.Source{Authority: auths[rng.Intn(len(auths))], Absence: absences[rng.Intn(len(absences))], SourceLimit: span(), ProfileLimit: span()}
+	s := layer.Source{Authority: auths[rng.Intn(len(auths))], SourceLimit: span(), ProfileLimit: span()}
 	return r, s, now.Add(span())
 }
 
@@ -153,10 +152,10 @@ func TestTotalDeterministicAndNeverMultiItemOverGeneratedInput(t *testing.T) {
 }
 
 func FuzzAssignStatus(f *testing.F) {
-	f.Add("OK", true, true, int64(0), int64(300), int64(0), "AUTHORITATIVE", "")
-	f.Add("NOT_FOUND", true, true, int64(-5), int64(300), int64(60), "AUTHORITATIVE", "AUTHORITATIVE_NEGATIVE")
-	f.Add("", false, false, int64(1<<62), int64(-1), int64(-1), "", "x")
-	f.Fuzz(func(t *testing.T, class string, terminal, determinate bool, ageSecs, srcSecs, profSecs int64, auth, absence string) {
+	f.Add("OK", true, true, int64(0), int64(300), int64(0), "AUTHORITATIVE")
+	f.Add("NOT_FOUND", true, true, int64(-5), int64(300), int64(60), "AUTHORITATIVE")
+	f.Add("", false, false, int64(1<<62), int64(-1), int64(-1), "")
+	f.Fuzz(func(t *testing.T, class string, terminal, determinate bool, ageSecs, srcSecs, profSecs int64, auth string) {
 		clamp := func(v int64) time.Duration {
 			if v > 1<<40 {
 				v = 1 << 40
@@ -167,7 +166,7 @@ func FuzzAssignStatus(f *testing.F) {
 			return time.Duration(v) * time.Second
 		}
 		r := layer.Read{Class: layer.ReadClass(class), Terminal: terminal, Determinate: determinate, ReadAt: now.Add(-clamp(ageSecs))}
-		s := layer.Source{Authority: layer.Authority(auth), Absence: layer.Absence(absence), SourceLimit: clamp(srcSecs), ProfileLimit: clamp(profSecs)}
+		s := layer.Source{Authority: layer.Authority(auth), SourceLimit: clamp(srcSecs), ProfileLimit: clamp(profSecs)}
 		if got := layer.AssignStatus(r, s, now); !eight[got] {
 			t.Fatalf("%q is not a FactStatus", got)
 		}

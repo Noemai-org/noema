@@ -23,7 +23,7 @@ const (
 // Read is one read as the status function sees it.
 type Read struct {
 	Class       ReadClass
-	Terminal    bool      // a NOT_FOUND that the source marked terminal
+	Terminal    bool      // a NOT_FOUND that the source marked terminal (recorded for the item; it never makes absence KNOWN)
 	Determinate bool      // an OK read whose value can be determined (not an unknown enum, not "pending" without a terminal flag)
 	ReadAt      time.Time // retrieval time, on the clock interface
 }
@@ -37,18 +37,9 @@ const (
 	AuthNone          Authority = "NONE" // a customer's own claim
 )
 
-// Absence is a source's declared meaning of "not found" for a fact. The POC fixtures declare none.
-type Absence string
-
-const (
-	AbsenceNone                  Absence = ""
-	AbsenceAuthoritativeNegative Absence = "AUTHORITATIVE_NEGATIVE"
-)
-
 // Source is the pack's descriptor for the source of one fact.
 type Source struct {
 	Authority    Authority
-	Absence      Absence
 	SourceLimit  time.Duration // freshness_sla_seconds
 	ProfileLimit time.Duration // the trust profile's max_evidence_age_seconds; zero means the profile sets none
 }
@@ -65,13 +56,11 @@ func AssignStatus(r Read, s Source, now time.Time) contracts.EnumsV1FactStatus {
 	case ReadMalformed:
 		return contracts.EnumsV1FactStatusUNKNOWN
 	case ReadNotFound:
-		// Absence is never a negative fact. Its one exception is a source that declares AUTHORITATIVE_NEGATIVE and returned a
-		// not-found with the terminal flag; that answer is then judged like any other read, so it is KNOWN only from an
-		// authoritative source within its limit. Every other not-found is
-		// UNKNOWN: the record is absent where absence is not meaningful (PERD §21.1).
-		if !(s.Absence == AbsenceAuthoritativeNegative && r.Terminal) {
-			return contracts.EnumsV1FactStatusUNKNOWN
-		}
+		// Absence is never a negative fact (INV-19). PERD §21.1 allows one exception, a source that declares AUTHORITATIVE_NEGATIVE,
+		// but evidence-item.v1 requires a missing record to be UNAVAILABLE or UNKNOWN and evidence-source.v1 has no field with which
+		// to declare it, and the POC fixtures declare none. So a not-found is UNKNOWN whatever the source and the terminal flag say
+		// (the record is absent where absence is not meaningful). The exception needs a contract change first (AGENT-15).
+		return contracts.EnumsV1FactStatusUNKNOWN
 	case ReadOK:
 		if !r.Determinate {
 			return contracts.EnumsV1FactStatusUNKNOWN
