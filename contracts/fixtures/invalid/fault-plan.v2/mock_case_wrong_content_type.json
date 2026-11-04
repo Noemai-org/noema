@@ -1,0 +1,14 @@
+{
+  "fault_plan_id": "fp_x",
+  "scenario_id": "SCN-CORRUPT-001",
+  "seed": 15,
+  "deterministic": true,
+  "source": "MOCK_CASE",
+  "faults": [
+    {
+      "target": "mock-case",
+      "operation": "get_case",
+      "effect": "WRONG_CONTENT_TYPE"
+    }
+  ]
+}

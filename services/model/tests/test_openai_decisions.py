@@ -593,7 +593,7 @@ def test_the_adapter_and_harness_over_a_real_socket_read_the_documentation_respo
         dm_cfg = config.providers["dm"]
         local = ProviderConfig(**{**{f: getattr(dm_cfg, f) for f in dm_cfg.__slots__}, "endpoint": f"http://127.0.0.1:{server.server_address[1]}"})
         config = type(config)(config.account_run_min_digits, config.data_limits, config.breaker, {**config.providers, "dm": local}, config.routes)
-        decisions = OpenAIDecisions("dm", AdapterSettings(local.endpoint, "CRED", None, 500, 65536), UrllibTransport(allow_loopback_http=True))
+        decisions = OpenAIDecisions("dm", AdapterSettings(local.endpoint, "CRED", None, 500, 65536), UrllibTransport(pool_size=2, allow_loopback_http=True))
         harness = Harness(config, {"dm": decisions, "gpt": ScriptedProvider("gpt", [timeout_error()])}, ManualClock(), InMemoryTelemetry())
         result = decide(harness, FLAG, CHOICE, state={"utterance": "The package arrived with a broken screen."})
         assert result.answers[0] == YesNoAnswer("multiple_intents", None, 0.95)

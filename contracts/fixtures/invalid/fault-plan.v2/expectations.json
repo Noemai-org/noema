@@ -1,0 +1,12 @@
+{
+  "invalid_json_with_params.json": "maxProperties",
+  "empty_body_success_with_params.json": "maxProperties",
+  "wrong_content_type_unknown_value.json": "enum",
+  "wrong_content_type_unknown_param.json": "additionalProperties",
+  "paginate_without_page_size.json": "required",
+  "paginate_page_size_zero.json": "minimum",
+  "mock_case_invalid_json.json": "enum",
+  "mock_case_empty_body_success.json": "enum",
+  "mock_case_wrong_content_type.json": "enum",
+  "unknown_corruption_effect.json": "enum"
+}
