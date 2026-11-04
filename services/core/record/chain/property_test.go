@@ -340,7 +340,15 @@ func (p *propDB) assertTriggersEnabled(t testingT) {
 			c.Release()
 		}
 	}()
-	for i := int32(0); i < p.admin.Stat().IdleConns()+1; i++ {
+	// The bound is the number of connections the pool has, taken once before any is held. Two ways to get it wrong, both seen here:
+	// reading the idle count inside the loop (every Acquire lowers it, so the loop can stop before every connection has been looked
+	// at: Codex review 5763835671), and asking for more than the pool can give (every connection is held until the loop ends, so one
+	// Acquire past MaxConns waits forever). The test is single-threaded, so every existing connection is idle and can be taken.
+	n := int(p.admin.Stat().TotalConns())
+	if n < 1 {
+		n = 1
+	}
+	for i := 0; i < n; i++ {
 		c, err := p.admin.Acquire(p.ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -377,5 +385,69 @@ func TestTamperingLeavesNoConnectionWithTriggersDisabled(t *testing.T) {
 	}
 	if _, err := p.admin.Exec(p.ctx, `UPDATE record_event SET event_type = 'GRANT_SPENT' WHERE tenant_id = $1 AND seq = 1`, tn); err == nil {
 		t.Fatal("an ordinary UPDATE of the Record succeeded: the triggers were left disabled on a pooled connection")
+	}
+}
+
+// recorder stands in for a test so a check that is expected to fail can be observed failing. Fatalf stops the caller the way a real
+// one does (it does not return).
+type recorder struct{ failed bool }
+
+type stopped struct{}
+
+func (r *recorder) Helper()               {}
+func (r *recorder) Fatal(args ...any)     { r.failed = true; panic(stopped{}) }
+func (r *recorder) Fatalf(string, ...any) { r.failed = true; panic(stopped{}) }
+
+// The check sees a connection left with the triggers disabled wherever it sits among the idle ones (Codex review 5763835671: a
+// bound that shrank during the loop could skip some). Four connections are made idle; each one in turn is the one left in replica
+// mode; the check must fail every time.
+func TestTheTriggerCheckSeesALeakOnAnyIdleConnection(t *testing.T) {
+	p := newPropDB(t)
+	const conns = 4
+	hold := func() []*pgxpool.Conn {
+		var held []*pgxpool.Conn
+		for i := 0; i < conns; i++ {
+			c, err := p.admin.Acquire(p.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			held = append(held, c)
+		}
+		return held
+	}
+	release := func(held []*pgxpool.Conn) {
+		for _, c := range held {
+			c.Release()
+		}
+	}
+	for leaked := 0; leaked < conns; leaked++ {
+		held := hold()
+		if _, err := held[leaked].Exec(p.ctx, `SET session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		release(held)
+
+		r := &recorder{}
+		func() {
+			defer func() {
+				if v := recover(); v != nil {
+					if _, ok := v.(stopped); !ok {
+						panic(v)
+					}
+				}
+			}()
+			p.assertTriggersEnabled(r)
+		}()
+		if !r.failed {
+			t.Fatalf("a connection left in replica mode (the %d-th of %d idle ones) was not noticed", leaked+1, conns)
+		}
+
+		held = hold() // put the pool back to origin for the next round
+		for _, c := range held {
+			if _, err := c.Exec(p.ctx, `RESET session_replication_role`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		release(held)
 	}
 }
