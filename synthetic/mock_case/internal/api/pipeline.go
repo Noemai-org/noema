@@ -113,7 +113,8 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 				return
 			}
 			sleep(ctx, eff.Delay)
-			panic(http.ErrAbortHandler)
+			abortConnection(w)
+			return
 		case eff.Name == faultplan.EffectHTTP429:
 			e := newErr(429, "RATE_LIMITED", "too many requests", true)
 			e.RetryAfter = eff.RetryAfter
@@ -139,7 +140,8 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 				return
 			}
 			sleep(ctx, eff.Delay)
-			panic(http.ErrAbortHandler)
+			abortConnection(w)
+			return
 		case eff.Name == faultplan.EffectNearTimeoutBefore:
 			// The delay comes before the commit: a caller that gives up first leaves nothing behind, one that waits
 			// gets the real answer. The plan's delay_ms puts the answer just inside or just outside the caller's timeout.
@@ -174,6 +176,18 @@ func (s *Server) serve(op string, parse parser) http.HandlerFunc {
 			s.respond(w, corr, call.exec(ctx, cmd, eff))
 		}
 	}
+}
+
+// abortConnection ends the connection with no response at all, as a server that died would. It hijacks the connection and
+// closes it, so the handler returns normally and no panic is needed. A connection that cannot be hijacked (it is not HTTP/1)
+// cannot be dropped; nothing was sent yet, so a 500 is the nearest honest answer. Callers return straight after it.
+func abortConnection(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		writeErr(w, "", internalErr())
+		return
+	}
+	_ = conn.Close() // the connection ending is the fault; a close error changes nothing the caller can observe
 }
 
 // pendingAnswer is HTTP_200_SEMANTIC_PENDING: a transport success that says the work is pending and carries none of

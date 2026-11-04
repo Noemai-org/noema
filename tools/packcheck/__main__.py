@@ -1,4 +1,4 @@
-"""packcheck validate [--conformance] <pack.json>  (python tools/packcheck validate ...). Exit 1 on any problem."""
+"""packcheck validate [--conformance] [--templates-required] <pack.json>  (python tools/packcheck validate ...). Exit 1 on any problem."""
 import sys
 from pathlib import Path
 
@@ -7,15 +7,15 @@ import checks  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
-    args = [a for a in argv if a != "--conformance"]
+    args = [a for a in argv if a not in ("--conformance", "--templates-required")]
     if len(args) != 2 or args[0] != "validate":
-        print("usage: packcheck validate [--conformance] <pack.json>", file=sys.stderr)
+        print("usage: packcheck validate [--conformance] [--templates-required] <pack.json>", file=sys.stderr)
         return 2
     path = Path(args[1])
     if not path.exists():
         print(f"packcheck: no such file: {path}", file=sys.stderr)
         return 2
-    problems = checks.run(path, conformance="--conformance" in argv)
+    problems = checks.run(path, conformance="--conformance" in argv, templates="enforce" if "--templates-required" in argv else "off")
     for check, message in problems:
         print(f"packcheck FAIL [{check}] {path.name}: {message}")
     if not problems:

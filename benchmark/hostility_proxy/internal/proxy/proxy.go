@@ -132,7 +132,9 @@ func (s *Server) rewriteRequestBody(contentType string, body []byte) []byte {
 	}
 	if isJSON(contentType) {
 		if tree, err := jsonx.Decode(body); err == nil {
-			return jsonx.Encode(jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToReal) }))
+			if enc, err := jsonx.Encode(jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToReal) })); err == nil {
+				return enc
+			}
 		}
 	}
 	return []byte(s.rewrite(string(body), numbers.ToReal))
@@ -203,7 +205,7 @@ func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 	}
 	c.header.Del("X-Forwarded-For")
 	c.staleID = r.Method + " " + target.String()
-	s.apply(c)
+	s.apply(r.Context(), c)
 }
 
 func (s *Server) record(c *call, detail map[string]any) {
@@ -213,11 +215,23 @@ func (s *Server) record(c *call, detail map[string]any) {
 	s.trace.add(TraceEntry{Target: c.rt.Target, Operation: c.rt.Operation, CallNo: c.dec.CallNo, FaultIndex: c.eff.Index, Effect: c.eff.Name, Params: c.eff.Params, Detail: detail})
 }
 
-func abort() { panic(http.ErrAbortHandler) }
+// abort ends the connection with no response at all, as a server that died would. It hijacks the connection and closes it, so
+// the handler returns normally and no panic is needed. A connection that cannot be hijacked (it is not HTTP/1) cannot be
+// dropped; nothing was sent yet, so a 502 is the nearest honest answer. Callers return straight after it.
+func abort(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "connection could not be dropped")
+		return
+	}
+	_ = conn.Close() // the connection ending is the fault; a close error changes nothing the caller can observe
+}
+
+// closeBody closes a response body that has been read to the end (or abandoned). A close error then carries nothing the caller can act on.
+func closeBody(b io.Closer) { _ = b.Close() }
 
 // apply runs the fault, if any, around the forward and delivers the answer.
-func (s *Server) apply(c *call) {
-	ctx := c.r.Context()
+func (s *Server) apply(ctx context.Context, c *call) {
 	e := c.eff
 	if e != nil {
 		switch e.Name {
@@ -229,7 +243,8 @@ func (s *Server) apply(c *call) {
 		case plan.TimeoutBeforeCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)
-			abort()
+			abort(c.w)
+			return
 		case plan.ServiceUnavailable:
 			s.record(c, nil)
 			writeError(c.w, http.StatusServiceUnavailable, "service unavailable")
@@ -274,10 +289,12 @@ func (s *Server) apply(c *call) {
 		case plan.TimeoutAfterCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)
-			abort()
+			abort(c.w)
+			return
 		case plan.DropResponse:
 			s.record(c, nil)
-			abort()
+			abort(c.w)
+			return
 		case plan.HTTP5XX: // after_commit: the write went through, the caller is told it failed
 			s.record(c, nil)
 			writeError(c.w, e.Status, "upstream failure")
@@ -298,7 +315,7 @@ func (s *Server) forward(ctx context.Context, c *call) (*upstreamResponse, error
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer closeBody(res.Body)
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBody))
 	if err != nil {
 		return nil, err
@@ -312,7 +329,13 @@ func (s *Server) deliverFixture(c *call, fx Fixture) {
 		h.Set(k, v)
 	}
 	body := jsonx.MapStrings(fx.Body, func(str string) string { return s.rewrite(str, numbers.ToSynthetic) })
-	s.finish(c, &upstreamResponse{status: fx.Status, header: h}, jsonx.Encode(body))
+	enc, err := jsonx.Encode(body)
+	if err != nil {
+		s.opt.Log.Error("a fixture could not be encoded", "err", err.Error())
+		writeError(c.w, http.StatusInternalServerError, "fixture could not be encoded")
+		return
+	}
+	s.finish(c, &upstreamResponse{status: fx.Status, header: h}, enc)
 }
 
 // deliver applies the response-side faults and the number rewrite, and writes the answer.
@@ -334,7 +357,13 @@ func (s *Server) deliver(c *call, resp *upstreamResponse) {
 		if tree, err := jsonx.Decode(body); err == nil {
 			tree = s.faultTree(c, tree, detail)
 			tree = jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToSynthetic) })
-			body = jsonx.Encode(tree)
+			enc, err := jsonx.Encode(tree)
+			if err != nil {
+				s.opt.Log.Error("a response could not be encoded", "err", err.Error())
+				writeError(c.w, http.StatusBadGateway, "response could not be encoded")
+				return
+			}
+			body = enc
 		} else {
 			body = []byte(s.rewrite(string(body), numbers.ToSynthetic))
 			if e != nil && e.Name != plan.StaleRead && !bodyEffect(e.Name) {

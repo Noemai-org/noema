@@ -177,13 +177,15 @@ func payloadOf(p any) (hash string, js any, err error) {
 
 func validate(ev Event) error {
 	switch {
+	case actorsErr != nil:
+		return fmt.Errorf("%w: %v", ErrActorsTable, actorsErr)
 	case !tenantRe.MatchString(ev.TenantID):
 		return fmt.Errorf("%stenant_id %q does not match the contract", errPrefix, ev.TenantID)
 	case !correlationRe.MatchString(ev.CorrelationID):
 		return fmt.Errorf("%scorrelation_id %q does not match the contract", errPrefix, ev.CorrelationID)
 	case !objectRefRe.MatchString(ev.ObjectRef):
 		return fmt.Errorf("%sobject_ref %q does not match the contract", errPrefix, ev.ObjectRef)
-	case !emitters[ev.WrittenBy]:
+	case !actors.emitters[ev.WrittenBy]:
 		return fmt.Errorf("%swritten_by %q is not an emitter (PERD v1.17 section 32.1)", errPrefix, ev.WrittenBy)
 	case !eventTypeRe.MatchString(ev.EventType):
 		return fmt.Errorf("%sevent_type %q does not match the contract", errPrefix, ev.EventType)
@@ -212,7 +214,7 @@ func validate(ev Event) error {
 // caused the event, the emitter's own service identity.
 func validActor(actor, writtenBy string) bool {
 	if m := personRe.FindStringSubmatch(actor); m != nil {
-		return principalKinds[m[1]]
+		return actors.principalKinds[m[1]]
 	}
-	return emitters[writtenBy] && actor == writtenBy
+	return actors.emitters[writtenBy] && actor == writtenBy
 }

@@ -49,3 +49,12 @@ def require_bool(source: Mapping[str, Any], key: str, where: str) -> bool:
     if not isinstance(value, bool):
         raise ConfigError(f"{where}.{key}: expected true or false")
     return value
+
+
+def require_env_int(environ: Mapping[str, str], name: str, *, minimum: int) -> int:
+    """Read an integer from the environment, strictly: ASCII digits only, at least `minimum`. A missing, empty, signed,
+    spaced or fractional value is a ConfigError that names the variable and never echoes what was set."""
+    raw = environ.get(name)
+    if raw is None or not raw.isascii() or not raw.isdigit() or int(raw) < minimum:
+        raise ConfigError(f"{name}: expected an integer of at least {minimum}")
+    return int(raw)

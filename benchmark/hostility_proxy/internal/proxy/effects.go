@@ -60,6 +60,7 @@ func (s *Server) eventFeed(c *call, tree any, detail map[string]any) any {
 		case plan.DropWebhook:
 			if applied {
 				events = events[1:]
+				detail["dropped_index"], detail["remaining"] = 0, len(events) // the diagnostic that shows the drop (AT-05)
 			}
 		case plan.DuplicateWebhook:
 			if applied {
