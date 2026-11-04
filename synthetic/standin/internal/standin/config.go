@@ -65,5 +65,8 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 	if c.Options.RuntimeToken, err = secret(getenv, readFile, "STANDIN_RUNTIME_TOKEN_FILE"); err != nil {
 		return nil, err
 	}
+	if c.Options.PrincipalKey, err = secret(getenv, readFile, "STANDIN_PRINCIPAL_KEY_FILE"); err != nil {
+		return nil, err
+	}
 	return c, nil
 }

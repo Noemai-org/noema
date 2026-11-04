@@ -2,13 +2,19 @@ package standin_test
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/synthetic/standin/internal/standin"
 )
@@ -23,7 +29,24 @@ import (
 const (
 	benchToken   = "standin-bench-token-standin-bench-token-0001"
 	runtimeToken = "standin-runtime-token-standin-runtime-token-0002"
+	principalKey = "principal-principal-principal-principal-0003"
 )
+
+// fixedNow is the service's clock in the tests: 2026-10-01T09:40:00Z, SYNTHETIC.
+var fixedNow = time.Unix(1790847600, 0)
+
+// mint is the adapter's side of the identity contract, written here independently of the service (README, "Identity"):
+// v1.<base64url(principal)>.<expiry unix seconds>.<hex MAC>, where the MAC is HMAC-SHA-256 keyed with the principal key over the four lines
+// noema-standin-principal-v1, <aud>, <principal>, <expiry> (README, "Identity").
+func mint(key, aud, principal string, exp int64) string {
+	m := hmac.New(sha256.New, []byte(key))
+	_, _ = fmt.Fprintf(m, "noema-standin-principal-v1\n%s\n%s\n%d", aud, principal, exp)
+	return fmt.Sprintf("v1.%s.%d.%s", base64.RawURLEncoding.EncodeToString([]byte(principal)), exp, hex.EncodeToString(m.Sum(nil)))
+}
+
+func assertion(principal string) string {
+	return mint(principalKey, "standin", principal, fixedNow.Unix()+60)
+}
 
 type rig struct {
 	t       testing.TB
@@ -38,7 +61,7 @@ func newRig(t testing.TB) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken})
+	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, Now: func() time.Time { return fixedNow }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +87,7 @@ func do(t testing.TB, method, url, token, principal string, body []byte) reply {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if principal != "" {
-		req.Header.Set("X-Principal", principal)
+		req.Header.Set("X-Principal-Assertion", assertion(principal))
 	}
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -363,9 +386,82 @@ func TestDeletingTheLoadLeavesNothingServed(t *testing.T) {
 }
 
 func TestOptionsNeedBothCredentialsAndKeepThemApart(t *testing.T) { // REQ-ENV-002
-	for _, o := range []standin.Options{{BenchToken: benchToken}, {RuntimeToken: runtimeToken}, {BenchToken: "short", RuntimeToken: runtimeToken}, {BenchToken: benchToken, RuntimeToken: benchToken}} {
+	for _, o := range []standin.Options{{BenchToken: benchToken}, {RuntimeToken: runtimeToken}, {BenchToken: "short", RuntimeToken: runtimeToken}, {BenchToken: benchToken, RuntimeToken: benchToken},
+		{BenchToken: benchToken, RuntimeToken: runtimeToken}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: "short"},
+		{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: runtimeToken}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: benchToken}} {
 		if _, err := standin.New(o); err == nil {
 			t.Fatalf("options %+v must be refused", o)
 		}
+	}
+}
+
+func (r *rig) withAssertion(a, path string, extra map[string]string) reply {
+	r.t.Helper()
+	req, err := http.NewRequest("GET", r.data.URL+path, nil)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+runtimeToken)
+	if a != "" {
+		req.Header.Set("X-Principal-Assertion", a)
+	}
+	for k, v := range extra {
+		req.Header.Set(k, v)
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	b, _ := io.ReadAll(res.Body)
+	return reply{res.StatusCode, res.Header, string(b)}
+}
+
+func TestACallerCannotChangeThePrincipalWhileKeepingTheSameCredential(t *testing.T) { // INV-12: identity is bound, not asserted
+	r := newRig(t)
+	r.loadGolden()
+	const path = "/standin/v1/transactions"
+	good := assertion("usr_a")
+	if res := r.withAssertion(good, path, nil); res.status != 200 {
+		t.Fatalf("a valid assertion must be served, got %d %s", res.status, res.body)
+	}
+	parts := strings.Split(good, ".")
+	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString([]byte("usr_b")), parts[2], parts[3]}, ".")
+	for name, a := range map[string]string{
+		"principal swapped, MAC kept": swapped,
+		"expiry extended, MAC kept":   strings.Join([]string{parts[0], parts[1], "1790999999", parts[3]}, "."),
+		"no assertion":                "",
+		"malformed":                   "usr_a",
+		"wrong version":               strings.Replace(good, "v1.", "v2.", 1),
+		"MAC not hex":                 strings.Join([]string{parts[0], parts[1], parts[2], "zz"}, "."),
+		"wrong key":                   mint("another-key-another-key-another-key-0009", "standin", "usr_a", fixedNow.Unix()+60),
+		"wrong audience":              mint(principalKey, "mock-case", "usr_a", fixedNow.Unix()+60),
+		"expired":                     mint(principalKey, "standin", "usr_a", fixedNow.Unix()-1),
+		"lifetime too long":           mint(principalKey, "standin", "usr_a", fixedNow.Unix()+3600),
+		"valid but not in the load":   mint(principalKey, "standin", "usr_nobody", fixedNow.Unix()+60),
+	} {
+		if res := r.withAssertion(a, path, nil); res.status != 401 {
+			t.Fatalf("%s: want 401, got %d %s", name, res.status, res.body)
+		}
+	}
+	// the old way no longer identifies anyone, and never overrides a valid assertion
+	if res := r.withAssertion("", path, map[string]string{"X-Principal": "usr_a"}); res.status != 401 {
+		t.Fatalf("a bare X-Principal must not identify the caller, got %d", res.status)
+	}
+	res := r.withAssertion(assertion("usr_b"), path, map[string]string{"X-Principal": "usr_a"})
+	if res.status != 200 || strings.Contains(res.body, "TX1") || !strings.Contains(res.body, "TX9") {
+		t.Fatalf("the assertion, not the header, must decide who is served: %d %s", res.status, res.body)
+	}
+}
+
+func TestTheAssertionContractMatchesThePinnedVector(t *testing.T) { // the adapter implements this from the README; a second implementation (Python hmac) produced the vector
+	const want = "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce"
+	if got := mint(principalKey, "standin", "usr_a", 1790847660); got != want {
+		t.Fatalf("test minter drifted from the vector: %s", got)
+	}
+	r := newRig(t)
+	r.loadGolden()
+	if res := r.withAssertion(want, "/standin/v1/principal", nil); res.status != 200 {
+		t.Fatalf("the service must accept the pinned vector at the fixed clock, got %d %s", res.status, res.body)
 	}
 }

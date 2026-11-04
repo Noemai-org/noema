@@ -6,8 +6,10 @@ package standin
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,12 +29,19 @@ const (
 	// maxLoadBytes bounds a load; a fixture of the generated suite is a few kilobytes.
 	maxLoadBytes = 4 << 20
 	minTokenLen  = 32
+	// audience binds an assertion to this service; maxAssertionLifetime keeps one short-lived (INV-12).
+	audience             = "standin"
+	maxAssertionLifetime = 5 * time.Minute
+	assertionMACLabel    = "noema-standin-principal-v1"
 )
 
-// Options holds the two credentials. They are read from files by the caller and must differ: the key that loads never reads, and the key that reads never loads.
+// Options holds the two credentials and the identity key. They are read from files by the caller and must all differ: the key that loads never reads,
+// the key that reads never loads, and the key that signs identities is neither. Now is the clock (nil means the system clock).
 type Options struct {
 	BenchToken   string
 	RuntimeToken string
+	PrincipalKey string
+	Now          func() time.Time
 }
 
 type principal struct {
@@ -85,11 +94,14 @@ type Server struct {
 
 // New checks the options and returns an empty stand-in.
 func New(o Options) (*Server, error) {
-	if len(o.BenchToken) < minTokenLen || len(o.RuntimeToken) < minTokenLen {
-		return nil, fmt.Errorf("both credentials are required and must be at least %d characters", minTokenLen)
+	if len(o.BenchToken) < minTokenLen || len(o.RuntimeToken) < minTokenLen || len(o.PrincipalKey) < minTokenLen {
+		return nil, fmt.Errorf("the bench credential, the runtime credential and the principal key are required and must be at least %d characters", minTokenLen)
 	}
-	if o.BenchToken == o.RuntimeToken {
-		return nil, errors.New("the bench credential and the runtime credential must differ")
+	if o.BenchToken == o.RuntimeToken || o.BenchToken == o.PrincipalKey || o.RuntimeToken == o.PrincipalKey {
+		return nil, errors.New("the bench credential, the runtime credential and the principal key must all differ")
+	}
+	if o.Now == nil {
+		o.Now = time.Now
 	}
 	return &Server{opt: o}, nil
 }
@@ -270,7 +282,44 @@ func (s *Server) DataHandler() http.Handler {
 
 type scopedHandler func(w http.ResponseWriter, r *http.Request, c *loaded, who string)
 
-// scoped refuses a read until something is loaded, and then until the caller names a principal of the load (INV-12).
+// principalOf checks the caller's identity assertion and returns the principal it binds. The assertion is minted by the trusted adapter from the
+// authenticated session (INV-12):
+//
+//	X-Principal-Assertion: v1.<base64url(principal)>.<expiry, unix seconds>.<hex HMAC-SHA-256>
+//	MAC = HMAC-SHA-256 keyed with the principal key over four lines: noema-standin-principal-v1, standin, the principal, the expiry
+//
+// It is refused if it is missing, malformed, signed with another key or for another audience, expired, or valid for longer than five minutes.
+// The runtime credential alone identifies no one, and a bare X-Principal header is ignored.
+func (s *Server) principalOf(r *http.Request) (string, bool) {
+	parts := strings.Split(r.Header.Get("X-Principal-Assertion"), ".")
+	if len(parts) != 4 || parts[0] != "v1" {
+		return "", false
+	}
+	who, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil || len(who) == 0 {
+		return "", false
+	}
+	exp, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil || strconv.FormatInt(exp, 10) != parts[2] {
+		return "", false
+	}
+	now := s.opt.Now()
+	if now.Unix() > exp || time.Unix(exp, 0).Sub(now) > maxAssertionLifetime {
+		return "", false
+	}
+	got, err := hex.DecodeString(parts[3])
+	if err != nil {
+		return "", false
+	}
+	m := hmac.New(sha256.New, []byte(s.opt.PrincipalKey))
+	_, _ = fmt.Fprintf(m, "%s\n%s\n%s\n%d", assertionMACLabel, audience, who, exp)
+	if !hmac.Equal(got, m.Sum(nil)) {
+		return "", false
+	}
+	return string(who), true
+}
+
+// scoped refuses a read until something is loaded, and then until the caller's assertion names a principal of the load (INV-12).
 func (s *Server) scoped(h scopedHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c := s.current()
@@ -278,9 +327,9 @@ func (s *Server) scoped(h scopedHandler) http.HandlerFunc {
 			fail(w, http.StatusServiceUnavailable, "STANDIN_NOT_LOADED", "no stand-in data is loaded")
 			return
 		}
-		who := r.Header.Get("X-Principal")
-		if _, ok := c.p.Principals[who]; !ok {
-			fail(w, http.StatusUnauthorized, "UNAUTHENTICATED", "a known principal is required")
+		who, ok := s.principalOf(r)
+		if _, known := c.p.Principals[who]; !ok || !known {
+			fail(w, http.StatusUnauthorized, "UNAUTHENTICATED", "a valid identity assertion for a known principal is required")
 			return
 		}
 		h(w, r, c, who)

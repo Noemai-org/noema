@@ -11,9 +11,9 @@ It is a read-store. The data contract is `benchmark/fixtures/standin.py` (`deriv
 | Side | Credential | Does |
 |---|---|---|
 | Control (`STANDIN_CONTROL_LISTEN`) | bench token (`STANDIN_BENCH_TOKEN_FILE`) | `PUT /control/v1/standin` loads or replaces the data (400 if it is not whole, 413 over 4 MiB); `GET` says what is loaded (`fixture_id`, `digest`); `DELETE` clears it |
-| Data (`STANDIN_DATA_LISTEN`) | runtime token (`STANDIN_RUNTIME_TOKEN_FILE`) and `X-Principal` | reads only |
+| Data (`STANDIN_DATA_LISTEN`) | runtime token (`STANDIN_RUNTIME_TOKEN_FILE`) and a signed identity assertion (`X-Principal-Assertion`, key in `STANDIN_PRINCIPAL_KEY_FILE`) | reads only |
 
-The two tokens must differ, are read from files (never the environment), and the key that loads never reads and the key that reads never loads. Neither listener defaults to every interface.
+The two tokens and the principal key must all differ, are read from files (never the environment), and the key that loads never reads and the key that reads never loads. Neither listener defaults to every interface.
 
 ## Read routes (PERD 34.4)
 
@@ -28,11 +28,23 @@ All answers carry `data_source: "stand-in"`, `synthetic: true` and the header `X
 | `GET /standin/v1/transactions/{ref}/switch-status` | Switch | `fin.switch_record`, raw code beside semantic status, `is_terminal` |
 | `GET /standin/v1/transactions/{ref}/destination-status` | Destination | `fin.destination_status` |
 
-Never a global search. Identity is the caller named in `X-Principal`, who must be a principal of the load (401 otherwise). A transaction or account that belongs to someone else answers exactly as one that does not exist (404, the same body). Before anything is loaded every read is 503 `STANDIN_NOT_LOADED`, never an empty answer. `unavailable: true` is an unavailable answer, never an empty one.
+Never a global search. Identity is the principal bound by the caller's signed assertion (below), who must be a principal of the load (401 otherwise); a bare `X-Principal` header identifies no one. A transaction or account that belongs to someone else answers exactly as one that does not exist (404, the same body). Before anything is loaded every read is 503 `STANDIN_NOT_LOADED`, never an empty answer. `unavailable: true` is an unavailable answer, never an empty one.
+
+## Identity (INV-12): the contract the adapter implements
+
+The adapter derives the principal from the authenticated session and sends, with the runtime token, one header:
+
+```
+X-Principal-Assertion: v1.<base64url(principal), no padding>.<expiry, unix seconds>.<hex MAC>
+MAC = HMAC-SHA-256 keyed with the principal key, over four lines (joined by "\n", no trailing newline):
+      noema-standin-principal-v1, standin, <principal>, <expiry>
+```
+
+The service refuses (401) an assertion that is missing, malformed, signed with another key, bound to another audience (the audience is the literal `standin`), expired, valid for more than five minutes, or naming someone who is not a principal of the load. A caller holding only the runtime token cannot change the principal. Worked vector, to check an implementation: key `principal-principal-principal-principal-0003`, principal `usr_a`, expiry `1790847660` gives `v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce` (computed with Python `hmac`, pinned in `TestTheAssertionContractMatchesThePinnedVector`).
 
 ## Limits (stated, not hidden)
 
-- `X-Principal` is asserted by the caller and trusted because the runtime token is. Tushe binds the principal differently; the adapter mapping absorbs that when the interface is frozen.
+- The assertion proves that the holder of the principal key named the principal; it does not authenticate an end user by itself. The trusted adapter must mint it from the authenticated session (INV-12), and the key must be held only by that adapter. Tushe binds a principal differently; the adapter mapping absorbs that when the interface is frozen.
 - Field names are the PERD 34.4 [REC] shapes, our reading, not Tushe's. Cases stay in mock-case.
 - State is in memory: a restart empties it and the loader loads again. Evidence records the `digest`.
 - Slice 1: the service, its tests and its image. Compose wiring, the hostility proxy's routes to it, and the Compose profile checks follow in the next slice.

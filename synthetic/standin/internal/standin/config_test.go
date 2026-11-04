@@ -11,15 +11,16 @@ import (
 const (
 	good1 = "0123456789abcdef0123456789abcdef-bench"
 	good2 = "fedcba9876543210fedcba9876543210-runtime"
+	good3 = "0f1e2d3c4b5a69788796a5b4c3d2e1f0-principal-key"
 )
 
 func env(over map[string]string) (func(string) string, func(string) ([]byte, error)) {
 	vars := map[string]string{"STANDIN_DATA_LISTEN": "10.20.0.5:8093", "STANDIN_CONTROL_LISTEN": "10.30.0.5:8094",
-		"STANDIN_BENCH_TOKEN_FILE": "/run/secrets/bench", "STANDIN_RUNTIME_TOKEN_FILE": "/run/secrets/runtime"}
+		"STANDIN_BENCH_TOKEN_FILE": "/run/secrets/bench", "STANDIN_RUNTIME_TOKEN_FILE": "/run/secrets/runtime", "STANDIN_PRINCIPAL_KEY_FILE": "/run/secrets/principal"}
 	for k, v := range over {
 		vars[k] = v
 	}
-	files := map[string]string{"/run/secrets/bench": good1 + "\n", "/run/secrets/runtime": good2 + "\n"}
+	files := map[string]string{"/run/secrets/bench": good1 + "\n", "/run/secrets/runtime": good2 + "\n", "/run/secrets/principal": good3 + "\n"}
 	return func(k string) string { return vars[k] }, func(p string) ([]byte, error) {
 		if v, ok := files[p]; ok {
 			return []byte(v), nil
@@ -31,12 +32,14 @@ func env(over map[string]string) (func(string) string, func(string) ([]byte, err
 func TestConfigReadsTheTwoCredentialsFromFilesOnly(t *testing.T) { // AGENTS 10: file-mounted secrets, never an environment value
 	g, r := env(nil)
 	c, err := standin.LoadConfig(g, r)
-	if err != nil || c.Options.BenchToken != good1 || c.Options.RuntimeToken != good2 || c.DataListen != "10.20.0.5:8093" {
+	if err != nil || c.Options.BenchToken != good1 || c.Options.RuntimeToken != good2 || c.Options.PrincipalKey != good3 || c.DataListen != "10.20.0.5:8093" {
 		t.Fatalf("config wrong: %+v %v", c, err)
 	}
-	g, r = env(map[string]string{"STANDIN_BENCH_TOKEN_FILE": ""})
-	if _, err := standin.LoadConfig(g, r); err == nil || !strings.Contains(err.Error(), "STANDIN_BENCH_TOKEN_FILE") {
-		t.Fatalf("a missing credential file must be named: %v", err)
+	for _, name := range []string{"STANDIN_BENCH_TOKEN_FILE", "STANDIN_RUNTIME_TOKEN_FILE", "STANDIN_PRINCIPAL_KEY_FILE"} {
+		g, r = env(map[string]string{name: ""})
+		if _, err := standin.LoadConfig(g, r); err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("a missing %s must be named: %v", name, err)
+		}
 	}
 }
 
