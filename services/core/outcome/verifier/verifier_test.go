@@ -217,6 +217,16 @@ func TestThePredicateDecidesWhenTheKeyIsPresent(t *testing.T) {
 		}
 		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
 	})
+	// P1 (Codex): the two reads are separate. If they disagree about the case under our key (it changed between them), the
+	// evidence is inconsistent and no success follows (INV-04, REQ-VER-002).
+	t.Run("the two reads disagree about the case under our key", func(t *testing.T) {
+		byKey := theCase()
+		byTx := theCase()
+		byTx.Epoch = byKey.Epoch + 1
+		w := newWorld(t, func(w *world) { w.read.byKey, w.read.byTx = []step{complete(byKey)}, []step{complete(byTx)} })
+		res, _ := w.decided(t)
+		want(t, res, verifier.Unknown, verifier.ReasonInconsistent)
+	})
 	t.Run("an unbound variable evaluates to UNKNOWN, not false", func(t *testing.T) {
 		w := newWorld(t, func(w *world) { delete(w.req.Bindings, "intent_id") })
 		res, _ := w.decided(t)
