@@ -145,6 +145,19 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 			g.Nodes = append(g.Nodes, extra)
 			g.Nodes[len(g.Nodes)-1].NodeId = "second_undeclared_entry" // no edge: a second entry point nobody declared
 		}},
+		{"two separate components, each with its own root (Codex review: the graph must be connected)", func(g *contracts.ActionGraphV2) {
+			x := g.Nodes[0]
+			x.NodeId = "separate_root"
+			g.Nodes = append(g.Nodes, x)
+			g.Roots = append(g.Roots, x.NodeId)
+		}},
+		{"a separate component that is a chain of its own", func(g *contracts.ActionGraphV2) {
+			x, y := g.Nodes[0], g.Nodes[0]
+			x.NodeId, y.NodeId = "chain_a", "chain_b"
+			g.Nodes = append(g.Nodes, x, y)
+			g.Roots = append(g.Roots, x.NodeId)
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: "chain_b", DependsOn: "chain_a"})
+		}},
 		{"a duplicate node", func(g *contracts.ActionGraphV2) { g.Nodes = append(g.Nodes, g.Nodes[0]) }},
 		{"no nodes", func(g *contracts.ActionGraphV2) { g.Nodes, g.Edges, g.Roots = nil, nil, nil }},
 		{"an unregistered capability", func(g *contracts.ActionGraphV2) { g.Nodes[0].CapabilityId = "fin.cap.not_registered" }},
@@ -200,12 +213,32 @@ func TestEveryPlanFromARandomGraphFollowsItsEdges(t *testing.T) {
 				OnUnknown: contracts.ActionGraphV2RecoveryActionESCALATE, OnFailure: contracts.ActionGraphV2RecoveryActionRETRYREAD})
 		}
 		hasIn := map[int]bool{}
+		comp := make([]int, n) // union-find parent, to keep the drawn graph connected: the walk refuses a disconnected one
+		for i := range comp {
+			comp[i] = i
+		}
+		var find func(int) int
+		find = func(x int) int {
+			for comp[x] != x {
+				x = comp[x]
+			}
+			return x
+		}
+		link := func(j, i int) {
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[j].NodeId, DependsOn: g.Nodes[i].NodeId})
+			hasIn[j] = true
+			comp[find(j)] = find(i)
+		}
 		for j := 1; j < n; j++ {
 			for i := 0; i < j; i++ {
 				if rapid.Bool().Draw(t, fmt.Sprintf("edge %d<-%d", j, i)) {
-					g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[j].NodeId, DependsOn: g.Nodes[i].NodeId})
-					hasIn[j] = true
+					link(j, i)
 				}
+			}
+		}
+		for j := 1; j < n; j++ {
+			if find(j) != find(0) {
+				link(j, 0)
 			}
 		}
 		for i := range g.Nodes {
@@ -247,3 +280,35 @@ type byKey struct {
 func (b byKey) Len() int           { return len(b.keys) }
 func (b byKey) Less(i, j int) bool { return b.keys[i] < b.keys[j] }
 func (b byKey) Swap(i, j int)      { b.keys[i], b.keys[j] = b.keys[j], b.keys[i]; b.swap(i, j) }
+
+// The other half of the property: when the graph is split into two parts with no edge between them, the walk refuses it.
+func TestARandomGraphWithTwoUnconnectedPartsIsRefused(t *testing.T) {
+	ids := allowed(t, reg(t))
+	rapid.Check(t, func(t *rapid.T) {
+		mk := func(prefix string, n int) ([]contracts.ActionGraphV2NodesItem, []contracts.ActionGraphV2EdgesItem, []contracts.CommonV1SlotName) {
+			var nodes []contracts.ActionGraphV2NodesItem
+			var edges []contracts.ActionGraphV2EdgesItem
+			for i := 0; i < n; i++ {
+				nodes = append(nodes, contracts.ActionGraphV2NodesItem{NodeId: contracts.CommonV1SlotName(fmt.Sprintf("%s%02d", prefix, i)), Kind: contracts.ActionGraphV2NodesItemKindREAD,
+					CapabilityId: contracts.CommonV1PackId(rapid.SampledFrom(ids).Draw(t, "capability")), Preconditions: []contracts.CommonV1Predicate{}, Postconditions: []contracts.CommonV1Predicate{"true"},
+					OnUnknown: contracts.ActionGraphV2RecoveryActionESCALATE, OnFailure: contracts.ActionGraphV2RecoveryActionRETRYREAD})
+				if i > 0 {
+					edges = append(edges, contracts.ActionGraphV2EdgesItem{NodeId: nodes[i].NodeId, DependsOn: nodes[i-1].NodeId}) // a chain, so each part is connected
+				}
+			}
+			return nodes, edges, []contracts.CommonV1SlotName{nodes[0].NodeId}
+		}
+		an, ae, ar := mk("a", rapid.IntRange(1, 6).Draw(t, "size a"))
+		bn, be, br := mk("b", rapid.IntRange(1, 6).Draw(t, "size b"))
+		g := contracts.ActionGraphV2{GraphId: "fin.graph.random", GraphVersion: "1.0.0", AppliesWhen: "true",
+			Nodes: append(an, bn...), Edges: append(ae, be...), Roots: append(ar, br...)}
+		if p, err := planner.Walk(reg(t), g, "fin.graph.random", nil); err == nil {
+			t.Fatalf("a graph in two unconnected parts was planned: %+v", p.Document())
+		}
+		// and each part alone is fine
+		one := contracts.ActionGraphV2{GraphId: "fin.graph.random", GraphVersion: "1.0.0", AppliesWhen: "true", Nodes: an, Edges: ae, Roots: ar}
+		if _, err := planner.Walk(reg(t), one, "fin.graph.random", nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
