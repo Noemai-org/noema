@@ -50,7 +50,7 @@ func CheckRetryOrder(rows []chain.Row) []Violation {
 		for _, r := range rs {
 			switch r.EventType {
 			case "VERDICT":
-				switch v := payloadString(r, "verdict"); {
+				switch v := verdictOf(r); {
 				case v == "ACHIEVED":
 					verdictSeen, allowAfter = false, false // nothing to recover: it cancels an earlier failed verdict
 				case verdicts[v]:
@@ -80,6 +80,30 @@ func CheckRetryOrder(rows []chain.Row) []Violation {
 
 // verdicts are the verdicts other than ACHIEVED (enums.v1 Verdict).
 var verdicts = map[string]bool{"NOT_ACHIEVED": true, "PARTIALLY_ACHIEVED": true, "PENDING_EXTERNAL": true, "UNKNOWN": true, "COMPENSATED": true}
+
+// verdictOf reads the verdict enum of a VERDICT row. Outcome writes the verdict document nested under "verdict" (outcome/store), so the
+// enum is at verdict.verdict; the flat form {"verdict": "<enum>"} that the reconstruction projection reads is accepted too. Anything
+// else is unreadable and yields "".
+func verdictOf(r chain.Row) string {
+	if r.Payload == nil {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal([]byte(*r.Payload), &m) != nil {
+		return ""
+	}
+	var flat string
+	if json.Unmarshal(m["verdict"], &flat) == nil {
+		return flat
+	}
+	var doc struct {
+		Verdict string `json:"verdict"`
+	}
+	if json.Unmarshal(m["verdict"], &doc) == nil {
+		return doc.Verdict
+	}
+	return ""
+}
 
 func payloadString(r chain.Row, key string) string {
 	if r.Payload == nil {

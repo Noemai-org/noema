@@ -11,7 +11,7 @@ Recovery after an uncertain or failed write. Built by RCV-01 (slice 1, 2026-11-0
   - A Trust error, a panic, `UNKNOWN`, an outcome that is not one of the seven, or an `ALLOW` with no decision is UNKNOWN: `ESCALATE` and an ops alert (PERD 30.2, REQ-RCV-001 failure behaviour). If the alert cannot be delivered the result is still `ESCALATE` and the failure is returned.
   - Any other Trust outcome (`ESCALATE`, `REJECT`, `CLARIFY`, `CONFIRM`, `WAIT`) gives `ESCALATE` with no alert from here, because Trust recorded why.
   - The context needs a deadline; a malformed request is refused before Trust is asked.
-- `CheckRetryOrder(rows)` checks, over rows already read and verified, that every `DISPATCH_ATTEMPTED` with `attempt` > 1 is preceded, since the previous dispatch, by a `VERDICT` other than `ACHIEVED` and then by a `DECISION_MADE` with the outcome `ALLOW`. Each retry needs its own pair. A dispatch whose attempt cannot be read, and a verdict that cannot be read, are never taken as safe.
+- `CheckRetryOrder(rows)` checks, over rows already read and verified, that every `DISPATCH_ATTEMPTED` with `attempt` > 1 is preceded, since the previous dispatch, by a `VERDICT` other than `ACHIEVED` and then by a `DECISION_MADE` with the outcome `ALLOW`. Each retry needs its own pair. A dispatch whose attempt cannot be read, and a verdict that cannot be read, are never taken as safe. The verdict is read from the payload Outcome writes (the verdict document nested under `verdict`, the enum at `verdict.verdict`); the flat `{"verdict": "<enum>"}` that the reconstruction projection reads is accepted too.
 
 ## Not here
 

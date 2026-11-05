@@ -33,8 +33,15 @@ func seq(corr string, evs ...ev) []chain.Row {
 func dispatch(attempt int) ev {
 	return ev{"DISPATCH_ATTEMPTED", fmt.Sprintf(`{"attempt":%d}`, attempt)}
 }
-func verdict(v string) ev { return ev{"VERDICT", fmt.Sprintf(`{"verdict":%q}`, v)} }
-func decided(o string) ev { return ev{"DECISION_MADE", fmt.Sprintf(`{"decision_outcome":%q}`, o)} }
+
+// verdict is the payload Outcome writes (outcome/store): the verdict document nested under "verdict", with the enum at verdict.verdict.
+func verdict(v string) ev {
+	return ev{"VERDICT", fmt.Sprintf(`{"verdict":{"verdict":%q,"verdict_id":"ver_1"},"reason":"POSTCONDITION_UNVERIFIED"}`, v)}
+}
+
+// flatVerdict is the flat shape the reconstruction projection reads (a "verdict" string); both are accepted.
+func flatVerdict(v string) ev { return ev{"VERDICT", fmt.Sprintf(`{"verdict":%q}`, v)} }
+func decided(o string) ev     { return ev{"DECISION_MADE", fmt.Sprintf(`{"decision_outcome":%q}`, o)} }
 
 func TestAFirstDispatchNeedsNoVerdict(t *testing.T) {
 	if v := recovery.CheckRetryOrder(seq("c1", decided("ALLOW"), dispatch(1))); len(v) != 0 {
@@ -95,6 +102,24 @@ func TestANonAllowDecisionDoesNotAuthoriseARetry(t *testing.T) {
 func TestAVerdictThatCannotBeReadDoesNotAuthoriseARetry(t *testing.T) {
 	for name, vd := range map[string]ev{"empty payload": {"VERDICT", ""}, "not json": {"VERDICT", "nope"}, "no verdict": {"VERDICT", `{}`}, "an unknown value": verdict("MAYBE"), "lower case": verdict("not_achieved")} {
 		rs := seq("c1", decided("ALLOW"), dispatch(1), vd, decided("ALLOW"), dispatch(2))
+		if v := recovery.CheckRetryOrder(rs); len(v) != 1 || v[0].Reason != recovery.NoNonAchievedVerdict {
+			t.Fatalf("%s: violations = %+v", name, v)
+		}
+	}
+}
+
+// The flat shape of the reconstruction projection is read too.
+func TestAFlatVerdictPayloadIsReadToo(t *testing.T) {
+	rs := seq("c1", decided("ALLOW"), dispatch(1), flatVerdict("NOT_ACHIEVED"), decided("ALLOW"), dispatch(2))
+	if v := recovery.CheckRetryOrder(rs); len(v) != 0 {
+		t.Fatalf("violations = %+v", v)
+	}
+}
+
+// A nested document whose inner verdict is missing or not a string is unreadable.
+func TestANestedVerdictWithNoEnumIsUnreadable(t *testing.T) {
+	for name, p := range map[string]string{"empty object": `{"verdict":{}}`, "number": `{"verdict":{"verdict":3}}`, "null": `{"verdict":null}`, "array": `{"verdict":[]}`} {
+		rs := seq("c1", decided("ALLOW"), dispatch(1), ev{"VERDICT", p}, decided("ALLOW"), dispatch(2))
 		if v := recovery.CheckRetryOrder(rs); len(v) != 1 || v[0].Reason != recovery.NoNonAchievedVerdict {
 			t.Fatalf("%s: violations = %+v", name, v)
 		}
