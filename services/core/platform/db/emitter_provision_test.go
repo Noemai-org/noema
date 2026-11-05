@@ -76,6 +76,27 @@ func TestProvisionEmitterLoginRefusesWhatIsNotAnEmitterLogin(t *testing.T) {
 	createEmitterRole(t, w, ok, "record_emitter")
 	createEmitterRole(t, w, power, "execution_rw")
 	createEmitterRole(t, w, both, "record_emitter", "execution_rw")
+	// Codex review of noema#181: nothing but record_emitter, whatever else the role could reach.
+	readAll := "emit_readall_" + w.suffix
+	monitor := "emit_monitor_" + w.suffix
+	other := "emit_other_" + w.suffix
+	createEmitterRole(t, w, readAll, "record_emitter", "pg_read_all_data")
+	createEmitterRole(t, w, monitor, "record_emitter", "pg_monitor")
+	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+pgx.Identifier{other + "_grp"}.Sanitize()+` NOLOGIN`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = w.admin.Exec(ctx(t), `DROP ROLE IF EXISTS `+pgx.Identifier{other + "_grp"}.Sanitize()) })
+	createEmitterRole(t, w, other, "record_emitter", other+"_grp")
+	attrs := map[string]string{"superuser": "SUPERUSER", "createrole": "CREATEROLE", "createdb": "CREATEDB", "replication": "REPLICATION", "bypassrls": "BYPASSRLS"}
+	attrRoles := map[string]string{}
+	for name, attr := range attrs {
+		role := "emit_" + name + "_" + w.suffix
+		if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+pgx.Identifier{role}.Sanitize()+` LOGIN `+attr+` IN ROLE record_emitter`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _, _ = w.admin.Exec(ctx(t), `DROP ROLE IF EXISTS `+pgx.Identifier{role}.Sanitize()) })
+		attrRoles[name] = role
+	}
 	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+pgx.Identifier{nologin}.Sanitize()+` NOLOGIN IN ROLE record_emitter`); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +106,14 @@ func TestProvisionEmitterLoginRefusesWhatIsNotAnEmitterLogin(t *testing.T) {
 		"a role that cannot log in":             {nologin, "ten_a", "core-edge"},
 		"a login of a power group only":         {power, "ten_a", "core-edge"},
 		"an emitter login that is also a power": {both, "ten_a", "core-edge"},
+		"a member of pg_read_all_data":          {readAll, "ten_a", "core-edge"},
+		"a member of pg_monitor":                {monitor, "ten_a", "core-edge"},
+		"a member of another role":              {other, "ten_a", "core-edge"},
+		"a superuser":                           {attrRoles["superuser"], "ten_a", "core-edge"},
+		"a login with CREATEROLE":               {attrRoles["createrole"], "ten_a", "core-edge"},
+		"a login with CREATEDB":                 {attrRoles["createdb"], "ten_a", "core-edge"},
+		"a login with REPLICATION":              {attrRoles["replication"], "ten_a", "core-edge"},
+		"a login with BYPASSRLS":                {attrRoles["bypassrls"], "ten_a", "core-edge"},
 		"a power's own identity (execution)":    {ok, "ten_a", "core-execution"},
 		"a power's own identity (trust)":        {ok, "ten_a", "core-trust"},
 		"a power's own identity (outcome)":      {ok, "ten_a", "core-outcome"},

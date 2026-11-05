@@ -16,7 +16,6 @@ GRANT CREATE ON SCHEMA public TO record_append;
 
 CREATE FUNCTION provision_emitter_login(p_login text, p_tenant text, p_emitter text) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-DECLARE g text;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = p_login AND r.rolcanlogin) THEN
     RAISE EXCEPTION 'provision: % is not a login role: create it in deploy/compose/postgres/init.sh first', p_login;
@@ -24,11 +23,19 @@ BEGIN
   IF NOT pg_has_role(p_login, 'record_emitter', 'MEMBER') THEN
     RAISE EXCEPTION 'provision: % is not a member of record_emitter', p_login;
   END IF;
-  FOREACH g IN ARRAY ARRAY['trust_rw', 'execution_rw', 'outcome_rw', 'evidence_rw', 'orchestrator_rw', 'record_append', 'record_read', 'record_verify'] LOOP
-    IF pg_has_role(p_login, g, 'MEMBER') THEN
-      RAISE EXCEPTION 'provision: % is a member of %; an emitter login is a member of record_emitter only', p_login, g;
-    END IF;
-  END LOOP;
+  -- Nothing but record_emitter (Codex review of noema#181): the login is a direct member of that role and of no other role at all (no power,
+  -- read or verify group, no predefined role such as pg_read_all_data, no role made later), record_emitter belongs to no role, and the
+  -- login has no privileged attribute. A fixed list of forbidden groups would miss any role not on it.
+  IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid JOIN pg_roles u ON u.oid = m.member
+             WHERE u.rolname = p_login AND r.rolname <> 'record_emitter') THEN
+    RAISE EXCEPTION 'provision: % is a member of a role other than record_emitter; an emitter login is a member of record_emitter only', p_login;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = 'record_emitter') THEN
+    RAISE EXCEPTION 'provision: record_emitter is a member of another role';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = p_login AND (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication OR r.rolbypassrls)) THEN
+    RAISE EXCEPTION 'provision: % has a privileged attribute', p_login;
+  END IF;
   IF p_emitter !~ '^[a-z][a-z0-9-]*$' THEN
     RAISE EXCEPTION 'provision: % is not the shape of an emitter', p_emitter;
   END IF;
