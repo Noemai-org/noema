@@ -520,3 +520,43 @@ func mustPermit(capability string) reconcile.Permission {
 	}
 	return p
 }
+
+// Codex P1 on noema#163 at 4546400: a permission obtained for one target must not open a grant for another. The proof names the target as well as
+// the capability; a permission that names no target (the older Permit) opens nothing.
+func TestAFreezePermissionIsBoundToTheTargetOfTheGrant(t *testing.T) {
+	gate := reconcile.NewFreezeGate(nil)
+	i := issuer(t, keys(t))
+	d := decision(t, decide.Allow)
+	const capability, target = "fin.cap.create_escalation_case", "fin.transaction:TX88213"
+	other, err := gate.PermitTarget(false, capability, "fin.transaction:TX00001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := gate.Permit(false, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, p := range map[string]reconcile.Permission{"a permission for another target": other, "a permission that names no target": legacy} {
+		st := step()
+		st.Permission = p
+		if g, err := i.Issue(d, st); !errors.Is(err, grants.ErrNoPermission) {
+			t.Errorf("%s: err %v, grant %+v; want ErrNoPermission and no grant", name, err, g)
+		}
+	}
+	own, err := gate.PermitTarget(false, capability, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := step()
+	st.Permission = own
+	if _, err := i.Issue(d, st); err != nil {
+		t.Fatalf("a permission for the step's own capability and target: %v", err)
+	}
+	// the gate refuses a frozen target for a capability that is not allowed under a freeze, and a permission with no target
+	if _, err := gate.PermitTarget(true, capability, target); err == nil {
+		t.Fatal("the gate gave a permission for a frozen target and a capability that is not allowed under a freeze")
+	}
+	if _, err := gate.PermitTarget(false, capability, ""); err == nil {
+		t.Fatal("the gate gave a permission that names no target")
+	}
+}
