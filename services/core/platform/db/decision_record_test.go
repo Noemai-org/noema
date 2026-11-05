@@ -7,6 +7,8 @@ package db_test
 import (
 	"fmt"
 	"testing"
+
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
 
 const grantFor = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
@@ -124,5 +126,34 @@ func TestTheSignedGrantMustNameTheDecisionAndTenantOfItsColumns(t *testing.T) {
 	wantCode(t, insert("grt_4", `{}`), violation, "the signed document names neither decision nor tenant")
 	if err := insert("grt_5", `{"decision_id":"dec_allow","tenant_id":"ten_a"}`); err != nil {
 		t.Fatalf("a grant whose document agrees with its columns: %v", err)
+	}
+}
+
+// Codex and review of noema#168 (REQ-SEC-004, INV-11): a Trust login writes a Decision Record only for its own tenant. A foreign key proves only that
+// a tenant exists, so session_user is looked up in tenant_login, as for the Record (DEBT-04 option A) and for evidence (noema#167).
+func TestATrustLoginWritesDecisionRecordsOnlyForItsOwnTenant(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	if _, err := a.Exec(ctx(t), decisionRow("dec_own", "ten_a", "ALLOW")); err != nil {
+		t.Fatalf("tenant A's Trust login, its own tenant: %v", err)
+	}
+	_, err := a.Exec(ctx(t), decisionRow("dec_foreign", "ten_b", "ALLOW"))
+	wantCode(t, err, denied, "tenant A's Trust login writing an ALLOW decision for tenant B")
+	// a login with the Trust role but no tenant mapping writes nothing
+	u := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_b")
+	if _, err := pool.Exec(ctx(t), `DELETE FROM tenant_login WHERE tenant_id = 'ten_b' AND power = 'trust'`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = u.Exec(ctx(t), decisionRow("dec_unmapped", "ten_b", "ALLOW"))
+	wantCode(t, err, denied, "a Trust login with no tenant mapping")
+	// and a record that was refused left nothing behind, so no grant can rest on it
+	var n int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM decision_record WHERE decision_id IN ('dec_foreign', 'dec_unmapped')`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("refused records stored: %d (%v)", n, err)
 	}
 }
