@@ -10,5 +10,8 @@
 // trust or outcome.
 //
 // Built by PLN-01, slice 1: New builds a plan only from registry handles, and Hash is SHA-256 of the RFC 8785 form of the
-// plan document. The graph walk that chooses the steps arrives in slice 2, after the Action Graph contract (PCK-04) settles.
+// plan document. Slice 2: Walk chooses the steps by walking an Action Graph v2 (a step only after every node it depends on, ties by node ID,
+// so the plan does not depend on the order of the document), and refuses a graph it cannot follow with certainty (a cycle, an unknown node, a
+// root with an incoming edge, a conditional edge). Conditional edges, the choice of graph from disposition and classification, and
+// PLAN_PRECONDITION_UNMET are not built.
 package planner

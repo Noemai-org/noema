@@ -105,7 +105,14 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 	}{
 		{"a cycle", func(g *contracts.ActionGraphV2) {
 			e := g.Edges[0]
+			g.Roots = nil // so that the cycle itself is what is refused, not a root with an incoming edge
 			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: e.DependsOn, DependsOn: e.NodeId})
+		}},
+		{"a cycle apart from nodes that can be planned", func(g *contracts.ActionGraphV2) {
+			x, y := g.Nodes[0], g.Nodes[0]
+			x.NodeId, y.NodeId = "cycle_x", "cycle_y"
+			g.Nodes = append(g.Nodes, x, y)
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: "cycle_x", DependsOn: "cycle_y"}, contracts.ActionGraphV2EdgesItem{NodeId: "cycle_y", DependsOn: "cycle_x"})
 		}},
 		{"an edge from an unknown node", func(g *contracts.ActionGraphV2) {
 			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: "ghost", DependsOn: g.Nodes[0].NodeId})
@@ -114,6 +121,7 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[0].NodeId, DependsOn: "ghost"})
 		}},
 		{"a node that depends on itself", func(g *contracts.ActionGraphV2) {
+			g.Roots = nil
 			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[0].NodeId, DependsOn: g.Nodes[0].NodeId})
 		}},
 		{"a conditional edge (conditions are not evaluated here, so the walk cannot know the path)", func(g *contracts.ActionGraphV2) {
@@ -122,8 +130,12 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 		{"a duplicate node", func(g *contracts.ActionGraphV2) { g.Nodes = append(g.Nodes, g.Nodes[0]) }},
 		{"no nodes", func(g *contracts.ActionGraphV2) { g.Nodes, g.Edges, g.Roots = nil, nil, nil }},
 		{"an unregistered capability", func(g *contracts.ActionGraphV2) { g.Nodes[0].CapabilityId = "fin.cap.not_registered" }},
-		{"a root that has an incoming edge", func(g *contracts.ActionGraphV2) {
-			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Roots[0], DependsOn: g.Nodes[len(g.Nodes)-1].NodeId})
+		{"a root that has an incoming edge (and no cycle)", func(g *contracts.ActionGraphV2) {
+			extra := g.Nodes[0]
+			extra.NodeId = "extra_root"
+			g.Nodes = append(g.Nodes, extra)
+			g.Roots = append(g.Roots, extra.NodeId)
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Roots[0], DependsOn: extra.NodeId})
 		}},
 	}
 	for _, c := range cases {
