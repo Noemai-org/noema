@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -91,6 +92,15 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, fmt.Errorf("%sread decision: %w", errPrefix, err)
 	}
 	if !allowed {
+		return c.void(ctx, g, VoidPolicySuperseded)
+	}
+	// A grant binds the exact policy_id and version it was decided under: if the active version of that policy_id is not the grant's, or the
+	// grant names none, or the policy has none, the grant is refused and the case goes back to Trust (a recovery request), never executed.
+	active, err := c.Bind.ActivePolicyVersion(ctx, g)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("%sread active policy: %w", errPrefix, err)
+	}
+	if !policyBound(g.PolicyVersion) || active != g.PolicyVersion {
 		return c.void(ctx, g, VoidPolicySuperseded)
 	}
 	if err := c.at(PointAfterE4); err != nil {
@@ -282,4 +292,10 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 	}
 	rc.Sig = Sig{KeyID: c.ReceiptKeyID, Value: sig}
 	return rc, nil
+}
+
+// policyBound reports whether v has the form policy_id@version with both parts present (and no second @): only then can it be compared.
+func policyBound(v string) bool {
+	id, ver, ok := strings.Cut(v, "@")
+	return ok && id != "" && ver != "" && !strings.Contains(ver, "@")
 }

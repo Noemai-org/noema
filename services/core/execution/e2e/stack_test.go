@@ -72,6 +72,12 @@ var (
 func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this stand-in's policy is always at the version its grants name.
+func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return true, nil
 }

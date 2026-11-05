@@ -92,6 +92,12 @@ func (b *binder) LatestIntentHash(_ context.Context, g controller.Grant) (string
 	}
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this world's policy is always at the version its grants name.
+func (b *binder) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (b *binder) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return !b.denied, nil
 }
