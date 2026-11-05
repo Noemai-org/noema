@@ -141,6 +141,20 @@ class Cli(unittest.TestCase):
         self.assertEqual(2, code)
         self.assertIn("exclusions", err)
 
+    def test_all_compares_the_whole_suite_and_conflicts_with_story(self) -> None:
+        a, b = self.runs()
+        code, _, _ = invoke(*self.args(a, b, "--all"))
+        self.assertIn(code, (0, 1))
+        report = json.loads((self.root / "out" / "replay.json").read_text())
+        self.assertEqual("ALL_CASES_OF_THE_SUITE", report["selection"])
+        self.assertEqual(4, report["case_coverage"]["of"])
+        md = (self.root / "out" / "replay.md").read_text()
+        self.assertIn("every case of the suite", md)
+        self.assertNotIn("cases that cover the stories", md)
+        code, _, err = invoke(*self.args(a, b, "--all", "--story", "US-01"))
+        self.assertEqual(2, code)
+        self.assertIn("--all", err)
+
     def test_stories_default_to_us_01_and_us_06(self) -> None:
         a, b = self.runs()
         invoke(*self.args(a, b))
