@@ -58,6 +58,21 @@ REVOKE ALL ON FUNCTION evidence_row_tenant_guard() FROM PUBLIC;
 CREATE TRIGGER evidence_payload_tenant_guard BEFORE INSERT ON evidence_payload FOR EACH ROW EXECUTE FUNCTION evidence_row_tenant_guard();
 CREATE TRIGGER evidence_item_tenant_guard BEFORE INSERT ON evidence_item FOR EACH ROW EXECUTE FUNCTION evidence_row_tenant_guard();
 
+-- Reads are bound to the login's tenant by row-level security, on the same session_user mapping (Codex review of noema#167): a table-wide
+-- SELECT would let any tenant's Trust, Outcome or Evidence login read every tenant's evidence. A session with no tenant mapping sees no row.
+CREATE FUNCTION evidence_login_tenant() RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT l.tenant_id FROM tenant_login l WHERE l.login_role = session_user::text
+$$;
+REVOKE ALL ON FUNCTION evidence_login_tenant() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION evidence_login_tenant() TO evidence_rw, trust_rw, outcome_rw;
+ALTER TABLE evidence_payload ENABLE ROW LEVEL SECURITY;
+ALTER TABLE evidence_item ENABLE ROW LEVEL SECURITY;
+CREATE POLICY evidence_payload_tenant ON evidence_payload FOR ALL TO evidence_rw, trust_rw, outcome_rw
+  USING (tenant_id = evidence_login_tenant()) WITH CHECK (tenant_id = evidence_login_tenant());
+CREATE POLICY evidence_item_tenant ON evidence_item FOR ALL TO evidence_rw, trust_rw, outcome_rw
+  USING (tenant_id = evidence_login_tenant()) WITH CHECK (tenant_id = evidence_login_tenant());
+
 REVOKE ALL ON evidence_payload, evidence_item FROM PUBLIC;
 GRANT SELECT, INSERT ON evidence_payload, evidence_item TO evidence_rw;
 GRANT SELECT ON evidence_payload, evidence_item TO trust_rw, outcome_rw;
