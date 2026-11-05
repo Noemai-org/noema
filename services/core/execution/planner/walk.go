@@ -98,6 +98,9 @@ func Walk(reg *registry.Registry, g contracts.ActionGraphV2, intentNode string, 
 			}
 		}
 	}
+	if components(nodes, g.Edges) > 1 {
+		return Plan{}, refuse("the graph is not connected: it has %d separate parts (REQ-AG-001)", components(nodes, g.Edges))
+	}
 	if len(specs) != len(nodes) {
 		return Plan{}, refuse("the graph has a cycle: %d of %d nodes can be planned", len(specs), len(nodes))
 	}
@@ -106,6 +109,33 @@ func Walk(reg *registry.Registry, g contracts.ActionGraphV2, intentNode string, 
 		return Plan{}, fmt.Errorf("%w (graph %s)", err, g.GraphId)
 	}
 	return p, nil
+}
+
+// components counts the weakly connected parts of the graph: nodes joined by edges in either direction. A graph the planner is given must
+// be one part, as packcheck requires (REQ-AG-001); the planner checks it too because it must not depend on a validation step having run.
+func components(nodes map[string]contracts.ActionGraphV2NodesItem, edges []contracts.ActionGraphV2EdgesItem) int {
+	parent := make(map[string]string, len(nodes))
+	for id := range nodes {
+		parent[id] = id
+	}
+	var find func(string) string
+	find = func(x string) string {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]]
+			x = parent[x]
+		}
+		return x
+	}
+	for _, e := range edges {
+		parent[find(string(e.NodeId))] = find(string(e.DependsOn))
+	}
+	n := 0
+	for id := range nodes {
+		if find(id) == id {
+			n++
+		}
+	}
+	return n
 }
 
 // edgeKey names an edge by the node that waits and the node it waits for.
