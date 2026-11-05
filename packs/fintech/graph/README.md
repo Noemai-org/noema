@@ -11,6 +11,8 @@ The fintech pack's Enterprise Action Graph (PERD §24): pack data, validated by 
 | `g2_escalate.json` | `fin.graph.escalate` | `create_escalation_case` | 3 WRITE nodes in a chain: create the case, attach the evidence, route it |
 | `g3_complaint.json` | `fin.graph.complaint` | `log_complaint_reference` | 1 WRITE node |
 
-**Known gap (PCK-04, 1 Nov 2026).** `lookup_beneficiary` and `lookup_account` in `g1_investigate.json` have no postcondition, so `packcheck` fails the pack (REQ-AG-001 as amended). A postcondition must type-check against an evidence descriptor, and the pack has none for a beneficiary or an account. The signed Tushe worksheet does not exist, so Core Engineer 2 adds them from the envelope fields every existing descriptor already carries, marked "extend when the worksheet is signed" (Architect, 1 Nov 2026, revised E2). Until that lands the pack does not pass, and it is not exempted.
+**Postconditions of the two lookups (PCK-04, ruling D6 of 5 Nov 2026).** `lookup_beneficiary` has `exists(beneficiary where beneficiary.transaction == subject_resource)`, typed against a `beneficiary` descriptor on `fin.src.beneficiary` (authoritative for `beneficiary_list_and_aliases`). `lookup_account` has an ownership-only postcondition, `exists(account where account.owner == principal_id)`, typed against an `account` descriptor on `fin.src.customer` (authoritative for `customer_identity_and_ownership`). `principal_id` is a predicate variable the evaluator must bind from the authenticated session (INV-12); nothing binds it yet.
+
+**Known gap.** There is no postcondition on an account's balance or state: no source in the pack covers them, and `fin.src.core_ledger` is authoritative only for `debit_posted_or_reversed`. It is an open gap, recorded for a request to Tushe and a Tier 1 debt row (the Repo Steward files them), not a closed one.
 
 Created by T1 of DEC-2026-10-20.
