@@ -7,7 +7,7 @@ CREATE TABLE decision_record (
   tenant_id               text NOT NULL REFERENCES tenant (tenant_id),
   json                    jsonb NOT NULL,
   outcome                 text NOT NULL CHECK (outcome IN ('ALLOW', 'CLARIFY', 'CONFIRM', 'WAIT', 'ESCALATE', 'REJECT', 'UNKNOWN')),
-  disposition_decision_id text REFERENCES decision_record (decision_id),
+  disposition_decision_id text,
   intent_hash             text NOT NULL CHECK (intent_hash ~ '^sha256:[0-9a-f]{64}$'),
   policy_versions_json    jsonb NOT NULL,
   sig_key_id              text NOT NULL,
@@ -15,6 +15,9 @@ CREATE TABLE decision_record (
   created_at              timestamptz NOT NULL DEFAULT now(),
   -- The signed document is the Decision Record; the columns are what the grant guard and the foreign keys read. They must agree, or a
   -- document that says REJECT could be stored as ALLOW and authorise a grant.
+  CONSTRAINT decision_record_tenant_decision_key UNIQUE (tenant_id, decision_id),
+  -- the link to the ESCALATE disposition stays inside the tenant (REQ-TRU-010; a key on the decision ID alone would accept another tenant's decision)
+  CONSTRAINT decision_record_disposition_fkey FOREIGN KEY (tenant_id, disposition_decision_id) REFERENCES decision_record (tenant_id, decision_id),
   CONSTRAINT decision_record_document_matches_columns CHECK (
     json ->> 'outcome' IS NOT DISTINCT FROM outcome AND json ->> 'decision_id' IS NOT DISTINCT FROM decision_id
     AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
