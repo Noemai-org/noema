@@ -26,7 +26,7 @@ The public benchmark format and the publication rules, with a check that enforce
 | R3 | Nothing is cherry-picked; the full distribution is shown | Every family (B1 to B8 present) and every category of the scorecard appears, with matching counts, for each cited run |
 | R4 | Tier 0 is published first, beside every other number | Each cited run needs a Tier 0 claim, **listed before any other claim of that run**; each claim states `tier0_all_zero` and it must equal the scorecard's |
 | R5 | No text outruns its evidence | Every number written in a claim's text must be that claim's own k, n, rate, interval or bound |
-| R6 | A run that is not complete is not published; one that is not a release result says so | `complete` must be true; a non-release run's population must say "not a release result" |
+| R6 | A run that is not complete is not published; one that is not a release result says so; the population is the scorecard's | `complete` must be true; `population` must equal the scorecard-derived population exactly (`population_for`), which carries "not a release result" for a non-release run |
 | R7 | Outcomes are judged against the final state of the systems | `outcome_basis` is `ORACLE_FINAL_STATE` |
 | R8 | pass^k only when it was measured | A pass^k claim requires `available` (exactly five runs) in the scorecard |
 | R11 | None of the words the release rules forbid (tamper-proof, immutable, compliant, certified, guaranteed, zero risk, proven in production); the Record is tamper-evident | The words are refused in a claim's text (`docs/poc/execution/release/claims.md` section 3). Other prose stays a review item |

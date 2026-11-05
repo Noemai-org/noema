@@ -102,6 +102,8 @@ def _claim_problems(claim: Json, cards: Mapping[str, Json]) -> list[str]:
         out.append(f"claim {cid}: run {claim['run_id']} is not complete (an incomplete run is not published)")
     if claim["tier0_all_zero"] != card["tier0"]["all_zero"]:
         out.append(f"claim {cid}: tier0_all_zero is {claim['tier0_all_zero']} but the scorecard says {card['tier0']['all_zero']}")
+    if claim["population"] != population_for(card):
+        out.append(f"claim {cid}: population {claim['population']!r} is not the scorecard's population {population_for(card)!r} (case count, layers and run must be the scorecard's, REQ-BEN-010)")
     if not card["release_result"] and "not a release result" not in claim["population"]:
         out.append(f"claim {cid}: run {claim['run_id']} is not a release result and the claim's population must say \"not a release result\"")
     try:
