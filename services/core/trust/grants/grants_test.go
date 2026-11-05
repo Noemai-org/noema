@@ -197,32 +197,52 @@ func TestAStepThatDoesNotMatchTheDecisionIsRefused(t *testing.T) {
 	}
 }
 
-// Decision of the Architect, 4 Nov 2026: a grant binds the newest policy version named in its decision's basis (versions compare as dotted
-// numbers, not as text: 3.10 is newer than 3.9); with equal versions the policy ID decides, so the choice never depends on order. The grant is
-// voided if any version named in the basis is superseded (REQ-TRU-005; the void is TRU-08's, the basis lives in the Decision Record).
-func TestAGrantBindsTheNewestPolicyVersionNamedInTheBasis(t *testing.T) {
+// Ruling committed by the Repo Steward (Architect, 5 Nov 2026): a grant binds the exact policy_id and version it was decided under.
+// Versions compare only within the same policy_id (as dotted numbers: 3.10 is newer than 3.9); the newest across policy IDs is never picked.
+// A basis that names more than one policy ID needs the step to say which one the grant is for; a policy ID the basis does not name is refused.
+func TestAGrantBindsTheExactPolicyItWasDecidedUnder(t *testing.T) {
 	i := issuer(t, keys(t))
 	rule := func(id, pol, ver string) decide.PolicyRuleVersion {
 		return decide.PolicyRuleVersion{RuleID: id, PolicyID: pol, Version: ver}
 	}
 	for name, c := range map[string]struct {
-		rules []decide.PolicyRuleVersion
-		want  string
+		rules  []decide.PolicyRuleVersion
+		policy string // Step.PolicyID; empty when the basis names one policy
+		want   string
 	}{
-		"one version":                {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1")}, "fin.pol@3.1"},
-		"two versions, newest last":  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.2")}, "fin.pol@3.2"},
-		"two versions, newest first": {[]decide.PolicyRuleVersion{rule("b", "fin.pol", "3.2"), rule("a", "fin.pol", "3.1")}, "fin.pol@3.2"},
-		"numeric, not text":          {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.10")}, "fin.pol@3.10"},
-		"three parts":                {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1.2")}, "fin.pol@3.1.2"},
-		"repeated version":           {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "fin.pol@3.1"},
-		"equal versions, two policies: the ID decides, in any order": {[]decide.PolicyRuleVersion{rule("a", "fin.zzz", "1.0"), rule("b", "fin.aaa", "1.0")}, "fin.aaa@1.0"},
+		"one version": {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1")}, "", "fin.pol@3.1"},
+		"two versions of one policy, newest last":  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.2")}, "", "fin.pol@3.2"},
+		"two versions of one policy, newest first": {[]decide.PolicyRuleVersion{rule("b", "fin.pol", "3.2"), rule("a", "fin.pol", "3.1")}, "", "fin.pol@3.2"},
+		"numeric, not text":                        {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.10")}, "", "fin.pol@3.10"},
+		"three parts":                              {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1.2")}, "", "fin.pol@3.1.2"},
+		"repeated version":                         {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "", "fin.pol@3.1"},
+		"two policies: the named one, though the other has a higher version": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"two policies: the named one, in the other order":                    {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"two policies: the named one with two versions":                      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
 	} {
-		g, err := i.Issue(decisionWithRules(t, c.rules...), step())
+		s := step()
+		s.PolicyID = c.policy
+		g, err := i.Issue(decisionWithRules(t, c.rules...), s)
 		if err != nil || g.PolicyVersion != c.want {
 			t.Errorf("%s: got %q, %v, want %q", name, g.PolicyVersion, err, c.want)
 		}
 	}
-	// a version string the contract cannot carry is refused, not guessed at
+	// refused, never guessed: two policies and none named; a policy the basis does not name; a version the contract cannot carry
+	two := []decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}
+	for name, c := range map[string]struct {
+		rules  []decide.PolicyRuleVersion
+		policy string
+	}{
+		"two policies and none named":          {two, ""},
+		"a policy the basis does not name":     {two, "fin.mmm"},
+		"a policy named but none in the basis": {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1")}, "fin.other"},
+	} {
+		s := step()
+		s.PolicyID = c.policy
+		if g, err := i.Issue(decisionWithRules(t, c.rules...), s); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 	for _, bad := range []string{"three", "03.1", "3..1", "3.", "-1.0", "3.1-rc1"} {
 		if g, err := i.Issue(decisionWithRules(t, rule("a", "fin.pol", bad)), step()); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
 			t.Errorf("a malformed version %q: %v", bad, err)
