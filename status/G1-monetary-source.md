@@ -16,3 +16,7 @@ Updated 2026-11-05. Decision: the Founder, 4 Nov 2026, source (a): a per-route r
 - Purpose: monetary_calls source (a), a per-route request log in the hostility proxy, built by the Integration Lead.
 - Receiver used it for: this change (the reader).
 - Evidence: this pull request.
+
+## Session 2026-11-05 · BEN-05 monetary source, generation requirement
+- Codex (noema#170, second round): an absent `generation` let a restart that recreates the same prefix pass. The reader now fails closed: a proxy log that reports no `generation` is `CounterUnavailable`, never zero.
+- The proxy (ENV-09) does not report `generation` today (`control.go` returns entries, counts, dropped, log_hash). Until the Integration Lead adds a monotonic per-start `generation` to `GET /control/v1/requests`, `monetary_calls` is unavailable and the G1 run reports NOT RUN for it. Request to the Integration Lead: add `generation` (changes on every proxy start and every log reset).

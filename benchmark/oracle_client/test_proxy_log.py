@@ -45,7 +45,7 @@ class _Proxy(BaseHTTPRequestHandler):
 
 class Counter(unittest.TestCase):
     def setUp(self) -> None:
-        _Proxy.entries, _Proxy.dropped, _Proxy.auth, _Proxy.status = [], 0, [], 200
+        _Proxy.entries, _Proxy.dropped, _Proxy.auth, _Proxy.status, _Proxy.generation = [], 0, [], 200, "g1"
         self.server = HTTPServer(("127.0.0.1", 0), _Proxy)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.addCleanup(self.server.shutdown)
@@ -111,16 +111,28 @@ class Counter(unittest.TestCase):
         with self.assertRaises(CounterUnavailable):
             self.counter.since(mark)
 
-    def test_a_change_of_the_proxys_log_generation_is_detected_when_the_proxy_reports_one(self) -> None:
-        _Proxy.entries, _Proxy.generation = [entry(1)], "g1"
+    def test_a_change_of_the_proxys_log_generation_is_detected(self) -> None:
+        _Proxy.entries = [entry(1)]
         mark = self.counter.mark()
         _Proxy.generation = "g2"
-        try:
-            with self.assertRaises(CounterUnavailable) as ctx:
-                self.counter.since(mark)
-            self.assertIn("generation", ctx.exception.reason)
-        finally:
-            _Proxy.generation = None
+        with self.assertRaises(CounterUnavailable) as ctx:
+            self.counter.since(mark)
+        self.assertIn("generation", ctx.exception.reason)
+
+    def test_a_restart_that_recreates_the_identical_prefix_is_detected_by_the_generation(self) -> None:
+        # Codex review of noema#170, second round: same prefix, same last seq, so only the generation tells the runs apart.
+        _Proxy.entries = [entry(1), entry(2)]
+        mark = self.counter.mark()
+        _Proxy.generation = "g2"
+        _Proxy.entries = [entry(1), entry(2), entry(3, "mock-ledger", "create_payout", method="POST")]
+        with self.assertRaises(CounterUnavailable):
+            self.counter.since(mark)
+
+    def test_a_proxy_that_reports_no_generation_is_unavailable_never_zero(self) -> None:
+        _Proxy.generation = None
+        with self.assertRaises(CounterUnavailable) as ctx:
+            self.counter.mark()
+        self.assertIn("generation", ctx.exception.reason)
 
     def test_an_unchanged_prefix_with_new_entries_counts_only_the_new_ones(self) -> None:
         _Proxy.entries = [entry(1), entry(2, "mock-ledger", "create_payout", method="POST")]

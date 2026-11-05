@@ -57,6 +57,8 @@ class ProxyRouteLog:
     def mark(self) -> Mark:
         body = self._log()
         entries = body["entries"]
+        if body.get("generation") is None:
+            raise CounterUnavailable(self.name, "the proxy's request log reports no generation, so a restart that recreates the same prefix could not be told apart and the count could be too low")
         last = entries[-1].get("seq") if entries else None
         return LogMark(len(entries), last, _digest(entries), body.get("generation"))
 
@@ -68,7 +70,7 @@ class ProxyRouteLog:
         n = mark.offset
         if len(entries) < n:
             raise CounterUnavailable(self.name, "the proxy's request log shrank: it was reset during the case")
-        if body.get("generation") != mark.generation:
+        if body.get("generation") is None or body.get("generation") != mark.generation:
             raise CounterUnavailable(self.name, "the proxy's log generation changed: it was reset or restarted during the case")
         if (entries[n - 1].get("seq") if n else None) != mark.last_seq or _digest(entries[:n]) != mark.prefix_digest:
             raise CounterUnavailable(self.name, "the proxy's request log changed under the baseline: it was reset and refilled during the case")
