@@ -495,6 +495,57 @@ func TestAFailedNotificationOfAPermissiveTransitionReopensTheCircuit(t *testing.
 	}
 }
 
+// A call is not let through on a CLOSED circuit whose CLOSED record is not yet written; if that record fails, the circuit reopens and the
+// waiting call is refused (Codex review of noema#182, P1; AGENTS.md section 5: the Record comes first).
+func TestNoCallPassesOnAClosedCircuitWhoseRecordIsStillPending(t *testing.T) {
+	boom := errors.New("record append failed")
+	clk := clock.NewManual(t0)
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	slow := false
+	b := newBreaker(t, clk, "0.5", 60, policy(1, time.Second), func(from, to breaker.State) error {
+		if slow && to == breaker.Closed {
+			entered <- struct{}{}
+			<-gate
+			return boom
+		}
+		return nil
+	})
+	p, _ := b.Allow()
+	if err := p.Done(false); err != nil {
+		t.Fatal(err)
+	}
+	clk.Advance(2 * time.Second)
+	probe, err := b.Allow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow = true
+	closing := make(chan error, 1)
+	go func() { closing <- probe.Done(true) }()
+	<-entered // the CLOSED notification is now running
+	other := make(chan error, 1)
+	go func() {
+		pm, err := b.Allow()
+		if err == nil {
+			_ = pm.Done(true)
+		}
+		other <- err
+	}()
+	select {
+	case err := <-other:
+		t.Fatalf("Allow returned while the CLOSED record was pending: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate)
+	if err := <-closing; !errors.Is(err, boom) {
+		t.Fatalf("Done = %v, want the notification failure", err)
+	}
+	if err := <-other; err == nil {
+		t.Fatal("a call was allowed although the CLOSED record failed")
+	}
+}
+
 // A failed OPEN notification is surfaced too, and the circuit stays open (opening is the safe direction).
 func TestAFailedNotificationOfOpeningIsSurfacedAndTheCircuitStaysOpen(t *testing.T) {
 	boom := errors.New("record append failed")

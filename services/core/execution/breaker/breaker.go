@@ -101,6 +101,9 @@ type Breaker struct {
 	pending    []*ticket
 	delivering bool
 	idle       *sync.Cond
+
+	// unrecorded is the CLOSED change whose record is not yet written; no call passes until it is settled (Codex review of noema#182).
+	unrecorded *ticket
 }
 
 // New builds a closed circuit. onChange, if not nil, is called after every state change, outside the lock; the caller records
@@ -149,6 +152,12 @@ type Permit struct {
 func (b *Breaker) Allow() (*Permit, error) {
 	var tk *ticket
 	b.mu.Lock()
+	for b.unrecorded != nil { // a CLOSED change is being recorded: wait for it, then look at the state again
+		wait := b.unrecorded.settled
+		b.mu.Unlock()
+		<-wait
+		b.mu.Lock()
+	}
 	now := b.clk.Now()
 	switch b.state {
 	case Open:
@@ -214,6 +223,8 @@ type ticket struct {
 	done chan error
 	to   State
 	gen  uint64 // the generation the change created
+
+	settled chan struct{} // closed when the change is recorded or undone
 }
 
 // move changes the state under the lock and queues the notification (nil if there is no observer); the caller finishes the ticket after
@@ -224,11 +235,15 @@ func (b *Breaker) move(to State) *ticket {
 	b.gen++
 	b.probing = false
 	b.window = nil
+	b.unrecorded = nil
 	if b.onChange == nil {
 		return nil
 	}
 	cb := b.onChange
-	tk := &ticket{fn: func() error { return cb(from, to) }, done: make(chan error, 1), to: to, gen: b.gen}
+	tk := &ticket{fn: func() error { return cb(from, to) }, done: make(chan error, 1), to: to, gen: b.gen, settled: make(chan struct{})}
+	if to == Closed {
+		b.unrecorded = tk
+	}
 	b.pending = append(b.pending, tk)
 	return tk
 }
@@ -242,6 +257,12 @@ func (b *Breaker) finish(tk *ticket) error {
 	b.deliver()
 	err := <-tk.done
 	if err == nil {
+		b.mu.Lock()
+		if b.unrecorded == tk {
+			b.unrecorded = nil
+		}
+		b.mu.Unlock()
+		close(tk.settled)
 		return nil
 	}
 	if tk.to == HalfOpen || tk.to == Closed {
@@ -256,6 +277,12 @@ func (b *Breaker) finish(tk *ticket) error {
 			_ = b.finish(undo) // opening is already the safe state; a failure to record it adds nothing to return
 		}
 	}
+	b.mu.Lock()
+	if b.unrecorded == tk {
+		b.unrecorded = nil
+	}
+	b.mu.Unlock()
+	close(tk.settled)
 	return fmt.Errorf("%sthe %s state change was not recorded: %w", errPrefix, tk.to, err)
 }
 
