@@ -21,8 +21,9 @@ def render_markdown(report: Json) -> str:
         "|---|---|",
         f"| First run | `{report['first']['run_id']}` ({report['first']['status']}) |",
         f"| Second run | `{report['second']['run_id']}` ({report['second']['status']}) |",
-        f"| Stories | {', '.join(report['stories'])} |",
-        f"| Selection | {report['selection']}: covers {report['case_coverage']['covered']} of {report['case_coverage']['of']} cases that cover the stories |",
+        f"| Stories | {', '.join(report['stories']) if report['stories'] else 'none: every case of the suite is compared (BEN-18)'} |",
+        f"| Selection | {report['selection']}: covers {report['case_coverage']['covered']} of {report['case_coverage']['of']} "
+        + ("cases, every case of the suite" if not report["stories"] else "cases that cover the stories") + " |",
         f"| Generator and seed | {report['generator']['name']} {report['generator']['version']}, seed {report['seed']} |",
         f"| Suite manifest | `{report['suite_manifest_sha256']}` |",
         f"| Commit under test | `{report['commit_sha']}` |",
@@ -30,7 +31,7 @@ def render_markdown(report: Json) -> str:
         f"| n | {counts['selected']} selected, {counts['compared']} compared, {counts['identical']} identical, {counts['different']} different, "
         f"{counts['not_comparable']} not comparable |",
         "",
-        "Cases compared per story: " + ", ".join(f"{s} {n}" for s, n in report["stories_covered"].items()) + ".",
+        ("Cases compared per story: " + ", ".join(f"{s} {n}" for s, n in report["stories_covered"].items()) + "." if report["stories"] else "Every case of the suite was compared; no story selection."),
         "",
         "## Cases",
         "",

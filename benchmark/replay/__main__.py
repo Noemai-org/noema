@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--first", required=True, help="the first run's output directory")
     parser.add_argument("--second", required=True, help="the second run's output directory")
     parser.add_argument("--story", action="append", help="a user story to compare, repeatable (default: US-01 and US-06)")
+    parser.add_argument("--all", action="store_true", help="compare every case of the suite, not the cases of two stories (BEN-18); cannot be combined with --story")
     parser.add_argument("--exclude-mutated", action="store_true",
                         help="leave out only the cases named in the open-exclusions registry; no other case can be dropped, and the report lists each one")
     parser.add_argument("--open-exclusions", default=str(REGISTRY_PATH), help="the registry of named open exclusions (default: the reviewed file beside this module)")
@@ -88,8 +89,8 @@ def main(argv: list[str] | None = None) -> int:
             for m in not_run:
                 print(f"not run, no access: run {m['run_id']}: {m['not_run_reason']}")
             return 3
-        report = compare(suite, first_manifest, first_results, second_manifest, second_results, tuple(args.story or DEFAULT_STORIES),
-                         open_exclusions=_registry(Path(args.open_exclusions)) if args.exclude_mutated else None)
+        report = compare(suite, first_manifest, first_results, second_manifest, second_results, tuple(args.story or (() if args.all else DEFAULT_STORIES)),
+                         open_exclusions=_registry(Path(args.open_exclusions)) if args.exclude_mutated else None, all_cases=args.all)
     except ReplayInputError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
