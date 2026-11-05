@@ -59,16 +59,31 @@ func Walk(reg *registry.Registry, g contracts.ActionGraphV2, intentNode string, 
 		waiting[from]++
 		dependents[on] = append(dependents[on], from)
 	}
+	// The declared roots must be exactly the nodes that depend on nothing: a root that is not a node or has an incoming edge, a node with no
+	// dependency that the graph does not declare a root, and a graph with no roots are all refused, so a plan never starts from an
+	// undeclared entry point (REQ-AG-001).
+	declared := make(map[string]bool, len(g.Roots))
 	for _, r := range g.Roots {
-		if waiting[string(r)] > 0 {
-			return Plan{}, refuse("root %q has an incoming edge", r)
+		id := string(r)
+		if _, ok := nodes[id]; !ok {
+			return Plan{}, refuse("root %q is not a node", id)
 		}
+		if waiting[id] > 0 {
+			return Plan{}, refuse("root %q has an incoming edge", id)
+		}
+		declared[id] = true
 	}
 	var ready []string
 	for id := range nodes {
 		if waiting[id] == 0 {
+			if !declared[id] {
+				return Plan{}, refuse("node %q depends on nothing but is not a declared root", id)
+			}
 			ready = append(ready, id)
 		}
+	}
+	if len(ready) == 0 {
+		return Plan{}, refuse("the graph has no root")
 	}
 	var specs []StepSpec
 	for len(ready) > 0 {
