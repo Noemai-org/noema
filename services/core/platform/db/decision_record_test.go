@@ -5,8 +5,11 @@ package db_test
 // REQ-TRU-001 / REQ-DATA-001: decision_record is insert-only and only Trust writes it. All rows are SYNTHETIC.
 
 import (
+	"context"
 	"fmt"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
@@ -149,11 +152,29 @@ func TestATrustLoginWritesDecisionRecordsOnlyForItsOwnTenant(t *testing.T) {
 	if _, err := pool.Exec(ctx(t), `DELETE FROM tenant_login WHERE tenant_id = 'ten_b' AND power = 'trust'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = u.Exec(ctx(t), decisionRow("dec_unmapped", "ten_b", "ALLOW"))
+	_, err = u.Exec(ctx(t), decisionRow("dec_unmapped", "ten_a", "ALLOW")) // tenant A has a mapped Trust login; that must not open the door for this one
 	wantCode(t, err, denied, "a Trust login with no tenant mapping")
+	// a login mapped to tenant A as another power that was also handed the Trust role is not a Trust login
+	o := testpg.TenantLogin(t, pool, dsn, "outcome_rw", "ten_a")
+	if _, err := pool.Exec(ctx(t), `GRANT trust_rw TO `+fmt.Sprintf("%q", currentUser(t, o))); err != nil {
+		t.Fatal(err)
+	}
+	_, err = o.Exec(ctx(t), decisionRow("dec_other_power", "ten_a", "ALLOW"))
+	wantCode(t, err, denied, "a login mapped as another power")
 	// and a record that was refused left nothing behind, so no grant can rest on it
 	var n int
-	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM decision_record WHERE decision_id IN ('dec_foreign', 'dec_unmapped')`).Scan(&n); err != nil || n != 0 {
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM decision_record WHERE decision_id IN ('dec_foreign', 'dec_unmapped', 'dec_other_power')`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("refused records stored: %d (%v)", n, err)
 	}
+}
+
+func currentUser(t *testing.T, pool interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}) string {
+	t.Helper()
+	var u string
+	if err := pool.QueryRow(ctx(t), `SELECT session_user::text`).Scan(&u); err != nil {
+		t.Fatal(err)
+	}
+	return u
 }
