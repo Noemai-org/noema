@@ -1,0 +1,149 @@
+package layer
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
+	"github.com/Noemai-org/noema/services/core/record/chain"
+)
+
+const (
+	builderPrefix   = "evidence layer: "
+	emitter         = "core-evidence"
+	eventEvidence   = "EVIDENCE_READ"
+	idEvidence      = "evr"
+	idPayload       = "pay"
+	hashPrefix      = "sha256:"
+	tsLayout        = "2006-01-02T15:04:05.000000000Z"
+	emptyBodyMarker = "read_class"
+)
+
+// IDSource makes the prefixed ULIDs of PERD 32.3.
+type IDSource interface {
+	ID(prefix string) (string, error)
+}
+
+// Observation is one read as the Evidence Layer is given it: what the adapter learned and what the pack's descriptor says about the
+// source. The status is not in it; the builder assigns it (REQ-CTX-002).
+type Observation struct {
+	TenantID       string
+	CorrelationID  string
+	Source         string // the PackId of the evidence-source
+	SourceRecordID string
+	ReadBy         string // TRUST, OUTCOME, RESOLUTION or EXECUTION_REVALIDATION
+	EffectiveAt    time.Time
+	AuthorityClass string // AUTHORITATIVE_FOR:<fact>, CORROBORATING_FOR:<fact> or NONE, from the pack
+	ResourceScope  string
+	PrincipalScope string
+	Sensitivity    string
+	Read           Read
+	Src            Source
+	Payload        any    // the normalised response; nil for a read that returned none
+	RawHash        string // "sha256:" of the raw response bytes; empty for a read that returned none
+}
+
+// Item is what the builder stored.
+type Item struct {
+	EvidenceID  string
+	PayloadRef  string
+	PayloadHash string
+	Status      contracts.EnumsV1FactStatus
+}
+
+// Builder turns an Observation into a stored evidence item (REQ-CTX-001). Its Pool must be the tenant's own evidence login: the
+// database, not this code, binds a write to the tenant and the power (migration 0008). The payload, the item and the EVIDENCE_READ
+// Record event go in one transaction, so a failed append stores nothing (REQ-AUD-001, EC-E16).
+type Builder struct {
+	Pool  *pgxpool.Pool
+	Clock clock.Clock
+	IDs   IDSource
+	Rec   *chain.Appender
+}
+
+// Record stores the observation and returns the item with the status AssignStatus gave it.
+func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return Item{}, errors.New(builderPrefix + "the context needs a deadline")
+	}
+	sla := int64(o.Src.SourceLimit / time.Second)
+	if sla < 1 {
+		return Item{}, fmt.Errorf("%sthe source has no positive freshness window", builderPrefix)
+	}
+	now := b.Clock.Now()
+	status := AssignStatus(o.Read, o.Src, now)
+	payload := o.Payload
+	if payload == nil {
+		payload = map[string]any{emptyBodyMarker: string(o.Read.Class)} // a read that returned nothing still has a payload row
+	}
+	canon, err := crypto.CanonicalJSON(payload)
+	if err != nil {
+		return Item{}, fmt.Errorf("%scanonical payload: %w", builderPrefix, err)
+	}
+	sum := sha256.Sum256(canon)
+	hash := hashPrefix + hex.EncodeToString(sum[:])
+	raw := o.RawHash
+	if raw == "" {
+		empty := sha256.Sum256(nil)
+		raw = hashPrefix + hex.EncodeToString(empty[:])
+	}
+	evidenceID, err := b.IDs.ID(idEvidence)
+	if err != nil {
+		return Item{}, fmt.Errorf("%sevidence id: %w", builderPrefix, err)
+	}
+	ref, err := b.IDs.ID(idPayload)
+	if err != nil {
+		return Item{}, fmt.Errorf("%spayload id: %w", builderPrefix, err)
+	}
+	tx, err := b.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return Item{}, fmt.Errorf("%sbegin: %w", builderPrefix, err)
+	}
+	if err := b.write(ctx, tx, o, row{evidenceID: evidenceID, ref: ref, hash: hash, raw: raw, canon: canon, sla: sla, status: status}, now); err != nil {
+		_ = tx.Rollback(context.WithoutCancel(ctx))
+		return Item{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, fmt.Errorf("%scommit %s: %w", builderPrefix, evidenceID, err)
+	}
+	return Item{EvidenceID: evidenceID, PayloadRef: ref, PayloadHash: hash, Status: status}, nil
+}
+
+// row is what Record computed before it opens the transaction.
+type row struct {
+	evidenceID, ref, hash, raw string
+	canon                      []byte
+	sla                        int64
+	status                     contracts.EnumsV1FactStatus
+}
+
+func (b *Builder) write(ctx context.Context, tx pgx.Tx, o Observation, r row, now time.Time) error {
+	evidenceID, ref, hash, raw, sla, status := r.evidenceID, r.ref, r.hash, r.raw, r.sla, r.status
+	if _, err := tx.Exec(ctx, `INSERT INTO evidence_payload (payload_ref, tenant_id, json, raw_hash, sensitivity, created_at) VALUES ($1, $2, $3::jsonb, $4, $5, $6)`,
+		ref, o.TenantID, string(r.canon), raw, o.Sensitivity, now); err != nil {
+		return fmt.Errorf("%sinsert payload %s: %w", builderPrefix, ref, err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO evidence_item (evidence_id, tenant_id, correlation_id, source, source_record_id, read_by, read_at, effective_at,
+			freshness_sla_seconds, authority_class, resource_scope, principal_scope, sensitivity, fact_status, payload_hash, payload_ref, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+		evidenceID, o.TenantID, o.CorrelationID, o.Source, o.SourceRecordID, o.ReadBy, o.Read.ReadAt, o.EffectiveAt, sla, o.AuthorityClass,
+		o.ResourceScope, o.PrincipalScope, o.Sensitivity, string(status), hash, ref, now); err != nil {
+		return fmt.Errorf("%sinsert item %s: %w", builderPrefix, evidenceID, err)
+	}
+	event := map[string]any{"evidence_id": evidenceID, "source": o.Source, "source_record_id": o.SourceRecordID, "read_by": o.ReadBy,
+		"fact_status": string(status), "payload_hash": hash, "read_at": o.Read.ReadAt.UTC().Format(tsLayout)} // hash only: never the payload
+	if _, err := b.Rec.Append(ctx, tx, chain.Event{TenantID: o.TenantID, CorrelationID: o.CorrelationID, WrittenBy: emitter, Actor: emitter,
+		EventType: eventEvidence, ObjectRef: evidenceID, Payload: event}); err != nil {
+		return fmt.Errorf("%sappend %s: %w", builderPrefix, eventEvidence, err)
+	}
+	return nil
+}
