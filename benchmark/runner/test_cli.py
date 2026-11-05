@@ -58,3 +58,28 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProxyLogWiring(unittest.TestCase):
+    """monetary_calls source (a): `--proxy-url` (with the bench credential) replaces the missing monetary source; `--declare-no-monetary-route` is the claim it is the alternative to."""
+
+    def reason(self, *extra: str) -> str:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import main
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            cred = Path(tmp) / "cred"
+            cred.write_text("bench-credential\n")
+            with redirect_stdout(io.StringIO()):
+                code = main(["--suite", str(suite_dir()), "--out", str(out), "--bench-credential-file", str(cred), "--only", "BEN-CLEAN-0001", *extra])
+            self.assertEqual(3, code)
+            return str(json.loads((out / "run-manifest.json").read_text())["not_run_reason"])
+
+    def test_without_a_source_monetary_calls_is_the_named_gap(self) -> None:
+        self.assertIn("monetary_calls", self.reason())
+
+    def test_with_the_proxy_log_monetary_calls_is_no_longer_a_gap(self) -> None:
+        self.assertNotIn("monetary_calls", self.reason("--proxy-url", "http://127.0.0.1:9"))
