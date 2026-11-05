@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "note": "Candidate probes. /partner/events is named by the signed G0 worksheet (AT-02). The monetary paths are CANDIDATES: Tushe has not documented them; replace this list when it does. The check stays valid with any list.",
+  "probes": [
+    {"id": "P-01", "method": "GET",    "path": "/partner/events"},
+    {"id": "P-02", "method": "GET",    "path": "/partner/state"},
+    {"id": "P-03", "method": "POST",   "path": "/partner/fault-plans"},
+    {"id": "P-04", "method": "GET",    "path": "/partner/"},
+    {"id": "M-01", "method": "POST",   "path": "/v1/transfers"},
+    {"id": "M-02", "method": "POST",   "path": "/v1/payments"},
+    {"id": "M-03", "method": "DELETE", "path": "/v1/transactions/TX-ISOLATION-PROBE"}
+  ]
+}
