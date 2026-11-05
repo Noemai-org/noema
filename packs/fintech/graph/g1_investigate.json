@@ -50,7 +50,9 @@
       "kind": "READ",
       "capability_id": "fin.cap.lookup_beneficiary",
       "preconditions": [],
-      "postconditions": [],
+      "postconditions": [
+        "exists(beneficiary where beneficiary.transaction == subject_resource)"
+      ],
       "on_unknown": "ESCALATE",
       "on_failure": "RETRY_READ",
       "recovery_ref": null,
@@ -61,7 +63,9 @@
       "kind": "READ",
       "capability_id": "fin.cap.lookup_account",
       "preconditions": [],
-      "postconditions": [],
+      "postconditions": [
+        "exists(account where account.owner == principal_id)"
+      ],
       "on_unknown": "ESCALATE",
       "on_failure": "RETRY_READ",
       "recovery_ref": null,
