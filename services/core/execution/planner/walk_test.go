@@ -103,10 +103,18 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 		name string
 		edit func(g *contracts.ActionGraphV2)
 	}{
-		{"a cycle", func(g *contracts.ActionGraphV2) {
-			e := g.Edges[0]
-			g.Roots = nil // so that the cycle itself is what is refused, not a root with an incoming edge
-			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: e.DependsOn, DependsOn: e.NodeId})
+		{"a cycle between nodes that are not roots", func(g *contracts.ActionGraphV2) {
+			isRoot := map[contracts.CommonV1SlotName]bool{}
+			for _, r := range g.Roots {
+				isRoot[r] = true
+			}
+			for _, e := range g.Edges {
+				if !isRoot[e.NodeId] && !isRoot[e.DependsOn] {
+					g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: e.DependsOn, DependsOn: e.NodeId})
+					return
+				}
+			}
+			panic("the fixture has no edge between two non-root nodes")
 		}},
 		{"a cycle apart from nodes that can be planned", func(g *contracts.ActionGraphV2) {
 			x, y := g.Nodes[0], g.Nodes[0]
@@ -121,11 +129,21 @@ func TestTheWalkRefusesAGraphItCannotFollow(t *testing.T) {
 			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[0].NodeId, DependsOn: "ghost"})
 		}},
 		{"a node that depends on itself", func(g *contracts.ActionGraphV2) {
-			g.Roots = nil
-			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: g.Nodes[0].NodeId, DependsOn: g.Nodes[0].NodeId})
+			last := g.Nodes[len(g.Nodes)-1].NodeId
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: last, DependsOn: last})
 		}},
 		{"a conditional edge (conditions are not evaluated here, so the walk cannot know the path)", func(g *contracts.ActionGraphV2) {
 			g.Edges[0].Condition = &cond
+		}},
+		{"roots omitted, so the entry point is undeclared (Codex P2)", func(g *contracts.ActionGraphV2) { g.Roots = nil }},
+		{"a root that names no node", func(g *contracts.ActionGraphV2) { g.Roots = append(g.Roots, "ghost") }},
+		{"a node with no dependency that is not declared a root", func(g *contracts.ActionGraphV2) {
+			extra := g.Nodes[0]
+			extra.NodeId = "undeclared_entry"
+			g.Nodes = append(g.Nodes, extra)
+			g.Edges = append(g.Edges, contracts.ActionGraphV2EdgesItem{NodeId: "undeclared_entry", DependsOn: g.Roots[0]}) // it has an edge, so it is not an entry point
+			g.Nodes = append(g.Nodes, extra)
+			g.Nodes[len(g.Nodes)-1].NodeId = "second_undeclared_entry" // no edge: a second entry point nobody declared
 		}},
 		{"a duplicate node", func(g *contracts.ActionGraphV2) { g.Nodes = append(g.Nodes, g.Nodes[0]) }},
 		{"no nodes", func(g *contracts.ActionGraphV2) { g.Nodes, g.Edges, g.Roots = nil, nil, nil }},
