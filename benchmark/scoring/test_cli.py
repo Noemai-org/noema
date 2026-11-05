@@ -46,7 +46,48 @@ def run_cli(root: Path, out: Path, *extra: str) -> tuple[int, str]:
     return code, buffer.getvalue()
 
 
+def write_repeat(root: Path, name: str, run_id: str) -> Path:
+    """A second result directory for the same cases, recorded as another run."""
+    target = root / name
+    target.mkdir()
+    for f in sorted((root / "results").glob("*.json")):
+        document = json.loads(f.read_text())
+        document["run_id"] = run_id
+        (target / f.name).write_bytes(pretty_bytes(document))
+    return target
+
+
 class CliTest(unittest.TestCase):
+    def test_four_repeat_runs_make_pass_k_available(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            extra: list[str] = []
+            for i in range(2, 6):
+                extra += ["--repeat-results", str(write_repeat(root, f"r{i}", f"run_{i}"))]
+            code, _ = run_cli(root, root / "out", *extra)
+            self.assertEqual(code, 0)
+            pass_k = json.loads((root / "out" / "scorecard.json").read_text())["tier1"]["diagnostics"]["pass_k"]
+            self.assertTrue(pass_k["available"])
+            self.assertEqual(5, pass_k["runs_supplied"])
+
+    def test_two_repeat_runs_leave_pass_k_unavailable_not_rescaled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            code, _ = run_cli(root, root / "out", "--repeat-results", str(write_repeat(root, "r2", "run_2")), "--repeat-results", str(write_repeat(root, "r3", "run_3")))
+            pass_k = json.loads((root / "out" / "scorecard.json").read_text())["tier1"]["diagnostics"]["pass_k"]
+            self.assertEqual((code, pass_k["available"], pass_k["runs_supplied"]), (0, False, 3))
+
+    def test_the_same_run_given_twice_is_refused_with_exit_two(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            code, out = run_cli(root, root / "out", "--repeat-results", str(root / "results"))
+            self.assertEqual(code, 2)
+            self.assertFalse((root / "out").exists())
+
+
     def test_a_clean_recorded_run_scores_and_reruns_byte_identically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
