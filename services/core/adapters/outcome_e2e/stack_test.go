@@ -91,6 +91,10 @@ var _ controller.Binder = (*trustStandIn)(nil)
 func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
 	return g.IntentHash, nil
 }
+func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return true, nil
 }
