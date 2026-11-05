@@ -150,6 +150,7 @@ type Step struct {
 	PlanHash            contracts.CommonV1Hash
 	PlanStep            int64
 	TargetVersions      []contracts.DecisionGrantV1TargetVersionsItem
+	PolicyID            string // which policy the grant is for; needed only when the decision's basis names more than one policy
 	ConfirmationEventID string // optional: the confirmation this grant follows
 }
 
@@ -163,7 +164,7 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 	if err := s.check(); err != nil {
 		return contracts.DecisionGrantV1{}, err
 	}
-	policy, ok := newestPolicy(basis)
+	policy, ok := boundPolicy(basis, s.PolicyID)
 	if !ok || s.PlanStep < 0 || !shapes["policy"].MatchString(policy) {
 		return contracts.DecisionGrantV1{}, fmt.Errorf("%w: policy version or plan step", ErrStep)
 	}
@@ -245,26 +246,42 @@ func (s Step) check() error {
 	return nil
 }
 
-// newestPolicy returns policy_id@version of the newest policy version the decision's basis names (the Architect's decision of 4 Nov
-// 2026): versions compare as dotted numbers (3.10 is newer than 3.9), and with equal versions the smaller policy ID wins, so the choice
-// never depends on the order of the rules. A version that is not dotted numbers makes the result unusable (false), not a guess. The
-// grant is voided if any version named in the basis is superseded (REQ-TRU-005; TRU-08 reads the basis from the Decision Record).
-func newestPolicy(b decide.Basis) (string, bool) {
-	var best decide.PolicyRuleVersion
+// boundPolicy returns policy_id@version for the grant: the exact policy it was decided under (ruling of 5 Nov 2026). Versions compare only
+// within one policy_id, as dotted numbers (3.10 is newer than 3.9): several versions of the same policy in one basis (an AT_ADMISSION and an
+// AT_DECISION rule) give the newest of that policy. The newest across policy IDs is never picked: when the basis names more than one policy
+// the caller must say which one the grant is for, and a policy the basis does not name is refused. A version that is not dotted numbers makes
+// the result unusable (false), not a guess. The grant is voided if any version named in the basis is superseded (REQ-TRU-005; TRU-08).
+func boundPolicy(b decide.Basis, policyID string) (string, bool) {
+	named := map[string]bool{}
+	for _, r := range b.PolicyRules {
+		named[r.PolicyID] = true
+	}
+	switch {
+	case policyID == "" && len(named) == 1:
+		for id := range named {
+			policyID = id
+		}
+	case policyID == "" || !named[policyID]:
+		return "", false
+	}
+	var best string
 	var bestNums []int
-	for n, r := range b.PolicyRules {
+	for _, r := range b.PolicyRules {
+		if r.PolicyID != policyID {
+			continue
+		}
 		nums, ok := dotted(r.Version)
 		if !ok {
 			return "", false
 		}
-		if n == 0 || newer(nums, bestNums) > 0 || (newer(nums, bestNums) == 0 && r.PolicyID < best.PolicyID) {
-			best, bestNums = r, nums
+		if bestNums == nil || newer(nums, bestNums) > 0 {
+			best, bestNums = r.Version, nums
 		}
 	}
 	if len(bestNums) == 0 {
 		return "", false
 	}
-	return best.PolicyID + "@" + best.Version, true
+	return policyID + "@" + best, true
 }
 
 // dotted parses "3.10.1" into its numbers.
