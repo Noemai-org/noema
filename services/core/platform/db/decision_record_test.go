@@ -178,3 +178,58 @@ func currentUser(t *testing.T, pool interface {
 	}
 	return u
 }
+
+// Review of noema#168 at cd471c6: a table-wide SELECT would let any tenant's Trust, Execution or Outcome login read every tenant's decisions (policy versions,
+// reasons, evidence snapshot). Reads are bound to the login's tenant by row-level security on the same session_user mapping (as noema#167 does for evidence).
+func TestAPowerLoginReadsOnlyItsOwnTenantsDecisions(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trustA := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	if _, err := trustA.Exec(ctx(t), decisionRow("dec_a", "ten_a", "ALLOW")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_b").Exec(ctx(t), decisionRow("dec_b", "ten_b", "ALLOW")); err != nil {
+		t.Fatal(err)
+	}
+	count := func(p interface {
+		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	}, where string) int {
+		var n int
+		if err := p.QueryRow(ctx(t), `SELECT count(*) FROM decision_record `+where).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	for _, group := range []string{"trust_rw", "execution_rw", "outcome_rw"} {
+		var p interface {
+			QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+		}
+		if group == "trust_rw" {
+			p = trustA
+		} else {
+			p = testpg.TenantLogin(t, pool, dsn, group, "ten_a")
+		}
+		if n := count(p, ""); n != 1 {
+			t.Errorf("%s of tenant A sees %d decision records, want exactly its own 1", group, n)
+		}
+		if n := count(p, "WHERE tenant_id = 'ten_b'"); n != 0 {
+			t.Errorf("%s of tenant A reads %d of tenant B's decisions", group, n)
+		}
+	}
+	// the administrator, who owns the table, still sees both (the audit and migration path)
+	if n := count(pool, ""); n != 2 {
+		t.Errorf("the administrator sees %d, want 2", n)
+	}
+	// and a login that is not mapped to any tenant sees none
+	un := testpg.TenantLogin(t, pool, dsn, "outcome_rw", "ten_b")
+	if _, err := pool.Exec(ctx(t), `DELETE FROM tenant_login WHERE tenant_id = 'ten_b' AND power = 'outcome'`); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(un, ""); n != 0 {
+		t.Errorf("an unmapped Outcome login sees %d decision records, want 0", n)
+	}
+}
