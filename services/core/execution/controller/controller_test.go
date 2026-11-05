@@ -237,3 +237,31 @@ func TestAGrantWithAMalformedPolicyVersionIsVoided(t *testing.T) {
 		}
 	}
 }
+
+// Codex P2 on noema#163: a policy_id@version that is malformed in the same way on both sides (the grant and the binder) is still not
+// comparable. The grant contract requires a lower-case dotted policy ID and numeric dotted version components; anything else fails closed.
+func TestAMalformedPolicyVersionThatMatchesTheBindersIsStillVoided(t *testing.T) {
+	for _, bad := range []struct{ id, ver string }{
+		{"sim.pol", "not-a-version"}, {"sim.pol", "1"}, {"sim.pol", "1.x"}, {"sim.pol", "1.0.0.0"}, {"sim.pol", "1.0-rc1"}, {"sim.pol", " 1.0"},
+		{"Sim.Pol", "1.0"}, {"sim..pol", "1.0"}, {"sim.pol.", "1.0"}, {"1sim", "1.0"}, {"sim pol", "1.0"},
+	} {
+		w, c, _ := setup(t)
+		w.Mutate(func(w *World) { w.ActivePolicies[bad.id] = bad.ver })
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), bad.id+"@"+bad.ver)
+		w.Store(g)
+		out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+		if err != nil || out.Void != controller.VoidPolicySuperseded || len(w.Snapshot().Dispatches) != 0 {
+			t.Errorf("%s@%s: void %q err %v dispatches %d; want a void with no dispatch", bad.id, bad.ver, out.Void, err, len(w.Snapshot().Dispatches))
+		}
+	}
+	// and the well-formed shapes the contract allows still run
+	for _, good := range []string{"1.0", "3.10", "1.2.3", "10.0.1"} {
+		w, c, _ := setup(t)
+		w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = good })
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), "sim.pol@"+good)
+		w.Store(g)
+		if out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID); err != nil || out.Void != "" {
+			t.Errorf("sim.pol@%s: void %q err %v; a well-formed matching version must run", good, out.Void, err)
+		}
+	}
+}
