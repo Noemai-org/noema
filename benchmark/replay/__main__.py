@@ -39,7 +39,7 @@ def _load_run(run_dir: Path, contracts: Contracts) -> tuple[Json, dict[str, Json
         raise ReplayInputError(f"{results_dir} does not exist")
     results: dict[str, Json] = {}
     for path in sorted(results_dir.glob("*.json")) if results_dir.is_dir() else []:
-        result = _load(path, "benchmark-case-result", contracts)
+        result = _load(path, "benchmark-case-result.v2", contracts)
         results[result["case_id"]] = result
     return manifest, results
 

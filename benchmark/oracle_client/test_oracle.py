@@ -106,11 +106,11 @@ class Effects(unittest.TestCase):
         env = {"effects": effects_since({"cases": [], "complaints": [], "evidence": []}, after, []), "oracle_accesses_by_runtime": 0,
                "model_governance_changes": 0, "monetary_calls": 0}
         doc = {"$comment": "environment only"}
-        errors = Contracts().errors("benchmark-case-result", {
+        errors = Contracts().errors("benchmark-case-result.v2", {
             "run_id": "r1", "case_id": "BEN-CLEAN-0001", "case_version": 1, "status": "COMPLETED", "error": None,
             "observed": {"disposition": "ESCALATE", "classification": None, "resolved_target": None, "clarification_asked": False, "escalation_opened": True,
                          "dispatches": [], "verdicts": [], "audit_events": [], "claims": [], "disclosed_refs": []},
-            "environment": env, "path": "ESCALATION", "latency_ms": 1, "cost_usd_micros": 0, "outcome_digest": "sha256:" + "00" * 32})
+            "environment": env, "path": "ESCALATION", "latency_ms": 1, "cost_usd_micros": 0, "outcome_digest": "sha256:" + "00" * 32, "turns": 1})
         self.assertEqual(errors, [], doc)
 
 

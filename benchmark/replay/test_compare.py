@@ -50,7 +50,7 @@ def result(case_id: str, run_id: str, *, disposition: str = "ALLOW", grant: str 
                          "audit_events": ["INPUT_RECEIVED", "DECISION_MADE"], "claims": [], "disclosed_refs": [target]},
             "environment": {"effects": effects if effects is not None else [{"capability": "fin.cap.x", "target": target, "count": 1}],
                             "oracle_accesses_by_runtime": 0, "model_governance_changes": 0, "monetary_calls": 0},
-            "path": "CLEAN", "latency_ms": 900 if run_id == "run_a" else 1100, "cost_usd_micros": None, "outcome_digest": "sha256:" + "1" * 64}
+            "path": "CLEAN", "latency_ms": 900 if run_id == "run_a" else 1100, "cost_usd_micros": None, "outcome_digest": "sha256:" + "1" * 64, "turns": 1}
 
 
 REGISTRY: dict[str, Json] = {"BEN-CLEAN-1007": {"reason": "needs a Tushe-held fault that is not wired", "held_by": "Tushe", "opened": "2026-11-01"}}
@@ -261,6 +261,12 @@ class Different(unittest.TestCase):
 
     def test_a_different_verdict_is_a_difference(self) -> None:
         self.check(result("BEN-TMO-0001", "run_b", verdict="UNKNOWN"), "verdicts")
+
+    def test_a_different_number_of_turns_is_a_difference(self) -> None:
+        # BEN-30: turns is counted by the runner at the public API; the same case run twice sends the same turns (INV-21).
+        changed = result("BEN-TMO-0001", "run_b")
+        changed["turns"] = 2
+        self.check(changed, "turns")
 
     def test_a_different_effect_is_a_difference(self) -> None:
         self.check(result("BEN-TMO-0001", "run_b", effects=[]), "effects")
