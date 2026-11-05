@@ -1,0 +1,30 @@
+# 2026/11/05 14:59:29.097887 [TestEachFieldAndEachBoundaryChangesTheKey] [rapid] draw fields: crypto.IdempotencyKeyFields{TenantID:"", PrincipalID:"\x00", TransactionID:"", LogicalAction:"", ReasonCode:"", PolicyScope:"", LogicalResolutionEpoch:""}
+# 2026/11/05 14:59:29.097904 [TestEachFieldAndEachBoundaryChangesTheKey] [rapid] draw field: 0
+# 2026/11/05 14:59:29.097908 [TestEachFieldAndEachBoundaryChangesTheKey] moving "\x00" across fields 0 and 1 keeps the key
+# 
+v0.4.8#10656580275332375360
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

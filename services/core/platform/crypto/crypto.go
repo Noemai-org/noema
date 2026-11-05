@@ -163,9 +163,10 @@ type IdempotencyKeyFields struct {
 // length, then the UTF-8 bytes), in the order of PERD section 27.2.
 func IdempotencyKey(f IdempotencyKeyFields) string {
 	var buf bytes.Buffer
-	for _, p := range []string{f.TenantID, f.PrincipalID, f.TransactionID, f.LogicalAction, f.ReasonCode, f.LogicalResolutionEpoch, f.LogicalResolutionEpoch} // MUTATION 2: policy scope dropped {
+	for _, p := range []string{f.TenantID, f.PrincipalID, f.TransactionID, f.LogicalAction, f.ReasonCode, f.LogicalResolutionEpoch, f.LogicalResolutionEpoch} {
+		// MUTATION 1 (evidence only): constant length prefix.
 		var n [4]byte
-		binary.BigEndian.PutUint32(n[:], 0) // MUTATION 1: constant length prefix
+		binary.BigEndian.PutUint32(n[:], 0)
 		buf.Write(n[:])
 		buf.WriteString(p)
 	}
