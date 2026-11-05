@@ -9,7 +9,7 @@ Anything other than the expected refusal is a FAIL, and so is a dropped connecti
 Facts about AWS's behaviour are UNVERIFIED until this has run against the real account; the run is the verification.
 
 Environment: ANCHOR_BUCKET, ANCHOR_REGION, ANCHOR_WRITER_KEY_ID, ANCHOR_WRITER_SECRET, ANCHOR_VERIFIER_KEY_ID, ANCHOR_VERIFIER_SECRET;
-optional ANCHOR_ENDPOINT (default https://s3.<region>.amazonaws.com; http:// allowed only for the local self-test).
+The endpoint is always https://s3.<region>.amazonaws.com, derived from ANCHOR_REGION; there is no override.
 Secrets are read from the environment and never printed. Test objects live under ci-probe/ and expire by the bucket's lifecycle rule.
 """
 import base64
@@ -29,13 +29,52 @@ s3 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(s3)
 
 
+class EndpointRefused(Exception):
+    """The endpoint, region or bucket is not one this check may send credentials to. Raised before any credential is attached."""
+
+
+_REGION = re.compile(r"^[a-z]{2}(?:-[a-z]+)+-[0-9]$")
+_BUCKET = re.compile(r"^[a-z0-9](?:[a-z0-9-]|\.(?!\.)){1,61}[a-z0-9]$")
+_LOCAL = "http://127.0.0.1:"
+
+
+def aws_endpoint(region):
+    """The one endpoint a credential may be sent to: https://s3.<region>.amazonaws.com, port 443. Built here, never taken from input."""
+    if not isinstance(region, str) or not _REGION.fullmatch(region):
+        raise EndpointRefused("region is not an AWS region name")
+    return "https://s3.%s.amazonaws.com" % region
+
+
 class Store:
-    def __init__(self, endpoint, region, bucket, key_id, secret):
-        u = urllib.parse.urlparse(endpoint)
-        self.scheme, self.host, self.port = u.scheme, u.hostname, u.port or (443 if u.scheme == "https" else 80)
+    """One identity talking to one bucket. The constructor accepts only the exact regional AWS endpoint (https, port 443, lower case, no
+    userinfo, path, query or fragment) and a bucket name of the S3 shape; anything else raises EndpointRefused and nothing is sent.
+    `local_selftest=True` additionally accepts http://127.0.0.1:<port> for the in-process model of aws_check's own tests; main() never
+    passes it."""
+
+    def __init__(self, endpoint, region, bucket, key_id, secret, local_selftest=False):
+        if not isinstance(endpoint, str) or not isinstance(bucket, str) or not _BUCKET.fullmatch(bucket):
+            raise EndpointRefused("bucket name is not a valid S3 bucket name")
+        if local_selftest and isinstance(region, str) and re.fullmatch(r"http://127\.0\.0\.1:[0-9]{1,5}", endpoint) and _REGION.fullmatch(region):
+            self.scheme, self.host, self.port = "http", "127.0.0.1", int(endpoint[len(_LOCAL):])
+        else:
+            want = aws_endpoint(region)
+            if endpoint != want:  # exact string match: no parsing, so no parser differential
+                raise EndpointRefused("endpoint is not exactly " + want)
+            self.scheme, self.host, self.port = "https", "s3.%s.amazonaws.com" % region, 443
+        self.local = bool(local_selftest) and self.scheme == "http"
         self.region, self.bucket, self.ak, self.sk = region, bucket, key_id, secret
 
+    def _check_target(self):
+        """Re-checked before every request, so a field changed after construction cannot redirect a signed request."""
+        if self.local:
+            ok = self.scheme == "http" and self.host == "127.0.0.1"
+        else:
+            ok = self.scheme == "https" and self.port == 443 and self.host == "s3.%s.amazonaws.com" % self.region and bool(_REGION.fullmatch(self.region))
+        if not ok or not _BUCKET.fullmatch(self.bucket):
+            raise EndpointRefused("target changed after construction")
+
     def call(self, method, key="", query=None, body=b"", headers=None):
+        self._check_target()
         query = query or {}
         now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         payload = hashlib.sha256(body).hexdigest()
@@ -149,7 +188,8 @@ def run(writer, verifier, prefix):
     return rep.fails
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     s3.selfcheck()
     need = ["ANCHOR_BUCKET", "ANCHOR_REGION", "ANCHOR_WRITER_KEY_ID", "ANCHOR_WRITER_SECRET", "ANCHOR_VERIFIER_KEY_ID", "ANCHOR_VERIFIER_SECRET"]
     missing = [n for n in need if not os.environ.get(n)]
@@ -157,12 +197,17 @@ def main():
         print("FAIL: missing " + ", ".join(missing) + " (unknown, not pass)")
         return 2
     region, bucket = os.environ["ANCHOR_REGION"], os.environ["ANCHOR_BUCKET"]
-    endpoint = os.environ.get("ANCHOR_ENDPOINT") or "https://s3.%s.amazonaws.com" % region
-    if endpoint.startswith("http://") and os.environ.get("ANCHOR_ALLOW_PLAINTEXT") != "selftest":
-        print("FAIL: plain http is for the local self-test only")
+    # ANCHOR_ENDPOINT and ANCHOR_ALLOW_PLAINTEXT are not read: the endpoint is derived from the region and nothing else.
+    try:
+        endpoint = aws_endpoint(region)
+        w = Store(endpoint, region, bucket, os.environ["ANCHOR_WRITER_KEY_ID"], os.environ["ANCHOR_WRITER_SECRET"])
+        v = Store(endpoint, region, bucket, os.environ["ANCHOR_VERIFIER_KEY_ID"], os.environ["ANCHOR_VERIFIER_SECRET"])
+    except EndpointRefused as e:
+        print("FAIL: %s (no request was made)" % e)
         return 2
-    w = Store(endpoint, region, bucket, os.environ["ANCHOR_WRITER_KEY_ID"], os.environ["ANCHOR_WRITER_SECRET"])
-    v = Store(endpoint, region, bucket, os.environ["ANCHOR_VERIFIER_KEY_ID"], os.environ["ANCHOR_VERIFIER_SECRET"])
+    if "--validate-only" in argv:
+        print("endpoint and bucket accepted: " + endpoint)
+        return 0
     return 1 if run(w, v, "ci-probe/") else 0
 
 
