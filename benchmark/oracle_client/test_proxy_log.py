@@ -23,6 +23,7 @@ def entry(seq: int, target: str = "mock-ledger", operation: str = "get_transacti
 class _Proxy(BaseHTTPRequestHandler):
     entries: list[Json] = []
     dropped = 0
+    generation: str | None = None
     auth: list[str | None] = []
     status = 200
 
@@ -31,7 +32,10 @@ class _Proxy(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         _Proxy.auth.append(self.headers.get("Authorization"))
-        body = json.dumps({"entries": _Proxy.entries, "counts": {}, "dropped": _Proxy.dropped, "log_hash": "sha256:" + "0" * 64}).encode()
+        document: Json = {"entries": _Proxy.entries, "counts": {}, "dropped": _Proxy.dropped, "log_hash": "sha256:" + "0" * 64}
+        if _Proxy.generation is not None:
+            document["generation"] = _Proxy.generation
+        body = json.dumps(document).encode()
         self.send_response(_Proxy.status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -90,6 +94,39 @@ class Counter(unittest.TestCase):
         _Proxy.entries = [entry(1)]
         with self.assertRaises(CounterUnavailable):
             self.counter.since(mark)
+
+    def test_a_reset_that_refills_past_the_marked_length_is_detected_not_undercounted(self) -> None:
+        # Codex review of noema#170: remember only len(entries) and a restart that refills the in-memory log past it would slice at the old offset and miss calls.
+        _Proxy.entries = [entry(1), entry(2)]
+        mark = self.counter.mark()
+        _Proxy.entries = [entry(1, "mock-ledger", "create_payout", method="POST"), entry(2, "mock-ledger", "reverse_payout", method="POST"), entry(3, "mock-ledger", "create_payout", method="POST")]
+        with self.assertRaises(CounterUnavailable) as ctx:
+            self.counter.since(mark)
+        self.assertIn("changed", ctx.exception.reason)
+
+    def test_a_log_whose_marked_entry_changed_is_detected_even_at_the_same_length(self) -> None:
+        _Proxy.entries = [entry(1), entry(2)]
+        mark = self.counter.mark()
+        _Proxy.entries = [entry(1), entry(2, "mock-switch", "get_status")]
+        with self.assertRaises(CounterUnavailable):
+            self.counter.since(mark)
+
+    def test_a_change_of_the_proxys_log_generation_is_detected_when_the_proxy_reports_one(self) -> None:
+        _Proxy.entries, _Proxy.generation = [entry(1)], "g1"
+        mark = self.counter.mark()
+        _Proxy.generation = "g2"
+        try:
+            with self.assertRaises(CounterUnavailable) as ctx:
+                self.counter.since(mark)
+            self.assertIn("generation", ctx.exception.reason)
+        finally:
+            _Proxy.generation = None
+
+    def test_an_unchanged_prefix_with_new_entries_counts_only_the_new_ones(self) -> None:
+        _Proxy.entries = [entry(1), entry(2, "mock-ledger", "create_payout", method="POST")]
+        mark = self.counter.mark()
+        _Proxy.entries.append(entry(3, "mock-ledger", "reverse_payout", method="POST"))
+        self.assertEqual(1, self.counter.since(mark))
 
     def test_an_unreachable_proxy_is_unavailable_not_zero(self) -> None:
         cred = Path(self._tmp.name) / "cred"
