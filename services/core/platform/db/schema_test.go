@@ -42,7 +42,7 @@ func seed(t *testing.T, pool *pgxpool.Pool) {
 		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
 		 VALUES ('dec_1', 'ten_a', '{"decision_id":"dec_1","tenant_id":"ten_a","outcome":"ALLOW"}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatalf("seed: %v", err)
@@ -210,7 +210,7 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	pool := migrated(t)
 	seed(t, pool)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
+		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`); err != nil {
@@ -224,7 +224,7 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
 		 VALUES ('dec_9', 'ten_b', '{"decision_id":"dec_9","tenant_id":"ten_b","outcome":"ALLOW"}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{"decision_id":"dec_9","tenant_id":"ten_b"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatal(err)

@@ -36,6 +36,12 @@ GRANT SELECT ON decision_record TO outcome_rw;
 CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE decided text;
 BEGIN
+  -- The signed grant document is what Execution decodes; the columns are what this guard reads. They must name the same decision and tenant.
+  IF NEW.json ->> 'decision_id' IS DISTINCT FROM NEW.decision_id OR NEW.json ->> 'tenant_id' IS DISTINCT FROM NEW.tenant_id THEN
+    RAISE EXCEPTION 'decision_grant: the signed grant names decision % of tenant %, its columns name % of %',
+      NEW.json ->> 'decision_id', NEW.json ->> 'tenant_id', NEW.decision_id, NEW.tenant_id
+      USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
   SELECT d.outcome INTO decided FROM decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
   IF decided IS DISTINCT FROM 'ALLOW' THEN
     RAISE EXCEPTION 'decision_grant: decision % of tenant % is not a recorded ALLOW decision', NEW.decision_id, NEW.tenant_id
