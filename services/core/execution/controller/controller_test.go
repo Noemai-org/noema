@@ -85,6 +85,9 @@ func TestEachCheckVoidsTheGrantWithItsReason(t *testing.T) {
 		{"E4 the grant's policy has an older active version (rolled back)", func(w *World, _ *controller.SignedGrant) {
 			w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = "0.9" })
 		}, controller.VoidPolicySuperseded},
+		{"E4 the active version only extends the grant's version as text (1.0.1 against 1.0)", func(w *World, _ *controller.SignedGrant) {
+			w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = "1.0.1" })
+		}, controller.VoidPolicySuperseded},
 		{"E4 the grant's policy has no active version (retired)", func(w *World, _ *controller.SignedGrant) {
 			w.Mutate(func(w *World) { delete(w.ActivePolicies, "sim.pol") })
 		}, controller.VoidPolicySuperseded},
