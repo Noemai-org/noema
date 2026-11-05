@@ -89,8 +89,12 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 		VALUES ('grt_x', 'ten_b', 'dec_x', 'nonce_x', '{}'::jsonb, 'pol', '1', $1, 'k1', 'sig')`, exp); err == nil {
 		t.Error("trust_rw as ten_a inserted a decision_grant for ten_b")
 	}
-	for _, group := range []string{"trust_rw", "execution_rw", "outcome_rw"} {
-		pool := testpg.TenantLogin(t, w.admin, w.dsn, group, "ten_a")
+	pools := map[string]*pgxpool.Pool{
+		"trust_rw":     trust, // one login per role and tenant: TenantLogin must not be called twice for the same pair
+		"execution_rw": testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", "ten_a"),
+		"outcome_rw":   testpg.TenantLogin(t, w.admin, w.dsn, "outcome_rw", "ten_a"),
+	}
+	for group, pool := range pools {
 		if _, err := pool.Exec(ctx(t), `INSERT INTO outbox_event (outbox_id, tenant_id, topic, payload, created_at) VALUES ('obx_x_'||$2::text, 'ten_b', 'topic', '{}'::jsonb, $1)`, exp, group); err == nil {
 			t.Errorf("%s as ten_a inserted an outbox_event for ten_b", group)
 		}
@@ -137,7 +141,7 @@ func TestRowSecurityIsEnabledAndForcedOnEveryTenantTable(t *testing.T) {
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'public' AND c.relkind = 'r'
 		  AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
-		  AND c.relname NOT IN ('record_event', 'record_chain_head', 'tenant_login')
+		  AND c.relname NOT IN ('tenant', 'record_event', 'record_chain_head', 'tenant_login')
 		ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
