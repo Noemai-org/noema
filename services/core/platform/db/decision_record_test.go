@@ -14,7 +14,28 @@ const grantFor = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, 
 
 func decisionRow(id, tenant, outcome string) string {
 	return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ('%s', '%s', '{}', '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, outcome, 1)
+		VALUES ('%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s'), '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, id, tenant, outcome, outcome, 1)
+}
+
+// Codex P1 on noema#168: the grant guard reads the outcome column, so a record whose signed document says something else would bypass it.
+// The document and the columns the guard and the foreign keys read must agree.
+func TestTheDecisionRecordDocumentMustAgreeWithItsColumns(t *testing.T) {
+	pool := migrated(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(docID, docTenant, docOutcome string) error {
+		return try(t, pool, "trust_rw", fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s'), 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
+	}
+	wantCode(t, insert("dec_m", "ten_a", "REJECT"), violation, "the document says REJECT, the column ALLOW")
+	wantCode(t, insert("dec_other", "ten_a", "ALLOW"), violation, "the document names another decision")
+	wantCode(t, insert("dec_m", "ten_b", "ALLOW"), violation, "the document names another tenant")
+	wantCode(t, try(t, pool, "trust_rw", `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ('dec_m', 'ten_a', '{}', 'ALLOW', 'sha256:`+fmt.Sprintf("%064d", 1)+`', '[]', 'k1', 'aa')`), violation, "a document with no outcome, decision or tenant")
+	if err := insert("dec_m", "ten_a", "ALLOW"); err != nil {
+		t.Fatalf("a document that agrees with its columns: %v", err)
+	}
 }
 
 func TestAGrantExistsOnlyForAnAllowDecisionOfTheSameTenant(t *testing.T) {
