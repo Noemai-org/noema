@@ -63,3 +63,14 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Pre-work for the next agent
 - Exact next step: slice 3, the G1 story tests in `execution/e2e` (a healthy read KNOWN, a stale read STALE, with the real target).
+
+# Session 2026-11-05 18:30 WAT · EVD-01 (slice 3)
+
+## Session summary
+- What changed: `execution/e2e/evidence_faults_test.go` gains `TestEvidenceFromAHealthyRealReadIsKnownThenStale`: a case is created through the real adapter on the real mock-case and read back; the evidence is KNOWN with its hash on a hash-only `EVIDENCE_READ` event, and the same read judged one second after its 300 s window is STALE (INV-23), on the injected clock. STACKED on noema#174.
+- Mutants caught: the builder judging against the read's own time (never stale); the payload placed in the event.
+- First version of the hash assertion was wrong (two reads of the same content share a hash); fixed in the test, not in the code.
+- With slices 1 to 3 the card's "Done when" (fuzzed payloads give total, correct statuses) is met on the status function; the item path to the Record is exercised against faulted and healthy real reads. Not done: slice 1b (AUTHORITATIVE_NEGATIVE), blocked on a contract change request (Q-EVD01-1).
+
+## Pre-work for the next agent
+- Exact next step: after #167, #172, #174 and this PR merge, move the board; slice 1b waits for the Architect.
