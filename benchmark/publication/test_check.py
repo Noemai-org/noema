@@ -135,6 +135,23 @@ class Broken(unittest.TestCase):
         pub["claims"][1]["population"] = "the generated suite"
         self.assertTrue(any("not a release result" in x for x in problems(pub, cards)))
 
+    def test_a_population_that_is_not_the_scorecards_is_refused_even_when_rate_and_denominator_pass(self) -> None:
+        # Codex on 53fcaf6: k, n, rate and interval all equal the scorecard's and the scorecard reference is intact, but the claim labels the rate as a different population.
+        pub, cards = publication()
+        true_population = pub["claims"][1]["population"]
+        for false_population in (
+            true_population.replace(str(cards[RUN]["n_cases"]), str(cards[RUN]["n_cases"] + 1000), 1),  # a different case count
+            true_population.replace(cards[RUN]["run_id"], "run_other"),  # another run's label
+            true_population.split(" (")[0] + "; not a release result",  # layers dropped, disclaimer kept
+            "the generated suite; not a release result",  # prose, disclaimer kept
+        ):
+            self.assertNotEqual(true_population, false_population)
+            pub["claims"][1]["population"] = false_population
+            got = problems(pub, cards)
+            self.assertTrue(any("C1" in x and "population" in x and "scorecard" in x for x in got), (false_population, got))
+        pub["claims"][1]["population"] = true_population
+        self.assertEqual([], problems(pub, cards))
+
     def test_a_missing_family_in_the_distribution_is_named_as_cherry_picking(self) -> None:
         def mutate(p: Json, c: Json) -> None:
             del p["distributions"][0]["rows"]["B4"]
