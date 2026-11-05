@@ -39,6 +39,10 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 - All tests now write on `testpg.TenantLogin(..., "evidence_rw", tenant)`.
 - Merged `main` (the slice 1 status file conflicted; both kept) and corrected one stale phrase in the slice 1 notes (the AUTHORITATIVE_NEGATIVE exception is not built).
 
+## Addendum 2026-11-05 · answering Codex's P1 on noema#167 at `5469c01` (reads were not tenant-scoped)
+- Finding: table-wide SELECT let a tenant A trust, outcome or evidence login read tenant B's evidence. Verified with a test first (`TestEvidenceReadsAreScopedToTheLoginsTenant`, red: a tenant A login saw 1 foreign row in each table, and an unmapped trust session saw both items).
+- Fix in the unmerged `0008`: row-level security on both tables with a policy on `evidence_login_tenant()` (SECURITY DEFINER, `session_user` through `tenant_login`) for `evidence_rw`, `trust_rw`, `outcome_rw`, for reads and writes. A session with no mapping sees no row. Mutants caught: RLS not enabled; read policy `USING (true)`; policy for the evidence role only.
+- Not covered: the other tenant-scoped tables (`decision_grant` and the rest) are still selected by `tenant_id` in the caller's SQL (Tier 1, `status/DEBT-04.md`).
 # Session 2026-11-05 16:00 WAT · EVD-01 (slice 2b)
 
 ## Session summary
