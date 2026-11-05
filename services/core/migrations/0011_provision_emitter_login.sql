@@ -42,6 +42,10 @@ BEGIN
   IF p_emitter IN ('core-trust', 'core-execution', 'core-outcome', 'core-evidence', 'core-workflows') THEN
     RAISE EXCEPTION 'provision: % is the identity of a power; it is written by that power''s own logins', p_emitter;
   END IF;
+  -- Must equal the RUNTIME-scope, non-power actors of record/chain/actors.json (a test enforces it).
+  IF p_emitter NOT IN ('core-edge', 'core-record', 'model-service', 'admin', 'mock-ledger', 'mock-switch', 'mock-destination', 'mock-customer', 'mock-policy', 'mock-case', 'mock-clock') THEN
+    RAISE EXCEPTION 'provision: % is not a runtime emitter', p_emitter;
+  END IF;
   INSERT INTO tenant_login (login_role, power, tenant_id, emitter) VALUES (p_login, 'record_emitter', p_tenant, p_emitter);
 END $$;
 ALTER FUNCTION provision_emitter_login(text, text, text) OWNER TO record_append;

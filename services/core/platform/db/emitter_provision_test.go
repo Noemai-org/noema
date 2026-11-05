@@ -5,6 +5,9 @@ package db_test
 // and writes only the emitter it is bound to, only in its own tenant.
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -152,4 +155,42 @@ func TestNoRuntimeRoleCanExecuteProvisionEmitterLogin(t *testing.T) {
 	xa := w.login(t, w.name("execution_rw", "ten_a"))
 	_, err := xa.Exec(ctx(t), `SELECT provision_emitter_login('x', 'ten_a', 'core-edge')`)
 	wantCode(t, err, denied, "a tenant login calling provision_emitter_login")
+}
+
+// Codex review of noema#181: the function accepts exactly the runtime emitters of record/chain/actors.json that are not a power, and
+// nothing else. The expected set is read from that file, so the migration's list cannot drift from the contract.
+func TestProvisionEmitterLoginAcceptsExactlyTheRuntimeEmittersThatAreNotPowers(t *testing.T) {
+	raw, err := os.ReadFile("../../record/chain/actors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Emitters []struct{ Name, Scope string } `json:"emitters"`
+	}
+	if err := json.Unmarshal(raw, &table); err != nil {
+		t.Fatal(err)
+	}
+	powers := map[string]bool{"core-trust": true, "core-execution": true, "core-outcome": true, "core-evidence": true, "core-workflows": true}
+	w := newTenantWorld(t)
+	accepted, refused := 0, 0
+	for i, e := range table.Emitters {
+		login := fmt.Sprintf("emit_set_%d_%s", i, w.suffix)
+		createEmitterRole(t, w, login, "record_emitter")
+		_, err := w.admin.Exec(ctx(t), `SELECT provision_emitter_login($1, 'ten_a', $2)`, login, e.Name)
+		want := e.Scope == "RUNTIME" && !powers[e.Name]
+		switch {
+		case want && err != nil:
+			t.Errorf("%s (runtime, not a power) was refused: %v", e.Name, err)
+		case !want && err == nil:
+			t.Errorf("%s (scope %s, power %v) was accepted", e.Name, e.Scope, powers[e.Name])
+		}
+		if want {
+			accepted++
+		} else {
+			refused++
+		}
+	}
+	if accepted == 0 || refused == 0 {
+		t.Fatalf("the table gave %d accepted and %d refused; the test did not exercise both", accepted, refused)
+	}
 }
