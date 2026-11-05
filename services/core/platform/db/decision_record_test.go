@@ -10,7 +10,7 @@ import (
 )
 
 const grantFor = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-	VALUES ('grt_x', 'ten_a', '%s', 'n_x', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`
+	VALUES ('grt_x', 'ten_a', '%s', 'n_x', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`
 
 func decisionRow(id, tenant, outcome string) string {
 	return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
@@ -97,5 +97,32 @@ func TestTheDecisionRecordIsInsertOnlyAndOnlyTrustWritesIt(t *testing.T) {
 		if got != want {
 			t.Errorf("%s SELECT on decision_record = %v, want %v", role, got, want)
 		}
+	}
+}
+
+// Codex P2 on noema#168: the guard reads the decision_id column, but Execution decodes the signed grant JSON. They must name the same
+// decision and tenant, or a grant could be stored under an ALLOW decision while its signed document names a REJECT one.
+func TestTheSignedGrantMustNameTheDecisionAndTenantOfItsColumns(t *testing.T) {
+	pool := migrated(t)
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, d := range []struct{ id, outcome string }{{"dec_allow", "ALLOW"}, {"dec_reject", "REJECT"}} {
+		if _, err := pool.Exec(ctx(t), decisionRow(d.id, "ten_a", d.outcome)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert := func(grantID, docJSON string) error {
+		return try(t, pool, "trust_rw", fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+			VALUES ('%s', 'ten_a', 'dec_allow', 'n_%s', '%s'::jsonb, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grantID, grantID, docJSON))
+	}
+	wantCode(t, insert("grt_1", `{"decision_id":"dec_reject","tenant_id":"ten_a"}`), violation, "the column says the ALLOW decision, the signed document a REJECT one")
+	wantCode(t, insert("grt_2", `{"decision_id":"dec_allow","tenant_id":"ten_b"}`), violation, "the signed document names another tenant")
+	wantCode(t, insert("grt_3", `{"tenant_id":"ten_a"}`), violation, "the signed document names no decision")
+	wantCode(t, insert("grt_4", `{}`), violation, "the signed document names neither decision nor tenant")
+	if err := insert("grt_5", `{"decision_id":"dec_allow","tenant_id":"ten_a"}`); err != nil {
+		t.Fatalf("a grant whose document agrees with its columns: %v", err)
 	}
 }
