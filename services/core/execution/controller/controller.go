@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -294,8 +294,10 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 	return rc, nil
 }
 
-// policyBound reports whether v has the form policy_id@version with both parts present (and no second @): only then can it be compared.
-func policyBound(v string) bool {
-	id, ver, ok := strings.Cut(v, "@")
-	return ok && id != "" && ver != "" && !strings.Contains(ver, "@")
-}
+// policyShape is the grant contract's pattern for policy_version (decision-grant.v1): a lower-case dotted policy ID, "@", and a numeric
+// dotted version of two or three components.
+var policyShape = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+
+// policyBound reports whether v has the form the grant contract requires. Only then can it be compared; equality of two malformed values
+// proves nothing, so it fails closed.
+func policyBound(v string) bool { return policyShape.MatchString(v) }

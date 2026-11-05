@@ -127,7 +127,7 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	now := s.clk.Now()
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
-		PolicyVersion: policyScope + "@1", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
