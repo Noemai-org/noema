@@ -225,6 +225,8 @@ func TestAGrantBindsTheExactPolicyItWasDecidedUnder(t *testing.T) {
 		"repeated version":                         {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "", "fin.pol@3.1"},
 		"two policies: the named one, though the other has a higher version": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
 		"two policies: the named one, in the other order":                    {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"a leading-zero version is schema-valid (Codex P2)":                  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "03.01")}, "", "fin.pol@03.01"},
+		"leading zeros compare as numbers: 3.010 is newer than 3.9":          {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.010")}, "", "fin.pol@3.010"},
 		"two policies: the named one with two versions":                      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
 	} {
 		s := step()
@@ -250,7 +252,7 @@ func TestAGrantBindsTheExactPolicyItWasDecidedUnder(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	for _, bad := range []string{"three", "03.1", "3..1", "3.", "-1.0", "3.1-rc1"} {
+	for _, bad := range []string{"three", "3..1", "3.", "-1.0", "3.1-rc1", "+3.1", "3.1 ", "\u0663.\u0661"} {
 		if g, err := i.Issue(decisionWithRules(t, rule("a", "fin.pol", bad)), step()); !errors.Is(err, grants.ErrStep) || g.GrantId != "" {
 			t.Errorf("a malformed version %q: %v", bad, err)
 		}
