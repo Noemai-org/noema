@@ -29,6 +29,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Generated files.** `python3 -I tools/record_chain_ref_v3.py --write` writes the v3 fixtures and the `record_event_chain_vectors_v3` family; `--check` (also run by `tools/contracts/test_record_event_v3.py`) fails on any difference. v2 is still written by `tools/record_chain_ref.py`, and its output did not change. The `payload_hash_vectors` family comes from `tools/payload_hash_independent.js` (Node), not from the generator.
 - **Tooling.** `tools/jcs_ref.py` is the Python RFC 8785 for the generators: it sorts members by UTF-16 code unit and refuses any number that is not an integer within 2^53-1.
 
+## Benchmark diagnostics v2 (2 Nov 2026)
+
+`schemas/benchmark-case-result.v2.json` and `schemas/benchmark-scorecard.v2.json` sit beside their v1 files, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` pins their bytes). Task BEN-30; PERD REQ-BEN-009; decision record `DEC-2026-10-31-proof-depth-and-completeness` (D5, D6); approved by the Architect on 2 Nov 2026.
+
+- **What v2 is.** The case result gains the required integer `turns` (customer turns the runner sent through the public API). The scorecard's `tier1.diagnostics` gains `pass_k` (k fixed at 5; `available: false` with a reason when 5 runs were not supplied, never computed from another k), `turns_to_resolution`, `unnecessary_clarification`, `auto_resolve_precision` and `definitions` (the pre-registered definitions applied). Diagnostics, not gates; no threshold (AGENT-16).
+- **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v1 or v2, never both (tests). The runner, the scorer, its report and CLI move together. `benchmark/replay` (noema#102) validates v1 results and moves to v2 in whichever pull request merges second.
+- **Fixtures.** `fixtures/{valid,invalid}/benchmark-case-result.v2` and `benchmark-scorecard.v2`: every v1 fixture with the new members, plus new valid and invalid cases. No generated models exist yet (CON-03).
+
 ## Error catalogue v2 (27 Oct 2026)
 
 `schemas/errors.v2.json` sits beside `errors.v1.json`, which is not edited (a test pins its bytes). It is v1 plus one code, `DUPLICATE_CREATE` (non-retryable, 35 codes: 5 retryable, 30 non-retryable). Decision record: `DEC-2026-10-27-record-event-v2` (D6) in `Noemai-org/docs`.
