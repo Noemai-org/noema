@@ -1,0 +1,27 @@
+# 2026/11/05 14:36:10.601077 [TestPropertyRemovalIsAlwaysDetectedAndExtrasNeverHideIt] [rapid] draw drop: 9
+# 2026/11/05 14:36:10.601085 [TestPropertyRemovalIsAlwaysDetectedAndExtrasNeverHideIt] [rapid] draw extras: []string{}
+# 2026/11/05 14:36:10.601087 [TestPropertyRemovalIsAlwaysDetectedAndExtrasNeverHideIt] [rapid] draw order: []string{"DECISION_MADE", "PLAN_CREATED", "GRANT_ISSUED", "REVALIDATION_PASSED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"}
+# 2026/11/05 14:36:10.601110 [TestPropertyRemovalIsAlwaysDetectedAndExtrasNeverHideIt] dropping EXPLANATION_RENDERED: report {Checked:1 Governed:1 Incomplete:[]}
+# 
+v0.4.8#7647561868954212105
+0x0
+0x1f2b5a0e61c3a6
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
