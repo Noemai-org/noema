@@ -250,3 +250,30 @@ func tryAs(t *testing.T, p *pgxpool.Pool, stmt string) error {
 	_, err = tx.Exec(ctx(t), stmt)
 	return err
 }
+
+// Codex P2 on noema#168 at eaf5df2: the link from an action decision to its ESCALATE disposition (REQ-TRU-010) must stay inside the tenant. A foreign key
+// on the decision ID alone accepts another tenant's decision.
+func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := pool.Exec(ctx(t), decisionRow("dec_disp_a", "ten_a", "ESCALATE")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx(t), decisionRow("dec_disp_b", "ten_b", "ESCALATE")); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	linked := func(id, disposition string) string {
+		return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW'), 'ALLOW', '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
+	}
+	wantCode(t, tryAs(t, trust, linked("dec_x", "dec_disp_b")), violation, "tenant A's decision linked to tenant B's disposition")
+	wantCode(t, tryAs(t, trust, linked("dec_y", "dec_missing")), violation, "a link to a decision that does not exist")
+	if err := tryAs(t, trust, linked("dec_z", "dec_disp_a")); err != nil {
+		t.Fatalf("a link to the tenant's own disposition: %v", err)
+	}
+}
