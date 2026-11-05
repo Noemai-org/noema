@@ -40,9 +40,9 @@ func decisionFor(o decide.Outcome) decide.Decision {
 	r := resolved()
 	switch o {
 	case decide.Allow:
-		return must(r.Allow(allPass))
+		return must(must(r.Allow(allPass)).WithBasis(fullBasis())) // a correct step attaches the policy and evidence the decision rests on
 	case decide.Confirm:
-		return must(r.Confirm(allPass))
+		return must(must(r.Confirm(allPass)).WithBasis(fullBasis()))
 	case decide.Wait:
 		return must(r.Wait(allPass, 1_700_000_000, reason("RATE_LIMITED")))
 	case decide.Escalate:
@@ -350,6 +350,35 @@ func TestAContextThatExpiresWhileAStepRunsNeverYieldsItsResult(t *testing.T) {
 			if last := trace[len(trace)-1]; last.Step != step || last.Result != decide.StepDeadline {
 				t.Fatalf("T%d expiring while running, returning %s: trace ends %+v", step, name, last)
 			}
+		}
+	}
+}
+
+// TRU-02 follow-up (Codex review of noema#109 and #118): the runner refuses an ALLOW or a CONFIRM that rests on nothing. A decision
+// that a constructor built but that carries no complete basis (policy rules, evidence snapshot and freshness) ends the evaluation
+// in UNKNOWN INTERNAL_ERROR at the step that produced it. Other outcomes need no basis: a refusal at T1 to T6 reads no evidence.
+func TestEvaluateRefusesAnAllowOrConfirmWithoutABasis(t *testing.T) {
+	r := resolved()
+	cases := []struct {
+		step    decide.GateStep
+		outcome decide.Outcome
+		bare    decide.Decision
+	}{
+		{decide.T15DecisionRecorded, decide.Allow, must(r.Allow(allPass))},
+		{decide.T11Policy, decide.Confirm, must(r.Confirm(allPass))},
+		{decide.T13Confirmation, decide.Confirm, must(r.Confirm(allPass))},
+	}
+	for _, c := range cases {
+		bare := c.bare
+		s := continueAll()
+		s[c.step-1] = func(context.Context) decide.StepResult { return decide.Stop(bare) }
+		d, trace := decide.Evaluate(context.Background(), version, s)
+		if !isInternalError(d) || trace[len(trace)-1].Step != c.step || trace[len(trace)-1].Result != decide.StepInvalidResult {
+			t.Errorf("%s at T%d without a basis: got %s, trace ends %+v", c.outcome, c.step, d.Outcome(), trace[len(trace)-1])
+		}
+		s[c.step-1] = func(context.Context) decide.StepResult { return decide.Stop(decisionFor(c.outcome)) }
+		if d, _ := decide.Evaluate(context.Background(), version, s); d.Outcome() != c.outcome || !d.HasCompleteBasis() {
+			t.Errorf("%s at T%d with a basis: got %s, complete basis %v", c.outcome, c.step, d.Outcome(), d.HasCompleteBasis())
 		}
 	}
 }

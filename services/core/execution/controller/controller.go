@@ -135,6 +135,13 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, err
 	}
 
+	// The receipt ID is minted before anything is spent or sent. If the source fails, the presentation is refused here:
+	// the grant stays unspent and nothing is dispatched.
+	receiptID, err := c.IDs.ReceiptID()
+	if err != nil {
+		return Outcome{}, fmt.Errorf("%smint receipt ID: %w: %v", errPrefix, ErrIDSource, err)
+	}
+
 	// E8: one transaction spends the grant, records the idempotency key and appends the Record events. If it
 	// fails, nothing is dispatched.
 	key := crypto.IdempotencyKey(crypto.IdempotencyKeyFields{TenantID: tenantID, PrincipalID: g.PrincipalID,
@@ -191,7 +198,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 
 	// E11: the signed receipt, the idempotency record and the Record event in one transaction.
-	rc, err := c.receipt(g, tenantID, key, step.KeyFields.LogicalAction, spend.Attempt, dispatchedAt, result, state)
+	rc, err := c.receipt(g, receiptID, tenantID, key, step.KeyFields.LogicalAction, spend.Attempt, dispatchedAt, result, state)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -242,8 +249,8 @@ func joinFacts(f []string) string {
 }
 
 // receipt builds and signs the Execution Receipt. The receipt never says succeeded.
-func (c *Controller) receipt(g Grant, tenantID, key, action string, attempt int64, at time.Time, r TransportResult, state ExecutionState) (Receipt, error) {
-	rc := Receipt{ReceiptID: c.IDs.ReceiptID(), GrantID: g.GrantID, TenantID: tenantID, CorrelationID: g.CorrelationID, IdempotencyKey: key,
+func (c *Controller) receipt(g Grant, receiptID, tenantID, key, action string, attempt int64, at time.Time, r TransportResult, state ExecutionState) (Receipt, error) {
+	rc := Receipt{ReceiptID: receiptID, GrantID: g.GrantID, TenantID: tenantID, CorrelationID: g.CorrelationID, IdempotencyKey: key,
 		LogicalAction: action, Attempt: attempt, DispatchedAt: at.UTC().Format(time.RFC3339Nano), TransportResult: string(r.Class), RawCode: r.RawCode, State: state}
 	if state == StateAcknowledged {
 		ack := r.ExternalAck

@@ -9,6 +9,7 @@ compensates for a lower one: `tier1.reportable` is true exactly when every gate 
 from collections import defaultdict
 from typing import Any, Iterable, Sequence
 
+from benchmark.scoring import diagnostics as diag
 from benchmark.scoring.judge import GATES, Judgement, judge
 from benchmark.scoring.registry import Registry
 from benchmark.scoring.stats import make_rate, percentile
@@ -66,6 +67,7 @@ def score(
     structural_evidence: dict[str, int] | None = None,
     replay_results: Sequence[Json] | None = None,
     invalid_cases: Iterable[str] = (),
+    repeat_runs: Sequence[Sequence[Json]] = (),
 ) -> Json:
     structural = dict(structural_evidence or {})
     unknown_gates = sorted(set(structural) - set(GATES))
@@ -76,6 +78,15 @@ def score(
     lacking = sorted(set(case_by_id) - set(oracle_by_id))
     if lacking:
         raise ValueError(f"cases without an oracle: {lacking}")
+
+    diag.check_runs(results, repeat_runs)
+
+    def judge_run(run_results: Sequence[Json]) -> list[Judgement]:
+        by_id: dict[str, list[Json]] = defaultdict(list)
+        for r in run_results:
+            by_id[r["case_id"]].append(r)
+        return [judge(case_by_id[cid], oracle_by_id[cid], by_id[cid][0] if len(by_id.get(cid, [])) == 1 else None, registry,
+                      problem="DUPLICATE_RESULT" if len(by_id.get(cid, [])) > 1 else None) for cid in sorted(case_by_id)]
 
     results_by_id: dict[str, list[Json]] = defaultdict(list)
     for result in results:
@@ -146,6 +157,11 @@ def score(
         "explanation_claims_bound": make_rate(sum(j.claims_bound for j in completed), sum(j.claims_total for j in completed)),
         "incorrect_action": make_rate(tally(lambda j: j.incorrect_action), len(completed), failure=True),
         "replay": _replay(own_result, replay_results) if replay_results is not None else None,
+        "pass_k": diag.pass_k(list(case_by_id.values()), [{j.case_id: j.handled for j in judgements}, *({j.case_id: j.handled for j in judge_run(r)} for r in repeat_runs)]),
+        "turns_to_resolution": diag.turns_to_resolution(judgements),
+        "unnecessary_clarification": diag.unnecessary_clarification(judgements),
+        "auto_resolve_precision": diag.auto_resolve_precision(judgements),
+        "definitions": diag.definitions(),
     }
     handled = [j for j in judgements if j.handled]
     tier1 = {

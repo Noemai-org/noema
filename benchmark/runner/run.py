@@ -86,7 +86,15 @@ def _drive(env: RunEnv, token: str, case: Json, events: list[tuple[str, str]], c
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
 
 
-def _execute(env: RunEnv, lc: LoadedCase) -> Json:
+class _Turns:
+    """The customer turns sent through the public API so far (BEN-30, REQ-BEN-009): the first input and each follow-up. Counted here, when the request is sent and before any
+    response, never read from the model or the reconstruction; a request that timed out after it left still counts. A confirmation answer is an event, not a turn."""
+
+    def __init__(self) -> None:
+        self.sent = 0
+
+
+def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
     case = lc.case
     started = env.now()
     undriven = [e for e in case["events_timeline"] if not driven(e["event"])]
@@ -112,10 +120,12 @@ def _execute(env: RunEnv, lc: LoadedCase) -> Json:
             _kill_switch(env, case, argument)
         elif kind == "clock_advance":
             env.control.advance(argument)
+    turns.sent += 1  # counted when the request is sent: a timeout can come after the core received it (Codex review of noema#112)
     conv = env.api.start(token, f"{case['case_id']}-t1", texts[0], locale_hint=locale)
     env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     _drive(env, token, case, after, conv)
     for number, text in enumerate(texts[1:], start=2):
+        turns.sent += 1
         env.api.message(token, conv.conversation_ref, f"{case['case_id']}-t{number}", text=text)
         env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     parsed = parse(env.api.reconstruction(token, conv.correlation_id))
@@ -124,26 +134,27 @@ def _execute(env: RunEnv, lc: LoadedCase) -> Json:
         "run_id": env.run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "COMPLETED", "error": None,
         "observed": parsed.observed, "environment": environment, "path": _path(parsed.observed, split.mock_case is not None or lc.plan is not None),
         "latency_ms": max(0, int((env.now() - started) * 1000)), "cost_usd_micros": env.costs.cost_usd_micros(conv.correlation_id),
-        "outcome_digest": _digest(parsed.observed, environment),
+        "outcome_digest": _digest(parsed.observed, environment), "turns": turns.sent,
     }
 
 
-def _errored(env: RunEnv, case: Json, code: str, message: str) -> Json:
+def _errored(env: RunEnv, case: Json, code: str, message: str, turns: int = 0) -> Json:
     return {"run_id": env.run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "ERROR",
             "error": {"code": code, "message": (message or code)[:300]}, "observed": None, "environment": None, "path": "ERROR", "latency_ms": 0,
-            "cost_usd_micros": None, "outcome_digest": None}
+            "cost_usd_micros": None, "outcome_digest": None, "turns": turns}
 
 
 def run_case(env: RunEnv, lc: LoadedCase) -> Json:
     """The result document for one case. Never raises for a case-level problem: that is an ERROR result."""
+    turns = _Turns()
     try:
-        result = _execute(env, lc)
+        result = _execute(env, lc, turns)
     except (CaseError, NotSettled, ReconstructionError, CounterUnavailable, PlanRejected, EnvironmentUnavailable, HttpError, TransportError) as error:
         code, message = _error_code(error)
-        return _errored(env, lc.case, code, message)
-    problems = _contracts.errors("benchmark-case-result", result)
+        return _errored(env, lc.case, code, message, turns.sent)
+    problems = _contracts.errors("benchmark-case-result.v2", result)
     if problems:
-        return _errored(env, lc.case, "RESULT_INVALID", problems[0])
+        return _errored(env, lc.case, "RESULT_INVALID", problems[0], turns.sent)
     return result
 
 
