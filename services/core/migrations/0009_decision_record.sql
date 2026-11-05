@@ -12,7 +12,12 @@ CREATE TABLE decision_record (
   policy_versions_json    jsonb NOT NULL,
   sig_key_id              text NOT NULL,
   sig_value               text NOT NULL,
-  created_at              timestamptz NOT NULL DEFAULT now()
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  -- The signed document is the Decision Record; the columns are what the grant guard and the foreign keys read. They must agree, or a
+  -- document that says REJECT could be stored as ALLOW and authorise a grant.
+  CONSTRAINT decision_record_document_matches_columns CHECK (
+    json ->> 'outcome' IS NOT DISTINCT FROM outcome AND json ->> 'decision_id' IS NOT DISTINCT FROM decision_id
+    AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
 );
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
