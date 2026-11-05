@@ -3,7 +3,7 @@
 //
 // Implements: REQ-TRU-008, REQ-TRU-005, REQ-SEC-005, REQ-RES-002.
 //
-// May import: platform/{clock,crypto,config,telemetry,redaction}, internal/contracts, trust/decide.
+// May import: platform/{clock,crypto,config,telemetry,redaction}, internal/contracts, trust/decide, trust/reconcile (the freeze Permission only).
 //
 // Must never: let any other package construct a DecisionGrant (the construct-decision-grant lint); issue a
 // grant for a decision that is not ALLOW, or for a non-allowed capability on a frozen target (REQ-RES-002);

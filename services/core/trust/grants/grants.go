@@ -17,12 +17,16 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
 // Errors returned by this package. Callers compare with errors.Is.
 var (
 	// ErrNotAllow is returned for any decision that is not an ALLOW with a complete basis: only an ALLOW issues a grant (REQ-TRU-008).
 	ErrNotAllow = errors.New("grants: only an ALLOW decision with its basis issues a grant")
+	// ErrNoPermission is returned when the step carries no freeze Permission, or one issued for another capability (REQ-RES-002): a grant is
+	// never built for a frozen target and a capability that is not allowed under a freeze.
+	ErrNoPermission = errors.New("grants: no freeze permission for this capability")
 	// ErrStep is returned for a plan step that does not match the decision or does not satisfy the grant contract.
 	ErrStep = errors.New("grants: the plan step is not valid for this decision")
 	// ErrSignature is returned for a grant whose signature does not verify under an active key.
@@ -150,8 +154,9 @@ type Step struct {
 	PlanHash            contracts.CommonV1Hash
 	PlanStep            int64
 	TargetVersions      []contracts.DecisionGrantV1TargetVersionsItem
-	PolicyID            string // which policy the grant is for; needed only when the decision's basis names more than one policy
-	ConfirmationEventID string // optional: the confirmation this grant follows
+	Permission          reconcile.Permission // the proof from FreezeGate.Permit that a grant may be built for CapabilityID on this target (REQ-RES-002)
+	PolicyID            string               // which policy the grant is for; needed only when the decision's basis names more than one policy
+	ConfirmationEventID string               // optional: the confirmation this grant follows
 }
 
 // Issue builds, signs and returns the grant for one write plan step of an ALLOW decision. It issues nothing for any other outcome or for
@@ -163,6 +168,12 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 	basis := d.Basis()
 	if err := s.check(); err != nil {
 		return contracts.DecisionGrantV1{}, err
+	}
+	if !s.Permission.Valid() || s.Permission.Capability() != s.CapabilityID {
+		return contracts.DecisionGrantV1{}, ErrNoPermission
+	}
+	if !shapes["policy"].MatchString(basis.PackVersion) {
+		return contracts.DecisionGrantV1{}, fmt.Errorf("%w: pack version", ErrStep)
 	}
 	policy, ok := boundPolicy(basis, s.PolicyID)
 	if !ok || s.PlanStep < 0 || !shapes["policy"].MatchString(policy) {

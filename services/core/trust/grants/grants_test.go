@@ -89,8 +89,14 @@ func decisionWithRules(t *testing.T, rules ...decide.PolicyRuleVersion) decide.D
 	return d
 }
 
+// permit is the freeze Permission for a capability on a target that is not frozen: the only way to get one is the gate.
+func permit(t testing.TB, capability string) reconcile.Permission {
+	t.Helper()
+	return mustPermit(capability)
+}
+
 func step() grants.Step {
-	return grants.Step{
+	return grants.Step{Permission: mustPermit("fin.cap.create_escalation_case"),
 		TenantID: "ten_aa", CorrelationID: "corr_ABC123", DecisionID: "dec_01", PrincipalID: "usr_88213", IntentHash: sha("1"), CapabilityID: "fin.cap.create_escalation_case",
 		TargetRef: "fin.transaction:TX88213", ParamsHash: sha("2"), EvidenceSetHash: sha("3"), PlanHash: sha("4"), PlanStep: 1,
 		TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: "fin.transaction:TX88213", Source: "fin.src.ledger", VersionToken: "v7"}},
@@ -505,4 +511,12 @@ func TestAGrantIsNotSignedForAMalformedPackVersion(t *testing.T) {
 			t.Errorf("pack version %q: err %v, grant %+v; want ErrStep and no grant", bad, err, g)
 		}
 	}
+}
+
+func mustPermit(capability string) reconcile.Permission {
+	p, err := reconcile.NewFreezeGate(nil).Permit(false, capability)
+	if err != nil {
+		panic(err)
+	}
+	return p
 }
