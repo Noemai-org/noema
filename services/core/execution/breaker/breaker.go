@@ -3,6 +3,7 @@ package breaker
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"regexp"
 	"sync"
@@ -36,10 +37,10 @@ func ParamsOf(l contracts.CapabilityDescriptorV1Limits) (Params, error) {
 		return Params{}, fmt.Errorf("%serror_rate %q is not in (0, 1]", errPrefix, s)
 	}
 	switch {
-	case l.CircuitBreaker.WindowS <= 0:
-		return Params{}, errors.New(errPrefix + "window_s must be positive")
-	case l.TimeoutMs <= 0:
-		return Params{}, errors.New(errPrefix + "timeout_ms must be positive")
+	case l.CircuitBreaker.WindowS <= 0 || l.CircuitBreaker.WindowS > math.MaxInt64/int64(time.Second):
+		return Params{}, errors.New(errPrefix + "window_s must be positive and fit a duration")
+	case l.TimeoutMs <= 0 || l.TimeoutMs > math.MaxInt64/int64(time.Millisecond):
+		return Params{}, errors.New(errPrefix + "timeout_ms must be positive and fit a duration")
 	case l.RatePerPrincipalPerHour <= 0:
 		return Params{}, errors.New(errPrefix + "rate_per_principal_per_hour must be positive")
 	}
@@ -237,8 +238,9 @@ type RateLimiter struct {
 	clk clock.Clock
 	max int64
 
-	mu    sync.Mutex
-	calls map[string][]time.Time
+	mu        sync.Mutex
+	calls     map[string][]time.Time
+	lastSweep time.Time
 }
 
 // NewRateLimiter builds a limiter from a descriptor's params.
@@ -246,7 +248,7 @@ func NewRateLimiter(clk clock.Clock, p Params) (*RateLimiter, error) {
 	if clk == nil || p.RatePerPrincipalPerHour <= 0 {
 		return nil, errors.New(errPrefix + "a clock and params from ParamsOf are required")
 	}
-	return &RateLimiter{clk: clk, max: p.RatePerPrincipalPerHour, calls: map[string][]time.Time{}}, nil
+	return &RateLimiter{clk: clk, max: p.RatePerPrincipalPerHour, calls: map[string][]time.Time{}, lastSweep: clk.Now()}, nil
 }
 
 // Allow records and allows a call by the principal, or refuses it. An empty principal is always refused.
@@ -257,6 +259,7 @@ func (l *RateLimiter) Allow(principal string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.clk.Now()
+	l.sweep(now)
 	recent := l.calls[principal][:0]
 	for _, at := range l.calls[principal] {
 		if now.Sub(at) < time.Hour {
@@ -269,4 +272,25 @@ func (l *RateLimiter) Allow(principal string) bool {
 	}
 	l.calls[principal] = append(recent, now)
 	return true
+}
+
+// sweep drops every principal whose calls have all expired, at most once an hour, so the limiter holds state only for principals that
+// called in the last two hours (and at most max timestamps each): inactive principals do not accumulate (Codex review of noema#182).
+func (l *RateLimiter) sweep(now time.Time) {
+	if now.Sub(l.lastSweep) < time.Hour {
+		return
+	}
+	l.lastSweep = now
+	for principal, calls := range l.calls {
+		if len(calls) == 0 || now.Sub(calls[len(calls)-1]) >= time.Hour {
+			delete(l.calls, principal)
+		}
+	}
+}
+
+// Principals is the number of principals the limiter currently holds state for.
+func (l *RateLimiter) Principals() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.calls)
 }

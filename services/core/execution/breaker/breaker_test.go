@@ -6,6 +6,8 @@ package breaker_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -74,6 +76,11 @@ func TestParamsComeFromTheDescriptorAndBadValuesAreRefused(t *testing.T) {
 		"window negative":  limits("0.5", -1, 3000, 5),
 		"timeout zero":     limits("0.5", 60, 0, 5),
 		"per hour zero":    limits("0.5", 60, 3000, 0),
+		// Codex review of noema#182: a value that would wrap time.Duration is refused, not turned into a tiny deadline.
+		"window overflows a Duration":  limits("0.5", math.MaxInt64/int64(time.Second)+1, 3000, 5),
+		"timeout overflows a Duration": limits("0.5", 60, math.MaxInt64/int64(time.Millisecond)+1, 5),
+		"window is MaxInt64":           limits("0.5", math.MaxInt64, 3000, 5),
+		"timeout is MaxInt64":          limits("0.5", 60, math.MaxInt64, 5),
 	} {
 		if _, err := breaker.ParamsOf(l); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -293,5 +300,37 @@ func TestThePerPrincipalRateIsEnforcedPerHour(t *testing.T) {
 	}
 	if l.Allow("") {
 		t.Fatal("an empty principal was allowed")
+	}
+}
+
+// The largest values that still fit a Duration are accepted.
+func TestTheLargestValuesThatFitADurationAreAccepted(t *testing.T) {
+	p, err := breaker.ParamsOf(limits("0.5", math.MaxInt64/int64(time.Second), math.MaxInt64/int64(time.Millisecond), 5))
+	if err != nil || p.Window <= 0 || p.Timeout <= 0 {
+		t.Fatalf("params = %+v, %v", p, err)
+	}
+}
+
+// Codex review of noema#182: the limiter's memory is bounded. A principal that calls once and never again leaves no entry after the
+// hour, whatever other principals do.
+func TestTheLimiterForgetsPrincipalsThatStoppedCalling(t *testing.T) {
+	clk := clock.NewManual(t0)
+	params, _ := breaker.ParamsOf(limits("0.5", 60, 3000, 3))
+	l, err := breaker.NewRateLimiter(clk, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1000; i++ {
+		if !l.Allow(fmt.Sprintf("usr_%d", i)) {
+			t.Fatalf("principal %d refused", i)
+		}
+	}
+	if n := l.Principals(); n != 1000 {
+		t.Fatalf("principals = %d, want 1000", n)
+	}
+	clk.Advance(2 * time.Hour)
+	l.Allow("usr_x") // any call after the hour sweeps the principals that went quiet
+	if n := l.Principals(); n != 1 {
+		t.Fatalf("principals = %d after two quiet hours, want 1", n)
 	}
 }
