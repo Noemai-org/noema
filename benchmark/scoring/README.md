@@ -38,6 +38,24 @@ written).
 - **Human minutes** are never computed here (they come from the manual-baseline protocol, PERD §51).
 - **Operating-point selection** (PERD §55) is not done here: it needs limits that only the founders set.
 
+## Consistency and disambiguation diagnostics (BEN-30, REQ-BEN-009)
+
+**Pre-registered definitions, version 2026-11-03**, published before any live run (accepted by the Architect on 2 Nov 2026; amended by the Founder on 3 Nov 2026: Understanding-dependent is family B1 only). Founders may amend them in review; an amendment is a new `DEFINITIONS_VERSION` in `diagnostics.py` and is named in every scorecard (`tier1.diagnostics.definitions`). They are diagnostics, not gates: no threshold is set until a decision record adopts targets after the first full-suite run.
+
+| Diagnostic | Definition |
+|---|---|
+| Understanding-dependent case | A case whose `families` include B1 (`UNDERSTANDING_FAMILIES`). SoT §38: B1 Understanding is what a model decides; B2 State is deterministic reconstruction and is not in the set. Amended from B1 and B2 on 3 Nov 2026 (founder), before any live run. |
+| pass^k | k is fixed at 5 (D6). The share of Understanding-dependent cases handled correctly (the scorer's own `handled`, Tier 0 gates included) in every one of exactly five runs. A case missing from, or errored in, any run fails. With any other number of runs the diagnostic is `available: false` with a reason and no number; it is never computed from another k. |
+| Turns to resolution | The case result's `turns` (customer inputs the runner sent through the public API: the first input plus each follow-up, counted when the request is sent and before any response; a confirmation answer is an event, not a turn), over the cases auto-resolved correctly: handled, observed ALLOW, no clarification, no escalation, a resolved target. Reported as n, mean, median, 90th percentile and maximum. |
+| Unnecessary-clarification rate | Of the completed cases that are safe to resolve (oracle `safe_resolvable`) and expect no clarification (not a CLARIFY case), those in which the system asked for one or ended in CLARIFY. A failure-type rate: zero earns the rule-of-three bound. |
+| Auto-resolve precision | Of the completed cases the system auto-resolved (ALLOW, no clarification, no escalation, a resolved target), those whose resolved target equals the oracle's `correct_target`. |
+
+```
+python -m benchmark.scoring ... --results RUN1 --repeat-results RUN2 --repeat-results RUN3 --repeat-results RUN4 --repeat-results RUN5
+```
+
+Each `--repeat-results` is another run of the same cases with its own run ID; one run counted twice, or a result set mixing run IDs, is refused (exit 2). Real pass^k values need five live model runs; those are not approved. Everything here is tested on SYNTHETIC results only, and the commit of the code under test is not checked by the scorer (the run manifests carry it).
+
 ## Tests
 
 `make bench-test` runs unit, property and CLI tests and `mypy --strict`. Each gate has a canary that must trip it; the

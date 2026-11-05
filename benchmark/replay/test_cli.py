@@ -151,8 +151,8 @@ class Cli(unittest.TestCase):
         contracts = Contracts()
         self.assertEqual([], contracts.errors("benchmark-run-manifest", run_manifest("run_a")))
         for disposition in ("ALLOW", "ESCALATE", "REJECT"):
-            self.assertEqual([], contracts.errors("benchmark-case-result", result("BEN-TMO-0001", "run_a", disposition=disposition)))
-        self.assertEqual([], contracts.errors("benchmark-case-result", result("BEN-TMO-0001", "run_a", verdict="UNKNOWN", grant="SPENT")))
+            self.assertEqual([], contracts.errors("benchmark-case-result.v2", result("BEN-TMO-0001", "run_a", disposition=disposition)))
+        self.assertEqual([], contracts.errors("benchmark-case-result.v2", result("BEN-TMO-0001", "run_a", verdict="UNKNOWN", grant="SPENT")))
         self.assertEqual([], contracts.errors("benchmark-suite-manifest", suite_manifest()))
 
 
