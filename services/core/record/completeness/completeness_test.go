@@ -121,6 +121,21 @@ func TestADecisionWhoseOutcomeCannotBeReadIsTreatedAsConsequential(t *testing.T)
 	}
 }
 
+// Codex review of noema#173: an outcome that is readable but outside the seven of REQ-TRU-001 is unknown too, and is consequential.
+func TestADecisionWithAnOutcomeOutsideTheSevenIsTreatedAsConsequential(t *testing.T) {
+	for _, outcome := range []string{"MAYBE", "allow", "ALLOW ", "", "DENY"} {
+		rep := completeness.Check([]chain.Row{decision("corr_o", outcome)}, nil)
+		if rep.Complete() || rep.Governed != 1 {
+			t.Fatalf("outcome %q: report = %+v, want a governed, incomplete correlation", outcome, rep)
+		}
+	}
+	for _, outcome := range []string{"CLARIFY", "CONFIRM", "WAIT", "REJECT", "ESCALATE", "UNKNOWN"} {
+		if rep := completeness.Check([]chain.Row{decision("corr_o", outcome)}, nil); rep.Governed != 0 {
+			t.Fatalf("outcome %s was treated as a governed write: %+v", outcome, rep)
+		}
+	}
+}
+
 // A write event with the decision removed is still a governed write, and DECISION_MADE is reported missing.
 func TestAWriteWithoutItsDecisionIsIncomplete(t *testing.T) {
 	rep := completeness.Check(rows("corr_e", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT"), nil)

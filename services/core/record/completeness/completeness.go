@@ -112,9 +112,13 @@ func CheckWith(rows []chain.Row, extra map[string][]string, m Metrics) Report {
 	return rep
 }
 
-// decidedAllow reports whether a DECISION_MADE row must be treated as consequential: its outcome is ALLOW, or it cannot be read.
-// Unknown is unknown: a row with no payload, a payload that is not JSON, or no decision_outcome is taken as consequential, so a
-// damaged row cannot hide a write. Only a readable outcome other than ALLOW (a clarification, an escalation) is not.
+// notConsequential are the readable outcomes of REQ-TRU-001 that lead to no write: a clarification, a confirmation request, a wait, a
+// rejection, an escalation, and UNKNOWN. ALLOW is the one outcome that leads to a governed write.
+var notConsequential = map[string]bool{"CLARIFY": true, "CONFIRM": true, "WAIT": true, "REJECT": true, "ESCALATE": true, "UNKNOWN": true}
+
+// decidedAllow reports whether a DECISION_MADE row must be treated as consequential: its outcome is ALLOW, or it is not one of the
+// seven outcomes, or it cannot be read. Unknown is unknown: a row with no payload, a payload that is not JSON, no decision_outcome, or
+// a value outside the closed set is taken as consequential, so a damaged row cannot hide a write (Codex review of noema#173).
 func decidedAllow(r chain.Row) bool {
 	if r.Payload == nil {
 		return true
@@ -125,5 +129,5 @@ func decidedAllow(r chain.Row) bool {
 	if json.Unmarshal([]byte(*r.Payload), &p) != nil || p.Outcome == nil {
 		return true
 	}
-	return *p.Outcome == "ALLOW"
+	return !notConsequential[*p.Outcome]
 }

@@ -8,7 +8,7 @@ The completeness check per consequential decision. Built by REC-04 (slice 1, 202
 
 `Check(rows, extra)` judges each correlation in rows that the caller has already read and verified (`chain.ReadChain`, `chain.VerifyRows`). It reads no database.
 
-- A correlation is a **governed write** when it holds any of `GRANT_ISSUED`, `REVALIDATION_PASSED`, `GRANT_SPENT`, `DISPATCH_ATTEMPTED` or `RECEIPT`, **or** a `DECISION_MADE` whose outcome is `ALLOW`, or whose outcome cannot be read (unknown is treated as consequential, so a damaged row cannot hide a write).
+- A correlation is a **governed write** when it holds any of `GRANT_ISSUED`, `REVALIDATION_PASSED`, `GRANT_SPENT`, `DISPATCH_ATTEMPTED` or `RECEIPT`, **or** a `DECISION_MADE` whose outcome is `ALLOW`, or is not one of the seven outcomes, or cannot be read (unknown is treated as consequential, so a damaged row cannot hide a write). Only `CLARIFY`, `CONFIRM`, `WAIT`, `REJECT`, `ESCALATE` and `UNKNOWN` are not consequential.
 - A governed write must hold `DECISION_MADE`, `PLAN_CREATED`, `GRANT_ISSUED`, `REVALIDATION_PASSED`, `GRANT_SPENT`, `DISPATCH_ATTEMPTED`, `RECEIPT`, at least one `VERIFICATION_READ`, `VERDICT`, and either `EXPLANATION_RENDERED` or `EXPLANATION_BLOCKED` (reported as `EXPLANATION_RENDERED|EXPLANATION_BLOCKED`).
 - `extra` maps a correlation to the event types a benchmark case lists in `required_audit_events`; those are required whether or not the correlation is a governed write, so a clarification case is judged by its own list.
 - `CheckWith(rows, extra, metrics)` calls `AuditIncomplete()` once per incomplete correlation (`noema_audit_incomplete_total`, no label).
