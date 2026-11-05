@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
@@ -25,18 +26,19 @@ func decisionRow(id, tenant, outcome string) string {
 // Codex P1 on noema#168: the grant guard reads the outcome column, so a record whose signed document says something else would bypass it.
 // The document and the columns the guard and the foreign keys read must agree.
 func TestTheDecisionRecordDocumentMustAgreeWithItsColumns(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
 		t.Fatal(err)
 	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(docID, docTenant, docOutcome string) error {
-		return try(t, pool, "trust_rw", fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
 			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s'), 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
 	}
 	wantCode(t, insert("dec_m", "ten_a", "REJECT"), violation, "the document says REJECT, the column ALLOW")
 	wantCode(t, insert("dec_other", "ten_a", "ALLOW"), violation, "the document names another decision")
 	wantCode(t, insert("dec_m", "ten_b", "ALLOW"), violation, "the document names another tenant")
-	wantCode(t, try(t, pool, "trust_rw", `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+	wantCode(t, tryAs(t, trust, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
 		VALUES ('dec_m', 'ten_a', '{}', 'ALLOW', 'sha256:`+fmt.Sprintf("%064d", 1)+`', '[]', 'k1', 'aa')`), violation, "a document with no outcome, decision or tenant")
 	if err := insert("dec_m", "ten_a", "ALLOW"); err != nil {
 		t.Fatalf("a document that agrees with its columns: %v", err)
@@ -44,36 +46,38 @@ func TestTheDecisionRecordDocumentMustAgreeWithItsColumns(t *testing.T) {
 }
 
 func TestAGrantExistsOnlyForAnAllowDecisionOfTheSameTenant(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatal(err)
 		}
 	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	for _, o := range []string{"CLARIFY", "CONFIRM", "WAIT", "ESCALATE", "REJECT", "UNKNOWN"} {
 		if _, err := pool.Exec(ctx(t), decisionRow("dec_"+o, "ten_a", o)); err != nil {
 			t.Fatalf("%s: %v", o, err)
 		}
-		wantCode(t, try(t, pool, "trust_rw", fmt.Sprintf(grantFor, "dec_"+o)), violation, "a grant for a "+o+" decision")
+		wantCode(t, tryAs(t, trust, fmt.Sprintf(grantFor, "dec_"+o)), violation, "a grant for a "+o+" decision")
 	}
 	if _, err := pool.Exec(ctx(t), decisionRow("dec_ALLOW", "ten_a", "ALLOW")); err != nil {
 		t.Fatal(err)
 	}
-	if err := try(t, pool, "trust_rw", fmt.Sprintf(grantFor, "dec_ALLOW")); err != nil {
+	if err := tryAs(t, trust, fmt.Sprintf(grantFor, "dec_ALLOW")); err != nil {
 		t.Fatalf("a grant for an ALLOW decision: %v", err)
 	}
-	wantCode(t, try(t, pool, "trust_rw", fmt.Sprintf(grantFor, "dec_missing")), violation, "a grant with no decision record: the Record comes first")
+	wantCode(t, tryAs(t, trust, fmt.Sprintf(grantFor, "dec_missing")), violation, "a grant with no decision record: the Record comes first")
 	if _, err := pool.Exec(ctx(t), decisionRow("dec_OTHER", "ten_b", "ALLOW")); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, try(t, pool, "trust_rw", fmt.Sprintf(grantFor, "dec_OTHER")), violation, "a grant for another tenant's ALLOW decision")
+	wantCode(t, tryAs(t, trust, fmt.Sprintf(grantFor, "dec_OTHER")), violation, "a grant for another tenant's ALLOW decision")
 }
 
 func TestTheDecisionRecordIsInsertOnlyAndOnlyTrustWritesIt(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
 		t.Fatal(err)
 	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	if _, err := pool.Exec(ctx(t), decisionRow("dec_1", "ten_a", "ALLOW")); err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +91,12 @@ func TestTheDecisionRecordIsInsertOnlyAndOnlyTrustWritesIt(t *testing.T) {
 	for _, role := range []string{"execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw"} {
 		wantCode(t, try(t, pool, role, decisionRow("dec_2", "ten_a", "ALLOW")), denied, role+" inserting a Decision Record")
 	}
-	if err := try(t, pool, "trust_rw", decisionRow("dec_3", "ten_a", "ALLOW")); err != nil {
+	if err := tryAs(t, trust, decisionRow("dec_3", "ten_a", "ALLOW")); err != nil {
 		t.Fatalf("trust_rw inserting a Decision Record: %v", err)
 	}
-	wantCode(t, try(t, pool, "trust_rw", decisionRow("dec_1", "ten_a", "ALLOW")), violation, "a second record with one decision_id")
-	wantCode(t, try(t, pool, "trust_rw", decisionRow("dec_4", "ten_a", "MAYBE")), violation, "an outcome outside the seven")
-	wantCode(t, try(t, pool, "trust_rw", decisionRow("dec_5", "ten_none", "ALLOW")), violation, "a record for a tenant that does not exist")
+	wantCode(t, tryAs(t, trust, decisionRow("dec_1", "ten_a", "ALLOW")), violation, "a second record with one decision_id")
+	wantCode(t, tryAs(t, trust, decisionRow("dec_4", "ten_a", "MAYBE")), violation, "an outcome outside the seven")
+	wantCode(t, tryAs(t, trust, decisionRow("dec_5", "ten_none", "ALLOW")), denied, "a record for a tenant that does not exist (the login is not mapped to it)")
 	// every power that reads decisions can; the others cannot
 	for role, want := range map[string]bool{"trust_rw": true, "execution_rw": true, "outcome_rw": true, "evidence_rw": false, "orchestrator_rw": false} {
 		var got bool
@@ -108,7 +112,7 @@ func TestTheDecisionRecordIsInsertOnlyAndOnlyTrustWritesIt(t *testing.T) {
 // Codex P2 on noema#168: the guard reads the decision_id column, but Execution decodes the signed grant JSON. They must name the same
 // decision and tenant, or a grant could be stored under an ALLOW decision while its signed document names a REJECT one.
 func TestTheSignedGrantMustNameTheDecisionAndTenantOfItsColumns(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatal(err)
@@ -119,8 +123,9 @@ func TestTheSignedGrantMustNameTheDecisionAndTenantOfItsColumns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(grantID, docJSON string) error {
-		return try(t, pool, "trust_rw", fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 			VALUES ('%s', 'ten_a', 'dec_allow', 'n_%s', '%s'::jsonb, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grantID, grantID, docJSON))
 	}
 	wantCode(t, insert("grt_1", `{"decision_id":"dec_reject","tenant_id":"ten_a"}`), violation, "the column says the ALLOW decision, the signed document a REJECT one")
@@ -232,4 +237,16 @@ func TestAPowerLoginReadsOnlyItsOwnTenantsDecisions(t *testing.T) {
 	if n := count(un, ""); n != 0 {
 		t.Errorf("an unmapped Outcome login sees %d decision records, want 0", n)
 	}
+}
+
+// tryAs runs one statement as the pool's login in a transaction that is rolled back.
+func tryAs(t *testing.T, p *pgxpool.Pool, stmt string) error {
+	t.Helper()
+	tx, err := p.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	_, err = tx.Exec(ctx(t), stmt)
+	return err
 }

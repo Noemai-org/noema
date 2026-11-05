@@ -34,7 +34,7 @@ GRANT SELECT ON decision_record TO outcome_rw;
 -- A write is bound to the tenant of the login that makes it (DEBT-04 option A; REQ-SEC-004, INV-11), as for the Record and for evidence: session_user, which
 -- a caller cannot change, is looked up in public.tenant_login (schema-qualified, with pg_temp last in the search path so a session's temporary table
 -- cannot stand in for it). A Trust login with no mapping, a login of another power and a row naming another tenant are refused; a foreign key proves
--- only that a tenant exists. A superuser is not bound: it can disable any trigger, and no runtime login is one. Reads are not scoped here (DEBT-06).
+-- only that a tenant exists. A superuser is not bound: it can disable any trigger, and no runtime login is one. Reads are scoped by row-level security below.
 CREATE FUNCTION decision_record_tenant_guard() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
@@ -49,6 +49,19 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION decision_record_tenant_guard() FROM PUBLIC;
 CREATE TRIGGER decision_record_tenant_guard BEFORE INSERT ON decision_record FOR EACH ROW EXECUTE FUNCTION decision_record_tenant_guard();
+
+-- Reads and writes are scoped to the login's tenant by row-level security on the same session_user mapping (as noema#167 does for evidence): a table-wide
+-- SELECT would let any tenant's Trust, Execution or Outcome login read every tenant's decisions. A session with no tenant mapping sees no row. The table's
+-- owner, and so the administrator and the migration role, are not subject to the policies (no FORCE), which is the audit and migration path.
+CREATE FUNCTION decision_login_tenant() RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT l.tenant_id FROM public.tenant_login l WHERE l.login_role = session_user::text
+$$;
+REVOKE ALL ON FUNCTION decision_login_tenant() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION decision_login_tenant() TO trust_rw, execution_rw, outcome_rw;
+ALTER TABLE decision_record ENABLE ROW LEVEL SECURITY;
+CREATE POLICY decision_record_read ON decision_record FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
+CREATE POLICY decision_record_write ON decision_record FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
 
 -- The Decision Record comes first, and only an ALLOW decision of the grant's own tenant can have a grant (REQ-TRU-008: grants where the
 -- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record.
