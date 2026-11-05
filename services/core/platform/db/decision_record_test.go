@@ -273,6 +273,13 @@ func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
 	}
 	wantCode(t, tryAs(t, trust, linked("dec_x", "dec_disp_b")), violation, "tenant A's decision linked to tenant B's disposition")
 	wantCode(t, tryAs(t, trust, linked("dec_y", "dec_missing")), violation, "a link to a decision that does not exist")
+	// Codex P2 at 0b22608: decision-record.v1 names the ESCALATE disposition decision, so a same-tenant target with another outcome is refused too
+	for _, o := range []string{"ALLOW", "REJECT", "CONFIRM"} {
+		if _, err := pool.Exec(ctx(t), decisionRow("dec_plain_"+o, "ten_a", o)); err != nil {
+			t.Fatal(err)
+		}
+		wantCode(t, tryAs(t, trust, linked("dec_w_"+o, "dec_plain_"+o)), violation, "a link to a same-tenant "+o+" decision, which is not a disposition")
+	}
 	if err := tryAs(t, trust, linked("dec_z", "dec_disp_a")); err != nil {
 		t.Fatalf("a link to the tenant's own disposition: %v", err)
 	}
