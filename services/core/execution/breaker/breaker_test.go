@@ -334,3 +334,59 @@ func TestTheLimiterForgetsPrincipalsThatStoppedCalling(t *testing.T) {
 		t.Fatalf("principals = %d after two quiet hours, want 1", n)
 	}
 }
+
+// Codex review of noema#182: state-change callbacks are delivered one at a time and in transition order, so the CIRCUIT_STATE_CHANGED
+// record never shows HALF_OPEN before the OPEN that led to it, and two callbacks never run at once.
+func TestStateChangesAreDeliveredInOrderAndOneAtATime(t *testing.T) {
+	clk := clock.NewManual(t0)
+	var mu sync.Mutex
+	var moves [][2]breaker.State
+	running := 0
+	overlap := false
+	cb := func(from, to breaker.State) {
+		mu.Lock()
+		running++
+		if running > 1 {
+			overlap = true
+		}
+		mu.Unlock()
+		time.Sleep(time.Millisecond) // a slow observer widens the window in which another transition could overtake
+		mu.Lock()
+		moves = append(moves, [2]breaker.State{from, to})
+		running--
+		mu.Unlock()
+	}
+	b := newBreaker(t, clk, "0.5", 60, policy(1, time.Second), cb)
+	var wg sync.WaitGroup
+	for g := 0; g < 8; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 150; i++ {
+				if p, err := b.Allow(); err == nil {
+					p.Done(false) // every settled call fails, so the circuit keeps opening and probing
+				}
+				if g == 0 {
+					clk.Advance(time.Second)
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	b.Flush() // everything queued is delivered before we look
+	mu.Lock()
+	defer mu.Unlock()
+	if overlap {
+		t.Fatal("two state-change callbacks ran at the same time")
+	}
+	if len(moves) == 0 {
+		t.Fatal("no transition happened; the test did not exercise the breaker")
+	}
+	prev := breaker.Closed
+	for i, m := range moves {
+		if m[0] != prev {
+			t.Fatalf("transition %d is %s>%s but the previous one ended in %s: delivered out of order (moves %v)", i, m[0], m[1], prev, moves)
+		}
+		prev = m[1]
+	}
+}

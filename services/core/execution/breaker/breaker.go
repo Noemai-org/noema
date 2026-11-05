@@ -90,6 +90,12 @@ type Breaker struct {
 	openedAt time.Time
 	probing  bool
 	window   []outcome
+
+	// State-change notifications are queued under mu and delivered one at a time, in the order the states changed, by whichever goroutine
+	// finds the queue non-empty and no delivery running (Codex review of noema#182). idle is signalled when the queue is empty and idle.
+	pending    []func()
+	delivering bool
+	idle       *sync.Cond
 }
 
 // New builds a closed circuit. onChange, if not nil, is called after every state change, outside the lock; the caller records
@@ -103,7 +109,9 @@ func New(clk clock.Clock, p Params, pol Policy, onChange func(from, to State)) (
 	case pol.MinSamples <= 0 || pol.Cooldown <= 0:
 		return nil, errors.New(errPrefix + "the policy needs positive MinSamples and Cooldown; there are no defaults")
 	}
-	return &Breaker{clk: clk, p: p, pol: pol, onChange: onChange, state: Closed}, nil
+	b := &Breaker{clk: clk, p: p, pol: pol, onChange: onChange, state: Closed}
+	b.idle = sync.NewCond(&b.mu)
+	return b, nil
 }
 
 // Timeout is the descriptor's call timeout; the caller applies it as a context deadline.
@@ -134,7 +142,6 @@ type Permit struct {
 // Allow asks to make one call. It returns a Permit to settle with Done, or an *OpenError. While the circuit is open, or a probe is in
 // flight, no call is allowed (REQ-CAP-003: dispatches are 0 with the circuit open).
 func (b *Breaker) Allow() (*Permit, error) {
-	var change func()
 	b.mu.Lock()
 	now := b.clk.Now()
 	switch b.state {
@@ -144,7 +151,7 @@ func (b *Breaker) Allow() (*Permit, error) {
 			b.mu.Unlock()
 			return nil, err
 		}
-		change = b.move(HalfOpen)
+		b.move(HalfOpen)
 		b.probing = true
 	case HalfOpen:
 		if b.probing {
@@ -155,9 +162,7 @@ func (b *Breaker) Allow() (*Permit, error) {
 	}
 	pm := &Permit{b: b, gen: b.gen, probe: b.state == HalfOpen}
 	b.mu.Unlock()
-	if change != nil {
-		change()
-	}
+	b.deliver()
 	return pm, nil
 }
 
@@ -167,7 +172,6 @@ func (pm *Permit) Done(ok bool) {
 }
 
 func (b *Breaker) settle(pm *Permit, ok bool) {
-	var change func()
 	b.mu.Lock()
 	if pm.gen != b.gen {
 		b.mu.Unlock()
@@ -176,36 +180,69 @@ func (b *Breaker) settle(pm *Permit, ok bool) {
 	now := b.clk.Now()
 	switch {
 	case pm.probe && ok:
-		change = b.move(Closed)
+		b.move(Closed)
 	case pm.probe:
-		change = b.move(Open)
+		b.move(Open)
 		b.openedAt = now
 	default:
 		b.window = append(b.window, outcome{at: now, ok: ok})
 		b.prune(now)
 		if b.shouldOpen() {
-			change = b.move(Open)
+			b.move(Open)
 			b.openedAt = now
 		}
 	}
 	b.mu.Unlock()
-	if change != nil {
-		change()
-	}
+	b.deliver()
 }
 
-// move changes the state under the lock and returns the callback to run after unlocking.
-func (b *Breaker) move(to State) func() {
+// move changes the state under the lock and queues the notification; deliver runs it after the lock is released.
+func (b *Breaker) move(to State) {
 	from := b.state
 	b.state = to
 	b.gen++
 	b.probing = false
 	b.window = nil
-	if b.onChange == nil {
-		return nil
+	if b.onChange != nil {
+		cb := b.onChange
+		b.pending = append(b.pending, func() { cb(from, to) })
 	}
-	cb := b.onChange
-	return func() { cb(from, to) }
+}
+
+// deliver runs the queued notifications, one at a time and in order, outside the state lock. If another goroutine is already
+// delivering it returns at once: that goroutine will deliver what was queued.
+func (b *Breaker) deliver() {
+	b.mu.Lock()
+	if b.delivering {
+		b.mu.Unlock()
+		return
+	}
+	b.delivering = true
+	for len(b.pending) > 0 {
+		next := b.pending[0]
+		b.pending = b.pending[1:]
+		b.mu.Unlock()
+		next()
+		b.mu.Lock()
+	}
+	b.delivering = false
+	b.idle.Broadcast()
+	b.mu.Unlock()
+}
+
+// Flush blocks until every queued notification has been delivered. Tests and orderly shutdown use it.
+func (b *Breaker) Flush() {
+	b.mu.Lock()
+	for b.delivering || len(b.pending) > 0 {
+		if !b.delivering {
+			b.mu.Unlock()
+			b.deliver()
+			b.mu.Lock()
+			continue
+		}
+		b.idle.Wait()
+	}
+	b.mu.Unlock()
 }
 
 func (b *Breaker) prune(now time.Time) {
