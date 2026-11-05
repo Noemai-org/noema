@@ -276,3 +276,37 @@ func TestEvidenceReadsAreScopedToTheLoginsTenant(t *testing.T) {
 		t.Errorf("a trust_rw session with no tenant mapping read %d items (%v), want 0", n, err)
 	}
 }
+
+// INV-11, REQ-SEC-004 (security review of noema#167): the definer functions do not trust the session's schemas. A login that makes a
+// temporary table named tenant_login, mapping itself to another tenant, gains neither a write nor a read for that tenant, because the
+// functions name public.tenant_login and keep pg_temp out of their search path.
+func TestATemporaryShadowOfTheTenantMappingChangesNothing(t *testing.T) {
+	w := newWorld(t)
+	if err := insertPayload(w.evidence(t, "ten_bb"), ctx(t), "ten_bb", "pay_b"); err != nil {
+		t.Fatal(err)
+	}
+	a := w.evidence(t, tenantA)
+	conn, err := a.Acquire(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	var login string
+	if err := conn.QueryRow(ctx(t), `SELECT session_user::text`).Scan(&login); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx(t), `CREATE TEMP TABLE tenant_login (login_role text, tenant_id text, power text)`); err != nil {
+		t.Skipf("this login cannot create temporary tables, so the shadow cannot be set up: %v", err)
+	}
+	if _, err := conn.Exec(ctx(t), `INSERT INTO pg_temp.tenant_login VALUES ($1, 'ten_bb', 'evidence')`, login); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx(t), `INSERT INTO evidence_payload (payload_ref, tenant_id, json, raw_hash, sensitivity, created_at)
+		VALUES ('pay_shadow', 'ten_bb', '{}', $1, 'S2_internal', '2026-11-05T09:00:00Z')`, hashA); code(err) != denied {
+		t.Errorf("a shadow mapping let a tenant A login write for tenant B: err = %v", err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx(t), `SELECT count(*) FROM evidence_payload WHERE tenant_id = 'ten_bb'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("a shadow mapping let a tenant A login read %d rows of tenant B (%v)", n, err)
+	}
+}
