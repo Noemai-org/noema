@@ -2,7 +2,6 @@
 
 import math
 
-import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -56,7 +55,7 @@ def test_property_adding_a_missing_token_never_raises_confidence(tokens: list[fl
     assert slot_confidence([*tokens, extra]) <= slot_confidence(tokens)
 
 
-@pytest.mark.parametrize("threshold", [0.0, 1.0])
-def test_threshold_edges(threshold: float) -> None:
+def test_threshold_edges() -> None:
     assert not is_low_confidence(0.0, 0.0)
-    assert is_low_confidence(0.99, 1.0) == (threshold == 1.0)
+    assert is_low_confidence(0.99, 1.0)
+    assert not is_low_confidence(1.0, 1.0)
