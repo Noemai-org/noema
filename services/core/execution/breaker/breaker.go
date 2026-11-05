@@ -77,12 +77,17 @@ type outcome struct {
 	ok bool
 }
 
+// Notify records a state change (CIRCUIT_STATE_CHANGED). The caller of Allow or Done that caused the change waits until it has returned, so
+// no call is let through on a state that has not been recorded. If it returns an error, a change that would let calls through (to
+// HALF_OPEN or CLOSED) is undone: the circuit goes back to OPEN, and the error is returned to that caller.
+type Notify func(from, to State) error
+
 // Breaker is the circuit breaker of one capability (and, by construction, one tenant). It is safe for concurrent use.
 type Breaker struct {
 	clk      clock.Clock
 	p        Params
 	pol      Policy
-	onChange func(from, to State)
+	onChange Notify
 
 	mu       sync.Mutex
 	state    State
@@ -93,14 +98,14 @@ type Breaker struct {
 
 	// State-change notifications are queued under mu and delivered one at a time, in the order the states changed, by whichever goroutine
 	// finds the queue non-empty and no delivery running (Codex review of noema#182). idle is signalled when the queue is empty and idle.
-	pending    []func()
+	pending    []*ticket
 	delivering bool
 	idle       *sync.Cond
 }
 
 // New builds a closed circuit. onChange, if not nil, is called after every state change, outside the lock; the caller records
 // CIRCUIT_STATE_CHANGED there.
-func New(clk clock.Clock, p Params, pol Policy, onChange func(from, to State)) (*Breaker, error) {
+func New(clk clock.Clock, p Params, pol Policy, onChange Notify) (*Breaker, error) {
 	switch {
 	case clk == nil:
 		return nil, errors.New(errPrefix + "a clock is required")
@@ -142,6 +147,7 @@ type Permit struct {
 // Allow asks to make one call. It returns a Permit to settle with Done, or an *OpenError. While the circuit is open, or a probe is in
 // flight, no call is allowed (REQ-CAP-003: dispatches are 0 with the circuit open).
 func (b *Breaker) Allow() (*Permit, error) {
+	var tk *ticket
 	b.mu.Lock()
 	now := b.clk.Now()
 	switch b.state {
@@ -151,7 +157,7 @@ func (b *Breaker) Allow() (*Permit, error) {
 			b.mu.Unlock()
 			return nil, err
 		}
-		b.move(HalfOpen)
+		tk = b.move(HalfOpen)
 		b.probing = true
 	case HalfOpen:
 		if b.probing {
@@ -162,55 +168,99 @@ func (b *Breaker) Allow() (*Permit, error) {
 	}
 	pm := &Permit{b: b, gen: b.gen, probe: b.state == HalfOpen}
 	b.mu.Unlock()
-	b.deliver()
+	if err := b.finish(tk); err != nil {
+		return nil, err
+	}
 	return pm, nil
 }
 
-// Done settles the call: ok is whether it succeeded. Only the first call counts. A permit from before a state change is ignored.
-func (pm *Permit) Done(ok bool) {
-	pm.once.Do(func() { pm.b.settle(pm, ok) })
+// Done settles the call: ok is whether it succeeded. Only the first call counts. A permit from before a state change is ignored. If the
+// call changed the circuit's state, Done returns only after the change has been recorded, and returns the error if recording failed.
+func (pm *Permit) Done(ok bool) error {
+	var err error
+	pm.once.Do(func() { err = pm.b.settle(pm, ok) })
+	return err
 }
 
-func (b *Breaker) settle(pm *Permit, ok bool) {
+func (b *Breaker) settle(pm *Permit, ok bool) error {
+	var tk *ticket
 	b.mu.Lock()
 	if pm.gen != b.gen {
 		b.mu.Unlock()
-		return
+		return nil
 	}
 	now := b.clk.Now()
 	switch {
 	case pm.probe && ok:
-		b.move(Closed)
+		tk = b.move(Closed)
 	case pm.probe:
-		b.move(Open)
+		tk = b.move(Open)
 		b.openedAt = now
 	default:
 		b.window = append(b.window, outcome{at: now, ok: ok})
 		b.prune(now)
 		if b.shouldOpen() {
-			b.move(Open)
+			tk = b.move(Open)
 			b.openedAt = now
 		}
 	}
 	b.mu.Unlock()
-	b.deliver()
+	return b.finish(tk)
 }
 
-// move changes the state under the lock and queues the notification; deliver runs it after the lock is released.
-func (b *Breaker) move(to State) {
+// ticket is one queued notification and the channel its owner waits on.
+type ticket struct {
+	fn   func() error
+	done chan error
+	to   State
+	gen  uint64 // the generation the change created
+}
+
+// move changes the state under the lock and queues the notification (nil if there is no observer); the caller finishes the ticket after
+// it releases the lock.
+func (b *Breaker) move(to State) *ticket {
 	from := b.state
 	b.state = to
 	b.gen++
 	b.probing = false
 	b.window = nil
-	if b.onChange != nil {
-		cb := b.onChange
-		b.pending = append(b.pending, func() { cb(from, to) })
+	if b.onChange == nil {
+		return nil
 	}
+	cb := b.onChange
+	tk := &ticket{fn: func() error { return cb(from, to) }, done: make(chan error, 1), to: to, gen: b.gen}
+	b.pending = append(b.pending, tk)
+	return tk
 }
 
-// deliver runs the queued notifications, one at a time and in order, outside the state lock. If another goroutine is already
-// delivering it returns at once: that goroutine will deliver what was queued.
+// finish delivers the queue and waits for the caller's own notification. A failed notification of a change that lets calls through is
+// undone: the circuit returns to OPEN, which is the fail-closed direction.
+func (b *Breaker) finish(tk *ticket) error {
+	if tk == nil {
+		return nil
+	}
+	b.deliver()
+	err := <-tk.done
+	if err == nil {
+		return nil
+	}
+	if tk.to == HalfOpen || tk.to == Closed {
+		b.mu.Lock()
+		var undo *ticket
+		if b.gen == tk.gen && b.state == tk.to {
+			undo = b.move(Open)
+			b.openedAt = b.clk.Now()
+		}
+		b.mu.Unlock()
+		if undo != nil {
+			_ = b.finish(undo) // opening is already the safe state; a failure to record it adds nothing to return
+		}
+	}
+	return fmt.Errorf("%sthe %s state change was not recorded: %w", errPrefix, tk.to, err)
+}
+
+// deliver runs the queued notifications, one at a time and in order, outside the state lock. If another goroutine is already delivering
+// it returns at once; that goroutine delivers what was queued, and the owner of each ticket waits on its own.
 func (b *Breaker) deliver() {
 	b.mu.Lock()
 	if b.delivering {
@@ -222,7 +272,7 @@ func (b *Breaker) deliver() {
 		next := b.pending[0]
 		b.pending = b.pending[1:]
 		b.mu.Unlock()
-		next()
+		next.done <- next.fn()
 		b.mu.Lock()
 	}
 	b.delivering = false

@@ -37,7 +37,7 @@ type tb interface {
 	Fatal(args ...any)
 }
 
-func newBreaker(t tb, clk clock.Clock, rate string, windowS int64, p breaker.Policy, onChange func(from, to breaker.State)) *breaker.Breaker {
+func newBreaker(t tb, clk clock.Clock, rate string, windowS int64, p breaker.Policy, onChange breaker.Notify) *breaker.Breaker {
 	t.Helper()
 	params, err := breaker.ParamsOf(limits(rate, windowS, 3000, 5))
 	if err != nil {
@@ -158,7 +158,7 @@ func TestAnOpenCircuitAllowsNothingUntilTheCooldown(t *testing.T) {
 func TestHalfOpenAllowsOneProbe(t *testing.T) {
 	clk := clock.NewManual(t0)
 	var moves []string
-	b := newBreaker(t, clk, "0.5", 60, policy(2, time.Minute), func(from, to breaker.State) { moves = append(moves, string(from)+">"+string(to)) })
+	b := newBreaker(t, clk, "0.5", 60, policy(2, time.Minute), func(from, to breaker.State) error { moves = append(moves, string(from)+">"+string(to)); return nil })
 	_ = call(t, b, false)
 	_ = call(t, b, false)
 	clk.Advance(time.Minute)
@@ -245,7 +245,7 @@ func TestPropertyNoCallIsAllowedWhileOpen(t *testing.T) {
 					t.Fatalf("a call was allowed %s into a %s cooldown", clk.Now().Sub(openedAt), cool)
 				}
 				if err == nil {
-					p.Done(rapid.Bool().Draw(t, "ok"))
+					_ = p.Done(rapid.Bool().Draw(t, "ok"))
 				}
 			}
 			if b.State() == breaker.Open {
@@ -343,7 +343,7 @@ func TestStateChangesAreDeliveredInOrderAndOneAtATime(t *testing.T) {
 	var moves [][2]breaker.State
 	running := 0
 	overlap := false
-	cb := func(from, to breaker.State) {
+	cb := func(from, to breaker.State) error {
 		mu.Lock()
 		running++
 		if running > 1 {
@@ -355,6 +355,7 @@ func TestStateChangesAreDeliveredInOrderAndOneAtATime(t *testing.T) {
 		moves = append(moves, [2]breaker.State{from, to})
 		running--
 		mu.Unlock()
+		return nil
 	}
 	b := newBreaker(t, clk, "0.5", 60, policy(1, time.Second), cb)
 	var wg sync.WaitGroup
@@ -388,5 +389,121 @@ func TestStateChangesAreDeliveredInOrderAndOneAtATime(t *testing.T) {
 			t.Fatalf("transition %d is %s>%s but the previous one ended in %s: delivered out of order (moves %v)", i, m[0], m[1], prev, moves)
 		}
 		prev = m[1]
+	}
+}
+
+// Codex review of noema#182 (second): a caller does not return, and so cannot act on the new state, before the notification of its own
+// transition has been delivered. Here the OPEN notification is slow; the HALF_OPEN transition queued behind it must not return before
+// its own notification has run.
+func TestACallerWaitsForItsOwnTransitionsNotification(t *testing.T) {
+	clk := clock.NewManual(t0)
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	delivered := map[breaker.State]bool{}
+	cb := func(from, to breaker.State) error {
+		if to == breaker.Open {
+			<-gate // the slow observer
+		}
+		mu.Lock()
+		delivered[to] = true
+		mu.Unlock()
+		return nil
+	}
+	b := newBreaker(t, clk, "0.5", 60, policy(1, time.Second), cb)
+	openDone := make(chan struct{})
+	go func() { // opens the circuit and blocks in the OPEN notification
+		p, err := b.Allow()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		_ = p.Done(false)
+		close(openDone)
+	}()
+	for b.State() != breaker.Open { // wait until the circuit is open and its notification is stuck
+		time.Sleep(time.Millisecond)
+	}
+	clk.Advance(2 * time.Second)
+	halfOpen := make(chan error, 1)
+	go func() {
+		p, err := b.Allow() // moves OPEN to HALF_OPEN; its notification queues behind the stuck one
+		if err == nil {
+			mu.Lock()
+			ok := delivered[breaker.HalfOpen]
+			mu.Unlock()
+			if !ok {
+				err = errors.New("Allow returned a probe before the HALF_OPEN notification was delivered")
+			}
+			_ = p
+		}
+		halfOpen <- err
+	}()
+	select {
+	case err := <-halfOpen:
+		t.Fatalf("Allow returned while an earlier notification was still being delivered: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate)
+	if err := <-halfOpen; err != nil {
+		t.Fatal(err)
+	}
+	<-openDone
+}
+
+// A notification that fails is surfaced, and a transition that would let calls through is undone: the circuit goes back to OPEN
+// (fail closed), because the state change was not recorded.
+func TestAFailedNotificationOfAPermissiveTransitionReopensTheCircuit(t *testing.T) {
+	boom := errors.New("record append failed")
+	for _, to := range []breaker.State{breaker.HalfOpen, breaker.Closed} {
+		clk := clock.NewManual(t0)
+		fail := true
+		b := newBreaker(t, clk, "0.5", 60, policy(1, time.Second), func(from, next breaker.State) error {
+			if fail && next == to {
+				return boom
+			}
+			return nil
+		})
+		p, _ := b.Allow()
+		if err := p.Done(false); err != nil { // CLOSED to OPEN is recorded fine
+			t.Fatal(err)
+		}
+		clk.Advance(2 * time.Second)
+		if to == breaker.HalfOpen {
+			if _, err := b.Allow(); !errors.Is(err, boom) {
+				t.Fatalf("Allow = %v, want the notification failure", err)
+			}
+			if b.State() != breaker.Open {
+				t.Fatalf("state = %s after a failed HALF_OPEN record, want OPEN", b.State())
+			}
+			continue
+		}
+		fail = false
+		probe, err := b.Allow()
+		if err != nil {
+			t.Fatal(err)
+		}
+		fail = true
+		if err := probe.Done(true); !errors.Is(err, boom) {
+			t.Fatalf("Done = %v, want the notification failure", err)
+		}
+		if b.State() != breaker.Open {
+			t.Fatalf("state = %s after a failed CLOSED record, want OPEN", b.State())
+		}
+		if _, err := b.Allow(); err == nil {
+			t.Fatal("a call was allowed right after a closing that was not recorded")
+		}
+	}
+}
+
+// A failed OPEN notification is surfaced too, and the circuit stays open (opening is the safe direction).
+func TestAFailedNotificationOfOpeningIsSurfacedAndTheCircuitStaysOpen(t *testing.T) {
+	boom := errors.New("record append failed")
+	b := newBreaker(t, clock.NewManual(t0), "0.5", 60, policy(1, time.Minute), func(from, to breaker.State) error { return boom })
+	p, _ := b.Allow()
+	if err := p.Done(false); !errors.Is(err, boom) {
+		t.Fatalf("Done = %v, want the notification failure", err)
+	}
+	if b.State() != breaker.Open {
+		t.Fatalf("state = %s, want OPEN", b.State())
 	}
 }
