@@ -37,3 +37,5 @@ Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_app
 ## Tests
 
 `go test ./platform/db/...` from `services/core/`. They start a throwaway PostgreSQL server (`internal/testpg`), or use `NOEMA_TEST_DATABASE_URL` if it is set.
+
+`0008_evidence_tables.sql` (EVD-01 slice 2a): `evidence_payload` and `evidence_item` (PERD 38.2, SoT 43.5), insert-only by trigger, an item pointing at a payload of its own tenant by a composite key; `evidence_rw` writes, `trust_rw` and `outcome_rw` read. Numbered 0008 because 0007 is the Outcome verdict migration (OUT-01); migrations apply by name, so the gap is harmless.
