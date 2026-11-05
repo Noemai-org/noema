@@ -15,6 +15,8 @@ Generated layer only. `make bench-test` runs every test and `mypy --strict`; `ma
 | `oracle_client/` | The runner's one reader of ground truth (mock-case's truth endpoint, bench credential) | BEN-03 |
 | `runner/` | Drives a suite through the public API, applies fault plans, writes results and a run manifest | BEN-03 |
 | `publication/` | The public benchmark format and publication rules, with a check that every external number traces to a run (BEN-31) | BEN-31 |
+| `replay/` | The replay diff: two runs, same cases, are the Trust decisions and verdicts identical (compares two recorded runs; runs nothing) | BEN-05 |
+| `hallucination/` | The corpus of 200 seeded bad explanations and 50 good controls for the claim validator (B5) | BEN-14 |
 | `nightly/` | Files one regression issue per failing case, de-duplicated by case ID | TST-02 |
 | `bakeoff/` | The decision-model bake-off: case set, metrics, runner, comparison | BEN-21 |
 | `evil_provider/` | The adversarial provider, in the bench profile only | SEC-06 |

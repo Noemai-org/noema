@@ -105,6 +105,30 @@ func randomHex(t testing.TB) string {
 	return hex.EncodeToString(b[:])
 }
 
+// ensureMockCaseRoles creates the two cluster-wide roles the mock-case needs, if they do not exist. Roles are shared by every test
+// binary on the server, so a check followed by a create races across processes: the create takes an advisory lock and tolerates a
+// role made by another caller in the meantime.
+func ensureMockCaseRoles(ctx context.Context, conn *pgx.Conn, admin, app string) error {
+	_, err := conn.Exec(ctx, `
+DO $$ BEGIN
+  PERFORM pg_advisory_lock(7200310001);
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+admin+`') THEN
+      CREATE ROLE `+admin+` LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
+    END IF;
+  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+  END;
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+app+`') THEN
+      CREATE ROLE `+app+` LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
+    END IF;
+  EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL;
+  END;
+  PERFORM pg_advisory_unlock(7200310001);
+END $$`)
+	return err
+}
+
 // mockCase is a running mock-case: the address of its case listener and the runtime credential file the core's case
 // client reads. It holds no other handle on it.
 type mockCase struct {
@@ -131,15 +155,7 @@ func startMockCase(t *testing.T) mockCase {
 	dbMu.Lock()
 	dbCount++
 	name := fmt.Sprintf("mock_case_e2e_%d_%d", os.Getpid(), dbCount)
-	_, err = conn.Exec(ctx, `
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_admin') THEN
-    CREATE ROLE mock_case_admin LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mock_case_app') THEN
-    CREATE ROLE mock_case_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD '`+rolePassword+`';
-  END IF;
-END $$`)
+	err = ensureMockCaseRoles(ctx, conn, "mock_case_admin", "mock_case_app")
 	dbMu.Unlock()
 	if err != nil {
 		t.Fatalf("create mock-case roles: %v", err)
