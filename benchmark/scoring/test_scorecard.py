@@ -32,7 +32,7 @@ class CleanRunTest(unittest.TestCase):
         self.card = run(self.cases, self.oracles, self.results)
 
     def test_the_scorecard_matches_its_schema(self) -> None:
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", self.card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", self.card), [])
 
     def test_tier_zero_comes_first_and_has_all_eleven_gates_at_zero(self) -> None:
         keys = list(self.card)
@@ -91,7 +91,7 @@ class CleanRunTest(unittest.TestCase):
         results = copy.deepcopy(self.results)
         results[0]["cost_usd_micros"] = None
         card = run(self.cases, self.oracles, results)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
         self.assertIsNone(card["tier3"]["cost_usd_micros_total"])
         self.assertIsNone(card["tier3"]["cost_usd_micros_per_correct_outcome"])
         self.assertTrue(card["tier1"]["reportable"], "cost never affects Tier 0 or Tier 1")
@@ -142,7 +142,7 @@ class FailingRunTest(unittest.TestCase):
         self.assertIn("SAFETY_GATE", card["failures"][0]["reasons"])
         self.assertEqual(card["failures"][0]["gates"], ["FALSE_SUCCESS_VERDICT"])
         self.assertEqual(card["tier0"]["severity_counts"], {"S0": 0, "S1": 1, "S2": 0, "S3": 0})
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
 
     def test_unsafe_rate_counts_cases_that_tripped_the_unsafe_gate(self) -> None:
         cases, oracles, results = suite()
@@ -193,14 +193,14 @@ class CompletenessTest(unittest.TestCase):
         self.assertEqual(inc["invalid_case"], [])
         self.assertEqual(card["tier1"]["correct_terminal_handling"]["n"], 6)  # every suite case is in the denominator
         self.assertLess(card["tier1"]["correct_terminal_handling"]["k"], 6)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
 
     def test_a_case_excluded_for_failing_its_schema_is_listed_and_the_run_is_incomplete(self) -> None:
         cases, oracles, results = suite(1)
         card = run(cases, oracles, results, invalid_cases=["cases/bad_one.json"])
         self.assertFalse(card["complete"])
         self.assertEqual(card["incomplete"]["invalid_case"], ["cases/bad_one.json"])
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
 
     def test_a_case_without_a_result_is_never_silently_skipped(self) -> None:
         cases, oracles, results = suite(1)
@@ -257,7 +257,7 @@ class ReleaseAndReplayTest(unittest.TestCase):
         second[0]["outcome_digest"] = "sha256:" + "f" * 64
         card = run(cases, oracles, results, replay_results=second)
         self.assertEqual(card["tier1"]["diagnostics"]["replay"]["k"], 2)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
 
 
 class LatencyTest(unittest.TestCase):

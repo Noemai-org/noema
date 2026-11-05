@@ -146,11 +146,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'A')`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	exec, err := db.OpenAsRole(ctx(t), dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(exec.Close)
+	exec := testpg.TenantLogin(t, admin, dsn, "execution_rw", tenant) // the tenant's own login (DEBT-04)
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)}
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})

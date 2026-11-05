@@ -148,6 +148,7 @@ func (s *trustStandIn) IssueRouteGrant(ctx context.Context, req workflows.RouteG
 // stack is the core's side of the first end-to-end case, wired as the production code is wired, around a real mock-case.
 type stack struct {
 	admin *pgxpool.Pool
+	dsn   string
 	exec  *pgxpool.Pool
 	led   *ledger.Ledger
 	ctl   *controller.Controller
@@ -168,15 +169,8 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	if _, err := admin.Exec(bg, `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic bank A')`, tenant); err != nil {
 		t.Fatal(err)
 	}
-	exec, err := db.OpenAsRole(bg, dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	trustPool, err := db.OpenAsRole(bg, dsn, "trust_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { exec.Close(); trustPool.Close() })
+	exec := testpg.TenantLogin(t, admin, dsn, "execution_rw", tenant) // the tenant's own logins (DEBT-04)
+	trustPool := testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant)
 
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
@@ -189,8 +183,15 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	trust := &trustStandIn{pool: trustPool, keys: keys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
 	ctl := &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
-	return &stack{admin: admin, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
+	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}
+}
+
+// reader is the tenant's record_read login, for reconstruction and verification tests (US-01, US-06): it reads the tenant's own
+// chain through record_read_chain_t and can reach nothing else on the Record (DEBT-04). Pass it to reconstruct.Build.
+func (s *stack) reader(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	return testpg.TenantLogin(t, s.admin, s.dsn, "record_read", tenant)
 }
 
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

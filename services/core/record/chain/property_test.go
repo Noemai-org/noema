@@ -25,11 +25,37 @@ import (
 // execution_rw, with events that are valid by construction: any rejection is therefore a finding.
 
 type propDB struct {
-	ctx         context.Context
-	admin, exec *pgxpool.Pool
-	app         *chain.Appender
-	clk         *clock.Manual
-	next        atomic.Int64
+	t     *testing.T
+	ctx   context.Context
+	admin *pgxpool.Pool
+	dsn   string
+	pools map[string]*pgxpool.Pool // per tenant and emitter: the login the mapping binds to that emitter (DEBT-04, DEBT-07)
+	app   *chain.Appender
+	clk   *clock.Manual
+	next  atomic.Int64
+}
+
+// release closes the logins of one iteration, so a long property run never holds more connections than one iteration needs. The
+// roles stay until the test ends.
+func (p *propDB) release() {
+	for k, pl := range p.pools {
+		pl.Close()
+		delete(p.pools, k)
+	}
+}
+
+// pool is the connection pool of the login bound to the emitter for the tenant, created on first use. The tenant row must exist.
+func (p *propDB) pool(tenant, emitter string) *pgxpool.Pool {
+	key := tenant + "/" + emitter
+	if pl, ok := p.pools[key]; ok {
+		return pl
+	}
+	if group, ok := groupOfEmitter[emitter]; ok {
+		p.pools[key] = testpg.TenantLogin(p.t, p.admin, p.dsn, group, tenant)
+	} else {
+		p.pools[key] = testpg.EmitterLogin(p.t, p.admin, p.dsn, tenant, emitter)
+	}
+	return p.pools[key]
 }
 
 func newPropDB(t *testing.T) *propDB {
@@ -40,13 +66,8 @@ func newPropDB(t *testing.T) *propDB {
 	if _, err := db.Migrate(c, admin, migrations.FS); err != nil {
 		t.Fatal(err)
 	}
-	exec, err := db.OpenAsRole(c, dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(exec.Close)
 	clk := clock.NewManual(time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC))
-	return &propDB{ctx: c, admin: admin, exec: exec, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+	return &propDB{t: t, ctx: c, admin: admin, dsn: dsn, pools: map[string]*pgxpool.Pool{}, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
 }
 
 // tenant makes a tenant that no other iteration uses, so every iteration starts a fresh chain in the one database.
@@ -119,7 +140,7 @@ type op struct {
 }
 
 func (p *propDB) append(t *rapid.T, ev chain.Event, rollback bool) (chain.Stored, error) {
-	tx, err := p.exec.Begin(p.ctx)
+	tx, err := p.pool(ev.TenantID, ev.WrittenBy).Begin(p.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,6 +161,7 @@ func (p *propDB) append(t *rapid.T, ev chain.Event, rollback bool) (chain.Stored
 func TestEveryInterleavingOfAppendsLeavesAContiguousVerifiableChainPerTenant(t *testing.T) {
 	p := newPropDB(t)
 	rapid.Check(t, func(t *rapid.T) {
+		defer p.release()
 		n := rapid.IntRange(1, 3).Draw(t, "tenants")
 		tenants := make([]string, n)
 		last := make([]string, n)
@@ -209,6 +231,7 @@ var tampers = []tamper{
 func TestAnySingleTamperingIsDetectedAtTheEventItTouches(t *testing.T) {
 	p := newPropDB(t)
 	rapid.Check(t, func(t *rapid.T) {
+		defer p.release()
 		tn := p.tenant(t)
 		n := rapid.IntRange(2, 12).Draw(t, "events")
 		for i := 0; i < n; i++ {
@@ -248,6 +271,7 @@ func TestAnySingleTamperingIsDetectedAtTheEventItTouches(t *testing.T) {
 func TestTruncatingTheTailIsNotDetectedByTheChainAlone(t *testing.T) {
 	p := newPropDB(t)
 	rapid.Check(t, func(t *rapid.T) {
+		defer p.release()
 		tn := p.tenant(t)
 		n := rapid.IntRange(2, 8).Draw(t, "events")
 		for i := 0; i < n; i++ {
@@ -276,17 +300,17 @@ func TestANulCharacterInAPayloadFailsTheAppendAndLeavesNoGap(t *testing.T) {
 	ev := func(payload map[string]any) chain.Event {
 		return chain.Event{TenantID: tn, CorrelationID: "corr_nul", WrittenBy: "core-execution", Actor: "core-execution", EventType: "GRANT_SPENT", ObjectRef: "grt_nul1", Payload: payload}
 	}
-	tx, _ := p.exec.Begin(p.ctx)
+	tx, _ := p.pool(tn, "core-execution").Begin(p.ctx)
 	first, err := p.app.Append(p.ctx, tx, ev(map[string]any{"a": 1}))
 	if err != nil || tx.Commit(p.ctx) != nil {
 		t.Fatal(err)
 	}
-	tx, _ = p.exec.Begin(p.ctx)
+	tx, _ = p.pool(tn, "core-execution").Begin(p.ctx)
 	if _, err := p.app.Append(p.ctx, tx, ev(map[string]any{"a": "x\x00y"})); err == nil {
 		t.Fatal("a payload with U+0000 was accepted")
 	}
 	_ = tx.Rollback(p.ctx)
-	tx, _ = p.exec.Begin(p.ctx)
+	tx, _ = p.pool(tn, "core-execution").Begin(p.ctx)
 	third, err := p.app.Append(p.ctx, tx, ev(map[string]any{"a": 2}))
 	if err != nil || tx.Commit(p.ctx) != nil {
 		t.Fatal(err)
@@ -372,7 +396,7 @@ func TestTamperingLeavesNoConnectionWithTriggersDisabled(t *testing.T) {
 	if _, err := p.admin.Exec(p.ctx, `INSERT INTO tenant (tenant_id, name) VALUES ($1, $1)`, tn); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := p.exec.Begin(p.ctx)
+	tx, err := p.pool(tn, "core-execution").Begin(p.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

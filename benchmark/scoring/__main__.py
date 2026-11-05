@@ -92,7 +92,7 @@ def _load_results(path: Path, contracts: Contracts) -> list[Json]:
     found: list[Json] = []
     for name, text in _documents(path):
         document = _parse(name, text)
-        errors = contracts.errors("benchmark-case-result", document)
+        errors = contracts.errors("benchmark-case-result.v2", document)
         if not errors:
             found.append(document)
             continue
@@ -113,6 +113,7 @@ def run(args: argparse.Namespace) -> int:
     oracles = _load_oracles(Path(args.oracles), contracts)
     results = _load_results(Path(args.results), contracts)
     replay = _load_results(Path(args.replay_results), contracts) if args.replay_results else None
+    repeats = [_load_results(Path(path), contracts) for path in args.repeat_results or []]
     registry = registry_from_pack(load_strict(Path(args.pack)))
     manifest = load_strict(Path(args.manifest))
     manifest_errors = contracts.errors("benchmark-suite-manifest", manifest)
@@ -124,7 +125,7 @@ def run(args: argparse.Namespace) -> int:
     known = {c["case_id"] for c in cases}
     oracles = [o for o in oracles if o["case_id"] in known]
     card = score(cases, oracles, results, registry, run_id=args.run_id, structural_evidence=structural,
-                 replay_results=replay, invalid_cases=invalid_cases)
+                 replay_results=replay, invalid_cases=invalid_cases, repeat_runs=repeats)
     manifest_for_report = dict(manifest)
     if invalid_cases:
         # The manifest lists the invalid cases too; only the scored ones are in the scorecard.
@@ -154,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     for flag in ("--cases", "--oracles", "--results", "--pack", "--manifest", "--run-id", "--out"):
         parser.add_argument(flag, required=True)
     parser.add_argument("--replay-results")
+    parser.add_argument("--repeat-results", action="append", help="the results of another run of the same cases, repeatable; pass^k needs exactly four of these beside --results")
     parser.add_argument("--structural-evidence", help="JSON file: gate name to a count from static scans and negative tests")
     args = parser.parse_args(argv)
     try:

@@ -17,14 +17,14 @@ Json = dict[str, Any]
 def result_with(observed: Json) -> Json:
     return {"run_id": "r1", "case_id": "BEN-CLEAN-0001", "case_version": 1, "status": "COMPLETED", "error": None, "observed": observed,
             "environment": {"effects": [], "oracle_accesses_by_runtime": 0, "model_governance_changes": 0, "monetary_calls": 0}, "path": "CLEAN",
-            "latency_ms": 1, "cost_usd_micros": None, "outcome_digest": "sha256:" + "00" * 32}
+            "latency_ms": 1, "cost_usd_micros": None, "outcome_digest": "sha256:" + "00" * 32, "turns": 1}
 
 
 class Parse(unittest.TestCase):
     def test_the_contracts_own_fixtures_parse(self) -> None:
         for name in ("full_write_case.json", "clarification_only.json"):
             parsed = parse(json.loads((FIXTURES / "valid" / "reconstruction.v3" / name).read_text()))
-            self.assertEqual(Contracts().errors("benchmark-case-result", result_with(parsed.observed)), [], name)
+            self.assertEqual(Contracts().errors("benchmark-case-result.v2", result_with(parsed.observed)), [], name)
 
     def test_a_clarification_with_no_decision_is_clarify(self) -> None:
         parsed = parse(json.loads((FIXTURES / "valid" / "reconstruction.v3" / "clarification_only.json").read_text()))
@@ -113,7 +113,7 @@ class Parse(unittest.TestCase):
 
     def test_the_whole_observed_block_validates(self) -> None:
         parsed = parse(body("ALLOW", claims=[{"text": "completed", "bound_fact_status": "KNOWN"}]))
-        self.assertEqual(Contracts().errors("benchmark-case-result", result_with(parsed.observed)), [])
+        self.assertEqual(Contracts().errors("benchmark-case-result.v2", result_with(parsed.observed)), [])
 
     def test_an_unexpected_shape_is_an_error_never_a_guess(self) -> None:
         broken: list[object] = [{}, {"sections": []}, "text", None, copy.deepcopy(body("ALLOW")) | {"extra": 1}]
