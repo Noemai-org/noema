@@ -11,7 +11,7 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Regression cases added: none. Debt entries: none. Conflicts raised: none.
 
 ## Not built (named; TRU-05 is not Done)
-- **The `decision_record` table and the durable write before any grant.** The table does not exist (migration `0001` says the Trust tables arrive later), and the migration numbers 0004 to 0006 are claimed by noema#145 and 0004 by noema#136. I need a migration number and the Steward's or Architect's confirmation of which comes first before I write it. (Answered 4 Nov 2026: 0008, after noema#136's 0007.)
+- **The `decision_record` table and the durable write before any grant.** The table does not exist (migration `0001` says the Trust tables arrive later), and the migration numbers 0004 to 0006 are claimed by noema#145 and 0004 by noema#136. I need a migration number and the Steward's or Architect's confirmation of which comes first before I write it. (Answered: 0009, in noema#168; noema#167 keeps 0008, ruling of 5 Nov 2026.)
 - The database trigger that forbids a `decision_grant` row whose decision is not ALLOW (needs the table).
 - Grants persisted in the same transaction as their `GRANT_ISSUED` events, and the `KEY_ROTATED` event (need the Record writer wiring).
 - The key source: keys come from a file-mounted secret in `cmd/core` (OQ-09 default); loading is not built. The validity (10 minutes, ADOPTED) is a constructor input.
