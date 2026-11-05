@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
+    if args.standin_url and not args.bench_credential_file:
+        print("--standin-url needs --bench-credential-file: the stand-in's control route takes the bench credential, and without it the fixture loader would silently be missing")
+        return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
     monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
         "monetary_calls", "no source: Tushe's access log is not reachable and the operator declared nothing")

@@ -17,3 +17,7 @@ Updated 2026-11-04. Decision: the Founder, 4 Nov 2026 (Option B). Related: BEN-0
 - Purpose: option B for G1; the monetary source; no `tushe-admin` job; the three secret names.
 - Receiver used it for: this change and the comment to the Integration Lead.
 - Evidence: this pull request.
+
+### 2026-11-05 · Codex review of noema#161 (noemai-systems, on 7824802), answered
+- Finding (Major): `--standin-url` without `--bench-credential-file` silently installed the "no loader" fallback and wrote a NOT_RUN result as if no stand-in were configured.
+- Done (Codex option 1): the flags are validated as a pair; `--standin-url` without the credential is a CLI error (exit 2, nothing written). Test first, seen failing.
