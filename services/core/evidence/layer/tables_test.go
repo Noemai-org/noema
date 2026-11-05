@@ -239,3 +239,40 @@ func TestAnotherPowersLoginIsRefusedEvenWithAMistakenGrant(t *testing.T) {
 		t.Errorf("a trust login wrote evidence: err = %v", err)
 	}
 }
+
+// INV-11, REQ-SEC-004 (Codex review of noema#167): reads are tenant-scoped by the database too. A tenant A login of Trust, Outcome or
+// the Evidence Layer sees tenant A's evidence and none of tenant B's; a login with no tenant mapping sees nothing.
+func TestEvidenceReadsAreScopedToTheLoginsTenant(t *testing.T) {
+	w := newWorld(t)
+	for _, tenant := range []string{tenantA, "ten_bb"} {
+		if err := insertPayload(w.evidence(t, tenant), ctx(t), tenant, "pay_"+tenant); err != nil {
+			t.Fatal(err)
+		}
+		if err := insertItem(w.evidence(t, tenant), ctx(t), tenant, "evd_"+tenant, "pay_"+tenant, "KNOWN", hashA, 300); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readers := map[string]*pgxpool.Pool{
+		"evidence_rw": w.evidence(t, tenantA),
+		"trust_rw":    testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", tenantA),
+		"outcome_rw":  testpg.TenantLogin(t, w.admin, w.dsn, "outcome_rw", tenantA),
+	}
+	for name, p := range readers {
+		for _, table := range []string{"evidence_item", "evidence_payload"} {
+			var own, other int
+			if err := p.QueryRow(ctx(t), `SELECT count(*) FROM `+table+` WHERE tenant_id = 'ten_aa'`).Scan(&own); err != nil {
+				t.Fatalf("%s reading %s: %v", name, table, err)
+			}
+			if err := p.QueryRow(ctx(t), `SELECT count(*) FROM `+table+` WHERE tenant_id = 'ten_bb'`).Scan(&other); err != nil {
+				t.Fatalf("%s reading %s: %v", name, table, err)
+			}
+			if own != 1 || other != 0 {
+				t.Errorf("%s reading %s: own tenant rows = %d (want 1), another tenant's rows = %d (want 0)", name, table, own, other)
+			}
+		}
+	}
+	var n int
+	if err := w.as(t, "trust_rw").QueryRow(ctx(t), `SELECT count(*) FROM evidence_item`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("a trust_rw session with no tenant mapping read %d items (%v), want 0", n, err)
+	}
+}
