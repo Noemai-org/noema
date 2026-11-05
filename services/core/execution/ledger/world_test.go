@@ -178,7 +178,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0008): record the decision first.
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0009): record the decision first.
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, '{}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID); err != nil {
 		t.Fatal(err)
 	}
