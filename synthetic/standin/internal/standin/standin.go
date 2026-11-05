@@ -304,7 +304,7 @@ func (s *Server) principalOf(r *http.Request) (string, bool) {
 		return "", false
 	}
 	now := s.opt.Now()
-	if now.Unix() > exp || time.Unix(exp, 0).Sub(now) > maxAssertionLifetime {
+	if now.Unix() >= exp || time.Unix(exp, 0).Sub(now) > maxAssertionLifetime {
 		return "", false
 	}
 	got, err := hex.DecodeString(parts[3])

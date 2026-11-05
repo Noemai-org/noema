@@ -465,3 +465,24 @@ func TestTheAssertionContractMatchesThePinnedVector(t *testing.T) { // the adapt
 		t.Fatalf("the service must accept the pinned vector at the fixed clock, got %d %s", res.status, res.body)
 	}
 }
+
+func TestAnAssertionIsRefusedAtTheInstantItExpires(t *testing.T) { // INV-12: an expiry is exclusive, so the five-minute window is not stretched by a second
+	r := newRig(t)
+	r.loadGolden()
+	const path = "/standin/v1/principal"
+	now := fixedNow.Unix()
+	for name, c := range map[string]struct {
+		exp  int64
+		want int
+	}{
+		"one second left":        {now + 1, 200},
+		"expires at this second": {now, 401},
+		"expired a second ago":   {now - 1, 401},
+		"exactly five minutes":   {now + 300, 200},
+		"five minutes and one":   {now + 301, 401},
+	} {
+		if res := r.withAssertion(mint(principalKey, "standin", "usr_a", c.exp), path, nil); res.status != c.want {
+			t.Fatalf("%s: want %d, got %d", name, c.want, res.status)
+		}
+	}
+}
