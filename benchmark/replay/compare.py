@@ -13,7 +13,7 @@ Json = dict[str, Any]
 OBSERVED_ORDERED = ("disposition", "classification", "resolved_target", "clarification_asked", "escalation_opened", "audit_events")
 OBSERVED_UNORDERED = ("dispatches", "verdicts", "claims", "disclosed_refs")
 ENVIRONMENT_COUNTERS = ("oracle_accesses_by_runtime", "model_governance_changes", "monetary_calls")
-COMPARED_FIELDS = (*OBSERVED_ORDERED, *OBSERVED_UNORDERED, "effects", *ENVIRONMENT_COUNTERS, "outcome_digest")
+COMPARED_FIELDS = (*OBSERVED_ORDERED, *OBSERVED_UNORDERED, "effects", *ENVIRONMENT_COUNTERS, "outcome_digest", "turns")
 NOT_COMPARED = ("latency_ms", "cost_usd_micros", "run_id")
 LIMITATIONS = (
     "The diff covers the fields of the recorded case result. The result holds the Trust disposition, the dispatches with their grant state, the verdicts, the claims, "
@@ -41,6 +41,7 @@ def _view(result: Json) -> Json:
     view["effects"] = _unordered(environment["effects"])
     view.update({name: environment[name] for name in ENVIRONMENT_COUNTERS})
     view["outcome_digest"] = result["outcome_digest"]
+    view["turns"] = result["turns"]
     return view
 
 
@@ -85,21 +86,23 @@ def _compare_case(case_id: str, first: Json | None, second: Json | None) -> Json
 
 
 def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str, Json], second_manifest: Json, second_results: dict[str, Json],
-            stories: tuple[str, ...], *, open_exclusions: Mapping[str, Json] | None = None) -> Json:
-    if not stories:
+            stories: tuple[str, ...], *, open_exclusions: Mapping[str, Json] | None = None, all_cases: bool = False) -> Json:
+    if all_cases and stories:
+        raise ReplayInputError("--all compares every case of the suite; it cannot be combined with --story")
+    if not all_cases and not stories:
         raise ReplayInputError("name the user stories to compare (stories is empty)")
     _check_runs(first_manifest, second_manifest)
     _check_results(first_manifest["run_id"], first_results)
     _check_results(second_manifest["run_id"], second_results)
     listed = suite_manifest["cases"]
-    unknown = [s for s in stories if not any(s in entry["covers"] for entry in listed)]
+    unknown = [] if all_cases else [s for s in stories if not any(s in entry["covers"] for entry in listed)]
     if unknown:
         raise ReplayInputError(f"the suite has no case covering {', '.join(unknown)}")
     named = dict(open_exclusions or {})
     absent = sorted(case_id for case_id in named if not any(entry["case_id"] == case_id for entry in listed))
     if absent:
         raise ReplayInputError(f"the open-exclusions registry names {', '.join(absent)}, which the suite does not contain")
-    covering = [entry for entry in listed if any(s in entry["covers"] for s in stories)]
+    covering = list(listed) if all_cases else [entry for entry in listed if any(s in entry["covers"] for s in stories)]
 
     def row_for(entry: Json) -> Json:
         row = _compare_case(entry["case_id"], first_results.get(entry["case_id"]), second_results.get(entry["case_id"]))
@@ -133,7 +136,7 @@ def compare(suite_manifest: Json, first_manifest: Json, first_results: dict[str,
         verdict = "IDENTICAL"
     generator = first_manifest["suite"]["generator"]
     return {
-        "verdict": verdict, "stories": list(stories), "selection": "NAMED_OPEN_EXCLUSIONS_REMOVED" if exclusions else "ALL_CASES_COVERING_THE_STORIES",
+        "verdict": verdict, "stories": list(stories), "selection": "ALL_CASES_OF_THE_SUITE" if all_cases and not exclusions else ("NAMED_OPEN_EXCLUSIONS_REMOVED" if exclusions else "ALL_CASES_COVERING_THE_STORIES"),
         "open_exclusions": exclusions, "case_coverage": {"covered": len(rows), "of": len(covering)}, "full_coverage": not exclusions, "stories_covered": covered, "counts": counts,
         "first": {"run_id": first_manifest["run_id"], "status": first_manifest["status"]},
         "second": {"run_id": second_manifest["run_id"], "status": second_manifest["status"]},

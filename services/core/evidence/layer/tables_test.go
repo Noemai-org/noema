@@ -43,6 +43,7 @@ func code(err error) string {
 type world struct {
 	admin *pgxpool.Pool
 	dsn   string
+	ev    map[string]*pgxpool.Pool // the Evidence Layer's login per tenant, made on first use
 }
 
 func newWorld(t *testing.T) *world {
@@ -56,7 +57,7 @@ func newWorld(t *testing.T) *world {
 			t.Fatal(err)
 		}
 	}
-	return &world{admin: admin, dsn: dsn}
+	return &world{admin: admin, dsn: dsn, ev: map[string]*pgxpool.Pool{}}
 }
 
 func (w *world) as(t *testing.T, role string) *pgxpool.Pool {
@@ -67,6 +68,15 @@ func (w *world) as(t *testing.T, role string) *pgxpool.Pool {
 	}
 	t.Cleanup(p.Close)
 	return p
+}
+
+// evidence is the Evidence Layer's own login for one tenant: it holds evidence_rw and is mapped to the tenant (DEBT-04 option A).
+func (w *world) evidence(t *testing.T, tenant string) *pgxpool.Pool {
+	t.Helper()
+	if w.ev[tenant] == nil {
+		w.ev[tenant] = testpg.TenantLogin(t, w.admin, w.dsn, "evidence_rw", tenant)
+	}
+	return w.ev[tenant]
 }
 
 func insertPayload(p *pgxpool.Pool, c context.Context, tenant, ref string) error {
@@ -87,7 +97,7 @@ func insertItem(p *pgxpool.Pool, c context.Context, tenant, id, ref, status, has
 // REQ-CTX-001: the Evidence Layer persists a payload and then the item that points at it.
 func TestEvidenceRwStoresAPayloadThenItsItem(t *testing.T) {
 	w := newWorld(t)
-	ev := w.as(t, "evidence_rw")
+	ev := w.evidence(t, tenantA)
 	if err := insertPayload(ev, ctx(t), tenantA, "pay_1"); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
@@ -99,7 +109,7 @@ func TestEvidenceRwStoresAPayloadThenItsItem(t *testing.T) {
 // REQ-CTX-001: no payload and no item is mutable after insert (a database trigger, not a convention).
 func TestEvidenceRowsAreImmutable(t *testing.T) {
 	w := newWorld(t)
-	ev := w.as(t, "evidence_rw")
+	ev := w.evidence(t, tenantA)
 	if err := insertPayload(ev, ctx(t), tenantA, "pay_1"); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +134,7 @@ func TestEvidenceRowsAreImmutable(t *testing.T) {
 // INV-19, REQ-CTX-002: a status outside the eight, a "not credited" status and a hash that is not sha256 are refused by the table.
 func TestTheTableRefusesAnInvalidItem(t *testing.T) {
 	w := newWorld(t)
-	ev := w.as(t, "evidence_rw")
+	ev := w.evidence(t, tenantA)
 	if err := insertPayload(ev, ctx(t), tenantA, "pay_1"); err != nil {
 		t.Fatal(err)
 	}
@@ -151,8 +161,8 @@ func TestTheTableRefusesAnInvalidItem(t *testing.T) {
 // INV-11, REQ-SEC-004: an item points only at a payload of its own tenant, and only at one that exists.
 func TestAnItemPointsOnlyAtItsOwnTenantsPayload(t *testing.T) {
 	w := newWorld(t)
-	ev := w.as(t, "evidence_rw")
-	if err := insertPayload(ev, ctx(t), "ten_bb", "pay_other"); err != nil {
+	ev := w.evidence(t, tenantA)
+	if err := insertPayload(w.evidence(t, "ten_bb"), ctx(t), "ten_bb", "pay_other"); err != nil {
 		t.Fatal(err)
 	}
 	if err := insertItem(ev, ctx(t), tenantA, "evd_x", "pay_other", "KNOWN", hashA, 300); err == nil || !strings.HasPrefix(code(err), violation) {
@@ -166,7 +176,7 @@ func TestAnItemPointsOnlyAtItsOwnTenantsPayload(t *testing.T) {
 // BD-05, REQ-DATA-001: only the Evidence Layer writes evidence; the other powers may read it and may not write it.
 func TestOnlyEvidenceRwWritesEvidence(t *testing.T) {
 	w := newWorld(t)
-	if err := insertPayload(w.as(t, "evidence_rw"), ctx(t), tenantA, "pay_1"); err != nil {
+	if err := insertPayload(w.evidence(t, tenantA), ctx(t), tenantA, "pay_1"); err != nil {
 		t.Fatal(err)
 	}
 	for _, role := range []string{"trust_rw", "execution_rw", "outcome_rw", "orchestrator_rw"} {
@@ -183,5 +193,49 @@ func TestOnlyEvidenceRwWritesEvidence(t *testing.T) {
 		if err := w.as(t, role).QueryRow(ctx(t), `SELECT count(*) FROM evidence_item`).Scan(&n); err != nil {
 			t.Errorf("%s cannot read evidence_item: %v", role, err)
 		}
+	}
+}
+
+// INV-11, REQ-SEC-004, DEBT-04 option A: the database binds an Evidence write to the tenant of the login that makes it. A tenant A
+// login cannot write either table for tenant B, and a login that is not mapped to a tenant (the administrator) cannot write at all.
+func TestAnEvidenceLoginWritesOnlyItsOwnTenant(t *testing.T) {
+	w := newWorld(t)
+	a := w.evidence(t, tenantA)
+	if err := insertPayload(w.evidence(t, "ten_bb"), ctx(t), "ten_bb", "pay_b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := insertPayload(a, ctx(t), "ten_bb", "pay_cross"); code(err) != denied {
+		t.Errorf("a tenant A login wrote a payload for tenant B: err = %v", err)
+	}
+	if err := insertItem(a, ctx(t), "ten_bb", "evd_cross", "pay_b", "KNOWN", hashA, 300); code(err) != denied {
+		t.Errorf("a tenant A login wrote an item for tenant B: err = %v", err)
+	}
+	if err := insertPayload(w.admin, ctx(t), tenantA, "pay_admin"); code(err) != denied {
+		t.Errorf("an unmapped login wrote a payload: err = %v", err)
+	}
+	if n := w.count(t, `SELECT count(*) FROM evidence_payload WHERE payload_ref IN ('pay_cross', 'pay_admin')`); n != 0 {
+		t.Errorf("%d refused rows were stored", n)
+	}
+}
+
+func (w *world) count(t *testing.T, q string) int {
+	t.Helper()
+	var n int
+	if err := w.admin.QueryRow(ctx(t), q).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// INV-11, BD-05: even if a grant were widened by mistake, a login of another power cannot write evidence, because the guard checks
+// the login's power as well as its tenant.
+func TestAnotherPowersLoginIsRefusedEvenWithAMistakenGrant(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.admin.Exec(ctx(t), `GRANT INSERT ON evidence_payload TO trust_rw`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", tenantA)
+	if err := insertPayload(trust, ctx(t), tenantA, "pay_trust"); code(err) != denied {
+		t.Errorf("a trust login wrote evidence: err = %v", err)
 	}
 }

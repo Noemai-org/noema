@@ -2,7 +2,7 @@
 -- REQ-CTX-001 (immutable evidence), INV-10, INV-19, INV-11. Forward-only: never edited after merge (AGENTS.md section 7).
 -- Migrations apply by name; 0007 belongs to the Outcome verdict migration (OUT-01), so a gap here is expected.
 --
--- Written by the Evidence Layer only (evidence_rw); read by Trust and Outcome. Both tables are insert-only (a trigger, not a
+-- Written by the Evidence Layer only (evidence_rw, on the tenant's own login); read by Trust and Outcome. Both tables are insert-only (a trigger, not a
 -- convention), carry the tenant on every row, and an item points at a payload of its own tenant by a composite key.
 
 CREATE TABLE evidence_payload (
@@ -41,6 +41,22 @@ CREATE INDEX evidence_item_tenant_correlation_idx ON evidence_item (tenant_id, c
 CREATE INDEX evidence_item_tenant_source_record_idx ON evidence_item (tenant_id, source, source_record_id, read_at);
 CREATE TRIGGER evidence_item_immutable BEFORE UPDATE OR DELETE ON evidence_item FOR EACH ROW EXECUTE FUNCTION reject_mutation();
 CREATE TRIGGER evidence_item_no_truncate BEFORE TRUNCATE ON evidence_item FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation();
+
+-- A write is bound to the tenant of the login that makes it (DEBT-04 option A; REQ-SEC-004, INV-11): session_user, which a caller
+-- cannot change, is looked up in tenant_login. A login with no mapping, a login of another power and a row naming another
+-- tenant are refused. A foreign key proves only that a tenant exists, not that the caller belongs to it.
+CREATE FUNCTION evidence_row_tenant_guard() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM tenant_login l
+                 WHERE l.login_role = session_user::text AND l.power = 'evidence' AND l.tenant_id = NEW.tenant_id) THEN
+    RAISE EXCEPTION '%: this login may not write evidence for tenant %', TG_TABLE_NAME, NEW.tenant_id USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION evidence_row_tenant_guard() FROM PUBLIC;
+CREATE TRIGGER evidence_payload_tenant_guard BEFORE INSERT ON evidence_payload FOR EACH ROW EXECUTE FUNCTION evidence_row_tenant_guard();
+CREATE TRIGGER evidence_item_tenant_guard BEFORE INSERT ON evidence_item FOR EACH ROW EXECUTE FUNCTION evidence_row_tenant_guard();
 
 REVOKE ALL ON evidence_payload, evidence_item FROM PUBLIC;
 GRANT SELECT, INSERT ON evidence_payload, evidence_item TO evidence_rw;

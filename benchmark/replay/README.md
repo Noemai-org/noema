@@ -14,13 +14,17 @@ Output: `OUT/replay.json` and `OUT/replay.md`, byte-identical for the same input
 
 Exit codes: **0** IDENTICAL; **1** DIFFERENT or NOT_COMPARABLE (the report is written); **2** an input is unusable or the two runs cannot be compared (nothing is written); **3** a run is NOT_RUN, no access (nothing is written, nothing is faked).
 
+## The whole suite (BEN-18)
+
+`--all` compares every case of the suite instead of the cases of two stories; it cannot be combined with `--story`. BEN-18's check ("replay the full suite twice from a clean environment, zero mismatches in Tier 0 and Tier 1") is a run of this mode on two `full` runs: the compared fields are everything Tier 0 and Tier 1 are computed from, so an IDENTICAL verdict on every case means identical Tier 0 and Tier 1. The same rules apply: an errored or missing case is NOT_COMPARABLE, so the check cannot pass until every case can be run (today 177 of 320 cannot, which the report states, not hides); a named open exclusion is non-full coverage, never a pass.
+
 ## Rules the tool enforces
 
 - The two runs must differ in `run_id` and agree on the commit (and it must be recorded), the suite digest, the generator version and seed, the pack version and the policy version. Anything else is a refusal (exit 2), not a comparison.
-- Every result file must validate against `benchmark-case-result.v1` and belong to the run whose manifest sits beside it.
+- Every result file must validate against `benchmark-case-result.v2` and belong to the run whose manifest sits beside it.
 - **An errored case, a case missing from one run, or a story with no comparable case is NOT_COMPARABLE, never identical.** Two runs that fail the same way prove nothing about a decision.
 - A difference outranks NOT_COMPARABLE. The verdict is IDENTICAL only when every selected case is compared and equal and every story has at least one compared case.
-- Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters and the outcome digest. Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
+- Compared: disposition, classification, resolved target, clarification and escalation flags, audit event types (in Record order), dispatches with their grant state, verdicts, claims, disclosed refs, environment effects, the three environment counters, the outcome digest and the number of customer turns the runner sent (`turns`, benchmark-case-result v2). Dispatches, verdicts, claims, refs and effects are compared as sets of rows. Latency, cost and run ID are not compared.
 
 ## Selection (founders' decision of 1 Nov 2026; tightened by the Architect on 2 Nov after Codex's finding)
 
