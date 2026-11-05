@@ -22,3 +22,7 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Exact next step: the `decision_record` migration (after the number is settled), the trigger, the Record-first write in one transaction with the grants, and the 2-key rotation test against the database.
 - Files to read first: `trust/grants/grants.go`, PERD REQ-TRU-008 and REQ-SEC-005.
 - Do not touch: `noema#94`, `noema#90`.
+
+## Session 2026-11-05 (evening) · TRU-05 slice 1 follow-ups from Codex
+- A grant now needs a `reconcile.Permission` bound to the step's capability **and target** (`FreezeGate.PermitTarget`, additive in `trust/reconcile/freeze.go`; `Permit` is unchanged and yields a permission that names no target, which opens no grant). The `frozen` flag a caller passes comes from the reconciliation result for that same target; the gate does not read freeze state itself. The pack version of the basis is checked against the grant contract's pattern before signing. Both found by Codex at `9dbb363` and `4546400`; tests first, mutants caught.
+- Touches `trust/reconcile` (T6.2, another task) additively; the existing `Permit` tests in `internal/corpus` are unchanged and pass.

@@ -24,9 +24,9 @@ import (
 var (
 	// ErrNotAllow is returned for any decision that is not an ALLOW with a complete basis: only an ALLOW issues a grant (REQ-TRU-008).
 	ErrNotAllow = errors.New("grants: only an ALLOW decision with its basis issues a grant")
-	// ErrNoPermission is returned when the step carries no freeze Permission, or one issued for another capability (REQ-RES-002): a grant is
+	// ErrNoPermission is returned when the step carries no freeze Permission, or one issued for another capability or target (REQ-RES-002): a grant is
 	// never built for a frozen target and a capability that is not allowed under a freeze.
-	ErrNoPermission = errors.New("grants: no freeze permission for this capability")
+	ErrNoPermission = errors.New("grants: no freeze permission for this capability and target")
 	// ErrStep is returned for a plan step that does not match the decision or does not satisfy the grant contract.
 	ErrStep = errors.New("grants: the plan step is not valid for this decision")
 	// ErrSignature is returned for a grant whose signature does not verify under an active key.
@@ -169,7 +169,7 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 	if err := s.check(); err != nil {
 		return contracts.DecisionGrantV1{}, err
 	}
-	if !s.Permission.Valid() || s.Permission.Capability() != s.CapabilityID {
+	if !s.Permission.Valid() || s.Permission.Capability() != s.CapabilityID || s.Permission.Target() != s.TargetRef {
 		return contracts.DecisionGrantV1{}, ErrNoPermission
 	}
 	if !shapes["policy"].MatchString(basis.PackVersion) {

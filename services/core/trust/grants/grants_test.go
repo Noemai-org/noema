@@ -464,11 +464,11 @@ func TestAGrantNeedsAFreezePermissionForItsOwnCapability(t *testing.T) {
 	gate := reconcile.NewFreezeGate([]string{"fin.cap.attach_evidence"})
 	i := issuer(t, keys(t))
 	d := decision(t, decide.Allow)
-	own, err := gate.Permit(false, "fin.cap.create_escalation_case")
+	own, err := gate.PermitTarget(false, "fin.cap.create_escalation_case", "fin.transaction:TX88213")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := gate.Permit(false, "fin.cap.attach_evidence")
+	other, err := gate.PermitTarget(false, "fin.cap.attach_evidence", "fin.transaction:TX88213")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +514,7 @@ func TestAGrantIsNotSignedForAMalformedPackVersion(t *testing.T) {
 }
 
 func mustPermit(capability string) reconcile.Permission {
-	p, err := reconcile.NewFreezeGate(nil).Permit(false, capability)
+	p, err := reconcile.NewFreezeGate(nil).PermitTarget(false, capability, "fin.transaction:TX88213")
 	if err != nil {
 		panic(err)
 	}
