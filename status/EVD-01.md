@@ -51,3 +51,15 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 ## Pre-work for the next agent
 - Exact next step: slice 2c, `ClassifyError` (adapter result to `ReadClass`) with tests against the real hostility proxy and mock-case FaultPlans; then slice 3.
 - Do not touch: contracts.
+
+# Session 2026-11-05 17:30 WAT · EVD-01 (slice 2c)
+
+## Session summary
+- What changed: `evidence/layer/classify.go` (`ClassifyError`: adapter read error to read class; unknown failures are MALFORMED, i.e. UNKNOWN) with a table test; `execution/e2e/evidence_faults_test.go`: evidence built from reads that the REAL mock-case faults on (HTTP_5XX 503, HTTP_429 with Retry-After, TIMEOUT_BEFORE_COMMIT beyond the read deadline, and a real 404), through `Builder.Record` on the tenant's evidence login; `execution/e2e/mockcase_test.go` exposes the bench address and token. STACKED on noema#172 (builder) and noema#167 (tables).
+- Result: every faulted or empty read gives UNAVAILABLE or UNKNOWN, none KNOWN; one `EVIDENCE_READ` per read; the Record chain verifies.
+- Order of work, disclosed: `classify.go` and its table test were written in the same step, so the table test was not seen red. Mutants that make both tests fail: unauthorized to OK, 429 without Retry-After, timeout to OK, not found to OK. The e2e test was green on its first run against the real faults.
+- Not done: MALFORMED_RESPONSE and SCHEMA_DRIFT are not mock-case effects (they come from the Tushe/proxy tracks); the malformed mapping is covered by the table test and by the `corrupted_recordings` test of the case client. A healthy KNOWN read through the real target is slice 3.
+- Debt: `execution/e2e/evidence_faults_test.go` copies the bench client of `adapters/outcome_e2e/bench_test.go` (third copy of the mock-case harness pieces); to be filed in the docs debt register.
+
+## Pre-work for the next agent
+- Exact next step: slice 3, the G1 story tests in `execution/e2e` (a healthy read KNOWN, a stale read STALE, with the real target).
