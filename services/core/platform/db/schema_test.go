@@ -167,7 +167,12 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 			t.Fatalf("%s TRUNCATE succeeded", c.table)
 		}
 	}
-	wantCode(t, try(t, pool, "postgres", `TRUNCATE execution_receipt`), violation, "execution_receipt TRUNCATE trigger")
+	// execution_receipt is referenced by outcome_verdict (0007), so it cannot be truncated at all (0A000, asserted above);
+	// its TRUNCATE trigger must still exist for the day a reference goes away.
+	var triggers int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM pg_trigger WHERE tgrelid = 'execution_receipt'::regclass AND tgname = 'execution_receipt_no_truncate' AND NOT tgisinternal`).Scan(&triggers); err != nil || triggers != 1 {
+		t.Fatalf("execution_receipt TRUNCATE trigger: %d found, %v", triggers, err)
+	}
 	wantCode(t, try(t, pool, "postgres", `DELETE FROM decision_grant`), violation, "decision_grant DELETE")
 	if err := try(t, pool, "postgres", `TRUNCATE decision_grant`); err == nil {
 		t.Fatal("decision_grant TRUNCATE succeeded")

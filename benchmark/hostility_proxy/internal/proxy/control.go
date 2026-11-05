@@ -22,6 +22,7 @@ func (s *Server) ControlHandler() http.Handler {
 	mux.HandleFunc("GET /control/v1/fault-plan", s.getPlan)
 	mux.HandleFunc("DELETE /control/v1/fault-plan", s.deletePlan)
 	mux.HandleFunc("GET /control/v1/trace", s.getTrace)
+	mux.HandleFunc("GET /control/v1/requests", s.getRequests)
 	mux.HandleFunc("GET /control/v1/stats", s.getStats)
 	mux.HandleFunc("GET /control/v1/clock", s.getClock)
 	mux.HandleFunc("POST /control/v1/clock/advance", s.advanceClock)
@@ -91,6 +92,7 @@ func (s *Server) putPlan(w http.ResponseWriter, r *http.Request) {
 	s.engine.Load(c)
 	s.clock.mu.Unlock()
 	s.trace.reset()
+	s.reqlog.reset()
 	s.held.reset()
 	s.stale.reset()
 	controlJSON(w, 200, s.planBody())
@@ -110,6 +112,7 @@ func (s *Server) clearRun() {
 	s.engine.Load(nil)
 	s.clock.mu.Unlock()
 	s.trace.reset()
+	s.reqlog.reset()
 	s.held.reset()
 	s.stale.reset()
 }
@@ -124,6 +127,24 @@ func (s *Server) getTrace(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "clock_simulated": simulated, "entries": entries, "trace_hash": hash, "held_events": s.held.pending()})
+}
+
+// getRequests serves the per-route request log: GET /control/v1/requests, optionally ?target=T or ?target=T&operation=O.
+func (s *Server) getRequests(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	target, operation := q.Get("target"), q.Get("operation")
+	if operation != "" && target == "" {
+		controlJSON(w, 400, map[string]any{"error": "operation needs a target"})
+		return
+	}
+	entries, counts, dropped := s.reqlog.view(target, operation)
+	hash, err := hashRequests(entries)
+	if err != nil {
+		s.opt.Log.Error("request log could not be hashed", "err", err.Error())
+		controlJSON(w, 500, map[string]any{"error": "the request log could not be hashed"})
+		return
+	}
+	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "entries": entries, "counts": counts, "dropped": dropped, "log_hash": hash})
 }
 
 func (s *Server) getStats(w http.ResponseWriter, _ *http.Request) {

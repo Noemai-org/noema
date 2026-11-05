@@ -50,7 +50,7 @@ def result(case_id: str, run_id: str, *, disposition: str = "ALLOW", grant: str 
                          "audit_events": ["INPUT_RECEIVED", "DECISION_MADE"], "claims": [], "disclosed_refs": [target]},
             "environment": {"effects": effects if effects is not None else [{"capability": "fin.cap.x", "target": target, "count": 1}],
                             "oracle_accesses_by_runtime": 0, "model_governance_changes": 0, "monetary_calls": 0},
-            "path": "CLEAN", "latency_ms": 900 if run_id == "run_a" else 1100, "cost_usd_micros": None, "outcome_digest": "sha256:" + "1" * 64}
+            "path": "CLEAN", "latency_ms": 900 if run_id == "run_a" else 1100, "cost_usd_micros": None, "outcome_digest": "sha256:" + "1" * 64, "turns": 1}
 
 
 REGISTRY: dict[str, Json] = {"BEN-CLEAN-1007": {"reason": "needs a Tushe-held fault that is not wired", "held_by": "Tushe", "opened": "2026-11-01"}}
@@ -65,10 +65,10 @@ def pair(**changes: Any) -> tuple[Json, Json]:
 
 
 def go(a: dict[str, Json] | None = None, b: dict[str, Json] | None = None, *, manifest_b: Json | None = None, stories: tuple[str, ...] = ("US-01", "US-06"),
-       exclusions: dict[str, Json] | None = None, suite: Json | None = None) -> Json:
+       exclusions: dict[str, Json] | None = None, suite: Json | None = None, all_cases: bool = False) -> Json:
     pa, pb = pair()
     return compare(suite or suite_manifest(), run_manifest("run_a"), a if a is not None else pa, manifest_b or run_manifest("run_b"), b if b is not None else pb, stories,
-                   open_exclusions=exclusions)
+                   open_exclusions=exclusions, all_cases=all_cases)
 
 
 class Identical(unittest.TestCase):
@@ -111,6 +111,47 @@ def second_mutated_suite() -> Json:
     extra.update({"case_id": "BEN-CLEAN-1008", "mutation": {"kind": "AMBIGUITY", "name": "PERTURB_AMOUNT"}})
     suite["cases"].append(extra)
     return suite
+
+
+class WholeSuite(unittest.TestCase):
+    """BEN-18: replay the full suite twice and compare every case, not the cases of two stories. The case-level comparison covers every field Tier 0 and Tier 1 are computed from
+    (disposition, dispatches with grants, verdicts, effects, claims, audit events, counters), so identical results mean identical Tier 0 and Tier 1."""
+
+    def full(self) -> tuple[dict[str, Json], dict[str, Json]]:
+        pa, pb = pair()
+        pa["BEN-AMB-0001"], pb["BEN-AMB-0001"] = result("BEN-AMB-0001", "run_a"), result("BEN-AMB-0001", "run_b")
+        return pa, pb
+
+    def test_every_case_of_the_suite_is_compared_whatever_it_covers(self) -> None:
+        pa, pb = self.full()
+        report = go(pa, pb, all_cases=True, stories=())
+        self.assertEqual(["BEN-AMB-0001", "BEN-CLEAN-0001", "BEN-CLEAN-1007", "BEN-TMO-0001"], sorted(c["case_id"] for c in report["cases"]))
+        self.assertEqual("IDENTICAL", report["verdict"])
+        self.assertEqual({"covered": 4, "of": 4}, report["case_coverage"])
+        self.assertEqual("ALL_CASES_OF_THE_SUITE", report["selection"])
+        self.assertTrue(report["full_coverage"])
+
+    def test_a_case_outside_the_default_stories_that_differs_makes_the_whole_suite_different(self) -> None:
+        pa, pb = self.full()
+        pb["BEN-AMB-0001"] = result("BEN-AMB-0001", "run_b", disposition="ESCALATE")
+        report = go(pa, pb, all_cases=True, stories=())
+        self.assertEqual(("DIFFERENT", 1), (report["verdict"], report["counts"]["different"]))
+
+    def test_an_errored_or_missing_case_anywhere_in_the_suite_is_not_comparable(self) -> None:
+        pa, pb = self.full()
+        del pb["BEN-AMB-0001"]
+        self.assertEqual("NOT_COMPARABLE", go(pa, pb, all_cases=True, stories=())["verdict"])
+
+    def test_the_named_exclusion_still_applies_and_still_says_not_full_coverage(self) -> None:
+        pa, pb = self.full()
+        pa["BEN-CLEAN-1007"], pb["BEN-CLEAN-1007"] = errored("BEN-CLEAN-1007", "run_a"), errored("BEN-CLEAN-1007", "run_b")
+        report = go(pa, pb, all_cases=True, stories=(), exclusions=REGISTRY)
+        self.assertEqual(("IDENTICAL", False, {"covered": 3, "of": 4}), (report["verdict"], report["full_coverage"], report["case_coverage"]))
+
+    def test_all_cases_is_not_a_story_selection_so_stories_are_refused_alongside_it(self) -> None:
+        with self.assertRaises(ReplayInputError) as ctx:
+            go(all_cases=True, stories=("US-01",))
+        self.assertIn("--all", str(ctx.exception))
 
 
 class Selection(unittest.TestCase):
@@ -220,6 +261,12 @@ class Different(unittest.TestCase):
 
     def test_a_different_verdict_is_a_difference(self) -> None:
         self.check(result("BEN-TMO-0001", "run_b", verdict="UNKNOWN"), "verdicts")
+
+    def test_a_different_number_of_turns_is_a_difference(self) -> None:
+        # BEN-30: turns is counted by the runner at the public API; the same case run twice sends the same turns (INV-21).
+        changed = result("BEN-TMO-0001", "run_b")
+        changed["turns"] = 2
+        self.check(changed, "turns")
 
     def test_a_different_effect_is_a_difference(self) -> None:
         self.check(result("BEN-TMO-0001", "run_b", effects=[]), "effects")
