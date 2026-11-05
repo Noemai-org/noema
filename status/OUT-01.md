@@ -8,3 +8,7 @@
 
 ## Pre-work for the next agent
 - Exact next step: Compose check at the new head; then EVD-01 slice 2 (migration number after 0007).
+
+## Addendum 2026-11-05 · answering the reviewer's NOT READY at `ed126b8`
+- `Store` needed no code change: `chain.Appender.Append` (main, #145) calls `record_insert_t`, which finds the tenant and the emitter from `session_user`. The wiring is the pool's login; the test worlds now use `testpg.TenantLogin(..., "outcome_rw", tenant)` (`ed126b8`).
+- Added `outcome/store/boundary_test.go` (INV-11, INV-15, EC-E16, DEBT-04): Outcome's Record events are written on the tenant's login with `written_by = core-outcome` and the chain verifies; an `outcome_rw` login not mapped to a tenant stores no verdict, no Record event and no outbox row. Both passed when written (guards, not seen failing); no mutation check run on them.

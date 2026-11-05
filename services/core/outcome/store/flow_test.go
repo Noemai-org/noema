@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -91,6 +92,12 @@ func done(cs ...verifier.Case) verifier.CasePage { return verifier.CasePage{Item
 
 func newFlow(t *testing.T, auth verifier.Authenticity, failAppend int32) *flow {
 	t.Helper()
+	return newFlowOn(t, auth, failAppend, (*world).outcome)
+}
+
+// newFlowOn is newFlow with Outcome's pool chosen by the caller, to show what the database does with a login that is not the tenant's own.
+func newFlowOn(t *testing.T, auth verifier.Authenticity, failAppend int32, pool func(*world, *testing.T) *pgxpool.Pool) *flow {
+	t.Helper()
 	w := newWorld(t)
 	raw, err := os.ReadFile("../../../../packs/fintech_v1.json")
 	if err != nil {
@@ -107,7 +114,7 @@ func newFlow(t *testing.T, auth verifier.Authenticity, failAppend int32) *flow {
 	if failAppend > 0 {
 		recIDs = &failingIDs{inner: gen, n: failAppend}
 	}
-	st := &store.Store{Pool: w.outcome(t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}}
+	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}}
 	pg := &pages{byKey: []verifier.CasePage{done(theCase("OPEN"))}, byTx: []verifier.CasePage{done(theCase("OPEN"))}}
 	keys := crypto.NewKeyRing(map[string][]byte{"k_out": []byte("synthetic-test-key-not-a-secret")})
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: pg, Store: st, Signer: hmacSigner{keys}, Authenticity: authResult{auth}, Scope: pack.Scope,
