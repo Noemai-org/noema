@@ -52,12 +52,11 @@ func TestTheDecisionRecordIsInsertOnlyAndOnlyTrustWritesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, stmt := range []string{`UPDATE decision_record SET outcome = 'REJECT'`, `DELETE FROM decision_record`, `TRUNCATE decision_record`} {
-		wantCode(t, try(t, pool, "trust_rw", stmt), violation, "trust_rw: "+stmt)
+		wantCode(t, try(t, pool, "trust_rw", stmt), denied, "trust_rw holds no UPDATE, DELETE or TRUNCATE: "+stmt)
 	}
+	// and the owner, who holds every privilege, is stopped by the trigger
 	for _, stmt := range []string{`UPDATE decision_record SET outcome = 'REJECT'`, `DELETE FROM decision_record`, `TRUNCATE decision_record`} {
-		if err := try(t, pool, "postgres", stmt); err == nil {
-			t.Errorf("the owner changed the Decision Record: %s", stmt)
-		}
+		wantCode(t, try(t, pool, "postgres", stmt), violation, "the owner: "+stmt)
 	}
 	for _, role := range []string{"execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw"} {
 		wantCode(t, try(t, pool, role, decisionRow("dec_2", "ten_a", "ALLOW")), denied, role+" inserting a Decision Record")

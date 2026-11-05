@@ -29,6 +29,8 @@ Forward-only SQL migrations, never edited after merge (AGENTS.md section 7, PERD
 
 Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_append`, `evidence_rw`, `orchestrator_rw` (0001) and `record_read` (0003). The deployment maps its login roles to them. The migrating role must be a superuser or able to hand objects to `record_append`.
 
+`0008_decision_record.sql` (TRU-05, number decided by the Architect on 4 Nov 2026): the `decision_record` table (PERD §38.2: insert-only; `trust_rw` inserts and selects, `execution_rw` and `outcome_rw` select, nobody updates, deletes or truncates, enforced by triggers even for the owner) and the trigger `decision_grant_requires_allow`: a `decision_grant` row is refused unless a `decision_record` of the same tenant and decision ID exists with outcome ALLOW (REQ-TRU-008: grants where the decision is not ALLOW: 0; the Record comes first). Tests that insert grants directly now insert the decision first (`platform/db`, `execution/ledger`, `execution/e2e`).
+
 ## Not built
 
 - The other PERD §38.2 tables (`principal_ref`, `session`, `investigation`, `intent_object`, `decision_record`, `plan`, `context_snapshot`, `outcome_verdict`, ...). Foreign keys from `decision_grant` to `decision_record` and `plan` arrive with the migration that creates those tables. Until then Execution reads the plan and the intent through the `Binder` port.

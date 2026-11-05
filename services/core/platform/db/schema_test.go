@@ -39,6 +39,8 @@ func seed(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_1', 'ten_a', '{}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
@@ -214,6 +216,8 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	// The nonce is unique across tenants, not only within one (PERD 38.2: nonce UNIQUE).
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_9', 'ten_b', '{}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
