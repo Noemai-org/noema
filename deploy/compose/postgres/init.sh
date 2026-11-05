@@ -67,3 +67,20 @@ CREATE ROLE :"role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASS
 SQL
   done
 done
+
+# One login per tenant and emitter that is not a power (DEBT-07, migration 0011): record_emitter__<tenant>__<emitter>, a member of
+# record_emitter only, which holds the Record append functions and nothing else. The mapping row is added after migration by
+# provision-tenants.sh through provision_emitter_login. NOEMA_EMITTERS lists the emitters; the default is core-edge, the one the edge
+# needs for SESSION_VALIDATED. An emitter without a login (model-service, the adapters; OD-P-73) cannot be written.
+for tenant in ${NOEMA_TENANTS:-}; do
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    case "$emitter" in
+      core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
+      [a-z]*) ;;
+      *) echo "init: '$emitter' is not an emitter name" >&2; exit 1 ;;
+    esac
+    psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v pw="$tenant_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'
+CREATE ROLE :"role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'pw' IN ROLE record_emitter;
+SQL
+  done
+done

@@ -18,3 +18,13 @@ SELECT CASE
 SQL
   done
 done
+# The logins of emitters that are not powers (DEBT-07): record_emitter__<tenant>__<emitter>, bound with provision_emitter_login.
+for tenant in ${NOEMA_TENANTS:-}; do
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v tenant="$tenant" -v emitter="$emitter" <<'SQL'
+SELECT CASE
+  WHEN EXISTS (SELECT 1 FROM tenant_login WHERE login_role = :'role' AND tenant_id = :'tenant' AND emitter = :'emitter') THEN NULL
+  ELSE provision_emitter_login(:'role', :'tenant', :'emitter') END;
+SQL
+  done
+done
