@@ -310,3 +310,18 @@ func TestATemporaryShadowOfTheTenantMappingChangesNothing(t *testing.T) {
 		t.Errorf("a shadow mapping let a tenant A login read %d rows of tenant B (%v)", n, err)
 	}
 }
+
+// REQ-SEC-004 (Security Reviewer's review of noema#167): row-level security is enabled and FORCED on both tables, so the table owner
+// (the migration role) is held to the policy too.
+func TestRowSecurityIsEnabledAndForcedOnBothEvidenceTables(t *testing.T) {
+	w := newWorld(t)
+	for _, table := range []string{"evidence_payload", "evidence_item"} {
+		var on, forced bool
+		if err := w.admin.QueryRow(ctx(t), `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = $1::regclass`, table).Scan(&on, &forced); err != nil {
+			t.Fatal(err)
+		}
+		if !on || !forced {
+			t.Errorf("%s: row security enabled = %v, forced = %v, want both true", table, on, forced)
+		}
+	}
+}

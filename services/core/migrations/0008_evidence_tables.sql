@@ -69,6 +69,9 @@ REVOKE ALL ON FUNCTION evidence_login_tenant() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION evidence_login_tenant() TO evidence_rw, trust_rw, outcome_rw;
 ALTER TABLE evidence_payload ENABLE ROW LEVEL SECURITY;
 ALTER TABLE evidence_item ENABLE ROW LEVEL SECURITY;
+-- Forced, so the table owner (the migration role) is held to the policy too (Security Reviewer, noema#167; status/DEBT-04.md Tier 1 plan).
+ALTER TABLE evidence_payload FORCE ROW LEVEL SECURITY;
+ALTER TABLE evidence_item FORCE ROW LEVEL SECURITY;
 CREATE POLICY evidence_payload_tenant ON evidence_payload FOR ALL TO evidence_rw, trust_rw, outcome_rw
   USING (tenant_id = evidence_login_tenant()) WITH CHECK (tenant_id = evidence_login_tenant());
 CREATE POLICY evidence_item_tenant ON evidence_item FOR ALL TO evidence_rw, trust_rw, outcome_rw
