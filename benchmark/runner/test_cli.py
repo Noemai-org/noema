@@ -78,6 +78,19 @@ class ProxyLogWiring(unittest.TestCase):
             self.assertEqual(3, code)
             return str(json.loads((out / "run-manifest.json").read_text())["not_run_reason"])
 
+    def test_a_proxy_url_without_the_bench_credential_is_a_configuration_error_not_a_silent_fallback(self) -> None:
+        # Same rule as --standin-url (Codex review of noema#161): an incomplete configuration must not silently become "no source".
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import main
+        with tempfile.TemporaryDirectory() as tmp:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["--suite", str(suite_dir()), "--out", str(Path(tmp) / "out"), "--only", "BEN-CLEAN-0001", "--proxy-url", "http://127.0.0.1:9"])
+            self.assertEqual(2, code)
+            self.assertIn("--bench-credential-file", out.getvalue())
+
     def test_without_a_source_monetary_calls_is_the_named_gap(self) -> None:
         self.assertIn("monetary_calls", self.reason())
 

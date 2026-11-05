@@ -73,6 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
+    if args.proxy_url and not args.bench_credential_file:
+        print("--proxy-url needs --bench-credential-file: the proxy's request log takes the bench credential, and without it monetary_calls would silently have no source")
+        return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
     if args.proxy_url and args.bench_credential_file:
         monetary: Any = ProxyRouteLog(args.proxy_url, args.bench_credential_file)
