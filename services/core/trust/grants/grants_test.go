@@ -19,6 +19,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
 var (
@@ -448,5 +449,60 @@ func TestTamperFuzzingIsRejected(t *testing.T) {
 	}
 	if parsed < 2000 {
 		t.Fatalf("only %d mutations parsed: the fuzz is too narrow to prove anything", parsed)
+	}
+}
+
+// Codex P1 on noema#163 (REQ-RES-002): a grant cannot be built for a frozen target and a capability that is not allowed under a freeze. The
+// proof is a Permission, whose only constructor is FreezeGate.Permit; the issuer must require one bound to the step's own capability.
+func TestAGrantNeedsAFreezePermissionForItsOwnCapability(t *testing.T) {
+	gate := reconcile.NewFreezeGate([]string{"fin.cap.attach_evidence"})
+	i := issuer(t, keys(t))
+	d := decision(t, decide.Allow)
+	own, err := gate.Permit(false, "fin.cap.create_escalation_case")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := gate.Permit(false, "fin.cap.attach_evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, p := range map[string]reconcile.Permission{"no permission (the zero value)": {}, "a permission for another capability": other} {
+		st := step()
+		st.Permission = p
+		if g, err := i.Issue(d, st); !errors.Is(err, grants.ErrNoPermission) {
+			t.Errorf("%s: err %v, grant %+v; want ErrNoPermission and no grant", name, err, g)
+		}
+	}
+	st := step()
+	st.Permission = own
+	if _, err := i.Issue(d, st); err != nil {
+		t.Fatalf("a permission for the step's own capability: %v", err)
+	}
+	// and on a frozen target the gate itself refuses the capability that is not allowed, so there is no permission to present
+	if _, err := gate.Permit(true, "fin.cap.create_escalation_case"); err == nil {
+		t.Fatal("the gate gave a permission for a frozen target and a capability that is not allowed under a freeze")
+	}
+}
+
+// Codex P2 on noema#163: the pack version is copied into the signed grant, so it must match the grant contract's pattern, like the policy
+// version; a basis only guarantees that it is not empty.
+func TestAGrantIsNotSignedForAMalformedPackVersion(t *testing.T) {
+	i := issuer(t, keys(t))
+	for _, bad := range []string{"fintech", "fin.pack@1", "Fin.Pack@1.0", "fin.pack@1.x", "fin.pack@1.0.0.0", "fin.pack@", "@1.0", "fin pack@1.0", "fin.pack@1.0\n"} {
+		r, _ := decide.Admit(decide.IntentView{Version: 2}).Resolved()
+		d, err := r.Allow(decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := basis()
+		b.PackVersion = bad
+		if d, err = d.WithBasis(b); err != nil {
+			t.Fatal(err)
+		}
+		st := step()
+		st.Permission = permit(t, st.CapabilityID)
+		if g, err := i.Issue(d, st); !errors.Is(err, grants.ErrStep) {
+			t.Errorf("pack version %q: err %v, grant %+v; want ErrStep and no grant", bad, err, g)
+		}
 	}
 }
