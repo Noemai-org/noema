@@ -295,12 +295,16 @@ func boundPolicy(b decide.Basis, policyID string) (string, bool) {
 	return policyID + "@" + best, true
 }
 
-// dotted parses "3.10.1" into its numbers.
+// dotted parses "3.10.1" into its numbers. A component is ASCII digits only, so a sign, a space or another script's digit is refused; a leading
+// zero is allowed because the grant and policy-version contracts allow it ("03.01" is the number 3 then 1, and 3.010 is newer than 3.9).
 func dotted(v string) ([]int, bool) {
 	var out []int
 	for _, part := range strings.Split(v, ".") {
+		if part == "" || strings.Trim(part, "0123456789") != "" {
+			return nil, false
+		}
 		n, err := strconv.Atoi(part)
-		if err != nil || n < 0 || part != strconv.Itoa(n) {
+		if err != nil {
 			return nil, false
 		}
 		out = append(out, n)
