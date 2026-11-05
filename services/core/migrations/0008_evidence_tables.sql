@@ -43,12 +43,13 @@ CREATE TRIGGER evidence_item_immutable BEFORE UPDATE OR DELETE ON evidence_item 
 CREATE TRIGGER evidence_item_no_truncate BEFORE TRUNCATE ON evidence_item FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation();
 
 -- A write is bound to the tenant of the login that makes it (DEBT-04 option A; REQ-SEC-004, INV-11): session_user, which a caller
--- cannot change, is looked up in tenant_login. A login with no mapping, a login of another power and a row naming another
+-- cannot change, is looked up in public.tenant_login (schema-qualified, with pg_temp last in the search path so a session's temporary table
+-- named tenant_login cannot stand in for it). A login with no mapping, a login of another power and a row naming another
 -- tenant are refused. A foreign key proves only that a tenant exists, not that the caller belongs to it.
 CREATE FUNCTION evidence_row_tenant_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM tenant_login l
+  IF NOT EXISTS (SELECT 1 FROM public.tenant_login l
                  WHERE l.login_role = session_user::text AND l.power = 'evidence' AND l.tenant_id = NEW.tenant_id) THEN
     RAISE EXCEPTION '%: this login may not write evidence for tenant %', TG_TABLE_NAME, NEW.tenant_id USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -61,8 +62,8 @@ CREATE TRIGGER evidence_item_tenant_guard BEFORE INSERT ON evidence_item FOR EAC
 -- Reads are bound to the login's tenant by row-level security, on the same session_user mapping (Codex review of noema#167): a table-wide
 -- SELECT would let any tenant's Trust, Outcome or Evidence login read every tenant's evidence. A session with no tenant mapping sees no row.
 CREATE FUNCTION evidence_login_tenant() RETURNS text
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
-  SELECT l.tenant_id FROM tenant_login l WHERE l.login_role = session_user::text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT l.tenant_id FROM public.tenant_login l WHERE l.login_role = session_user::text
 $$;
 REVOKE ALL ON FUNCTION evidence_login_tenant() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION evidence_login_tenant() TO evidence_rw, trust_rw, outcome_rw;
