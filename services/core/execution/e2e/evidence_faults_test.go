@@ -170,7 +170,7 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)) // SYNTHETIC
 	gen := ids.New(clk, nil)
-	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: gen}}
 
 	rctx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()
