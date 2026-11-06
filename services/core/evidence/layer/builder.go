@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -27,6 +28,8 @@ const (
 	tsLayout        = "2006-01-02T15:04:05.000000000Z"
 	emptyBodyMarker = "read_class"
 )
+
+var rawHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // IDSource makes the prefixed ULIDs of PERD 32.3.
 type IDSource interface {
@@ -79,6 +82,9 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	if sla < 1 {
 		return Item{}, fmt.Errorf("%sthe source has no positive freshness window", builderPrefix)
 	}
+	if err := checkResponse(o); err != nil {
+		return Item{}, err
+	}
 	now := b.Clock.Now()
 	status := AssignStatus(o.Read, o.Src, now)
 	payload := o.Payload
@@ -92,7 +98,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	sum := sha256.Sum256(canon)
 	hash := hashPrefix + hex.EncodeToString(sum[:])
 	raw := o.RawHash
-	if raw == "" {
+	if o.Payload == nil { // checkResponse allowed this only for a read that returned nothing
 		empty := sha256.Sum256(nil)
 		raw = hashPrefix + hex.EncodeToString(empty[:])
 	}
@@ -124,6 +130,22 @@ type row struct {
 	canon                      []byte
 	sla                        int64
 	status                     contracts.EnumsV1FactStatus
+}
+
+// checkResponse refuses an observation whose evidence would be unprovable: a normalised response must carry the hash of the raw bytes it came
+// from, and a read that says it succeeded must carry a response, because a bodyless read must not become a known fact. A read that returned
+// nothing (an error, a timeout, a not-found) has no response and gets the hash of the empty body.
+func checkResponse(o Observation) error {
+	if o.Payload == nil {
+		if o.Read.Class == ReadOK {
+			return fmt.Errorf("%san OK read carries no response", builderPrefix)
+		}
+		return nil
+	}
+	if !rawHashRe.MatchString(o.RawHash) {
+		return fmt.Errorf("%sthe response has no valid raw hash", builderPrefix)
+	}
+	return nil
 }
 
 func (b *Builder) write(ctx context.Context, tx pgx.Tx, o Observation, r row, now time.Time) error {
