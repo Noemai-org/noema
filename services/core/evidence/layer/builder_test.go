@@ -279,3 +279,19 @@ func TestBuilderLabelsEvidenceFromASyntheticSourceOnTheRecord(t *testing.T) {
 		t.Fatalf("event label = %v, want \"stand-in true\"", got)
 	}
 }
+
+// AGENT-25 (Codex review of noema#172, third round): the synthetic flag is persisted on its own, so synthetic data is never unlabelled
+// because its source name was left empty.
+func TestBuilderLabelsSyntheticEvidenceEvenWithoutASourceName(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadOK)
+	o.DataSource, o.Synthetic = "", true
+	if _, err := b.Record(ctx(t), o); err != nil {
+		t.Fatal(err)
+	}
+	got := w.rows(t, `SELECT coalesce(payload->>'synthetic', 'absent') FROM record_event WHERE event_type = 'EVIDENCE_READ'`)
+	if len(got) != 1 || got[0] != "true" {
+		t.Fatalf("synthetic label = %v, want true", got)
+	}
+}

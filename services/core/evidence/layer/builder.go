@@ -220,7 +220,10 @@ func (b *Builder) write(ctx context.Context, tx pgx.Tx, o Observation, r row, no
 	event := map[string]any{"evidence_id": evidenceID, "source": o.Source, "source_record_id": o.SourceRecordID, "read_by": o.ReadBy,
 		"fact_status": string(status), "payload_hash": hash, "read_at": o.Read.ReadAt.UTC().Format(tsLayout)} // hash only: never the payload
 	if o.DataSource != "" {
-		event["data_source"], event["synthetic"] = o.DataSource, o.Synthetic
+		event["data_source"] = o.DataSource
+	}
+	if o.DataSource != "" || o.Synthetic { // the synthetic label never depends on the source having a name
+		event["synthetic"] = o.Synthetic
 	}
 	if _, err := b.Rec.Append(ctx, tx, chain.Event{TenantID: o.TenantID, CorrelationID: o.CorrelationID, WrittenBy: emitter, Actor: emitter,
 		EventType: eventEvidence, ObjectRef: evidenceID, Payload: event}); err != nil {
