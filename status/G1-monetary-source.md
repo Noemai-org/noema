@@ -20,3 +20,7 @@ Updated 2026-11-05. Decision: the Founder, 4 Nov 2026, source (a): a per-route r
 ## Session 2026-11-05 · BEN-05 monetary source, generation requirement
 - Codex (noema#170, second round): an absent `generation` let a restart that recreates the same prefix pass. The reader now fails closed: a proxy log that reports no `generation` is `CounterUnavailable`, never zero.
 - The proxy (ENV-09) does not report `generation` today (`control.go` returns entries, counts, dropped, log_hash). Until the Integration Lead adds a monotonic per-start `generation` to `GET /control/v1/requests`, `monetary_calls` is unavailable and the G1 run reports NOT RUN for it. Request to the Integration Lead: add `generation` (changes on every proxy start and every log reset).
+
+## Session 2026-11-06 · BEN-05 monetary source, real endpoint fields
+- Codex (noema#170, third round): ENV-09 `getRequests` returns no `generation`, so requiring it made the counter unreachable against the real proxy. Reverted to option (1): continuity is checked from fields the endpoint returns (marked entry `seq`, a digest of the marked prefix), and a `generation` is enforced strictly whenever the proxy reports one (a generation that appears, changes or disappears is unavailable).
+- Residual, stated in the counter's `describe()` and so in the run manifest: a restart that replays a byte-identical prefix is not detectable without a generation. Closing it needs a versioned `generation` on ENV-09 (Integration Lead; not requested as a blocker).
