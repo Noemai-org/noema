@@ -81,6 +81,7 @@ type flow struct {
 	clk   *clock.Manual
 	pages *pages
 	v     *verifier.Verifier
+	st    *store.Store
 	req   verifier.Request
 }
 
@@ -114,7 +115,7 @@ func newFlowOn(t *testing.T, auth verifier.Authenticity, failAppend int32, pool 
 	if failAppend > 0 {
 		recIDs = &failingIDs{inner: gen, n: failAppend}
 	}
-	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}}
+	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}, RollbackTimeout: 5 * time.Second}
 	pg := &pages{byKey: []verifier.CasePage{done(theCase("OPEN"))}, byTx: []verifier.CasePage{done(theCase("OPEN"))}}
 	keys := crypto.NewKeyRing(map[string][]byte{"k_out": []byte("synthetic-test-key-not-a-secret")})
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: pg, Store: st, Signer: hmacSigner{keys}, Authenticity: authResult{auth}, Scope: pack.Scope,
@@ -122,7 +123,7 @@ func newFlowOn(t *testing.T, auth verifier.Authenticity, failAppend int32, pool 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &flow{world: w, clk: clk, pages: pg, v: v, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, VerificationID: "vrf_flow1", TransactionRef: subject, QueryableByKey: true,
+	return &flow{world: w, clk: clk, pages: pg, v: v, st: st, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, VerificationID: "vrf_flow1", TransactionRef: subject, QueryableByKey: true,
 		Bindings:   map[string]string{"subject_resource": subject, "intent_id": intentID},
 		Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
 }

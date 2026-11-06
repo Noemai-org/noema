@@ -265,7 +265,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	def := pack.Definitions[caseOpened]
-	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: 5 * time.Second}
 	pubs := publicKeys{receiptKeyID: {Key: receiptPub, Status: receiptsig.Active}}
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
