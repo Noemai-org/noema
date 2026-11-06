@@ -235,6 +235,16 @@ func (r *Ring) Sign(tag Tag, doc map[string]any) (Signed, error) {
 	return r.sign(tag, canon)
 }
 
+// SignReceipt is the Controller's port (controller.ReceiptSigner): it signs an Execution Receipt document under the receipt tag and returns
+// the key ID, the signature and the exact bytes signed, which the ledger stores (D8).
+func (r *Ring) SignReceipt(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error) {
+	s, err := r.Sign(ReceiptTag, doc)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return s.KeyID, s.Value, s.SignedJCS, nil
+}
+
 // SignJCS signs bytes that are already a document, and only if they are exactly canonical: an RFC 8785 object with no repeated
 // member name at any depth, no float, no sig and nothing after it. The database stores these bytes and compares them with the row,
 // so what is signed is what is stored (D8).

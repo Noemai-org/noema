@@ -19,7 +19,13 @@ type GrantSource interface {
 // through VerifyGrantSignature.
 type KeyVerifier interface {
 	VerifyWith(keyID string, msg []byte, sigHex string) bool
-	SignWith(keyID string, msg []byte) (string, error)
+}
+
+// ReceiptSigner signs an Execution Receipt document (without sig) with Ed25519 under the newest ACTIVE key of core-execution and returns the key
+// ID, the 128-hex signature and the exact bytes signed, which the Ledger stores (DEC-2026-11-01 D6, D8). The private key is never in PostgreSQL.
+// execution/signing.Ring satisfies it through SignReceipt. Grants stay HMAC and are verified through KeyVerifier.
+type ReceiptSigner interface {
+	SignReceipt(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error)
 }
 
 // Binder reads the authoritative state that E3 to E6 compare with. It has no side effects.
