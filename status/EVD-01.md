@@ -64,6 +64,10 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 - Exact next step: slice 2c, `ClassifyError` (adapter result to `ReadClass`) with tests against the real hostility proxy and mock-case FaultPlans; then slice 3.
 - Do not touch: contracts.
 
+## Addendum 2026-11-06 · answering Codex's two P2 findings on noema#172 at `d435440`
+- Findings: (1) a normalised response with an empty `RawHash` was stored with the hash of the empty body, a false checksum; (2) a `ReadOK` read with no response became KNOWN with a placeholder payload. Both verified in a test first (`TestBuilderRefusesAPresentResponseWithoutItsRawHashAndAnOKReadWithoutAResponse`, red: the OK read without a response was stored as KNOWN; the response without a raw hash left an `EVIDENCE_READ` event).
+- Fix: `checkResponse` refuses an OK read without a response and a response without a valid raw hash; only a read that returned nothing (error, timeout, not found) gets the empty-body hash. Mutant: OK read without response allowed, caught. One equivalent mutant: the Go raw-hash check removed; the table's CHECK on `raw_hash` still refuses the row, so the Go check is the early, clear refusal.
+- The healthy-read story test of the stacked branch supplies the real raw bytes' hash.
 # Session 2026-11-05 17:30 WAT · EVD-01 (slice 2c)
 
 ## Session summary

@@ -47,6 +47,7 @@ func observation(tenant string, class layer.ReadClass) layer.Observation {
 		Read:    layer.Read{Class: class, Determinate: true, ReadAt: readAt},
 		Src:     layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second},
 		Payload: map[string]any{"b": 2, "a": 1}, // key order must not matter
+		RawHash: "sha256:" + strings.Repeat("ab", 32),
 	}
 }
 
@@ -160,5 +161,29 @@ func TestBuilderRefusesAnObservationWithoutAFreshnessWindow(t *testing.T) {
 	o.Src.SourceLimit = 0
 	if _, err := b.Record(ctx(t), o); err == nil {
 		t.Fatal("an observation with no freshness window was accepted")
+	}
+}
+
+// REQ-CTX-001, INV-19 (Codex review of noema#172): a normalised response without the hash of the raw bytes it came from is refused, and an OK
+// read without a response is refused; neither may be stored as KNOWN.
+func TestBuilderRefusesAPresentResponseWithoutItsRawHashAndAnOKReadWithoutAResponse(t *testing.T) {
+	cases := map[string]func(o *layer.Observation){
+		"a response with no raw hash":        func(o *layer.Observation) { o.RawHash = "" },
+		"a response with a malformed hash":   func(o *layer.Observation) { o.RawHash = "sha256:XYZ" },
+		"an OK read with no response at all": func(o *layer.Observation) { o.Payload, o.RawHash = nil, "" },
+	}
+	for name, mutate := range cases {
+		w := newWorld(t)
+		b, _ := newBuilder(t, w, tenantA, false)
+		o := observation(tenantA, layer.ReadOK)
+		mutate(&o)
+		if item, err := b.Record(ctx(t), o); err == nil {
+			t.Errorf("%s was stored: %+v", name, item)
+		}
+		for _, q := range []string{`SELECT count(*) FROM evidence_payload`, `SELECT count(*) FROM evidence_item`, `SELECT count(*) FROM record_event`} {
+			if n := w.count(t, q); n != 0 {
+				t.Errorf("%s: %s = %d after a refusal", name, q, n)
+			}
+		}
 	}
 }
