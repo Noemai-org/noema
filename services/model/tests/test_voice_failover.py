@@ -147,7 +147,8 @@ def test_an_utterance_longer_than_the_replay_buffer_cannot_fail_over_and_offers_
     result = go([first, second], max_buffered=4)
     assert result.utterance is None and result.offer_text is True
     assert second.received == []  # it was never handed a partial utterance
-    assert result.steps[-1].provider_name == "b" and result.steps[-1].failure is ProviderFailure.MALFORMED
+    assert result.replay_overflow is True
+    assert [(s.provider_name, s.failure) for s in result.steps] == [("a", ProviderFailure.TIMEOUT)]
 
 
 def test_the_buffer_limit_must_be_positive() -> None:

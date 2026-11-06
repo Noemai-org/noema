@@ -53,6 +53,10 @@ class EndpointDetector:
         self._silence_ms = 0.0
         self._state = EndpointState.WAITING
 
+    @property
+    def speech_ms(self) -> float:
+        return self._speech_ms
+
     def feed(self, chunk: AudioChunk) -> EndpointState:
         if chunk.codec is not AudioCodec.PCM_S16LE:
             raise ValueError("end-of-speech detection needs decoded PCM")
