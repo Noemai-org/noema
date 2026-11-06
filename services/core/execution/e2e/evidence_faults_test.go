@@ -126,7 +126,7 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 		}
 		o := layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: "cas_missing01", ReadBy: "TRUST",
 			EffectiveAt: clk.Now(), AuthorityClass: "AUTHORITATIVE_FOR:case_status", ResourceScope: "res_synthetic", PrincipalScope: "prn_synthetic",
-			Sensitivity: "S2_internal", Read: layer.Read{Class: class, ReadAt: clk.Now()}, Src: layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second}}
+			Sensitivity: "S2_internal", Synthetic: true, Read: layer.Read{Class: class, ReadAt: clk.Now()}, Src: layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second}}
 		item, err := builder.Record(bg, o)
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
@@ -138,6 +138,10 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 	var events, known int
 	if err := admin.QueryRow(bg, `SELECT count(*) FROM record_event WHERE event_type = 'EVIDENCE_READ'`).Scan(&events); err != nil || events != len(steps) {
 		t.Fatalf("EVIDENCE_READ events = %d (%v), want %d", events, err, len(steps))
+	}
+	var labelled int // AGENT-25: evidence read from the synthetic mock-case is labelled synthetic on the Record
+	if err := admin.QueryRow(bg, `SELECT count(*) FROM record_event WHERE event_type = 'EVIDENCE_READ' AND payload->>'synthetic' = 'true'`).Scan(&labelled); err != nil || labelled != len(steps) {
+		t.Fatalf("EVIDENCE_READ events labelled synthetic = %d (%v), want %d", labelled, err, len(steps))
 	}
 	if err := admin.QueryRow(bg, `SELECT count(*) FROM evidence_item WHERE fact_status = 'KNOWN'`).Scan(&known); err != nil || known != 0 {
 		t.Fatalf("%d items are KNOWN although every read was faulted or empty (%v)", known, err)
