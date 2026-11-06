@@ -5,6 +5,7 @@ package decide_test
 // supplied by the caller, and a decision whose basis differs from the evaluated set is refused at recording. All data is SYNTHETIC.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -285,4 +286,67 @@ func TestNoAllowOrConfirmPassesWhoseBasisIsNotTheEvaluatedSet(t *testing.T) {
 			t.Fatalf("a changed basis passed Check: %v", err)
 		}
 	})
+}
+
+// Codex P1 on noema#232: Evaluate alone accepts any complete basis a step supplies. EvaluateBound is the evaluation the Decision Record path uses: an ALLOW or
+// CONFIRM stands only if its basis is exactly what the steps recorded (INV-16, REQ-TRU-001); otherwise the evaluation ends in UNKNOWN INTERNAL_ERROR.
+func TestEvaluateBoundRefusesAnAllowWhoseBasisIsNotTheEvaluatedSet(t *testing.T) {
+	stop := func(b *decide.BasisBuilder, d decide.Decision) decide.Steps {
+		s := continueAll()
+		s[decide.T15DecisionRecorded-1] = func(context.Context) decide.StepResult { return decide.Stop(d) }
+		return s
+	}
+	b := recorded(t)
+	genuine, err := b.Attach(must(resolvedIntent(t).Allow(allPass)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, trace := decide.EvaluateBound(context.Background(), version, stop(b, genuine), b)
+	if got.Outcome() != decide.Allow || trace[len(trace)-1].Result != decide.StepTerminal {
+		t.Fatalf("the genuine ALLOW: %s %v", got.Outcome(), trace[len(trace)-1])
+	}
+	// a basis the caller made up: complete and valid, but not what the steps recorded
+	fabricated, err := must(resolvedIntent(t).Allow(allPass)).WithBasis(fullBasis())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, d := range map[string]decide.Decision{"a fabricated basis": fabricated, "another evaluation's set": otherSet(t)} {
+		got, trace := decide.EvaluateBound(context.Background(), version, stop(b, d), b)
+		if !isInternalError(got) || trace[len(trace)-1].Result != decide.StepInvalidResult {
+			t.Errorf("%s: outcome %s, last trace %v", name, got.Outcome(), trace[len(trace)-1])
+		}
+	}
+	// no builder means nothing to check the basis against: an ALLOW is not trusted
+	if got, _ := decide.EvaluateBound(context.Background(), version, stop(b, genuine), nil); !isInternalError(got) {
+		t.Errorf("no builder: outcome %s", got.Outcome())
+	}
+	// an outcome that carries no basis passes through unchanged
+	rej := func(context.Context) decide.StepResult {
+		return decide.Stop(must(resolvedIntent(t).Reject(allPass, core(t, "NO_PERMITTING_RULE"))))
+	}
+	s := continueAll()
+	s[decide.T5Scope-1] = rej
+	if got, _ := decide.EvaluateBound(context.Background(), version, s, b); got.Outcome() != decide.Reject {
+		t.Errorf("a REJECT: %s", got.Outcome())
+	}
+}
+
+// otherSet is a genuine builder-made basis of a different evaluation (another snapshot), as a decision carried over from elsewhere would have.
+func otherSet(t *testing.T) decide.Decision {
+	t.Helper()
+	o, err := decide.NewBasisBuilder("fin.pack@1.0.0", 1_700_000_100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RecordEvidence("snap_99", []decide.Freshness{freshness("fin.src.ledger", 42, 300)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RecordPolicy([]decide.PolicyRuleVersion{rule("fin.pol.default.permit_reads", "fin.pol", "3.1")}); err != nil {
+		t.Fatal(err)
+	}
+	d, err := o.Attach(must(resolvedIntent(t).Allow(allPass)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
