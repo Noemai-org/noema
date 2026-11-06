@@ -363,3 +363,30 @@ func TestRequestsTheWriterCannotHonourAreRefusedBeforeAnythingIsWritten(t *testi
 		t.Errorf("a refusal before any read: %v", err)
 	}
 }
+
+// Codex P2 on noema#237: the pack version is in the signed record, and decision-record.v2 gives it a pattern. A builder that accepted a malformed one must not
+// get a record signed that every contract-validating reader rejects.
+func TestAPackVersionThatIsNotTheContractsIsRefusedBeforeAnythingIsWritten(t *testing.T) {
+	w := newWorld(t)
+	for _, pack := range []string{"NotAPack", "fin.pack", "fin.pack@1", "fin.pack@1.0.0.0", "fin pack@1.0.0", "@1.0.0"} {
+		b, err := decide.NewBasisBuilder(pack, epoch.Unix())
+		if err != nil {
+			continue // the builder itself refused it, which is also fine
+		}
+		if err := b.RecordEvidence("evs_01ABC", []decide.Freshness{freshness()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := b.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}}); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := w.trust.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = w.w.Write(ctx(t), tx, request(t, decision(t, decide.Allow, b), b, step(t)))
+		_ = tx.Rollback(ctx(t))
+		if !errors.Is(err, recorder.ErrRequest) {
+			t.Errorf("pack version %q: err %v, want ErrRequest", pack, err)
+		}
+	}
+}
