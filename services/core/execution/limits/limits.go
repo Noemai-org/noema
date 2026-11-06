@@ -37,8 +37,8 @@ func Load(r io.Reader) (Limits, error) {
 	if err := dec.Decode(&d); err != nil {
 		return Limits{}, fmt.Errorf("%scannot read the document: %w", errPrefix, err)
 	}
-	if dec.More() {
-		return Limits{}, errors.New(errPrefix + "more than one document")
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return Limits{}, errors.New(errPrefix + "anything after the document is refused")
 	}
 	cb := d.CircuitBreaker
 	if cb.MinSamples < 1 || cb.MinSamples > math.MaxInt32 {
