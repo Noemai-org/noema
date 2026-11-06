@@ -67,7 +67,7 @@ func TestNoCredentialIsUnauthenticatedAndABadOneIsAnInvalidSession(t *testing.T)
 	}
 	forged := do(h, "Bearer "+mint(t, k.other, goodHeader(), goodClaims(epoch)), nil)
 	expired := goodClaims(epoch)
-	expired["iat"], expired["exp"] = epoch.Add(-time.Hour).Unix(), epoch.Add(-time.Minute).Unix()
+	expired["iat"], expired["exp"] = epoch.Add(-time.Hour).Unix(), epoch.Add(-skew-time.Minute).Unix()
 	old := do(h, "Bearer "+mint(t, k.priv, goodHeader(), expired), nil)
 	for name, r := range map[string]*httptest.ResponseRecorder{"forged": forged, "expired": old, "wrong scheme": do(h, "Basic abc", nil), "bare token": do(h, mint(t, k.priv, goodHeader(), goodClaims(epoch)), nil)} {
 		b := envelope(t, r)

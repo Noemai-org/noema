@@ -67,7 +67,7 @@ type Config struct {
 	Audience    string
 	Tenants     []string      // the tenants this deployment serves
 	MaxLifetime time.Duration // the longest a token may live (exp - iat); set, positive and at most CeilingLifetime
-	Skew        time.Duration // how far in the future an iat may be; configuration with no default (zero allows none), below MaxLifetime
+	Skew        time.Duration // the leeway on iat and exp (ruling A21: 60 s, pack data); configuration with no default (zero allows none), below MaxLifetime
 	Clock       clock.Clock
 }
 
@@ -177,7 +177,7 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	}
 	iat, exp := time.Unix(*c.Iat, 0).UTC(), time.Unix(*c.Exp, 0).UTC()
 	now := v.clock.Now()
-	if iat.After(now.Add(v.skew)) || !exp.After(now) || exp.Sub(iat) > v.maxLife || !exp.After(iat) {
+	if iat.After(now.Add(v.skew)) || !exp.Add(v.skew).After(now) || exp.Sub(iat) > v.maxLife || !exp.After(iat) {
 		return Principal{}, invalid("time")
 	}
 	role := Role(c.Roles[0])

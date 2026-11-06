@@ -138,6 +138,7 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 	clk := clock.NewManual(epoch)
 	for name, extra := range map[string][]string{
 		"zero ttl":                           {"-ttl", "0s"},
+		"sub-second ttl":                     {"-ttl", "500ms"},
 		"principal above the verifier bound": {"-principal", strings.Repeat("p", session.MaxSubjectLen+1)},
 		"ttl above the ceiling":              {"-ttl", "15m1s"},
 		"ttl far above the ceiling":          {"-ttl", "20m"},

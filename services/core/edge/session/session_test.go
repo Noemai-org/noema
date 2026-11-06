@@ -32,8 +32,8 @@ const (
 	tenantB  = "tnt_b"
 	kid      = "idp-k1"
 	lifetime = 15 * time.Minute
-	skew     = 2 * time.Second
-	issuer   = "noema-poc-idp" // ruling A1 (docs#115, D7): exact match
+	skew     = 60 * time.Second // ruling A21: the leeway on exp and iat; pack data in production, an input here
+	issuer   = "noema-poc-idp"  // ruling A1 (docs#115, D7): exact match
 )
 
 var epoch = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
@@ -135,9 +135,9 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 		"no sub":                                 mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { delete(c, "sub") })),
 		"empty sub":                              mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["sub"] = "" })),
 		"no exp":                                 mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { delete(c, "exp") })),
-		"already expired": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) {
-			c["exp"] = epoch.Add(-time.Second).Unix()
-			c["iat"] = epoch.Add(-time.Minute).Unix()
+		"already expired, past the leeway": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) {
+			c["exp"] = epoch.Add(-skew - time.Second).Unix()
+			c["iat"] = epoch.Add(-skew - time.Minute).Unix()
 		})),
 		"issued in the future": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) {
 			c["iat"] = epoch.Add(time.Hour).Unix()
@@ -179,7 +179,7 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 	if _, err := v.Verify(good); err != nil {
 		t.Fatal(err)
 	}
-	clk.Advance(5*time.Minute + time.Second)
+	clk.Advance(5*time.Minute + skew + time.Second)
 	if _, err := v.Verify(good); !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("an expired token must be rejected: %v", err)
 	}
@@ -191,10 +191,16 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 func TestTimeBoundariesAreExact(t *testing.T) {
 	k := newKeys(t)
 	v, _ := verifier(t, k, epoch)
-	exactlyNow := goodClaims(epoch)
-	exactlyNow["iat"], exactlyNow["exp"] = epoch.Add(-time.Minute).Unix(), epoch.Unix()
-	if _, err := v.Verify(mint(t, k.priv, goodHeader(), exactlyNow)); !errors.Is(err, session.ErrInvalid) {
-		t.Errorf("a token that expires now must be rejected: %v", err)
+	// Ruling A21: the leeway applies to exp too. A token is valid until exp plus the leeway, and not a second longer.
+	atLeewayEdge := goodClaims(epoch)
+	atLeewayEdge["iat"], atLeewayEdge["exp"] = epoch.Add(-skew-time.Minute).Unix(), epoch.Add(-skew).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), atLeewayEdge)); !errors.Is(err, session.ErrInvalid) {
+		t.Errorf("a token that expired exactly the leeway ago must be rejected: %v", err)
+	}
+	insideLeeway := goodClaims(epoch)
+	insideLeeway["iat"], insideLeeway["exp"] = epoch.Add(-skew-time.Minute).Unix(), epoch.Add(-skew+time.Second).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), insideLeeway)); err != nil {
+		t.Errorf("a token that expired less than the leeway ago is valid: %v", err)
 	}
 	oneSecondLeft := goodClaims(epoch)
 	oneSecondLeft["iat"], oneSecondLeft["exp"] = epoch.Add(-time.Minute).Unix(), epoch.Add(time.Second).Unix()
@@ -202,12 +208,12 @@ func TestTimeBoundariesAreExact(t *testing.T) {
 		t.Errorf("a token with a second left is valid: %v", err)
 	}
 	withinSkew := goodClaims(epoch)
-	withinSkew["iat"], withinSkew["exp"] = epoch.Add(skew).Unix(), epoch.Add(time.Minute).Unix()
+	withinSkew["iat"], withinSkew["exp"] = epoch.Add(skew).Unix(), epoch.Add(skew+time.Minute).Unix()
 	if _, err := v.Verify(mint(t, k.priv, goodHeader(), withinSkew)); err != nil {
 		t.Errorf("a token issued exactly the stated skew from now is valid: %v", err)
 	}
 	notYet := goodClaims(epoch)
-	notYet["iat"], notYet["exp"] = epoch.Add(skew+time.Second).Unix(), epoch.Add(time.Minute).Unix()
+	notYet["iat"], notYet["exp"] = epoch.Add(skew+time.Second).Unix(), epoch.Add(skew+time.Minute).Unix()
 	if _, err := v.Verify(mint(t, k.priv, goodHeader(), notYet)); !errors.Is(err, session.ErrInvalid) {
 		t.Errorf("a token issued past the stated skew must be rejected: %v", err)
 	}

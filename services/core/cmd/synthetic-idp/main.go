@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -128,8 +129,8 @@ func issue(args []string, out io.Writer, clk clock.Clock) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *key == "" || *kid == "" || *aud == "" || *tenant == "" || *principal == "" || len(*principal) > session.MaxSubjectLen || len(rs) != 1 || *ttl <= 0 || *ttl > session.CeilingLifetime {
-		return errors.New("issue: -key, -kid, -aud, -tenant, -principal, exactly one -role, a -principal of at most 128 bytes and a positive -ttl of at most 15 minutes are all required")
+	if *key == "" || *kid == "" || *aud == "" || *tenant == "" || *principal == "" || len(*principal) > session.MaxSubjectLen || len(rs) != 1 || *ttl < time.Second || *ttl > session.CeilingLifetime {
+		return errors.New("issue: -key, -kid, -aud, -tenant, -principal, exactly one -role, a -principal of at most 128 bytes and a -ttl of at least one second and at most 15 minutes are all required")
 	}
 	for _, r := range rs {
 		if _, ok := session.ParseRole(r); !ok {

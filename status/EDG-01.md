@@ -54,3 +54,10 @@
 - Open questions (owner): the skew value (Engineering Lead states it in the PR; it is configuration with no default); the `sub` bound of 128 bytes is mine and needs a yes; the benchmark runner's role handling.
 - Files to read first: `services/core/edge/session/session.go`, `docs/decisions/DEC-2026-11-05-architect-rulings.md` (docs#115).
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-06 (later) · slice 3a: Codex rounds, ruling A21, ruling A15
+- A21 (60 s leeway on `exp` and `iat`, pack data, simulated clock): `Config.Skew` now applies to both; the verifier accepts a token until `exp` plus the leeway and an `iat` up to the leeway ahead. The value is not in code: new contract `session-limits.v1.json` (additive; AGENT-15 migration note in `contracts/INVENTORY.md`), data `packs/fintech/limits/session_limits.json` (`clock_skew_s` 60), loader `session.LoadLimits` (typed `SCHEMA_INVALID`, strict, trailing bytes refused, pack ID pattern, range). Tests on the injected clock: exactly the leeway ago is refused, one second inside it is accepted; the same at the `iat` edge. Mutations run and reverted (all caught): no leeway on `exp`; no trailing-byte check; no pack ID check; no range check.
+- Residual risk, restated (A1 item 8): with no `jti` a stolen token works until `exp`; the leeway adds up to 60 s.
+- Codex P3 (sub-second `-ttl`): the issuer now requires a TTL of at least one second (test first, one mutation caught).
+- Ruling A15 (benchmark roles are the four A1 roles; `ops_agent` to `ops`, `viewer` to `customer` when acting or `audit` when read-only) answers Codex's P1 on `benchmark/runner/env.py`: the change is in the benchmark generator's cases (`benchmark/generator/lib_security.py`), not in this PR. It also changes generated case content, so it needs its owner and a suite regeneration; I have not done it.
+- Ruling A20 for slice 3b: `audit` reads only through the tenant-bound Record read functions; `ops` and `audit` have no path to a Record writer.
