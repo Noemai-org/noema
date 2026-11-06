@@ -141,6 +141,40 @@ var powerOf = map[string]string{
 	"orchestrator_rw": "orchestrator", "record_read": "record_read", "record_emitter": "record_emitter",
 }
 
+// VerifierLogin creates the all-tenant verification login of REC-05 (noema_verify in Compose): a LOGIN role that is a member of
+// record_verify and of nothing else, with no tenant mapping, and returns a pool whose connections authenticate as it. The role is
+// dropped when the test ends.
+func VerifierLogin(t testing.TB, admin *pgxpool.Pool, dsn string) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("testpg: parse dsn: %v", err)
+	}
+	dbName := strings.TrimPrefix(u.Path, "/")
+	role := "record_verify__" + dbName
+	quoted := pgx.Identifier{role}.Sanitize()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.Exec(ctx, `CREATE ROLE `+quoted+` LOGIN IN ROLE record_verify`); err != nil {
+		t.Fatalf("testpg: create %s: %v", role, err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if a, err := pgxpool.New(c, strings.Replace(dsn, "/"+dbName+"?", "/postgres?", 1)); err == nil {
+			_, _ = a.Exec(c, `DROP ROLE IF EXISTS `+quoted)
+			a.Close()
+		}
+	})
+	u.User = url.User(role)
+	pool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("testpg: connect as %s: %v", role, err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
 // TenantLogin creates a LOGIN role for one tenant and one power, maps it to the tenant in tenant_login, and returns a pool
 // whose connections authenticate as that login (DEBT-04 option A). SET ROLE would leave session_user as the administrator,
 // so the Record functions would not see a tenant. The tenant row must exist. The role is dropped when the test ends.
