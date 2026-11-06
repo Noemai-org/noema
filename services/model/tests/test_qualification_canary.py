@@ -181,7 +181,10 @@ def test_nested_values_are_compared_by_json_type_too_and_equal_numbers_still_mat
     baseline = json.loads(json.dumps(BASELINE))
     answers = json.loads(json.dumps(SCENARIOS["pass"]["answers"]))
     first = next(iter(answers))
+    from noema_model.qualification import canary as module
+
     baseline["cases"][first]["slots"]["nested"] = {"flag": 1, "xs": [1, 0]}
+    baseline["cases"][first]["slots_sha256"] = module._digest(baseline["cases"][first]["slots"])  # the entry stays self-consistent
     answers[first]["slots"]["nested"] = {"flag": True, "xs": [1, 0]}
     assert canary(ScriptedAsker(answers), baseline=baseline)["result"] == "DRIFT"
     answers[first]["slots"]["nested"] = {"flag": 1.0, "xs": [1, 0]}  # 1 and 1.0 are the same JSON number

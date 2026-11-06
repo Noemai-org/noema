@@ -96,11 +96,18 @@ def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: M
     if subset.get("layer") != LAYER or any(c.get("suite_layer") != LAYER for c in subset["cases"]):
         raise ValueError("the subset holds a case outside the GENERATED layer; held-out and partner cases never reach the model service (INV-22)")
     cases = subset["cases"]
+    if not cases:
+        raise ValueError("the subset is empty: an empty qualification suite is not a clean canary")
     ids = [c["case_id"] for c in cases]
     if subset["case_ids"] != ids or ids != sorted(ids) or len(set(ids)) != len(ids) or subset["n_cases"] != len(cases) or subset["cases_sha256"] != _digest(cases):
         raise ValueError("the subset does not match its own header (case_ids, n_cases or cases_sha256): it was truncated or edited")
     if set(baseline["cases"]) != set(ids):
         raise ValueError("the baseline does not cover exactly the cases of the subset")
+    if not is_pinned(baseline["pinned"].get("version")):
+        raise ValueError("the baseline does not name a pinned version (a floating alias is not a baseline)")
+    for case_id, entry in baseline["cases"].items():
+        if not isinstance(entry.get("slots"), dict) or entry.get("slots_sha256") != _digest(entry["slots"]):
+            raise ValueError(f"the baseline for {case_id} does not match its own slots_sha256: it was edited or truncated")
     if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
         raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")
     base_pin = baseline["pinned"]

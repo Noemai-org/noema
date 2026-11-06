@@ -61,6 +61,7 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) ->
     return reasons
 
 
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
@@ -93,6 +94,16 @@ def validate_record(record: Record) -> list[str]:
         out.append(f"version {record['version']!r} is not pinned")
     if not _valid_date(record["qualified_on"]):
         out.append(f"qualified_on {record['qualified_on']!r} is not an ISO date")
+    if not isinstance(record["scorecard_sha256"], str) or not _DIGEST.match(record["scorecard_sha256"]):
+        out.append("scorecard_sha256 must be sha256: and 64 lowercase hex characters")
+    if not isinstance(record["run_id"], str) or not record["run_id"].strip():
+        out.append("run_id must be a non-empty string")
+    if isinstance(record["n_cases"], bool) or not isinstance(record["n_cases"], int) or record["n_cases"] < 1:
+        out.append("n_cases must be a positive integer")
+    if not isinstance(record["pass_k"], Mapping):
+        out.append("pass_k must be an object")
+    if not isinstance(record["reasons"], list):
+        out.append("reasons must be a list")
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
     elif record["verdict"] == "QUALIFIED" and isinstance(record["pass_k"], Mapping):
