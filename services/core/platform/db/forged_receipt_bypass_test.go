@@ -125,8 +125,11 @@ func forgedVoid(t *testing.T, f forgery) (insertErr, voidErr error, finalStatus 
 	vals := `$1, $2, $3, $4, $5, 'ROUTE_CASE', $6, $7, $8, now(), $9::jsonb, $10, $11, now()`
 	args := []any{fmt.Sprintf("rcp_%s_%d", r.grant, r.attempt), r.tenant, r.grant, r.attempt, r.key, r.state, r.raw, r.ack, string(body), r.sigKey, r.sigVal}
 	if hasSignedJCS {
+		// D8: the row's json is the document without sig, and signed_jcs holds the same document's bytes. This is what
+		// w1_receipt_matrix_test.go stores for its genuine receipts, so a forgery differs from them in the signature only.
 		cols += ", signed_jcs"
 		vals += ", $12"
+		args[8] = string(signed)
 		args = append(args, signed)
 	}
 	_, insertErr = tx.Exec(ctx(t), `INSERT INTO execution_receipt (`+cols+`) VALUES (`+vals+`)`, args...)
