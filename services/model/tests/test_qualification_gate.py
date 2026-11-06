@@ -77,3 +77,18 @@ def test_require_qualified_names_every_refused_provider_not_only_the_first(tmp_p
 def test_the_records_are_never_the_oracle_and_hold_no_case_content() -> None:
     for record in GOLDEN["records"].values():
         assert "expected" not in json.dumps(record) and "oracle" not in json.dumps(record)
+
+
+@pytest.mark.parametrize("field", ["complete", "tier0_all_zero"])
+@pytest.mark.parametrize("value", ["false", "False", 0, 1, None, "true"])
+def test_a_flag_that_is_not_a_real_boolean_invalidates_the_record_instead_of_being_coerced(field: str, value: Any) -> None:
+    # Codex review of noema#215: bool("false") is True, so a string flag must never let a failed run through.
+    q = {**GOLDEN["records"]["q"], field: value}
+    assert check_model([q], q["provider"], q["model_id"], q["version"], "llm")
+
+
+@pytest.mark.parametrize("value", ["false", "True", 0, 1, None])
+def test_pass_k_available_must_be_a_real_boolean(value: Any) -> None:
+    q = GOLDEN["records"]["q"]
+    broken = {**q, "pass_k": {**q["pass_k"], "available": value}}
+    assert check_model([broken], q["provider"], q["model_id"], q["version"], "llm")

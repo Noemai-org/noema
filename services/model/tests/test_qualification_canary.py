@@ -164,3 +164,25 @@ def test_a_reply_that_does_not_report_its_version_counts_as_another_version() ->
 def test_a_transport_error_surfaces_as_asker_unavailable_for_the_canary_to_record() -> None:
     with pytest.raises(AskerUnavailable):
         asyncio.run(asker_over(FakeTransport({"error": "x"}, status=503)).ask(SUBSET["cases"][0]))
+
+
+def test_a_boolean_in_place_of_a_number_is_drift_not_a_match() -> None:
+    # Codex review of noema#215: in Python True == 1, so a type change must be compared by JSON type.
+    answers = json.loads(json.dumps(SCENARIOS["pass"]["answers"]))
+    first = next(iter(answers))
+    answers[first]["slots"]["amount_minor"] = True  # the baseline has the number 1000
+    run = canary(ScriptedAsker(answers))
+    assert run["result"] == "DRIFT"
+    changed = [c for c in run["cases"] if c["case_id"] == first][0]
+    assert [d["slot"] for d in changed["differing_slots"]] == ["amount_minor"]
+
+
+def test_nested_values_are_compared_by_json_type_too_and_equal_numbers_still_match() -> None:
+    baseline = json.loads(json.dumps(BASELINE))
+    answers = json.loads(json.dumps(SCENARIOS["pass"]["answers"]))
+    first = next(iter(answers))
+    baseline["cases"][first]["slots"]["nested"] = {"flag": 1, "xs": [1, 0]}
+    answers[first]["slots"]["nested"] = {"flag": True, "xs": [1, 0]}
+    assert canary(ScriptedAsker(answers), baseline=baseline)["result"] == "DRIFT"
+    answers[first]["slots"]["nested"] = {"flag": 1.0, "xs": [1, 0]}  # 1 and 1.0 are the same JSON number
+    assert canary(ScriptedAsker(answers), baseline=baseline)["result"] == "PASS"
