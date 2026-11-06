@@ -79,6 +79,18 @@ func TestEachCheckVoidsTheGrantWithItsReason(t *testing.T) {
 		{"E4 policy superseded", func(w *World, _ *controller.SignedGrant) {
 			w.Mutate(func(w *World) { w.DecisionAllowed = false })
 		}, controller.VoidPolicySuperseded},
+		{"E4 the grant's policy has a newer active version", func(w *World, _ *controller.SignedGrant) {
+			w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = "1.1" })
+		}, controller.VoidPolicySuperseded},
+		{"E4 the grant's policy has an older active version (rolled back)", func(w *World, _ *controller.SignedGrant) {
+			w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = "0.9" })
+		}, controller.VoidPolicySuperseded},
+		{"E4 the active version only extends the grant's version as text (1.0.1 against 1.0)", func(w *World, _ *controller.SignedGrant) {
+			w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = "1.0.1" })
+		}, controller.VoidPolicySuperseded},
+		{"E4 the grant's policy has no active version (retired)", func(w *World, _ *controller.SignedGrant) {
+			w.Mutate(func(w *World) { delete(w.ActivePolicies, "sim.pol") })
+		}, controller.VoidPolicySuperseded},
 		{"E6 kill switch", func(w *World, _ *controller.SignedGrant) { w.Mutate(func(w *World) { w.KillSwitch = true }) }, controller.VoidWritesDisabled},
 		{"E7 target version moved", func(w *World, _ *controller.SignedGrant) {
 			w.Mutate(func(w *World) { w.TargetVersion = "v_2" })
@@ -199,5 +211,57 @@ func TestAFailedIDSourceRefusesBeforeSpendAndDispatch(t *testing.T) {
 	out, err = c.Execute(ctx(t), TenantID, g.Grant.GrantID)
 	if err != nil || out.Receipt == nil {
 		t.Fatalf("after the source recovered, the unspent grant did not run: %+v %v", out, err)
+	}
+}
+
+// Ruling of 5 Nov 2026: a grant binds the exact policy_id and version it was decided under. Another policy's version, however high, is
+// no business of this grant: versions are compared only within the grant's own policy_id, never across policy IDs.
+func TestAnotherPolicysVersionNeverVoidsAGrant(t *testing.T) {
+	w, c, g := setup(t)
+	w.Mutate(func(w *World) { w.ActivePolicies["sim.other"] = "99.0" })
+	out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+	if err != nil || out.Void != "" {
+		t.Fatalf("a different policy's version voided the grant: %+v %v", out, err)
+	}
+}
+
+// A grant whose policy_version is not policy_id@version cannot be compared and is refused (fail closed), with a recovery request.
+func TestAGrantWithAMalformedPolicyVersionIsVoided(t *testing.T) {
+	for _, bad := range []string{"", "sim.pol", "@1.0", "sim.pol@", "sim.pol@1.0@2"} {
+		w, c, _ := setup(t)
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), bad)
+		w.Store(g)
+		out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+		if err != nil || out.Void != controller.VoidPolicySuperseded {
+			t.Errorf("%q: void %q err %v", bad, out.Void, err)
+		}
+	}
+}
+
+// Codex P2 on noema#163: a policy_id@version that is malformed in the same way on both sides (the grant and the binder) is still not
+// comparable. The grant contract requires a lower-case dotted policy ID and numeric dotted version components; anything else fails closed.
+func TestAMalformedPolicyVersionThatMatchesTheBindersIsStillVoided(t *testing.T) {
+	for _, bad := range []struct{ id, ver string }{
+		{"sim.pol", "not-a-version"}, {"sim.pol", "1"}, {"sim.pol", "1.x"}, {"sim.pol", "1.0.0.0"}, {"sim.pol", "1.0-rc1"}, {"sim.pol", " 1.0"},
+		{"Sim.Pol", "1.0"}, {"sim..pol", "1.0"}, {"sim.pol.", "1.0"}, {"1sim", "1.0"}, {"sim pol", "1.0"},
+	} {
+		w, c, _ := setup(t)
+		w.Mutate(func(w *World) { w.ActivePolicies[bad.id] = bad.ver })
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), bad.id+"@"+bad.ver)
+		w.Store(g)
+		out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID)
+		if err != nil || out.Void != controller.VoidPolicySuperseded || len(w.Snapshot().Dispatches) != 0 {
+			t.Errorf("%s@%s: void %q err %v dispatches %d; want a void with no dispatch", bad.id, bad.ver, out.Void, err, len(w.Snapshot().Dispatches))
+		}
+	}
+	// and the well-formed shapes the contract allows still run
+	for _, good := range []string{"1.0", "3.10", "1.2.3", "10.0.1"} {
+		w, c, _ := setup(t)
+		w.Mutate(func(w *World) { w.ActivePolicies["sim.pol"] = good })
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), "sim.pol@"+good)
+		w.Store(g)
+		if out, err := c.Execute(ctx(t), TenantID, g.Grant.GrantID); err != nil || out.Void != "" {
+			t.Errorf("sim.pol@%s: void %q err %v; a well-formed matching version must run", good, out.Void, err)
+		}
 	}
 }
