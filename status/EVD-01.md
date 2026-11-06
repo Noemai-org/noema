@@ -108,3 +108,6 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Addendum 2026-11-06 · for the adapter owners (from Codex's finding on noema#172)
 - `layer.Observation.RawHash` must be the SHA-256 of the bytes the adapter actually received. The case adapter returns the decoded record only, so the story test of this branch hashes the decoded record as a stand-in. Adapters (ENV-03, ENV-05, ENV-08, the stand-in adapter) need to expose the wire-bytes hash next to the decoded answer; without it the builder refuses a present response.
+
+## EVD-03 slice 1 · the evidence_set_hash (stacked on #176)
+`services/core/evidence/snapshot/hash.go`: `SetHash` in Go, tested against the CON-04 golden vectors (positive and negative) and a 50-permutation property; six mutants killed. Failing-first: tests-only commit "EVD-03: failing-first tests for the evidence_set_hash". Not yet built: the `context_snapshot` table, the sealer (refuses an empty set; writes `CONTEXT_SNAPSHOT_SEALED`), and the nightly recompute job. The table is a Trust-written, tenant-bound table (migration, roles and RLS per ruling A6), so it needs the EL/C1 decision on which login seals (Trust's) before I write the migration: blocked on that one line, noted below.
