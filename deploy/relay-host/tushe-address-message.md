@@ -14,7 +14,7 @@ You asked for our HTTPS URL for the webhooks kept active on our tenants. It is:
 
 **Host.** `noema-relay-4821.duckdns.org`, one small public server that runs only the receiver. It is a test endpoint for this environment; if the address ever has to change we will tell you before it does.
 
-**TLS.** HTTPS only. The certificate is issued by Let's Encrypt (a public CA) and renews automatically; TLS 1.2 or 1.3. Plain HTTP on port 80 only answers certificate challenges and redirects to HTTPS.
+**TLS.** HTTPS only. The certificate is issued by a public CA (Let's Encrypt, with ZeroSSL as the fallback the TLS server may use) and renews automatically; TLS 1.2 or 1.3. Plain HTTP on port 80 only answers certificate challenges and redirects to HTTPS.
 
 **Health.** `GET https://noema-relay-4821.duckdns.org/healthz` answers `200` with no data. It is only a liveness check, not a test of the receiver (we know you send no synthetic ping, and we have not asked for one).
 
