@@ -358,3 +358,17 @@ func TestAnEmitterLoginHoldsNothingButTheRecordAppendFunctions(t *testing.T) {
 		t.Fatal("an emitter login is a member of a power role")
 	}
 }
+
+// suffixOf is the per-database suffix of the world's role names, read from the DSN when the world was not built by newTenantWorld.
+func (w *tenantWorld) suffixOf(t *testing.T) string {
+	t.Helper()
+	if w.suffix != "" {
+		return w.suffix
+	}
+	u, err := url.Parse(w.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.suffix = strings.TrimPrefix(u.Path, "/")
+	return w.suffix
+}
