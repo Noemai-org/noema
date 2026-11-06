@@ -96,7 +96,7 @@ func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
 
 var (
 	sentenceEnd = regexp.MustCompile(`[.!?]+\s+|[.!?]+$`)
-	figure      = regexp.MustCompile(`[0-9][0-9,.:]*[0-9]|[0-9]`)
+	figure      = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9][0-9,.:]*[0-9]|[0-9]`) // a calendar date is one value, then times and numbers
 	digitRun    = regexp.MustCompile(`[0-9]+`)
 	capitalised = regexp.MustCompile(`\b[A-Z][A-Za-z'’-]*`)
 )
@@ -152,6 +152,7 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 	for _, fact := range f.Facts {
 		known[fact.FactId] = true
 	}
+	want := string(f.Locale) + "/" + string(f.OutcomeId) + "/" + f.Classification
 	covered := make([]string, 0, len(r.Claims))
 	for i, c := range r.Claims {
 		if !strings.Contains(r.Text, c.Span) || strings.TrimSpace(c.Span) == "" {
@@ -166,7 +167,11 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 				out = append(out, fmt.Sprintf("claim %d: bound to template %q, not the rendered template", i, c.TemplateID))
 				continue
 			}
-			if want, ok := t.text(c.TemplateID); !ok || !strings.Contains(want, c.Span) {
+			if c.TemplateID != want {
+				out = append(out, fmt.Sprintf("claim %d: template %q is not the one the input facts select (%q)", i, c.TemplateID, want))
+				continue
+			}
+			if text, ok := t.text(c.TemplateID); !ok || !strings.Contains(text, c.Span) {
 				out = append(out, fmt.Sprintf("claim %d: its span is not the text of template %q", i, c.TemplateID))
 				continue
 			}

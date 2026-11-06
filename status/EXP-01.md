@@ -18,3 +18,6 @@ Updated 2026-11-06. Plan task EXP-01 (owner C2; REQ-EXP-002; Needs OUT-01, merge
 
 ### Codex review of #224 (three findings, fixed test-first)
 Check 2 now compares whole figures (thousands separators dropped, so 50 is not 50,000; a time also matches its hour:minute), counts each fact's `as_of` and `source_label` as fact data, and blocks any capitalised word that is neither in the facts, nor in the rendered template, nor an ordinary English function word (`openers`, language syntax not domain data, reversible if too strict: a false block falls back to the template). Red commit af1bb63, then the fix; six mutants killed.
+
+### Codex review of #224, round two
+A calendar date is one value in check 2 (`2026-05-11` no longer passes against `2026-11-05`), and a template-bound claim must be the template the input facts select (`<locale>/<outcome_id>/<classification>`), so a SUCCESS_CONFIRMED template cannot pass against INSUFFICIENT_EVIDENCE facts. Red commit first, then the fix; three mutants killed.
