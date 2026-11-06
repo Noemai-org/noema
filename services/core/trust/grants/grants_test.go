@@ -636,8 +636,10 @@ func TestADecisionRecordSignatureIsNotAGrantSignatureAndTheOtherWayRound(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := dec.Decode(&m); err != nil {
 		t.Fatal(err)
 	}
 	delete(m, "sig")

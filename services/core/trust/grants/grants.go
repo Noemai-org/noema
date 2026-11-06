@@ -88,8 +88,11 @@ func NewKeys(keys []Key) (*Keys, error) {
 }
 
 // canonical is the JCS form of the grant without its sig: what is signed.
-func canonical(g contracts.DecisionGrantV1) ([]byte, error) {
-	raw, err := json.Marshal(g)
+func canonical(g contracts.DecisionGrantV1) ([]byte, error) { return canonicalOf(g) }
+
+// canonicalOf is the JCS form of any contract document without its sig.
+func canonicalOf(v any) ([]byte, error) {
+	raw, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
