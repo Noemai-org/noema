@@ -128,16 +128,24 @@ class Counter(unittest.TestCase):
         with self.assertRaises(CounterUnavailable):
             self.counter.since(mark)
 
-    def test_a_proxy_that_reports_no_generation_is_read_by_seq_and_prefix_digest_as_the_real_endpoint_does(self) -> None:
-        # Codex review of noema#170, third round: ENV-09 getRequests returns no generation, so requiring one would make the counter unreachable.
+    def test_a_proxy_that_reports_no_generation_makes_the_counter_unavailable_never_zero(self) -> None:
+        # Ruling A22 (6 Nov 2026): the Integration Lead adds a per-start generation to GET /control/v1/requests. Until the endpoint reports one, a restart that replays a
+        # byte-identical prefix cannot be told from no restart (Codex on noema#170, P1), so the count is not available. It is never zero and never a guess.
         _Proxy.generation = None
         _Proxy.entries = [entry(1), entry(2)]
-        mark = self.counter.mark()
-        _Proxy.entries.append(entry(3, "mock-ledger", "create_payout", method="POST"))
-        self.assertEqual(1, self.counter.since(mark))
+        with self.assertRaises(CounterUnavailable) as ctx:
+            self.counter.mark()
+        self.assertIn("generation", ctx.exception.reason)
 
-    def test_without_a_generation_a_reset_that_refills_with_different_entries_is_still_detected(self) -> None:
-        _Proxy.generation = None
+    def test_a_generation_that_is_not_a_non_empty_string_is_unavailable(self) -> None:
+        for bad in ("", 5, ["g1"]):
+            _Proxy.generation = bad  # type: ignore[assignment]
+            _Proxy.entries = [entry(1)]
+            with self.assertRaises(CounterUnavailable, msg=repr(bad)) as ctx:
+                self.counter.mark()
+            self.assertIn("generation", ctx.exception.reason)
+
+    def test_with_the_same_generation_a_reset_that_refills_with_different_entries_is_still_detected(self) -> None:
         _Proxy.entries = [entry(1), entry(2)]
         mark = self.counter.mark()
         _Proxy.entries = [entry(1, "mock-ledger", "create_payout", method="POST"), entry(2, "mock-ledger", "create_payout", method="POST"), entry(3)]
@@ -151,8 +159,10 @@ class Counter(unittest.TestCase):
         with self.assertRaises(CounterUnavailable):
             self.counter.since(mark)
 
-    def test_the_description_states_the_limit_of_the_continuity_check(self) -> None:
-        self.assertIn("byte-identical", self.counter.describe())
+    def test_the_description_says_the_count_needs_the_proxys_generation(self) -> None:
+        text = self.counter.describe()
+        self.assertIn("generation", text)
+        self.assertIn("unavailable", text)
 
     def test_an_unchanged_prefix_with_new_entries_counts_only_the_new_ones(self) -> None:
         _Proxy.entries = [entry(1), entry(2, "mock-ledger", "create_payout", method="POST")]

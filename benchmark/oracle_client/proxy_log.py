@@ -2,7 +2,7 @@
 
 The proxy sits between the runtime and the system behind it, so it sees every request that reached that system. A monetary call is a request that was FORWARDED on a route that is
 not classified read-only. A request the proxy refused (a path outside its table) never reached a system and is not counted. A write whose answer was dropped still counts: it was
-forwarded. A log that lost entries (`dropped`), that shrank, or that cannot be read is unavailable, never zero. The classification is data (`READ_ONLY`), and a test fails if the proxy's
+forwarded. A log that lost entries (`dropped`), that shrank, that reports no per-start `generation` (ruling A22), or that cannot be read is unavailable, never zero. The classification is data (`READ_ONLY`), and a test fails if the proxy's
 route table and this list differ, so a new route is never silently read-only. Generated layer only; the bench credential is read from a file (INV-22, REQ-ENV-002)."""
 import hashlib
 import json
@@ -50,6 +50,9 @@ class ProxyRouteLog:
             raise CounterUnavailable(self.name, f"the proxy's request log cannot be read: {error}") from None
         if not isinstance(body.get("entries"), list):
             raise CounterUnavailable(self.name, "the proxy's request log has no entries list")
+        generation = body.get("generation")
+        if not isinstance(generation, str) or not generation:
+            raise CounterUnavailable(self.name, "the proxy's request log reports no generation (a non-empty per-start identifier): without it a restart that replays an identical log prefix cannot be told from no restart, so the count would be a guess (ruling A22)")
         if body.get("dropped", 0):
             raise CounterUnavailable(self.name, f"the proxy's request log dropped {body['dropped']} entries (its limit was reached), so the count would be too low")
         return body
@@ -75,4 +78,5 @@ class ProxyRouteLog:
         return sum(1 for e in entries[n:] if e.get("forwarded") and (e.get("target"), e.get("operation")) not in READ_ONLY)
 
     def describe(self) -> str:
-        return f"hostility proxy request log {self._url}{ROUTE}: forwarded requests on non-read-only routes since the baseline; no generation means a byte-identical replay after restart is undetectable"
+        return (f"hostility proxy request log {self._url}{ROUTE}: forwarded requests on non-read-only routes since the baseline; the proxy's per-start generation is required, "
+                "and a log that reports none is unavailable, never zero")
