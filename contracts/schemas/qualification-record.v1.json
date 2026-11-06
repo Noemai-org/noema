@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/qualification-record.v1.json",
+  "title": "Qualification record",
+  "description": "The record that a pinned model (and, if used, a pinned speech model) was qualified, or not, for the Understanding path on one provider (UND-13, REQ-INT-006; ruling A17 of 6 Nov 2026). The harness refuses a model ID that has no QUALIFIED record. The pass^k bar is pack data set by a decision record, not a value in this schema or in code. Interim rule until the Founders set a floor: QUALIFIED means Tier 0 failures are zero, the run is complete, the drift check passed and pass^k is not below the baseline; with no baseline the verdict is PENDING_FLOOR and the harness still refuses the model. Held-out and oracle material never appear here (INV-22). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "record_id": {
+      "type": "string",
+      "pattern": "^qual_[0-9A-Za-z]{2,40}$"
+    },
+    "provider_id": {
+      "description": "The provider as the model service names it (GPT, Gemini, Claude, Aethex AI, Indigenius, N-ATLAS).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "model_id": {
+      "description": "The exact pinned model version string the provider returned.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "speech_model_id": {
+      "description": "The exact pinned speech model version, or null when no speech model is in the path.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "run_id": {
+      "description": "The benchmark run that produced the evidence (BEN-29 run ID).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "qualification_set_digest": {
+      "description": "Digest of the qualification subset that was run. The subset itself is the Benchmark Owner's and never held-out material.",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "cases_run": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "run_complete": {
+      "description": "True only if every case of the subset ran to a result.",
+      "type": "boolean"
+    },
+    "tier0_failures": {
+      "description": "Failures of any Tier 0 gate in the run (SoT 38.3). Qualified only at zero.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "drift": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "DRIFT",
+            "PROVIDER_UNAVAILABLE"
+          ]
+        },
+        "differing_slots": {
+          "description": "Slot names whose structured output differed from the pinned expectation; empty unless status is DRIFT.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "status",
+        "differing_slots"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "status": {
+            "const": "DRIFT"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "differing_slots": {
+            "minItems": 1
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "differing_slots": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "pass_k": {
+      "type": "object",
+      "properties": {
+        "k": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "n_cases": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "successes": {
+          "description": "Cases that passed all k runs.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "baseline_successes": {
+          "description": "The baseline's number, or null when no baseline exists yet.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "k",
+        "n_cases",
+        "successes",
+        "baseline_successes"
+      ],
+      "additionalProperties": false
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "QUALIFIED",
+        "NOT_QUALIFIED",
+        "PENDING_FLOOR"
+      ]
+    },
+    "recorded_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    }
+  },
+  "required": [
+    "schema_version",
+    "record_id",
+    "provider_id",
+    "model_id",
+    "speech_model_id",
+    "run_id",
+    "commit_sha",
+    "qualification_set_digest",
+    "cases_run",
+    "run_complete",
+    "tier0_failures",
+    "drift",
+    "pass_k",
+    "verdict",
+    "recorded_at"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "QUALIFIED"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "run_complete": {
+            "const": true
+          },
+          "tier0_failures": {
+            "const": 0
+          },
+          "drift": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            }
+          },
+          "pass_k": {
+            "properties": {
+              "baseline_successes": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "PENDING_FLOOR"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "properties": {
+          "pass_k": {
+            "properties": {
+              "baseline_successes": {
+                "const": null
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

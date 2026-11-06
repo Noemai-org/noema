@@ -1,0 +1,14 @@
+{
+  "qualified_with_a_tier0_failure.json": "const",
+  "qualified_with_an_incomplete_run.json": "const",
+  "qualified_with_drift.json": "const",
+  "qualified_without_a_baseline.json": "type",
+  "pending_floor_with_a_baseline.json": "const",
+  "drift_without_slots.json": "minItems",
+  "pass_status_with_slots.json": "maxItems",
+  "speech_model_missing.json": "required",
+  "commit_sha_short.json": "pattern",
+  "negative_cases.json": "minimum",
+  "verdict_not_known.json": "enum",
+  "carries_the_oracle.json": "additionalProperties"
+}

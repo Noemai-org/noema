@@ -142,6 +142,7 @@ var Types = map[string]func() any{
 	"plan.v1":                                 func() any { return new(PlanV1) },
 	"policy-rule.v1":                          func() any { return new(PolicyRuleV1) },
 	"policy-version.v1":                       func() any { return new(PolicyVersionV1) },
+	"qualification-record.v1":                 func() any { return new(QualificationRecordV1) },
 	"reason-catalogue-entry.v1":               func() any { return new(ReasonCatalogueEntryV1) },
 	"reconstruction.v1":                       func() any { return new(ReconstructionV1) },
 	"reconstruction.v1#Item":                  func() any { return new(ReconstructionV1Item) },
