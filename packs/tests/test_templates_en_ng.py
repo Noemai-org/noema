@@ -12,8 +12,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(ROOT / "tools"))
-from packcheck import checks  # noqa: E402
+sys.path.insert(0, str(ROOT / "tools" / "packcheck"))
+import checks  # noqa: E402
 
 PACK = json.loads((ROOT / "packs" / "fintech_v1.json").read_text())
 FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.json"
