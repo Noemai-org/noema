@@ -25,7 +25,7 @@ The public benchmark format and the publication rules, with a check that enforce
 | R2 | Every number carries n, method, bound and confidence interval | `k`, `n`, `rate`, `ci95` (Wilson 95%), `method`, and the rule-of-three `bound` where the scorecard has one (zero failures) are required |
 | R3 | Nothing is cherry-picked; the full distribution is shown, once | One record per run and slice (a duplicate is refused, never overwritten). Every family (B1 to B8 present) and every category of the scorecard appears, with matching counts, for each cited run |
 | R4 | Tier 0 is published first, beside every other number | Each cited run needs a Tier 0 claim, **listed before any other claim of that run**; each claim states `tier0_all_zero` and it must equal the scorecard's |
-| R5 | No text outruns its evidence | Every number written in a claim's text must be that claim's own k, n, rate, interval or bound |
+| R5 | No text outruns its evidence | Every number written in a claim's text must be that claim's own k, n, rate, interval or bound; a signed (-99%), ranged (5-99%) or suffixed (99th, 1.5x) number is a number too; identifiers such as B4 and US-01 are not numbers |
 | R6 | A run that is not complete is not published; one that is not a release result says so; the population is the scorecard's | `complete` must be true; `population` must equal the scorecard-derived population exactly (`population_for`), which carries "not a release result" for a non-release run |
 | R7 | Outcomes are judged against the final state of the systems | `outcome_basis` is `ORACLE_FINAL_STATE` |
 | R8 | pass^k only when it was measured | A pass^k claim requires `available` (exactly five runs) in the scorecard |

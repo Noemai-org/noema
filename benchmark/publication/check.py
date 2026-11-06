@@ -20,8 +20,12 @@ METHOD = "Wilson 95% interval"
 OUTCOME_BASIS = "ORACLE_FINAL_STATE"
 REQUIRED = ("id", "text", "run_id", "scorecard_ref", "k", "n", "rate", "ci95", "method", "population", "outcome_basis", "tier0_all_zero")
 SLICES = ("by_family", "by_category")
-_STRIPPED = re.compile(r"\bTier [0-3]\b|\b95\s?%|\bk\s?=\s?5\b|pass\^k")
-_NUMBER = re.compile(r"(?<![\w.-])\d[\d,]*(?:\.\d+)?(?![\w-])")
+_SIGN = "[-+−–]"
+# The stated Wilson interval, Tier names and k = 5 are method words, not numbers. A signed 95% (-95%) is a number and stays.
+_STRIPPED = re.compile(r"\bTier [0-3]\b|(?<!" + _SIGN + r")\b95\s?%|\bk\s?=\s?5\b|pass\^k")
+# A number is refused unless it is the claim's own, whatever surrounds it: a sign (-99%), a range (5-99%) or a unit (99th, 1.5x). A digit that continues a word or follows a letter and a
+# hyphen is part of an identifier (B4, US-01, run-12) and is not a number.
+_NUMBER = re.compile(r"(?<![\w.])(?<!\w-)" + _SIGN + r"?\d[\d,]*(?:\.\d+)?(?:[-–]\d[\d,]*(?:\.\d+)?)?(?!\d)")
 
 
 def resolve(card: Json, ref: str) -> Any:
