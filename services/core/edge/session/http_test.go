@@ -187,3 +187,23 @@ func TestATokenOfOneTenantNeverRunsOnTheLoginOfAnother(t *testing.T) {
 		t.Errorf("two empty tenants matched: %v", err)
 	}
 }
+
+// RFC 9110 section 11.1: the authentication scheme name is case-insensitive (Codex review of noema#198). The credential is not.
+func TestTheBearerSchemeNameIsCaseInsensitive(t *testing.T) {
+	k := newKeys(t)
+	h, calls, _ := serve(t, k)
+	tok := mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	for _, scheme := range []string{"Bearer", "bearer", "BEARER", "bEaReR"} {
+		if rec := do(h, scheme+" "+tok, nil); rec.Code != http.StatusNoContent {
+			t.Errorf("%q: %d %s", scheme, rec.Code, rec.Body.String())
+		}
+	}
+	if *calls != 4 {
+		t.Fatalf("handler ran %d times, want 4", *calls)
+	}
+	for name, authz := range map[string]string{"no space": "Bearer" + tok, "two spaces": "Bearer  " + tok, "tab": "Bearer\t" + tok, "other scheme": "Basic " + tok, "empty credential": "Bearer ", "scheme only": "bearer"} {
+		if rec := do(h, authz, nil); rec.Code == http.StatusNoContent {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}

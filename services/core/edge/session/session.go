@@ -49,8 +49,8 @@ const Issuer = "noema-poc-idp"
 // CeilingLifetime is the longest MaxLifetime a verifier may be configured with (ruling A1, item 4).
 const CeilingLifetime = 15 * time.Minute
 
-// maxSubLen bounds `sub` (ruling A1, item 6).
-const maxSubLen = 128
+// MaxSubjectLen bounds `sub` in bytes (ruling A1, item 6). The issuer refuses a longer principal before it signs.
+const MaxSubjectLen = 128
 
 // Principal is the authenticated caller. Nothing else in a request may name one (INV-12).
 type Principal struct {
@@ -172,7 +172,7 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if json.Unmarshal(cb, &c) != nil {
 		return Principal{}, invalid("claims")
 	}
-	if c.Sub == "" || c.Iat == nil || c.Exp == nil || c.Aud != v.audience || c.Iss != Issuer || len(c.Sub) > maxSubLen || !v.tenants[c.Tenant] || len(c.Roles) != 1 {
+	if c.Sub == "" || c.Iat == nil || c.Exp == nil || c.Aud != v.audience || c.Iss != Issuer || len(c.Sub) > MaxSubjectLen || !v.tenants[c.Tenant] || len(c.Roles) != 1 {
 		return Principal{}, invalid("claims")
 	}
 	iat, exp := time.Unix(*c.Iat, 0).UTC(), time.Unix(*c.Exp, 0).UTC()

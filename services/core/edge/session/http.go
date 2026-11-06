@@ -46,7 +46,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				writeError(w, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.", corr)
 				return
 			}
-			token, ok := strings.CutPrefix(authz, "Bearer ")
+			token, ok := bearerToken(authz)
 			if !ok {
 				writeError(w, contracts.ErrorsV2ErrorCodeSESSIONINVALID, "The session is not valid.", corr)
 				return
@@ -98,6 +98,16 @@ func CheckTenant(p Principal, loginTenant string) error {
 		return ErrTenantMismatch
 	}
 	return nil
+}
+
+// bearerToken takes the credential of "<scheme> <credential>" when the scheme is Bearer. The scheme name is case-insensitive (RFC 9110
+// section 11.1); exactly one space separates it from a non-empty credential, which is not changed.
+func bearerToken(authz string) (string, bool) {
+	scheme, cred, ok := strings.Cut(authz, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || cred == "" || strings.HasPrefix(cred, " ") {
+		return "", false
+	}
+	return cred, true
 }
 
 // correlationID keeps a well-formed incoming ID so a call can be traced end to end, and makes a new one otherwise.

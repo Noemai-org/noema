@@ -137,18 +137,19 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 	dir := newKeyDir(t)
 	clk := clock.NewManual(epoch)
 	for name, extra := range map[string][]string{
-		"zero ttl":                  {"-ttl", "0s"},
-		"ttl above the ceiling":     {"-ttl", "15m1s"},
-		"ttl far above the ceiling": {"-ttl", "20m"},
-		"negative ttl":              {"-ttl", "-5m"},
-		"unknown role":              {"-role", "root"},
-		"old role name":             {"-role", "operator"},
-		"two roles":                 {"-role", "ops", "-role", "approver"},
-		"the same twice":            {"-role", "ops", "-role", "ops"},
-		"empty tenant":              {"-tenant", ""},
-		"empty princ.":              {"-principal", ""},
-		"empty audience":            {"-aud", ""},
-		"empty kid":                 {"-kid", ""},
+		"zero ttl":                           {"-ttl", "0s"},
+		"principal above the verifier bound": {"-principal", strings.Repeat("p", session.MaxSubjectLen+1)},
+		"ttl above the ceiling":              {"-ttl", "15m1s"},
+		"ttl far above the ceiling":          {"-ttl", "20m"},
+		"negative ttl":                       {"-ttl", "-5m"},
+		"unknown role":                       {"-role", "root"},
+		"old role name":                      {"-role", "operator"},
+		"two roles":                          {"-role", "ops", "-role", "approver"},
+		"the same twice":                     {"-role", "ops", "-role", "ops"},
+		"empty tenant":                       {"-tenant", ""},
+		"empty princ.":                       {"-principal", ""},
+		"empty audience":                     {"-aud", ""},
+		"empty kid":                          {"-kid", ""},
 	} {
 		if tok, err := mintToken(t, dir, clk, extra...); err == nil || tok != "" {
 			t.Errorf("%s: issued %q, err %v", name, tok, err)
