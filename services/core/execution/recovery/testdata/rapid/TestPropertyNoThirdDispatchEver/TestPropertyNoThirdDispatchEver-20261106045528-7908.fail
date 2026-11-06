@@ -1,0 +1,29 @@
+# 2026/11/06 04:55:28.819590 [TestPropertyNoThirdDispatchEver] [rapid] draw budget: 1
+# 2026/11/06 04:55:28.819596 [TestPropertyNoThirdDispatchEver] [rapid] draw steps: 2
+# 2026/11/06 04:55:28.819597 [TestPropertyNoThirdDispatchEver] [rapid] draw corr: "cor_1"
+# 2026/11/06 04:55:28.819598 [TestPropertyNoThirdDispatchEver] [rapid] draw cap: "fin.cap.a"
+# 2026/11/06 04:55:28.819598 [TestPropertyNoThirdDispatchEver] [rapid] draw target: "res_1"
+# 2026/11/06 04:55:28.819600 [TestPropertyNoThirdDispatchEver] [rapid] draw corr: "cor_1"
+# 2026/11/06 04:55:28.819600 [TestPropertyNoThirdDispatchEver] [rapid] draw cap: "fin.cap.a"
+# 2026/11/06 04:55:28.819601 [TestPropertyNoThirdDispatchEver] [rapid] draw target: "res_1"
+# 2026/11/06 04:55:28.819607 [TestPropertyNoThirdDispatchEver] {ten_aa cor_1 fin.cap.a res_1} dispatched 2 times with a budget of 1
+# 
+v0.4.8#12709852039812834093
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
