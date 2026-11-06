@@ -643,14 +643,54 @@ func TestADecisionRecordSignatureIsNotAGrantSignatureAndTheOtherWayRound(t *test
 		t.Fatal(err)
 	}
 	delete(m, "sig")
-	msg, err := crypto.CanonicalJSON(m)
+	bare, err := crypto.CanonicalJSON(m)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if k.VerifyBytes(sig, msg) {
+	if k.VerifyBytes(sig, bare) {
 		t.Fatal("the record signature verifies over the bare JCS bytes: there is no domain separation")
 	}
-	if !k.VerifyBytes(sig, append([]byte("noema/decision-record/v2\n"), msg...)) {
-		t.Fatal("the record signature is not over label, newline and JCS")
+	// ruling A13: label, one 0x00 byte, then the JCS bytes of the record without sig.value; sig.key_id stays in them
+	m["sig"] = map[string]any{"key_id": sig.KeyId}
+	bound, err := crypto.CanonicalJSON(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !k.VerifyBytes(sig, append([]byte("noema/decision-record/v2\x00"), bound...)) {
+		t.Fatal("the record signature is not over label, a 0x00 byte and the JCS bytes with the key_id")
+	}
+	if k.VerifyBytes(sig, append([]byte("noema/decision-record/v2\n"), bound...)) {
+		t.Fatal("a newline separator verifies: ruling A13 says a 0x00 byte")
+	}
+	if k.VerifyBytes(sig, append([]byte("noema/decision-record/v2\x00"), bare...)) {
+		t.Fatal("the signature verifies without the key_id in the signed bytes")
+	}
+}
+
+// Ruling A13: a record missing any bound field is invalid, and is not signed. The window must be real: expires_at after issued_at.
+func TestARecordMissingABoundFieldOrWithAnEmptyWindowIsNotSigned(t *testing.T) {
+	k := keys(t)
+	cases := map[string]func(*contracts.DecisionRecordV2){
+		"no intent_id":             func(r *contracts.DecisionRecordV2) { r.IntentId = "" },
+		"no correlation_id":        func(r *contracts.DecisionRecordV2) { r.CorrelationId = "" },
+		"no policy_id@version":     func(r *contracts.DecisionRecordV2) { r.PolicyVersion = "" },
+		"policy without a version": func(r *contracts.DecisionRecordV2) { r.PolicyVersion = "fin.pol" },
+		"no issued_at":             func(r *contracts.DecisionRecordV2) { r.IssuedAt = "" },
+		"no expires_at":            func(r *contracts.DecisionRecordV2) { r.ExpiresAt = "" },
+		"expires before issued": func(r *contracts.DecisionRecordV2) {
+			r.ExpiresAt, r.IssuedAt = "2026-10-01T09:00:00Z", "2026-10-01T10:00:00Z"
+		},
+		"expires when issued": func(r *contracts.DecisionRecordV2) { r.ExpiresAt = r.IssuedAt },
+		"malformed issued_at": func(r *contracts.DecisionRecordV2) { r.IssuedAt = "yesterday" },
+	}
+	for name, mutate := range cases {
+		r := record(t)
+		mutate(&r)
+		if sig, err := k.SignRecord(r); err == nil {
+			t.Errorf("%s: signed (%+v)", name, sig)
+		}
+	}
+	if _, err := k.SignRecord(record(t)); err != nil {
+		t.Fatalf("the complete record: %v", err)
 	}
 }
