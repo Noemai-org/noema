@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"context"
+	"regexp"
 	"time"
 )
 
@@ -24,6 +25,28 @@ const LabelSynthetic = "SYNTHETIC"
 
 // MaxCandidatePage is the largest page a candidate search may ask for.
 const MaxCandidatePage = 100
+
+// Provenance is what the Evidence Layer needs next to a decoded answer: the SHA-256 of the exact bytes the adapter received
+// (layer.Observation.RawHash), and the label the source put on its data, passed through so the Record shows it (AGENT-25).
+// The stand-in labels everything data_source "stand-in" and synthetic true.
+type Provenance struct {
+	RawHash    string // "sha256:" and 64 lower-case hex digits
+	DataSource string
+	Synthetic  bool
+}
+
+var rawHashPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// Validate refuses a provenance that cannot back an evidence item: no wire hash, or data that is not labelled synthetic.
+func (p Provenance) Validate() error {
+	if !rawHashPattern.MatchString(p.RawHash) {
+		return malformed("provenance.raw_hash")
+	}
+	if p.DataSource == "" || !p.Synthetic {
+		return malformed("provenance.label")
+	}
+	return nil
+}
 
 // Scope says whose data a read may reach. PrincipalID comes from the authenticated session only, never from model
 // output or user text (INV-12, AGENT-10).
@@ -106,6 +129,7 @@ func (e LedgerEntry) Validate() error {
 type LedgerRead struct {
 	Entries     []LedgerEntry
 	Unavailable bool
+	Provenance  Provenance
 }
 
 // IsUnavailable reports whether the source could not answer.
@@ -161,6 +185,7 @@ func (s SwitchRecord) Validate() error {
 type SwitchRead struct {
 	Record      SwitchRecord
 	Unavailable bool
+	Provenance  Provenance
 }
 
 // CreditState is the beneficiary-credit lifecycle (SoT 15.2 lifecycles).
@@ -225,6 +250,7 @@ func (d DestinationStatus) Validate() error {
 type DestinationRead struct {
 	Status      DestinationStatus
 	Unavailable bool
+	Provenance  Provenance
 }
 
 // Candidate is one transaction a principal may be asking about. The shape is the stand-in's reading of PERD 34.4.
@@ -282,6 +308,7 @@ type CandidatePage struct {
 	Items      []Candidate
 	Complete   bool
 	NextCursor string
+	Provenance Provenance
 }
 
 // ProvesAbsence is true only for an empty page that the source marked complete. An empty incomplete page proves

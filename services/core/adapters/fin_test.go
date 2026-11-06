@@ -219,3 +219,24 @@ func TestAnUnavailableReadIsNotAnEmptyAnswer(t *testing.T) {
 		t.Fatal("an empty available ledger read is a real empty answer, not unavailable")
 	}
 }
+
+func TestProvenanceKeepsTheWireHashAndTheSyntheticLabel(t *testing.T) {
+	good := Provenance{RawHash: "sha256:" + strings.Repeat("a", 64), DataSource: "stand-in", Synthetic: true}
+	if err := good.Validate(); err != nil {
+		t.Fatalf("a full provenance: %v", err)
+	}
+	for name, p := range map[string]Provenance{
+		"no hash":                {DataSource: "stand-in", Synthetic: true},
+		"no prefix":              {RawHash: strings.Repeat("a", 64), DataSource: "stand-in", Synthetic: true},
+		"upper case":             {RawHash: "sha256:" + strings.Repeat("A", 64), DataSource: "stand-in", Synthetic: true},
+		"short":                  {RawHash: "sha256:abc", DataSource: "stand-in", Synthetic: true},
+		"no source":              {RawHash: good.RawHash, Synthetic: true},
+		"not labelled synthetic": {RawHash: good.RawHash, DataSource: "stand-in"},
+	} {
+		err := p.Validate()
+		var re *ReadError
+		if !errors.As(err, &re) || re.Failure != ReadMalformed {
+			t.Errorf("%s: want ReadMalformed, got %v", name, err)
+		}
+	}
+}
