@@ -322,12 +322,11 @@ func TestDecisionRecordAndDecisionGrantAreTenantScopedAndForced(t *testing.T) {
 	// a Trust login cannot write a grant for another tenant, even one that names a decision of that tenant
 	_, err := trustA.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ('grt_x', 'ten_b', 'dec_b', 'n_x', jsonb_build_object('decision_id', 'dec_b', 'tenant_id', 'ten_b'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`)
-	wantCode(t, err, denied, "tenant A's Trust login writing a grant for tenant B")
-	for _, group := range []string{"trust_rw", "execution_rw", "outcome_rw"} {
-		p := trustA
-		if group != "trust_rw" {
-			p = testpg.TenantLogin(t, pool, dsn, group, "ten_a")
-		}
+	// the grant trigger, which fires before the row-level check, already finds no ALLOW decision of tenant B visible to tenant A; either refusal is the point
+	wantCode(t, err, violation, "tenant A's Trust login writing a grant for tenant B")
+	execA := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a")
+	logins := map[string]*pgxpool.Pool{"trust_rw": trustA, "execution_rw": execA, "outcome_rw": testpg.TenantLogin(t, pool, dsn, "outcome_rw", "ten_a")}
+	for group, p := range logins {
 		var own, foreign int
 		if err := p.QueryRow(ctx(t), `SELECT count(*) FILTER (WHERE tenant_id = 'ten_a'), count(*) FILTER (WHERE tenant_id = 'ten_b') FROM decision_grant`).Scan(&own, &foreign); err != nil {
 			t.Fatal(err)
@@ -337,7 +336,6 @@ func TestDecisionRecordAndDecisionGrantAreTenantScopedAndForced(t *testing.T) {
 		}
 	}
 	// Execution moves the status of its own tenant's grant only
-	execA := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a")
 	if tag, err := execA.Exec(ctx(t), `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_b'`); err != nil || tag.RowsAffected() != 0 {
 		t.Errorf("tenant A's Execution login changed %d of tenant B's grants (%v)", tag.RowsAffected(), err)
 	}

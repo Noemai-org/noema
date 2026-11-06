@@ -67,6 +67,17 @@ GRANT EXECUTE ON FUNCTION decision_login_tenant() TO trust_rw, execution_rw, out
 ALTER TABLE decision_record ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_record_read ON decision_record FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
 CREATE POLICY decision_record_write ON decision_record FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
+-- FORCE: the table's owner is subject to the policies too, so a migration or admin role that is not a superuser reads and writes no tenant's rows without
+-- a tenant mapping (ruling A6). A superuser bypasses row security in PostgreSQL whatever is set; no runtime login is one.
+ALTER TABLE decision_record FORCE ROW LEVEL SECURITY;
+
+-- decision_grant gets the same scoping (ruling A6, DEBT-06 for this table): Trust writes and reads its own tenant's grants, Execution reads them and moves
+-- their status, Outcome reads them. Foreign keys that point at the table (grant_spend, receipts) are checked without row security by PostgreSQL.
+ALTER TABLE decision_grant ENABLE ROW LEVEL SECURITY;
+CREATE POLICY decision_grant_read ON decision_grant FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
+CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
+CREATE POLICY decision_grant_status ON decision_grant FOR UPDATE TO execution_rw USING (tenant_id = decision_login_tenant()) WITH CHECK (tenant_id = decision_login_tenant());
+ALTER TABLE decision_grant FORCE ROW LEVEL SECURITY;
 
 -- The Decision Record comes first, and only an ALLOW decision of the grant's own tenant can have a grant (REQ-TRU-008: grants where the
 -- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record.
