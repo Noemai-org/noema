@@ -168,3 +168,18 @@ func TestAKeyOfAnotherTenantIsRefused(t *testing.T) {
 		t.Fatalf("%s", d)
 	}
 }
+
+// A key with an empty part cannot match any recorded dispatch, so it would look unspent; it is refused (Codex review of noema#196).
+func TestAnIncompleteKeyIsRefused(t *testing.T) {
+	g := gate(t, 2)
+	for name, k := range map[string]recovery.Key{
+		"no correlation": key("", "fin.cap.a", "res_1"),
+		"no capability":  key("cor_1", "", "res_1"),
+		"no target":      key("cor_1", "fin.cap.a", ""),
+		"nothing":        {TenantID: tenant},
+	} {
+		if d := g.Decide(tenant, nil, k); d != recovery.BudgetSpent {
+			t.Errorf("%s: %s, want %s", name, d, recovery.BudgetSpent)
+		}
+	}
+}

@@ -40,8 +40,8 @@ func NewGate(max int) (*Gate, error) {
 // verified rows of one tenant's chain, the tenant tenantID; rows of other correlations do not count. A dispatch of k's correlation whose
 // capability or target cannot be read might belong to k, so it counts against every key of that correlation: unknown is never "not counted".
 func (g *Gate) Decide(tenantID string, rows []chain.Row, k Key) BudgetDecision {
-	if k.TenantID != tenantID {
-		return BudgetSpent // the key is not of this chain's tenant; refuse
+	if k.TenantID != tenantID || k.CorrelationID == "" || k.Capability == "" || k.TargetRef == "" {
+		return BudgetSpent // not of this chain's tenant, or a part is missing, so it could match no recorded dispatch; refuse
 	}
 	n := 0
 	for _, r := range rows {

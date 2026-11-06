@@ -18,7 +18,7 @@ Recovery after an uncertain or failed write. Built by RCV-01 (slice 1, 2026-11-0
 **Implements:** REQ-RCV-003 (two dispatches per logical key, then escalate), REQ-RCV-002. SoT IDs: INV-07, AGENT-08, AGENT-16.
 
 - `NewGate(max)` takes the budget from pack data (`execution/limits`, `execution-limits.v1`; ruling A3: 2). There is no default; below 1 is refused.
-- `Gate.Decide(tenantID, rows, key)` counts `DISPATCH_ATTEMPTED` events of the key `tenant_id`, `correlation_id`, `capability`, `target_ref` in the verified rows of one tenant's chain and answers `DISPATCH_ALLOWED` or `BUDGET_SPENT` (the case escalates). A dispatch of the key's correlation whose capability or target cannot be read counts against every key of that correlation. A key of another tenant is refused.
+- `Gate.Decide(tenantID, rows, key)` counts `DISPATCH_ATTEMPTED` events of the key `tenant_id`, `correlation_id`, `capability`, `target_ref` in the verified rows of one tenant's chain and answers `DISPATCH_ALLOWED` or `BUDGET_SPENT` (the case escalates). A dispatch of the key's correlation whose capability or target cannot be read counts against every key of that correlation. A key of another tenant, or with an empty part, is refused.
 - `CheckBudget(tenantID, rows, max)` flags every dispatch beyond the budget (`BUDGET_EXCEEDED`) and every dispatch with no readable key (`KEY_UNREADABLE`).
 - `DISPATCH_ATTEMPTED` now carries `capability` and `target_ref` (written by `execution/ledger` Spend from the grant), so the key can be read from the Record.
 
