@@ -36,7 +36,7 @@ func newBuilder(t *testing.T, w *world, tenant string, failAppend bool) (*layer.
 	clk := clock.NewManual(readAt.Add(time.Minute))
 	gen := ids.New(clk, nil)
 	rec := &failingIDs{inner: gen, fail: failAppend}
-	return &layer.Builder{Pool: w.evidence(t, tenant), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: rec}}, rec
+	return &layer.Builder{Pool: w.evidence(t, tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: rec}}, rec
 }
 
 func observation(tenant string, class layer.ReadClass) layer.Observation {
@@ -293,5 +293,18 @@ func TestBuilderLabelsSyntheticEvidenceEvenWithoutASourceName(t *testing.T) {
 	got := w.rows(t, `SELECT coalesce(payload->>'synthetic', 'absent') FROM record_event WHERE event_type = 'EVIDENCE_READ'`)
 	if len(got) != 1 || got[0] != "true" {
 		t.Fatalf("synthetic label = %v, want true", got)
+	}
+}
+
+// A24: the rollback bound is configuration, never a constant chosen here (AGENT-16). A Builder without one fails closed before it touches the database.
+func TestBuilderWithoutARollbackTimeoutIsRefused(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	b.RollbackTimeout = 0
+	if _, err := b.Record(ctx(t), observation(tenantA, layer.ReadOK)); err == nil {
+		t.Fatal("a builder with no rollback timeout recorded evidence")
+	}
+	if n := w.count(t, `SELECT count(*) FROM evidence_item`); n != 0 {
+		t.Fatalf("%d items stored by a refused builder", n)
 	}
 }
