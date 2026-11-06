@@ -223,11 +223,13 @@ func TestAGrantBindsTheExactPolicyItWasDecidedUnder(t *testing.T) {
 		"numeric, not text":                        {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.10")}, "", "fin.pol@3.10"},
 		"three parts":                              {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1.2")}, "", "fin.pol@3.1.2"},
 		"repeated version":                         {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "", "fin.pol@3.1"},
-		"two policies: the named one, though the other has a higher version": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
-		"two policies: the named one, in the other order":                    {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
-		"a leading-zero version is schema-valid (Codex P2)":                  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "03.01")}, "", "fin.pol@03.01"},
-		"leading zeros compare as numbers: 3.010 is newer than 3.9":          {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.010")}, "", "fin.pol@3.010"},
-		"two policies: the named one with two versions":                      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
+		"two policies: the named one, though the other has a higher version":      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"two policies: the named one, in the other order":                         {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"the same version string under two policy IDs: naming one gives that one": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "1.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"the same version string under two policy IDs: naming the other gives it": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "1.0"), rule("b", "fin.zzz", "1.0")}, "fin.aaa", "fin.aaa@1.0"},
+		"a leading-zero version is schema-valid (Codex P2)":                       {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "03.01")}, "", "fin.pol@03.01"},
+		"leading zeros compare as numbers: 3.010 is newer than 3.9":               {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.010")}, "", "fin.pol@3.010"},
+		"two policies: the named one with two versions":                           {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
 	} {
 		s := step()
 		s.PolicyID = c.policy
