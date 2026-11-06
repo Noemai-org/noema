@@ -343,3 +343,47 @@ func TestDecisionRecordAndDecisionGrantAreTenantScopedAndForced(t *testing.T) {
 		t.Errorf("tenant A's Execution login changed %d of its own grants (%v)", tag.RowsAffected(), err)
 	}
 }
+
+// Reviewer P1 on noema#168 (REQ-TRU-001, A13): the key and the signature are stored twice, in the signed document and in two columns. A row
+// whose document says one key and whose column says another is contradictory evidence for key selection, rotation and audit, so it is refused.
+func TestTheDecisionRecordSignatureColumnsMustAgreeWithTheSignedDocument(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	insert := func(id, docSig, colKey, colVal string) error {
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || %s, 'ALLOW', 'sha256:%064d', '[]', '%s', '%s')`, id, docSig, 1, colKey, colVal))
+	}
+	sig := `jsonb_build_object('sig', jsonb_build_object('key_id', 'k1', 'value', 'aa'))`
+	wantCode(t, insert("dec_k", sig, "k2", "aa"), violation, "the document is signed with k1, the column says k2")
+	wantCode(t, insert("dec_v", sig, "k1", "bb"), violation, "the signature value differs from the column")
+	wantCode(t, insert("dec_n", `'{}'::jsonb`, "k1", "aa"), violation, "a document with no signature at all")
+	if err := insert("dec_ok", sig, "k1", "aa"); err != nil {
+		t.Fatalf("a document whose signature is the columns': %v", err)
+	}
+}
+
+// Codex P1 on noema#168: outcome_record_verdict (migration 0007) is SECURITY DEFINER and joins decision_grant. It runs as its owner, and under FORCE
+// the owner is subject to the policies. A policy that names only the three power roles gives the owner no row, so every verdict write finds no grant.
+// (A superuser owner bypasses row security, which is why only the catalog shows it.) The policies on both tables must therefore reach the owner,
+// and still scope by session_user, so reaching it widens nothing: a login with no tenant mapping sees no row.
+func TestTheOwnerOfTheVerdictFunctionCanReadTheDecisionTablesItJoins(t *testing.T) {
+	pool, _ := migratedDSN(t)
+	for _, tb := range []string{"decision_record", "decision_grant"} {
+		var reaches bool
+		err := pool.QueryRow(ctx(t), `
+			SELECT EXISTS (
+			  SELECT 1 FROM pg_policy p, pg_proc f
+			  WHERE p.polrelid = $1::regclass AND p.polcmd IN ('r', '*')
+			    AND f.proname = 'outcome_record_verdict' AND f.pronamespace = 'public'::regnamespace
+			    AND (f.proowner = ANY (p.polroles) OR p.polroles = '{0}'))`, tb).Scan(&reaches)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reaches {
+			t.Errorf("%s: no SELECT policy reaches the owner of outcome_record_verdict, which would read no row under FORCE", tb)
+		}
+	}
+}
