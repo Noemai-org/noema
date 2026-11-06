@@ -98,7 +98,50 @@ var (
 	sentenceEnd = regexp.MustCompile(`[.!?]+\s+|[.!?]+$`)
 	figure      = regexp.MustCompile(`[0-9][0-9,.:]*[0-9]|[0-9]`)
 	digitRun    = regexp.MustCompile(`[0-9]+`)
+	capitalised = regexp.MustCompile(`\b[A-Z][A-Za-z'’-]*`)
 )
+
+// openers are the capitalised words of ordinary English that may begin or sit in a sentence without being a name: pronouns, articles, auxiliaries and the like. It is
+// language syntax, not domain data. Any other capitalised word must occur in the facts or in the rendered template, so an invented person or institution is blocked
+// (REQ-EXP-002 INVENTED_NAME). The check is deliberately strict: a false block falls back to the template.
+var openers = map[string]bool{"A": true, "An": true, "The": true, "This": true, "That": true, "These": true, "Those": true, "It": true, "Its": true, "We": true, "Our": true,
+	"Your": true, "You": true, "There": true, "Here": true, "If": true, "Please": true, "No": true, "Not": true, "And": true, "But": true, "Or": true, "Is": true, "Are": true,
+	"Was": true, "Were": true, "Has": true, "Have": true, "Had": true, "Will": true, "Can": true, "Could": true, "May": true, "About": true, "For": true, "On": true, "At": true,
+	"In": true, "To": true, "Of": true, "As": true, "By": true, "With": true, "Do": true, "Does": true, "Did": true}
+
+func factStrings(f contracts.ExplanationFactsV2) []string {
+	var out []string
+	for _, fact := range f.Facts {
+		out = append(out, fact.ValueMasked, fact.SourceLabel, string(fact.AsOf))
+	}
+	return out
+}
+
+// normalFigure drops thousands separators, so 50,000 and 50000 are one figure and 50 is not 50,000.
+func normalFigure(s string) string { return strings.ReplaceAll(s, ",", "") }
+
+// figureSet is every whole figure in the fact strings, plus the hour:minute prefix of each time (10:42:00 also allows 10:42).
+func figureSet(strs []string) map[string]bool {
+	set := map[string]bool{}
+	for _, s := range strs {
+		for _, fig := range figure.FindAllString(s, -1) {
+			n := normalFigure(fig)
+			set[n] = true
+			if parts := strings.Split(n, ":"); len(parts) == 3 {
+				set[parts[0]+":"+parts[1]] = true
+			}
+		}
+	}
+	return set
+}
+
+func wordSet(s string) map[string]bool {
+	set := map[string]bool{}
+	for _, w := range capitalised.FindAllString(s, -1) {
+		set[w] = true
+	}
+	return set
+}
 
 // Validate runs the four checks of PERD 31.2 and the forbidden-claim patterns (pack data, passed in). It returns every problem; none means the text may be shown.
 // 1. every sentence is covered by a claim bound to a fact of the input or to the rendered template; 2. every figure, time or masked identifier in the text appears in
@@ -106,10 +149,8 @@ var (
 func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden []string) []string {
 	var out []string
 	known := map[string]bool{}
-	var factText strings.Builder
 	for _, fact := range f.Facts {
 		known[fact.FactId] = true
-		factText.WriteString(fact.ValueMasked + "\n")
 	}
 	covered := make([]string, 0, len(r.Claims))
 	for i, c := range r.Claims {
@@ -158,9 +199,21 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 			out = append(out, fmt.Sprintf("check 1: the sentence %q is not covered by a valid claim", s))
 		}
 	}
+	allowed := figureSet(factStrings(f))
 	for _, fig := range figure.FindAllString(r.Text, -1) {
-		if !strings.Contains(factText.String(), fig) && !coveredByTemplateOnly(t, r, fig) {
-			out = append(out, fmt.Sprintf("check 2: %q is not in the facts", fig))
+		if !allowed[normalFigure(fig)] && !coveredByTemplateOnly(t, r, fig) {
+			out = append(out, fmt.Sprintf("check 2: %q is not a figure of the facts", fig))
+		}
+	}
+	words := wordSet(strings.Join(factStrings(f), "\n"))
+	if want, ok := t.text(r.TemplateID); ok {
+		for w := range wordSet(want) {
+			words[w] = true
+		}
+	}
+	for _, w := range capitalised.FindAllString(r.Text, -1) {
+		if !words[w] && !openers[w] {
+			out = append(out, fmt.Sprintf("check 2: %q is a name or term that is not in the facts", w))
 		}
 	}
 	for _, p := range forbidden {

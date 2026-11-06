@@ -150,7 +150,7 @@ func TestALongDigitRunIsBlockedEvenFromTheFactsAndATemplateIDMustBeTheRenderedOn
 	tpl := load(t)
 	f := facts("o", "c")
 	f.Facts[0].ValueMasked = "0123456789"
-	r := explanation.Rendered{Text: "Reference 0123456789 is confirmed.", Claims: []explanation.Claim{{Span: "Reference 0123456789 is confirmed.", FactIDs: []string{"f1"}}}}
+	r := explanation.Rendered{Text: "It is 0123456789.", Claims: []explanation.Claim{{Span: "It is 0123456789.", FactIDs: []string{"f1"}}}}
 	p := explanation.Validate(tpl, r, f, nil)
 	if len(p) != 1 || !strings.Contains(p[0], "check 4") {
 		t.Fatalf("want exactly check 4, got %v", p)
