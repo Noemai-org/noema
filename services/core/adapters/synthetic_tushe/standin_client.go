@@ -207,6 +207,10 @@ func (c *StandinClient) LedgerEntries(ctx context.Context, scope adapters.Scope,
 	if err != nil {
 		return adapters.LedgerRead{}, err
 	}
+	// A list that is absent is not an empty list: only a present `[]` means "no entries" (a JSON null or a missing key is nil).
+	if w.Entries == nil {
+		return adapters.LedgerRead{}, malformed200()
+	}
 	if *w.Unavailable {
 		if len(w.Entries) != 0 {
 			return adapters.LedgerRead{}, malformed200()
@@ -349,7 +353,7 @@ func (c *StandinClient) FindCandidates(ctx context.Context, scope adapters.Scope
 		return adapters.CandidatePage{}, err
 	}
 	var w wireCandidates
-	if strict(a.raw, &w) != nil || w.Complete == nil || len(w.Items) > q.Limit {
+	if strict(a.raw, &w) != nil || w.Complete == nil || w.Items == nil || len(w.Items) > q.Limit {
 		return adapters.CandidatePage{}, malformed200()
 	}
 	prov, err := a.provenance(w.label)

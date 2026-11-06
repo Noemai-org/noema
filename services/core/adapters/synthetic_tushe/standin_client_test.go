@@ -254,6 +254,7 @@ func TestAnAnswerTheClientCannotTrustIsMalformedNeverKnown(t *testing.T) {
 		"another source":     {"application/json", strings.Replace(ledgerBody, `"stand-in"`, `"tushe"`, 1)},
 		"not synthetic":      {"application/json", strings.Replace(ledgerBody, `"synthetic":true`, `"synthetic":false`, 1)},
 		"unknown entry type": {"application/json", strings.Replace(ledgerBody, `"DEBIT"`, `"REFUND"`, 1)},
+		"entries missing":    {"application/json", `{"data_source":"stand-in","synthetic":true,"unavailable":false}`},
 		"trailing data":      {"application/json", ledgerBody + `{}`},
 	}
 	for name, tc := range bad {
@@ -371,5 +372,21 @@ func TestACredentialFileThatIsMissingOrEmptyIsRefusedAtConstruction(t *testing.T
 		if _, err := NewStandinClient(o); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
+	}
+}
+
+// A list that is absent is not an empty list: a missing field must never read as "no entries" or "no candidates" (found by the
+// recorded missing_required_field exchange of the real proxy, ENV-06).
+func TestAMissingListIsMalformedNotEmpty(t *testing.T) {
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"complete":true}`)
+	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+	if re := sFail(t, err); re.Failure != adapters.ReadMalformed {
+		t.Fatalf("got %+v, want MALFORMED", re)
+	}
+	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"complete":true,"items":[]}`)
+	page, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+	if err != nil || !page.ProvesAbsence() {
+		t.Fatalf("a present empty list on a complete page is a real absence: %+v %v", page, err)
 	}
 }
