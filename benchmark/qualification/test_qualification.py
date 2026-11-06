@@ -10,6 +10,7 @@ import io
 import json
 import tempfile
 import unittest
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
@@ -135,7 +136,8 @@ class Making(unittest.TestCase):
         bad["result"] = "DRIFT"
         with self.assertRaises(ValueError):
             record(drift=bad)
-        for change in ({"version": "2026-12-01"}, {"model_id": "decision-model-b"}, {"provider": "anthropic"}, {"kind": "speech"}):
+        changes: list[Json] = [{"version": "2026-12-01"}, {"model_id": "decision-model-b"}, {"provider": "anthropic"}, {"kind": "speech"}]
+        for change in changes:
             with self.assertRaises(ValueError, msg=str(change)):
                 record(**change)
 
@@ -173,8 +175,9 @@ class Contract(unittest.TestCase):
 
     def test_the_contract_refuses_what_the_code_refuses(self) -> None:
         rec = record()
-        for mutate in (lambda r: r.pop("decision_record"), lambda r: r.update(verdict="MAYBE"), lambda r: r.update(qualified_on="yesterday"), lambda r: r["drift"].update(result="OK"),
-                       lambda r: r.update(extra=1), lambda r: r.update(kind="vision")):
+        mutations: list[Callable[[Json], object]] = [lambda r: r.pop("decision_record"), lambda r: r.update(verdict="MAYBE"), lambda r: r.update(qualified_on="yesterday"), lambda r: r["drift"].update(result="OK"),
+                       lambda r: r.update(extra=1), lambda r: r.update(kind="vision")]
+        for mutate in mutations:
             broken = copy.deepcopy(rec)
             mutate(broken)
             self.assertTrue(CONTRACTS.errors("qualification-record", broken), broken)

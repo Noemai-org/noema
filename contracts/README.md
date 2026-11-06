@@ -45,6 +45,10 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
 - **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
 
+## Qualification record and run record (6 Nov 2026)
+
+`schemas/qualification-run.v1.json` and `schemas/qualification-record.v1.json` are new (UND-13, REQ-INT-006, ruling A17). Neither edits an existing schema. Migration note: none, since both are new contracts at major 1; see `INVENTORY.md`. The reference implementation, the CLI and the rules for the lookup are in `benchmark/qualification/`; its records live in `benchmark/qualification/records/`. Fixtures: `fixtures/{valid,invalid}/qualification-run` and `qualification-record`, generated from the reference implementation by the tests' own builders.
+
 ## Status (Session A, 24 Oct 2026)
 
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.

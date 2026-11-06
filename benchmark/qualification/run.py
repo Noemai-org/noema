@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from benchmark.contracts import sha256_of
-from benchmark.qualification.record import KINDS, is_pinned
+from benchmark.qualification.pins import KINDS, is_pinned
 from benchmark.scoring.diagnostics import understanding_dependent
 
 Json = dict[str, Any]

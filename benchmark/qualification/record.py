@@ -1,15 +1,18 @@
-"""Model qualification records (UND-13; REQ-INT-006, DEC-2026-10-31 D25, AGENT-28).
+"""Model qualification records (UND-13; REQ-INT-006, DEC-2026-10-31 D25, AGENT-28; ruling A17 of 6 Nov 2026).
 
-A model or speech provider version is used only when a qualification record exists for exactly that provider, model ID and pinned version. A record is made from the
-scorecard of a run of the qualification subset that includes pass^k (exactly five runs, REQ-BEN-009). This module is pure: it reads no file, runs nothing and decides no
-threshold. It records what the scorecard says and gives a verdict only on the conditions that need no judgement:
+A model or speech provider version is used only when a qualification record exists for exactly that provider, model ID and pinned version. A record is made from the scorecard
+of a run of the qualification subset that includes pass^k (exactly five runs, REQ-BEN-009) and from the drift run record (`run.py`). The format is
+`contracts/schemas/qualification-record.v1.json`. This module is pure: it reads no file, runs nothing and sets no threshold.
+
+Interim QUALIFIED (A17) means all of:
 
 - the run is complete;
 - every Tier 0 gate is at zero;
-- pass^k was available (exactly five runs supplied).
+- the drift check result is PASS;
+- pass^k is not below the bar. The bar is the higher of the pinned baseline's own pass^k and a Founder-set floor (pack data, set by a decision record). With neither there is no
+  bar, and a first qualification waits for a Founder-set floor: the verdict is NOT_QUALIFIED.
 
-How good the numbers must be beyond that is a founder decision (the record's `decision_record` names it). The model service's configuration check (C2) refuses an ID with
-no QUALIFIED record by the same rules as `check_model`; it is not built here.
+The model service's configuration check (C2) refuses an ID with no QUALIFIED record by the same rules as `check_model`; it is not built here.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
 import datetime
@@ -17,25 +20,17 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from benchmark.contracts import sha256_of
+from benchmark.qualification.pins import KINDS, is_pinned
+from benchmark.qualification.run import validate_run_record
 
 Json = dict[str, Any]
 SCHEMA = "qualification-record.v1"
-KINDS = ("llm", "speech")
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
-REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "decision_record",
+REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons")
-ALIASES = frozenset({"", "latest", "default", "current", "stable", "auto", "*"})
 
 
-def is_pinned(version: Any) -> bool:
-    """A pinned version is a dated or numbered identifier, not an alias that the provider can move."""
-    if not isinstance(version, str) or version != version.strip() or any(ch.isspace() for ch in version):
-        return False
-    lowered = version.lower()
-    return lowered not in ALIASES and "latest" not in lowered
-
-
-def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) -> list[str]:
+def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], drift_result: str, bar: Mapping[str, Any]) -> list[str]:
     reasons = []
     if not complete:
         reasons.append("the run is not complete")
@@ -43,6 +38,17 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) ->
         reasons.append("a Tier 0 gate is not at zero")
     if not pass_k.get("available"):
         reasons.append(f"pass^k was not available ({pass_k.get('reason') or 'no reason given'})")
+    if drift_result != "PASS":
+        reasons.append(f"the drift check result is {drift_result}, not PASS")
+    bars = [b for b in (bar.get("baseline_pass_k"), bar.get("floor")) if b is not None]
+    if not bars:
+        reasons.append("there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)")
+    elif pass_k.get("available"):
+        rate = (pass_k.get("rate") or {}).get("rate")
+        if rate is None:
+            reasons.append("pass^k has no rate to compare with the bar")
+        elif rate < max(bars):
+            reasons.append(f"pass^k {rate} is below the bar {max(bars)}")
     return reasons
 
 
@@ -52,8 +58,14 @@ def _parse_date(value: Any) -> datetime.date:
     return datetime.date.fromisoformat(value)
 
 
-def build_record(card: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str) -> Json:
-    """A record whose numbers are copied from the scorecard, so an author never types one."""
+def _fraction(name: str, value: float | None) -> None:
+    if value is not None and not 0 <= value <= 1:
+        raise ValueError(f"{name} must be between 0 and 1, not {value!r}")
+
+
+def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
+                 baseline_pass_k: float | None, floor: float | None, floor_source: str | None) -> Json:
+    """A record whose numbers are copied from the scorecard and the run record, so an author never types one."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
     for name, value in (("provider", provider), ("model_id", model_id), ("decision_record", decision_record)):
@@ -62,12 +74,27 @@ def build_record(card: Mapping[str, Any], *, kind: str, provider: str, model_id:
     if not is_pinned(version):
         raise ValueError(f"version {version!r} is not pinned: a qualification record names a dated or numbered version, never an alias such as latest")
     _parse_date(qualified_on)
-    pass_k = dict(card["tier1"]["diagnostics"]["pass_k"])
-    reasons = _reasons(bool(card["complete"]), bool(card["tier0"]["all_zero"]), pass_k)
+    _fraction("baseline_pass_k", baseline_pass_k)
+    _fraction("floor", floor)
+    if (floor is None) != (floor_source is None or not floor_source.strip()):
+        raise ValueError("a floor and the decision record that set it (floor_source) come together")
+    problems = validate_run_record(drift)
+    if problems:
+        raise ValueError(f"the drift run record is invalid: {'; '.join(problems)}")
+    if drift["pinned"] != {"kind": kind, "provider": provider, "model_id": model_id, "version": version}:
+        raise ValueError(f"the drift run record is for {drift['pinned']!r}, not for {provider}/{model_id}@{version} ({kind})")
+    source = card["tier1"]["diagnostics"]["pass_k"]
+    rate = source.get("rate")
+    pass_k = {"k_required": source["k_required"], "runs_supplied": source["runs_supplied"], "available": bool(source["available"]), "reason": source.get("reason"),
+              "rate": None if rate is None else {"k": rate["k"], "n": rate["n"], "rate": rate["rate"]}, "failing_cases": list(source.get("failing_cases") or [])}
+    bar = {"baseline_pass_k": baseline_pass_k, "floor": floor, "floor_source": floor_source}
+    drift_block = {"result": drift["result"], "run_sha256": sha256_of(drift), "subset_id": drift["subset_id"], "cases_sha256": drift["cases_sha256"],
+                   "baseline_version": drift["baseline"]["pinned"]["version"]}
+    reasons = _reasons(bool(card["complete"]), bool(card["tier0"]["all_zero"]), pass_k, drift["result"], bar)
     return {
         "schema": SCHEMA, "kind": kind, "provider": provider, "model_id": model_id, "version": version, "run_id": card["run_id"], "n_cases": card["n_cases"],
-        "complete": bool(card["complete"]), "tier0_all_zero": bool(card["tier0"]["all_zero"]), "pass_k": pass_k, "scorecard_sha256": sha256_of(card),
-        "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
+        "complete": bool(card["complete"]), "tier0_all_zero": bool(card["tier0"]["all_zero"]), "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "drift": drift_block,
+        "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
     }
 
 
@@ -90,12 +117,13 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         _parse_date(record["qualified_on"])
     except ValueError:
         out.append(f"qualified_on {record['qualified_on']!r} is not an ISO date")
+    blocks = {name: record[name] for name in ("pass_k", "drift", "bar") if isinstance(record[name], Mapping)}
+    out += [f"{name} must be an object" for name in ("pass_k", "drift", "bar") if name not in blocks]
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
-    elif record["verdict"] == "QUALIFIED" and isinstance(record["pass_k"], Mapping):
-        out += [f"verdict is QUALIFIED but {reason}" for reason in _reasons(bool(record["complete"]), bool(record["tier0_all_zero"]), record["pass_k"])]
-    elif record["verdict"] == "QUALIFIED":
-        out.append("verdict is QUALIFIED but pass^k is not recorded")
+    elif record["verdict"] == "QUALIFIED" and len(blocks) == 3:
+        out += [f"verdict is QUALIFIED but {reason}" for reason in _reasons(bool(record["complete"]), bool(record["tier0_all_zero"]), blocks["pass_k"], str(blocks["drift"].get("result")),
+                                                                              blocks["bar"])]
     return out
 
 

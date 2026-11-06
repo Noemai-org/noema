@@ -1,0 +1,9 @@
+{
+  "bad_date.json": "pattern",
+  "bad_drift_result.json": "enum",
+  "bad_kind.json": "enum",
+  "bad_verdict.json": "enum",
+  "floor_above_one.json": "maximum",
+  "missing_decision_record.json": "required",
+  "unknown_member.json": "additionalProperties"
+}

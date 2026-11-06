@@ -234,7 +234,7 @@ class Validating(unittest.TestCase):
         schema = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "qualification-run.v1.json").read_text(encoding="utf-8"))
         self.assertEqual(sorted(REQUIRED_RUN), sorted(schema["required"]))
         self.assertEqual({"PASS", "DRIFT", "PROVIDER_UNAVAILABLE"}, set(schema["properties"]["result"]["enum"]))
-        self.assertEqual({"MATCH", "DRIFT", "UNAVAILABLE"}, set(schema["$defs"]["case"]["properties"]["status"]["enum"]))
+        self.assertEqual({"MATCH", "DRIFT", "UNAVAILABLE"}, set(schema["$defs"]["Case"]["properties"]["status"]["enum"]))
 
 
 class Cli(unittest.TestCase):
