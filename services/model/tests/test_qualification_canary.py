@@ -224,3 +224,38 @@ def test_a_baseline_that_does_not_cover_exactly_the_subset_is_refused() -> None:
     extra["cases"]["zzz-extra"] = next(iter(extra["cases"].values()))
     with pytest.raises(ValueError, match="baseline"):
         canary(ok, baseline=extra)
+
+
+def test_a_baseline_case_whose_slots_no_longer_match_its_digest_is_refused() -> None:
+    # Codex review of noema#215 (round four): the stored digest is copied into the audit record, so it must be the digest of the slots compared.
+    ok = ScriptedAsker(SCENARIOS["pass"]["answers"])
+    bad = json.loads(json.dumps(BASELINE))
+    first = next(iter(bad["cases"]))
+    bad["cases"][first]["slots"]["amount_minor"] = 1
+    with pytest.raises(ValueError, match="baseline"):
+        canary(ok, baseline=bad)
+    truncated = json.loads(json.dumps(BASELINE))
+    truncated["cases"][first]["slots"] = {}
+    with pytest.raises(ValueError, match="baseline"):
+        canary(ok, baseline=truncated)
+
+
+@pytest.mark.parametrize("version", ["latest", "stable-2", "alpha", ""])
+def test_the_baseline_must_name_a_pinned_version_but_may_differ_from_the_current_one(version: str) -> None:
+    ok = ScriptedAsker(SCENARIOS["pass"]["answers"])
+    bad = json.loads(json.dumps(BASELINE))
+    bad["pinned"]["version"] = version
+    with pytest.raises(ValueError, match="baseline"):
+        canary(ok, baseline=bad)
+    older = json.loads(json.dumps(BASELINE))
+    older["pinned"]["version"] = "2026-01-02"
+    assert canary(ok, baseline=older)["result"] == "PASS"
+
+
+def test_an_empty_subset_is_refused_not_reported_as_a_clean_pass() -> None:
+    from noema_model.qualification import canary as module  # the digest of an empty list is what a stripped suite would carry
+
+    empty = {**SUBSET, "cases": [], "case_ids": [], "n_cases": 0, "cases_sha256": module._digest([])}
+    base = {**BASELINE, "cases": {}, "cases_sha256": module._digest([])}
+    with pytest.raises(ValueError, match="empty"):
+        canary(ScriptedAsker({}), subset=empty, baseline=base)

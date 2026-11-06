@@ -118,3 +118,16 @@ def test_a_floating_alias_or_unpinned_version_is_refused_as_the_harness_refuses_
 def test_a_dated_or_numbered_snapshot_is_accepted_when_a_record_exists(version: str) -> None:
     q = {**GOLDEN["records"]["q"], "version": version}
     assert check_model([q], q["provider"], q["model_id"], version, "llm") == []
+
+
+@pytest.mark.parametrize("value", [None, "", "sha256:abc", "sha256:" + "G" * 64, "sha256:" + "A" * 64, 5, ["x"]])
+def test_the_scorecard_digest_must_be_a_real_sha256(value: Any) -> None:
+    # Codex review of noema#215 (round four): required-field presence is not validity.
+    q = {**GOLDEN["records"]["q"], "scorecard_sha256": value}
+    assert check_model([q], q["provider"], q["model_id"], q["version"], "llm")
+
+
+@pytest.mark.parametrize("field,value", [("run_id", None), ("run_id", ""), ("n_cases", 0), ("n_cases", True), ("n_cases", "5"), ("n_cases", None), ("pass_k", None), ("reasons", None)])
+def test_the_other_required_evidence_fields_have_to_have_the_right_type(field: str, value: Any) -> None:
+    q = {**GOLDEN["records"]["q"], field: value}
+    assert check_model([q], q["provider"], q["model_id"], q["version"], "llm")
