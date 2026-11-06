@@ -54,6 +54,8 @@ class DecisionRecordV2(ContractModel):
     clarification: ClarificationV1 | None = Field(default=None)
     reevaluate_at: CommonV1Timestamp | None = Field(default=None)
     evaluated_at: CommonV1Timestamp
+    issued_at: CommonV1Timestamp
+    expires_at: CommonV1Timestamp
     sig: CommonV1Sig
 
 
