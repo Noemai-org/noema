@@ -123,7 +123,7 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 		}
 		o := layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: "cas_missing01", ReadBy: "TRUST",
 			EffectiveAt: clk.Now(), AuthorityClass: "AUTHORITATIVE_FOR:case_status", ResourceScope: "res_synthetic", PrincipalScope: "prn_synthetic",
-			Sensitivity: "S2_internal", Read: layer.Read{Class: class, ReadAt: clk.Now()}, Src: layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second}}
+			Sensitivity: "S2_internal", Synthetic: true, Read: layer.Read{Class: class, ReadAt: clk.Now()}, Src: layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second}}
 		item, err := builder.Record(bg, o)
 		if err != nil {
 			t.Fatalf("%s: %v", s.name, err)
