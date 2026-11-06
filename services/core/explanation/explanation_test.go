@@ -111,12 +111,17 @@ func TestTheValidatorBlocksEachKindOfInventedOrUnboundClaim(t *testing.T) {
 func TestAForbiddenClaimIsBlockedEvenWhenItIsBoundToAFact(t *testing.T) {
 	tpl := load(t)
 	f := facts("o", "c")
-	r := explanation.Rendered{Text: "Your money is safe.", Claims: []explanation.Claim{{Span: "Your money is safe.", FactIDs: []string{"f1"}}}}
+	r := explanation.Rendered{Text: "We could not confirm whether this transaction went through.", Claims: []explanation.Claim{{Span: "We could not confirm whether this transaction went through.", FactIDs: []string{"f1"}}}}
 	if p := explanation.Validate(tpl, r, f, nil); len(p) != 0 {
-		t.Fatalf("with no pattern list the sentence is only checked for binding: %v", p)
+		t.Fatalf("with no pattern list the sentence is only checked for binding and vocabulary: %v", p)
 	}
-	if p := explanation.Validate(tpl, r, f, []string{`(?i)money is safe`}); len(p) == 0 {
+	if p := explanation.Validate(tpl, r, f, []string{`(?i)went through`}); len(p) == 0 {
 		t.Fatal("a forbidden claim passed")
+	}
+	// A reassurance the pack never wrote is blocked by the vocabulary check even with no pattern list.
+	safe := explanation.Rendered{Text: "Your money is safe.", Claims: []explanation.Claim{{Span: "Your money is safe.", FactIDs: []string{"f1"}}}}
+	if p := explanation.Validate(tpl, safe, f, nil); len(p) == 0 {
+		t.Fatal("a reassurance outside the pack's vocabulary passed")
 	}
 }
 

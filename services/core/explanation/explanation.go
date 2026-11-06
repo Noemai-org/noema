@@ -98,16 +98,16 @@ var (
 	sentenceEnd = regexp.MustCompile(`[.!?]+\s+|[.!?]+$`)
 	figure      = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9][0-9,.:]*[0-9]|[0-9]`) // a calendar date is one value, then times and numbers
 	digitRun    = regexp.MustCompile(`[0-9]+`)
-	capitalised = regexp.MustCompile(`\b[A-Z][A-Za-z'’-]*`)
+	words       = regexp.MustCompile(`[A-Za-z][A-Za-z'’]*`)
 )
 
-// openers are the capitalised words of ordinary English that may begin or sit in a sentence without being a name: pronouns, articles, auxiliaries and the like. It is
-// language syntax, not domain data. Any other capitalised word must occur in the facts or in the rendered template, so an invented person or institution is blocked
-// (REQ-EXP-002 INVENTED_NAME). The check is deliberately strict: a false block falls back to the template.
-var openers = map[string]bool{"A": true, "An": true, "The": true, "This": true, "That": true, "These": true, "Those": true, "It": true, "Its": true, "We": true, "Our": true,
-	"Your": true, "You": true, "There": true, "Here": true, "If": true, "Please": true, "No": true, "Not": true, "And": true, "But": true, "Or": true, "Is": true, "Are": true,
-	"Was": true, "Were": true, "Has": true, "Have": true, "Had": true, "Will": true, "Can": true, "Could": true, "May": true, "About": true, "For": true, "On": true, "At": true,
-	"In": true, "To": true, "Of": true, "As": true, "By": true, "With": true, "Do": true, "Does": true, "Did": true}
+// openers are the ordinary function words of English (pronouns, articles, auxiliaries), lowercase. They are language syntax, not domain data. Every other word of a
+// rendered text must occur in the facts or in the pack's reviewed templates for the locale, whatever its case, so an invented person, institution or term is blocked
+// (REQ-EXP-002 INVENTED_NAME). The check is deliberately strict: a false block falls back to the template, which is the safe direction.
+var openers = map[string]bool{"a": true, "an": true, "the": true, "this": true, "that": true, "these": true, "those": true, "it": true, "its": true, "we": true, "our": true,
+	"your": true, "you": true, "there": true, "here": true, "if": true, "please": true, "no": true, "not": true, "and": true, "but": true, "or": true, "is": true, "are": true,
+	"was": true, "were": true, "has": true, "have": true, "had": true, "will": true, "can": true, "could": true, "may": true, "about": true, "for": true, "on": true, "at": true,
+	"in": true, "to": true, "of": true, "as": true, "by": true, "with": true, "do": true, "does": true, "did": true}
 
 func factStrings(f contracts.ExplanationFactsV2) []string {
 	var out []string
@@ -135,12 +135,24 @@ func figureSet(strs []string) map[string]bool {
 	return set
 }
 
+// wordSet is the lowercase words of s.
 func wordSet(s string) map[string]bool {
 	set := map[string]bool{}
-	for _, w := range capitalised.FindAllString(s, -1) {
-		set[w] = true
+	for _, w := range words.FindAllString(s, -1) {
+		set[strings.ToLower(w)] = true
 	}
 	return set
+}
+
+// vocabulary is every word the pack's reviewed templates for the locale use, lowercase. A fresh map each call: the caller adds the facts' words.
+func (t Templates) vocabulary(locale string) map[string]bool {
+	vocab := map[string]bool{}
+	for _, e := range t.byLocale[locale] {
+		for w := range wordSet(e.text) {
+			vocab[w] = true
+		}
+	}
+	return vocab
 }
 
 // Validate runs the four checks of PERD 31.2 and the forbidden-claim patterns (pack data, passed in). It returns every problem; none means the text may be shown.
@@ -150,6 +162,11 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 	var out []string
 	known := map[string]bool{}
 	for _, fact := range f.Facts {
+		if _, dup := known[fact.FactId]; dup {
+			out = append(out, fmt.Sprintf("input: fact id %q appears more than once, so its status is ambiguous", fact.FactId))
+			known[fact.FactId] = false // fail closed: a duplicated id supports no claim
+			continue
+		}
 		known[fact.FactId] = fact.FactStatus == contracts.ExplanationFactsV2FactsItemFactStatusKNOWN
 	}
 	want := string(f.Locale) + "/" + string(f.OutcomeId) + "/" + f.Classification
@@ -213,15 +230,18 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 			out = append(out, fmt.Sprintf("check 2: %q is not a figure of the facts", fig))
 		}
 	}
-	words := wordSet(strings.Join(factStrings(f), "\n"))
-	if want, ok := t.text(r.TemplateID); ok {
-		for w := range wordSet(want) {
-			words[w] = true
+	vocab := t.vocabulary(string(f.Locale))
+	for w := range wordSet(strings.Join(factStrings(f), "\n")) {
+		vocab[w] = true
+	}
+	for _, fact := range f.Facts {
+		for w := range wordSet(fact.Kind) {
+			vocab[w] = true
 		}
 	}
-	for _, w := range capitalised.FindAllString(r.Text, -1) {
-		if !words[w] && !openers[w] {
-			out = append(out, fmt.Sprintf("check 2: %q is a name or term that is not in the facts", w))
+	for _, w := range words.FindAllString(r.Text, -1) {
+		if lw := strings.ToLower(w); !vocab[lw] && !openers[lw] {
+			out = append(out, fmt.Sprintf("check 2: the word %q is not in the facts or the pack's reviewed vocabulary (a name or an invented term)", w))
 		}
 	}
 	for _, p := range forbidden {

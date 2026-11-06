@@ -4,7 +4,7 @@
 
 **REQs.** REQ-EXP-002; INV-13, AGENT-17, AGENT-05 (nothing in trust, execution or outcome imports this package).
 
-**Rules.** A missing locale, key or empty text fails closed (`ErrNoTemplate`); there is no silent fallback to another locale here (that is a register decision, REQ-EXP-003). `Validate` returns every problem: each sentence needs a claim bound to a fact of the input or to the rendered template (and a template claim must quote that template's own text); every figure, time or masked identifier must appear in the facts; forbidden-claim patterns (pack data, passed in) must not match; no digit run longer than 4.
+**Rules.** A missing locale, key or empty text fails closed (`ErrNoTemplate`); there is no silent fallback to another locale here (that is a register decision, REQ-EXP-003). `Validate` returns every problem: each sentence needs a claim bound to a fact of the input or to the rendered template (and a template claim must quote that template's own text); every figure, time or masked identifier must appear in the facts, and every word must come from the facts, the pack's reviewed templates for the locale, or ordinary function words (so an invented name is caught whatever its case); forbidden-claim patterns (pack data, passed in) must not match; no digit run longer than 4.
 
 **Not here.** The model renderer and the HTTP route (model service, REQ-EXP-001); other locales (EXP-04); a forbidden-pattern list as pack data (not yet in the pack: `Validate` takes the patterns as an argument and the PR notes this).
 

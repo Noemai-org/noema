@@ -24,3 +24,6 @@ A calendar date is one value in check 2 (`2026-05-11` no longer passes against `
 
 ### Codex review of #224, round three
 A claim is supported only by KNOWN facts (INV-13, EXP-02): citing an INFERRED fact, alone or with a KNOWN one, is blocked, because a claim carries no hedge marker. Reversible: a later `Hedged` flag on a claim could allow an INFERRED fact in hedged wording; that is a contract change and not made here. Red commit first; one mutant killed.
+
+### Codex review of #224, round four
+Name detection no longer depends on capitalisation: every word of a rendered text must occur in the facts (value, label, as_of, kind), in the pack's reviewed templates for the locale, or be an ordinary function word, so `we spoke to bello` is blocked. A consequence to know about: a model text that uses words the templates do not (for instance "money is safe") is blocked and falls back to the template; widening the vocabulary is a pack-data change for EXP-03/EXP-04, not code. Duplicate fact IDs are refused. Red commit first; three mutants killed (one, forcing the duplicate's status to KNOWN, is equivalent because the duplicate error already blocks).
