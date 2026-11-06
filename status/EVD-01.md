@@ -90,3 +90,6 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Pre-work for the next agent
 - Exact next step: after #167, #172, #174 and this PR merge, move the board; slice 1b waits for the Architect.
+
+## Addendum 2026-11-06 · for the adapter owners (from Codex's finding on noema#172)
+- `layer.Observation.RawHash` must be the SHA-256 of the bytes the adapter actually received. The case adapter returns the decoded record only, so the story test of this branch hashes the decoded record as a stand-in. Adapters (ENV-03, ENV-05, ENV-08, the stand-in adapter) need to expose the wire-bytes hash next to the decoded answer; without it the builder refuses a present response.
