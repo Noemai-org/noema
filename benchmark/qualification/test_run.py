@@ -231,7 +231,7 @@ class Validating(unittest.TestCase):
         self.assertTrue(any("pinned" in p for p in validate_run_record(rec)))
 
     def test_the_shipped_json_schema_requires_exactly_the_fields_the_validator_does(self) -> None:
-        schema = json.loads((Path(__file__).parent / "schemas" / "qualification-run.v1.schema.json").read_text(encoding="utf-8"))
+        schema = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "qualification-run.v1.json").read_text(encoding="utf-8"))
         self.assertEqual(sorted(REQUIRED_RUN), sorted(schema["required"]))
         self.assertEqual({"PASS", "DRIFT", "PROVIDER_UNAVAILABLE"}, set(schema["properties"]["result"]["enum"]))
         self.assertEqual({"MATCH", "DRIFT", "UNAVAILABLE"}, set(schema["$defs"]["case"]["properties"]["status"]["enum"]))

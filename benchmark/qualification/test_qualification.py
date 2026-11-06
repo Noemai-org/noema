@@ -1,8 +1,10 @@
-"""UND-13, REQ-INT-006 (model-drift canary; DEC-2026-10-31 D25): a model or speech version is used only with a qualification record, and the record is made from a scorecard
-that includes pass^k. Written before `record.py` and seen failing. SYNTHETIC scorecards from the real scorer. Generated layer only (INV-22, REQ-AGT-004).
+"""UND-13, REQ-INT-006 (model-drift canary; DEC-2026-10-31 D25; ruling A17 of 6 Nov 2026): a model or speech version is used only with a qualification record. The record is made
+from a scorecard that includes pass^k and from the drift run record. Interim QUALIFIED = the run is complete, Tier 0 is zero, the drift check is PASS and pass^k is not below the
+baseline; a first qualification (no baseline) waits for a Founder-set floor. Written before the change to `record.py` and seen failing. SYNTHETIC scorecards from the real
+scorer. Generated layer only (INV-22, REQ-AGT-004).
 
-The benchmark owns the runner side: the record format, how a record is made from a scorecard, and the lookup that refuses an unqualified ID. The model service's
-configuration check (C2) calls the same lookup contract; it is not built here."""
+The benchmark owns the runner side: the record format (`contracts/schemas/qualification-record.v1.json`), how a record is made, and the lookup that refuses an unqualified ID.
+The model service's configuration check (C2) calls the same lookup contract; it is not built here."""
 import copy
 import io
 import json
@@ -12,12 +14,15 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
+from benchmark.contracts import Contracts
 from benchmark.qualification.__main__ import main
 from benchmark.qualification.record import build_record, check_model, validate_record, verify_against_scorecard
+from benchmark.qualification.test_run import NEW, PINNED, SHA, answers, baseline, run, subset
 from benchmark.scoring.test_report import card_for, fixture
 
 Json = dict[str, Any]
-PROVIDER, MODEL, VERSION, DEC = "openai", "decision-model-a", "2026-10-15", "DEC-2026-11-06-qualify-decision-model-a"
+PROVIDER, MODEL, VERSION, DEC = NEW["provider"], NEW["model_id"], NEW["version"], "DEC-2026-11-06-qualify-decision-model-a"
+CONTRACTS = Contracts()
 
 
 def scorecard() -> Json:
@@ -30,26 +35,39 @@ def scorecard() -> Json:
     return card
 
 
-def record(card: Json | None = None, **changes: Any) -> Json:
-    args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06"}
+def record(card: Json | None = None, drift: Json | None = None, **changes: Any) -> Json:
+    args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06", "baseline_pass_k": 0.8,
+                  "floor": None, "floor_source": None}
     args.update(changes)
-    return build_record(card or scorecard(), **args)
+    return build_record(card or scorecard(), drift or run(), **args)
+
+
+def first_record() -> Json:
+    """A first qualification of the baseline version itself, which has no baseline and so needs a floor."""
+    sub = subset()
+    drift = run(answers(sub, PINNED["version"]), PINNED, sub, baseline(sub))
+    return record(drift=drift, version=PINNED["version"], baseline_pass_k=None, floor=0.5, floor_source="DEC-2026-11-05-floor")
 
 
 class Making(unittest.TestCase):
-    def test_a_complete_tier_zero_clean_pass_k_run_is_qualified_and_valid(self) -> None:
+    def test_a_complete_tier_zero_clean_drift_pass_run_with_pass_k_above_the_baseline_is_qualified_and_valid(self) -> None:
         rec = record()
         self.assertEqual("QUALIFIED", rec["verdict"])
         self.assertEqual([], rec["reasons"])
         self.assertEqual([], validate_record(rec))
         self.assertEqual({"k": 9, "n": 10, "rate": 0.9}, rec["pass_k"]["rate"])
+        self.assertEqual("PASS", rec["drift"]["result"])
 
-    def test_the_record_carries_the_numbers_it_was_made_from_and_the_scorecard_digest(self) -> None:
-        card = scorecard()
-        rec = record(card)
-        for field in ("kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "decision_record", "qualified_on", "verdict", "reasons"):
+    def test_the_record_carries_the_numbers_it_was_made_from_and_the_digests(self) -> None:
+        card, drift = scorecard(), run()
+        rec = record(card, drift)
+        for field in ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
+                      "qualified_on", "verdict", "reasons"):
             self.assertIn(field, rec)
         self.assertEqual(card["run_id"], rec["run_id"])
+        self.assertEqual({"baseline_pass_k": 0.8, "floor": None, "floor_source": None}, rec["bar"])
+        self.assertEqual(drift["subset_id"], rec["drift"]["subset_id"])
+        self.assertEqual(drift["baseline"]["pinned"]["version"], rec["drift"]["baseline_version"])
         self.assertEqual([], verify_against_scorecard(rec, card))
 
     def test_an_incomplete_run_is_not_qualified(self) -> None:
@@ -72,6 +90,54 @@ class Making(unittest.TestCase):
         rec = record(card)
         self.assertEqual("NOT_QUALIFIED", rec["verdict"])
         self.assertTrue(any("pass^k" in r for r in rec["reasons"]), rec["reasons"])
+        self.assertEqual([], validate_record(rec))
+
+    def test_drift_or_an_unavailable_provider_is_not_qualified(self) -> None:
+        sub = subset()
+        drifted = answers(sub, NEW["version"])
+        drifted[sub["case_ids"][0]] = {"slots": {"intent": "x"}, "answered_by": NEW["version"]}
+        down = answers(sub, NEW["version"])
+        down[sub["case_ids"][0]] = None
+        for ans, result in ((drifted, "DRIFT"), (down, "PROVIDER_UNAVAILABLE")):
+            rec = record(drift=run(ans))
+            self.assertEqual("NOT_QUALIFIED", rec["verdict"], result)
+            self.assertTrue(any("drift" in r and result in r for r in rec["reasons"]), rec["reasons"])
+            self.assertEqual([], validate_record(rec))
+
+    def test_pass_k_equal_to_the_baseline_qualifies_and_below_it_does_not(self) -> None:
+        self.assertEqual("QUALIFIED", record(baseline_pass_k=0.9)["verdict"])
+        rec = record(baseline_pass_k=0.95)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("below" in r and "pass^k" in r for r in rec["reasons"]), rec["reasons"])
+
+    def test_a_first_qualification_without_a_baseline_or_a_floor_waits_for_the_founders_floor(self) -> None:
+        rec = record(baseline_pass_k=None)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("floor" in r for r in rec["reasons"]), rec["reasons"])
+        self.assertEqual([], validate_record(rec))
+
+    def test_a_floor_sets_the_bar_and_the_higher_of_floor_and_baseline_governs(self) -> None:
+        self.assertEqual("QUALIFIED", record(baseline_pass_k=None, floor=0.85, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=None, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.8, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.95, floor=0.5, floor_source="DEC-2026-11-05-floor")["verdict"])
+
+    def test_a_floor_needs_the_decision_record_that_set_it(self) -> None:
+        with self.assertRaises(ValueError):
+            record(baseline_pass_k=None, floor=0.85, floor_source=None)
+        with self.assertRaises(ValueError):
+            record(floor=1.5, floor_source="DEC-2026-11-05-floor")
+        with self.assertRaises(ValueError):
+            record(baseline_pass_k=-0.1)
+
+    def test_the_run_record_must_be_valid_and_be_for_this_provider_model_and_version(self) -> None:
+        bad = run()
+        bad["result"] = "DRIFT"
+        with self.assertRaises(ValueError):
+            record(drift=bad)
+        for change in ({"version": "2026-12-01"}, {"model_id": "decision-model-b"}, {"provider": "anthropic"}, {"kind": "speech"}):
+            with self.assertRaises(ValueError, msg=str(change)):
+                record(**change)
 
     def test_an_unpinned_version_cannot_be_recorded(self) -> None:
         for version in ("", "latest", "LATEST", "default", "*", "gpt-latest", " 2026 "):
@@ -87,6 +153,41 @@ class Making(unittest.TestCase):
             record(kind="vision")
 
 
+class Contract(unittest.TestCase):
+    """The shipped schemas in contracts/ and the code say the same thing."""
+
+    def test_qualified_and_not_qualified_records_validate_against_the_contract(self) -> None:
+        card = scorecard()
+        card["tier0"]["all_zero"] = False
+        for rec in (record(), record(card), record(baseline_pass_k=None), first_record()):
+            self.assertEqual([], CONTRACTS.errors("qualification-record", rec), rec["reasons"])
+
+    def test_run_records_validate_against_the_contract(self) -> None:
+        sub = subset()
+        down = answers(sub, NEW["version"])
+        down[sub["case_ids"][0]] = None
+        drifted = answers(sub, NEW["version"])
+        drifted[sub["case_ids"][1]] = {"slots": {"intent": "x"}, "answered_by": "2026-11-09"}
+        for rec in (run(), run(down), run(drifted)):
+            self.assertEqual([], CONTRACTS.errors("qualification-run", rec))
+
+    def test_the_contract_refuses_what_the_code_refuses(self) -> None:
+        rec = record()
+        for mutate in (lambda r: r.pop("decision_record"), lambda r: r.update(verdict="MAYBE"), lambda r: r.update(qualified_on="yesterday"), lambda r: r["drift"].update(result="OK"),
+                       lambda r: r.update(extra=1), lambda r: r.update(kind="vision")):
+            broken = copy.deepcopy(rec)
+            mutate(broken)
+            self.assertTrue(CONTRACTS.errors("qualification-record", broken), broken)
+        bad_run = run()
+        bad_run["layer"] = "HELD_OUT"
+        self.assertTrue(CONTRACTS.errors("qualification-run", bad_run))
+
+    def test_the_contracts_require_the_fields_the_validators_do(self) -> None:
+        schemas = Path(__file__).resolve().parents[2] / "contracts" / "schemas"
+        record_schema = json.loads((schemas / "qualification-record.v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(record()), sorted(record_schema["required"]))
+
+
 class Validating(unittest.TestCase):
     def test_a_qualified_verdict_the_fields_do_not_support_is_invalid(self) -> None:
         for field, value in (("complete", False), ("tier0_all_zero", False)):
@@ -96,6 +197,15 @@ class Validating(unittest.TestCase):
         rec = record()
         rec["pass_k"] = {**rec["pass_k"], "available": False}
         self.assertTrue(any("pass^k" in p for p in validate_record(rec)))
+        rec = record()
+        rec["drift"] = {**rec["drift"], "result": "DRIFT"}
+        self.assertTrue(any("drift" in p for p in validate_record(rec)), validate_record(rec))
+        rec = record()
+        rec["bar"] = {**rec["bar"], "baseline_pass_k": 0.99}
+        self.assertTrue(any("below" in p for p in validate_record(rec)), validate_record(rec))
+        rec = record()
+        rec["bar"] = {"baseline_pass_k": None, "floor": None, "floor_source": None}
+        self.assertTrue(any("floor" in p for p in validate_record(rec)), validate_record(rec))
 
     def test_a_missing_field_is_named(self) -> None:
         rec = record()
@@ -119,7 +229,7 @@ class Refusing(unittest.TestCase):
 
     def test_a_change_of_version_model_or_provider_is_refused(self) -> None:
         rec = record()
-        for provider, model, version in ((PROVIDER, MODEL, "2026-11-01"), (PROVIDER, "decision-model-b", VERSION), ("anthropic", MODEL, VERSION)):
+        for provider, model, version in ((PROVIDER, MODEL, "2026-11-02"), (PROVIDER, "decision-model-b", VERSION), ("anthropic", MODEL, VERSION)):
             got = check_model([rec], provider, model, version)
             self.assertTrue(any("no qualification record" in p for p in got), (provider, model, version, got))
 
@@ -131,8 +241,7 @@ class Refusing(unittest.TestCase):
     def test_a_not_qualified_record_never_allows(self) -> None:
         card = scorecard()
         card["tier0"]["all_zero"] = False
-        got = check_model([record(card)], PROVIDER, MODEL, VERSION)
-        self.assertTrue(got)
+        self.assertTrue(check_model([record(card)], PROVIDER, MODEL, VERSION))
 
     def test_an_invalid_record_never_allows(self) -> None:
         rec = record()
@@ -166,16 +275,24 @@ class Cli(unittest.TestCase):
             code = main(list(argv))
         return code, out.getvalue()
 
+    def files(self, root: Path, card: Json | None = None) -> list[str]:
+        (root / "scorecard.json").write_text(json.dumps(card or scorecard()), encoding="utf-8")
+        (root / "run.json").write_text(json.dumps(run()), encoding="utf-8")
+        (root / "baseline-record.json").write_text(json.dumps(first_record()), encoding="utf-8")
+        (root / "records").mkdir()
+        return ["--scorecard", str(root / "scorecard.json"), "--run", str(root / "run.json"), "--baseline-record", str(root / "baseline-record.json"), "--provider", PROVIDER,
+                "--model-id", MODEL, "--version", VERSION, "--kind", "llm", "--decision-record", DEC, "--qualified-on", "2026-11-06"]
+
     def test_record_then_check_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "scorecard.json").write_text(json.dumps(scorecard()), encoding="utf-8")
-            (root / "records").mkdir()
-            base = ["--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION]
-            code, text = self.run_main("record", "--scorecard", str(root / "scorecard.json"), *base, "--kind", "llm", "--decision-record", DEC, "--qualified-on", "2026-11-06", "--out", str(root / "records" / "r.json"))
+            code, text = self.run_main("record", *self.files(root), "--out", str(root / "records" / "r.json"))
             self.assertEqual(0, code, text)
+            written = json.loads((root / "records" / "r.json").read_text(encoding="utf-8"))
+            self.assertEqual(0.9, written["bar"]["baseline_pass_k"])  # read from the baseline version's own record
+            base = ["--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION]
             self.assertEqual(0, self.run_main("check", "--records", str(root / "records"), *base)[0])
-            code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-01")
+            code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-02")
             self.assertEqual(1, code, text)
             self.assertIn("no qualification record", text)
 
@@ -184,12 +301,34 @@ class Cli(unittest.TestCase):
             root = Path(tmp)
             card = scorecard()
             card["tier0"]["all_zero"] = False
-            (root / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
             out = root / "r.json"
-            code, text = self.run_main("record", "--scorecard", str(root / "scorecard.json"), "--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION, "--kind", "llm",
-                                       "--decision-record", DEC, "--qualified-on", "2026-11-06", "--out", str(out))
+            code, text = self.run_main("record", *self.files(root, card), "--out", str(out))
             self.assertEqual(1, code, text)
             self.assertEqual("NOT_QUALIFIED", json.loads(out.read_text(encoding="utf-8"))["verdict"])
+
+    def test_without_a_baseline_record_or_a_floor_the_first_qualification_is_not_qualified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.files(root)
+            i = args.index("--baseline-record")
+            del args[i:i + 2]
+            out = root / "r.json"
+            code, text = self.run_main("record", *args, "--out", str(out))
+            self.assertEqual(1, code, text)
+            self.assertTrue(any("floor" in r for r in json.loads(out.read_text(encoding="utf-8"))["reasons"]))
+            code, text = self.run_main("record", *args, "--floor", "0.85", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
+            self.assertEqual(0, code, text)
+
+    def test_a_baseline_record_that_is_not_the_runs_baseline_is_an_input_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.files(root)
+            other = first_record()
+            other["version"] = "2026-09-01"
+            (root / "baseline-record.json").write_text(json.dumps(other), encoding="utf-8")
+            code, text = self.run_main("record", *args, "--out", str(root / "r.json"))
+            self.assertEqual(2, code, text)
+            self.assertFalse((root / "r.json").exists())
 
     def test_an_empty_records_directory_is_a_refusal_and_a_missing_one_is_an_input_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
