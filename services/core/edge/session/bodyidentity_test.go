@@ -1,0 +1,117 @@
+package session_test
+
+// Ruling A1 (D7): no identity from a request body (INV-12, AGENT-10). A body that names a principal, a tenant, a role or an issuer is refused, and
+// the handler never runs, so there is no path on which the body could be used. Only JSON bodies are accepted (deny by default); a body that
+// cannot be read in full within the limit is refused too.
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/ids"
+)
+
+const bodyLimit = 256
+
+func guarded(t *testing.T, k keys) (http.Handler, *int, *string) {
+	t.Helper()
+	v, clk := verifier(t, k, epoch)
+	calls, got := 0, ""
+	idg := ids.New(clk, nil)
+	h := session.Middleware(v, idg)(session.RefuseBodyIdentity(idg, bodyLimit)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		b, _ := io.ReadAll(r.Body)
+		got = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	return h, &calls, &got
+}
+
+func post(h http.Handler, authz, contentType, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/v1/conversations", strings.NewReader(body))
+	req.Header.Set("Authorization", authz)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestABodyThatNamesAnIdentityIsRefusedAndTheHandlerNeverRuns(t *testing.T) {
+	k := newKeys(t)
+	h, calls, _ := guarded(t, k)
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	for name, body := range map[string]string{
+		"principal_id":                 `{"principal_id":"op_9","message":"hi"}`,
+		"tenant_id":                    `{"tenant_id":"tnt_b"}`,
+		"sub":                          `{"sub":"op_9"}`,
+		"roles":                        `{"roles":["ops"]}`,
+		"role":                         `{"role":"audit"}`,
+		"iss":                          `{"iss":"noema-poc-idp"}`,
+		"user_id":                      `{"user_id":"u1"}`,
+		"actor":                        `{"actor":"operator:op_9"}`,
+		"another case":                 `{"Tenant_ID":"tnt_b"}`,
+		"nested in an object":          `{"a":{"b":{"tenant_id":"tnt_b"}}}`,
+		"nested in an array":           `{"items":[{"ok":1},{"principal_id":"op_9"}]}`,
+		"after a large harmless field": `{"note":"` + strings.Repeat("x", 100) + `","tenant_id":"tnt_b"}`,
+	} {
+		before := *calls
+		rec := post(h, tok, "application/json", body)
+		if rec.Code != http.StatusBadRequest || envelope(t, rec).Code != contracts.ErrorsV2ErrorCodeINPUTINVALID || *calls != before {
+			t.Errorf("%s: %d %s, handler calls %d->%d; want 400 INPUT_INVALID and no handler call", name, rec.Code, rec.Body.String(), before, *calls)
+		}
+		if strings.Contains(rec.Body.String(), "op_9") || strings.Contains(rec.Body.String(), "tnt_b") {
+			t.Errorf("%s: the refusal echoes the identity: %s", name, rec.Body.String())
+		}
+	}
+}
+
+func TestAnOrdinaryBodyPassesUnchangedAndTheWordInAValueIsNotAnIdentity(t *testing.T) {
+	k := newKeys(t)
+	h, calls, got := guarded(t, k)
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	for _, body := range []string{``, `{}`, `{"message":"my tenant_id is wrong","amount":5}`, `{"items":[{"id":1},{"id":2}]}`, `[1,2,3]`} {
+		before := *calls
+		ct := "application/json; charset=utf-8"
+		rec := post(h, tok, ct, body)
+		if rec.Code != http.StatusNoContent || *calls != before+1 || *got != body {
+			t.Errorf("%q: %d, calls %d->%d, handler saw %q", body, rec.Code, before, *calls, *got)
+		}
+	}
+}
+
+func TestADenyByDefaultBodyIsRefused(t *testing.T) {
+	k := newKeys(t)
+	h, calls, _ := guarded(t, k)
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	for name, c := range map[string]struct{ ct, body string }{
+		"not JSON":                    {"application/json", `not json`},
+		"truncated JSON":              {"application/json", `{"a":`},
+		"two documents":               {"application/json", `{} {"tenant_id":"x"}`},
+		"form encoded":                {"application/x-www-form-urlencoded", `tenant_id=tnt_b`},
+		"plain text":                  {"text/plain", `tenant_id=tnt_b`},
+		"no content type with a body": {"", `{"a":1}`},
+		"over the limit":              {"application/json", `{"note":"` + strings.Repeat("x", bodyLimit) + `"}`},
+	} {
+		before := *calls
+		rec := post(h, tok, c.ct, c.body)
+		if rec.Code != http.StatusBadRequest || *calls != before {
+			t.Errorf("%s: %d %s, handler calls %d->%d; want 400 and no handler call", name, rec.Code, rec.Body.String(), before, *calls)
+		}
+	}
+}
+
+func TestTheBodyGuardCannotBeReachedWithoutASession(t *testing.T) {
+	k := newKeys(t)
+	h, calls, _ := guarded(t, k)
+	rec := post(h, "", "application/json", `{"tenant_id":"tnt_b"}`)
+	if rec.Code != http.StatusUnauthorized || *calls != 0 {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+}
