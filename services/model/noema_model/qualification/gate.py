@@ -10,16 +10,19 @@ Rules, as the benchmark module states them (`record.check_model` is the referenc
 
 import datetime
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
+
+from noema_model.harness.config import check_pinned
+from noema_model.platform.config import ConfigError
 
 SCHEMA = "qualification-record.v1"
 KINDS = ("llm", "speech")
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
 REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "decision_record",
             "qualified_on", "verdict", "reasons")
-ALIASES = frozenset({"", "latest", "default", "current", "stable", "auto", "*"})
 
 Record = Mapping[str, Any]
 
@@ -37,10 +40,14 @@ class ModelNotQualified(Exception):
 
 
 def is_pinned(version: Any) -> bool:
-    if not isinstance(version, str) or version != version.strip() or any(ch.isspace() for ch in version):
+    """The harness's own pin rule (`harness.config.check_pinned`): one snapshot, never a floating alias. A second rule here would let a version pass the gate that the harness refuses."""
+    if not isinstance(version, str):
         return False
-    lowered = version.lower()
-    return lowered not in ALIASES and "latest" not in lowered
+    try:
+        check_pinned(version)
+    except ConfigError:
+        return False
+    return True
 
 
 def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) -> list[str]:
@@ -54,8 +61,12 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) ->
     return reasons
 
 
+_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+
+
 def _valid_date(value: Any) -> bool:
-    if not isinstance(value, str):
+    """The one canonical spelling, YYYY-MM-DD, that is also a real calendar day: other ISO spellings of a day (2026W455) are refused so two records of one day compare equal."""
+    if not isinstance(value, str) or not _DATE.match(value):
         return False
     try:
         datetime.date.fromisoformat(value)
@@ -107,7 +118,7 @@ def check_model(records: Sequence[Record], provider: str, model_id: str, version
     valid = [r for r, p in zip(matching, problems, strict=True) if not p]
     if not valid:
         return [f"{who}: no qualification record is valid ({'; '.join(p for ps in problems for p in ps)})"]
-    latest = max(r["qualified_on"] for r in valid)
+    latest = max(datetime.date.fromisoformat(r["qualified_on"]) for r in valid).isoformat()
     newest = [r for r in valid if r["qualified_on"] == latest]
     verdicts = {r["verdict"] for r in newest}
     if len(verdicts) > 1:
