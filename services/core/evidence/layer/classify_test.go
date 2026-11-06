@@ -14,6 +14,15 @@ import (
 // REQ-CTX-002, INV-19: every way an adapter read can end maps to a read class, and an error nobody foresaw is UNKNOWN, never KNOWN.
 // The faults come from real FaultPlans in execution/e2e (AGENT-12); this table pins the mapping itself.
 func TestClassifyErrorMapsEveryAdapterFailure(t *testing.T) {
+	for _, f := range classifierFailures(layer.ClassifyError) {
+		t.Error(f)
+	}
+}
+
+// classifierFailures runs the mapping table against a classifier and returns every disagreement. The real classifier must produce none; the
+// mutants of TestTheClassifierTableCatchesEveryMutant must each produce at least one.
+func classifierFailures(classify func(error) layer.ReadClass) []string {
+	var failures []string
 	re := func(f adapters.ReadFailure, raw string, after time.Duration) error {
 		return &adapters.ReadError{Failure: f, RawCode: raw, RetryAfter: after}
 	}
@@ -41,14 +50,106 @@ func TestClassifyErrorMapsEveryAdapterFailure(t *testing.T) {
 		"a network timeout":          {timeoutErr{}, layer.ReadTimeout},
 	}
 	for name, c := range cases {
-		if got := layer.ClassifyError(c.err); got != c.want {
-			t.Errorf("%s: class = %s, want %s", name, got, c.want)
+		if got := classify(c.err); got != c.want {
+			failures = append(failures, fmt.Sprintf("%s: class = %s, want %s", name, got, c.want))
 		}
 	}
 	// A wrapped read error is still the read error.
 	wrapped := errors.Join(errors.New("context"), &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "503"})
-	if got := layer.ClassifyError(wrapped); got != layer.ReadServerError {
-		t.Errorf("a wrapped 503: class = %s", got)
+	if got := classify(wrapped); got != layer.ReadServerError {
+		failures = append(failures, fmt.Sprintf("a wrapped 503: class = %s", got))
+	}
+	return failures
+}
+
+// Mutation check (review of noema#174; this test was NOT written failing-first: the classifier and its table were written together, so the table
+// was never seen red). Each mutant is the real classifier with one mapping broken; the table must go red on every one of them. A mutant that
+// survives means the table does not pin that mapping.
+func TestTheClassifierTableCatchesEveryMutant(t *testing.T) {
+	readErr := func(err error) *adapters.ReadError {
+		var re *adapters.ReadError
+		if errors.As(err, &re) {
+			return re
+		}
+		return nil
+	}
+	mutants := map[string]func(error) layer.ReadClass{
+		"a refused credential is read as OK": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.Failure == adapters.ReadUnauthorized {
+				return layer.ReadOK
+			}
+			return layer.ClassifyError(err)
+		},
+		"a refused credential is no longer out of scope": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.Failure == adapters.ReadUnauthorized {
+				return layer.ReadMalformed
+			}
+			return layer.ClassifyError(err)
+		},
+		"a 429 without Retry-After is a server error": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.Failure == adapters.ReadUnavailable && re.RetryAfter == 0 && re.RawCode == "429" {
+				return layer.ReadServerError
+			}
+			return layer.ClassifyError(err)
+		},
+		"a timeout is read as OK": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.RawCode == "TIMEOUT" {
+				return layer.ReadOK
+			}
+			return layer.ClassifyError(err)
+		},
+		"not found is read as OK": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.Failure == adapters.ReadNotFound {
+				return layer.ReadOK
+			}
+			return layer.ClassifyError(err)
+		},
+		"an unforeseen failure is read as OK": func(err error) layer.ReadClass {
+			if re := readErr(err); re != nil && re.Failure == "SOMETHING_NEW" {
+				return layer.ReadOK
+			}
+			return layer.ClassifyError(err)
+		},
+		"a plain error is read as OK": func(err error) layer.ReadClass {
+			if err != nil && readErr(err) == nil && !errors.Is(err, context.DeadlineExceeded) {
+				if _, isNet := err.(timeoutErr); !isNet {
+					return layer.ReadOK
+				}
+			}
+			return layer.ClassifyError(err)
+		},
+		"a bare context deadline is malformed": func(err error) layer.ReadClass {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return layer.ReadMalformed
+			}
+			return layer.ClassifyError(err)
+		},
+		"a network timeout is malformed": func(err error) layer.ReadClass {
+			if _, ok := err.(timeoutErr); ok {
+				return layer.ReadMalformed
+			}
+			return layer.ClassifyError(err)
+		},
+		"a nil error is not OK": func(err error) layer.ReadClass {
+			if err == nil {
+				return layer.ReadMalformed
+			}
+			return layer.ClassifyError(err)
+		},
+		"a wrapped read error is lost": func(err error) layer.ReadClass {
+			if err != nil && readErr(err) != nil && err != error(readErr(err)) {
+				return layer.ReadMalformed
+			}
+			return layer.ClassifyError(err)
+		},
+	}
+	if got := classifierFailures(layer.ClassifyError); len(got) != 0 {
+		t.Fatalf("the real classifier already fails its own table: %v", got)
+	}
+	for name, mutant := range mutants {
+		if len(classifierFailures(mutant)) == 0 {
+			t.Errorf("mutant survived (the table does not pin it): %s", name)
+		}
 	}
 }
 
