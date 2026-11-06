@@ -254,3 +254,19 @@ func TestBuilderRefusesAuthorityMetadataThatDisagrees(t *testing.T) {
 		}
 	}
 }
+
+// AGENT-25 (Integration Lead's stand-in adapter): evidence from a synthetic source is labelled on the Record. The label rides in the
+// EVIDENCE_READ event; an observation without one writes the event without it.
+func TestBuilderLabelsEvidenceFromASyntheticSourceOnTheRecord(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadOK)
+	o.DataSource, o.Synthetic = "stand-in", true
+	if _, err := b.Record(ctx(t), o); err != nil {
+		t.Fatal(err)
+	}
+	got := w.rows(t, `SELECT payload->>'data_source' || ' ' || (payload->>'synthetic') FROM record_event WHERE event_type = 'EVIDENCE_READ'`)
+	if len(got) != 1 || got[0] != "stand-in true" {
+		t.Fatalf("event label = %v, want \"stand-in true\"", got)
+	}
+}
