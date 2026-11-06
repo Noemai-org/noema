@@ -33,6 +33,8 @@ class DecisionRecordV2(unittest.TestCase):
         self.assertEqual(check(doc, "decision-record.v1"), [])
         self.assertNotEqual(check(doc, "decision-record.v2"), [], "a v1 record must not validate as v2")
         doc["schema_version"] = "2.0"
+        self.assertNotEqual(check(doc, "decision-record.v2"), [], "a v1 record with only its version changed lacks issued_at and expires_at (ruling A13)")
+        doc["issued_at"], doc["expires_at"] = doc["evaluated_at"], "2099-01-01T00:00:00Z"
         self.assertEqual(check(doc, "decision-record.v2"), [])
 
     def test_every_valid_v1_fixture_has_a_v2_twin_that_validates(self):
