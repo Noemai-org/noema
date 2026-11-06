@@ -11,3 +11,17 @@ for name in postgres_superuser_password noema_core_password temporal_password no
   fi
   chmod 644 "$dir/$name"
 done
+
+# One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
+# existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.
+mkdir -p "$dir/emitter_logins"
+chmod 755 "$dir/emitter_logins"
+for tenant in ${NOEMA_TENANTS:-}; do
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    f="$dir/emitter_logins/${tenant}__${emitter}"
+    if [ ! -s "$f" ]; then
+      python3 -c 'import secrets; print(secrets.token_hex(24))' > "$f"
+    fi
+    chmod 644 "$f"
+  done
+done

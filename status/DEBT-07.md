@@ -16,3 +16,15 @@ Updated 2026-11-05. DEBT-07 (Tier 0 until closed with EDG-01; docs#106 R16, OD-P
 - **Not closed:** (1) the edge does not write `SESSION_VALIDATED` yet, so no code uses the `core-edge` login; (2) `core-record` and `admin` have no login (refused until their writers exist); (3) `model-service` and the seven adapter identities have no login by OD-P-73's default; (4) the cross-tenant tests have not been validated by the Security Reviewer (the Architect's condition).
 - Pre-work for the next agent: wire the edge's Record writer to the `core-edge` pool (EDG-01 wiring, blocked on the claims decision, below); ask the Security Reviewer to validate `emitter_provision_test.go` and the `test_init.sh` path; decide OD-P-73.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
+
+## Session 2026-11-06 · A4: each emitter login has its own file-mounted secret
+### Session summary
+- What changed (PR links): the EDG-01 emitter-login pull request (noema#181), main merged in after noema#178: `deploy/compose/postgres/init.sh` (a pre-flight before any role is created), `secrets_local.sh`, `docker-compose.yml` (a read-only mount of `secrets/emitter_logins/` into postgres only), `test_init.sh`, the compose README.
+- Why: the Security Reviewer's NOT READY on `83fb4fb` (a leaked shared password let one emitter authenticate as another emitter or a power) and ruling A4 (docs#117): each emitter login gets its own file-mounted secret; DEBT-13 (Tier 1) extends the same to the tenant and power logins before G3 evidence.
+- Risks, and how they are contained: `init.sh` refuses, before it creates anything, a login whose own file is missing, empty, or equal to any other secret (the core's, Temporal's, the migrator's, the verifier's, the shared tenant-login password, the superuser's, or another emitter's); a refusal names the file and never prints a value. The tenant and power logins still share one password until DEBT-13.
+- Tests added (REQ-SEC-005, INV-12, INV-29): `test_init.sh` now runs with password authentication on (the superuser trusted on the socket, every other login must present its password): five refusals before anything is created (missing, empty, equal to the shared password, equal to the core's, two logins with one secret), the emitter logs in with its own secret, and the shared tenant-login password does not open it. Mutations run and reverted (both caught): the emitter login given the shared password; the duplicate check removed. `test_init.sh` is not run by CI (it needs a `.github` change, a founder approval); I ran it locally on PostgreSQL 16.
+- Regression cases added: the refusal cases above. Debt entries: DEBT-13 (filed by docs#117). Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: DEBT-13, the same per-login secret for the tenant and power logins (`init.sh` loop over `trust_rw` and the other groups); A6 for the Execution and Record tables.
+- Do not touch: noema#94, noema#90 (held, DEBT-01).

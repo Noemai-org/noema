@@ -76,6 +76,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+      # One secret file per emitter login, <tenant>__<emitter> (ruling A4; DEBT-07). Read-only, mounted into postgres only.
+      - ./secrets/emitter_logins:/run/secrets/emitter_logins:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d noema"]
       interval: 3s

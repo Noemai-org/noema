@@ -9,6 +9,30 @@ temporal_pw="$(cat "$secrets/temporal_password")"
 migrator_pw="$(cat "$secrets/noema_migrator_password")"
 verify_pw="$(cat "$secrets/noema_verify_password")"
 tenant_pw="$(cat "$secrets/noema_tenant_login_password")"
+
+# A4 (Architect ruling, 6 Nov 2026): each emitter login has its own file-mounted secret, $secrets/emitter_logins/<tenant>__<emitter>. Checked
+# before anything is created: every file must exist, be non-empty and differ from every other secret, including the other emitter logins'.
+# The shared tenant-login password never opens an emitter login. A refusal names the file, never a value. DEBT-13 extends this to the
+# tenant and power logins before G3 evidence.
+seen="$(printf '%s\n' "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw" "$(cat "$secrets/postgres_superuser_password" 2>/dev/null || true)")"
+for tenant in ${NOEMA_TENANTS:-}; do
+  case "$tenant" in
+    ten_[0-9A-Za-z][0-9A-Za-z]*) ;;
+    *) echo "init: '$tenant' is not a tenant ID" >&2; exit 1 ;;
+  esac
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    case "$emitter" in
+      core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
+      [a-z]*) ;;
+      *) echo "init: '$emitter' is not an emitter name" >&2; exit 1 ;;
+    esac
+    f="$secrets/emitter_logins/${tenant}__${emitter}"
+    [ -f "$f" ] && [ -s "$f" ] || { echo "init: the emitter login ${tenant}__${emitter} has no secret file of its own ($f)" >&2; exit 1; }
+    pw="$(cat "$f")"
+    if printf '%s\n' "$seen" | grep -Fxq -- "$pw"; then echo "init: the secret of the emitter login ${tenant}__${emitter} equals another secret ($f)" >&2; exit 1; fi
+    seen="$(printf '%s\n%s\n' "$seen" "$pw")"
+  done
+done
 psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" \
   --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 -- The migration role owns the database and, from migration W4 on, the signed tables. It cannot log in; its one login can.
@@ -79,7 +103,8 @@ for tenant in ${NOEMA_TENANTS:-}; do
       [a-z]*) ;;
       *) echo "init: '$emitter' is not an emitter name" >&2; exit 1 ;;
     esac
-    psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v pw="$tenant_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'
+    emitter_pw="$(cat "$secrets/emitter_logins/${tenant}__${emitter}")"
+    psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v pw="$emitter_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 CREATE ROLE :"role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'pw' IN ROLE record_emitter;
 SQL
   done
