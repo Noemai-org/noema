@@ -156,6 +156,9 @@ def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
             problems.append(f"claim {claim.get('id')}: duplicate claim id")
         seen.add(claim.get("id"))
         problems += _claim_problems(claim, cards)
+    keys = [(d.get("run_id"), d.get("slice")) for d in publication.get("distributions") or []]
+    for run_id, name in sorted({k for k in keys if keys.count(k) > 1}, key=str):
+        problems.append(f"run {run_id}: the {name} distribution appears more than one time in the publication (one record per run and slice; a later record must never hide an earlier one)")
     runs = sorted({c["run_id"] for c in claims if "run_id" in c})
     for run_id in runs:
         card = cards.get(run_id)
