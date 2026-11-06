@@ -32,6 +32,7 @@ func ctx(t testing.TB) context.Context {
 
 type world struct {
 	admin *pgxpool.Pool
+	ver   *pgxpool.Pool            // the verification login (record_verify), the Verifier's database
 	pools map[string]*pgxpool.Pool // one execution_rw login per tenant (DEBT-04)
 	app   *chain.Appender
 	alert *recordingAlerts
@@ -71,7 +72,8 @@ func newWorld(t *testing.T, tenants ...string) *world {
 	clk := clock.NewManual(time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC))
 	w := &world{admin: admin, pools: pools, alert: &recordingAlerts{}, met: &recordingMetrics{},
 		app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
-	w.v = &verify.Verifier{DB: admin, Alerts: w.alert, Metrics: w.met, Clock: clk}
+	w.ver = testpg.VerifierLogin(t, admin, dsn)
+	w.v = &verify.Verifier{DB: w.ver, Alerts: w.alert, Metrics: w.met, Clock: clk}
 	return w
 }
 
@@ -208,7 +210,7 @@ func TestAReadThatFailsIsNeitherPassNorBreak(t *testing.T) {
 	w.appendN(t, "ten_aa", 2)
 	c, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	w.admin.Close() // the verifier's database is gone
+	w.ver.Close() // the verifier's database is gone
 	rep, err := w.v.Run(c)
 	if err == nil {
 		t.Fatalf("Run on a closed database succeeded: %+v", rep)

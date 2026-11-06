@@ -4,7 +4,7 @@
 
 **REQs.** REQ-INT-002, REQ-VOI-002.
 
-**Status.** `llm/` holds the text-model adapters for the harness (T5): `openai_chat`, `anthropic_messages`, `gemini_generate`, the neutral types in `base.py`, the standard-library `UrllibTransport` (https only, no redirects, size cap, hard deadline) and the kind registry. No vendor SDK is used; each adapter is one HTTP call. `speech/` is still empty (VOI-01). `openai_decisions` is the decision-model adapter (predicate, choice and score questions; see the harness README for the mapping, the limits and the snapshot gap). The import rules and prohibitions are in `__init__.py`.
+**Status.** `llm/` holds the text-model adapters for the harness (T5): `openai_chat`, `anthropic_messages`, `gemini_generate`, the neutral types in `base.py`, the standard-library `UrllibTransport` (https only, no redirects, size cap, hard deadline) and the kind registry. No vendor SDK is used; each adapter is one HTTP call. `speech/` holds the neutral streaming types, the stream-order check, the capability matrix (`capability_matrix.json`, every cell UNVERIFIED) and three refusing scaffolds for Aethex AI, Indigenius and N-ATLAS (VOI-01); no wire format is written because no vendor document or sample has been read. `openai_decisions` is the decision-model adapter (predicate, choice and score questions; see the harness README for the mapping, the limits and the snapshot gap). The import rules and prohibitions are in `__init__.py`.
 
 **Tests.** `pytest` from `services/model/`: `tests/test_providers_contract.py` (fixtures; not run against a live endpoint: no access) and `tests/test_transport.py` (a real local socket).
 

@@ -9,6 +9,8 @@
 // Must never: start a write itself; retry without a new grant; skip the verify-by-key read; import trust or
 // outcome.
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by RCV-01 (slice 1): Handler.Handle asks Trust, through a port, to evaluate a RecoveryRequest afresh and passes on only an ALLOW;
+// a Trust failure, panic or UNKNOWN is ESCALATE with an ops alert. CheckRetryOrder checks over Record rows that every dispatch with
+// attempt > 1 follows a non-ACHIEVED verdict and a new ALLOW. The Temporal recovery workflow that calls Handle (OUT-03), the recovery
+// budget (RCV-02) and compensation (RCV-04) are later tasks.
 package recovery
