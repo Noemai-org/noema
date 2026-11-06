@@ -613,3 +613,52 @@ func newBareDatabase(t *testing.T) (*pgxpool.Pool, string) {
 	t.Helper()
 	return testpg.NewDatabase(t)
 }
+
+// Codex review of noema#229 (P2), REQ-AUD-006, DEC-2026-11-01 D5: two registrations for one identity that overlap in time must not leave three ACTIVE
+// keys. Transaction A registers version 2 and has not committed; B registers version 3. B must wait for A (a per-identity lock), then see two ACTIVE
+// keys and be refused. Without the lock B passes at once, both commit, and the identity has three ACTIVE keys.
+func TestConcurrentKeyRegistrationNeverLeavesThreeActiveKeys(t *testing.T) {
+	w := newSigWorld(t)
+	w.register(t, "core-execution", 1)
+	a, err := w.pool.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = a.Rollback(ctx(t)) }()
+	if _, err := a.Exec(ctx(t), `SELECT key_register('core-execution', 2, $1)`, []byte(newKey(t).Public().(ed25519.PublicKey))); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		b, err := w.pool.Begin(ctx(t))
+		if err != nil {
+			done <- err
+			return
+		}
+		defer func() { _ = b.Rollback(ctx(t)) }()
+		if _, err := b.Exec(ctx(t), `SELECT key_register('core-execution', 3, $1)`, []byte(newKey(t).Public().(ed25519.PublicKey))); err != nil {
+			done <- err
+			return
+		}
+		done <- b.Commit(ctx(t))
+	}()
+	var bErr error
+	select {
+	case bErr = <-done: // B did not wait for A: the registration was not serialised
+	case <-time.After(2 * time.Second):
+		if err := a.Commit(ctx(t)); err != nil {
+			t.Fatal(err)
+		}
+		bErr = <-done
+	}
+	if bErr == nil {
+		t.Errorf("the second registration succeeded while the first was open: three ACTIVE keys (rotation overlap exceeded)")
+	}
+	var active int
+	if err := w.pool.QueryRow(ctx(t), `SELECT count(*) FROM signing_key WHERE identity = 'core-execution' AND status = 'ACTIVE'`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active > 2 {
+		t.Fatalf("%d ACTIVE keys for core-execution, want at most 2", active)
+	}
+}
