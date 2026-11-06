@@ -29,6 +29,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Generated files.** `python3 -I tools/record_chain_ref_v3.py --write` writes the v3 fixtures and the `record_event_chain_vectors_v3` family; `--check` (also run by `tools/contracts/test_record_event_v3.py`) fails on any difference. v2 is still written by `tools/record_chain_ref.py`, and its output did not change. The `payload_hash_vectors` family comes from `tools/payload_hash_independent.js` (Node), not from the generator.
 - **Tooling.** `tools/jcs_ref.py` is the Python RFC 8785 for the generators: it sorts members by UTF-16 code unit and refuses any number that is not an integer within 2^53-1.
 
+## Decision Record v2 (6 Nov 2026)
+
+`schemas/decision-record.v2.json` sits beside `decision-record.v1.json`, which is not edited (AGENT-15; `tools/contracts/test_decision_record_v2.py` pins its bytes). Ruling A5 of 6 Nov 2026, relayed in the Engineering Lead session; not authority until the decision record that carries it is committed, so noema#168 says "do not merge before" that record. Task TRU-05.
+
+- **What v2 is.** v1 with `schema_version` major 2 and a defined `sig`: HMAC-SHA-256, with the grant keys (`key_id` names the key), over the domain label `noema/decision-record/v2`, a newline, and the RFC 8785 (JCS) form of the record without `sig`. The label keeps a record's signature from verifying as a grant's or a confirmation's. The label string is my reading of "a domain label" in the ruling and is for the Architect to confirm or replace before the first v2 record is signed.
+- **Migration note.** v1 records have no defined signature rule, so v2 is a new major and v1 is not edited. A v1 record does not validate as v2 (tests). The reverse is not true: v1's version pattern is generic, so a v2 record also passes v1's pattern; readers dispatch on `schema_version`. No v1 record exists outside fixtures; the Decision Record writer (TRU-05 Go side, not built) writes v2 only. No migration tooling: this is the synthetic POC.
+- **Fixtures and models.** `fixtures/{valid,invalid}/decision-record.v2` are the v1 fixtures with version 2.0, plus an invalid record that carries major 1. Generated Go and Pydantic models come from `make codegen`.
+
 ## Benchmark diagnostics v2 (2 Nov 2026)
 
 `schemas/benchmark-case-result.v2.json` and `schemas/benchmark-scorecard.v2.json` sit beside their v1 files, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` pins their bytes). Task BEN-30; PERD REQ-BEN-009; decision record `DEC-2026-10-31-proof-depth-and-completeness` (D5, D6); approved by the Architect on 2 Nov 2026.

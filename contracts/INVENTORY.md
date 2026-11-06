@@ -57,6 +57,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | Schema | SoT | PERD | Requirements | Notes |
 |---|---|---|---|---|
 | `decision-record.v1.json` | §43.2, §13.1 | §23.1, §23.3 (REQ-TRU-001) | REQ-TRU-001, REQ-TRU-010, REQ-AMB-001 | Seven outcomes; two-tier reason codes; `authority` results `PASS`, `FAIL`, `NOT_EVALUATED`; an ALLOW needs all three at `PASS` (DEC-2026-10-18); `disposition_decision_id` (SOT-C-04) |
+| `decision-record.v2.json` | §43.2, §13.1 | §23.1, §23.3 (REQ-TRU-001) | REQ-TRU-001, REQ-TRU-010, REQ-AMB-001 | decision-record.v1 with `schema_version` major 2 and a defined `sig`: HMAC-SHA-256 with the grant keys over `noema/decision-record/v2`, a newline and the JCS form of the record without `sig` (ruling A5, 6 Nov 2026); v1 is not edited |
 | `decision-grant.v1.json` | §43.2 | §23 (REQ-TRU-008) | REQ-TRU-008, REQ-EXE-001 | Single use; binds principal, intent, capability, target, params, evidence set, plan step, versions |
 | `confirmation-request.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Bound to the exact action by `binding_hash` |
 | `confirmation-event.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Approver identity from authentication; `ACCEPT` or `DECLINE` |
