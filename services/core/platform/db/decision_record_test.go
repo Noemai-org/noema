@@ -20,7 +20,7 @@ const grantFor = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, 
 
 func decisionRow(id, tenant, outcome string) string {
 	return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ('%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s'), '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, id, tenant, outcome, outcome, 1)
+		VALUES ('%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, id, tenant, outcome, outcome, 1)
 }
 
 // Codex P1 on noema#168: the grant guard reads the outcome column, so a record whose signed document says something else would bypass it.
@@ -33,7 +33,7 @@ func TestTheDecisionRecordDocumentMustAgreeWithItsColumns(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(docID, docTenant, docOutcome string) error {
 		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s'), 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
+			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
 	}
 	wantCode(t, insert("dec_m", "ten_a", "REJECT"), violation, "the document says REJECT, the column ALLOW")
 	wantCode(t, insert("dec_other", "ten_a", "ALLOW"), violation, "the document names another decision")
@@ -269,7 +269,7 @@ func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	linked := func(id, disposition string) string {
 		return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW'), 'ALLOW', '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
 	}
 	wantCode(t, tryAs(t, trust, linked("dec_x", "dec_disp_b")), violation, "tenant A's decision linked to tenant B's disposition")
 	wantCode(t, tryAs(t, trust, linked("dec_y", "dec_missing")), violation, "a link to a decision that does not exist")

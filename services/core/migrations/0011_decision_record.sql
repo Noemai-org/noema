@@ -22,7 +22,9 @@ CREATE TABLE decision_record (
   CONSTRAINT decision_record_disposition_fkey FOREIGN KEY (tenant_id, disposition_decision_id, disposition_outcome) REFERENCES decision_record (tenant_id, decision_id, outcome),
   CONSTRAINT decision_record_document_matches_columns CHECK (
     json ->> 'outcome' IS NOT DISTINCT FROM outcome AND json ->> 'decision_id' IS NOT DISTINCT FROM decision_id
-    AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+    AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id
+    -- the key and the signature are stored in the document and in two columns: one signature, one key (A13, REQ-TRU-001)
+    AND json #>> '{sig,key_id}' IS NOT DISTINCT FROM sig_key_id AND json #>> '{sig,value}' IS NOT DISTINCT FROM sig_value)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
 );
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
@@ -66,6 +68,10 @@ REVOKE ALL ON FUNCTION decision_login_tenant() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION decision_login_tenant() TO trust_rw, execution_rw, outcome_rw;
 ALTER TABLE decision_record ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_record_read ON decision_record FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
+-- outcome_record_verdict (0007) is SECURITY DEFINER and joins decision_grant, so it reads as its owner, which FORCE subjects to the policies. CURRENT_USER is
+-- that owner here, because the same role applies this file. The scope is unchanged: decision_login_tenant() reads session_user, so the owner reads a tenant's
+-- rows only inside a call made by that tenant's login, and a session with no mapping still sees none.
+CREATE POLICY decision_record_read_definer ON decision_record FOR SELECT TO CURRENT_USER USING (tenant_id = decision_login_tenant());
 CREATE POLICY decision_record_write ON decision_record FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
 -- FORCE: the table's owner is subject to the policies too, so a migration or admin role that is not a superuser reads and writes no tenant's rows without
 -- a tenant mapping (ruling A6). A superuser bypasses row security in PostgreSQL whatever is set; no runtime login is one.
@@ -75,6 +81,7 @@ ALTER TABLE decision_record FORCE ROW LEVEL SECURITY;
 -- their status, Outcome reads them. Foreign keys that point at the table (grant_spend, receipts) are checked without row security by PostgreSQL.
 ALTER TABLE decision_grant ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_grant_read ON decision_grant FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
+CREATE POLICY decision_grant_read_definer ON decision_grant FOR SELECT TO CURRENT_USER USING (tenant_id = decision_login_tenant());
 CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
 CREATE POLICY decision_grant_status ON decision_grant FOR UPDATE TO execution_rw USING (tenant_id = decision_login_tenant()) WITH CHECK (tenant_id = decision_login_tenant());
 ALTER TABLE decision_grant FORCE ROW LEVEL SECURITY;

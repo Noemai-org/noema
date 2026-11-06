@@ -40,7 +40,7 @@ func seed(t *testing.T, pool *pgxpool.Pool) {
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`,
 		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		 VALUES ('dec_1', 'ten_a', '{"decision_id":"dec_1","tenant_id":"ten_a","outcome":"ALLOW"}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
+		 VALUES ('dec_1', 'ten_a', '{"decision_id":"dec_1","tenant_id":"ten_a","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
@@ -222,7 +222,7 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
 		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		 VALUES ('dec_9', 'ten_b', '{"decision_id":"dec_9","tenant_id":"ten_b","outcome":"ALLOW"}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
+		 VALUES ('dec_9', 'ten_b', '{"decision_id":"dec_9","tenant_id":"ten_b","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{"decision_id":"dec_9","tenant_id":"ten_b"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {

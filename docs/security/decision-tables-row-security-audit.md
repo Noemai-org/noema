@@ -27,3 +27,10 @@
 ## Not checked (SR, please)
 
 `BYPASSRLS` and superuser membership of the deployed logins; `COPY` and `pg_dump` by a non-owner; logical replication slots; the `LEAKPROOF` question for the policy function (it is a definer with `STABLE`, not marked leakproof, so the planner will not push a user's predicate below it); error-message and timing differences between "no such row" and "not your row"; the Record functions and the two Outcome functions in section 4; extensions. DEBT-06 closes only when SR's row-security tests pass on `main` (ruling A6).
+
+## Addendum, 6 Nov 2026 (Codex P1 on noema#168)
+
+`outcome_record_verdict` is a SECURITY DEFINER function owned by the role that applies the migrations. Under FORCE that owner is subject to the policies, so
+`decision_record_read_definer` and `decision_grant_read_definer` (`FOR SELECT TO CURRENT_USER`) let it read the tables it joins. Both still use
+`decision_login_tenant()`, which reads `session_user`: the owner sees a tenant's rows only inside a call made by that tenant's login. A superuser owner
+bypasses row security, so `TestTheOwnerOfTheVerdictFunctionCanReadTheDecisionTablesItJoins` checks the catalog.

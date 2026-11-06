@@ -71,7 +71,7 @@ func (w *world) seedAt(t *testing.T, tenantID, grant, receipt string, dispatched
 	}
 	for _, s := range []stmt{
 		{`INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`, []any{tenantID}},
-		{`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ('dec_1', $1, jsonb_build_object('decision_id', 'dec_1', 'tenant_id', $1::text, 'outcome', 'ALLOW'), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k', 's') ON CONFLICT (decision_id) DO NOTHING`, []any{tenantID}},
+		{`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ('dec_1', $1, jsonb_build_object('decision_id', 'dec_1', 'tenant_id', $1::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k', 'value', 's')), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k', 's') ON CONFLICT (decision_id) DO NOTHING`, []any{tenantID}},
 		{`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		  VALUES ($1, $2, 'dec_1', 'n_' || $1, jsonb_build_object('correlation_id', 'corr_abc123', 'principal_id', 'usr_100', 'decision_id', 'dec_1', 'tenant_id', $2::text), 'p', '1', now() + interval '1 hour', 'k', 's')`, []any{grant, tenantID}},
 		{`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ($1, $2, 'n_' || $1, 'idk_v1_' || $1, 1, now())`, []any{grant, tenantID}},
