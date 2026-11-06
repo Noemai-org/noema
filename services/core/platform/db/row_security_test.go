@@ -89,12 +89,20 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 		VALUES ('grt_x', 'ten_b', 'dec_x', 'nonce_x', '{}'::jsonb, 'pol', '1', $1, 'k1', 'sig')`, exp); err == nil {
 		t.Error("trust_rw as ten_a inserted a decision_grant for ten_b")
 	}
+	// Positive control: the same statements for the login's OWN tenant succeed, so a refusal below can only be about the tenant.
+	if _, err := trust.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+		VALUES ('grt_own', 'ten_a', 'dec_own', 'nonce_own', '{}'::jsonb, 'pol', '1', $1, 'k1', 'sig')`, exp); err != nil {
+		t.Fatalf("control: trust_rw as ten_a cannot insert its own tenant's decision_grant: %v", err)
+	}
 	pools := map[string]*pgxpool.Pool{
 		"trust_rw":     trust, // one login per role and tenant: TenantLogin must not be called twice for the same pair
 		"execution_rw": testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", "ten_a"),
 		"outcome_rw":   testpg.TenantLogin(t, w.admin, w.dsn, "outcome_rw", "ten_a"),
 	}
 	for group, pool := range pools {
+		if _, err := pool.Exec(ctx(t), `INSERT INTO outbox_event (outbox_id, tenant_id, topic, payload, created_at) VALUES ('obx_own_'||$2::text, 'ten_a', 'topic', '{}'::jsonb, $1)`, exp, group); err != nil {
+			t.Fatalf("control: %s as ten_a cannot insert its own tenant's outbox_event: %v", group, err)
+		}
 		if _, err := pool.Exec(ctx(t), `INSERT INTO outbox_event (outbox_id, tenant_id, topic, payload, created_at) VALUES ('obx_x_'||$2::text, 'ten_b', 'topic', '{}'::jsonb, $1)`, exp, group); err == nil {
 			t.Errorf("%s as ten_a inserted an outbox_event for ten_b", group)
 		}
@@ -112,6 +120,12 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 func TestRowSecurityLoginCannotUpdateAnotherTenantsRow(t *testing.T) {
 	w := newRowWorld(t)
 	exec := testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", "ten_a")
+	// Positive control: the same statements against ten_a's own rows change exactly one row each.
+	for _, q := range []string{`UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_a'`, `UPDATE idempotency_record SET status = 'RECEIPTED' WHERE tenant_id = 'ten_a'`} {
+		if tag, err := exec.Exec(ctx(t), q); err != nil || tag.RowsAffected() != 1 {
+			t.Fatalf("control: %q on ten_a's own row: rows=%d err=%v, want 1 row", q, tag.RowsAffected(), err)
+		}
+	}
 	tag, err := exec.Exec(ctx(t), `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_b'`)
 	if err == nil && tag.RowsAffected() != 0 {
 		t.Errorf("execution_rw as ten_a changed %d decision_grant row(s) of ten_b", tag.RowsAffected())
@@ -121,6 +135,9 @@ func TestRowSecurityLoginCannotUpdateAnotherTenantsRow(t *testing.T) {
 		t.Errorf("execution_rw as ten_a changed %d idempotency_record row(s) of ten_b", tag.RowsAffected())
 	}
 	orch := testpg.TenantLogin(t, w.admin, w.dsn, "orchestrator_rw", "ten_a")
+	if tag, err := orch.Exec(ctx(t), `UPDATE outbox_event SET dispatched_at = now() WHERE tenant_id = 'ten_a'`); err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("control: orchestrator_rw on ten_a's own outbox row: rows=%d err=%v, want 1 row", tag.RowsAffected(), err)
+	}
 	tag, err = orch.Exec(ctx(t), `UPDATE outbox_event SET dispatched_at = now() WHERE tenant_id = 'ten_b'`)
 	if err == nil && tag.RowsAffected() != 0 {
 		t.Errorf("orchestrator_rw as ten_a marked %d outbox_event row(s) of ten_b dispatched", tag.RowsAffected())
