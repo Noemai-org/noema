@@ -1,0 +1,93 @@
+# standin: the Noema-side stand-in for the Tushe-held US-01 and US-06 data (ENV-05; Option B for G1; REQ-ENV-001, REQ-ENV-002).
+# Included by ../docker-compose.yml. A test-environment component, not a Noema deployable (DEC-2026-10-16 E5). Everything here is SYNTHETIC.
+#
+# Networks: the data API is on tushe_net (the core's adapters read it); the control API, where the benchmark loads the data, listens only
+# on the bench_net address (synthetic/standin/internal/listen), found through the bench_net-only anchor below. Both networks are declared in
+# the main file; they are repeated here, identically, because an included file is read on its own.
+#
+# Credentials are generated into named volumes by the one-shot `standin-credentials` step, never written into the repository: the
+# benchmark loader holds only the bench volume; the core's adapters will hold the runtime volume and the principal-key volume, and never
+# the bench one. The key that loads never reads, and the key that reads never loads.
+#
+# Profiles: ci, bench and netcheck, never dev or demo: the stand-in exists for G1 runs, and the core's adapters for it do not exist yet.
+networks:
+  tushe_net:
+    internal: true
+  bench_net:
+    internal: true
+
+volumes:
+  standin_runtime_credential: {}
+  standin_bench_credential: {}
+  standin_principal_key: {}
+
+services:
+  standin-credentials:
+    image: noema-standin:dev
+    build:
+      context: ../../../synthetic/standin
+    profiles: [ci, bench, netcheck]
+    user: "0:0"
+    network_mode: none
+    restart: "no"
+    command:
+      - init-credentials
+      - -file=/creds/runtime/token
+      - -file=/creds/bench/token
+      - -file=/creds/principal/key
+    volumes:
+      - standin_runtime_credential:/creds/runtime
+      - standin_bench_credential:/creds/bench
+      - standin_principal_key:/creds/principal
+
+  # A listener on bench_net only. The stand-in binds its control API to the local address that shares a subnet with it.
+  standin-anchor:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [ci, bench, netcheck]
+    networks: [bench_net]
+    command: ["python", "-m", "http.server", "9000", "--bind", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 9000), 2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  standin:
+    image: noema-standin:dev
+    build:
+      context: ../../../synthetic/standin
+    profiles: [ci, bench, netcheck]
+    networks: [tushe_net, bench_net]
+    depends_on:
+      standin-credentials:
+        condition: service_completed_successfully
+      standin-anchor:
+        condition: service_healthy
+    environment:
+      STANDIN_DATA_LISTEN: ":8093"
+      STANDIN_CONTROL_BIND_VIA: standin-anchor
+      STANDIN_CONTROL_PORT: "8094"
+      STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
+      STANDIN_BENCH_TOKEN_FILE: /run/standin/bench/token
+      STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+    volumes:
+      - standin_runtime_credential:/run/standin/runtime:ro
+      - standin_bench_credential:/run/standin/bench:ro
+      - standin_principal_key:/run/standin/principal:ro
+    read_only: true
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/standin", "-healthcheck"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Fixture of the connection-test matrix: a caller on both networks that holds the bench token and the runtime token, so the matrix can prove
+  # the control side opens for the bench token only and the data side opens for neither without an identity assertion.
+  probe-standin:
+    image: python:3.13.16-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641
+    profiles: [netcheck]
+    networks: [tushe_net, bench_net]
+    volumes:
+      - ../netcheck/standin_probe.py:/standin_probe.py:ro
+      - standin_runtime_credential:/creds/runtime:ro
+      - standin_bench_credential:/creds/bench:ro
