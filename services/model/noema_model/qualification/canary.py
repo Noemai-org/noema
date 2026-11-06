@@ -1,4 +1,4 @@
-"""The model-drift canary (REQ-INT-006, D25, AGENT-28): the qualification subset through the service's own provider adapters, compared with the pinned baseline.
+"""The model-drift canary (REQ-INT-006, D25, AGENT-28): the qualification subset through an `Asker` (the harness's `ProviderAsker` wraps the service's own provider adapters), compared with the pinned baseline.
 
 It emits the run record the benchmark module defines (`qualification-run.v1`): per case MATCH, DRIFT (with the differing slots) or UNAVAILABLE, the version that answered, and a
 result of PASS, DRIFT or PROVIDER_UNAVAILABLE (DRIFT outranks UNAVAILABLE). Whether a drift is acceptable and whether the version is then qualified is not decided here: that is
@@ -12,16 +12,14 @@ import asyncio
 import hashlib
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from noema_model.providers.llm.base import FinishReason, LLMProvider, ProviderError, ProviderRequest
 from noema_model.qualification.gate import KINDS, is_pinned
 
 RUN_SCHEMA = "qualification-run.v1"
 LAYER = "GENERATED"
-UNREPORTED = "(version not reported)"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 Json = dict[str, Any]
@@ -35,33 +33,14 @@ class CaseAnswer:
     answered_by: str
 
 
+class AskerUnavailable(Exception):
+    """The provider gave no answer: a failed call, a timeout, a refusal. The canary records the case as UNAVAILABLE."""
+
+
 class Asker(Protocol):
     async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
-        """The structured answer for one case, or None when the provider gave none. Raise ProviderError for a failed call."""
+        """The structured answer for one case, or None when the provider gave none. Raise AskerUnavailable for a failed call."""
         ...
-
-
-class ProviderAsker:
-    """Asks through a real provider adapter. `build` turns a case into the request the service would send (the prompt and the schema belong to the pipeline, not to the canary).
-
-    A reply with no usable structured answer (refused, truncated, not JSON, not an object) is None, i.e. unavailable. A reply that does not report its version is attributed
-    to no version, so it can never match the pin."""
-
-    def __init__(self, provider: LLMProvider, build: Callable[[Mapping[str, Any]], ProviderRequest]) -> None:
-        self._provider = provider
-        self._build = build
-
-    async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
-        response = await self._provider.complete(self._build(case))
-        if response.finish is not FinishReason.COMPLETE:
-            return None
-        try:
-            slots = json.loads(response.output_json)
-        except ValueError:
-            return None
-        if not isinstance(slots, dict):
-            return None
-        return CaseAnswer(slots=slots, answered_by=response.model_version_reported or UNREPORTED)
 
 
 def _digest(document: Any) -> str:
@@ -114,7 +93,7 @@ async def _ask(asker: Asker, case: Mapping[str, Any], timeout_s: float) -> CaseA
     try:
         async with asyncio.timeout(timeout_s):
             return await asker.ask(case)
-    except (ProviderError, TimeoutError):
+    except (AskerUnavailable, TimeoutError):
         return None
 
 

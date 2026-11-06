@@ -15,12 +15,11 @@ import pytest
 from noema_model.providers.llm.base import (
     AdapterSettings,
     HttpResponse,
-    ProviderError,
-    ProviderFailure,
     ProviderRequest,
 )
 from noema_model.providers.llm.openai_chat import OpenAIChat
-from noema_model.qualification.canary import CaseAnswer, ProviderAsker, run_canary
+from noema_model.harness.canary_asker import ProviderAsker
+from noema_model.qualification.canary import AskerUnavailable, CaseAnswer, run_canary
 from tests.support import FIXTURES
 
 GOLDEN: dict[str, Any] = json.loads((FIXTURES / "qualification" / "canary_golden.json").read_text())
@@ -72,7 +71,7 @@ class RaisingAsker:
 
 
 def test_a_provider_error_is_unavailable_but_a_bug_in_the_canary_is_not_hidden() -> None:
-    run = canary(RaisingAsker(ProviderError(ProviderFailure.TIMEOUT)))
+    run = canary(RaisingAsker(AskerUnavailable("timeout")))
     assert run["result"] == "PROVIDER_UNAVAILABLE" and {c["status"] for c in run["cases"]} == {"UNAVAILABLE"}
     with pytest.raises(KeyError):
         canary(RaisingAsker(KeyError("bug")))
@@ -157,11 +156,11 @@ def test_a_reply_that_does_not_report_its_version_counts_as_another_version() ->
     del body["model"]
     try:
         answer = asyncio.run(asker_over(FakeTransport(body)).ask(SUBSET["cases"][0]))
-    except ProviderError:
+    except AskerUnavailable:
         return  # the adapter itself refuses an unreported version: also not a silent pass
     assert answer is not None and answer.answered_by != PINNED["version"]
 
 
-def test_a_transport_error_surfaces_as_a_provider_error_for_the_canary_to_record() -> None:
-    with pytest.raises(ProviderError):
+def test_a_transport_error_surfaces_as_asker_unavailable_for_the_canary_to_record() -> None:
+    with pytest.raises(AskerUnavailable):
         asyncio.run(asker_over(FakeTransport({"error": "x"}, status=503)).ask(SUBSET["cases"][0]))
