@@ -24,10 +24,13 @@ func TestAHungRollbackTimesOutAtTheConfiguredBoundAndKeepsTheOriginalError(t *te
 	cancel() // the caller's own context has already ended, as when a request deadline passed
 	cause := errors.New("original failure")
 	limit := 50 * time.Millisecond
-	start := time.Now()
-	err := rollbackWith(caller, hungTx{}, cause, limit)
-	if took := time.Since(start); took > 2*time.Second {
-		t.Fatalf("a hung rollback was not bounded: took %s with a %s limit", took, limit)
+	done := make(chan error, 1)
+	go func() { done <- rollbackWith(caller, hungTx{}, cause, limit) }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("a hung rollback was not bounded by its %s limit", limit)
 	}
 	if !errors.Is(err, cause) {
 		t.Fatalf("the original error was lost: %v", err)
