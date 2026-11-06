@@ -1,6 +1,6 @@
 package ledger
 
-// A24 (ruling of 6 Nov 2026): a rollback after a cancelled context is bounded, context.WithTimeout(context.WithoutCancel(ctx), N), with N from
+// REQ-EXE-004, INV-07, EC-E16 (a transaction left open holds a connection and the Record-first rule): A24 (ruling of 6 Nov 2026): a rollback after a cancelled context is bounded, context.WithTimeout(context.WithoutCancel(ctx), N), with N from
 // configuration. It must still be tried when the caller's context is already done (otherwise a connection is returned to the pool inside a
 // transaction), and it must not wait forever when the server does not answer. Everything is SYNTHETIC.
 
@@ -25,6 +25,7 @@ func (h *hungTx) Rollback(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// REQ-EXE-004, INV-07, EC-E16, A24.
 func TestAHungRollbackTimesOutAfterTheConfiguredBound(t *testing.T) {
 	parent, cancel := context.WithCancel(context.Background())
 	cancel() // the caller's context is already cancelled: the rollback must still be tried
@@ -48,6 +49,7 @@ type quickTx struct{ err error }
 
 func (q quickTx) Rollback(context.Context) error { return q.err }
 
+// REQ-EXE-004, INV-07, EC-E16, A24.
 func TestARollbackThatAnswersReturnsAtOnce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
@@ -62,6 +64,7 @@ func TestARollbackThatAnswersReturnsAtOnce(t *testing.T) {
 	}
 }
 
+// REQ-EXE-004, INV-07, EC-E16, A24.
 func TestALedgerWithoutARollbackBoundRefusesToStartATransaction(t *testing.T) {
 	l := &Ledger{}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
