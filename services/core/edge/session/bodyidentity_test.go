@@ -57,6 +57,8 @@ func TestABodyThatNamesAnIdentityIsRefusedAndTheHandlerNeverRuns(t *testing.T) {
 		"user_id":                      `{"user_id":"u1"}`,
 		"actor":                        `{"actor":"operator:op_9"}`,
 		"another case":                 `{"Tenant_ID":"tnt_b"}`,
+		"an escaped name":              `{"tenant\u005fid":"tnt_b"}`,
+		"the name twice":               `{"tenant_id":"a","tenant_id":"b"}`,
 		"nested in an object":          `{"a":{"b":{"tenant_id":"tnt_b"}}}`,
 		"nested in an array":           `{"items":[{"ok":1},{"principal_id":"op_9"}]}`,
 		"after a large harmless field": `{"note":"` + strings.Repeat("x", 100) + `","tenant_id":"tnt_b"}`,
@@ -91,13 +93,15 @@ func TestADenyByDefaultBodyIsRefused(t *testing.T) {
 	h, calls, _ := guarded(t, k)
 	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
 	for name, c := range map[string]struct{ ct, body string }{
-		"not JSON":                    {"application/json", `not json`},
-		"truncated JSON":              {"application/json", `{"a":`},
-		"two documents":               {"application/json", `{} {"tenant_id":"x"}`},
-		"form encoded":                {"application/x-www-form-urlencoded", `tenant_id=tnt_b`},
-		"plain text":                  {"text/plain", `tenant_id=tnt_b`},
-		"no content type with a body": {"", `{"a":1}`},
-		"over the limit":              {"application/json", `{"note":"` + strings.Repeat("x", bodyLimit) + `"}`},
+		"not JSON":                         {"application/json", `not json`},
+		"truncated JSON":                   {"application/json", `{"a":`},
+		"two documents":                    {"application/json", `{} {"tenant_id":"x"}`},
+		"form encoded":                     {"application/x-www-form-urlencoded", `tenant_id=tnt_b`},
+		"a JSON body labelled text/plain":  {"text/plain", `{"a":1}`},
+		"plain text":                       {"text/plain", `tenant_id=tnt_b`},
+		"no content type with a body":      {"", `{"a":1}`},
+		"over the limit":                   {"application/json", `{"note":"` + strings.Repeat("x", bodyLimit) + `"}`},
+		"valid JSON padded past the limit": {"application/json", `{}` + strings.Repeat(" ", bodyLimit)},
 	} {
 		before := *calls
 		rec := post(h, tok, c.ct, c.body)
