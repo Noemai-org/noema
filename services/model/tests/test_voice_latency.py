@@ -5,6 +5,7 @@ a run cannot look faster by dropping its failures.
 """
 
 import math
+from collections.abc import Sequence
 
 import pytest
 
@@ -96,7 +97,7 @@ def test_a_percentile_of_nothing_is_refused() -> None:
         nearest_rank_percentile([], 0.95)
 
 
-def sessions(totals: list[int | None]) -> list[StageTimeline]:
+def sessions(totals: Sequence[int | None]) -> list[StageTimeline]:
     out = []
     for total in totals:
         clock = Clock()
