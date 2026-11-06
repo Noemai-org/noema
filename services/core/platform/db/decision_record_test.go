@@ -284,3 +284,64 @@ func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
 		t.Fatalf("a link to the tenant's own disposition: %v", err)
 	}
 }
+
+// A6 (rulings of 6 Nov 2026, per noema#167): decision_record and decision_grant are bound to the login's tenant by row-level security, and the
+// policies are FORCED so that the table's owner is subject to them too (a superuser still bypasses, and no runtime login is one).
+func TestDecisionRecordAndDecisionGrantAreTenantScopedAndForced(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	for _, tb := range []string{"decision_record", "decision_grant"} {
+		var on, forced bool
+		if err := pool.QueryRow(ctx(t), `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = $1::regclass`, tb).Scan(&on, &forced); err != nil {
+			t.Fatal(err)
+		}
+		if !on || !forced {
+			t.Errorf("%s: row-level security enabled %v, forced %v; want both", tb, on, forced)
+		}
+	}
+	for _, q := range []string{`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`, `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`} {
+		if _, err := pool.Exec(ctx(t), q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trustA := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	trustB := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_b")
+	for _, d := range []struct {
+		p            *pgxpool.Pool
+		id, tenant   string
+		grant, nonce string
+	}{{trustA, "dec_a", "ten_a", "grt_a", "n_a"}, {trustB, "dec_b", "ten_b", "grt_b", "n_b"}} {
+		if _, err := d.p.Exec(ctx(t), decisionRow(d.id, d.tenant, "ALLOW")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.p.Exec(ctx(t), fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+			VALUES ('%s', '%s', '%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+			d.grant, d.tenant, d.id, d.nonce, d.id, d.tenant)); err != nil {
+			t.Fatalf("tenant %s writing its own grant: %v", d.tenant, err)
+		}
+	}
+	// a Trust login cannot write a grant for another tenant, even one that names a decision of that tenant
+	_, err := trustA.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+		VALUES ('grt_x', 'ten_b', 'dec_b', 'n_x', jsonb_build_object('decision_id', 'dec_b', 'tenant_id', 'ten_b'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`)
+	wantCode(t, err, denied, "tenant A's Trust login writing a grant for tenant B")
+	for _, group := range []string{"trust_rw", "execution_rw", "outcome_rw"} {
+		p := trustA
+		if group != "trust_rw" {
+			p = testpg.TenantLogin(t, pool, dsn, group, "ten_a")
+		}
+		var own, foreign int
+		if err := p.QueryRow(ctx(t), `SELECT count(*) FILTER (WHERE tenant_id = 'ten_a'), count(*) FILTER (WHERE tenant_id = 'ten_b') FROM decision_grant`).Scan(&own, &foreign); err != nil {
+			t.Fatal(err)
+		}
+		if own != 1 || foreign != 0 {
+			t.Errorf("%s of tenant A sees %d own and %d foreign grants, want 1 and 0", group, own, foreign)
+		}
+	}
+	// Execution moves the status of its own tenant's grant only
+	execA := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a")
+	if tag, err := execA.Exec(ctx(t), `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_b'`); err != nil || tag.RowsAffected() != 0 {
+		t.Errorf("tenant A's Execution login changed %d of tenant B's grants (%v)", tag.RowsAffected(), err)
+	}
+	if tag, err := execA.Exec(ctx(t), `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_a'`); err != nil || tag.RowsAffected() != 1 {
+		t.Errorf("tenant A's Execution login changed %d of its own grants (%v)", tag.RowsAffected(), err)
+	}
+}
