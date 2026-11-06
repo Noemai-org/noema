@@ -79,6 +79,7 @@ var (
 	intentRe      = regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`)
 	hashRe        = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	snapshotRe    = regexp.MustCompile(`^evs_[0-9A-Za-z]{2,32}$`)
+	packVersionRe = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]+\.[0-9]+(\.[0-9]+)?$`)
 	packRe        = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$`)
 	decisionRe    = regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`)
 )
@@ -99,7 +100,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	}
 	decisionID, err := w.IDs.ID("dec")
 	if err != nil || !decisionRe.MatchString(decisionID) {
-		return Result{}, fmt.Errorf("%wdecision id: %v", ErrRequest, err)
+		return Result{}, fmt.Errorf("%w: decision id: %v", ErrRequest, err)
 	}
 	now := w.Clock.Now().UTC()
 	rec := contracts.DecisionRecordV2{
@@ -127,7 +128,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	}
 	var checked contracts.DecisionRecordV2
 	if err := checked.UnmarshalJSON(raw); err != nil {
-		return Result{}, fmt.Errorf("%wthe record does not satisfy decision-record.v2: %w", ErrRequest, err)
+		return Result{}, fmt.Errorf("%w: the record does not satisfy decision-record.v2: %w", ErrRequest, err)
 	}
 	versions, err := json.Marshal(policyVersions(basis))
 	if err != nil {
@@ -205,16 +206,19 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	}
 	basis := d.Basis()
 	if !snapshotRe.MatchString(basis.EvidenceSnapshotID) {
-		return decide.Basis{}, "", fmt.Errorf("%wthe evidence snapshot ID does not match the contract", ErrRequest)
+		return decide.Basis{}, "", fmt.Errorf("%w: the evidence snapshot ID does not match the contract", ErrRequest)
+	}
+	if !packVersionRe.MatchString(basis.PackVersion) {
+		return decide.Basis{}, "", fmt.Errorf("%w: the pack version does not match the contract", ErrRequest)
 	}
 	for _, f := range basis.EvidenceFreshness {
 		if !packRe.MatchString(f.Source) {
-			return decide.Basis{}, "", fmt.Errorf("%wan evidence source does not match the contract", ErrRequest)
+			return decide.Basis{}, "", fmt.Errorf("%w: an evidence source does not match the contract", ErrRequest)
 		}
 	}
 	policy, ok := grants.BoundPolicy(basis, r.PolicyID)
 	if !ok {
-		return decide.Basis{}, "", fmt.Errorf("%wno single policy is bound: name one policy the basis holds", ErrRequest)
+		return decide.Basis{}, "", fmt.Errorf("%w: no single policy is bound: name one policy the basis holds", ErrRequest)
 	}
 	return basis, policy, nil
 }
