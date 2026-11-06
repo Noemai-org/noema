@@ -171,7 +171,7 @@ func issue(args []string, out io.Writer, clk clock.Clock) error {
 	}
 	sig := make([]byte, 2*sigHalf)
 	r.FillBytes(sig[:sigHalf])
-	s.FillBytes(sig[sigHalf:])
+	session.LowS(s).FillBytes(sig[sigHalf:])
 	_, err = fmt.Fprintln(out, signing+"."+enc.EncodeToString(sig))
 	return err
 }

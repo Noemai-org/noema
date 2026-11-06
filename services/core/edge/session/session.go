@@ -127,6 +127,17 @@ func invalid(why string) error { return fmt.Errorf("%w: %s", ErrInvalid, why) }
 
 const sigLen = 64
 
+// LowSMax is N/2 of P-256: a valid ES256 signature of this verifier has s at or below it. Issuers pass s through LowS.
+var LowSMax = new(big.Int).Rsh(elliptic.P256().Params().N, 1)
+
+// LowS returns the low form of s (N-s when s is above N/2); both verify under ECDSA, only the low one is accepted here.
+func LowS(s *big.Int) *big.Int {
+	if s.Cmp(LowSMax) > 0 {
+		return new(big.Int).Sub(elliptic.P256().Params().N, s)
+	}
+	return s
+}
+
 // b64 is strict: the unused trailing bits of a segment must be zero, so one token has exactly one spelling. A lenient decoder ignores them,
 // and a token with a respelled last character would verify as the same bytes (found by the fuzz test in CI, 4 Nov 2026).
 var b64 = base64.RawURLEncoding.Strict()
@@ -161,6 +172,9 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	}
 	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	r, s := new(big.Int).SetBytes(sig[:sigLen/2]), new(big.Int).SetBytes(sig[sigLen/2:])
+	if s.Cmp(LowSMax) > 0 {
+		return Principal{}, invalid("signature") // ECDSA accepts s and N-s alike: only the low form is one spelling of a token (Codex review of noema#198)
+	}
 	if !ecdsa.Verify(key, sum[:], r, s) {
 		return Principal{}, invalid("signature")
 	}

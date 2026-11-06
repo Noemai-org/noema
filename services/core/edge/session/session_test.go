@@ -68,7 +68,7 @@ func mint(t *testing.T, key *ecdsa.PrivateKey, header, claims map[string]any) st
 	}
 	sig := make([]byte, 64)
 	r.FillBytes(sig[:32])
-	s.FillBytes(sig[32:])
+	session.LowS(s).FillBytes(sig[32:])
 	return signing + "." + b64(sig)
 }
 
@@ -378,5 +378,29 @@ func TestEachOfTheFourRolesIsAcceptedAlone(t *testing.T) {
 		if err != nil || p.Role != r {
 			t.Errorf("role %s: %+v, %v", r, p, err)
 		}
+	}
+}
+
+// Codex review of noema#198 (P2), INV-12: ECDSA verifies both s and N-s, so a high-S respelling of a valid token would be a second bearer string for the
+// same claims (a cache or deny-list keyed on the string would miss it). The verifier accepts only the low form. REQ-SEC-002.
+func TestAHighSRespellingOfAValidTokenIsRefused(t *testing.T) {
+	k := newKeys(t)
+	now := epoch
+	tok := mint(t, k.priv, goodHeader(), goodClaims(now))
+	parts := strings.Split(tok, ".")
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := new(big.Int).SetBytes(sig[32:])
+	high := new(big.Int).Sub(elliptic.P256().Params().N, s)
+	high.FillBytes(sig[32:])
+	respelled := parts[0] + "." + parts[1] + "." + b64(sig)
+	v, _ := verifier(t, k, now)
+	if _, err := v.Verify(tok); err != nil {
+		t.Fatalf("the genuine token: %v", err)
+	}
+	if _, err := v.Verify(respelled); err == nil {
+		t.Fatal("the high-S respelling of a valid token was accepted: one token has two spellings")
 	}
 }
