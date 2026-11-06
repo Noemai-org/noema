@@ -246,3 +246,24 @@ func TestATemplateForADifferentOutcomeOrClassificationThanTheFactsIsBlocked(t *t
 		t.Error("a template of another locale passed")
 	}
 }
+
+// Codex review of noema#224 (third round), INV-13, EXP-02: a claim is supported only by KNOWN facts. An INFERRED fact cannot back text that reads as certain,
+// because a claim carries no hedge marker.
+func TestAClaimBackedOnlyByAnInferredFactIsBlocked(t *testing.T) {
+	tpl := load(t)
+	f := facts("o", "c")
+	if p := explanation.Validate(tpl, claimed("Your payment of NGN 5,000 is confirmed."), f, nil); len(p) != 0 {
+		t.Fatalf("a KNOWN-backed claim was blocked: %v", p)
+	}
+	f.Facts[0].FactStatus = contracts.ExplanationFactsV2FactsItemFactStatusINFERRED
+	rule := "rule_x"
+	f.Facts[0].RuleId = &rule
+	if p := explanation.Validate(tpl, claimed("Your payment of NGN 5,000 is confirmed."), f, nil); len(p) == 0 {
+		t.Fatal("a claim backed only by an INFERRED fact passed")
+	}
+	f.Facts = append(f.Facts, contracts.ExplanationFactsV2FactsItem{FactId: "f2", Kind: "payment.amount", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "NGN 5,000", SourceLabel: "SYNTHETIC ledger"})
+	both := explanation.Rendered{Text: "Your payment of NGN 5,000 is confirmed.", Claims: []explanation.Claim{{Span: "Your payment of NGN 5,000 is confirmed.", FactIDs: []string{"f1", "f2"}}}}
+	if p := explanation.Validate(tpl, both, f, nil); len(p) == 0 {
+		t.Fatal("a claim citing an INFERRED fact alongside a KNOWN one passed")
+	}
+}
