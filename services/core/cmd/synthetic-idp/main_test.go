@@ -48,10 +48,22 @@ func verifierFor(t *testing.T, dir, kid string, clk clock.Clock) *session.Verifi
 	return v
 }
 
+func hasRole(args []string) bool {
+	for _, a := range args {
+		if a == "-role" {
+			return true
+		}
+	}
+	return false
+}
+
 func mintToken(t *testing.T, dir string, clk clock.Clock, extra ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	args := append([]string{"issue", "-key", filepath.Join(dir, "private.pem"), "-kid", "idp-k1", "-aud", "noema-core", "-tenant", "tnt_a", "-principal", "cust_1", "-role", "customer", "-ttl", "10m"}, extra...)
+	args := append([]string{"issue", "-key", filepath.Join(dir, "private.pem"), "-kid", "idp-k1", "-aud", "noema-core", "-tenant", "tnt_a", "-principal", "cust_1", "-ttl", "10m"}, extra...)
+	if !hasRole(extra) {
+		args = append(args, "-role", "customer")
+	}
 	err := run(args, &out, clk)
 	return strings.TrimSpace(out.String()), err
 }
@@ -92,7 +104,7 @@ func TestATokenTheIssuerMakesIsAcceptedByTheCoresVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "cust_1" || p.Tenant != "tnt_a" || len(p.Roles) != 2 || p.Roles[0] != session.RoleCustomer || p.Roles[1] != session.RoleApprover ||
+	if p.ID != "cust_1" || p.Tenant != "tnt_a" || p.Role != session.RoleApprover ||
 		!p.IssuedAt.Equal(epoch) || !p.ExpiresAt.Equal(epoch.Add(10*time.Minute)) {
 		t.Fatalf("%+v", p)
 	}
@@ -128,6 +140,9 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 		"zero ttl":       {"-ttl", "0s"},
 		"negative ttl":   {"-ttl", "-5m"},
 		"unknown role":   {"-role", "root"},
+		"old role name":  {"-role", "operator"},
+		"two roles":      {"-role", "ops", "-role", "approver"},
+		"the same twice": {"-role", "ops", "-role", "ops"},
 		"empty tenant":   {"-tenant", ""},
 		"empty princ.":   {"-principal", ""},
 		"empty audience": {"-aud", ""},

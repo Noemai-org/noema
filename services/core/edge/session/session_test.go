@@ -32,6 +32,8 @@ const (
 	tenantB  = "tnt_b"
 	kid      = "idp-k1"
 	lifetime = 15 * time.Minute
+	skew     = 2 * time.Second
+	issuer   = "noema-poc-idp" // ruling A1 (docs#115, D7): exact match
 )
 
 var epoch = time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
@@ -71,8 +73,14 @@ func mint(t *testing.T, key *ecdsa.PrivateKey, header, claims map[string]any) st
 }
 
 func goodClaims(now time.Time) map[string]any {
-	return map[string]any{"sub": "cust_1", "aud": aud, "tenant_id": tenantA, "roles": []string{"customer"},
+	return map[string]any{"sub": "cust_1", "aud": aud, "tenant_id": tenantA, "roles": []string{"customer"}, "iss": issuer,
 		"iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix()}
+}
+
+func withHeader(name string, value any) map[string]any {
+	h := goodHeader()
+	h[name] = value
+	return h
 }
 
 func goodHeader() map[string]any { return map[string]any{"alg": "ES256", "typ": "JWT", "kid": kid} }
@@ -81,7 +89,7 @@ func verifier(t *testing.T, k keys, now time.Time) (*session.Verifier, *clock.Ma
 	t.Helper()
 	clk := clock.NewManual(now)
 	v, err := session.NewVerifier(session.Config{Keys: map[string]*ecdsa.PublicKey{kid: &k.priv.PublicKey}, Audience: aud,
-		Tenants: []string{tenantA}, MaxLifetime: lifetime, Clock: clk})
+		Tenants: []string{tenantA}, MaxLifetime: lifetime, Skew: skew, Clock: clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +103,7 @@ func TestAValidTokenGivesThePrincipalFromSubAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "cust_1" || p.Tenant != tenantA || len(p.Roles) != 1 || p.Roles[0] != session.RoleCustomer ||
+	if p.ID != "cust_1" || p.Tenant != tenantA || p.Role != session.RoleCustomer ||
 		!p.IssuedAt.Equal(epoch) || !p.ExpiresAt.Equal(epoch.Add(5*time.Minute)) {
 		t.Fatalf("%+v", p)
 	}
@@ -116,7 +124,7 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 	cases := map[string]string{
 		"forged: signed by another key":          mint(t, k.other, goodHeader(), goodClaims(epoch)),
 		"signature bit flipped":                  parts[0] + "." + parts[1] + "." + string(flipped),
-		"payload swapped under a good signature": parts[0] + "." + b64([]byte(`{"sub":"op_9","aud":"noema-core","tenant_id":"tnt_a","roles":["operator"],"iat":1,"exp":9999999999}`)) + "." + parts[2],
+		"payload swapped under a good signature": parts[0] + "." + b64([]byte(`{"sub":"op_9","aud":"noema-core","tenant_id":"tnt_a","roles":["ops"],"iat":1,"exp":9999999999}`)) + "." + parts[2],
 		"alg none":                               parts[0][:0] + b64([]byte(`{"alg":"none","typ":"JWT","kid":"idp-k1"}`)) + "." + parts[1] + ".",
 		"alg HS256":                              mint(t, k.priv, map[string]any{"alg": "HS256", "typ": "JWT", "kid": kid}, goodClaims(epoch)),
 		"unknown kid":                            mint(t, k.priv, map[string]any{"alg": "ES256", "typ": "JWT", "kid": "other"}, goodClaims(epoch)),
@@ -138,6 +146,24 @@ func TestEveryKindOfBadTokenIsRejectedAsInvalid(t *testing.T) {
 		"lifetime longer than the maximum": mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["exp"] = epoch.Add(lifetime + time.Second).Unix() })),
 		"unknown role":                     mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"root"} })),
 		"no roles":                         mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{} })),
+		"two roles":                        mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"customer", "approver"} })),
+		"the same role twice":              mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"ops", "ops"} })),
+		"roles as a string":                mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = "ops" })),
+		"the old role name operator":       mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"operator"} })),
+		"role in another case":             mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["roles"] = []string{"OPS"} })),
+		"no iss":                           mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { delete(c, "iss") })),
+		"empty iss":                        mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["iss"] = "" })),
+		"another iss":                      mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["iss"] = "someone-else" })),
+		"iss in another case":              mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["iss"] = "NOEMA-POC-IDP" })),
+		"iss with a trailing slash":        mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["iss"] = issuer + "/" })),
+		"aud as an array":                  mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["aud"] = []string{aud} })),
+		"sub too long":                     mint(t, k.priv, goodHeader(), mod(func(c map[string]any) { c["sub"] = strings.Repeat("a", 129) })),
+		"header jwk":                       mint(t, k.priv, withHeader("jwk", map[string]any{"kty": "EC"}), goodClaims(epoch)),
+		"header jku":                       mint(t, k.priv, withHeader("jku", "https://example.invalid/keys"), goodClaims(epoch)),
+		"header x5u":                       mint(t, k.priv, withHeader("x5u", "https://example.invalid/cert"), goodClaims(epoch)),
+		"header x5c":                       mint(t, k.priv, withHeader("x5c", []string{"AAAA"}), goodClaims(epoch)),
+		"header crit":                      mint(t, k.priv, withHeader("crit", []string{"exp"}), goodClaims(epoch)),
+		"header with any other member":     mint(t, k.priv, withHeader("cty", "x"), goodClaims(epoch)),
 		"not three parts":                  "abc.def",
 		"empty":                            "",
 		"bad base64":                       "!!!.???.***",
@@ -175,10 +201,15 @@ func TestTimeBoundariesAreExact(t *testing.T) {
 	if _, err := v.Verify(mint(t, k.priv, goodHeader(), oneSecondLeft)); err != nil {
 		t.Errorf("a token with a second left is valid: %v", err)
 	}
+	withinSkew := goodClaims(epoch)
+	withinSkew["iat"], withinSkew["exp"] = epoch.Add(skew).Unix(), epoch.Add(time.Minute).Unix()
+	if _, err := v.Verify(mint(t, k.priv, goodHeader(), withinSkew)); err != nil {
+		t.Errorf("a token issued exactly the stated skew from now is valid: %v", err)
+	}
 	notYet := goodClaims(epoch)
-	notYet["iat"], notYet["exp"] = epoch.Add(time.Second).Unix(), epoch.Add(time.Minute).Unix()
+	notYet["iat"], notYet["exp"] = epoch.Add(skew+time.Second).Unix(), epoch.Add(time.Minute).Unix()
 	if _, err := v.Verify(mint(t, k.priv, goodHeader(), notYet)); !errors.Is(err, session.ErrInvalid) {
-		t.Errorf("a token issued in the future must be rejected: %v", err)
+		t.Errorf("a token issued past the stated skew must be rejected: %v", err)
 	}
 	maxLife := goodClaims(epoch)
 	maxLife["iat"], maxLife["exp"] = epoch.Unix(), epoch.Add(lifetime).Unix()
@@ -281,8 +312,21 @@ func TestAVerifierWithoutWhatItNeedsDoesNotStart(t *testing.T) {
 			t.Errorf("%s: a verifier must not start without it", name)
 		}
 	}
+	for name, cfg := range map[string]session.Config{
+		"a lifetime above the ceiling of 15 minutes": {Keys: pub, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime + time.Second, Skew: skew, Clock: clk},
+		"a negative lifetime":                        {Keys: pub, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: -time.Minute, Skew: skew, Clock: clk},
+		"a negative skew":                            {Keys: pub, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Skew: -time.Second, Clock: clk},
+		"a skew as long as the lifetime":             {Keys: pub, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Skew: lifetime, Clock: clk},
+	} {
+		if _, err := session.NewVerifier(cfg); err == nil {
+			t.Errorf("%s: a verifier must not start with it (ruling A1)", name)
+		}
+	}
+	if _, err := session.NewVerifier(session.Config{Keys: pub, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Skew: skew, Clock: clk}); err != nil {
+		t.Errorf("a lifetime of exactly 15 minutes is allowed: %v", err)
+	}
 	other, _ := ecdsa.GenerateKey(elliptic.P224(), rand.Reader)
-	if _, err := session.NewVerifier(session.Config{Keys: map[string]*ecdsa.PublicKey{kid: &other.PublicKey}, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Clock: clk}); err == nil {
+	if _, err := session.NewVerifier(session.Config{Keys: map[string]*ecdsa.PublicKey{kid: &other.PublicKey}, Audience: aud, Tenants: []string{tenantA}, MaxLifetime: lifetime, Skew: skew, Clock: clk}); err == nil {
 		t.Error("only P-256 keys are accepted for ES256")
 	}
 }
@@ -313,6 +357,20 @@ func TestParsePublicKeyPEMAcceptsOnlyAP256PublicKey(t *testing.T) {
 	} {
 		if _, err := session.ParsePublicKeyPEM(in); err == nil {
 			t.Errorf("%s must be refused", name)
+		}
+	}
+}
+
+// Ruling A1 (D7): one role per token, from the closed list customer, ops, approver, audit.
+func TestEachOfTheFourRolesIsAcceptedAlone(t *testing.T) {
+	k := newKeys(t)
+	v, _ := verifier(t, k, epoch)
+	for _, r := range []session.Role{session.RoleCustomer, session.RoleOps, session.RoleApprover, session.RoleAudit} {
+		c := goodClaims(epoch)
+		c["roles"] = []string{string(r)}
+		p, err := v.Verify(mint(t, k.priv, goodHeader(), c))
+		if err != nil || p.Role != r {
+			t.Errorf("role %s: %+v, %v", r, p, err)
 		}
 	}
 }

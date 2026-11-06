@@ -124,12 +124,12 @@ func issue(args []string, out io.Writer, clk clock.Clock) error {
 	principal := fs.String("principal", "", "the principal (becomes sub)")
 	ttl := fs.Duration("ttl", 0, "token lifetime")
 	var rs roles
-	fs.Var(&rs, "role", "a role: customer, operator or approver (repeatable)")
+	fs.Var(&rs, "role", "the one role of the token: customer, ops, approver or audit (ruling A1: exactly one)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *key == "" || *kid == "" || *aud == "" || *tenant == "" || *principal == "" || len(rs) == 0 || *ttl <= 0 {
-		return errors.New("issue: -key, -kid, -aud, -tenant, -principal, a -role and a positive -ttl are all required")
+	if *key == "" || *kid == "" || *aud == "" || *tenant == "" || *principal == "" || len(rs) != 1 || *ttl <= 0 {
+		return errors.New("issue: -key, -kid, -aud, -tenant, -principal, exactly one -role and a positive -ttl are all required")
 	}
 	for _, r := range rs {
 		if _, ok := session.ParseRole(r); !ok {
@@ -157,7 +157,7 @@ func issue(args []string, out io.Writer, clk clock.Clock) error {
 	if err != nil {
 		return fmt.Errorf("issue: %w", err)
 	}
-	c, err := json.Marshal(map[string]any{"sub": *principal, "aud": *aud, "tenant_id": *tenant, "roles": []string(rs), "iat": now.Unix(), "exp": now.Add(*ttl).Unix()})
+	c, err := json.Marshal(map[string]any{"sub": *principal, "aud": *aud, "iss": session.Issuer, "tenant_id": *tenant, "roles": []string(rs), "iat": now.Unix(), "exp": now.Add(*ttl).Unix()})
 	if err != nil {
 		return fmt.Errorf("issue: %w", err)
 	}
