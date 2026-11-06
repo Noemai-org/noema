@@ -27,6 +27,7 @@ const (
 	idPayload       = "pay"
 	hashPrefix      = "sha256:"
 	tsLayout        = "2006-01-02T15:04:05.000000000Z"
+	rollbackTimeout = 5 * time.Second // the same bound as platform/db's cleanup
 	emptyBodyMarker = "read_class"
 )
 
@@ -116,8 +117,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 		return Item{}, fmt.Errorf("%sbegin: %w", builderPrefix, err)
 	}
 	if err := b.write(ctx, tx, o, row{evidenceID: evidenceID, ref: ref, hash: hash, raw: raw, canon: canon, sla: sla, status: status}, now); err != nil {
-		_ = tx.Rollback(context.WithoutCancel(ctx))
-		return Item{}, err
+		return Item{}, rollbackWith(ctx, tx, err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Item{}, fmt.Errorf("%scommit %s: %w", builderPrefix, evidenceID, err)
@@ -131,6 +131,18 @@ type row struct {
 	canon                      []byte
 	sla                        int64
 	status                     contracts.EnumsV1FactStatus
+}
+
+// rollbackWith rolls the transaction back and returns the original error, joined with the rollback's own error if it failed (never swallowed).
+// The rollback must still be tried when the caller's deadline has passed, so it runs detached from the caller's cancellation; and it has a
+// deadline of its own, so that a stalled database cannot hold the connection after the answer is decided (AGENTS.md section 7, EC-E16).
+func rollbackWith(ctx context.Context, tx pgx.Tx, cause error) error {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+	defer cancel()
+	if err := tx.Rollback(rctx); err != nil {
+		return errors.Join(cause, fmt.Errorf("%srollback: %w", builderPrefix, err))
+	}
+	return cause
 }
 
 // checkResponse refuses an observation whose evidence would be unprovable or contradictory: a normalised response must be a JSON object
