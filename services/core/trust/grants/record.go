@@ -17,6 +17,8 @@ const recordDomain = "noema/decision-record/v2"
 var (
 	// ErrRecordVersion is returned when a record is not contract major 2: only v2 records are signed.
 	ErrRecordVersion = errors.New("grants: only a decision-record major 2 is signed")
+	// ErrRecordExpired is returned when a record is checked at a time outside its window: before issued_at or from expires_at on (ruling A13).
+	ErrRecordExpired = errors.New("grants: the decision record is outside its window")
 	// ErrRecordIncomplete is returned when a bound field is missing or malformed, or the record's window is empty (ruling A13: a record missing any
 	// bound field is invalid, and is not signed).
 	ErrRecordIncomplete = errors.New("grants: the decision record lacks a bound field or has an empty window")
@@ -62,6 +64,21 @@ func (k *Keys) VerifyRecord(r contracts.DecisionRecordV2) error {
 	msg, err := recordMessage(r, r.Sig.KeyId)
 	if err != nil || !k.VerifyBytes(r.Sig, msg) {
 		return ErrSignature
+	}
+	return nil
+}
+
+// VerifyRecordAt is VerifyRecord, and also refuses the record before its issued_at and from its expires_at on, on the clock the caller supplies
+// (the simulated clock; ruling A13). The signature is checked first: a tampered record is a signature failure whatever the time, so the window
+// is never read from a document that was not signed.
+func (k *Keys) VerifyRecordAt(r contracts.DecisionRecordV2, now time.Time) error {
+	if err := k.VerifyRecord(r); err != nil {
+		return err
+	}
+	issued, err1 := time.Parse(time.RFC3339, string(r.IssuedAt))
+	expires, err2 := time.Parse(time.RFC3339, string(r.ExpiresAt))
+	if err1 != nil || err2 != nil || now.Before(issued) || !now.Before(expires) {
+		return ErrRecordExpired
 	}
 	return nil
 }
