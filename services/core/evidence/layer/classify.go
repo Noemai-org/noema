@@ -1,7 +1,9 @@
 package layer
 
 import (
+	"context"
 	"errors"
+	"net"
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
@@ -16,6 +18,12 @@ func ClassifyError(err error) ReadClass {
 	}
 	var re *adapters.ReadError
 	if !errors.As(err, &re) {
+		// A deadline that expires inside a call, or a network timeout the adapter did not wrap, means the source could not be read in time:
+		// UNAVAILABLE, not an unreadable answer.
+		var ne net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+			return ReadTimeout
+		}
 		return ReadMalformed
 	}
 	switch re.Failure {
