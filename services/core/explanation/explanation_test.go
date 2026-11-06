@@ -181,12 +181,12 @@ func claimed(text string) explanation.Rendered {
 func TestACitedFactTimeIsAllowedAndAWholeFigureMustMatch(t *testing.T) {
 	tpl := load(t)
 	f := withTime(facts("o", "c"))
-	for _, ok := range []string{"The payment of NGN 50,000 was read at 10:42.", "It was read at 10:42:00."} {
+	for _, ok := range []string{"The payment of NGN 50,000 was confirmed at 10:42.", "It was confirmed at 10:42:00."} {
 		if p := explanation.Validate(tpl, claimed(ok), f, nil); len(p) != 0 {
 			t.Errorf("%q was blocked: %v", ok, p)
 		}
 	}
-	for _, bad := range []string{"The payment of NGN 50 is confirmed.", "The payment of NGN 50000 is confirmed.", "The payment of NGN 5,000 is confirmed.", "It was read at 10:43.", "It was read at 11:42.", "It was read on 2026-11-06."} {
+	for _, bad := range []string{"The payment of NGN 50 is confirmed.", "The payment of NGN 50000 is confirmed.", "The payment of NGN 5,000 is confirmed.", "It was confirmed at 10:43.", "It was confirmed at 11:42.", "It was confirmed on 2026-11-06."} {
 		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
 			t.Errorf("%q was not blocked", bad)
 		}
@@ -196,12 +196,12 @@ func TestACitedFactTimeIsAllowedAndAWholeFigureMustMatch(t *testing.T) {
 func TestAnInventedNameIsBlockedAndANameInTheFactsIsAllowed(t *testing.T) {
 	tpl := load(t)
 	f := withTime(facts("o", "c"))
-	for _, bad := range []string{"Dr. Bello at the bank confirmed it.", "Bello confirmed it.", "We spoke to Adaeze about it.", "The payment went via Zenith."} {
+	for _, bad := range []string{"Dr. Bello at the bank confirmed it.", "Bello confirmed it.", "We spoke to Adaeze about it.", "The payment went via Zenith.", "we spoke to bello about it.", "We spoke to adaeze about it.", "The payment went via zenith."} {
 		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
 			t.Errorf("%q was not blocked", bad)
 		}
 	}
-	for _, ok := range []string{"Access Bank ledger shows the payment.", "We read it from the Access Bank ledger."} {
+	for _, ok := range []string{"Access Bank ledger is confirmed.", "The payment is confirmed by the Access Bank ledger.", "We could not confirm whether this transaction went through."} {
 		if p := explanation.Validate(tpl, claimed(ok), f, nil); len(p) != 0 {
 			t.Errorf("%q was blocked: %v", ok, p)
 		}
@@ -212,10 +212,10 @@ func TestAnInventedNameIsBlockedAndANameInTheFactsIsAllowed(t *testing.T) {
 func TestADateIsComparedAsAWholeValue(t *testing.T) {
 	tpl := load(t)
 	f := withTime(facts("o", "c"))
-	if p := explanation.Validate(tpl, claimed("It was read on 2026-11-05."), f, nil); len(p) != 0 {
+	if p := explanation.Validate(tpl, claimed("It was confirmed on 2026-11-05."), f, nil); len(p) != 0 {
 		t.Errorf("the fact's own date was blocked: %v", p)
 	}
-	for _, bad := range []string{"It was read on 2026-05-11.", "It was read on 2026-11-06.", "It was read on 2025-11-05."} {
+	for _, bad := range []string{"It was confirmed on 2026-05-11.", "It was confirmed on 2026-11-06.", "It was confirmed on 2025-11-05."} {
 		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
 			t.Errorf("%q was not blocked", bad)
 		}
@@ -265,5 +265,37 @@ func TestAClaimBackedOnlyByAnInferredFactIsBlocked(t *testing.T) {
 	both := explanation.Rendered{Text: "Your payment of NGN 5,000 is confirmed.", Claims: []explanation.Claim{{Span: "Your payment of NGN 5,000 is confirmed.", FactIDs: []string{"f1", "f2"}}}}
 	if p := explanation.Validate(tpl, both, f, nil); len(p) == 0 {
 		t.Fatal("a claim citing an INFERRED fact alongside a KNOWN one passed")
+	}
+}
+
+// Codex review of noema#224 (fourth round). Names are caught whatever their case: every word must come from the facts, the pack's reviewed templates for the locale, or
+// ordinary function words; and fact IDs must be unique so a status cannot be overwritten.
+func TestAWordFromNowhereIsBlockedWhateverItsCase(t *testing.T) {
+	tpl := load(t)
+	f := withTime(facts("o", "c"))
+	for _, bad := range []string{"we spoke to bello", "Your payment is confirmed by bello.", "Your payment is confirmed, ask the manager."} {
+		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
+			t.Errorf("%q was not blocked", bad)
+		}
+	}
+	f.Facts[0].SourceLabel = "bello desk"
+	if p := explanation.Validate(tpl, claimed("Your payment is confirmed by the bello desk."), f, nil); len(p) != 0 {
+		t.Errorf("a lowercase word that the facts carry was blocked: %v", p)
+	}
+}
+
+func TestDuplicateFactIDsAreRefusedSoAStatusCannotBeOverwritten(t *testing.T) {
+	tpl := load(t)
+	f := facts("o", "c")
+	dup := f.Facts[0]
+	dup.FactStatus = contracts.ExplanationFactsV2FactsItemFactStatusINFERRED
+	rule := "rule_x"
+	dup.RuleId = &rule
+	for name, facts := range map[string][]contracts.ExplanationFactsV2FactsItem{"inferred first": {dup, f.Facts[0]}, "known first": {f.Facts[0], dup}} {
+		g := f
+		g.Facts = facts
+		if p := explanation.Validate(tpl, claimed("Your payment of NGN 5,000 is confirmed."), g, nil); len(p) == 0 {
+			t.Errorf("%s: a claim over a duplicated fact ID passed", name)
+		}
 	}
 }
