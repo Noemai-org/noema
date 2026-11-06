@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -98,7 +99,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	sum := sha256.Sum256(canon)
 	hash := hashPrefix + hex.EncodeToString(sum[:])
 	raw := o.RawHash
-	if o.Payload == nil { // checkResponse allowed this only for a read that returned nothing
+	if raw == "" { // checkResponse allowed this only for a read that returned nothing
 		empty := sha256.Sum256(nil)
 		raw = hashPrefix + hex.EncodeToString(empty[:])
 	}
@@ -132,18 +133,51 @@ type row struct {
 	status                     contracts.EnumsV1FactStatus
 }
 
-// checkResponse refuses an observation whose evidence would be unprovable: a normalised response must carry the hash of the raw bytes it came
-// from, and a read that says it succeeded must carry a response, because a bodyless read must not become a known fact. A read that returned
-// nothing (an error, a timeout, a not-found) has no response and gets the hash of the empty body.
+// checkResponse refuses an observation whose evidence would be unprovable or contradictory: a normalised response must be a JSON object
+// (evidence-payload.v1) and must carry the hash of the raw bytes it came from; a read that says it succeeded must carry a response, because a
+// bodyless read must not become a known fact; a raw hash that is supplied must be well formed (a malformed 2xx body keeps the hash of the bytes
+// received); and the authority class stored on the item must agree with the source's authority. A read that returned nothing (an error, a
+// timeout, a not-found) has no response and no raw hash, and gets the hash of the empty body.
 func checkResponse(o Observation) error {
+	if err := checkAuthority(o); err != nil {
+		return err
+	}
 	if o.Payload == nil {
 		if o.Read.Class == ReadOK {
 			return fmt.Errorf("%san OK read carries no response", builderPrefix)
+		}
+		if o.RawHash != "" && !rawHashRe.MatchString(o.RawHash) {
+			return fmt.Errorf("%sthe raw hash is malformed", builderPrefix)
 		}
 		return nil
 	}
 	if !rawHashRe.MatchString(o.RawHash) {
 		return fmt.Errorf("%sthe response has no valid raw hash", builderPrefix)
+	}
+	canon, err := crypto.CanonicalJSON(o.Payload)
+	if err != nil {
+		return fmt.Errorf("%scanonical payload: %w", builderPrefix, err)
+	}
+	if len(canon) == 0 || canon[0] != '{' {
+		return fmt.Errorf("%sthe normalised response must be a JSON object", builderPrefix)
+	}
+	return nil
+}
+
+// checkAuthority refuses a source authority and an authority class that disagree: the status is derived from one and the item stores the other.
+func checkAuthority(o Observation) error {
+	want := map[Authority]string{AuthAuthoritative: "AUTHORITATIVE_FOR:", AuthCorroborating: "CORROBORATING_FOR:"}
+	switch o.Src.Authority {
+	case AuthNone:
+		if o.AuthorityClass != "NONE" {
+			return fmt.Errorf("%sauthority NONE needs the class NONE", builderPrefix)
+		}
+	case AuthAuthoritative, AuthCorroborating:
+		if !strings.HasPrefix(o.AuthorityClass, want[o.Src.Authority]) || len(o.AuthorityClass) == len(want[o.Src.Authority]) {
+			return fmt.Errorf("%sthe authority class does not match the source's authority", builderPrefix)
+		}
+	default:
+		return fmt.Errorf("%sunknown source authority", builderPrefix)
 	}
 	return nil
 }

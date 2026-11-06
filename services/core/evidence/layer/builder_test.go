@@ -187,3 +187,70 @@ func TestBuilderRefusesAPresentResponseWithoutItsRawHashAndAnOKReadWithoutARespo
 		}
 	}
 }
+
+// REQ-CTX-001 (Codex review of noema#172, second round): a malformed 2xx body keeps the hash of the bytes that were received, a normalised
+// payload must be a JSON object (evidence-payload.v1), and the authority class stored on an item must agree with the source's authority.
+func TestBuilderKeepsTheRawHashOfAMalformedBody(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadMalformed)
+	o.Payload = nil
+	o.RawHash = "sha256:" + strings.Repeat("cd", 32)
+	if _, err := b.Record(ctx(t), o); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.rows(t, `SELECT raw_hash FROM evidence_payload`); len(got) != 1 || got[0] != o.RawHash {
+		t.Fatalf("stored raw hash = %v, want the supplied %s", got, o.RawHash)
+	}
+	// A supplied hash that is not a hash is still refused, and no hash at all means no bytes were received.
+	bad := observation(tenantA, layer.ReadMalformed)
+	bad.Payload, bad.RawHash = nil, "sha256:XYZ"
+	if _, err := b.Record(ctx(t), bad); err == nil {
+		t.Fatal("a malformed raw hash was accepted")
+	}
+}
+
+func TestBuilderRefusesAPayloadThatIsNotAnObject(t *testing.T) {
+	for name, payload := range map[string]any{"a scalar": "text", "a number": 7, "an array": []any{1, 2}} {
+		w := newWorld(t)
+		b, _ := newBuilder(t, w, tenantA, false)
+		o := observation(tenantA, layer.ReadOK)
+		o.Payload = payload
+		if item, err := b.Record(ctx(t), o); err == nil {
+			t.Errorf("%s was stored: %+v", name, item)
+		}
+		if n := w.count(t, `SELECT count(*) FROM evidence_payload`); n != 0 {
+			t.Errorf("%s: %d payloads stored after a refusal", name, n)
+		}
+	}
+}
+
+func TestBuilderRefusesAuthorityMetadataThatDisagrees(t *testing.T) {
+	cases := map[string]struct {
+		authority layer.Authority
+		class     string
+		ok        bool
+	}{
+		"authoritative source, authoritative class":      {layer.AuthAuthoritative, "AUTHORITATIVE_FOR:debit_posted_or_reversed", true},
+		"corroborating source, corroborating class":      {layer.AuthCorroborating, "CORROBORATING_FOR:debit_posted_or_reversed", true},
+		"no authority, class NONE":                       {layer.AuthNone, "NONE", true},
+		"authoritative source, class NONE":               {layer.AuthAuthoritative, "NONE", false},
+		"authoritative source, corroborating class":      {layer.AuthAuthoritative, "CORROBORATING_FOR:debit_posted_or_reversed", false},
+		"corroborating source, authoritative class":      {layer.AuthCorroborating, "AUTHORITATIVE_FOR:debit_posted_or_reversed", false},
+		"no authority, authoritative class":              {layer.AuthNone, "AUTHORITATIVE_FOR:debit_posted_or_reversed", false},
+		"authoritative source, a class that is no class": {layer.AuthAuthoritative, "SOMETHING", false},
+	}
+	for name, c := range cases {
+		w := newWorld(t)
+		b, _ := newBuilder(t, w, tenantA, false)
+		o := observation(tenantA, layer.ReadOK)
+		o.Src.Authority, o.AuthorityClass = c.authority, c.class
+		_, err := b.Record(ctx(t), o)
+		if c.ok && err != nil {
+			t.Errorf("%s: refused: %v", name, err)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("%s: stored although the pair disagrees", name)
+		}
+	}
+}
