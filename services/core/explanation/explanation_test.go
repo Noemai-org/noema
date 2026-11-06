@@ -158,6 +158,7 @@ func TestALongDigitRunIsBlockedEvenFromTheFactsAndATemplateIDMustBeTheRenderedOn
 	sentence := "We do not have enough confirmed information to say what happened, so we cannot confirm it."
 	a := "fin.outcome.exception.status_explained/INSUFFICIENT_EVIDENCE"
 	b := "fin.outcome.exception.case_opened/INSUFFICIENT_EVIDENCE"
+	f.OutcomeId, f.Classification = "fin.outcome.exception.status_explained", "INSUFFICIENT_EVIDENCE"
 	rend := explanation.Rendered{Text: sentence, TemplateID: "en-NG/" + a, Claims: []explanation.Claim{{Span: sentence, TemplateID: "en-NG/" + b}}}
 	if p := explanation.Validate(tpl, rend, f, nil); len(p) == 0 {
 		t.Fatal("a claim bound to a template other than the rendered one passed")
@@ -204,5 +205,44 @@ func TestAnInventedNameIsBlockedAndANameInTheFactsIsAllowed(t *testing.T) {
 		if p := explanation.Validate(tpl, claimed(ok), f, nil); len(p) != 0 {
 			t.Errorf("%q was blocked: %v", ok, p)
 		}
+	}
+}
+
+// Codex review of noema#224 (second round). A date is one value, not three numbers; a template claim must be the template the input facts select.
+func TestADateIsComparedAsAWholeValue(t *testing.T) {
+	tpl := load(t)
+	f := withTime(facts("o", "c"))
+	if p := explanation.Validate(tpl, claimed("It was read on 2026-11-05."), f, nil); len(p) != 0 {
+		t.Errorf("the fact's own date was blocked: %v", p)
+	}
+	for _, bad := range []string{"It was read on 2026-05-11.", "It was read on 2026-11-06.", "It was read on 2025-11-05."} {
+		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
+			t.Errorf("%q was not blocked", bad)
+		}
+	}
+}
+
+func TestATemplateForADifferentOutcomeOrClassificationThanTheFactsIsBlocked(t *testing.T) {
+	tpl := load(t)
+	success := facts("fin.outcome.exception.status_explained", "SUCCESS_CONFIRMED")
+	r, err := explanation.Fallback(tpl, success)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := explanation.Validate(tpl, r, success, nil); len(p) != 0 {
+		t.Fatalf("the matching template was blocked: %v", p)
+	}
+	for name, other := range map[string]contracts.ExplanationFactsV2{
+		"another classification": facts("fin.outcome.exception.status_explained", "INSUFFICIENT_EVIDENCE"),
+		"another outcome":        facts("fin.outcome.exception.case_opened", "SUCCESS_CONFIRMED"),
+	} {
+		if p := explanation.Validate(tpl, r, other, nil); len(p) == 0 {
+			t.Errorf("a SUCCESS_CONFIRMED template passed against %s facts", name)
+		}
+	}
+	wrongLocale := success
+	wrongLocale.Locale = contracts.ExplanationFactsV2LocalePcm
+	if p := explanation.Validate(tpl, r, wrongLocale, nil); len(p) == 0 {
+		t.Error("a template of another locale passed")
 	}
 }
