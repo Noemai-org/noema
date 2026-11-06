@@ -13,7 +13,7 @@ import asyncio
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 
-from noema_model.providers.llm.base import ProviderError, ProviderFailure
+from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.base import (
     AudioChunk,
     FinalTranscript,
