@@ -95,6 +95,12 @@ def _result(statuses: list[str]) -> str:
 def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: Mapping[str, Any]) -> None:
     if subset.get("layer") != LAYER or any(c.get("suite_layer") != LAYER for c in subset["cases"]):
         raise ValueError("the subset holds a case outside the GENERATED layer; held-out and partner cases never reach the model service (INV-22)")
+    cases = subset["cases"]
+    ids = [c["case_id"] for c in cases]
+    if subset["case_ids"] != ids or ids != sorted(ids) or len(set(ids)) != len(ids) or subset["n_cases"] != len(cases) or subset["cases_sha256"] != _digest(cases):
+        raise ValueError("the subset does not match its own header (case_ids, n_cases or cases_sha256): it was truncated or edited")
+    if set(baseline["cases"]) != set(ids):
+        raise ValueError("the baseline does not cover exactly the cases of the subset")
     if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
         raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")
     base_pin = baseline["pinned"]

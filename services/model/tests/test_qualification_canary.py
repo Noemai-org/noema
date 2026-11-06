@@ -198,7 +198,7 @@ def test_a_subset_whose_contents_no_longer_match_its_header_is_refused_before_an
             return CaseAnswer(slots={}, answered_by=PINNED["version"])
 
     def tampered(change: Any) -> dict[str, Any]:
-        s = json.loads(json.dumps(SUBSET))
+        s: dict[str, Any] = json.loads(json.dumps(SUBSET))
         change(s)
         return s
 
