@@ -1,8 +1,8 @@
 # Decision tables: the paths checked for a row-security bypass
 
-**6 Nov 2026 (Engineering Lead), for the Security Reviewer.** As-built, not authority: rulings A6 and A13 of 6 Nov 2026 (Proposed until their record is committed), `services/core/migrations/0011_decision_record.sql`, and the tests named below decide. SYNTHETIC data only. This is the list of what I looked at, so that SR can test what is **not** on it. The first three sections are enforced by tests that read the catalog; the rest is by reading.
+**6 Nov 2026 (Engineering Lead), for the Security Reviewer.** As-built, not authority: rulings A6 and A13 of 6 Nov 2026 (Proposed until their record is committed), `services/core/migrations/0009_decision_record.sql`, and the tests named below decide. SYNTHETIC data only. This is the list of what I looked at, so that SR can test what is **not** on it. The first three sections are enforced by tests that read the catalog; the rest is by reading.
 
-## What the migration does (0011)
+## What the migration does (0009)
 
 `decision_record` and `decision_grant`: row-level security **enabled and FORCED**; reads limited to the login's tenant for `trust_rw`, `execution_rw`, `outcome_rw`; Trust inserts and Execution status updates limited to the login's tenant; a trigger on `decision_record` also checks `tenant_login` for the Trust power. The tenant comes from `session_user` through `tenant_login` (`decision_login_tenant()`), never from a value the caller passes.
 

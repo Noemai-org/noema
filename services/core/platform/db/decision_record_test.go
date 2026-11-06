@@ -1,6 +1,6 @@
 package db_test
 
-// TRU-05 slice 2 (migration 0011; Architect, 4 Nov 2026): the Decision Record is written before any grant, and a grant exists only for an
+// TRU-05 slice 2 (migration 0009; Architect, 4 Nov 2026): the Decision Record is written before any grant, and a grant exists only for an
 // ALLOW decision of the same tenant. REQ-TRU-008 acceptance: grants where the decision outcome is not ALLOW: 0, by a database trigger.
 // REQ-TRU-001 / REQ-DATA-001: decision_record is insert-only and only Trust writes it. All rows are SYNTHETIC.
 
