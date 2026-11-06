@@ -163,3 +163,46 @@ func TestALongDigitRunIsBlockedEvenFromTheFactsAndATemplateIDMustBeTheRenderedOn
 		t.Fatal("a claim bound to a template other than the rendered one passed")
 	}
 }
+
+// Codex review of noema#224. A fact's own timestamp is fact data; a figure must match a whole figure of the facts (50 is not 50,000); a name the facts do not
+// contain is blocked (the REQ-EXP-002 corpus has an INVENTED_NAME case).
+func withTime(f contracts.ExplanationFactsV2) contracts.ExplanationFactsV2 {
+	f.Facts[0].AsOf = "2026-11-05T10:42:00Z"
+	f.Facts[0].SourceLabel = "Access Bank ledger"
+	f.Facts[0].ValueMasked = "NGN 50,000"
+	return f
+}
+
+func claimed(text string) explanation.Rendered {
+	return explanation.Rendered{Text: text, Claims: []explanation.Claim{{Span: text, FactIDs: []string{"f1"}}}}
+}
+
+func TestACitedFactTimeIsAllowedAndAWholeFigureMustMatch(t *testing.T) {
+	tpl := load(t)
+	f := withTime(facts("o", "c"))
+	for _, ok := range []string{"The payment of NGN 50,000 was read at 10:42.", "It was read at 10:42:00."} {
+		if p := explanation.Validate(tpl, claimed(ok), f, nil); len(p) != 0 {
+			t.Errorf("%q was blocked: %v", ok, p)
+		}
+	}
+	for _, bad := range []string{"The payment of NGN 50 is confirmed.", "The payment of NGN 50000 is confirmed.", "The payment of NGN 5,000 is confirmed.", "It was read at 10:43.", "It was read at 11:42.", "It was read on 2026-11-06."} {
+		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
+			t.Errorf("%q was not blocked", bad)
+		}
+	}
+}
+
+func TestAnInventedNameIsBlockedAndANameInTheFactsIsAllowed(t *testing.T) {
+	tpl := load(t)
+	f := withTime(facts("o", "c"))
+	for _, bad := range []string{"Dr. Bello at the bank confirmed it.", "Bello confirmed it.", "We spoke to Adaeze about it.", "The payment went via Zenith."} {
+		if p := explanation.Validate(tpl, claimed(bad), f, nil); len(p) == 0 {
+			t.Errorf("%q was not blocked", bad)
+		}
+	}
+	for _, ok := range []string{"Access Bank ledger shows the payment.", "We read it from the Access Bank ledger."} {
+		if p := explanation.Validate(tpl, claimed(ok), f, nil); len(p) != 0 {
+			t.Errorf("%q was blocked: %v", ok, p)
+		}
+	}
+}
