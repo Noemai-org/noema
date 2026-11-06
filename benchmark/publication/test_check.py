@@ -87,6 +87,26 @@ class Broken(unittest.TestCase):
         got = self.one(lambda p, c: p["claims"][1].update(text="Noema handles 99.9% of cases correctly"))
         self.assertTrue(any("99.9" in x for x in got), got)
 
+    def test_a_signed_ranged_or_suffixed_number_in_the_text_is_refused(self) -> None:
+        # Codex on 212ec81: `-99%` evaded the check because the number pattern refused a number that follows a minus sign. The same pattern let a range, a unit suffix and a negative
+        # 95% interval through.
+        for text, token in (
+            ("Noema reduces errors by -99% of cases", "-99"),
+            ("Noema reduces errors by −99% of cases", "−99"),
+            ("Noema is +99% better", "+99"),
+            ("Noema handles 5-99% of cases", "5-99"),
+            ("Noema is in the 99th percentile", "99"),
+            ("Noema is 1.5x faster", "1.5"),
+            ("Noema is -95% wrong", "-95"),
+        ):
+            got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
+            self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
+
+    def test_identifiers_and_the_stated_interval_in_the_text_are_still_accepted(self) -> None:
+        pub, cards = publication()
+        pub["claims"][1]["text"] = "Family B4 of US-01 under the 95% interval, Tier 0, is handled; pass^k with k = 5 is reported separately"
+        self.assertEqual([], problems(pub, cards))
+
     def test_numbers_in_the_text_that_the_claim_backs_are_accepted(self) -> None:
         pub, cards = publication()
         claim = pub["claims"][1]
