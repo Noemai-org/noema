@@ -79,3 +79,7 @@ Tushe's test accounts are `9999SSMMMM` (REQ-ENV-005). A system that saw them cou
 ## Not done here
 
 The sample route table is not Tushe's real interface (Tushe's OpenAPI is not frozen). Live runs against the hosted sandbox belong to G0 (ENV-05, ENV-06). The reference partner listener and the hostile proxy for the relay host are the webhook relay's item.
+
+## In front of the stand-in (ENV-05, 6 Nov 2026)
+
+`config/routes.standin.json` is a second route table: the six read routes of the Noema-side stand-in (`synthetic/standin/README.md`), upstream `standin`, targets `mock-ledger`, `mock-switch`, `mock-destination` and `mock-customer`. Select it with `HOSTILITY_PROXY_ROUTES_NAME=routes.standin.json` (Compose; the default stays `routes.json`); the upstream is `STANDIN_DATA_URL` (default `http://standin:8093`, on `tushe_net`). The proxy holds no credential of its own, so the caller's runtime token and `X-Principal-Assertion` pass through unchanged. A test fails if the table and the stand-in README's route table drift apart. The core's adapter for the stand-in does not exist yet (Core Engineer 2); until it does, nothing in the core is pointed at this route.
