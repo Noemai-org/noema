@@ -1,0 +1,142 @@
+"""The model-drift canary (REQ-INT-006, D25, AGENT-28): the qualification subset through the service's own provider adapters, compared with the pinned baseline.
+
+It emits the run record the benchmark module defines (`qualification-run.v1`): per case MATCH, DRIFT (with the differing slots) or UNAVAILABLE, the version that answered, and a
+result of PASS, DRIFT or PROVIDER_UNAVAILABLE (DRIFT outranks UNAVAILABLE). Whether a drift is acceptable and whether the version is then qualified is not decided here: that is
+the qualification record's decision record (a founder decision). A PASS is not a qualification.
+
+Held-out material never reaches this service (INV-22): a subset or case outside the GENERATED layer is refused before any provider is called. The baseline is a recorded model
+answer, never the oracle's expectation. No timeout is chosen here (AGENT-16): the caller passes the deadline from configuration.
+"""
+
+import asyncio
+import hashlib
+import json
+import re
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from noema_model.providers.llm.base import FinishReason, LLMProvider, ProviderError, ProviderRequest
+from noema_model.qualification.gate import KINDS, is_pinned
+
+RUN_SCHEMA = "qualification-run.v1"
+LAYER = "GENERATED"
+UNREPORTED = "(version not reported)"
+_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+Json = dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class CaseAnswer:
+    """A usable structured answer: the slots, and the version the provider reported answering with."""
+
+    slots: Mapping[str, Any]
+    answered_by: str
+
+
+class Asker(Protocol):
+    async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+        """The structured answer for one case, or None when the provider gave none. Raise ProviderError for a failed call."""
+        ...
+
+
+class ProviderAsker:
+    """Asks through a real provider adapter. `build` turns a case into the request the service would send (the prompt and the schema belong to the pipeline, not to the canary).
+
+    A reply with no usable structured answer (refused, truncated, not JSON, not an object) is None, i.e. unavailable. A reply that does not report its version is attributed
+    to no version, so it can never match the pin."""
+
+    def __init__(self, provider: LLMProvider, build: Callable[[Mapping[str, Any]], ProviderRequest]) -> None:
+        self._provider = provider
+        self._build = build
+
+    async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+        response = await self._provider.complete(self._build(case))
+        if response.finish is not FinishReason.COMPLETE:
+            return None
+        try:
+            slots = json.loads(response.output_json)
+        except ValueError:
+            return None
+        if not isinstance(slots, dict):
+            return None
+        return CaseAnswer(slots=slots, answered_by=response.model_version_reported or UNREPORTED)
+
+
+def _digest(document: Any) -> str:
+    return "sha256:" + hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _pinned(pinned: Mapping[str, Any]) -> Json:
+    if pinned.get("kind") not in KINDS:
+        raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {pinned.get('kind')!r}")
+    for name in ("provider", "model_id"):
+        value = pinned.get(name)
+        if not isinstance(value, str) or not value or value != value.strip():
+            raise ValueError(f"{name} must be a non-empty string without surrounding space")
+    if not is_pinned(pinned.get("version")):
+        raise ValueError(f"version {pinned.get('version')!r} is not pinned: a dated or numbered version, never an alias such as latest")
+    return {name: pinned[name] for name in ("kind", "provider", "model_id", "version")}
+
+
+def _differing(expected: Mapping[str, Any], observed: Mapping[str, Any]) -> list[Json]:
+    out: list[Json] = []
+    for slot in sorted(set(expected) | set(observed)):
+        if slot in expected and slot in observed and expected[slot] == observed[slot]:
+            continue
+        diff: Json = {"slot": slot}
+        if slot in expected:
+            diff["expected"] = expected[slot]
+        if slot in observed:
+            diff["observed"] = observed[slot]
+        out.append(diff)
+    return out
+
+
+def _result(statuses: list[str]) -> str:
+    if "DRIFT" in statuses:
+        return "DRIFT"
+    return "PROVIDER_UNAVAILABLE" if "UNAVAILABLE" in statuses else "PASS"
+
+
+def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: Mapping[str, Any]) -> None:
+    if subset.get("layer") != LAYER or any(c.get("suite_layer") != LAYER for c in subset["cases"]):
+        raise ValueError("the subset holds a case outside the GENERATED layer; held-out and partner cases never reach the model service (INV-22)")
+    if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
+        raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")
+    base_pin = baseline["pinned"]
+    if any(base_pin[name] != pin[name] for name in ("kind", "provider", "model_id")):
+        raise ValueError(f"the baseline is for {base_pin['provider']}/{base_pin['model_id']} ({base_pin['kind']}), not {pin['provider']}/{pin['model_id']} ({pin['kind']})")
+
+
+async def _ask(asker: Asker, case: Mapping[str, Any], timeout_s: float) -> CaseAnswer | None:
+    try:
+        async with asyncio.timeout(timeout_s):
+            return await asker.ask(case)
+    except (ProviderError, TimeoutError):
+        return None
+
+
+async def run_canary(*, subset: Mapping[str, Any], baseline: Mapping[str, Any], pinned: Mapping[str, Any], asker: Asker, commit_sha: str, recorded_on: str, timeout_s: float) -> Json:
+    """Ask every subset case once, in order, and return the run record. A failed or timed-out call is UNAVAILABLE for that case; any other error propagates."""
+    pin = _pinned(pinned)
+    _check_inputs(subset, baseline, pin)
+    if not _SHA.match(commit_sha):
+        raise ValueError(f"commit_sha must be a 40-character lowercase hex SHA, not {commit_sha!r}")
+    rows: list[Json] = []
+    for case in subset["cases"]:
+        case_id = case["case_id"]
+        expected = baseline["cases"][case_id]
+        answer = await _ask(asker, case, timeout_s)
+        if answer is None:
+            rows.append({"case_id": case_id, "status": "UNAVAILABLE", "answered_by": None, "version_mismatch": False, "differing_slots": [],
+                         "expected_sha256": expected["slots_sha256"], "observed_sha256": None})
+            continue
+        diffs = _differing(expected["slots"], answer.slots)
+        mismatch = answer.answered_by != pin["version"]
+        rows.append({"case_id": case_id, "status": "DRIFT" if diffs or mismatch else "MATCH", "answered_by": answer.answered_by, "version_mismatch": mismatch,
+                     "differing_slots": diffs, "expected_sha256": expected["slots_sha256"], "observed_sha256": _digest(dict(answer.slots))})
+    return {"schema": RUN_SCHEMA, "subset_id": subset["subset_id"], "layer": LAYER, "n_cases": subset["n_cases"], "cases_sha256": subset["cases_sha256"], "pinned": pin,
+            "baseline": {"pinned": dict(baseline["pinned"]), "commit_sha": baseline["commit_sha"], "sha256": _digest(baseline)}, "commit_sha": commit_sha, "recorded_on": recorded_on,
+            "answered_versions": sorted({r["answered_by"] for r in rows if r["answered_by"] is not None}), "result": _result([r["status"] for r in rows]), "cases": rows}
