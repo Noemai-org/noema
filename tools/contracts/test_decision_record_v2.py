@@ -49,6 +49,22 @@ class DecisionRecordV2(unittest.TestCase):
         self.assertIn(LABEL, text)
         self.assertIn("HMAC-SHA-256", text)
         self.assertIn("JCS", text)
+        self.assertIn("0x00", text, "ruling A13: the separator after the domain label is a zero byte, not a newline")
+        self.assertIn("key_id", text, "ruling A13: the key_id is a bound field")
+
+    def test_a_record_missing_a_bound_field_is_invalid(self):
+        """Ruling A13: intent_id, correlation_id, policy_version (policy_id@version), issued_at, expires_at and the key_id are bound; a record missing any is invalid."""
+        required = set(SCHEMAS["decision-record.v2.json"]["required"])
+        for f in ("intent_id", "correlation_id", "policy_version", "issued_at", "expires_at", "sig"):
+            self.assertIn(f, required, f)
+        base = json.loads((FIXTURES / "valid" / "decision-record.v2" / "allow.json").read_text())
+        self.assertEqual(check(base, "decision-record.v2"), [])
+        for f in ("intent_id", "correlation_id", "policy_version", "issued_at", "expires_at"):
+            doc = {k: v for k, v in base.items() if k != f}
+            self.assertNotEqual(check(doc, "decision-record.v2"), [], f"a record without {f} validated")
+        doc = json.loads(json.dumps(base))
+        del doc["sig"]["key_id"]
+        self.assertNotEqual(check(doc, "decision-record.v2"), [], "a record whose sig names no key_id validated")
 
 
 if __name__ == "__main__":
