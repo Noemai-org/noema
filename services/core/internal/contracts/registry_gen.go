@@ -106,6 +106,7 @@ var Types = map[string]func() any{
 	"evidence-source.v1":                                      func() any { return new(EvidenceSourceV1) },
 	"execution-receipt.v1":                                    func() any { return new(ExecutionReceiptV1) },
 	"explanation-facts.v1":                                    func() any { return new(ExplanationFactsV1) },
+	"explanation-facts.v2":                                    func() any { return new(ExplanationFactsV2) },
 	"inbound-event.v1":                                        func() any { return new(InboundEventV1) },
 	"integration-contract.v1":                                 func() any { return new(IntegrationContractV1) },
 	"intent-node.v1":                                          func() any { return new(IntentNodeV1) },
