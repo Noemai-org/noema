@@ -45,8 +45,9 @@ func recordMessage(r contracts.DecisionRecordV2, keyID string) ([]byte, error) {
 	return append(msg, body...), nil
 }
 
-// SignRecord returns the signature of a Decision Record v2 under the signing key: HMAC-SHA-256 over the domain label, a newline and the JCS form
-// of the record without its sig (decision-record.v2). It does not read or change r.Sig, so signing a signed record gives the same value.
+// SignRecord returns the signature of a Decision Record v2 under the signing key: HMAC-SHA-256 over the domain label "noema/decision-record/v2", one 0x00
+// byte and the JCS form of the record with sig.value removed and sig.key_id kept, so the key is bound by the signature (ruling A13). It does not read or
+// change r.Sig.Value, so signing a signed record gives the same value.
 func (k *Keys) SignRecord(r contracts.DecisionRecordV2) (contracts.CommonV1Sig, error) {
 	msg, err := recordMessage(r, k.signing)
 	if err != nil {
