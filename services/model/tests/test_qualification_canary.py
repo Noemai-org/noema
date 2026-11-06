@@ -186,3 +186,41 @@ def test_nested_values_are_compared_by_json_type_too_and_equal_numbers_still_mat
     assert canary(ScriptedAsker(answers), baseline=baseline)["result"] == "DRIFT"
     answers[first]["slots"]["nested"] = {"flag": 1.0, "xs": [1, 0]}  # 1 and 1.0 are the same JSON number
     assert canary(ScriptedAsker(answers), baseline=baseline)["result"] == "PASS"
+
+
+def test_a_subset_whose_contents_no_longer_match_its_header_is_refused_before_any_call() -> None:
+    # Codex review of noema#215: the canary compared only declared digests, so a truncated subset reported the stale count and could PASS.
+    asked: list[str] = []
+
+    class Spy:
+        async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+            asked.append(case["case_id"])
+            return CaseAnswer(slots={}, answered_by=PINNED["version"])
+
+    def tampered(change: Any) -> dict[str, Any]:
+        s = json.loads(json.dumps(SUBSET))
+        change(s)
+        return s
+
+    for name, subset in {
+        "a case removed, header unchanged": tampered(lambda s: s["cases"].pop()),
+        "a case edited, digest unchanged": tampered(lambda s: s["cases"][0].update(utterance="changed")),
+        "n_cases wrong": tampered(lambda s: s.update(n_cases=s["n_cases"] + 1)),
+        "case_ids not the cases": tampered(lambda s: s.update(case_ids=list(reversed(s["case_ids"])))),
+        "an extra case id": tampered(lambda s: s["case_ids"].append("zzz-extra")),
+    }.items():
+        with pytest.raises(ValueError, match="subset"):
+            canary(Spy(), subset=subset)
+        assert asked == [], f"{name}: a provider was called"
+
+
+def test_a_baseline_that_does_not_cover_exactly_the_subset_is_refused() -> None:
+    ok = ScriptedAsker(SCENARIOS["pass"]["answers"])
+    short = json.loads(json.dumps(BASELINE))
+    short["cases"].pop(next(iter(short["cases"])))
+    with pytest.raises(ValueError, match="baseline"):
+        canary(ok, baseline=short)
+    extra = json.loads(json.dumps(BASELINE))
+    extra["cases"]["zzz-extra"] = next(iter(extra["cases"].values()))
+    with pytest.raises(ValueError, match="baseline"):
+        canary(ok, baseline=extra)
