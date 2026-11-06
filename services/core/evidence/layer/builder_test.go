@@ -110,6 +110,9 @@ func TestBuilderWritesTheStatusOfEachReadClass(t *testing.T) {
 		o.SourceRecordID = "rec-" + string(class)
 		if class != layer.ReadOK {
 			o.Payload = nil // no response body for a read that failed
+			if class == layer.ReadMalformed {
+				o.RawHash = "sha256:" + strings.Repeat("ab", 32) // a malformed body was received, so its hash is supplied
+			}
 		}
 		item, err := b.Record(ctx(t), o)
 		if err != nil {
@@ -202,7 +205,13 @@ func TestBuilderKeepsTheRawHashOfAMalformedBody(t *testing.T) {
 	if got := w.rows(t, `SELECT raw_hash FROM evidence_payload`); len(got) != 1 || got[0] != o.RawHash {
 		t.Fatalf("stored raw hash = %v, want the supplied %s", got, o.RawHash)
 	}
-	// A supplied hash that is not a hash is still refused, and no hash at all means no bytes were received.
+	// A malformed read received bytes (possibly zero of them): it must carry their hash, so SHA-256(empty) is never invented for it.
+	none := observation(tenantA, layer.ReadMalformed)
+	none.Payload, none.RawHash = nil, ""
+	if _, err := b.Record(ctx(t), none); err == nil {
+		t.Fatal("a malformed read without its raw-body hash was accepted")
+	}
+	// A supplied hash that is not a hash is still refused.
 	bad := observation(tenantA, layer.ReadMalformed)
 	bad.Payload, bad.RawHash = nil, "sha256:XYZ"
 	if _, err := b.Record(ctx(t), bad); err == nil {

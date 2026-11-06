@@ -104,7 +104,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	sum := sha256.Sum256(canon)
 	hash := hashPrefix + hex.EncodeToString(sum[:])
 	raw := o.RawHash
-	if raw == "" { // checkResponse allowed this only for a read that returned nothing
+	if raw == "" { // checkResponse allowed this only for a read that received no body at all
 		empty := sha256.Sum256(nil)
 		raw = hashPrefix + hex.EncodeToString(empty[:])
 	}
@@ -152,7 +152,7 @@ func rollbackWith(ctx context.Context, tx pgx.Tx, cause error) error {
 // checkResponse refuses an observation whose evidence would be unprovable or contradictory: a normalised response must be a JSON object
 // (evidence-payload.v1) and must carry the hash of the raw bytes it came from; a read that says it succeeded must carry a response, because a
 // bodyless read must not become a known fact; a raw hash that is supplied must be well formed (a malformed 2xx body keeps the hash of the bytes
-// received); and the authority class stored on the item must agree with the source's authority. A read that returned nothing (an error, a
+// received); and the authority class stored on the item must agree with the source's authority. A malformed read must carry the hash of the bytes received (SHA-256 of nothing if the body was empty). A read that returned nothing (an error, a
 // timeout, a not-found) has no response and no raw hash, and gets the hash of the empty body.
 func checkResponse(o Observation) error {
 	if err := checkAuthority(o); err != nil {
@@ -161,6 +161,12 @@ func checkResponse(o Observation) error {
 	if o.Payload == nil {
 		if o.Read.Class == ReadOK {
 			return fmt.Errorf("%san OK read carries no response", builderPrefix)
+		}
+		if o.Read.Class == ReadMalformed { // bytes were received, so their hash (of an empty body too) must be supplied
+			if !rawHashRe.MatchString(o.RawHash) {
+				return fmt.Errorf("%sa malformed read has no valid raw-body hash", builderPrefix)
+			}
+			return nil
 		}
 		if o.RawHash != "" && !rawHashRe.MatchString(o.RawHash) {
 			return fmt.Errorf("%sthe raw hash is malformed", builderPrefix)
