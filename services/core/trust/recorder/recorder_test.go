@@ -239,7 +239,7 @@ func TestAnAllowWritesTheSignedRecordThenEachGrantAndEachEventInOneTransaction(t
 	if len(got) != 3 || got[0] != "DECISION_MADE:"+string(stored.DecisionId) || got[1][:12] != "GRANT_ISSUED" || got[2][:12] != "GRANT_ISSUED" {
 		t.Fatalf("events %v", got)
 	}
-	if n, err := chain.Verify(ctx(t), w.reader, tenant); err != nil || n != 3 {
+	if n, err := chain.Verify(ctx(t), w.admin, tenant); err != nil || n != 3 {
 		t.Fatalf("chain verify: %d %v", n, err)
 	}
 }
