@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://noema.invalid/benchmark/qualification/qualification-run.v1.schema.json",
+  "title": "Qualification run record, v1 (UND-13, REQ-INT-006)",
+  "description": "What the model-drift canary emits: a new pinned provider version's structured answers to the qualification subset, compared case by case with the pinned baseline. GENERATED cases only (INV-22). The reference implementation and validator are benchmark/qualification/run.py; where this file and run.py disagree, run.py's tests decide and this file is wrong.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "subset_id", "layer", "n_cases", "cases_sha256", "pinned", "baseline", "commit_sha", "recorded_on", "answered_versions", "result", "cases"],
+  "properties": {
+    "schema": {"const": "qualification-run.v1"},
+    "subset_id": {"type": "string", "minLength": 1},
+    "layer": {"const": "GENERATED"},
+    "n_cases": {"type": "integer", "minimum": 1},
+    "cases_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$", "description": "Digest of the subset's case documents; must equal the subset file's and the baseline's."},
+    "pinned": {"$ref": "#/$defs/pinned", "description": "What the service was configured with and asked for."},
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pinned", "commit_sha", "sha256"],
+      "properties": {
+        "pinned": {"$ref": "#/$defs/pinned"},
+        "commit_sha": {"$ref": "#/$defs/commitSha"},
+        "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "commit_sha": {"$ref": "#/$defs/commitSha", "description": "The commit the canary ran at."},
+    "recorded_on": {"type": "string", "format": "date"},
+    "answered_versions": {"type": "array", "items": {"type": "string"}, "description": "Sorted, distinct versions the provider reported answering with."},
+    "result": {"enum": ["PASS", "DRIFT", "PROVIDER_UNAVAILABLE"], "description": "DRIFT if any case drifted; else PROVIDER_UNAVAILABLE if any case got no answer; else PASS."},
+    "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}
+  },
+  "$defs": {
+    "commitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "pinned": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "provider", "model_id", "version"],
+      "properties": {
+        "kind": {"enum": ["llm", "speech"]},
+        "provider": {"type": "string", "minLength": 1},
+        "model_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1, "description": "A dated or numbered version; an alias such as latest or default is refused."}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "status", "answered_by", "version_mismatch", "differing_slots", "expected_sha256", "observed_sha256"],
+      "properties": {
+        "case_id": {"type": "string"},
+        "status": {"enum": ["MATCH", "DRIFT", "UNAVAILABLE"]},
+        "answered_by": {"type": ["string", "null"], "description": "The version the provider reported; null when it did not answer."},
+        "version_mismatch": {"type": "boolean", "description": "answered_by differs from pinned.version: drift even when every slot matches."},
+        "differing_slots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["slot"],
+            "properties": {"slot": {"type": "string"}, "expected": {}, "observed": {}},
+            "description": "expected is absent when the baseline had no such slot; observed is absent when the new answer had none."
+          }
+        },
+        "expected_sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "observed_sha256": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

@@ -3,6 +3,8 @@
 `record` makes a qualification record from the scorecard of a qualification-subset run that includes pass^k (exactly five runs) and writes it (sorted keys, two-space
 indent, one trailing newline). Exit 0 QUALIFIED, 1 NOT_QUALIFIED (the record is still written), 2 bad input.
 `check` says whether a provider, model ID and pinned version has a qualification record. Exit 0 allowed, 1 refused, 2 unreadable input.
+`subset` selects the qualification subset from a generated cases file; `baseline` pins the qualified version's answers; `compare` writes the run record of a new version against
+the baseline. Exit 0 PASS, 1 DRIFT or PROVIDER_UNAVAILABLE (the record is still written), 2 bad input.
 Generated layer only; refuses any argument naming `benchmark-heldout`."""
 import argparse
 import json
@@ -11,6 +13,7 @@ from pathlib import Path
 
 from benchmark.contracts import load_strict, pretty_bytes
 from benchmark.qualification.record import KINDS, build_record, check_model, validate_record
+from benchmark.qualification.run import build_baseline, compare, select_subset, validate_run_record
 
 FORBIDDEN = "benchmark-heldout"
 
@@ -52,6 +55,44 @@ def _check(args: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _write(path: str, document: object) -> Path:
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(pretty_bytes(document))
+    return out
+
+
+def _pin(args: argparse.Namespace) -> dict[str, str]:
+    return {"kind": args.kind, "provider": args.provider, "model_id": args.model_id, "version": args.version}
+
+
+def _subset(args: argparse.Namespace) -> int:
+    loaded = load_strict(Path(args.cases))
+    cases = loaded["cases"] if isinstance(loaded, dict) else loaded
+    subset = select_subset(cases, subset_id=args.subset_id)
+    print(f"subset {subset['subset_id']}: {subset['n_cases']} GENERATED understanding-dependent cases; wrote {_write(args.out, subset)}")
+    return 0
+
+
+def _baseline(args: argparse.Namespace) -> int:
+    baseline = build_baseline(load_strict(Path(args.subset)), _pin(args), load_strict(Path(args.answers)), commit_sha=args.commit_sha)
+    print(f"baseline for {args.provider}/{args.model_id}@{args.version} on {baseline['subset_id']}; wrote {_write(args.out, baseline)}")
+    return 0
+
+
+def _compare(args: argparse.Namespace) -> int:
+    record = compare(load_strict(Path(args.subset)), load_strict(Path(args.baseline)), _pin(args), load_strict(Path(args.answers)), commit_sha=args.commit_sha, recorded_on=args.recorded_on)
+    problems = validate_run_record(record)
+    if problems:
+        raise ValueError("; ".join(problems))
+    drifted = [c for c in record["cases"] if c["status"] != "MATCH"]
+    print(f"{record['result']}: {args.provider}/{args.model_id}@{args.version} against the baseline of {record['baseline']['pinned']['version']}; wrote {_write(args.out, record)}")
+    for case in drifted:
+        slots = ", ".join(d["slot"] for d in case["differing_slots"]) or ("a different version answered" if case["version_mismatch"] else "no answer")
+        print(f"  {case['case_id']}: {case['status']} ({slots})")
+    return 0 if record["result"] == "PASS" else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     named = [a for a in argv if FORBIDDEN in a]
@@ -68,9 +109,18 @@ def main(argv: list[str] | None = None) -> int:
     for flag in ("--records", "--provider", "--model-id", "--version"):
         chk.add_argument(flag, required=True)
     chk.add_argument("--kind", choices=KINDS)
+    sub_cmd = sub.add_parser("subset")
+    for flag in ("--cases", "--subset-id", "--out"):
+        sub_cmd.add_argument(flag, required=True)
+    for name, flags in (("baseline", ("--subset", "--answers", "--commit-sha", "--out")), ("compare", ("--subset", "--baseline", "--answers", "--commit-sha", "--recorded-on", "--out"))):
+        cmd = sub.add_parser(name)
+        for flag in (*flags, "--provider", "--model-id", "--version"):
+            cmd.add_argument(flag, required=True)
+        cmd.add_argument("--kind", required=True, choices=KINDS)
     args = parser.parse_args(argv)
+    commands = {"record": _record, "check": _check, "subset": _subset, "baseline": _baseline, "compare": _compare}
     try:
-        return _record(args) if args.command == "record" else _check(args)
+        return commands[args.command](args)
     except (ValueError, KeyError, OSError, json.JSONDecodeError) as exc:
         print(f"input error: {exc}")
         return 2

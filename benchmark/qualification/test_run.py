@@ -31,7 +31,7 @@ def subset() -> Json:
     return select_subset(cases(), subset_id="qs-test")
 
 
-def answers(sub: Json, version: str) -> dict[str, Json | None]:
+def answers(sub: Json, version: str) -> dict[str, Any]:
     return {cid: {"slots": {"intent": "dispute_charge", "amount_minor": 1000 + i, "currency": "NGN"}, "answered_by": version} for i, cid in enumerate(sub["case_ids"])}
 
 
@@ -40,7 +40,7 @@ def baseline(sub: Json | None = None) -> Json:
     return build_baseline(sub, PINNED, answers(sub, PINNED["version"]), commit_sha=SHA)
 
 
-def run(ans: dict[str, Json | None] | None = None, pinned: Json | None = None, sub: Json | None = None, base: Json | None = None) -> Json:
+def run(ans: dict[str, Any] | None = None, pinned: Json | None = None, sub: Json | None = None, base: Json | None = None) -> Json:
     sub = sub or subset()
     return compare(sub, base or baseline(sub), pinned or NEW, ans if ans is not None else answers(sub, NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
 

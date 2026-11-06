@@ -37,3 +37,29 @@ revokes; two records of one day that disagree refuse; an unpinned version is ref
 ## Tests
 
 `python -m unittest benchmark.qualification.test_qualification`. SYNTHETIC scorecards from the real scorer; generated layer only (INV-22).
+
+## The drift canary: subset, baseline, run record (what C2 builds to)
+
+Two documents answer two questions. The **qualification record** above says "may this version be used" (a verdict from a scorecard with pass^k). The **run record** below is what the model service's
+canary emits: "does this version still answer the way the pinned baseline did". C2 builds the canary in `services/model`; this module owns the subset, the baseline and the format.
+
+| Document | File format | Made by |
+|---|---|---|
+| Subset | `qualification-subset.v1`: the GENERATED, understanding-dependent cases (full case documents), sorted, with `cases_sha256` | `python -m benchmark.qualification subset --cases CASES.json --subset-id ID --out subset.json` |
+| Baseline | `qualification-baseline.v1`: for each subset case, the slots the previously qualified, pinned version answered, plus the commit SHA | `... baseline --subset subset.json --answers answers.json --kind llm --provider P --model-id M --version V --commit-sha SHA --out baseline.json` |
+| Run record | `qualification-run.v1`, JSON Schema in [`schemas/qualification-run.v1.schema.json`](schemas/qualification-run.v1.schema.json) | `... compare --subset ... --baseline ... --answers new-answers.json --kind ... --version NEW --commit-sha SHA --recorded-on DATE --out run.json` |
+
+An answers file maps each subset `case_id` to `{"slots": {...}, "answered_by": "<version the provider reported>"}`, or to `null` when the provider did not answer.
+
+**The run record** (the canary emits exactly this; `run.compare` is the reference implementation, `run.validate_run_record` the validator):
+
+- `pinned`: `kind`, `provider`, `model_id`, `version` the service was configured with. The version must be pinned (dated or numbered), never `latest`.
+- `baseline`: the pinned version, commit SHA and digest of the baseline compared against. The baseline must be for the same kind, provider and model ID (the version is what changes).
+- `cases[]`: per case `status` (`MATCH`, `DRIFT`, `UNAVAILABLE`), `answered_by` (the version that answered), `version_mismatch`, `differing_slots` (`slot`, `expected`, `observed`; `expected` is absent for an extra slot and `observed` for a missing one), and the digests of the two answers.
+- `result`: `DRIFT` if any case drifted (a different slot value, a missing or extra slot, or a version that answered under another version than the one asked for, even when every slot matches); else `PROVIDER_UNAVAILABLE` if any case got no answer; else `PASS`. Drift outranks unavailable.
+- `commit_sha`, `recorded_on`, `answered_versions`, and `layer` (always `GENERATED`).
+
+**Boundaries.** The subset holds GENERATED cases only; `select_subset` refuses a held-out or partner case anywhere in its input (INV-22), so none of it reaches the model service. The baseline is a recorded model answer, never the oracle's expectation. The canary
+must send the subset through the same provider adapters the service uses; this module never calls a model.
+
+**What a run record does not decide.** Whether a drift is acceptable, and whether the new version is then qualified, is the qualification record's decision record (a founder decision). A `PASS` here is not a qualification.

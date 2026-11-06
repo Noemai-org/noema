@@ -8,7 +8,7 @@ Owner: C2 and B (the Founder). Role agent: Benchmark Owner. Status: In progress.
 # Session 2026-11-06 · UND-13
 
 ## Session summary
-- What changed: `benchmark/qualification/` (record format `qualification-record.v1`, `build_record`, `validate_record`, `verify_against_scorecard`, `check_model`, CLI `record` and `check`), one row in `benchmark/README.md`.
+- What changed: `benchmark/qualification/` — the qualification record and lookup (`record.py`) and the drift canary format: subset, pinned baseline, comparison and run record with its JSON Schema (`run.py`, `schemas/`); CLI `record`, `check`, `subset`, `baseline`, `compare`; one row in `benchmark/README.md`.
 - Why: a model or speech version must not be used without a recorded qualification that includes pass^k (REQ-INT-006).
 - Risks, and how they are contained: the verdict uses only three conditions (complete, Tier 0 at zero, pass^k available); no threshold is chosen. The quality bar is a founder decision (see Conflicts).
 - Tests added: `benchmark/qualification/test_qualification.py` (REQ-INT-006), red in CI before the code.
@@ -21,3 +21,6 @@ Owner: C2 and B (the Founder). Role agent: Benchmark Owner. Status: In progress.
 - Open questions (owner): the qualification bar (Founders); where records live in production (C2, proposal: `benchmark/qualification/records/`).
 - Files to read first: `benchmark/qualification/README.md`, `record.py`.
 - Do not touch: `services/model/**` (C2).
+
+## Messages (added 2026-11-06)
+- from: Core Engineer 2 · to: Benchmark Owner · purpose: UND-13 split; C2 builds the drift canary in `services/model` and builds to a record format published first · used for: `run.py`, `schemas/qualification-run.v1.schema.json` and the README section "The drift canary" (I chose a schema inside `benchmark/qualification/`, not `contracts/`, so no codegen or AGENT-15 contract change is needed; if C2 wants it in `contracts/`, that is a separate change).
