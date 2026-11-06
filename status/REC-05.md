@@ -25,3 +25,8 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 
 ## Session 2026-11-04 · REC-05
 - Merged `main` (noema#145 is on `main`) and adapted the verify test world to per-tenant `execution_rw` logins (`testpg.TenantLogin`); no production code change. The Verifier still runs as the administrator in these tests; its own `record_verify` login (`noema_verify`) is slice 2.
+
+## Session 2026-11-05 · REC-05 slice 2
+- The Verifier tests now run it as the verification login (`testpg.VerifierLogin`: a member of `record_verify` only, no tenant mapping; `noema_verify` in Compose), not as the administrator: every tamper case, the kill switch, the head check and the failed-read case pass under that login, and it still cannot write the Record (`platform/db/provision_test.go`). The privileges are migration `0006` (noema#145); no production code or migration changed in this slice.
+- Mutation: revoking `UPDATE (kill_switch)` from `record_verify` makes the tamper cases fail (4 tests fail; checked on the test cluster, reverted).
+- Next: slice 3, the on-demand endpoint (ops and audit only), wired by EDG-01.
