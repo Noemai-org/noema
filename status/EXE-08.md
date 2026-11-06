@@ -46,3 +46,16 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Open questions (owner): where `cmd/migrate` and the start-up check land (Architect).
 - Files to read first: `services/core/migrations/0012_receipt_signature.sql`, `services/core/platform/db/sig_test.go`, `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` D4 to D16.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+# Session 2026-11-06 15:00 WAT · EXE-08 (DEBT-01 slice C: #94 continuation)
+
+## Session summary
+- What changed: continuation of noema#94 (not pushed to: authored by the other account). Branch = #229 (slice B) + #94 merged; `0002_grant_spent_void.sql` renumbered `0013_grant_spent_void.sql`; condition (g) is "receipt row exists" (signature verified by 0012); grant-void tests use genuinely signed receipts (permitted path) and a trigger-off world for the guard-only refusals; the two SR-flagged main tests now run the real 0013 file (`TestUpgradeWhereTheGrantVoidMigrationArrivesAfterOutcome`, `TestTheGrantVoidMigrationAppliedLateGivesTheSamePrivilegesAsAFreshDatabase`).
+- Why: SR closure of DEBT-01 (a forged receipt must not void a spent grant); the old 0002 applied after 0012 would have replaced a verified world with a shape-only guard.
+- Risks: merge order. Release order: docs#117, #229, this PR; #94 is superseded by this PR and must not merge first. Number 0013 may need D3 renumbering if another migration lands first.
+- Tests added: grant_void_test.go (REQ-EXE-004, INV-27, INV-03), the two upgrade tests; TestAForgedReceiptCannotVoidASpentGrantOnTheHeldGuard (slice B) is the closure test on the held code.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: Codex review at the final head once CI is green; founders decide the merge order.
+- Do not touch: `services/core/migrations/testdata/0002_grant_spent_void.noema94.sql` (pinned).
