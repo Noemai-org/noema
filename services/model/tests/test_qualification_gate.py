@@ -92,3 +92,29 @@ def test_pass_k_available_must_be_a_real_boolean(value: Any) -> None:
     q = GOLDEN["records"]["q"]
     broken = {**q, "pass_k": {**q["pass_k"], "available": value}}
     assert check_model([broken], q["provider"], q["model_id"], q["version"], "llm")
+
+
+@pytest.mark.parametrize("day", ["2026W455", "2026-W45-5", "20261106", "2026-11-6", "2026-11-06T00:00:00", " 2026-11-06"])
+def test_a_date_that_is_not_the_canonical_spelling_invalidates_the_record(day: str) -> None:
+    # Codex review of noema#215: date.fromisoformat accepts several spellings of one day, and the lookup compared the strings.
+    q = {**GOLDEN["records"]["q"], "qualified_on": day}
+    assert check_model([q], q["provider"], q["model_id"], q["version"], "llm")
+
+
+def test_records_of_one_day_compare_as_dates_so_a_same_day_conflict_is_refused() -> None:
+    q, nq = GOLDEN["records"]["q"], GOLDEN["records"]["nq"]
+    same_day = [{**q, "qualified_on": "2026-11-06"}, {**nq, "qualified_on": "2026-11-06"}]
+    assert check_model(same_day, q["provider"], q["model_id"], q["version"], "llm")
+
+
+@pytest.mark.parametrize("version", ["stable-2", "model-default-1", "gpt-preview-3", "2026-11-01-newest", "current-5", "auto-7", "alpha", "x" * 200, "has space 1", "-2026"])
+def test_a_floating_alias_or_unpinned_version_is_refused_as_the_harness_refuses_it(version: str) -> None:
+    # Codex review of noema#215: the gate must use the harness's own pin rule (harness.config.check_pinned).
+    q = {**GOLDEN["records"]["q"], "version": version}
+    assert check_model([q], q["provider"], q["model_id"], version, "llm")
+
+
+@pytest.mark.parametrize("version", ["2026-11-01", "2026-10-01", "gpt-4o-2024-08-06", "claude-sonnet-4-20250514", "1.5.2"])
+def test_a_dated_or_numbered_snapshot_is_accepted_when_a_record_exists(version: str) -> None:
+    q = {**GOLDEN["records"]["q"], "version": version}
+    assert check_model([q], q["provider"], q["model_id"], version, "llm") == []
