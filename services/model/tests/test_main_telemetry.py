@@ -47,7 +47,7 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
     from tests.support import raw_config
 
-    from noema_model.harness.assemble import ENV_CONFIG
+    from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL
 
     bare = create_app(environ={})
     assert bare.state.harness is None
@@ -57,7 +57,7 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
 
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
-    ready = create_app(environ={ENV_CONFIG: str(path)})
+    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2"})
     assert isinstance(ready.state.harness, Harness)
     assert TestClient(ready).get("/readyz").status_code == 200
 

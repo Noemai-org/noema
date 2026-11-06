@@ -68,6 +68,10 @@ type Appender struct {
 	IDs   IDSource
 }
 
+// ValidTenantID reports whether id has the shape of a tenant ID. The verification job uses it to refuse an ID before it
+// reaches a query.
+func ValidTenantID(id string) bool { return tenantRe.MatchString(id) }
+
 // GenesisHash is the prev_hash of the first event of a tenant's chain: SHA-256("noema:genesis:" || tenant_id)
 // (PERD 32.1), written in the contract's `sha256:` form.
 func GenesisHash(tenantID string) string {
@@ -76,8 +80,10 @@ func GenesisHash(tenantID string) string {
 }
 
 // Append writes ev as the next event of its tenant's chain, in tx. It locks the chain head (one writer per tenant
-// at a time), computes hash = SHA-256(prev_hash || JCS(event without hash)) and inserts through record_insert,
-// which refuses an event that does not extend the head it locked.
+// at a time), computes hash = SHA-256(prev_hash || JCS(event without hash)) and inserts through record_insert_t,
+// which refuses an event that does not extend the head it locked. The tenant is not an argument of either function: the
+// database takes it from the login the connection authenticated as (migration 0004, DEBT-04), so tx must come from a pool
+// that logs in as the event's tenant, and the database refuses an event whose body names another tenant.
 func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return Stored{}, errors.New(errPrefix + "the context needs a deadline")
@@ -97,7 +103,7 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 
 	var seq int64
 	var prev string
-	if err := tx.QueryRow(ctx, `SELECT seq, hash FROM record_lock_head($1)`, ev.TenantID).Scan(&seq, &prev); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &prev); err != nil {
 		return Stored{}, fmt.Errorf("%slock head: %w", errPrefix, err)
 	}
 	body := Body(ev, id, seq+1, prev, payloadHash, at)
@@ -109,8 +115,8 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 	if err != nil {
 		return Stored{}, fmt.Errorf("%scanonical body: %w", errPrefix, err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT record_insert($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb)`,
-		ev.TenantID, id, seq+1, prev, hash, ev.WrittenBy, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, at,
+	if _, err := tx.Exec(ctx, `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb)`,
+		id, seq+1, prev, hash, ev.WrittenBy, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, at,
 		SchemaVersion, ev.Actor, string(bodyJSON), payloadJSON); err != nil {
 		return Stored{}, fmt.Errorf("%sinsert: %w", errPrefix, err)
 	}
@@ -177,13 +183,15 @@ func payloadOf(p any) (hash string, js any, err error) {
 
 func validate(ev Event) error {
 	switch {
+	case actorsErr != nil:
+		return fmt.Errorf("%w: %v", ErrActorsTable, actorsErr)
 	case !tenantRe.MatchString(ev.TenantID):
 		return fmt.Errorf("%stenant_id %q does not match the contract", errPrefix, ev.TenantID)
 	case !correlationRe.MatchString(ev.CorrelationID):
 		return fmt.Errorf("%scorrelation_id %q does not match the contract", errPrefix, ev.CorrelationID)
 	case !objectRefRe.MatchString(ev.ObjectRef):
 		return fmt.Errorf("%sobject_ref %q does not match the contract", errPrefix, ev.ObjectRef)
-	case !emitters[ev.WrittenBy]:
+	case !actors.emitters[ev.WrittenBy]:
 		return fmt.Errorf("%swritten_by %q is not an emitter (PERD v1.17 section 32.1)", errPrefix, ev.WrittenBy)
 	case !eventTypeRe.MatchString(ev.EventType):
 		return fmt.Errorf("%sevent_type %q does not match the contract", errPrefix, ev.EventType)
@@ -212,7 +220,7 @@ func validate(ev Event) error {
 // caused the event, the emitter's own service identity.
 func validActor(actor, writtenBy string) bool {
 	if m := personRe.FindStringSubmatch(actor); m != nil {
-		return principalKinds[m[1]]
+		return actors.principalKinds[m[1]]
 	}
-	return emitters[writtenBy] && actor == writtenBy
+	return actors.emitters[writtenBy] && actor == writtenBy
 }

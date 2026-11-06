@@ -15,15 +15,16 @@ The hostility proxy sits between the system under test and the hosted Tushe sand
 
 The control listener is bound to the one local address that shares a subnet with `HOSTILITY_PROXY_CONTROL_BIND_VIA` (a host on `bench_net` only), so a caller on `tushe_net` cannot connect at all, and if that address cannot be found the proxy does not start. Every request without the bench credential is refused with 401 and logged. The data plane has no control route: `/control/...` on it is 404.
 
-**Not an open relay.** `config/routes.json` lists the method and path of each forwarded request, the upstream it goes to, the logical service and operation a fault plan addresses it by, and the request attributes a fault's `match` may use (`path:<var>`, `query:<name>`, `header:<Name>`). Anything not in the table, and every HEAD, is a 404 that never reaches an upstream. Upstream URLs come from `HOSTILITY_PROXY_UPSTREAM_<NAME>`, one per upstream the table names. The sample table is SYNTHETIC and follows no real Tushe interface; replace it when the Tushe OpenAPI is frozen (REQ-ENV-001).
+**Not an open relay.** `config/routes.json` lists the method and path of each forwarded request, the upstream it goes to, the logical service and operation a fault plan addresses it by, and the request attributes a fault's `match` may use (`path:<var>`, `query:<name>`, `header:<Name>`). Anything not in the table, and every HEAD, is a 404 that never reaches an upstream. A route may carry a `page` descriptor (`items`, `complete`, `next_cursor`, `cursor_param`: names only, the proxy invents no field); `PAGINATE` needs one, and a request on that route that carries a cursor is answered from the proxy's own cursor (`pgx1.<offset>.<size>`) whatever fault is active. Any other cursor value is a 400 that never reaches an upstream, and the proxy's cursor is stripped before the request is forwarded. Upstream URLs come from `HOSTILITY_PROXY_UPSTREAM_<NAME>`, one per upstream the table names. The sample table is SYNTHETIC and follows no real Tushe interface; replace it when the Tushe OpenAPI is frozen (REQ-ENV-001).
 
 ## Faults
 
-A plan (`contracts/schemas/fault-plan.v1.json`) is loaded with `PUT /control/v1/fault-plan`. The proxy applies the faults of a plan whose `source` is `PROXY` and whose `target` is not `mock-case`, and counts every other fault as ignored (`applied_faults`, `ignored_faults`): they are Tushe's or mock-case's. It refuses (422) a PROXY plan it cannot apply exactly: an effect it does not produce, a target and operation with no route, a match key the route cannot supply, a missing fixture, a bad param. Nothing is silently skipped.
+A plan (`contracts/schemas/fault-plan.v1.json`, or `fault-plan.v2.json`, which adds the corrupted-payload effects and `PAGINATE`; the proxy reads the effect, not the file) is loaded with `PUT /control/v1/fault-plan`. The proxy applies the faults of a plan whose `source` is `PROXY` and whose `target` is not `mock-case`, and counts every other fault as ignored (`applied_faults`, `ignored_faults`): they are Tushe's or mock-case's. It refuses (422) a PROXY plan it cannot apply exactly: an effect it does not produce, a target and operation with no route, a match key the route cannot supply, a missing fixture, a bad param. Nothing is silently skipped.
 
 | Effect | Params | What the system under test observes |
 |---|---|---|
-| `LATENCY`, `NEAR_TIMEOUT_BEFORE`, `NEAR_TIMEOUT_AFTER` | `delay_ms` | the real answer, `delay_ms` late (set it just under or just over the caller's timeout) |
+| `LATENCY`, `NEAR_TIMEOUT_BEFORE` | `delay_ms` | the request is held `delay_ms`, then forwarded, and the real answer follows (set it just under or just over the caller's timeout). A caller that gives up first leaves nothing behind: the request was never forwarded |
+| `NEAR_TIMEOUT_AFTER` | `delay_ms` | EC-T09, a late success: the request is forwarded and applied at once, and only the real answer is held `delay_ms`. A caller that gives up first leaves an applied request behind; one that waits gets the answer late |
 | `TIMEOUT_BEFORE_COMMIT` | `delay_ms` | nothing reaches Tushe; the connection is held `delay_ms`, then dropped |
 | `TIMEOUT_AFTER_COMMIT` | `delay_ms` | the request reaches Tushe; the answer is held `delay_ms`, then the connection is dropped |
 | `DROP_RESPONSE` | none | the request reaches Tushe; the connection is dropped at once |
@@ -31,6 +32,10 @@ A plan (`contracts/schemas/fault-plan.v1.json`) is loaded with `PUT /control/v1/
 | `HTTP_429` | `retry_after_seconds` (optional) | 429, with `Retry-After` only if given; nothing reaches Tushe |
 | `SERVICE_UNAVAILABLE` | none | 503; nothing reaches Tushe |
 | `MALFORMED_RESPONSE` | none | status and headers as they were, the first half of the body |
+| `INVALID_JSON` | none | status and headers as they were; a whole body that does not parse (a comma before the closing bracket), one byte longer than the real one, so it is not a truncation. `fault-plan.v2` |
+| `WRONG_CONTENT_TYPE` | `content_type` (`text/html` by default, `text/plain` or `application/xml`) | status and body as they were, a valid JSON body under that `Content-Type`. `fault-plan.v2` |
+| `EMPTY_BODY_SUCCESS` | none | a 2xx status (200 if Tushe answered another status) and no body at all. `fault-plan.v2` |
+| `PAGINATE` | `page_size` | on a route with a `page` descriptor: the first `page_size` items, `complete: false` and a cursor the proxy issued; a caller that follows the cursors sees every item once, in order. Needs the upstream to answer the whole list in one response. `fault-plan.v2` |
 | `STALE_READ` | `seconds` | a GET answered with the newest response the proxy itself saw at least `seconds` ago (on the plan's clock); if none is that old, the live one, and the trace says `live` |
 | `SCHEMA_DRIFT` | `change` (`add`, `rename`, `remove`, `unknown_enum`), `field` | the JSON changed the way a silent producer change would |
 | `CLOCK_SKEW` | `skew_seconds` | every RFC 3339 timestamp in the body shifted, offset and fraction kept |
@@ -43,6 +48,12 @@ A plan (`contracts/schemas/fault-plan.v1.json`) is loaded with `PUT /control/v1/
 `clock.start` starts a simulated clock (used for `STALE_READ` and `LATE_EVENT`); `POST /control/v1/clock/advance {"step": "..."}` or `{"by": "PT10S"}` moves it.
 
 Reproduction (REQ-ENV-004): `seed` feeds every choice the proxy makes. The same plan and seed on the simulated clock give an identical trace and identical answers (`GET /control/v1/trace` returns `trace_hash`); a different seed changes what the seed chooses (`TestReplayFromTheSameSeedIsIdentical`).
+
+## The per-route request log
+
+`GET /control/v1/requests` (bench credential) lists every request that reached the data side, in order, whether or not a fault fired: `seq`, `target`, `operation`, `method`, `path` (no query string), `call_no`, the `fault` that fired, whether it was `forwarded` to the system behind the proxy and that system's `upstream_status`, the `outcome` (`answered`; `dropped` when the connection was cut with no answer; `refused` when the proxy itself refused, for example a path outside the route table, shown as target and operation `-`), and the `status` the caller was told. Use `?target=T` or `?target=T&operation=O` for one route. `counts` gives the number of requests per route and `log_hash` the digest of the entries, which is the same for the same plan, seed and calls (no time or duration is recorded).
+
+It holds no header, body or query string. A request body and an `Idempotency-Key` are kept only as SHA-256 digests (`request_body_sha256`, `idempotency_key_sha256`), so a test can say "the same key twice" or "the system was reached once" without the log holding either. A write that was applied and whose answer was dropped shows as `forwarded: true`, `outcome: "dropped"` (EC-T09, EC-E16). The log keeps the first 10000 entries (`RequestLogLimit`); later requests are still counted and `dropped` says how many were not kept. `DELETE /control/v1/fault-plan` and `POST /control/v1/reset` clear it (`TestRequestLog...` in `request_log_test.go`).
 
 ## Test account numbers
 
@@ -58,7 +69,8 @@ Tushe's test accounts are `9999SSMMMM` (REQ-ENV-005). A system that saw them cou
 | no `9999` number reaches the system under test, rewrites stable across proxies and runs, round trip over 300 numbers | `internal/proxy/numbers_test.go`, `internal/numbers` |
 | reproduction from plan and seed | `TestReplayFromTheSameSeedIsIdentical`, `TestFractionalProbabilityIsSeededAndReproducible` |
 | control API refuses every other identity; plans validated; profile guard | `internal/proxy/control_test.go`, `internal/config` |
-| the schema's fixtures and the loader agree | `internal/plan` (`TestContractFixtures*`) |
+| the schema's fixtures and the loader agree (v1 and v2), and the effect lists equal `fault-plan.v2.json` | `internal/plan` (`TestContractFixtures*`, `TestEffectListsMatchTheV2Schema`) |
+| every corrupted-payload family is observed as not-a-fact by a strict adapter; pagination loses and doubles nothing; forged cursors are refused | `internal/proxy/corrupt_test.go` |
 
 ## Run
 

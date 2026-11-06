@@ -100,6 +100,8 @@ type World struct {
 	// Network.
 	faults func() FaultMode // next fault for each dispatch
 	nextID int
+	// IDErr, when set, makes the ID source fail (the entropy source is unavailable).
+	IDErr  error
 	stored map[string]controller.SignedGrant
 }
 
@@ -246,11 +248,14 @@ func (w *World) Revalidate(_ context.Context, g controller.Grant, _ controller.P
 // ---- IDs ----
 
 // ReceiptID implements controller.IDs with a counter (the simulation is deterministic).
-func (w *World) ReceiptID() string {
+func (w *World) ReceiptID() (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.IDErr != nil {
+		return "", w.IDErr
+	}
 	w.nextID++
-	return fmt.Sprintf("rcp_%d", w.nextID)
+	return fmt.Sprintf("rcp_%d", w.nextID), nil
 }
 
 // ---- Ledger ----

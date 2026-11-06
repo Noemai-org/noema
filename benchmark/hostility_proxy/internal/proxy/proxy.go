@@ -36,6 +36,8 @@ type Options struct {
 	Client     *http.Client
 	BenchToken string
 	Log        *slog.Logger
+	// RequestLogLimit bounds the per-route request log; 0 means the default (10000).
+	RequestLogLimit int
 }
 
 // Stats are the counters of the control API.
@@ -55,6 +57,7 @@ type Server struct {
 	engine *plan.Engine
 	clock  *clockHolder
 	trace  *trace
+	reqlog *requestLog
 	stale  *stale
 	held   *held
 	stats  Stats
@@ -70,7 +73,7 @@ func New(o Options) (*Server, error) {
 			return nil, &MissingUpstreamError{name}
 		}
 	}
-	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, stale: newStale(), held: newHeld()}, nil
+	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: newRequestLog(o.RequestLogLimit), stale: newStale(), held: newHeld()}, nil
 }
 
 // MissingUpstreamError says a route names an upstream with no URL.
@@ -132,7 +135,9 @@ func (s *Server) rewriteRequestBody(contentType string, body []byte) []byte {
 	}
 	if isJSON(contentType) {
 		if tree, err := jsonx.Decode(body); err == nil {
-			return jsonx.Encode(jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToReal) }))
+			if enc, err := jsonx.Encode(jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToReal) })); err == nil {
+				return enc
+			}
 		}
 	}
 	return []byte(s.rewrite(string(body), numbers.ToReal))
@@ -156,39 +161,72 @@ type call struct {
 	header  http.Header
 	body    []byte
 	staleID string
+	page    *pageReq // set when the request carries one of the proxy's own cursors
+	lw      *loggingWriter
 }
 
 func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 	s.stats.Requests.Add(1)
+	lw := &loggingWriter{ResponseWriter: w, log: s.reqlog, e: RequestEntry{Target: "-", Operation: "-", Method: r.Method, Path: r.URL.Path}}
+	w = lw
+	defer lw.finalize()
 	rt := s.opt.Routes.Match(r)
 	if rt == nil {
+		lw.refused = true
 		writeError(w, http.StatusNotFound, "no such route")
 		return
 	}
+	lw.e.Target, lw.e.Operation = rt.Target, rt.Operation
 	reqBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
 	if err != nil {
+		lw.refused = true
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 		return
+	}
+	if len(reqBody) > 0 {
+		lw.e.BodySHA256 = digest(reqBody)
+	}
+	if key := r.Header.Get("Idempotency-Key"); key != "" {
+		lw.e.IdempotencyKeySHA = digest([]byte(key))
 	}
 	up := s.opt.Upstreams[rt.Upstream]
 	target := *up
 	target.Path = strings.TrimRight(up.Path, "/") + s.rewrite(r.URL.Path, numbers.ToReal)
 	target.RawQuery = s.rewrite(r.URL.RawQuery, numbers.ToReal)
+	var page *pageReq
+	if rt.Page != nil {
+		if raw := r.URL.Query().Get(rt.Page.CursorParam); raw != "" || r.URL.Query().Has(rt.Page.CursorParam) {
+			pr, ok := parseCursor(raw)
+			if !ok {
+				lw.refused = true
+				writeError(w, http.StatusBadRequest, "invalid cursor")
+				return
+			}
+			page = &pr
+			q := r.URL.Query()
+			q.Del(rt.Page.CursorParam) // the cursor is the proxy's own and never reaches Tushe
+			target.RawQuery = s.rewrite(q.Encode(), numbers.ToReal)
+		}
+	}
 	attrs := rt.Extract(r)
 	for k, v := range attrs {
 		attrs[k] = s.rewrite(v, numbers.ToReal) // plans are written with Tushe's own values
 	}
 	dec := s.engine.Next(rt.Target, rt.Operation, attrs)
+	lw.e.CallNo = dec.CallNo
+	if dec.Effect != nil {
+		lw.e.Fault = dec.Effect.Name
+	}
 	now, _ := s.clock.now()
 	c := &call{w: w, r: r, rt: rt, dec: dec, eff: dec.Effect, now: now, method: r.Method, target: &target,
-		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody)}
+		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody), page: page, lw: lw}
 	c.header = r.Header.Clone()
 	for h := range hopByHop {
 		c.header.Del(h)
 	}
 	c.header.Del("X-Forwarded-For")
 	c.staleID = r.Method + " " + target.String()
-	s.apply(c)
+	s.apply(r.Context(), c)
 }
 
 func (s *Server) record(c *call, detail map[string]any) {
@@ -198,15 +236,27 @@ func (s *Server) record(c *call, detail map[string]any) {
 	s.trace.add(TraceEntry{Target: c.rt.Target, Operation: c.rt.Operation, CallNo: c.dec.CallNo, FaultIndex: c.eff.Index, Effect: c.eff.Name, Params: c.eff.Params, Detail: detail})
 }
 
-func abort() { panic(http.ErrAbortHandler) }
+// abort ends the connection with no response at all, as a server that died would. It hijacks the connection and closes it, so
+// the handler returns normally and no panic is needed. A connection that cannot be hijacked (it is not HTTP/1) cannot be
+// dropped; nothing was sent yet, so a 502 is the nearest honest answer. Callers return straight after it.
+func abort(w http.ResponseWriter) {
+	conn, _, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "connection could not be dropped")
+		return
+	}
+	_ = conn.Close() // the connection ending is the fault; a close error changes nothing the caller can observe
+}
+
+// closeBody closes a response body that has been read to the end (or abandoned). A close error then carries nothing the caller can act on.
+func closeBody(b io.Closer) { _ = b.Close() }
 
 // apply runs the fault, if any, around the forward and delivers the answer.
-func (s *Server) apply(c *call) {
-	ctx := c.r.Context()
+func (s *Server) apply(ctx context.Context, c *call) {
 	e := c.eff
 	if e != nil {
 		switch e.Name {
-		case plan.Latency, plan.NearTimeoutBefore, plan.NearTimeoutAfter:
+		case plan.Latency, plan.NearTimeoutBefore:
 			s.record(c, nil)
 			if !sleep(ctx, e.Delay) {
 				return
@@ -214,7 +264,8 @@ func (s *Server) apply(c *call) {
 		case plan.TimeoutBeforeCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)
-			abort()
+			abort(c.w)
+			return
 		case plan.ServiceUnavailable:
 			s.record(c, nil)
 			writeError(c.w, http.StatusServiceUnavailable, "service unavailable")
@@ -251,18 +302,28 @@ func (s *Server) apply(c *call) {
 		return
 	}
 	s.stats.Forwarded.Add(1)
+	c.lw.e.Forwarded, c.lw.e.UpstreamStatus = true, resp.status
 	if c.method == http.MethodGet {
 		s.stale.put(c.staleID, cached{at: c.now, status: resp.status, header: resp.header, body: resp.body})
 	}
 	if e != nil {
 		switch e.Name {
+		case plan.NearTimeoutAfter:
+			// EC-T09, "a late success": the request has been forwarded and applied; only the answer is held. A caller that gave up
+			// first leaves an applied request behind and must learn the outcome some other way. One that waits gets the real answer.
+			s.record(c, nil)
+			if !sleep(ctx, e.Delay) {
+				return
+			}
 		case plan.TimeoutAfterCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)
-			abort()
+			abort(c.w)
+			return
 		case plan.DropResponse:
 			s.record(c, nil)
-			abort()
+			abort(c.w)
+			return
 		case plan.HTTP5XX: // after_commit: the write went through, the caller is told it failed
 			s.record(c, nil)
 			writeError(c.w, e.Status, "upstream failure")
@@ -283,7 +344,7 @@ func (s *Server) forward(ctx context.Context, c *call) (*upstreamResponse, error
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer closeBody(res.Body)
 	body, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBody))
 	if err != nil {
 		return nil, err
@@ -297,7 +358,13 @@ func (s *Server) deliverFixture(c *call, fx Fixture) {
 		h.Set(k, v)
 	}
 	body := jsonx.MapStrings(fx.Body, func(str string) string { return s.rewrite(str, numbers.ToSynthetic) })
-	s.finish(c, &upstreamResponse{status: fx.Status, header: h}, jsonx.Encode(body))
+	enc, err := jsonx.Encode(body)
+	if err != nil {
+		s.opt.Log.Error("a fixture could not be encoded", "err", err.Error())
+		writeError(c.w, http.StatusInternalServerError, "fixture could not be encoded")
+		return
+	}
+	s.finish(c, &upstreamResponse{status: fx.Status, header: h}, enc)
 }
 
 // deliver applies the response-side faults and the number rewrite, and writes the answer.
@@ -319,22 +386,27 @@ func (s *Server) deliver(c *call, resp *upstreamResponse) {
 		if tree, err := jsonx.Decode(body); err == nil {
 			tree = s.faultTree(c, tree, detail)
 			tree = jsonx.MapStrings(tree, func(str string) string { return s.rewrite(str, numbers.ToSynthetic) })
-			body = jsonx.Encode(tree)
+			enc, err := jsonx.Encode(tree)
+			if err != nil {
+				s.opt.Log.Error("a response could not be encoded", "err", err.Error())
+				writeError(c.w, http.StatusBadGateway, "response could not be encoded")
+				return
+			}
+			body = enc
 		} else {
 			body = []byte(s.rewrite(string(body), numbers.ToSynthetic))
-			if e != nil && e.Name != plan.StaleRead && e.Name != plan.Malformed {
+			if e != nil && e.Name != plan.StaleRead && !bodyEffect(e.Name) {
 				detail["applied"] = false
 			}
 		}
 	} else {
 		body = []byte(s.rewrite(string(body), numbers.ToSynthetic))
-		if e != nil && e.Name != plan.StaleRead && e.Name != plan.Malformed {
+		if e != nil && e.Name != plan.StaleRead && !bodyEffect(e.Name) {
 			detail["applied"] = false
 		}
 	}
-	if e != nil && e.Name == plan.Malformed {
-		body = body[:len(body)/2]
-		detail["bytes"] = len(body)
+	if e != nil {
+		resp, body = corruptBody(e, resp, body, detail)
 	}
 	if e != nil {
 		if len(detail) == 0 {

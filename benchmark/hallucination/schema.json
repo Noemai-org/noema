@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hallucination corpus item (BEN-14, REQ-EXP-002, PERD 31.2). SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "item_id": {"type": "string", "pattern": "^HAL-[0-9]{4}$"},
+    "category": {"type": "string", "enum": ["REASSURANCE", "INVENTED_AMOUNT", "INVENTED_TIME", "UNSUPPORTED_SUCCESS", "INVENTED_BLAME", "UNMASKED_DIGITS", "UNBOUND_SENTENCE", "INVENTED_NAME", "CONTROL"]},
+    "locale": {"type": "string", "enum": ["en-NG", "pcm"]},
+    "facts": {
+      "type": "object",
+      "properties": {
+        "locale": {"type": "string"},
+        "facts": {"type": "array", "items": {"type": "object", "properties": {
+          "fact_id": {"type": "string"}, "kind": {"type": "string"}, "fact_status": {"type": "string", "enum": ["KNOWN", "INFERRED"]},
+          "value_masked": {"type": "string"}, "source_label": {"type": "string"}, "as_of": {"type": "string"}},
+          "required": ["fact_id", "kind", "fact_status", "value_masked", "source_label", "as_of"], "additionalProperties": false}},
+        "unknowns": {"type": "array"},
+        "actions": {"type": "array", "items": {"type": "object", "properties": {"capability_label": {"type": "string"}, "verdict": {"type": "string"}}, "required": ["capability_label", "verdict"], "additionalProperties": false}},
+        "advice": {"type": "array", "items": {"type": "string"}},
+        "next_steps": {"type": "array"},
+        "template_ids": {"type": "array", "items": {"type": "string"}}
+      },
+      "required": ["locale", "facts", "unknowns", "actions", "advice", "next_steps", "template_ids"],
+      "additionalProperties": false
+    },
+    "rendered": {
+      "type": "object",
+      "properties": {
+        "text": {"type": "string", "minLength": 1},
+        "claims": {"type": "array", "items": {"type": "object", "properties": {
+          "span": {"type": "string", "minLength": 1}, "fact_ids": {"type": "array", "items": {"type": "string"}}, "template_id": {"type": "string"}},
+          "required": ["span"], "additionalProperties": false}}
+      },
+      "required": ["text", "claims"],
+      "additionalProperties": false
+    },
+    "injected": {"type": "string"},
+    "expected": {
+      "type": "object",
+      "properties": {"blocked": {"type": "boolean"}, "check": {"type": ["integer", "null"], "enum": [1, 2, 3, 4, null]}},
+      "required": ["blocked", "check"], "additionalProperties": false
+    },
+    "provenance": {"type": "string", "pattern": "^SYNTHETIC"}
+  },
+  "required": ["item_id", "category", "locale", "facts", "rendered", "injected", "expected", "provenance"],
+  "additionalProperties": false
+}
