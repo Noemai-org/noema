@@ -221,6 +221,10 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 			t.Fatalf("EVIDENCE_READ for %s (%s): %d matching events (%v), want 1 carrying the hash and not the case", c.item.EvidenceID, c.item.Status, n, err)
 		}
 	}
+	var labelled int // AGENT-25: both reads of the synthetic mock-case are labelled synthetic on the Record
+	if err := admin.QueryRow(bg, `SELECT count(*) FROM record_event WHERE event_type = 'EVIDENCE_READ' AND payload->>'synthetic' = 'true'`).Scan(&labelled); err != nil || labelled != 2 {
+		t.Fatalf("EVIDENCE_READ events labelled synthetic = %d (%v), want 2", labelled, err)
+	}
 	if _, err := chain.Verify(bg, admin, tenant); err != nil {
 		t.Fatalf("the Record chain does not verify: %v", err)
 	}
