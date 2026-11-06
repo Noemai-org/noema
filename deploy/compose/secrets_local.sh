@@ -2,7 +2,8 @@
 # Creates local-only secret files if they are missing. The folder is git-ignored (OD-P-22).
 # Values are random and never printed.
 set -eu
-dir="$(cd "$(dirname "$0")" && pwd)/secrets"
+here="$(cd "$(dirname "$0")" && pwd)"
+dir="$here/secrets"
 mkdir -p "$dir"
 chmod 700 "$dir"
 for name in postgres_superuser_password noema_core_password temporal_password noema_migrator_password noema_verify_password noema_tenant_login_password; do
@@ -11,6 +12,22 @@ for name in postgres_superuser_password noema_core_password temporal_password no
   fi
   chmod 644 "$dir/$name"
 done
+
+# The value of NAME in the .env next to this script, by Compose's rules: KEY=value, matching quotes removed, a " #" comment ends an unquoted value.
+# The last line wins. Nothing in the file is executed.
+dotenv() {
+  [ -f "$here/.env" ] || return 0
+  val="$(sed -n "s/^$1=//p" "$here/.env" | tail -n 1)"
+  case "$val" in
+    \"*) val="${val#\"}"; val="${val%%\"*}" ;;
+    \'*) val="${val#\'}"; val="${val%%\'*}" ;;
+    *) val="$(printf '%s' "$val" | sed 's/[[:space:]]*#.*$//')" ;;
+  esac
+  printf '%s' "$val"
+}
+# Compose's rule: a variable set in the shell wins over .env. These are the values Compose will give the postgres service.
+NOEMA_TENANTS="${NOEMA_TENANTS-$(dotenv NOEMA_TENANTS)}"
+NOEMA_EMITTERS="${NOEMA_EMITTERS-$(dotenv NOEMA_EMITTERS)}"
 
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
 # existing files are kept. The folder is mounted read-only into postgres only; init.sh refuses a missing, empty or duplicated secret.
