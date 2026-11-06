@@ -85,7 +85,11 @@ def validate_record(record: Record) -> list[str]:
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
     elif record["verdict"] == "QUALIFIED" and isinstance(record["pass_k"], Mapping):
-        out += [f"verdict is QUALIFIED but {r}" for r in _reasons(bool(record["complete"]), bool(record["tier0_all_zero"]), record["pass_k"])]
+        flags = (record["complete"], record["tier0_all_zero"], record["pass_k"].get("available"))
+        if not all(isinstance(f, bool) for f in flags):
+            out.append("complete, tier0_all_zero and pass_k.available must be JSON booleans")
+        else:
+            out += [f"verdict is QUALIFIED but {r}" for r in _reasons(record["complete"], record["tier0_all_zero"], record["pass_k"])]
     elif record["verdict"] == "QUALIFIED":
         out.append("verdict is QUALIFIED but pass^k is not recorded")
     return out

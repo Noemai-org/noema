@@ -59,10 +59,23 @@ def _pinned(pinned: Mapping[str, Any]) -> Json:
     return {name: pinned[name] for name in ("kind", "provider", "model_id", "version")}
 
 
+def _same(a: Any, b: Any) -> bool:
+    """JSON equality: a boolean is never a number (Python's True == 1 is not JSON's), 1 and 1.0 are the same number, containers compare member by member."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b, strict=True))
+    if isinstance(a, dict | list) or isinstance(b, dict | list):
+        return False
+    return bool(a == b)
+
+
 def _differing(expected: Mapping[str, Any], observed: Mapping[str, Any]) -> list[Json]:
     out: list[Json] = []
     for slot in sorted(set(expected) | set(observed)):
-        if slot in expected and slot in observed and expected[slot] == observed[slot]:
+        if slot in expected and slot in observed and _same(expected[slot], observed[slot]):
             continue
         diff: Json = {"slot": slot}
         if slot in expected:
