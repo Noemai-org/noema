@@ -72,6 +72,9 @@ BEGIN
     IF NEW.status <> 'ACTIVE' THEN
       RAISE EXCEPTION 'signing_key: a key is registered ACTIVE' USING ERRCODE = 'integrity_constraint_violation';
     END IF;
+    -- One registration per identity at a time: two concurrent registrations would each count one ACTIVE key and both pass (Codex review of noema#229).
+    -- The lock is held to the end of the transaction, and the counts below are taken after it, so they see the other registration once it commits.
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('noema_sig.signing_key:' || NEW.identity, 0));
     SELECT count(*), COALESCE(max(k.version), 0) INTO active_n, newest FROM public.signing_key k WHERE k.identity = NEW.identity AND k.status = 'ACTIVE';
     IF active_n >= 2 THEN
       RAISE EXCEPTION 'signing_key: % already has two ACTIVE keys (the rotation overlap)', NEW.identity USING ERRCODE = 'integrity_constraint_violation';
