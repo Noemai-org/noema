@@ -98,3 +98,14 @@ BEGIN
   RETURN NEW;
 END $$;
 CREATE TRIGGER decision_grant_requires_allow BEFORE INSERT ON decision_grant FOR EACH ROW EXECUTE FUNCTION decision_grant_requires_allow();
+
+-- outcome_record_verdict (migration 0007) is a SECURITY DEFINER function that reads decision_grant. Its search_path was pg_catalog, public: PostgreSQL searches the
+-- session's temporary schema first for tables unless pg_temp is named, so a login with the TEMPORARY privilege could create pg_temp.decision_grant and have the
+-- function read forged rows in place of the row-secured table. Pin pg_temp last (the same rule as noema#167). Only the setting changes, not the body.
+DO $$
+DECLARE f regprocedure;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p WHERE p.proname = 'outcome_record_verdict' AND p.pronamespace = 'public'::regnamespace LOOP
+    EXECUTE format('ALTER FUNCTION %s SET search_path = pg_catalog, public, pg_temp', f);
+  END LOOP;
+END $$;
