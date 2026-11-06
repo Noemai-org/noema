@@ -50,9 +50,9 @@ type requestLog struct {
 	mu         sync.Mutex
 	generation string
 	limit      int
-	total   int
-	entries []RequestEntry
-	counts  map[string]int
+	total      int
+	entries    []RequestEntry
+	counts     map[string]int
 }
 
 func newRequestLog(limit int) *requestLog {
