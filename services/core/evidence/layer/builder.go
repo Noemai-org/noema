@@ -27,7 +27,6 @@ const (
 	idPayload       = "pay"
 	hashPrefix      = "sha256:"
 	tsLayout        = "2006-01-02T15:04:05.000000000Z"
-	rollbackTimeout = 5 * time.Second // the same bound as platform/db's cleanup
 	emptyBodyMarker = "read_class"
 )
 
@@ -77,12 +76,17 @@ type Builder struct {
 	Clock clock.Clock
 	IDs   IDSource
 	Rec   *chain.Appender
+	// RollbackTimeout bounds the cleanup after a failure or a cancelled context (A24). It comes from configuration; zero refuses every Record (AGENT-16).
+	RollbackTimeout time.Duration
 }
 
 // Record stores the observation and returns the item with the status AssignStatus gave it.
 func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return Item{}, errors.New(builderPrefix + "the context needs a deadline")
+	}
+	if b.RollbackTimeout <= 0 {
+		return Item{}, errors.New(builderPrefix + "the builder needs a positive rollback timeout from configuration")
 	}
 	sla := int64(o.Src.SourceLimit / time.Second)
 	if sla < 1 {
@@ -121,7 +125,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 		return Item{}, fmt.Errorf("%sbegin: %w", builderPrefix, err)
 	}
 	if err := b.write(ctx, tx, o, row{evidenceID: evidenceID, ref: ref, hash: hash, raw: raw, canon: canon, sla: sla, status: status}, now); err != nil {
-		return Item{}, rollbackWith(ctx, tx, err)
+		return Item{}, rollbackWith(ctx, tx, err, b.RollbackTimeout)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Item{}, fmt.Errorf("%scommit %s: %w", builderPrefix, evidenceID, err)
@@ -140,8 +144,8 @@ type row struct {
 // rollbackWith rolls the transaction back and returns the original error, joined with the rollback's own error if it failed (never swallowed).
 // The rollback must still be tried when the caller's deadline has passed, so it runs detached from the caller's cancellation; and it has a
 // deadline of its own, so that a stalled database cannot hold the connection after the answer is decided (AGENTS.md section 7, EC-E16).
-func rollbackWith(ctx context.Context, tx pgx.Tx, cause error) error {
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+func rollbackWith(ctx context.Context, tx pgx.Tx, cause error, limit time.Duration) error {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), limit)
 	defer cancel()
 	if err := tx.Rollback(rctx); err != nil {
 		return errors.Join(cause, fmt.Errorf("%srollback: %w", builderPrefix, err))
