@@ -2,10 +2,11 @@
 
 import math
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from noema_model.voice.confidence import MISSING_CONFIDENCE, is_low_confidence, slot_confidence
+from noema_model.voice.confidence import MISSING_CONFIDENCE, InvalidConfidence, is_low_confidence, slot_confidence
 
 THRESHOLD = 0.85  # in a test only; production reads it from the pack
 
@@ -59,3 +60,21 @@ def test_threshold_edges() -> None:
     assert not is_low_confidence(0.0, 0.0)
     assert is_low_confidence(0.99, 1.0)
     assert not is_low_confidence(1.0, 1.0)
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, -0.01, 1.01])
+def test_an_invalid_token_confidence_fails_closed_never_passes(bad: float) -> None:
+    """Codex #188: NaN made is_low_confidence false, so invalid provider data could skip the clarification."""
+    with pytest.raises(InvalidConfidence):
+        slot_confidence([0.99, bad])
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf, -0.01, 1.01])
+def test_an_invalid_slot_confidence_is_low(bad: float) -> None:
+    assert is_low_confidence(bad, THRESHOLD)
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -0.01])
+def test_an_invalid_threshold_is_refused(bad: float) -> None:
+    with pytest.raises(InvalidConfidence):
+        is_low_confidence(0.9, bad)
