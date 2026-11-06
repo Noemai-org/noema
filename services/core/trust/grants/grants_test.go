@@ -389,6 +389,16 @@ func TestKeysRefuseWhatCannotBeUsedSafely(t *testing.T) {
 	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), 0); err == nil {
 		t.Error("an issuer with no validity must not start")
 	}
+	// Codex P2 on noema#163: the timestamps have whole seconds, so a window under one second would be written with expires_at equal to not_before
+	// and E2 would treat the grant as expired on arrival.
+	for _, d := range []time.Duration{time.Millisecond, 999 * time.Millisecond} {
+		if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), d); err == nil {
+			t.Errorf("an issuer with a validity of %s must not start", d)
+		}
+	}
+	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), time.Second); err != nil {
+		t.Errorf("a validity of one second: %v", err)
+	}
 }
 
 // The canonical form is what is signed: field order and whitespace in the JSON the grant travels in do not matter (REQ-TRU-008: JCS).
