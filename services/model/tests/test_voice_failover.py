@@ -22,9 +22,9 @@ from noema_model.providers.speech.base import (
     TokenConfidence,
 )
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
-from noema_model.voice.bargein import BargeInMonitor, play_until_barge_in
+from noema_model.voice.bargein import BargeInMonitor, BargeInResult, play_until_barge_in
 from noema_model.voice.endpoint import VadConfig
-from noema_model.voice.failover import transcribe_with_failover
+from noema_model.voice.failover import FailoverResult, transcribe_with_failover
 from tests.support import run
 
 REQUEST = StreamRequest(model_version="pinned-1", locale_hint=Locale.PCM)
@@ -73,7 +73,7 @@ class Fake:
 
 
 def go(providers: Sequence[Fake], chunks: int = 8, shown: list[str] | None = None, deadline_s: float = 5.0,
-       max_buffered: int = 100):  # type: ignore[no-untyped-def]
+       max_buffered: int = 100) -> FailoverResult:
     sink = shown if shown is not None else []
     return run(transcribe_with_failover(providers, REQUEST, audio_of([chunk(i) for i in range(chunks)]),
                                         deadline_s=deadline_s, on_partial=sink.append, max_buffered_chunks=max_buffered))
@@ -165,7 +165,7 @@ def frames(levels: Sequence[int]) -> list[AudioChunk]:
     return [chunk(i, level) for i, level in enumerate(levels)]
 
 
-def play(tts_frames: int, inbound_levels: Sequence[int], max_stop_ms: int = 300):  # type: ignore[no-untyped-def]
+def play(tts_frames: int, inbound_levels: Sequence[int], max_stop_ms: int = 300) -> tuple[BargeInResult, list[int]]:
     played: list[int] = []
     result = run(play_until_barge_in(audio_of([chunk(i, 1000) for i in range(tts_frames)]), audio_of(frames(inbound_levels)),
                                      BargeInMonitor(VAD, max_stop_ms=max_stop_ms), lambda c: played.append(c.sequence)))
