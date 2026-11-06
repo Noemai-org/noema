@@ -21,3 +21,6 @@ Check 2 now compares whole figures (thousands separators dropped, so 50 is not 5
 
 ### Codex review of #224, round two
 A calendar date is one value in check 2 (`2026-05-11` no longer passes against `2026-11-05`), and a template-bound claim must be the template the input facts select (`<locale>/<outcome_id>/<classification>`), so a SUCCESS_CONFIRMED template cannot pass against INSUFFICIENT_EVIDENCE facts. Red commit first, then the fix; three mutants killed.
+
+### Codex review of #224, round three
+A claim is supported only by KNOWN facts (INV-13, EXP-02): citing an INFERRED fact, alone or with a KNOWN one, is blocked, because a claim carries no hedge marker. Reversible: a later `Hedged` flag on a claim could allow an INFERRED fact in hedged wording; that is a contract change and not made here. Red commit first; one mutant killed.

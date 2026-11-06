@@ -150,7 +150,7 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 	var out []string
 	known := map[string]bool{}
 	for _, fact := range f.Facts {
-		known[fact.FactId] = true
+		known[fact.FactId] = fact.FactStatus == contracts.ExplanationFactsV2FactsItemFactStatusKNOWN
 	}
 	want := string(f.Locale) + "/" + string(f.OutcomeId) + "/" + f.Classification
 	covered := make([]string, 0, len(r.Claims))
@@ -178,8 +178,11 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 		case len(c.FactIDs) > 0:
 			bad := false
 			for _, id := range c.FactIDs {
-				if !known[id] {
+				if isKnown, present := known[id]; !present {
 					out = append(out, fmt.Sprintf("claim %d: fact %q is not in the input", i, id))
+					bad = true
+				} else if !isKnown {
+					out = append(out, fmt.Sprintf("claim %d: fact %q is not KNOWN; only KNOWN facts support a claim (INV-13)", i, id))
 					bad = true
 				}
 			}
