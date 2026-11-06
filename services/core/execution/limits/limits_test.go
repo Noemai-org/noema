@@ -2,6 +2,7 @@ package limits_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -103,5 +104,29 @@ func TestTheLoadedPolicyBuildsABreaker(t *testing.T) {
 	}
 	if _, err := breaker.New(clock.NewManual(time.Unix(0, 0)), params, l.Breaker, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Every refusal is a typed error with the SCHEMA_INVALID code of the error catalogue, so a caller never matches text (AGENTS.md section 7;
+// Codex review of noema#195). The decode cause is kept for errors.Is and errors.As.
+func TestEveryRefusalCarriesTheSchemaInvalidCode(t *testing.T) {
+	for name, in := range map[string]string{
+		"empty":            ``,
+		"unknown field":    `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `,"x":1}`,
+		"zero min_samples": doc(`{"min_samples":0,"cooldown_s":11,"half_open_probes":1}`, goodBudget),
+		"two probes":       doc(`{"min_samples":7,"cooldown_s":11,"half_open_probes":2}`, goodBudget),
+		"key reordered":    doc(goodBreaker, `{"max_dispatches":2,"key":["correlation_id","tenant_id","capability","target_ref"]}`),
+		"bad pack id":      `{"schema_version":"1.0","pack_id":"!","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
+		"trailing bytes":   doc(goodBreaker, goodBudget) + `}`,
+	} {
+		_, err := limits.Load(strings.NewReader(in))
+		var le *limits.Error
+		if !errors.As(err, &le) || le.Code != limits.CodeSchemaInvalid {
+			t.Errorf("%s: %v is not a *limits.Error with code %s", name, err, limits.CodeSchemaInvalid)
+		}
+	}
+	_, err := limits.Load(strings.NewReader(`{"schema_version":`))
+	if errors.Unwrap(err) == nil {
+		t.Error("the decode cause was dropped")
 	}
 }
