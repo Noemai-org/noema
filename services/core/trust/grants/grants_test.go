@@ -6,6 +6,7 @@ package grants_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math/rand"
@@ -692,5 +693,148 @@ func TestARecordMissingABoundFieldOrWithAnEmptyWindowIsNotSigned(t *testing.T) {
 	}
 	if _, err := k.SignRecord(record(t)); err != nil {
 		t.Fatalf("the complete record: %v", err)
+	}
+}
+
+// The independent vector (tools/decision_record_vector.py, written from rulings A5 and A13 with the Python JCS reference): Go and Python agree byte for
+// byte on the signed bytes and on the signature.
+func TestTheSignatureMatchesTheIndependentVector(t *testing.T) {
+	raw, err := os.ReadFile("../../../../contracts/fixtures/decision_record_signing_vector.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v struct {
+		KeyID        string `json:"key_id"`
+		SignedHex    string `json:"signed_bytes_hex"`
+		SignatureHex string `json:"signature_hex"`
+		TestKeyHex   string `json:"test_key_hex"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.TestKeyHex != hex.EncodeToString(k2) || v.KeyID != "k2" {
+		t.Fatalf("the vector's key is not the test key k2: %s %s", v.KeyID, v.TestKeyHex)
+	}
+	r := record(t)
+	sig, err := keys(t).SignRecord(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig.KeyId != "k2" || sig.Value != v.SignatureHex {
+		t.Fatalf("signature %s/%s, vector %s/%s", sig.KeyId, sig.Value, v.KeyID, v.SignatureHex)
+	}
+	signed, _ := hex.DecodeString(v.SignedHex)
+	if !keys(t).VerifyBytes(contracts.CommonV1Sig{KeyId: "k2", Value: v.SignatureHex}, signed) {
+		t.Fatal("the vector's signed bytes do not verify under k2")
+	}
+}
+
+// Ruling A13, tamper by field: every bound field, and the key_id, is covered by the signature.
+func TestEveryBoundFieldIsCoveredByTheSignature(t *testing.T) {
+	k := keys(t)
+	r := record(t)
+	sig, err := k.SignRecord(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Sig = sig
+	if err := k.VerifyRecord(r); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*contracts.DecisionRecordV2){
+		"intent_id":                      func(x *contracts.DecisionRecordV2) { x.IntentId = "int_REPLAY" },
+		"correlation_id":                 func(x *contracts.DecisionRecordV2) { x.CorrelationId = "corr_other1" },
+		"policy_version":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = "fin.pol@3.3" },
+		"another policy":                 func(x *contracts.DecisionRecordV2) { x.PolicyVersion = "fin.other@3.2" },
+		"issued_at":                      func(x *contracts.DecisionRecordV2) { x.IssuedAt = "2026-10-01T09:47:05.000Z" },
+		"expires_at":                     func(x *contracts.DecisionRecordV2) { x.ExpiresAt = "2026-10-01T23:57:04.210Z" },
+		"key_id to the other active key": func(x *contracts.DecisionRecordV2) { x.Sig.KeyId = "k1" },
+	} {
+		c := r
+		mutate(&c)
+		if err := k.VerifyRecord(c); !errors.Is(err, grants.ErrSignature) {
+			t.Errorf("a record with a changed %s verifies (%v)", name, err)
+		}
+	}
+}
+
+// A record signed for one intent cannot be replayed for another, and a signature under another label does not verify.
+func TestAReplayWithAnotherIntentAndAWrongLabelAreRefused(t *testing.T) {
+	k := keys(t)
+	a := record(t)
+	b := a
+	b.IntentId = "int_SECOND"
+	sa, _ := k.SignRecord(a)
+	sb, _ := k.SignRecord(b)
+	if sa == sb {
+		t.Fatal("two intents, one signature")
+	}
+	b.Sig = sa // a's signature on b's content: the replay
+	if err := k.VerifyRecord(b); !errors.Is(err, grants.ErrSignature) {
+		t.Fatalf("a replayed signature verifies: %v", err)
+	}
+	// the right bytes under the wrong label
+	ring := crypto.NewKeyRing(map[string][]byte{"k2": k2})
+	raw, _ := json.Marshal(a)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	_ = dec.Decode(&m)
+	m["sig"] = map[string]any{"key_id": "k2"}
+	body, err := crypto.CanonicalJSON(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range []string{"noema/decision-record/v1", "noema/grant/v1", "noema/decision-record/v2 ", ""} {
+		wrong, _ := ring.SignWith("k2", append(append([]byte(label), 0), body...))
+		a.Sig = contracts.CommonV1Sig{KeyId: "k2", Value: wrong}
+		if err := k.VerifyRecord(a); !errors.Is(err, grants.ErrSignature) {
+			t.Errorf("a signature under the label %q verifies (%v)", label, err)
+		}
+	}
+}
+
+// Ruling A13: a record carries a window on the simulated clock. VerifyRecordAt refuses a record before it is issued and from the moment it expires.
+func TestAnExpiredOrNotYetIssuedRecordIsRefusedAtThatTime(t *testing.T) {
+	k := keys(t)
+	r := record(t)
+	sig, _ := k.SignRecord(r)
+	r.Sig = sig
+	issued, _ := time.Parse(time.RFC3339, string(r.IssuedAt))
+	expires, _ := time.Parse(time.RFC3339, string(r.ExpiresAt))
+	for name, c := range map[string]struct {
+		at time.Time
+		ok bool
+	}{
+		"one second before it was issued": {issued.Add(-time.Second), false},
+		"when it was issued":              {issued, true},
+		"one second before it expires":    {expires.Add(-time.Second), true},
+		"when it expires":                 {expires, false},
+		"long after":                      {expires.Add(48 * time.Hour), false},
+	} {
+		err := k.VerifyRecordAt(r, c.at)
+		if c.ok && err != nil || !c.ok && !errors.Is(err, grants.ErrRecordExpired) {
+			t.Errorf("%s: %v (want ok=%v)", name, err, c.ok)
+		}
+	}
+	// a bad signature is a signature failure even inside the window
+	bad := r
+	bad.IntentId = "int_OTHER"
+	if err := k.VerifyRecordAt(bad, issued.Add(time.Minute)); !errors.Is(err, grants.ErrSignature) {
+		t.Errorf("a tampered record inside its window: %v", err)
+	}
+}
+
+// There is no v1 signature rule: a v1 record is refused loudly, never accepted and never silently skipped.
+func TestAV1RecordIsRefusedByNameAndNeverAccepted(t *testing.T) {
+	k := keys(t)
+	r := record(t)
+	r.SchemaVersion = "1.0"
+	r.Sig = contracts.CommonV1Sig{KeyId: "k2", Value: "00"}
+	if err := k.VerifyRecord(r); !errors.Is(err, grants.ErrSignature) {
+		t.Fatalf("a v1 record: %v", err)
+	}
+	if _, err := k.SignRecord(r); !errors.Is(err, grants.ErrRecordVersion) {
+		t.Fatalf("signing a v1 record: %v", err)
 	}
 }
