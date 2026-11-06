@@ -269,7 +269,7 @@ func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	linked := func(id, disposition string) string {
 		return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW', 'disposition_decision_id', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', '%[3]s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
 	}
 	wantCode(t, tryAs(t, trust, linked("dec_x", "dec_disp_b")), violation, "tenant A's decision linked to tenant B's disposition")
 	wantCode(t, tryAs(t, trust, linked("dec_y", "dec_missing")), violation, "a link to a decision that does not exist")
@@ -385,5 +385,39 @@ func TestTheOwnerOfTheVerdictFunctionCanReadTheDecisionTablesItJoins(t *testing.
 		if !reaches {
 			t.Errorf("%s: no SELECT policy reaches the owner of outcome_record_verdict, which would read no row under FORCE", tb)
 		}
+	}
+}
+
+// Codex P2 on noema#168: the disposition reference is stored in the signed document and in a column, and only the column has the foreign key. A document that
+// names a different decision than its column would carry an unchecked reference, so the two must agree.
+func TestTheSignedDispositionMustBeTheColumnTheForeignKeyChecks(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	if _, err := trust.Exec(ctx(t), decisionRow("dec_esc", "ten_a", "ESCALATE")); err != nil {
+		t.Fatal(err)
+	}
+	insert := func(id, docDisposition, column string) error {
+		doc := `jsonb_build_object('sig', jsonb_build_object('key_id', 'k1', 'value', 'aa'))`
+		if docDisposition != "" {
+			doc += fmt.Sprintf(` || jsonb_build_object('disposition_decision_id', '%s')`, docDisposition)
+		}
+		col := "NULL"
+		if column != "" {
+			col = "'" + column + "'"
+		}
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || %s, 'ALLOW', %s, 'sha256:%064d', '[]', 'k1', 'aa')`, id, doc, col, 1))
+	}
+	wantCode(t, insert("dec_1", "dec_somebody_elses", ""), violation, "the document names a disposition, the column none")
+	wantCode(t, insert("dec_2", "dec_somebody_elses", "dec_esc"), violation, "the document and the column name different dispositions")
+	wantCode(t, insert("dec_3", "", "dec_esc"), violation, "the column names a disposition the document does not")
+	if err := insert("dec_4", "dec_esc", "dec_esc"); err != nil {
+		t.Fatalf("a document and a column that name the same ESCALATE decision: %v", err)
+	}
+	if err := insert("dec_5", "", ""); err != nil {
+		t.Fatalf("no disposition anywhere: %v", err)
 	}
 }
