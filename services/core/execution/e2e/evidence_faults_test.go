@@ -198,7 +198,7 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	obs := func(recordID string) layer.Observation {
 		return layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: recordID, ReadBy: "TRUST",
 			EffectiveAt: readAt, AuthorityClass: "AUTHORITATIVE_FOR:case_status", ResourceScope: "res_synthetic", PrincipalScope: "prn_synthetic",
-			Sensitivity: "S2_internal", Read: layer.Read{Class: layer.ReadOK, Determinate: true, ReadAt: readAt},
+			Sensitivity: "S2_internal", Synthetic: true, Read: layer.Read{Class: layer.ReadOK, Determinate: true, ReadAt: readAt},
 			Src:     layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second},
 			RawHash: "sha256:" + hex.EncodeToString(rawSum[:]),
 			Payload: map[string]any{"case_id": rec.CaseID, "status": rec.Status, "owner_queue": rec.OwnerQueue, "version_token": rec.VersionToken}}
