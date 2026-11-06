@@ -75,6 +75,10 @@ func TestADocumentThatIsNotExactlyTheContractIsRefused(t *testing.T) {
 		"trailing close bracket": doc(goodBreaker, goodBudget) + `]`,
 		"trailing text":          doc(goodBreaker, goodBudget) + ` x`,
 		"a second document":      doc(goodBreaker, goodBudget) + doc(goodBreaker, goodBudget),
+		"pack id with a symbol":  `{"schema_version":"1.0","pack_id":"!","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
+		"pack id in capitals":    `{"schema_version":"1.0","pack_id":"FIN","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
+		"pack id empty":          `{"schema_version":"1.0","pack_id":"","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
+		"pack id with a dot":     `{"schema_version":"1.0","pack_id":"fin.x","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
 		"wrong version":          `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
 	}
 	for name, in := range cases {

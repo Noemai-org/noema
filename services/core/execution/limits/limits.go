@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"regexp"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/execution/breaker"
@@ -30,6 +31,9 @@ var wantKey = []contracts.ExecutionLimitsV1DispatchBudgetKeyItem{
 	contracts.ExecutionLimitsV1DispatchBudgetKeyItemTargetRef,
 }
 
+// packIDShape is the pattern of pack_id in execution-limits.v1.json. The generated type does not check patterns, so Load does.
+var packIDShape = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+
 // Load reads one execution-limits.v1 document. Any deviation from the contract is an error; there are no defaults.
 func Load(r io.Reader) (Limits, error) {
 	dec := json.NewDecoder(r)
@@ -39,6 +43,9 @@ func Load(r io.Reader) (Limits, error) {
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return Limits{}, errors.New(errPrefix + "anything after the document is refused")
+	}
+	if !packIDShape.MatchString(string(d.PackId)) {
+		return Limits{}, errors.New(errPrefix + "pack_id does not match the contract")
 	}
 	cb := d.CircuitBreaker
 	if cb.MinSamples < 1 || cb.MinSamples > math.MaxInt32 {
