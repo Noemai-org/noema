@@ -137,42 +137,77 @@ func TestOtherOutcomesNeedOnlyThePackAndTheTime(t *testing.T) {
 // fully resolved never yields a decision other than CLARIFY or ESCALATE, whatever basis is attached.
 func TestAmbiguityNeverYieldsAnotherOutcomeWithAnyBasis(t *testing.T) {
 	statuses := []decide.SlotStatus{decide.SlotResolved, decide.SlotUnresolved, decide.SlotAmbiguous, decide.SlotAbsent}
-	ambiguous := 0
-	property := func(flagCount uint8, slotStatuses [4]uint8) bool {
-		v := decide.IntentView{Version: 5, RequiredSlots: map[string]decide.SlotStatus{}}
-		for i, s := range slotStatuses {
-			v.RequiredSlots[string(rune('a'+i))] = statuses[int(s)%len(statuses)]
+	// The reference is written apart from Admit: an intent is clean only when it has no material flag and every required slot is Resolved.
+	// (The earlier version of this property only called the two constructors and checked their own outcome, which they set: it could not
+	// fail, and three mutants of Admit survived it. TRU-01 follow-up, 4 Nov 2026.)
+	clean := func(v decide.IntentView) bool {
+		if len(v.MaterialFlags) != 0 {
+			return false
+		}
+		for _, s := range v.RequiredSlots {
+			if s != decide.SlotResolved {
+				return false
+			}
+		}
+		return true
+	}
+	var unresolved, flagOnly, byStatus = 0, 0, map[decide.SlotStatus]int{}
+	property := func(version uint8, flagCount uint8, slotStatuses [4]uint8, slotCount uint8) bool {
+		v := decide.IntentView{Version: int(version), RequiredSlots: map[string]decide.SlotStatus{}}
+		for i := 0; i < int(slotCount)%(len(slotStatuses)+1); i++ {
+			v.RequiredSlots[string(rune('a'+i))] = statuses[int(slotStatuses[i])%len(statuses)]
 		}
 		for i := 0; i < int(flagCount)%2; i++ {
 			v.MaterialFlags = append(v.MaterialFlags, "AMBIGUOUS_COUNTERPARTY")
 		}
 		adm := decide.Admit(v)
-		if _, ok := adm.Resolved(); ok {
-			return true
+		r, isResolved := adm.Resolved()
+		u, isUnresolved := adm.Unresolved()
+		if isResolved == isUnresolved || isResolved != clean(v) {
+			return false // exactly one side, and the side the reference gives
 		}
-		ambiguous++
-		u, _ := adm.Unresolved()
-		for _, build := range []func() (decide.Decision, error){
-			func() (decide.Decision, error) {
-				return u.Clarify(decide.Clarification{}, core(t, "AMBIGUOUS_COUNTERPARTY"))
-			},
-			func() (decide.Decision, error) { return u.Escalate(core(t, "AMBIGUOUS_COUNTERPARTY")) },
+		if isResolved {
+			return r.Version() == v.Version
+		}
+		unresolved++
+		if len(v.MaterialFlags) > 0 && len(v.RequiredSlots) > 0 {
+			allResolved := true
+			for _, st := range v.RequiredSlots {
+				allResolved = allResolved && st == decide.SlotResolved
+			}
+			if allResolved {
+				flagOnly++
+			}
+		}
+		for _, st := range v.RequiredSlots {
+			byStatus[st]++
+		}
+		if u.Version() != v.Version {
+			return false
+		}
+		reason := core(t, "AMBIGUOUS_COUNTERPARTY")
+		for name, build := range map[decide.Outcome]func() (decide.Decision, error){
+			decide.Clarify:  func() (decide.Decision, error) { return u.Clarify(decide.Clarification{}, reason) },
+			decide.Escalate: func() (decide.Decision, error) { return u.Escalate(reason) },
 		} {
 			d, err := build()
 			if err != nil {
 				return false
 			}
 			d, err = d.WithBasis(fullBasis())
-			if err != nil || (d.Outcome() != decide.Clarify && d.Outcome() != decide.Escalate) {
-				return false
+			rs := d.Reasons()
+			if err != nil || d.Outcome() != name || d.IntentVersion() != v.Version || len(rs) != 1 || rs[0] != reason ||
+				d.Authority().Policy != decide.NotEvaluated || d.Authority().Business != decide.NotEvaluated {
+				return false // no authority beyond the technical layer: nothing here can become an ALLOW
 			}
 		}
 		return true
 	}
-	if err := quick.Check(property, &quick.Config{MaxCount: 5000, Rand: rand.New(rand.NewSource(20261103))}); err != nil {
+	if err := quick.Check(property, &quick.Config{MaxCount: 20000, Rand: rand.New(rand.NewSource(20261103))}); err != nil {
 		t.Fatal(err)
 	}
-	if ambiguous < 2000 {
-		t.Fatalf("generator too narrow: %d ambiguous intents", ambiguous)
+	// the generator must reach every way an intent is unresolved, or the property proves little
+	if unresolved < 5000 || flagOnly < 200 || byStatus[decide.SlotUnresolved] < 1000 || byStatus[decide.SlotAmbiguous] < 1000 || byStatus[decide.SlotAbsent] < 1000 {
+		t.Fatalf("generator too narrow: unresolved %d, flag-only %d, by status %v", unresolved, flagOnly, byStatus)
 	}
 }

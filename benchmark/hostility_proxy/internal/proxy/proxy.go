@@ -36,6 +36,8 @@ type Options struct {
 	Client     *http.Client
 	BenchToken string
 	Log        *slog.Logger
+	// RequestLogLimit bounds the per-route request log; 0 means the default (10000).
+	RequestLogLimit int
 }
 
 // Stats are the counters of the control API.
@@ -55,6 +57,7 @@ type Server struct {
 	engine *plan.Engine
 	clock  *clockHolder
 	trace  *trace
+	reqlog *requestLog
 	stale  *stale
 	held   *held
 	stats  Stats
@@ -70,7 +73,7 @@ func New(o Options) (*Server, error) {
 			return nil, &MissingUpstreamError{name}
 		}
 	}
-	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, stale: newStale(), held: newHeld()}, nil
+	return &Server{opt: o, engine: plan.NewEngine(), clock: newClockHolder(), trace: &trace{}, reqlog: newRequestLog(o.RequestLogLimit), stale: newStale(), held: newHeld()}, nil
 }
 
 // MissingUpstreamError says a route names an upstream with no URL.
@@ -159,19 +162,32 @@ type call struct {
 	body    []byte
 	staleID string
 	page    *pageReq // set when the request carries one of the proxy's own cursors
+	lw      *loggingWriter
 }
 
 func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 	s.stats.Requests.Add(1)
+	lw := &loggingWriter{ResponseWriter: w, log: s.reqlog, e: RequestEntry{Target: "-", Operation: "-", Method: r.Method, Path: r.URL.Path}}
+	w = lw
+	defer lw.finalize()
 	rt := s.opt.Routes.Match(r)
 	if rt == nil {
+		lw.refused = true
 		writeError(w, http.StatusNotFound, "no such route")
 		return
 	}
+	lw.e.Target, lw.e.Operation = rt.Target, rt.Operation
 	reqBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
 	if err != nil {
+		lw.refused = true
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 		return
+	}
+	if len(reqBody) > 0 {
+		lw.e.BodySHA256 = digest(reqBody)
+	}
+	if key := r.Header.Get("Idempotency-Key"); key != "" {
+		lw.e.IdempotencyKeySHA = digest([]byte(key))
 	}
 	up := s.opt.Upstreams[rt.Upstream]
 	target := *up
@@ -182,6 +198,7 @@ func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 		if raw := r.URL.Query().Get(rt.Page.CursorParam); raw != "" || r.URL.Query().Has(rt.Page.CursorParam) {
 			pr, ok := parseCursor(raw)
 			if !ok {
+				lw.refused = true
 				writeError(w, http.StatusBadRequest, "invalid cursor")
 				return
 			}
@@ -196,9 +213,13 @@ func (s *Server) serveData(w http.ResponseWriter, r *http.Request) {
 		attrs[k] = s.rewrite(v, numbers.ToReal) // plans are written with Tushe's own values
 	}
 	dec := s.engine.Next(rt.Target, rt.Operation, attrs)
+	lw.e.CallNo = dec.CallNo
+	if dec.Effect != nil {
+		lw.e.Fault = dec.Effect.Name
+	}
 	now, _ := s.clock.now()
 	c := &call{w: w, r: r, rt: rt, dec: dec, eff: dec.Effect, now: now, method: r.Method, target: &target,
-		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody), page: page}
+		body: s.rewriteRequestBody(r.Header.Get("Content-Type"), reqBody), page: page, lw: lw}
 	c.header = r.Header.Clone()
 	for h := range hopByHop {
 		c.header.Del(h)
@@ -235,7 +256,7 @@ func (s *Server) apply(ctx context.Context, c *call) {
 	e := c.eff
 	if e != nil {
 		switch e.Name {
-		case plan.Latency, plan.NearTimeoutBefore, plan.NearTimeoutAfter:
+		case plan.Latency, plan.NearTimeoutBefore:
 			s.record(c, nil)
 			if !sleep(ctx, e.Delay) {
 				return
@@ -281,11 +302,19 @@ func (s *Server) apply(ctx context.Context, c *call) {
 		return
 	}
 	s.stats.Forwarded.Add(1)
+	c.lw.e.Forwarded, c.lw.e.UpstreamStatus = true, resp.status
 	if c.method == http.MethodGet {
 		s.stale.put(c.staleID, cached{at: c.now, status: resp.status, header: resp.header, body: resp.body})
 	}
 	if e != nil {
 		switch e.Name {
+		case plan.NearTimeoutAfter:
+			// EC-T09, "a late success": the request has been forwarded and applied; only the answer is held. A caller that gave up
+			// first leaves an applied request behind and must learn the outcome some other way. One that waits gets the real answer.
+			s.record(c, nil)
+			if !sleep(ctx, e.Delay) {
+				return
+			}
 		case plan.TimeoutAfterCommit:
 			s.record(c, nil)
 			sleep(ctx, e.Delay)

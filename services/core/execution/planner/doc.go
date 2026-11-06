@@ -9,6 +9,6 @@
 // Must never: plan an unregistered or PROHIBITED capability; choose beyond the grant; call a model; import
 // trust or outcome.
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by PLN-01, slice 1: New builds a plan only from registry handles, and Hash is SHA-256 of the RFC 8785 form of the
+// plan document. The graph walk that chooses the steps arrives in slice 2, after the Action Graph contract (PCK-04) settles.
 package planner

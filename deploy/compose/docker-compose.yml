@@ -11,6 +11,7 @@ include:
   - services/evil-provider.yml
   - services/mock-case.yml
   - services/webhook-relay.yml
+  - services/standin.yml
 
 x-core-networks: &core_networks [edge_net, svc_net, data_net, tushe_net]
 x-model-networks: &model_networks [edge_net, svc_net, provider_egress]
@@ -53,6 +54,10 @@ secrets:
   # the second and last holder. The core never holds it.
   noema_migrator_password:
     file: ./secrets/noema_migrator_password
+  noema_verify_password:
+    file: ./secrets/noema_verify_password
+  noema_tenant_login_password:
+    file: ./secrets/noema_tenant_login_password
 
 volumes:
   postgres_data: {}
@@ -65,7 +70,9 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_superuser_password
-    secrets: [postgres_superuser_password, noema_core_password, temporal_password, noema_migrator_password]
+      # Tenant IDs (ten_...) that get a login per power at first start (DEBT-04 option A). Empty: none.
+      NOEMA_TENANTS: ${NOEMA_TENANTS:-}
+    secrets: [postgres_superuser_password, noema_core_password, temporal_password, noema_migrator_password, noema_verify_password, noema_tenant_login_password]
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro

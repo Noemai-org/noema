@@ -22,11 +22,17 @@ const (
 
 func migrated(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, _ := testpg.NewDatabase(t)
+	pool, _ := migratedDSN(t)
+	return pool
+}
+
+func migratedDSN(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	pool, dsn := testpg.NewDatabase(t)
 	if _, err := db.Migrate(ctx(t), pool, migrations.FS); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	return pool
+	return pool, dsn
 }
 
 func seed(t *testing.T, pool *pgxpool.Pool) {
@@ -142,7 +148,7 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`,
 		`INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, dispatched_at, json, sig_key_id, sig_value, created_at)
 		 VALUES ('rcp_1', 'ten_a', 'grt_1', 1, 'idk_v1_x', 'A', 'OUTCOME_UNKNOWN', 'TIMEOUT', now(), '{}', 'k', 's', now())`,
-		`SELECT record_lock_head('ten_a')`,
+		`INSERT INTO record_chain_head (tenant_id, seq, hash) VALUES ('ten_a', 0, 'sha256:0000000000000000000000000000000000000000000000000000000000000000')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatalf("setup %q: %v", q, err)
@@ -159,7 +165,12 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 			t.Fatalf("%s TRUNCATE succeeded", c.table)
 		}
 	}
-	wantCode(t, try(t, pool, "postgres", `TRUNCATE execution_receipt`), violation, "execution_receipt TRUNCATE trigger")
+	// execution_receipt is referenced by outcome_verdict (0007), so it cannot be truncated at all (0A000, asserted above);
+	// its TRUNCATE trigger must still exist for the day a reference goes away.
+	var triggers int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM pg_trigger WHERE tgrelid = 'execution_receipt'::regclass AND tgname = 'execution_receipt_no_truncate' AND NOT tgisinternal`).Scan(&triggers); err != nil || triggers != 1 {
+		t.Fatalf("execution_receipt TRUNCATE trigger: %d found, %v", triggers, err)
+	}
 	wantCode(t, try(t, pool, "postgres", `DELETE FROM decision_grant`), violation, "decision_grant DELETE")
 	if err := try(t, pool, "postgres", `TRUNCATE decision_grant`); err == nil {
 		t.Fatal("decision_grant TRUNCATE succeeded")
