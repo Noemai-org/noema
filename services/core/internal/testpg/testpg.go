@@ -91,6 +91,12 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	if err != nil {
 		t.Fatalf("testpg: connect to %s: %v", name, err)
 	}
+	// As deploy/compose/postgres/init.sh does: record_append holds CREATE on public while the migrations run, because
+	// migration 0001 hands tables and functions to it (PostgreSQL needs the new owner to hold CREATE). Migration 0010
+	// (EXE-08, DEBT-05) revokes it; the tests pin that.
+	if _, err := pool.Exec(ctx, "GRANT CREATE ON SCHEMA public TO record_append"); err != nil {
+		t.Fatalf("testpg: grant CREATE to record_append: %v", err)
+	}
 	t.Cleanup(func() {
 		pool.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -107,7 +113,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 
 // clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
 // migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
-var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter"}
+var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter", "noema_migrator"}
 
 func ensureRoles(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
