@@ -1,7 +1,9 @@
 package layer_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -33,6 +35,10 @@ func TestClassifyErrorMapsEveryAdapterFailure(t *testing.T) {
 		"a body the adapter rejects": {re(adapters.ReadMalformed, "200", 0), layer.ReadMalformed},
 		"a failure nobody foresaw":   {re("SOMETHING_NEW", "?", 0), layer.ReadMalformed},
 		"an error that is not one":   {errors.New("boom"), layer.ReadMalformed},
+		// A deadline that expires inside a call is a timeout, whether the adapter wrapped it or not (review of noema#174, AGENT-11).
+		"a bare context deadline":    {context.DeadlineExceeded, layer.ReadTimeout},
+		"a wrapped context deadline": {fmt.Errorf("get case: %w", context.DeadlineExceeded), layer.ReadTimeout},
+		"a network timeout":          {timeoutErr{}, layer.ReadTimeout},
 	}
 	for name, c := range cases {
 		if got := layer.ClassifyError(c.err); got != c.want {
@@ -45,3 +51,10 @@ func TestClassifyErrorMapsEveryAdapterFailure(t *testing.T) {
 		t.Errorf("a wrapped 503: class = %s", got)
 	}
 }
+
+// timeoutErr is a net.Error that reports a timeout, as the transport returns when a connection or read times out.
+type timeoutErr struct{}
+
+func (timeoutErr) Error() string   { return "i/o timeout" }
+func (timeoutErr) Timeout() bool   { return true }
+func (timeoutErr) Temporary() bool { return true }

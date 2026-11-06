@@ -90,6 +90,8 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 ## Pre-work for the next agent
 - Exact next step: slice 3, the G1 story tests in `execution/e2e` (a healthy read KNOWN, a stale read STALE, with the real target).
 
+## Addendum 2026-11-06 · the reviewer's P2 on noema#174 (ClassifyError not seen failing first)
+- Done properly this time: tests-only commit `da75530` (a bare, a wrapped and a network-timeout error must be TIMEOUT) pushed alone; its `core` run is red ([run](https://github.com/Noemai-org/noema/actions/runs/42199062358/job/127829537492)). The fix commit follows: a deadline that expires in a call, or a `net.Error` that reports a timeout, is `ReadTimeout` (UNAVAILABLE) rather than MALFORMED (UNKNOWN). The original table test of the classifier remains written together with its code; the new rows are the failing-first evidence for the classifier's behaviour.
 # Session 2026-11-05 18:30 WAT · EVD-01 (slice 3)
 
 ## Session summary
