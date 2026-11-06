@@ -8,6 +8,6 @@
 // Must never: repair or rewrite a broken chain; keep a checkpoint only inside Postgres; ignore a break (it
 // raises an alert and the kill switch).
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by REC-05 (slice 1): Verifier.Run for the nightly job, Verifier.RunTenant for the on-demand form. The signed,
+// exported checkpoints (REC-07) and the HTTP endpoint (EDG-01 wires it behind the ops and audit role check) are later slices.
 package verify

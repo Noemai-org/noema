@@ -74,14 +74,6 @@ func (g *Generator) ID(prefix string) (string, error) {
 	return string(out), nil
 }
 
-// Must is ID for a constant prefix: it panics on a programming error (a bad prefix or a failed entropy source).
-func (g *Generator) Must(prefix string) string {
-	id, err := g.ID(prefix)
-	if err != nil {
-		panic(err)
-	}
-	return id
-}
-
-// ReceiptID satisfies execution/controller.IDs.
-func (g *Generator) ReceiptID() string { return g.Must("rcp") }
+// ReceiptID satisfies execution/controller.IDs. An entropy failure is returned, never raised as a panic: the controller
+// refuses the presentation on it (INV-07).
+func (g *Generator) ReceiptID() (string, error) { return g.ID("rcp") }

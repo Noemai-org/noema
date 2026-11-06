@@ -21,3 +21,9 @@ Updated 2026-11-03. Owner: C1+AG in tasks.csv; executed by the Engineering Lead 
 ## Pre-work for the next agent
 - Exact next step: TRU-05 (the Decision Record written before grants) builds the record from Decision + Basis; TRU-02's `Evaluate` adds the "ALLOW needs a complete basis" acceptance rule after both PRs merge.
 - Do not touch: noema#94, noema#90.
+
+## Session 2026-11-04 · the unresolved-intent property was tautological (Architect's decision 3)
+- Finding: `TestAmbiguityNeverYieldsAnotherOutcomeWithAnyBasis` (basis_test.go) only called `Clarify` and `Escalate` on an unresolved intent and checked the outcome those two set, so it could not fail. Measured on 4 Nov 2026: three mutants of `Admit` survived it on its own (ignore the material flags; treat an Absent slot as resolved; treat an Ambiguous slot as resolved). (The package as a whole did catch them, through `TestAmbiguousIntentsNeverYieldAnotherOutcome` in decide_test.go, which compares `Admit` with an independent clean/not-clean reference; that test is unchanged.)
+- Fix: the property now carries an independent reference of "clean" (no material flag, every required slot Resolved); asserts that `Admit` gives exactly one side and the side the reference gives; that versions are carried on both sides; that every constructor of an unresolved intent yields only CLARIFY or ESCALATE with the intent's version, the reason it was given, and no authority beyond the technical layer (policy and business NOT_EVALUATED, so nothing here can become an ALLOW); and that the generator reached every way an intent is unresolved (flag-only, Unresolved, Ambiguous, Absent slots) or the test fails. 20,000 seeded cases.
+- Mutation check, the test run alone: 7 of 7 mutants of `Admit` and 3 of 3 of the two constructors caught (before: 3 of the `Admit` mutants survived).
+- TRU-01 stays In progress until this merges (the Architect's rule); the board is the owner's to move.

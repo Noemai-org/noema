@@ -1,0 +1,9 @@
+{
+  "exclusions": {
+    "BEN-CLEAN-1007": {
+      "reason": "US-01 with INJECTION_IN_NAME needs mock-customer INJECTION_PAYLOAD, a Tushe-held fault that is not wired",
+      "held_by": "Tushe",
+      "opened": "2026-11-01"
+    }
+  }
+}

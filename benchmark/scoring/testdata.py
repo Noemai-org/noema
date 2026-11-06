@@ -134,6 +134,7 @@ def clean_result(case: Json, oracle: Json, run_id: str = "run_test") -> Json:
         "latency_ms": 1000,
         "cost_usd_micros": 500,
         "outcome_digest": "sha256:" + "0" * 63 + "1",
+        "turns": 1,
     }
 
 
@@ -141,7 +142,7 @@ def error_result(case: Json, run_id: str = "run_test") -> Json:
     return {
         "run_id": run_id, "case_id": case["case_id"], "case_version": case["version"], "status": "ERROR",
         "error": {"code": "RUNNER_TIMEOUT", "message": "no final state"}, "observed": None, "environment": None,
-        "path": "CLEAN", "latency_ms": 0, "cost_usd_micros": 0, "outcome_digest": None,
+        "path": "CLEAN", "latency_ms": 0, "cost_usd_micros": 0, "outcome_digest": None, "turns": 0,
     }
 
 

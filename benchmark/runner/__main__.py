@@ -9,6 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmark.fixtures.loader import StandInFixtureLoader
 from benchmark.oracle_client.client import OracleClient
 from benchmark.oracle_client.counters import DeclaredAbsent, RecordGovernance, RefusalLog, Unavailable
 from benchmark.oracle_client.transport import read_secret
@@ -23,7 +24,7 @@ from .suite import SuiteError, load_suite
 from .support import report as support_report
 
 FORBIDDEN = "benchmark-heldout"
-NO_LOADER = "no fixture loader is configured: Tushe's sandbox is not reachable from this build"
+NO_LOADER = "no fixture loader is configured: Tushe's sandbox is not reachable from this build (--standin-url selects the Noema-side stand-in, labelled stand-in)"
 
 
 def _commit() -> str | None:
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--provider", action="append", default=[], help="a model provider used in this run (repeatable)")
     p.add_argument("--only", action="append", help="run only this case id (repeatable)")
     p.add_argument("--only-file", type=Path, help="run only the case ids in this file, one per line (BEN-29)")
+    p.add_argument("--standin-url", help="the Noema-side stand-in for the Tushe-held data (bench_net); with the bench credential it provides the fixture loader. Evidence from such a run is labelled stand-in")
     p.add_argument("--commit-sha", default=None)
     p.add_argument("--support", action="store_true", help="print which cases this build can run and what stops the rest, then exit")
     args = p.parse_args(argv)
@@ -86,13 +88,16 @@ def main(argv: list[str] | None = None) -> int:
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
+    if args.standin_url and not args.bench_credential_file:
+        print("--standin-url needs --bench-credential-file: the stand-in's control route takes the bench credential, and without it the fixture loader would silently be missing")
+        return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
     monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
         "monetary_calls", "no source: Tushe's access log is not reachable and the operator declared nothing")
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
-                 fixtures=UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
+                 fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=only_ids(args.only, args.only_file))

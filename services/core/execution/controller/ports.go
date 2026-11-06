@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -138,10 +139,15 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, req DispatchRequest) TransportResult
 }
 
-// IDs makes receipt IDs. The real generator is ULID-based (PERD 32.3); the simulation is seeded.
+// IDs makes receipt IDs. The real generator is ULID-based (PERD 32.3); the simulation is seeded. An error means the ID
+// source (its entropy) is unavailable.
 type IDs interface {
-	ReceiptID() string
+	ReceiptID() (string, error)
 }
+
+// ErrIDSource is returned when a receipt ID cannot be minted. The controller returns it before it spends the grant, so
+// nothing is dispatched and the grant stays unspent.
+var ErrIDSource = errors.New("the receipt ID source is unavailable")
 
 // Clock is the platform clock interface.
 type Clock interface {
