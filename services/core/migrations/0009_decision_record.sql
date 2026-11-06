@@ -24,7 +24,9 @@ CREATE TABLE decision_record (
     json ->> 'outcome' IS NOT DISTINCT FROM outcome AND json ->> 'decision_id' IS NOT DISTINCT FROM decision_id
     AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id
     -- the key and the signature are stored in the document and in two columns: one signature, one key (A13, REQ-TRU-001)
-    AND json #>> '{sig,key_id}' IS NOT DISTINCT FROM sig_key_id AND json #>> '{sig,value}' IS NOT DISTINCT FROM sig_value)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+    AND json #>> '{sig,key_id}' IS NOT DISTINCT FROM sig_key_id AND json #>> '{sig,value}' IS NOT DISTINCT FROM sig_value
+    -- the signed disposition is the column the composite foreign key checks, so it is tenant-scoped and ESCALATE (REQ-TRU-010)
+    AND json ->> 'disposition_decision_id' IS NOT DISTINCT FROM disposition_decision_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
 );
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
