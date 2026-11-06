@@ -2,9 +2,9 @@
 
 Implements: REQ-VOI-002, REQ-VOI-003.
 
-May import: noema_model.platform.
+May import: noema_model.platform and noema_model.providers.llm.base (the shared ProviderError and AdapterSettings).
 
-Must never: be imported by anything but the harness; depend on a single vendor (BD-16); pass a partial transcript as final.
+Must never: be imported by anything but the harness and the voice pipeline's injected wiring; depend on a single vendor (BD-16); pass a partial transcript as final.
 
-Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with the engine tracks, and nothing is built here yet.
+VOI-01: `base.py` (types, stream-order contract), `matrix.py` with `capability_matrix.json`, `scaffolds.py` and `registry.py`. The three adapters are scaffolds that refuse until a vendor document and a recorded sample exist.
 """
