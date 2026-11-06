@@ -152,6 +152,21 @@ class Broken(unittest.TestCase):
         pub["claims"][1]["population"] = true_population
         self.assertEqual([], problems(pub, cards))
 
+    def test_two_distribution_records_for_the_same_run_and_slice_are_refused(self) -> None:
+        # Codex on 072f035: the later record used to overwrite the earlier one, so a valid subset could hide a conflicting record that stays in the published artifact.
+        for order in (1, -1):
+            pub, cards = publication()
+            first = pub["distributions"][0]
+            conflicting = {**first, "rows": {k: {"n": v["n"] + 1, "k": v["k"]} for k, v in first["rows"].items()}}
+            pub["distributions"] = [*pub["distributions"], *([conflicting] if order == 1 else [])]
+            if order == -1:
+                pub["distributions"] = [conflicting, *pub["distributions"]]
+            got = problems(pub, cards)
+            self.assertTrue(any(RUN in x and first["slice"] in x and "more than one" in x for x in got), (order, got))
+        pub, cards = publication()
+        pub["distributions"].append(copy.deepcopy(pub["distributions"][0]))  # an identical duplicate is still a duplicate
+        self.assertTrue(any("more than one" in x for x in problems(pub, cards)))
+
     def test_a_missing_family_in_the_distribution_is_named_as_cherry_picking(self) -> None:
         def mutate(p: Json, c: Json) -> None:
             del p["distributions"][0]["rows"]["B4"]
