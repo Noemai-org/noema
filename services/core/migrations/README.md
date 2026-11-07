@@ -48,7 +48,7 @@ Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_app
 ## Not built
 
 - The other PERD §38.2 tables (`principal_ref`, `session`, `investigation`, `intent_object`, `decision_record`, `plan`, `context_snapshot`, ...). Foreign keys from `decision_grant` to `decision_record` and `plan` arrive with the migration that creates those tables. Until then Execution reads the plan and the intent through the `Binder` port.
-- `tenant_id` is on every row and every query is tenant-scoped; row-level security is used on the Execution, Outcome and Record tables from `0017_row_security.sql` (ruling A6) and not elsewhere. A repository-layer test that every query is tenant-scoped is not written yet (REQ-SEC-004). Debt entry to be filed in `docs/poc/execution/debt.md` (docs repository).
+- `tenant_id` is on every row and every query is tenant-scoped; row-level security is used on the Execution, Outcome and Record tables from `0017_row_security.sql` (ruling A6) and not elsewhere. A repository-layer test that every query is tenant-scoped is not written yet (REQ-SEC-004). Debt entry to be filed in `docs/poc/execution/debt.md` (docs repository). The `tenant` catalogue and `tenant_login` are deliberately outside the forced list: every login must read the catalogue to be mapped to a tenant. `orchestrator_rw` is tenant-bound on `outbox_event` through the login's tenant, so a dispatcher that serves several tenants needs one tenant login per tenant, or the outbox stalls for the others; there is no multi-tenant orchestrator login, and adding one would be an all-tenants reader needing the Architect. Row security is proven as a non-owner only by `test_init.sh` (noema#257), not by the `core` job, where the migrating role is a superuser.
 
 ## Tests
 
