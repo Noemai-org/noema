@@ -17,7 +17,7 @@ from benchmark.oracle_client.truth import MockCaseTruth
 from .api import PublicApi
 from .control import MockCaseControl
 from .cost import CostFiles
-from .env import DirSessionProvider, RunEnv, UnavailableFixtureLoader
+from .env import DirSessionProvider, IdpSessionProvider, RunEnv, SessionProvider, UnavailableFixtureLoader
 from .run import run_suite
 from .suite import SuiteError, load_suite
 from .support import report as support_report
@@ -41,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", default="run")
     p.add_argument("--api-url", default="http://core:8080", help="Noema's public API (PERD §39.2)")
     p.add_argument("--tokens-dir", type=Path, help="a directory with one session token file per principal id")
+    p.add_argument("--idp-key", type=Path, help="the synthetic IdP's private key file: tokens are issued on demand (instead of --tokens-dir)")
+    p.add_argument("--idp-binary", type=Path, help="the synthetic IdP issuer (services/core/cmd/synthetic-idp)")
+    p.add_argument("--idp-kid", help="the key identifier the core knows the IdP's public key by")
+    p.add_argument("--idp-audience", help="the audience of the issued tokens (the core)")
     p.add_argument("--admin-token-file", type=Path)
     p.add_argument("--bench-url", default="http://mock-case:8091", help="mock-case's bench listener (bench_net)")
     p.add_argument("--bench-credential-file", type=Path, help="the bench credential, a file (never an argument value)")
@@ -66,6 +70,15 @@ def main(argv: list[str] | None = None) -> int:
     except SuiteError as error:
         print(f"unusable suite: {error}")
         return 2
+    idp = [args.idp_key, args.idp_binary, args.idp_kid, args.idp_audience]
+    if any(idp) and not (all(idp) and args.tenant_id):
+        print("refused: the IdP session provider needs --idp-key, --idp-binary, --idp-kid, --idp-audience and --tenant-id together")
+        return 2
+    if any(idp) and args.tokens_dir:
+        print("refused: give one session source, either --tokens-dir or the IdP settings")
+        return 2
+    sessions: SessionProvider = (IdpSessionProvider(args.idp_binary, args.idp_key, kid=args.idp_kid, audience=args.idp_audience, tenant_id=args.tenant_id)
+                                 if any(idp) else DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")))
     if args.support:
         found = support_report(suite)
         print(f"{found['runnable']} of {found['total']} cases can run now ({found['blocked']} blocked; {found['without_faults_or_events']} need no fault and no event)")
@@ -81,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
-                 fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
+                 fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=set(args.only) if args.only else None)
