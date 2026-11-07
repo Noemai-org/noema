@@ -7,12 +7,12 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
 
   1. exactly the networks of PERD section 65.1 (written out here, independently of the Compose file); an unknown service fails,
      so a new service has to be added to this table on purpose;
-  2. the oracle side (bench_net) is held only by mock-case, its database, the hostility proxy and its anchor; the core, the model and
+  2. the oracle side (bench_net) is held only by mock-case, its database, the hostility proxy and its anchor, and the stand-in and its anchor; the core, the model and
      the UI are never on it, and nothing but the model and the evil provider is on provider_egress;
   3. only the UI and the webhook relay publish a port, and only on 127.0.0.1;
   4. no privileged container, host network or PID/IPC namespace, added capability, or Docker socket mount;
   5. the networks that are not Docker-internal are exactly provider_egress, ui_publish_net and tushe_egress;
-  6. profile placement: the evil provider only in bench; the hostility proxy only in ci and bench; the webhook relay only in ci;
+  6. profile placement: the evil provider only in bench; the hostility proxy and the stand-in only in ci and bench; the webhook relay only in ci;
   7. the exact set of services each profile builds: a missing or an extra service fails.
 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
@@ -36,14 +36,17 @@ NETWORKS = {
     "mock-case-db": {"bench_net"},
     "hostility-proxy": {"tushe_net", "bench_net", "tushe_egress"},
     "hostility-proxy-anchor": {"bench_net"},
+    "standin": {"tushe_net", "bench_net"},
+    "standin-anchor": {"bench_net"},
     "webhook-relay": {"tushe_net", "tushe_egress"},
     "evil-provider": {"provider_egress"},
     "mock-case-credentials": set(),
     "hostility-proxy-credentials": set(),
+    "standin-credentials": set(),
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials"}
-ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
+ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 PUBLISHED = {"ui": {("127.0.0.1", "8082")}, "webhook-relay": {("127.0.0.1", "8090")}}
 EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
@@ -52,13 +55,14 @@ EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 EXPECTED_SERVICES = {
     "dev": {"core", "model", "postgres", "temporal", "ui"},
     "ci": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-           "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials"},
+           "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
-           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"}}
+           "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
+           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}}
 
 
 def resolved(profile):
@@ -148,6 +152,11 @@ def self_test(configs):
         "the webhook relay appears in bench": ("bench", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
         "the webhook relay appears in demo": ("demo", lambda c: c["services"].update({"webhook-relay": {"networks": {"tushe_net": None, "tushe_egress": None}, "ports": [{"host_ip": "127.0.0.1", "published": "8090"}]}})),
         "the webhook relay credentials appear in bench": ("bench", lambda c: c["services"].update({"webhook-relay-credentials": dict(sidecar)})),
+        "the stand-in appears in dev": ("dev", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
+        "the stand-in appears in demo": ("demo", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
+        "the stand-in anchor appears in demo": ("demo", lambda c: c["services"].update({"standin-anchor": {"networks": {"bench_net": None}}})),
+        "the stand-in credentials appear in dev": ("dev", lambda c: c["services"].update({"standin-credentials": dict(sidecar)})),
+        "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
     for label, (profile, mutate) in cases.items():

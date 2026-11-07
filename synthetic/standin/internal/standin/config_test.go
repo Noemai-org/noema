@@ -43,13 +43,46 @@ func TestConfigReadsTheTwoCredentialsFromFilesOnly(t *testing.T) { // AGENTS 10:
 	}
 }
 
-func TestConfigRefusesAnEmptyOrEveryInterfaceListenAddress(t *testing.T) { // the bench side must never default to every interface
-	for _, k := range []string{"STANDIN_DATA_LISTEN", "STANDIN_CONTROL_LISTEN"} {
-		for _, bad := range []string{"", ":8093", "0.0.0.0:8093", "[::]:8093", "8093"} {
-			g, r := env(map[string]string{k: bad})
-			if _, err := standin.LoadConfig(g, r); err == nil {
-				t.Fatalf("%s=%q must be refused", k, bad)
-			}
+func TestConfigRefusesAnEmptyOrEveryInterfaceControlListenAddress(t *testing.T) { // the bench side must never default to every interface
+	for _, bad := range []string{":8094", "0.0.0.0:8094", "[::]:8094", "8094"} {
+		g, r := env(map[string]string{"STANDIN_CONTROL_LISTEN": bad})
+		if _, err := standin.LoadConfig(g, r); err == nil {
+			t.Fatalf("STANDIN_CONTROL_LISTEN=%q must be refused", bad)
+		}
+	}
+}
+
+func TestConfigNeedsExactlyOneWayToPlaceTheControlListener(t *testing.T) {
+	g, r := env(map[string]string{"STANDIN_CONTROL_LISTEN": ""})
+	if _, err := standin.LoadConfig(g, r); err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("no control placement must be refused and say why: %v", err)
+	}
+	g, r = env(map[string]string{"STANDIN_CONTROL_BIND_VIA": "some-bench-host", "STANDIN_CONTROL_PORT": "8094"})
+	if _, err := standin.LoadConfig(g, r); err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("both placements must be refused: %v", err)
+	}
+	g, r = env(map[string]string{"STANDIN_CONTROL_LISTEN": "", "STANDIN_CONTROL_BIND_VIA": "some-bench-host", "STANDIN_CONTROL_PORT": "8094"})
+	c, err := standin.LoadConfig(g, r)
+	if err != nil || c.ControlBindVia != "some-bench-host" || c.ControlPort != "8094" || c.ControlListen != "" {
+		t.Fatalf("bind-via placement wrong: %+v %v", c, err)
+	}
+	for _, bad := range []string{"", "0", "70000", "abc"} {
+		g, r = env(map[string]string{"STANDIN_CONTROL_LISTEN": "", "STANDIN_CONTROL_BIND_VIA": "some-bench-host", "STANDIN_CONTROL_PORT": bad})
+		if _, err := standin.LoadConfig(g, r); err == nil {
+			t.Fatalf("STANDIN_CONTROL_PORT=%q must be refused", bad)
+		}
+	}
+}
+
+func TestTheDataListenerMayBeAPortAloneButNeverEmptyOrMalformed(t *testing.T) { // like mock-case's case API: the networks the container joins decide who reaches it
+	g, r := env(map[string]string{"STANDIN_DATA_LISTEN": ":8093"})
+	if c, err := standin.LoadConfig(g, r); err != nil || c.DataListen != ":8093" {
+		t.Fatalf(":8093 must be accepted for the data side: %+v %v", c, err)
+	}
+	for _, bad := range []string{"", "8093", ":0", ":x"} {
+		g, r = env(map[string]string{"STANDIN_DATA_LISTEN": bad})
+		if _, err := standin.LoadConfig(g, r); err == nil {
+			t.Fatalf("STANDIN_DATA_LISTEN=%q must be refused", bad)
 		}
 	}
 }

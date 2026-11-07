@@ -46,6 +46,9 @@ NETWORKS = {
     "hostility-proxy-control": {"bench_net"},
     # webhook relay (ENV-13): on tushe_net, so the core can pull; tushe_egress is only so Docker can publish its port.
     "webhook-relay": {"tushe_net", "tushe_egress"},
+    # stand-in (ENV-05): the data API on tushe_net, the control API on bench_net only (a listener of the same container, modelled like mock-case-truth).
+    "standin": {"tushe_net", "bench_net"},
+    "standin-control": {"bench_net"},
 }
 TARGETS = {  # service -> host:port a probe connects to
     "postgres": "postgres:5432", "temporal": "temporal:7233", "core": "core:8080", "model": "model:8081",
@@ -54,6 +57,7 @@ TARGETS = {  # service -> host:port a probe connects to
     "mock-case": "mock-case:8090", "mock-case-truth": "mock-case:8091", "mock-case-db": "mock-case-db:5432",
     "hostility-proxy": "hostility-proxy:8080", "hostility-proxy-control": "hostility-proxy:8081",
     "webhook-relay": "webhook-relay:8090",
+    "standin": "standin:8093", "standin-control": "standin:8094",
 }
 # Paths the brief names as forbidden. Each must come out refused.
 MUST_BE_REFUSED = [
@@ -69,10 +73,12 @@ MUST_BE_REFUSED = [
     ("model", "hostility-proxy"), ("ui", "hostility-proxy"),
     # webhook relay (DEC-2026-10-16 E6): only the core pulls from it; the model and the UI never reach it.
     ("model", "webhook-relay"), ("ui", "webhook-relay"),
+    # stand-in (REQ-ENV-002): the control side is for the benchmark loader only; the data side is for the core's adapters.
+    ("core", "standin-control"), ("model", "standin-control"), ("ui", "standin-control"), ("model", "standin"), ("ui", "standin"),
 ]
 # Networks that are not Docker-internal, per service: the only routes out of the stack (PERD §65.1).
 EGRESS_NETWORKS = {"core": set(), "postgres": set(), "temporal": set(), "model": {"provider_egress"}, "ui": {"ui_publish_net"},
-                   "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}}
+                   "mock-case": set(), "mock-case-db": set(), "hostility-proxy": {"tushe_egress"}, "webhook-relay": {"tushe_egress"}, "standin": set()}
 # What the egress rows must show for each probe: can it reach an address outside the stack?
 OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui": True}
 # TEN-01 (internal, task ENV-14): "No runtime container can reach the oracle (network and credential)". In this stack the
@@ -80,8 +86,8 @@ OUTSIDE_EXPECTED = {"core": False, "model-no-egress": False, "model": True, "ui"
 # API; the credentials that open them live in the named volumes below. Tushe's own oracle is Tushe's, and Noema holds no route
 # to it (G0-T).
 RUNTIME = ("core", "model", "ui")
-ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control")
-ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential"}
+ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control", "standin-control")
+ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential", "standin_bench_credential"}
 ORACLE_MARKERS = ("ORACLE", "BENCH", "HELDOUT", "ADMIN", "FIXTURE_CRED")  # in a runtime service's variable names, values, secrets or volumes
 RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}
 failures: list[str] = []
@@ -136,7 +142,7 @@ def check_membership() -> None:
     print("1. network membership from `docker compose config`")
     config = json.loads(run(COMPOSE + ["config", "--format", "json"]).stdout)
     for name, expected in NETWORKS.items():
-        if name in ("model-no-egress", "mock-case-truth", "hostility-proxy-control"):  # not services: variants and listeners, checked through their probes
+        if name in ("model-no-egress", "mock-case-truth", "hostility-proxy-control", "standin-control"):  # not services: variants and listeners, checked through their probes
             continue
         actual = set(config["services"][name].get("networks") or {})
         status = "ok" if actual == expected else "MISMATCH"
@@ -342,6 +348,35 @@ def check_mock_case() -> None:
             fail(f"mock-case {name}: expected {want}, saw {got}")
 
 
+# What the identity probe must see on the stand-in (REQ-ENV-002, INV-12): the bench token opens the control side and nothing else; the runtime token
+# reads nothing without an identity assertion (and with nothing loaded the answer is "not loaded", never empty).
+STANDIN_EXPECTED = {
+    "control_with_bench_credential": 200,
+    "control_with_runtime_credential": 401,
+    "control_without_credential": 401,
+    "control_with_guessed_credential": 401,
+    "data_with_bench_credential": 401,
+    "data_without_credential": 401,
+    "data_with_runtime_credential_nothing_loaded": 503,
+}
+STANDIN_SERVICES = ["standin", "standin-anchor", "standin-credentials", "probe-standin"]
+
+
+def check_standin() -> None:
+    print("6c. stand-in: the control side opens for the bench credential only, the data side for neither without an identity assertion")
+    out = run(COMPOSE + ["run", "--rm", "--no-deps", "-T", "probe-standin", "python", "/standin_probe.py"])
+    try:
+        seen = json.loads(out.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        fail(f"probe-standin gave no result: {out.stderr.strip()[:200]}")
+        return
+    for name, want in STANDIN_EXPECTED.items():
+        got = seen.get(name)
+        print(f"  {name:44} {got} {'ok' if got == want else f'!= {want}'}")
+        if got != want:
+            fail(f"standin {name}: expected {want}, saw {got}")
+
+
 HOSTILITY_PROXY_SERVICES = ["hostility-proxy", "hostility-proxy-anchor", "hostility-proxy-credentials"]
 CONTROL_PROBE = (
     "import urllib.request, urllib.error, json\n"
@@ -461,7 +496,7 @@ DEV_SERVICES = {"core", "model", "ui", "postgres", "temporal"}
 LIVE_PROFILES = ("ci", "bench", "demo")
 ONE_SHOT = ("-credentials", "-anchor")  # sidecars that may have exited by the time the stack is up; never required to be running
 # the compose service behind each probe target (the truth and control listeners belong to the container that serves them)
-SERVICE_OF = {"mock-case-truth": "mock-case", "hostility-proxy-control": "hostility-proxy"}
+SERVICE_OF = {"mock-case-truth": "mock-case", "hostility-proxy-control": "hostility-proxy", "standin-control": "standin"}
 PROFILE_TARGETS = [t for t in TARGETS if not t.startswith("sentinel-")]  # the sentinels belong to the netcheck profile, not to a run profile
 
 
@@ -528,7 +563,7 @@ def check_profile_live(profile: str, plain: list) -> None:
 
 
 def main() -> int:
-    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay"])
+    up = run(COMPOSE + ["up", "-d", "--wait", "sentinel-tushe", "sentinel-provider", "sentinel-bench", "mock-case", "hostility-proxy", "webhook-relay", "standin"])
     if up.returncode != 0:
         print(up.stderr)
         return 2
@@ -541,9 +576,10 @@ def main() -> int:
     check_egress()
     check_mock_case()
     check_hostility_proxy()
+    check_standin()
     check_evil_provider()
     check_webhook_relay()
-    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
+    run(COMPOSE + ["rm", "-sf", "sentinel-tushe", "sentinel-provider", "sentinel-bench"] + MOCK_CASE_SERVICES + HOSTILITY_PROXY_SERVICES + STANDIN_SERVICES + ["webhook-relay", "webhook-relay-credentials"])
     check_profiles()
     if failures:
         print(f"\nmatrix FAIL: {len(failures)} mismatches")
