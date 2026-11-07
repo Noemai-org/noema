@@ -39,8 +39,10 @@ func seed(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_1', 'ten_a', '{"decision_id":"dec_1","tenant_id":"ten_a","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatalf("seed: %v", err)
@@ -205,28 +207,35 @@ func TestDecisionGrantOnlyItsStatusMovesAndFinalIsFinal(t *testing.T) {
 
 // Single use is a unique constraint on the grant ID and on the nonce, never workflow history (INV-30, REQ-EXE-001).
 func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	seed(t, pool)
+	exec := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a") // the tenant's own login: row-level security (migration 0017) needs a mapped login
 	if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
+		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n9', 'idk_v1_x', 1, now())`), violation, "second spend of one grant")
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_2', 'ten_a', 'n1', 'idk_v1_x', 1, now())`), violation, "second spend with one nonce")
+	_, err := exec.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n9', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "second spend of one grant")
+	_, err = exec.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_2', 'ten_a', 'n1', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "second spend with one nonce")
 	// The nonce is unique across tenants, not only within one (PERD 38.2: nonce UNIQUE).
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_9', 'ten_b', '{"decision_id":"dec_9","tenant_id":"ten_b","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}', 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{"decision_id":"dec_9","tenant_id":"ten_b"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_3', 'ten_b', 'n1', 'idk_v1_x', 1, now())`), violation, "the same nonce under another tenant")
+	execB := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_b") // ten_b's own login, so the refusal is the unique nonce and not the tenant's row security
+	_, err = execB.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_3', 'ten_b', 'n1', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "the same nonce under another tenant")
 }
 
 // The idempotency record keeps its key, action and parameters, and its attempt only moves forward (REQ-EXE-002).
