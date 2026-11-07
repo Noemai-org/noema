@@ -3,6 +3,8 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"sync"
 	"testing"
 	"time"
@@ -129,6 +131,7 @@ type world struct {
 	bind   *binder
 	ctl    *controller.Controller
 	ids    *ids.Generator
+	ring   *signing.Ring
 }
 
 func newWorld(t *testing.T) *world {
@@ -150,7 +153,10 @@ func newWorld(t *testing.T) *world {
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
 	target := &fakeTarget{admin: admin, answer: controller.TransportResult{Class: controller.TransportAck2xx, ExternalAck: "CASE-1", RawCode: "201"}}
 	w := &world{admin: admin, exec: exec, clk: clk, keys: keys, led: led, target: target, bind: b, ids: gen}
-	w.ctl = &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
+	ring := signingtest.Ring(t, 1)
+	signingtest.Register(t, admin, ring)
+	w.ring = ring
+	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }
 

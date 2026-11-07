@@ -66,11 +66,6 @@ func TestNoRecordFunctionTakesATenantFromTheCaller(t *testing.T) {
 	}
 }
 
-// The real noema#94 file is held and is not on main, so a stand-in plays its part: like it, a 0002 that touches no
-// Record privilege. The stand-in also re-runs 0001's blanket REVOKE, the statement most likely to disturb a grant.
-var standIn0002 = &fstest.MapFile{Data: []byte(`COMMENT ON FUNCTION decision_grant_guard() IS 'stand-in for the 0002 of noema#94';
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;`)}
-
 func migrationsWith(t *testing.T, extra map[string]*fstest.MapFile, skip string) fstest.MapFS {
 	t.Helper()
 	out := fstest.MapFS{}
@@ -119,21 +114,23 @@ func privileges(t *testing.T, pool *pgxpool.Pool) map[string]string {
 	return out
 }
 
-// REC-03 (E1): Migrate has no gap check. A database migrated to 0003 before 0002 exists takes 0002 later; a fresh
-// database takes 0001, 0002, 0003 in order. Both end with the same privileges, and record_read works in both.
-func TestA0002AppliedAfter0003GivesTheSamePrivilegesAsAFreshDatabase(t *testing.T) {
+// REC-03 (E1): Migrate has no gap check. A database migrated without the grant-void migration (0014, noema#94) takes it later; a
+// fresh database takes everything in order. Both end with the same privileges, and record_read works in both. It uses the real file:
+// 0014 replaces decision_grant_guard and must not disturb a Record privilege.
+func TestTheGrantVoidMigrationAppliedLateGivesTheSamePrivilegesAsAFreshDatabase(t *testing.T) {
+	const late = "0014_grant_spent_void.sql"
 	fresh, _ := testpg.NewDatabase(t)
-	all := migrationsWith(t, map[string]*fstest.MapFile{"0002_standin.sql": standIn0002}, "")
-	if got, err := db.Migrate(ctx(t), fresh, all); err != nil || len(got) < 3 || got[1] != "0002_standin.sql" || got[2] != "0003_record_read.sql" {
-		t.Fatalf("fresh migrate: applied %v, err %v; want 0001, 0002_standin, 0003 in that order", got, err)
+	all := migrationsWith(t, nil, "")
+	if got, err := db.Migrate(ctx(t), fresh, all); err != nil || !slices.Contains(got, late) {
+		t.Fatalf("fresh migrate: applied %v, err %v; want %s among them", got, err, late)
 	}
 
 	upgraded, _ := testpg.NewDatabase(t)
-	if got, err := db.Migrate(ctx(t), upgraded, migrationsWith(t, nil, "")); err != nil || !slices.Contains(got, "0003_record_read.sql") || slices.Contains(got, "0002_standin.sql") {
-		t.Fatalf("first migrate without 0002: applied %v, err %v", got, err)
+	if got, err := db.Migrate(ctx(t), upgraded, migrationsWith(t, nil, late)); err != nil || !slices.Contains(got, "0003_record_read.sql") || slices.Contains(got, late) {
+		t.Fatalf("first migrate without %s: applied %v, err %v", late, got, err)
 	}
-	if got, err := db.Migrate(ctx(t), upgraded, all); err != nil || !reflect.DeepEqual(got, []string{"0002_standin.sql"}) {
-		t.Fatalf("upgrade: applied %v, err %v; want only the late 0002", got, err)
+	if got, err := db.Migrate(ctx(t), upgraded, all); err != nil || !reflect.DeepEqual(got, []string{late}) {
+		t.Fatalf("upgrade: applied %v, err %v; want only the late %s", got, err, late)
 	}
 
 	if a, b := privileges(t, fresh), privileges(t, upgraded); !reflect.DeepEqual(a, b) {

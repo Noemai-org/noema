@@ -3,6 +3,7 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func setup(t *testing.T) (*World, *controller.Controller, controller.SignedGrant
 	now := w.Clock.Now()
 	g := w.IssueGrant(1, now.Add(-time.Minute), now.Add(10*time.Minute))
 	w.Store(g)
-	c := &controller.Controller{Clock: w.Clock, Keys: w.Keys, ReceiptKeyID: KeyID, Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w}
+	c := &controller.Controller{Clock: w.Clock, Keys: w.Keys, Receipts: signingtest.Ring(t, 1), Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w}
 	return w, c, g
 }
 
