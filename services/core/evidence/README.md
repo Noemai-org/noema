@@ -9,3 +9,5 @@
 **Decisions (the card's D1 to D5, reversible).** A value from a corroborating-only source, from a source with authority NONE, or read from the future is UNKNOWN; the rules run most restrictive first; the function lives in `layer`.
 
 **Tests.** `go test ./evidence/...` from `services/core/`; fuzz with `go test -fuzz FuzzAssignStatus ./evidence/layer/`.
+
+**EVD-03 (sealed context snapshots, REQ-CTX-004, INV-17).** `snapshot/`: `SetHash` (the evidence_set_hash against the golden vectors), `Sealer.Seal` (sorts and hashes the set, refuses the empty set, appends `CONTEXT_SNAPSHOT_SEALED` and stores the row in the caller's transaction), and `Recompute` (the nightly check: every stored hash recomputed from the stored items, run as the read-only `evidence_verify` login; its output carries tenant, snapshot and digests only). The table, its guard trigger and the login's grants are migration 0019; see `snapshot/README.md`.

@@ -55,3 +55,14 @@ Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_app
 `0008_evidence_tables.sql` (EVD-01 slice 2a): `evidence_payload` and `evidence_item` (PERD 38.2, SoT 43.5), insert-only by trigger, an item pointing at a payload of its own tenant by a composite key; `evidence_rw` writes (a trigger binds each write to the tenant and power of the login, `session_user`), `trust_rw` and `outcome_rw` read; row-level security limits every read and write to the login's own tenant. Numbered 0008 because 0007 is the Outcome verdict migration (OUT-01); migrations apply by name, so the gap is harmless.
 
 `0010_record_tables_to_migrator.sql` (EXE-08 slice A, closes DEBT-05): `record_event` and `record_chain_head` are owned by `noema_migrator` instead of `record_append`; `record_append` keeps INSERT and SELECT on the event table and SELECT, INSERT and UPDATE on the head table as grants its definer functions need; `record_append` loses `CREATE` on `public`. The role `noema_migrator` is created by `init.sh` (checked, never created, by the migration). A later migration that must hand a function to `record_append` grants `CREATE ON SCHEMA public` to it at its start and revokes it at its end, in the same transaction. Numbers 0008 and 0009 are taken by open pull requests (noema#167, noema#168).
+
+`0019_context_snapshot.sql` (EVD-03 slice 2; the number is provisional until the merge ledger, noema#183, assigns it): `context_snapshot` (context-snapshot.v1) and the grants of the `evidence_verify` login (D9).
+
+| Object | Rule |
+|---|---|
+| `evidence_set_hash_of(ids, hashes)` | the golden-vector construction in SQL (sorted by the UTF-8 bytes of the id, `LP(id) LP(hash)`, SHA-256); errors on an empty or repeated id, a bad hash, arrays of unequal length; `EXECUTE` for `trust_rw` alone |
+| `context_snapshot` | insert-only (triggers); at least one evidence id; the empty-set hash is never stored; written by the tenant's own Trust login (`trust_rw` holds SELECT and INSERT), forced row-level security on `tenant_id = evidence_login_tenant()` |
+| `context_snapshot_guard()` | `SECURITY DEFINER` insert trigger: the login is a Trust login of `NEW.tenant_id` (`session_user`), the ids are non-NULL, sorted and unique, every id names an evidence item of that tenant, and the stored hash equals the hash the database computes from those items' payload hashes |
+| `evidence_verify` (created in `init.sh`, not here) | a LOGIN role in no group; `USAGE` on the schema, `SELECT` on `context_snapshot` and `evidence_item` only, and one `FOR SELECT ... USING (true)` policy on each table; no payload table, no Record, no function |
+
+Tests: `go test ./evidence/snapshot/` (the catalog test pins the exact grants of `evidence_verify`, and `deploy/compose/postgres/test_init.sh` proves what it can and cannot do on the Compose bootstrap).

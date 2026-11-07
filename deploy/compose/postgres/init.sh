@@ -8,8 +8,9 @@ core_pw="$(cat "$secrets/noema_core_password")"
 temporal_pw="$(cat "$secrets/temporal_password")"
 migrator_pw="$(cat "$secrets/noema_migrator_password")"
 verify_pw="$(cat "$secrets/noema_verify_password")"
+evidence_verify_pw="$(cat "$secrets/evidence_verify_password")"
 tenant_pw="$(cat "$secrets/noema_tenant_login_password")"
-psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" \
+psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" -v evidence_verify_pw="$evidence_verify_pw" \
   --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 -- The migration role owns the database and, from migration W4 on, the signed tables. It cannot log in; its one login can.
 CREATE ROLE noema_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
@@ -35,6 +36,9 @@ CREATE ROLE record_verify NOLOGIN;
 CREATE ROLE record_emitter NOLOGIN;
 -- The verification job logs in as this; migration 0006 grants record_verify its privileges.
 CREATE ROLE noema_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'verify_pw' IN ROLE record_verify;
+-- The nightly evidence recompute's login (EVD-03, D9): a member of no role, so it holds only what migration 0019 grants it directly (SELECT on
+-- context_snapshot and evidence_item, with one SELECT policy on each). It is not a power and not noema_verify (the Record verifier).
+CREATE ROLE evidence_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'evidence_verify_pw';
 CREATE DATABASE noema OWNER noema_migrator;
 CREATE DATABASE temporal OWNER temporal;
 CREATE DATABASE temporal_visibility OWNER temporal;
@@ -42,7 +46,7 @@ REVOKE ALL ON DATABASE noema FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 -- The core may connect and nothing more: no CREATE, no TEMPORARY. Rights on tables come from the per-power roles (migrations).
-GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter;
+GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter, evidence_verify;
 \connect noema
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO noema_core;
