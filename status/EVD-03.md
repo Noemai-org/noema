@@ -18,3 +18,11 @@ Updated 2026-11-07. Plan task EVD-03 (owner C2; REQ-CTX-004). Slice 1 (the hash)
 - Open questions: migration number (ledger, noema#183: 0019 is mine provisionally); EL owns the exception record for the new login; whether `evidence_ids` as an array (this PR) is accepted over an items table (Security Reviewer asked for no third table; IL to confirm).
 - Files to read first: `services/core/migrations/0019_context_snapshot.sql`, `services/core/evidence/snapshot/README.md`.
 - Do not touch: the golden vectors; `hash.go` (noema#225 owns its history).
+
+# Session 2026-11-07 (later) · EVD-03 (slice 2) · Security Reviewer's finding on noema#268
+
+## Session summary
+- What changed: policy `evidence_item_definer_read` in migration 0019 (the definer guard reads `evidence_item` as its owner and the table forces row-level security); `init.sh` refuses an `evidence_verify` secret equal to another login's; `test_init.sh` seals one snapshot as the non-superuser migration login, refuses a wrong hash for the right reason, and checks the shared-secret refusal; the grants test also enumerates default privileges, reverse memberships, other schemas and database CREATE.
+- Why: Security Reviewer, noema#268 at f841aa0: under a non-superuser owner the guard sees no evidence row and every snapshot is refused. Real, and invisible to the Go tests (the test migrator is a superuser). Reproduced first: `test_init.sh` printed "an evidence id does not name an evidence item of tenant ten_aa" for an honest snapshot.
+- Tests added: `TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner` (textual FROM/JOIN check, red before the policy), the `test_init.sh` sealing path (red before the policy), the shared-secret refusal, the extended grants enumeration. Red commit 3b94543.
+- Debt entries: none. Conflicts raised: none.

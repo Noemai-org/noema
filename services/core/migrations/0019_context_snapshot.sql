@@ -95,6 +95,11 @@ ALTER TABLE context_snapshot FORCE ROW LEVEL SECURITY;
 CREATE POLICY context_snapshot_tenant ON context_snapshot FOR ALL TO trust_rw
   USING (tenant_id = evidence_login_tenant()) WITH CHECK (tenant_id = evidence_login_tenant());
 
+-- context_snapshot_guard() is SECURITY DEFINER and reads evidence_item as its owner, and evidence_item forces row-level security (0008), which binds the
+-- owner too: with no policy for the owner, a non-superuser migration login (the Compose one) sees no evidence row and every snapshot is refused (Security
+-- Reviewer, noema#268). The owner may read the items of the tenant of the login that is sealing, as evidence_login_tenant() names it, and no others.
+CREATE POLICY evidence_item_definer_read ON evidence_item FOR SELECT TO CURRENT_USER USING (tenant_id = evidence_login_tenant());
+
 REVOKE ALL ON context_snapshot FROM PUBLIC;
 GRANT SELECT, INSERT ON context_snapshot TO trust_rw;
 

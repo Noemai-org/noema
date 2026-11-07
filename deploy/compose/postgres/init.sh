@@ -10,6 +10,10 @@ migrator_pw="$(cat "$secrets/noema_migrator_password")"
 verify_pw="$(cat "$secrets/noema_verify_password")"
 evidence_verify_pw="$(cat "$secrets/evidence_verify_password")"
 tenant_pw="$(cat "$secrets/noema_tenant_login_password")"
+# The evidence recompute's secret is its own: a login that shares another login's secret is that login (Security Reviewer, noema#268).
+for other in "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw"; do
+  [ "$evidence_verify_pw" != "$other" ] || { echo "init: evidence_verify_password equals another login's secret; give it its own" >&2; exit 1; }
+done
 psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" -v evidence_verify_pw="$evidence_verify_pw" \
   --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 -- The migration role owns the database and, from migration W4 on, the signed tables. It cannot log in; its one login can.
