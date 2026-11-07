@@ -14,3 +14,5 @@ Written only by the voice-engineer role (see `README.md`). Append dated entries,
 **Blocked**
 - VOI-01 `done_when` "interface tests pass against a recorded sample per provider": needs each vendor's API document and either a recorded sample or founder approval for a live call (REQ-INT-006). Nothing is invented meanwhile.
 - Lint conflict: `tools/lint/pyrules.py` `harness_only_providers` allows only `harness/` to import `providers`, while the boundary docstrings let `voice` import it. The voice pipeline will take a provider through a structural Protocol it defines itself, so no import is needed. Raised in the VOI-01 PR.
+
+- 2026-11-06: A9 (voice may import providers.speech) applied in #192 (lint plus a negative canary). VOI-02 in #193 (STACKED on #186 and #192): `voice/endpoint.py`, `voice/pipeline.py`. Open: `voice.audio_ref` has no meaning once raw audio is discarded (REQ-VOI-004); Opus decode needs an AGENT-14 dependency entry.
