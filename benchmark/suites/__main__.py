@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.contracts import pretty_bytes
+from benchmark.suites.archive import archive_previous
 from benchmark.suites.select import SelectionError, load_families, load_suites, select, selection_digest
 from benchmark.suites.subset import subset_suite
 
@@ -50,6 +51,9 @@ def _select(args: argparse.Namespace) -> tuple[Json, list[str], Json]:
 def _run(args: argparse.Namespace, passthrough: list[str]) -> int:
     manifest, ids, _ = _select(args)
     out = Path(args.out)
+    kept = archive_previous(out)
+    if kept is not None:
+        print(f"kept the earlier output of this directory at {kept}")
     out.mkdir(parents=True, exist_ok=True)
     only_file = out / "selection.txt"
     only_file.write_text("\n".join(ids) + "\n", encoding="utf-8")
@@ -83,8 +87,11 @@ def _run(args: argparse.Namespace, passthrough: list[str]) -> int:
 def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
     import importlib.util
 
-    from benchmark.suites.g1 import evidence_record, run_g1
+    from benchmark.suites.g1 import evidence_record, reset_and_up, run_g1
     out = Path(args.out)
+    kept = archive_previous(out)
+    if kept is not None:
+        print(f"kept the earlier G1 output at {kept}")
 
     def run_leg(leg: str, leg_out: Path) -> int:
         argv = ["run", "g1", "--suite", args.suite, "--out", str(leg_out), "--run-id", f"{args.run_id}-{leg}"]
@@ -100,7 +107,7 @@ def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
                                "--story", "US-06", "--exclude-mutated", "--out", str(replay_out)], check=False).returncode
 
     def reset() -> int:
-        return subprocess.run(["make", "reset"], check=False).returncode
+        return reset_and_up(lambda cmd: subprocess.run(cmd, check=False).returncode)
 
     code = run_g1(out, run_leg, run_replay, reset if args.reset else None)
     replay_json = out / "replay" / "replay.json"

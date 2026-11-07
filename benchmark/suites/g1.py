@@ -8,6 +8,15 @@ from pathlib import Path
 LEGS = ("a", "b")
 
 
+def reset_and_up(run: Callable[[list[str]], int]) -> int:
+    """A reset destroys the local environment (containers, networks and the data volume, `deploy/compose/reset.sh`), so a run that resets must bring the bench stack back up and
+    wait for it to be healthy before it runs anything (Codex on noema#117). A failed reset stops before anything is started; a failed start is reported, never a pass."""
+    code = run(["make", "reset"])
+    if code != 0:
+        return code
+    return run(["make", "model-bench-up"])
+
+
 def combine(leg_codes: Sequence[int], replay_code: int) -> int:
     """The exit code of the whole run: not-run and bad-input codes first (a leg that did not run), then the replay's, then 1 if any leg reported exit 1."""
     for code in leg_codes:

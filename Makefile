@@ -114,10 +114,12 @@ bench-live: bench-venv
 # BENCH_SUITE_RUN_ID names the run (default: the suite name and the UTC time). BENCH_RESET=0 skips `make reset`; the record then says reset_done false.
 # Exit codes as `make bench`: 0 complete and Tier 0 all zero, 1 incomplete or a gate not zero, 2 bad input, 3 not run, no access. The held-out layer is never run here.
 BENCH_RESET ?= 1
+# What brings the environment back after a reset: the bench stack with the model writing cost records, waited on until healthy. `make reset` destroys the volumes.
+BENCH_UP ?= model-bench-up
 BENCH_SUITE_ARGS ?=
 bench-us bench-chaos bench-evil bench-full: bench-venv
 	@suite=$(patsubst bench-%,%,$@); \
-	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
+	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; $(MAKE) $(BENCH_UP) || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
 	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
 	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
 	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- $(BENCH_SUITE_ARGS)
@@ -129,9 +131,9 @@ BENCH_G1_ID ?= g1-$(shell date -u +%Y%m%d-%H%M%S)
 # Where the scenario data comes from. G1 runs on the Noema-side stand-in (Founder's decision of 4 Nov 2026) and the evidence is labelled so; "tushe" only once its OpenAPI is frozen.
 BENCH_G1_DATA_SOURCE ?= stand-in
 bench-g1: bench-venv
-	@$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1/suite > /dev/null || exit $$?; \
+	@$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1-suite > /dev/null || exit $$?; \
 	reset_flag=""; if [ "$(BENCH_RESET)" = "1" ]; then reset_flag="--reset"; fi; \
-	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1/suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" --data-source "$(BENCH_G1_DATA_SOURCE)" $$reset_flag -- $(BENCH_SUITE_ARGS)
+	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1-suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" --data-source "$(BENCH_G1_DATA_SOURCE)" $$reset_flag -- $(BENCH_SUITE_ARGS)
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:
