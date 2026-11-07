@@ -128,6 +128,17 @@ func bootstrapSigning(t testing.TB, pool *pgxpool.Pool, dbName string) {
 	if !available {
 		return
 	}
+	// CREATE EXTENSION creates cluster-wide roles, so two sessions that run it together on a server that has never had the extension collide on pg_authid.
+	// An advisory lock belongs to one database, so the lock is taken on the server's maintenance database, the one ensureRoles uses, and serialises
+	// the bootstrap across every test database and every test binary on the server. It is held on its own connection until the bootstrap ends.
+	lock, err := pgx.Connect(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("testpg: connect to lock the pgsodium bootstrap: %v", err)
+	}
+	defer func() { _ = lock.Close(context.Background()) }()
+	if _, err := lock.Exec(ctx, `SELECT pg_advisory_lock(7770001)`); err != nil {
+		t.Fatalf("testpg: lock the pgsodium bootstrap: %v", err)
+	}
 	for _, stmt := range []string{
 		`CREATE EXTENSION IF NOT EXISTS pgsodium`,
 		`DO $$ DECLARE r record; BEGIN
