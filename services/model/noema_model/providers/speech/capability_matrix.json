@@ -1,0 +1,40 @@
+{
+  "matrix_version": 1,
+  "as_of": "2026-11-05",
+  "basis": "No vendor document, recorded sample or live call has been read for any provider (VOI-01, OQ-07). Every capability is UNVERIFIED and no provider is qualified. A cell changes only with a link to the vendor document or a test that shows it (REQ-INT-006).",
+  "providers": [
+    {
+      "name": "aethex_ai",
+      "mode": "TRANSCRIBE_ONLY",
+      "streaming_asr": "UNVERIFIED",
+      "asr_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "tts_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "latency_ms_p95": null,
+      "retention_terms": "UNVERIFIED",
+      "pinned_model_version": null,
+      "qualified": false
+    },
+    {
+      "name": "indigenius",
+      "mode": "TRANSCRIBE_ONLY",
+      "streaming_asr": "UNVERIFIED",
+      "asr_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "tts_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "latency_ms_p95": null,
+      "retention_terms": "UNVERIFIED",
+      "pinned_model_version": null,
+      "qualified": false
+    },
+    {
+      "name": "n_atlas",
+      "mode": "TRANSCRIBE_ONLY",
+      "streaming_asr": "UNVERIFIED",
+      "asr_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "tts_locales": {"en-NG":"UNVERIFIED","pcm":"UNVERIFIED","yo":"UNVERIFIED","ha":"UNVERIFIED","ig":"UNVERIFIED"},
+      "latency_ms_p95": null,
+      "retention_terms": "UNVERIFIED",
+      "pinned_model_version": null,
+      "qualified": false
+    }
+  ]
+}
