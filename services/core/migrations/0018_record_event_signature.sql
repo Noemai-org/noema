@@ -26,7 +26,7 @@ ALTER TABLE public.record_event ADD COLUMN signed_jcs bytea NOT NULL;
 
 CREATE FUNCTION public.record_event_verify() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-DECLARE doc jsonb; msg bytea;
+DECLARE doc jsonb; msg bytea; v_at timestamptz;
 BEGIN
   IF NEW.signed_jcs IS NULL OR NEW.sig_key_id IS NULL OR NEW.sig_value IS NULL THEN
     RAISE EXCEPTION 'signature not verified: the signed bytes or the signature are missing' USING ERRCODE = 'NS001';
@@ -39,6 +39,15 @@ BEGIN
   IF jsonb_typeof(doc) <> 'object' OR doc ? 'sig' OR doc ? 'hash' THEN
     RAISE EXCEPTION 'signature not verified: the signed document must be an object without sig and without hash' USING ERRCODE = 'NS001';
   END IF;
+  -- The signed instant is a timestamp, or the signature fails (same rule as the receipt trigger of 0013).
+  IF (doc ->> 'at') IS NULL THEN
+    RAISE EXCEPTION 'signature not verified: the signed document has no at' USING ERRCODE = 'NS001';
+  END IF;
+  BEGIN
+    v_at := (doc ->> 'at')::timestamptz;
+  EXCEPTION WHEN others THEN
+    RAISE EXCEPTION 'signature not verified: the signed at is not a timestamp' USING ERRCODE = 'NS001';
+  END;
   -- The stored body is the signed document, and the signed document names this row's own position and emitter (D7).
   IF NEW.body IS DISTINCT FROM doc
      OR jsonb_typeof(doc -> 'seq') IS DISTINCT FROM 'number'
@@ -46,7 +55,16 @@ BEGIN
      OR (doc ->> 'event_id') IS DISTINCT FROM NEW.event_id
      OR (doc ->> 'prev_hash') IS DISTINCT FROM NEW.prev_hash
      OR (doc ->> 'written_by') IS DISTINCT FROM NEW.written_by
-     OR (doc ->> 'seq') IS DISTINCT FROM NEW.seq::text THEN
+     OR (doc ->> 'seq') IS DISTINCT FROM NEW.seq::text
+     -- D8 check 3 (SR on noema#263): the typed columns the Record serves are the fields of the document that was signed. payload_hash is compared as text; the
+     -- database cannot recompute it from the payload, the chain verifier does.
+     OR (doc ->> 'correlation_id') IS DISTINCT FROM NEW.correlation_id
+     OR (doc ->> 'actor') IS DISTINCT FROM NEW.actor
+     OR (doc ->> 'event_type') IS DISTINCT FROM NEW.event_type
+     OR (doc ->> 'object_ref') IS DISTINCT FROM NEW.object_ref
+     OR (doc ->> 'payload_hash') IS DISTINCT FROM NEW.payload_hash
+     OR (doc ->> 'schema_version') IS DISTINCT FROM NEW.schema_version
+     OR v_at IS DISTINCT FROM NEW.at THEN
     RAISE EXCEPTION 'signature not verified: the signed document is not this event' USING ERRCODE = 'NS001';
   END IF;
   msg := pg_catalog.convert_to('noema/record-event/v1' || pg_catalog.chr(10), 'UTF8') || NEW.signed_jcs;
