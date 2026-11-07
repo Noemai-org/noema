@@ -392,8 +392,8 @@ func project(events []stored) ([]item, error) {
 	return out, nil
 }
 
-// capabilityOf is the pack capability an action was dispatched under. The dispatch records it (capability_id); logical_action is an action
-// label such as ESCALATE_CASE and is only the fallback for a Record written before the dispatch carried the capability. The event at i is a
+// capabilityOf is the pack capability an action was dispatched under. The dispatch records it (capability_id); logical_action is the grant's
+// capability, a pack ID, since the fix of G1 (noema#243), and is only the fallback for a Record written before the dispatch carried the capability. The event at i is a
 // dispatch or a receipt of one attempt of one grant.
 func capabilityOf(events []stored, i int) any {
 	ev := events[i]
