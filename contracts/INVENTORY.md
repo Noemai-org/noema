@@ -17,6 +17,7 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 | `policy-rule.v1.json` | §15.3 | §23.4 | REQ-TRU-001 | |
 | `policy-version.v1.json` | §15.3, INV-26 | §23.4 | REQ-TRU-001 | |
 | `clock.v1.json` | §15.3 | §23.5 | REQ-TRU-001 | SYNTHETIC until validated by counsel |
+| `execution-limits.v1.json` | §35 | §25 (REQ-CAP-003, REQ-RCV-003) | REQ-CAP-003, REQ-RCV-003 | Circuit-breaker policy and dispatch budget as pack data (Architect ruling A3, AGENT-16); data in `packs/fintech/limits/execution_limits.json`. A new file, so no existing contract changes meaning (AGENT-15 migration note: additive). SYNTHETIC |
 | `reason-catalogue-entry.v1.json` | §43.2 | §23.3 | REQ-TRU-001 | Pack tier of the reason codes (money-and-value-lists §2.3) |
 
 ## C-2 · Money and core enums
