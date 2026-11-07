@@ -72,6 +72,12 @@ var (
 func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this stand-in's policy is always at the version its grants name.
+func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return true, nil
 }
@@ -103,7 +109,7 @@ func (s *trustStandIn) issue(ctx context.Context, capability, target string, par
 	now := s.clk.Now()
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_g2%04d", n), DecisionID: "dec_g2case", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: capability, TargetRef: target, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n), TargetVersions: versions,
-		PolicyVersion: policyScope + "@1", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_g2%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
