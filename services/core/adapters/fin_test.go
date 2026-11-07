@@ -240,3 +240,49 @@ func TestProvenanceKeepsTheWireHashAndTheSyntheticLabel(t *testing.T) {
 		}
 	}
 }
+
+func validCandidate() Candidate {
+	return Candidate{TransactionRef: "tx:1", AccountRef: "acc_usr_a", Direction: DirectionOutgoing, AmountMinor: 500000, Currency: "NGN", Counterparty: "ben_1", OccurredAt: "2026-10-01T09:30:00+01:00"}
+}
+
+// Codex review of noema#205 (P2): a candidate with a missing or arbitrary direction, or a timestamp that is not RFC 3339, must be MALFORMED,
+// not an ordinary candidate.
+func TestACandidateWithAnUnknownDirectionOrAMalformedTimeIsMalformed(t *testing.T) {
+	if err := validCandidate().Validate(); err != nil {
+		t.Fatalf("a valid candidate: %v", err)
+	}
+	in := validCandidate()
+	in.Direction = DirectionIncoming
+	if err := in.Validate(); err != nil {
+		t.Fatalf("an incoming candidate: %v", err)
+	}
+	for name, mut := range map[string]func(*Candidate){
+		"no direction":      func(c *Candidate) { c.Direction = "" },
+		"unknown direction": func(c *Candidate) { c.Direction = "SIDEWAYS" },
+		"lower-case":        func(c *Candidate) { c.Direction = "outgoing" },
+		"no time":           func(c *Candidate) { c.OccurredAt = "" },
+		"not RFC 3339":      func(c *Candidate) { c.OccurredAt = "yesterday" },
+		"date only":         func(c *Candidate) { c.OccurredAt = "2026-10-01" },
+		"no transaction":    func(c *Candidate) { c.TransactionRef = "" },
+		"no account":        func(c *Candidate) { c.AccountRef = "" },
+		"no currency":       func(c *Candidate) { c.Currency = "" },
+		"zero amount":       func(c *Candidate) { c.AmountMinor = 0 },
+		"negative amount":   func(c *Candidate) { c.AmountMinor = -5 },
+	} {
+		c := validCandidate()
+		mut(&c)
+		err := c.Validate()
+		var re *ReadError
+		if !errors.As(err, &re) || re.Failure != ReadMalformed {
+			t.Errorf("%s: want a ReadError with ReadMalformed, got %v", name, err)
+		}
+	}
+}
+
+// Evidence Layer request (noema#205 comment): an error read that received a body carries the hash of those bytes.
+func TestAReadErrorCanCarryTheHashOfTheBytesItReceived(t *testing.T) {
+	e := &ReadError{Failure: ReadMalformed, RawCode: "200", RawHash: "sha256:" + strings.Repeat("a", 64)}
+	if e.RawHash == "" {
+		t.Fatal("RawHash must be a field of ReadError")
+	}
+}

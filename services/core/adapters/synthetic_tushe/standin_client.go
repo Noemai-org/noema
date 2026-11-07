@@ -146,18 +146,21 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 	if err != nil {
 		return answer{}, &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: transportFailure(ctx, err).RawCode}
 	}
+	sum := sha256.Sum256(raw)
+	hash := "sha256:" + hex.EncodeToString(sum[:])
 	if e := readStatusError(res.StatusCode, res.Header, raw); e != nil {
+		e.RawHash = hash // the bytes that came back, including an error body; the Evidence Layer hashes an error read with them
 		return answer{}, e
 	}
 	if !isJSONResponse(res.Header) {
-		return answer{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(res.StatusCode)}
+		return answer{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(res.StatusCode), RawHash: hash}
 	}
-	sum := sha256.Sum256(raw)
-	return answer{raw: raw, hash: "sha256:" + hex.EncodeToString(sum[:])}, nil
+	return answer{raw: raw, hash: hash}, nil
 }
 
-func malformed200() error {
-	return &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: "200"}
+// malformed200 is a 2xx the client cannot trust; it carries the hash of the bytes that were received.
+func malformed200(hash string) error {
+	return &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: "200", RawHash: hash}
 }
 
 // label is the pair every stand-in answer carries (AGENT-25).
@@ -168,11 +171,11 @@ type label struct {
 
 func (a answer) provenance(l label) (adapters.Provenance, error) {
 	if l.DataSource != standinLabel || !l.Synthetic {
-		return adapters.Provenance{}, malformed200()
+		return adapters.Provenance{}, malformed200(a.hash)
 	}
 	p := adapters.Provenance{RawHash: a.hash, DataSource: l.DataSource, Synthetic: l.Synthetic}
 	if p.Validate() != nil {
-		return adapters.Provenance{}, malformed200()
+		return adapters.Provenance{}, malformed200(a.hash)
 	}
 	return p, nil
 }
@@ -201,7 +204,7 @@ func (c *StandinClient) LedgerEntries(ctx context.Context, scope adapters.Scope,
 	}
 	var w wireLedger
 	if strict(a.raw, &w) != nil || w.Unavailable == nil {
-		return adapters.LedgerRead{}, malformed200()
+		return adapters.LedgerRead{}, malformed200(a.hash)
 	}
 	prov, err := a.provenance(w.label)
 	if err != nil {
@@ -209,11 +212,11 @@ func (c *StandinClient) LedgerEntries(ctx context.Context, scope adapters.Scope,
 	}
 	// A list that is absent is not an empty list: only a present `[]` means "no entries" (a JSON null or a missing key is nil).
 	if w.Entries == nil {
-		return adapters.LedgerRead{}, malformed200()
+		return adapters.LedgerRead{}, malformed200(a.hash)
 	}
 	if *w.Unavailable {
 		if len(w.Entries) != 0 {
-			return adapters.LedgerRead{}, malformed200()
+			return adapters.LedgerRead{}, malformed200(a.hash)
 		}
 		return adapters.LedgerRead{Unavailable: true, Provenance: prov}, nil
 	}
@@ -222,7 +225,7 @@ func (c *StandinClient) LedgerEntries(ctx context.Context, scope adapters.Scope,
 		entry := adapters.LedgerEntry{EntryID: e.EntryID, AccountRef: e.AccountRef, TransactionRef: e.TransactionRef, EntryType: adapters.EntryType(e.EntryType),
 			AmountMinor: e.AmountMinor, Currency: e.Currency, PostingStatus: adapters.PostingStatus(e.PostingStatus), PostedAt: e.PostedAt, Version: e.Version}
 		if entry.Validate() != nil {
-			return adapters.LedgerRead{}, malformed200()
+			return adapters.LedgerRead{}, malformed200(a.hash)
 		}
 		out.Entries = append(out.Entries, entry)
 	}
@@ -251,7 +254,7 @@ func (c *StandinClient) SwitchStatus(ctx context.Context, scope adapters.Scope, 
 	}
 	var w wireSwitch
 	if strict(a.raw, &w) != nil || w.Unavailable == nil {
-		return adapters.SwitchRead{}, malformed200()
+		return adapters.SwitchRead{}, malformed200(a.hash)
 	}
 	prov, err := a.provenance(w.label)
 	if err != nil {
@@ -263,7 +266,7 @@ func (c *StandinClient) SwitchStatus(ctx context.Context, scope adapters.Scope, 
 	rec := adapters.SwitchRecord{SwitchRef: w.SwitchRef, TransactionRef: w.TransactionRef, RawCode: w.RawCode, RawCodeLabel: w.RawCodeLabel,
 		SemanticStatus: adapters.SwitchSemanticStatus(w.SemanticStatus), IsTerminal: w.IsTerminal, DestinationAck: w.DestinationAck, ReceivedAt: w.ReceivedAt, RawPayloadHash: w.RawPayloadHash}
 	if rec.Validate() != nil || rec.TransactionRef != transactionRef {
-		return adapters.SwitchRead{}, malformed200()
+		return adapters.SwitchRead{}, malformed200(a.hash)
 	}
 	return adapters.SwitchRead{Record: rec, Provenance: prov}, nil
 }
@@ -287,7 +290,7 @@ func (c *StandinClient) DestinationStatus(ctx context.Context, scope adapters.Sc
 	}
 	var w wireDestination
 	if strict(a.raw, &w) != nil || w.Unavailable == nil {
-		return adapters.DestinationRead{}, malformed200()
+		return adapters.DestinationRead{}, malformed200(a.hash)
 	}
 	prov, err := a.provenance(w.label)
 	if err != nil {
@@ -299,7 +302,7 @@ func (c *StandinClient) DestinationStatus(ctx context.Context, scope adapters.Sc
 	st := adapters.DestinationStatus{TransactionRef: w.TransactionRef, CreditState: adapters.CreditState(w.CreditState),
 		SettlementState: adapters.SettlementState(w.SettlementState), EffectiveAt: w.EffectiveAt, ObservedAt: w.ObservedAt}
 	if st.Validate() != nil || st.TransactionRef != transactionRef {
-		return adapters.DestinationRead{}, malformed200()
+		return adapters.DestinationRead{}, malformed200(a.hash)
 	}
 	return adapters.DestinationRead{Status: st, Provenance: prov}, nil
 }
@@ -332,6 +335,11 @@ func (c *StandinClient) FindCandidates(ctx context.Context, scope adapters.Scope
 	if err := q.Validate(); err != nil {
 		return adapters.CandidatePage{}, err
 	}
+	// The stand-in has no pagination: a cursor cannot be honoured, and dropping it would return the first page again as if it were the next
+	// (Codex review of noema#205). Refuse it before anything is sent.
+	if q.Cursor != "" {
+		return adapters.CandidatePage{}, &adapters.ReadError{Failure: adapters.ReadInvalid, RawCode: "FIN:CURSOR_UNSUPPORTED"}
+	}
 	v := url.Values{}
 	set := func(k, val string) {
 		if val != "" {
@@ -354,7 +362,7 @@ func (c *StandinClient) FindCandidates(ctx context.Context, scope adapters.Scope
 	}
 	var w wireCandidates
 	if strict(a.raw, &w) != nil || w.Complete == nil || w.Items == nil || len(w.Items) > q.Limit {
-		return adapters.CandidatePage{}, malformed200()
+		return adapters.CandidatePage{}, malformed200(a.hash)
 	}
 	prov, err := a.provenance(w.label)
 	if err != nil {
@@ -362,11 +370,12 @@ func (c *StandinClient) FindCandidates(ctx context.Context, scope adapters.Scope
 	}
 	page := adapters.CandidatePage{Complete: *w.Complete, Provenance: prov}
 	for _, it := range w.Items {
-		if it.TransactionRef == "" || it.AccountRef == "" || it.AmountMinor <= 0 || it.Currency == "" || it.OccurredAt == "" {
-			return adapters.CandidatePage{}, malformed200()
+		cand := adapters.Candidate{TransactionRef: it.TransactionRef, AccountRef: it.AccountRef, Direction: it.Direction,
+			AmountMinor: it.AmountMinor, Currency: it.Currency, Counterparty: it.Counterparty, OccurredAt: it.OccurredAt}
+		if cand.Validate() != nil {
+			return adapters.CandidatePage{}, malformed200(a.hash)
 		}
-		page.Items = append(page.Items, adapters.Candidate{TransactionRef: it.TransactionRef, AccountRef: it.AccountRef, Direction: it.Direction,
-			AmountMinor: it.AmountMinor, Currency: it.Currency, Counterparty: it.Counterparty, OccurredAt: it.OccurredAt})
+		page.Items = append(page.Items, cand)
 	}
 	return page, nil
 }

@@ -390,3 +390,76 @@ func TestAMissingListIsMalformedNotEmpty(t *testing.T) {
 		t.Fatalf("a present empty list on a complete page is a real absence: %+v %v", page, err)
 	}
 }
+
+// Codex review of noema#205 (P1): a requested cursor must be refused, not dropped. The stand-in has no pagination, so a caller asking for
+// "the next page" would get the first page again, and a complete first page would then look like the whole answer.
+func TestAnUnsupportedCursorIsRefusedAndNothingIsSent(t *testing.T) {
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions", 200, candBody)
+	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10, Cursor: "c2"})
+	if re := sFail(t, err); re.Failure != adapters.ReadInvalid || re.RawCode != "FIN:CURSOR_UNSUPPORTED" {
+		t.Fatalf("got %+v, want INVALID FIN:CURSOR_UNSUPPORTED", re)
+	}
+	if len(f.seen) != 0 {
+		t.Fatal("a refused cursor must not reach the stand-in")
+	}
+}
+
+func TestACandidateWithAnUnknownDirectionOrABadTimeInAnAnswerIsMalformed(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown direction": strings.Replace(candBody, `"OUTGOING"`, `"SIDEWAYS"`, 1),
+		"no direction":      strings.Replace(candBody, `"direction":"OUTGOING",`, ``, 1),
+		"bad time":          strings.Replace(candBody, `"2026-10-01T09:30:00+01:00"`, `"yesterday"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeStandin(t)
+			f.body("/standin/v1/transactions", 200, body)
+			_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
+			if re := sFail(t, err); re.Failure != adapters.ReadMalformed {
+				t.Fatalf("got %+v, want MALFORMED", re)
+			}
+		})
+	}
+}
+
+// Evidence Layer request: every error that received a response carries the SHA-256 of its bytes (non-2xx bodies and malformed 2xx bodies);
+// only a failure with no bytes (a timeout) leaves it empty.
+func TestEveryErrorThatReceivedBytesCarriesTheirHash(t *testing.T) {
+	cases := map[string]struct {
+		status int
+		ctype  string
+		body   string
+	}{
+		"404":                {404, "application/json", `{"data_source":"stand-in","synthetic":true,"error":{"code":"NOT_FOUND","message":"x"}}`},
+		"503 not loaded":     {503, "application/json", `{"data_source":"stand-in","synthetic":true,"error":{"code":"STANDIN_NOT_LOADED","message":"x"}}`},
+		"429":                {429, "application/json", `{"error":{"code":"RATE_LIMITED"}}`},
+		"500 without a body": {500, "application/json", ``},
+		"malformed 2xx":      {200, "application/json", `{"data_source":"stand-in",`},
+		"wrong content type": {200, "text/html", ledgerBody},
+		"unknown field":      {200, "application/json", strings.Replace(ledgerBody, `"unavailable":false`, `"unavailable":false,"x":1`, 1)},
+		"another label":      {200, "application/json", strings.Replace(ledgerBody, `"stand-in"`, `"tushe"`, 1)},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeStandin(t)
+			f.body("/standin/v1/transactions/tx:1/ledger-entries", tc.status, tc.body)
+			f.on("/standin/v1/transactions/tx:1/ledger-entries", func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", tc.ctype)
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+			_, err := newStandinClient(t, f).LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1")
+			if re := sFail(t, err); re.RawHash != sha(tc.body) {
+				t.Fatalf("RawHash = %q, want %q", re.RawHash, sha(tc.body))
+			}
+		})
+	}
+	t.Run("a timeout has no bytes and no hash", func(t *testing.T) {
+		f := newFakeStandin(t)
+		f.on("/standin/v1/transactions/tx:1/ledger-entries", func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() })
+		_, err := newStandinClient(t, f).LedgerEntries(sdl(t, 200*time.Millisecond), sScope, "tx:1")
+		if re := sFail(t, err); re.RawHash != "" {
+			t.Fatalf("a timeout carries RawHash %q", re.RawHash)
+		}
+	})
+}

@@ -264,6 +264,32 @@ type Candidate struct {
 	OccurredAt     string // RFC 3339
 }
 
+// Direction of a candidate transaction, as the benchmark fixture and the stand-in write it.
+const (
+	DirectionOutgoing = "OUTGOING"
+	DirectionIncoming = "INCOMING"
+)
+
+// Validate refuses a candidate with a missing field, a direction that is not OUTGOING or INCOMING, a non-positive amount or a time that is not
+// RFC 3339 (Codex review of noema#205): a malformed candidate is MALFORMED, never an ordinary one.
+func (c Candidate) Validate() error {
+	if c.Direction != DirectionOutgoing && c.Direction != DirectionIncoming {
+		return malformed("candidate.direction")
+	}
+	for field, v := range map[string]string{"transaction_ref": c.TransactionRef, "account_ref": c.AccountRef, "currency": c.Currency} {
+		if v == "" {
+			return malformed("candidate." + field)
+		}
+	}
+	if c.AmountMinor <= 0 {
+		return malformed("candidate.amount_minor")
+	}
+	if _, err := time.Parse(time.RFC3339, c.OccurredAt); err != nil {
+		return malformed("candidate.occurred_at")
+	}
+	return nil
+}
+
 // TransactionQuery is a scoped, bounded candidate search: by account, time window, amount range and counterparty.
 // An unset From, To, AmountMaxMinor or Counterparty is no filter; Limit is required and capped.
 type TransactionQuery struct {
