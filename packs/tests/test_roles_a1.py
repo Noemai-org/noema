@@ -36,11 +36,18 @@ class PackRolesAreA1Roles(unittest.TestCase):
         self.assertLessEqual(found, A1_ROLES, f"{path.name} names roles outside A1: {sorted(found - A1_ROLES)}")
 
     def test_the_benchmark_generator_names_only_roles_the_issuer_can_issue(self):
-        text = (ROOT / "benchmark" / "generator" / "lib_security.py").read_text()
-        found = {r for group in re.findall(r"roles=\(([^)]*)\)", text) for r in re.findall(r'"([a-z_]+)"', group)}
+        # Every generator source file, not one: a role set in another file would otherwise escape (SR on noema#253). The generated cases are checked too,
+        # by benchmark/generator/test_roles.py.
+        files = sorted(p for p in (ROOT / "benchmark" / "generator").glob("*.py") if not p.name.startswith("test_"))
+        self.assertGreater(len(files), 5)
+        found, seen_in = set(), {}
+        for path in files:
+            roles = {r for group in re.findall(r"roles=\(([^)]*)\)", path.read_text()) for r in re.findall(r'"([a-z_]+)"', group)}
+            found |= roles
+            for r in roles:
+                seen_in.setdefault(r, path.name)
         self.assertTrue(found)
-        self.assertLessEqual(found, A1_ROLES, f"lib_security.py names roles outside A1: {sorted(found - A1_ROLES)}")
-
+        self.assertLessEqual(found, A1_ROLES, f"generator files name roles outside A1: {sorted((r, seen_in[r]) for r in found - A1_ROLES)}")
 
 if __name__ == "__main__":
     unittest.main()
