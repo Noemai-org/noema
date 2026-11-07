@@ -19,6 +19,8 @@ type Investigation struct {
 }
 
 // Command asks for one transition of one investigation. ExpectedVersion is the version the caller read; it is not a hint.
+// A new investigation starts at version 0 (the zero value), so a caller that forgets to set ExpectedVersion matches it and is not refused: the persistence slice
+// (STM-01 slice 2) must make the expected version part of the compare-and-swap and take it from what the caller read, never from a default (SR's note 2).
 type Command struct {
 	To              State
 	ExpectedVersion int64
@@ -36,7 +38,8 @@ type Change struct {
 // the slices that own those inputs, through interfaces; a guard receives the investigation and the command as they were.
 type Guard func(Investigation, Command) error
 
-// Machine applies commands against a table. It holds no state of its own.
+// Machine applies commands against a table. It holds no state of its own. Table and Guards are read-only once the first Apply has run: Guards is an exported
+// map that Apply reads without a lock, so a caller builds it before sharing the Machine and never writes it again (SR's note 1 on noema#264).
 type Machine struct {
 	Table  *Table
 	Guards map[Transition]Guard
