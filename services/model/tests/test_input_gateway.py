@@ -66,7 +66,7 @@ def test_text_becomes_a_canonical_input_with_the_sessions_identity_and_the_clock
     assert (out.tenant_id, out.principal_ref, out.session_id, out.correlation_id) == ("ten_demo", "prn_opaque_88213", "ses_7a1b2c", "corr_4c21f9")
     assert out.mode.value == "MODE_1" and out.channel.value == "text" and out.voice is None
     assert out.received_at == "2026-10-01T09:47:02.123Z" and out.schema_version == "1.0" and out.locale_hint == "en-NG"
-    CanonicalInputV1.model_validate(json.loads(out.model_dump_json(by_alias=True, exclude_none=True)))
+    CanonicalInputV1.model_validate_json(out.model_dump_json(by_alias=True, exclude_none=True))
 
 
 # REQ-VOI-001: a voice request has the same shape; the voice block is carried as given.
@@ -85,17 +85,20 @@ def test_every_valid_contract_fixture_round_trips_and_every_invalid_one_is_refus
         raw = {k: fx[k] for k in ("request_id", "channel", "text", "locale_hint", "voice", "conversation_ref") if k in fx}
         at = datetime.fromisoformat(fx["received_at"].replace("Z", "+00:00"))
         out = Gateway(FixedClock(at)).canonicalise(raw, ctx)
-        assert json.loads(out.model_dump_json(by_alias=True, exclude_none=True)) == fx, path.name
+        # The gateway always writes milliseconds ("...:02.000Z"); a fixture may omit them. Everything else must be equal.
+        assert json.loads(out.model_dump_json(by_alias=True, exclude_none=True)) == {**fx, "received_at": at.strftime("%Y-%m-%dT%H:%M:%S.000Z")}, path.name
     for path in sorted(INVALID.glob("*.json")):
         if path.name == "expectations.json":
             continue
         fx = json.loads(path.read_text())
         ctx = RequestContext(correlation_id="corr_4c21f9", tenant_id="ten_demo", session_id="ses_7a1b2c", principal_ref="prn_opaque_88213")
         raw = {k: fx[k] for k in fx if k not in ("schema_version", "correlation_id", "tenant_id", "session_id", "principal_ref", "mode", "received_at")}
-        if path.name == "missing_principal_ref.json":
-            continue  # the principal comes from the session context, which cannot be missing (RequestContext requires it)
-        with pytest.raises(InputInvalid):
+        if path.name in ("missing_principal_ref.json", "unknown_mode.json"):
+            continue  # the principal and the mode are set by the session context and the gateway, never read from the body
+        with pytest.raises(InputInvalid) as caught:
             GATEWAY.canonicalise(raw, ctx)
+        # Refused for the fixture's own reason, not because a system field was left in the body.
+        assert (caught.value.reason is Reason.UNKNOWN_FIELD) == (path.name == "unknown_field.json"), path.name
 
 
 # REQ-INP-001 failure table.
