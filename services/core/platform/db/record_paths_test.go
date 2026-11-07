@@ -146,3 +146,21 @@ func TestThereIsNoOperatorRoleInTheDatabase(t *testing.T) {
 		t.Fatalf("%d operator or audit roles exist; the A20 audit covers record_read and record_verify only", n)
 	}
 }
+
+// SR disposition on noema#241, condition (2) of F1: no runtime, tenant, audit or emitter role is a member of record_verify, directly or through another role.
+// The verifier's own login (noema_verify, created by deploy/compose/postgres/init.sh) is the only member there may be; in a test database there is none.
+func TestNoRuntimeRoleIsAMemberOfTheVerifierRole(t *testing.T) {
+	pool := migrated(t)
+	for _, role := range runtimeRoles {
+		if role == "record_verify" {
+			continue
+		}
+		var member bool
+		if err := pool.QueryRow(ctx(t), `SELECT pg_has_role($1, 'record_verify', 'MEMBER')`, role).Scan(&member); err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		if member {
+			t.Errorf("%s is a member of record_verify, directly or through another role: it would read every tenant's Record", role)
+		}
+	}
+}
