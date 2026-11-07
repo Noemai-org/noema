@@ -60,6 +60,33 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class OnlyFile(unittest.TestCase):
+    """BEN-29: `--only-file` reads case ids, one per line, beside `--only`."""
+
+    def test_ids_come_from_the_file_and_from_only(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("BEN-CLEAN-0001\nBEN-TMO-0001\n\n")
+            self.assertEqual({"BEN-CLEAN-0001", "BEN-TMO-0001", "BEN-AMB-0001"}, only_ids(["BEN-AMB-0001"], f))
+            self.assertEqual({"BEN-CLEAN-0001", "BEN-TMO-0001"}, only_ids(None, f))
+            self.assertIsNone(only_ids(None, None))
+
+    def test_a_malformed_id_in_the_file_is_refused(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("not-a-case\n")
+            with self.assertRaises(ValueError):
+                only_ids(None, f)
+
+
 class StandInWiring(unittest.TestCase):
     """Option B for G1: `--standin-url` (with the bench credential) replaces the missing fixture loader with the Noema-side stand-in's."""
 
