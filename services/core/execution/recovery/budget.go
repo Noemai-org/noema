@@ -39,6 +39,9 @@ func NewGate(max int) (*Gate, error) {
 // Decide counts the DISPATCH_ATTEMPTED events already in rows for k and answers BudgetSpent when they reach the budget. rows are the
 // verified rows of one tenant's chain, the tenant tenantID; rows of other correlations do not count. A dispatch of k's correlation whose
 // capability or target cannot be read might belong to k, so it counts against every key of that correlation: unknown is never "not counted".
+//
+// Tenant isolation is the caller's: chain.Row carries no tenant, so the comparison of tenantID with k.TenantID shows only that two strings the caller
+// supplies agree. The isolation holds when the rows were read through chain.ReadChain, whose tenant comes from the database login (DEBT-04), and only then.
 func (g *Gate) Decide(tenantID string, rows []chain.Row, k Key) BudgetDecision {
 	if k.TenantID != tenantID || k.CorrelationID == "" || k.Capability == "" || k.TargetRef == "" {
 		return BudgetSpent // not of this chain's tenant, or a part is missing, so it could match no recorded dispatch; refuse
