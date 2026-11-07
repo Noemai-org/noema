@@ -23,8 +23,9 @@ for tenant in ${NOEMA_TENANTS:-}; do
   for emitter in ${NOEMA_EMITTERS:-core-edge}; do
     case "$emitter" in
       core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
-      [a-z]*) ;;
-      *) echo "init: '$emitter' is not an emitter name" >&2; exit 1 ;;
+      '') echo "init: an emitter name is empty" >&2; exit 1 ;;
+      *[!a-z0-9-]*|[!a-z]*) echo "init: '$emitter' is not an emitter name (^[a-z][a-z0-9-]*\$)" >&2; exit 1 ;;
+      *) ;;
     esac
     f="$secrets/emitter_logins/${tenant}__${emitter}"
     [ -f "$f" ] && [ -s "$f" ] || { echo "init: the emitter login ${tenant}__${emitter} has no secret file of its own ($f)" >&2; exit 1; }
@@ -100,8 +101,9 @@ for tenant in ${NOEMA_TENANTS:-}; do
   for emitter in ${NOEMA_EMITTERS:-core-edge}; do
     case "$emitter" in
       core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
-      [a-z]*) ;;
-      *) echo "init: '$emitter' is not an emitter name" >&2; exit 1 ;;
+      '') echo "init: an emitter name is empty" >&2; exit 1 ;;
+      *[!a-z0-9-]*|[!a-z]*) echo "init: '$emitter' is not an emitter name (^[a-z][a-z0-9-]*\$)" >&2; exit 1 ;;
+      *) ;;
     esac
     emitter_pw="$(cat "$secrets/emitter_logins/${tenant}__${emitter}")"
     psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v pw="$emitter_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'

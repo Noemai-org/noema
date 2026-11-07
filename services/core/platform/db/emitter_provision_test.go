@@ -6,11 +6,14 @@ package db_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // groupRolesForProvisioning are the group roles a running service can act as.
@@ -128,8 +131,20 @@ func TestProvisionEmitterLoginRefusesWhatIsNotAnEmitterLogin(t *testing.T) {
 		"a tenant that does not exist":          {ok, "ten_zz", "core-edge"},
 	}
 	for name, args := range cases {
-		if _, err := w.admin.Exec(ctx(t), `SELECT provision_emitter_login($1, $2, $3)`, args...); err == nil {
+		_, err := w.admin.Exec(ctx(t), `SELECT provision_emitter_login($1, $2, $3)`, args...)
+		if err == nil {
 			t.Errorf("%s was accepted", name)
+			continue
+		}
+		// Each case is refused for its own reason, so a typo in the function name or a missing role cannot pass as a refusal (SR's note 1 on noema#181).
+		var pe *pgconn.PgError
+		if !errors.As(err, &pe) {
+			t.Errorf("%s: %v is not a database error", name, err)
+			continue
+		}
+		wantState, wantText := refusalFor(name)
+		if pe.Code != wantState || !strings.Contains(pe.Message, wantText) {
+			t.Errorf("%s: refused with %s %q, want %s containing %q", name, pe.Code, pe.Message, wantState, wantText)
 		}
 	}
 	if _, err := w.admin.Exec(ctx(t), `SELECT provision_emitter_login($1, 'ten_a', 'core-edge')`, ok); err != nil {
@@ -193,4 +208,25 @@ func TestProvisionEmitterLoginAcceptsExactlyTheRuntimeEmittersThatAreNotPowers(t
 	if accepted == 0 || refused == 0 {
 		t.Fatalf("the table gave %d accepted and %d refused; the test did not exercise both", accepted, refused)
 	}
+}
+
+// refusalFor is the SQLSTATE and the message fragment that provision_emitter_login gives for each case of the refusal table.
+func refusalFor(name string) (state, text string) {
+	switch {
+	case strings.HasPrefix(name, "a role that"):
+		return "P0001", "is not a login role"
+	case name == "a login of a power group only":
+		return "P0001", "is not a member of record_emitter"
+	case strings.Contains(name, "also a power") || strings.HasPrefix(name, "a member of"):
+		return "P0001", "is a member of a role other than record_emitter"
+	case name == "a superuser" || strings.HasPrefix(name, "a login with"):
+		return "P0001", "has a privileged attribute"
+	case strings.HasPrefix(name, "a power's own identity"):
+		return "P0001", "is the identity of a power"
+	case strings.HasSuffix(name, "emitter") || strings.Contains(name, "emitter with"):
+		return "P0001", "is not the shape of an emitter"
+	case name == "a tenant that does not exist":
+		return "23503", "tenant_login_tenant_id_fkey"
+	}
+	return "?", "?"
 }

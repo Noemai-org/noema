@@ -30,6 +30,8 @@ rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; cp "$work/bad/noema_tenan
 rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; cp "$work/bad/noema_core_password" "$work/bad/emitter_logins/ten_aa__core-edge"; refuses "an emitter secret equal to the core's password"
 ( export NOEMA_EMITTERS="core-edge other"; rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"
   cp "$work/bad/emitter_logins/ten_aa__core-edge" "$work/bad/emitter_logins/ten_aa__other"; refuses "two emitter logins with the same secret" )
+( export NOEMA_EMITTERS="core-edge ../x"; rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; refuses "an emitter name that is a path (SR's note 3 on noema#181)" )
+( export NOEMA_EMITTERS="core-edge Other"; rm -rf "$work/bad"; cp -r "$work/secrets" "$work/bad"; refuses "an upper-case emitter name" )
 sh "$here/init.sh" >/dev/null
 psql -v ON_ERROR_STOP=1 -X -q -U postgres -d noema -f "$here/assert_roles.sql" | grep -q "roles ok"
 # As the core's login: it connects, and it creates nothing.
