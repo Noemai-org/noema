@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +63,8 @@ type trustStandIn struct {
 	led   *ledger.Ledger
 	plans map[string]controller.PlanStep
 	n     int
+
+	policyChanged atomic.Bool
 }
 
 var (
@@ -73,7 +76,7 @@ func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (
 	return g.IntentHash, nil
 }
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
-	return true, nil
+	return !s.policyChanged.Load(), nil // S11: a policy publish after issue makes the decision's policy version no longer active
 }
 func (s *trustStandIn) Plan(_ context.Context, g controller.Grant) (controller.PlanStep, error) {
 	s.mu.Lock()

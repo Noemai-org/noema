@@ -336,7 +336,7 @@ func (w *World) Dispatching(context.Context, string) ([]controller.Pending, erro
 	for _, rec := range w.idem {
 		for _, a := range rec.Attempts {
 			if _, done := w.receipts[fmt.Sprintf("%s#%d", a.GrantID, a.Number)]; !done {
-				out = append(out, controller.Pending{GrantID: a.GrantID, TenantID: TenantID, CorrelationID: "corr_sim01", IdempotencyKey: rec.Key, LogicalAction: rec.Action, Attempt: a.Number})
+				out = append(out, controller.Pending{GrantID: a.GrantID, TenantID: TenantID, CorrelationID: "corr_sim01", IdempotencyKey: rec.Key, CapabilityID: Capability, SpentAt: w.Clock.Now(), Attempt: a.Number})
 			}
 		}
 	}

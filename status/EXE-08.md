@@ -19,3 +19,14 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Open questions (owner): is OD-P-72 approved (Architect/Founders; the record is still `Proposed`); wire `test_init.sh` into the `compose` job (needs a `.github` change, a founder approval).
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
+
+# Session 2026-11-07 10:00 WAT · EXE-08 (audit-record gaps, noema#243)
+
+## Session summary
+- What changed: three gaps in what the stored Record carries, each shown by a failing test first (commit on this branch, red `core` run linked in the PR): receipt `logical_action` is now the capability (reconstruction of a real write works); the swept receipt keeps the attempt time; `GRANT_VOIDED` and the revalidation events carry the grant's `policy_version`, served by the AUTHORITY projection. Audit table in `docs/security/record-provenance-audit.md`.
+- Risks: the signed receipt document changes (`logical_action` value); no receipt exists outside tests, so no migration. Contract `execution-receipt.v1` already says PackId, so the contract is not changed.
+- Tests added: REQ-AUD-003, REQ-EXE-006, INV-10, INV-11, EC-E09.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the new active policy version on a void needs Trust to write `POLICY_PUBLISHED` (TRU-08); WHO needs Edge events.
