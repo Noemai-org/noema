@@ -101,7 +101,8 @@ func (l *Ledger) spend(ctx context.Context, tx pgx.Tx, cmd controller.SpendComma
 		return controller.SpendResult{}, err
 	}
 	if err := l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventDispatchAttempted, "", "",
-		map[string]any{"idempotency_key": cmd.IdempotencyKey, "attempt": attempt, "params_hash": g.ParamsHash, "logical_action": cmd.LogicalAction}); err != nil {
+		map[string]any{"idempotency_key": cmd.IdempotencyKey, "attempt": attempt, "params_hash": g.ParamsHash, "logical_action": cmd.LogicalAction,
+			"capability_id": g.CapabilityID}); err != nil {
 		return controller.SpendResult{}, err
 	}
 	return controller.SpendResult{Spent: true, Attempt: attempt}, nil

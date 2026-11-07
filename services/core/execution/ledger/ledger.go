@@ -149,8 +149,15 @@ func (l *Ledger) Append(ctx context.Context, tenantID string, events ...controll
 				return err
 			}
 			var payload any
-			if e.Detail != "" {
-				payload = map[string]any{"detail": e.Detail}
+			if e.Detail != "" || e.PolicyVersion != "" {
+				p := map[string]any{}
+				if e.Detail != "" {
+					p["detail"] = e.Detail
+				}
+				if e.PolicyVersion != "" {
+					p["policy_version"] = e.PolicyVersion
+				}
+				payload = p
 			}
 			if err := l.record(ctx, tx, tenantID, corr, e.GrantID, e.Type, e.Kind, "", payload); err != nil {
 				return err
