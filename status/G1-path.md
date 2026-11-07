@@ -64,3 +64,19 @@ One line per node: `node · task · PR (head) · state · blocker`.
 
 ## The shortest chain to G1, in order
 1. REC-01 → TRU-05 (me, with C1 and C2). 2. PCK-02 mechanism → EXE-01 → PLN-01. 3. EVD-01 → TRU-04 and EVD-03. 4. OUT-01 with the DEBT-03 fix → EXP-01. 5. `e2e/` and BEN-05 runs. The longest unknown is EVD-01 (Backlog, C2, no PR).
+
+## Refresh, 5 Nov 2026 (about 15:45 WAT)
+**A snapshot, not a live view.** Heads and check results are on each PR. A check is stated only where I looked at it at the head named.
+
+- **Merged today (from the work-queue order of 5 Nov, 15:30 WAT):** noema#145 (REC-03 and DEBT-04: tenant from the login, power emitters bound), #134 (REC-05 slice 1), #129 (EXE-07 slice 1), #136 (OUT-01, migration 0007), #160, #112, #165, #159, #135, #147. REC-01 (noema#122) merged on 4 Nov, so **TRU-05 is no longer blocked by REC-01**.
+- **TRU-05 (mine), in three parts.**
+  - noema#163 (`2e637b3`): grant issuer with HMAC over JCS and two-key rotation. Since 5 Nov it binds the exact `policy_id@version` (ruling of 5 Nov: versions compare only inside one policy_id), and Execution E4 voids a grant whose policy_id has another active version. CI at `2e637b3`: the first run had two jobs fail on a 504 while fetching CI tool binaries (`install_tools.sh`), re-run once; result read at the final head before Codex is asked.
+  - noema#168 (`c9fe273`): `decision_record` (migration 0008) and the trigger that forbids a grant on a non-ALLOW decision. Main merged in; two tests that seed grants directly now record the ALLOW decision first. Same 504 on two `images` jobs, re-run once.
+  - **Not built:** the Go side that writes the Decision Record, then the grants with their `GRANT_ISSUED` events in one transaction; `KEY_ROTATED`; key loading from a secret; TRU-08's void on a superseded basis version. It is stacked on both PRs above, so it starts after they merge.
+  - **Migration number:** noema#167 (EVD-01) also uses 0008. The first to merge keeps it; the other renumbers to 0009 when it merges main.
+- **EVD-01 slice 2a (noema#167):** Codex NOT READY at `5d18fec`: `evidence_rw` can insert rows for any tenant. This is DEBT-06 (Tier 1, every tenant table, close before G3); answered on the PR, decision requested.
+- **PCK-04 (noema#104 and noema#148):** `contracts` is red at `da02a0b` only because `lookup_beneficiary` and `lookup_account` have no postcondition. The descriptors in #148 name `fin.src.core_ledger`, which the pack declares authoritative only for `debit_posted_or_reversed`; the Tushe worksheet defines no fields for either entity. Needs an Architect decision on source and fields. Not exempted.
+- **EDG-01 (noema#156):** Codex NOT READY at `757331f`: OD-P-74 (docs#107, merged) is a NON-CANONICAL default and needs a committed adoption. Waiting on that.
+- **Claims G1 evidence may not make** (unchanged): "writer identity enforced" for non-power emitters (DEBT-07 open); "signatures verified" (DEBT-01 and DEBT-03).
+
+- **Update ~17:00 WAT:** noema#168 now carries migration **0009** (noema#167 keeps 0008). noema#104 is green locally with the ruling-D6 postconditions (beneficiary from `fin.src.beneficiary`, account ownership from `fin.src.customer`); account balance and state have no source and stay an open gap (Tushe request and Tier 1 debt row: the Steward files them). EDG-01 is Core Engineer 1's (handover on docs#107). The graph walk (PLN-01 slice 2, this PR, stacked on #104) is built: every emitted plan follows the declared edges.

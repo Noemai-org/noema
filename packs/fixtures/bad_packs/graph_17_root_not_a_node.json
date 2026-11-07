@@ -1,0 +1,16 @@
+{
+  "requirement": "REQ-AG-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "graph",
+  "expect_message_contains": "root 'no_such_node' is not a node",
+  "patch": [
+    {
+      "file": "fintech/graph/g2_escalate.json",
+      "op": "replace",
+      "path": "/roots",
+      "value": [
+        "no_such_node"
+      ]
+    }
+  ]
+}

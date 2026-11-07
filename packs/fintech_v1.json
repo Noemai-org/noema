@@ -1995,6 +1995,30 @@
       }
     },
     {
+      "entity": "beneficiary",
+      "source": "fin.src.beneficiary",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "transaction": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
+      "entity": "account",
+      "source": "fin.src.customer",
+      "fields": {
+        "id": {
+          "type": "Reference"
+        },
+        "owner": {
+          "type": "Reference"
+        }
+      }
+    },
+    {
       "entity": "switch_event",
       "source": "fin.src.switch",
       "fields": {
@@ -2078,6 +2102,9 @@
         "AMBIGUOUS",
         "ABSENT"
       ]
+    },
+    "principal_id": {
+      "type": "Reference"
     },
     "intent_id": {
       "type": "Reference"
