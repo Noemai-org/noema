@@ -1,4 +1,4 @@
--- 0014: harden the Record functions (ruling A6 of 6 Nov 2026; REQ-SEC-004, REQ-AUD-001, INV-12, INV-13). Forward-only: never edited after merge.
+-- 0016: harden the Record functions (ruling A6 of 6 Nov 2026; REQ-SEC-004, REQ-AUD-001, INV-12, INV-13). Forward-only: never edited after merge.
 --
 -- Every SECURITY DEFINER function owned by record_append (and, at the end, the three of migration 0007) now pins search_path to `pg_catalog, pg_temp` and names every table and function by its
 -- schema. With `pg_catalog, public` the session's temporary schema is searched first for a relation, so a login holding TEMPORARY could create

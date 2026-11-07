@@ -23,9 +23,9 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 # Session 2026-11-06 16:30 WAT · EXE-08 (A6 slice 1: Record function hardening, noema#234)
 
 ## Session summary
-- What changed: migration 0014 replaces the five record_append functions with a pinned `pg_catalog, pg_temp` search_path and schema-qualified names. Failing tests first (commit 7b675e0): the catalog test, and an exploit test in which a ten_a writer login with a temporary `tenant_login` table created a chain head for ten_b.
+- What changed: migration 0016 replaces the five record_append functions with a pinned `pg_catalog, pg_temp` search_path and schema-qualified names. Failing tests first (commit 7b675e0): the catalog test, and an exploit test in which a ten_a writer login with a temporary `tenant_login` table created a chain head for ten_b.
 - Why: ruling A6. The exploit is real on main: such a login could write and read another tenant's Record chain.
-- Risks: CREATE OR REPLACE needs the migrating role to own or be a member of record_append (as 0003 to 0006 already needed). Number 0014 may need D3 renumbering.
+- Risks: CREATE OR REPLACE needs the migrating role to own or be a member of record_append (as 0003 to 0006 already needed). Number 0016 (D12) may need D3 renumbering.
 - Tests added: REQ-SEC-004, INV-12.
 - Conflicts raised: none.
 - Not yet done in A6: RLS + FORCE on grant_spend, idempotency_record, execution_receipt, recovery_request, outbox_event, record_event, record_chain_head (it needs the tenant mapping function of noema#168 and a design for the verifier role, which reads all tenants on purpose); the A20 list of paths for SR.
@@ -33,3 +33,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Pre-work for the next agent
 - Exact next step: RLS slice stacked on noema#168 (uses `decision_login_tenant()`); write the A20 paths list.
 - Do not touch: noema#168's migration 0011.
+
+## Update 2026-11-07 (Founder decision D12)
+- The Record-function hardening migration is `0016_record_function_hardening.sql` (was the provisional 0014). If the merge order changes, the later PR renumbers.
