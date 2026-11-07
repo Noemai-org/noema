@@ -81,6 +81,9 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Addendum 2026-11-06 · the synthetic-source label (AGENT-25)
 - `Observation.DataSource` and `Observation.Synthetic`: when `DataSource` is set, the `EVIDENCE_READ` event carries `data_source` and `synthetic`; the evidence item itself has no field for them (the contract has none, so nothing changed there). Test: `TestBuilderLabelsEvidenceFromASyntheticSourceOnTheRecord` (red as a compile failure first; mutant that drops the label caught). Needed by the stand-in adapter (noema#205), which owns its own mapping.
+
+## Session 2026-11-07 · error-body provenance (Codex finding on #172, after IL's noema#262)
+A failed read with no normalised response now carries exactly one of `RawHash` (the hash of the bytes that arrived, an empty body included) and `NoBytes` (explicit: a timeout, reset, local refusal or open circuit). SHA-256(empty) is no longer invented for a body that was there, and the `EVIDENCE_READ` event carries `body_received`. I did not make the rule class-based as first planned: `ReadServerError` also covers resets with no response and `ReadMalformed` also covers a local refusal, so a class rule would have refused legitimate no-bytes reads. Caller wiring (`ReadError.RawHash` into the observation) is in the next PR of the chain (#174, where `ClassifyError` lives). Red commit first; four mutants killed.
 # Session 2026-11-05 17:30 WAT · EVD-01 (slice 2c)
 
 ## Session summary
@@ -95,6 +98,9 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Addendum 2026-11-06 · the reviewer's P2 on noema#174 (ClassifyError not seen failing first)
 - Done properly this time: tests-only commit `da75530` (a bare, a wrapped and a network-timeout error must be TIMEOUT) pushed alone; its `core` run is red ([run](https://github.com/Noemai-org/noema/actions/runs/42199062358/job/127829537492)). The fix commit follows: a deadline that expires in a call, or a `net.Error` that reports a timeout, is `ReadTimeout` (UNAVAILABLE) rather than MALFORMED (UNKNOWN). The original table test of the classifier remains written together with its code; the new rows are the failing-first evidence for the classifier's behaviour.
+
+### Caller wiring (#174)
+`layer.BodyOf(err)` returns the adapter error's `RawHash` or an explicit no-bytes (a nil error has neither). The real-fault e2e test now passes both through and asserts, on the real mock-case faults, that the event's `body_received` agrees with the adapter, that a body that arrived is stored under the adapter's hash and not the hash of nothing (503, 429 and a real 404 carry bodies; the timeout does not). Stated: `BodyOf` and its unit test were written together, not failing first; a mutation that ignores the hash is killed by the unit test and by the e2e test. The e2e test itself went red when the builder rule landed in #172, then green.
 # Session 2026-11-05 18:30 WAT · EVD-01 (slice 3)
 
 ## Session summary

@@ -159,3 +159,27 @@ type timeoutErr struct{}
 func (timeoutErr) Error() string   { return "i/o timeout" }
 func (timeoutErr) Timeout() bool   { return true }
 func (timeoutErr) Temporary() bool { return true }
+
+// REQ-CTX-001, INV-19 (noema#262 gives the adapter error its RawHash): the body hash an adapter error carries, or an explicit "no bytes arrived" when it carries none or
+// the error is not the adapter's own (a deadline that expired inside a call). A nil error has neither: an OK read supplies its own response.
+func TestBodyOfTakesTheAdaptersHashAndSaysNoBytesWhenThereIsNone(t *testing.T) {
+	h := "sha256:" + "ab"
+	cases := map[string]struct {
+		err      error
+		wantHash string
+		noBytes  bool
+	}{
+		"a non-2xx body":                     {&adapters.ReadError{Failure: adapters.ReadNotFound, RawCode: "404", RawHash: h}, h, false},
+		"a wrapped adapter error":            {fmt.Errorf("case read: %w", &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "503", RawHash: h}), h, false},
+		"an adapter timeout (no bytes)":      {&adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: "TIMEOUT"}, "", true},
+		"a deadline inside a call":           {context.DeadlineExceeded, "", true},
+		"an error nobody foresaw (no bytes)": {errors.New("boom"), "", true},
+		"a nil error":                        {nil, "", false},
+	}
+	for name, c := range cases {
+		hash, noBytes := layer.BodyOf(c.err)
+		if hash != c.wantHash || noBytes != c.noBytes {
+			t.Errorf("%s: BodyOf = (%q, %v), want (%q, %v)", name, hash, noBytes, c.wantHash, c.noBytes)
+		}
+	}
+}

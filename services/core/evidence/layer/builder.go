@@ -54,6 +54,9 @@ type Observation struct {
 	Src            Source
 	Payload        any    // the normalised response; nil for a read that returned none
 	RawHash        string // "sha256:" of the raw response bytes; empty for a read that returned none
+	// NoBytes says explicitly that no response bytes arrived (a timeout, a reset, a local refusal, an open circuit). A failed read with no normalised response carries
+	// exactly one of RawHash (bytes arrived, even an empty body) and NoBytes, so SHA-256 of nothing is never invented for a body that was there.
+	NoBytes bool
 	// DataSource and Synthetic label evidence from a synthetic source (for example "stand-in", AGENT-25). They ride in the EVIDENCE_READ event;
 	// an empty DataSource writes the event without a label.
 	DataSource string
@@ -108,7 +111,7 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	sum := sha256.Sum256(canon)
 	hash := hashPrefix + hex.EncodeToString(sum[:])
 	raw := o.RawHash
-	if raw == "" { // checkResponse allowed this only for a read that received no body at all
+	if raw == "" { // checkResponse allowed this only for a read that said no bytes arrived
 		empty := sha256.Sum256(nil)
 		raw = hashPrefix + hex.EncodeToString(empty[:])
 	}
@@ -156,8 +159,7 @@ func rollbackWith(ctx context.Context, tx pgx.Tx, cause error, limit time.Durati
 // checkResponse refuses an observation whose evidence would be unprovable or contradictory: a normalised response must be a JSON object
 // (evidence-payload.v1) and must carry the hash of the raw bytes it came from; a read that says it succeeded must carry a response, because a
 // bodyless read must not become a known fact; a raw hash that is supplied must be well formed (a malformed 2xx body keeps the hash of the bytes
-// received); and the authority class stored on the item must agree with the source's authority. A malformed read must carry the hash of the bytes received (SHA-256 of nothing if the body was empty). A read that returned nothing (an error, a
-// timeout, a not-found) has no response and no raw hash, and gets the hash of the empty body.
+// received); and the authority class stored on the item must agree with the source's authority. A malformed read must carry the hash of the bytes received (SHA-256 of nothing if the body was empty). A failed read with no response carries the hash of the bytes it received or says explicitly that none arrived (NoBytes), and the event records which.
 func checkResponse(o Observation) error {
 	if err := checkAuthority(o); err != nil {
 		return err
@@ -166,16 +168,18 @@ func checkResponse(o Observation) error {
 		if o.Read.Class == ReadOK {
 			return fmt.Errorf("%san OK read carries no response", builderPrefix)
 		}
-		if o.Read.Class == ReadMalformed { // bytes were received, so their hash (of an empty body too) must be supplied
-			if !rawHashRe.MatchString(o.RawHash) {
-				return fmt.Errorf("%sa malformed read has no valid raw-body hash", builderPrefix)
-			}
-			return nil
-		}
-		if o.RawHash != "" && !rawHashRe.MatchString(o.RawHash) {
+		switch {
+		case o.RawHash != "" && o.NoBytes:
+			return fmt.Errorf("%sa failed read cannot both carry a body hash and say no bytes arrived", builderPrefix)
+		case o.RawHash == "" && !o.NoBytes:
+			return fmt.Errorf("%sa failed read needs the hash of the bytes it received, or an explicit no-bytes", builderPrefix)
+		case o.RawHash != "" && !rawHashRe.MatchString(o.RawHash):
 			return fmt.Errorf("%sthe raw hash is malformed", builderPrefix)
 		}
 		return nil
+	}
+	if o.NoBytes {
+		return fmt.Errorf("%sa read with a response cannot say no bytes arrived", builderPrefix)
 	}
 	if !rawHashRe.MatchString(o.RawHash) {
 		return fmt.Errorf("%sthe response has no valid raw hash", builderPrefix)
@@ -223,6 +227,7 @@ func (b *Builder) write(ctx context.Context, tx pgx.Tx, o Observation, r row, no
 	}
 	event := map[string]any{"evidence_id": evidenceID, "source": o.Source, "source_record_id": o.SourceRecordID, "read_by": o.ReadBy,
 		"fact_status": string(status), "payload_hash": hash, "read_at": o.Read.ReadAt.UTC().Format(tsLayout)} // hash only: never the payload
+	event["body_received"] = !o.NoBytes // the Record says whether a body arrived, so a reader never has to guess from an empty hash
 	if o.DataSource != "" {
 		event["data_source"] = o.DataSource
 	}
