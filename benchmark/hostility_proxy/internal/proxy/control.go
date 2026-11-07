@@ -137,8 +137,7 @@ func (s *Server) getRequests(w http.ResponseWriter, r *http.Request) {
 		controlJSON(w, 400, map[string]any{"error": "operation needs a target"})
 		return
 	}
-	generation := s.reqlog.currentGeneration()
-	entries, counts, dropped := s.reqlog.view(target, operation)
+	generation, entries, counts, dropped := s.reqlog.snapshot(target, operation)
 	hash, err := hashRequests(entries)
 	if err != nil {
 		s.opt.Log.Error("request log could not be hashed", "err", err.Error())

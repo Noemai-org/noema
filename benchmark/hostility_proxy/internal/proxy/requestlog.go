@@ -83,17 +83,19 @@ func (l *requestLog) reset() {
 	l.generation = newGeneration()
 }
 
-func (l *requestLog) currentGeneration() string {
+// snapshot returns the generation together with the kept entries, the counts and the dropped number, all read under one hold of the lock, so
+// they are one consistent claim: the entries belong to the generation returned with them. Reading them in separate steps would let a reset land
+// in between and pair an old generation with a new log (Codex review of noema#209).
+func (l *requestLog) snapshot(target, operation string) (string, []RequestEntry, map[string]int, int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.generation
+	entries, counts, dropped := l.viewLocked(target, operation)
+	return l.generation, entries, counts, dropped
 }
 
 // view returns the kept entries of one route (all routes when target is empty), the request counts of that route, and how many
 // requests in all were not kept.
-func (l *requestLog) view(target, operation string) ([]RequestEntry, map[string]int, int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (l *requestLog) viewLocked(target, operation string) ([]RequestEntry, map[string]int, int) {
 	entries := []RequestEntry{}
 	for _, e := range l.entries {
 		if (target == "" || e.Target == target) && (operation == "" || e.Operation == operation) {
