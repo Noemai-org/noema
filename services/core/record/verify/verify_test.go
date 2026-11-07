@@ -39,6 +39,7 @@ type world struct {
 	alert *recordingAlerts
 	met   *recordingMetrics
 	v     *verify.Verifier
+	clk   *clock.Manual
 }
 
 type recordingAlerts struct {
@@ -71,7 +72,7 @@ func newWorld(t *testing.T, tenants ...string) *world {
 		pools[id] = testpg.TenantLogin(t, admin, dsn, "execution_rw", id)
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC))
-	w := &world{admin: admin, pools: pools, alert: &recordingAlerts{}, met: &recordingMetrics{},
+	w := &world{admin: admin, pools: pools, clk: clk, alert: &recordingAlerts{}, met: &recordingMetrics{},
 		app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: recordsig.All(t, admin, "verify", nil)}}
 	w.ver = testpg.VerifierLogin(t, admin, dsn)
 	w.v = &verify.Verifier{DB: w.ver, Alerts: w.alert, Metrics: w.met, Clock: clk}
