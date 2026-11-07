@@ -97,3 +97,6 @@ REVOKE CREATE ON SCHEMA public FROM record_append;
 REVOKE ALL ON FUNCTION public.record_insert_t(text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb, text, text, bytea) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.record_insert_t(text, bigint, text, text, text, text, text, text, text, timestamptz, text, text, jsonb, jsonb, text, text, bytea)
   TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_emitter;
+
+-- REC-08 (D5, D7, row 13): the chain verifier checks every signature in Go, with the public keys, so it reads the key registry. It holds no other new privilege.
+GRANT SELECT ON public.signing_key TO record_verify;

@@ -227,6 +227,9 @@ func (v *Verifier) check(ctx context.Context, tenantID string) (*Finding, int64,
 	if err != nil {
 		return nil, checked, err
 	}
+	if f, err := checkSignatures(ctx, tx, tenantID); f != nil || err != nil {
+		return f, checked, err
+	}
 	f, err := checkHead(ctx, tx, tenantID, checked)
 	return f, checked, err
 }
