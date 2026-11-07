@@ -11,9 +11,10 @@ needs an AGENT-14 entry first. Opus audio is refused rather than guessed at.
 import math
 import sys
 from array import array
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Protocol
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec
 
@@ -75,10 +76,55 @@ class EndpointDetector:
         return self._state
 
 
-async def until_end_of_speech(audio: AsyncIterator[AudioChunk], detector: EndpointDetector) -> AsyncGenerator[AudioChunk, None]:
-    """Pass audio through up to and including the chunk that ends the utterance, then stop."""
-    async for chunk in audio:
-        state = detector.feed(chunk)
-        yield chunk
-        if state is EndpointState.ENDED:
-            return
+class AudioSource(Protocol):
+    """An async stream of audio that can be closed. Async generators satisfy it."""
+
+    def __aiter__(self) -> AsyncIterator[AudioChunk]: ...
+
+    async def __anext__(self) -> AudioChunk: ...
+
+    async def aclose(self) -> None: ...
+
+
+class EndpointGate:
+    """Passes audio through up to and including the chunk that ends the utterance, then stops.
+
+    It is a class, not an async generator, so that `aclose()` closes the underlying source even if nothing was ever read
+    from the gate: closing a generator that never started runs none of its cleanup, and a live microphone would stay open
+    (Codex P1 on #193, REQ-VOI-004, AGENT-13).
+    """
+
+    def __init__(self, audio: AudioSource, detector: EndpointDetector) -> None:
+        self._audio = audio
+        self._detector = detector
+        self._done = False
+        self._closed = False
+
+    def __aiter__(self) -> "EndpointGate":
+        return self
+
+    async def __anext__(self) -> AudioChunk:
+        if self._done:
+            await self.aclose()
+            raise StopAsyncIteration
+        try:
+            chunk = await self._audio.__anext__()
+        except StopAsyncIteration:
+            await self.aclose()
+            raise
+        except BaseException:
+            await self.aclose()
+            raise
+        if self._detector.feed(chunk) is EndpointState.ENDED:
+            self._done = True
+        return chunk
+
+    async def aclose(self) -> None:
+        self._done = True
+        if not self._closed:
+            self._closed = True
+            await self._audio.aclose()
+
+
+def until_end_of_speech(audio: AudioSource, detector: EndpointDetector) -> EndpointGate:
+    return EndpointGate(audio, detector)
