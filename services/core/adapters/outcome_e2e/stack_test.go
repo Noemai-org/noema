@@ -247,7 +247,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	ring := receiptRing{hmac: execKeys, priv: receiptPriv}
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
