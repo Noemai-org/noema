@@ -14,7 +14,7 @@ import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec, Locale
 from noema_model.voice.simulation.channel import NetworkProfile, low_quality_mic, simulate_network
-from noema_model.voice.simulation.noise import NoiseProfile, mix_at_snr, rms, synth_noise
+from noema_model.voice.simulation.noise import NoiseProfile, mix_at_snr, mix_parts_at_snr, rms, synth_noise
 from noema_model.voice.simulation.report import (
     NativeReview,
     ScenarioResult,
@@ -55,10 +55,8 @@ def test_noise_is_normalised_to_unit_rms(profile: NoiseProfile) -> None:
 
 @pytest.mark.parametrize("snr_db", [0, 10, 20])
 def test_the_mix_has_the_requested_signal_to_noise_ratio(snr_db: int) -> None:
-    speech = tone()
-    noise_only = [m - s for m, s in zip(samples(mix_at_snr(speech, NoiseProfile.MARKET, snr_db, RATE, random.Random(3))),
-                                        samples(speech), strict=True)]
-    measured = 20 * math.log10(rms(samples(speech)) / rms(noise_only))
+    parts = mix_parts_at_snr(tone(), NoiseProfile.MARKET, snr_db, RATE, random.Random(3))  # the parts, so a headroom scale cannot skew it
+    measured = 20 * math.log10(rms(parts.speech) / rms(parts.noise))
     assert measured == pytest.approx(snr_db, abs=0.5)
 
 

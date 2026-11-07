@@ -8,6 +8,7 @@ import math
 import random
 from array import array
 from collections.abc import Sequence
+from dataclasses import dataclass
 from enum import StrEnum
 
 _INT16_MAX = 32767
@@ -106,12 +107,36 @@ def pcm_bytes(samples: Sequence[int]) -> bytes:
     return packed.tobytes()
 
 
-def mix_at_snr(speech: bytes, profile: NoiseProfile, snr_db: float, rate: int, rng: random.Random) -> bytes:
-    """Little-endian 16-bit PCM `speech` plus the profile's noise so that 20*log10(rms(speech)/rms(noise)) == snr_db."""
+@dataclass(frozen=True, slots=True)
+class MixParts:
+    """The two components of a mix, as they are summed. `scale` is the common factor applied to both (1.0 when the sum fits)."""
+
+    speech: list[int]
+    noise: list[int]
+    scale: float
+
+
+def mix_parts_at_snr(speech: bytes, profile: NoiseProfile, snr_db: float, rate: int, rng: random.Random) -> MixParts:
+    """Little-endian 16-bit PCM `speech` and the profile's noise, at 20*log10(rms(speech)/rms(noise)) == snr_db.
+
+    If the sum would not fit in 16 bits, both components are scaled by one common factor so it does. Clipping the sum would
+    change the noise and distort the speech, and the audio would no longer be the condition it is labelled as; a common scale
+    keeps the ratio and changes only the overall level (Codex P2 on #200).
+    """
     signal = pcm_samples(speech)
     level = rms(signal)
     if level == 0.0:
         raise ValueError("silent speech has no signal-to-noise ratio")
     gain = level / 10 ** (snr_db / 20)
-    noise = synth_noise(profile, len(signal), rate, rng)
-    return pcm_bytes([max(_INT16_MIN, min(_INT16_MAX, round(s + gain * n))) for s, n in zip(signal, noise, strict=True)])
+    noise = [gain * n for n in synth_noise(profile, len(signal), rate, rng)]
+    peak = max(abs(s + n) for s, n in zip(signal, noise, strict=True))
+    scale = min(1.0, _INT16_MAX / peak) if peak > 0 else 1.0
+    if scale == 1.0:
+        return MixParts(list(signal), [round(n) for n in noise], 1.0)
+    return MixParts([round(scale * s) for s in signal], [round(scale * n) for n in noise], scale)
+
+
+def mix_at_snr(speech: bytes, profile: NoiseProfile, snr_db: float, rate: int, rng: random.Random) -> bytes:
+    """The two parts of `mix_parts_at_snr` summed, as little-endian 16-bit PCM."""
+    parts = mix_parts_at_snr(speech, profile, snr_db, rate, rng)
+    return pcm_bytes([max(_INT16_MIN, min(_INT16_MAX, s + n)) for s, n in zip(parts.speech, parts.noise, strict=True)])
