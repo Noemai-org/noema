@@ -247,11 +247,11 @@ func TestVerdictsAreInsertOnly(t *testing.T) {
 	}
 }
 
-// Q2: migrations apply by name and a gap is allowed. Everything but the grant-void migration (0013, noema#94) on a fresh
-// database, then 0013 applied afterwards on a database that already has the Outcome write path, leave the same working write path.
-// It runs the real file, not a pinned copy: 0013 replaces the function behind decision_grant_guard and must not disturb Outcome.
+// Q2: migrations apply by name and a gap is allowed. Everything but the grant-void migration (0014, noema#94) on a fresh
+// database, then 0014 applied afterwards on a database that already has the Outcome write path, leave the same working write path.
+// It runs the real file, not a pinned copy: 0014 replaces the function behind decision_grant_guard and must not disturb Outcome.
 func TestUpgradeWhereTheGrantVoidMigrationArrivesAfterOutcome(t *testing.T) {
-	const late = "0013_grant_spent_void.sql"
+	const late = "0014_grant_spent_void.sql"
 	files := fstest.MapFS{}
 	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
@@ -270,7 +270,7 @@ func TestUpgradeWhereTheGrantVoidMigrationArrivesAfterOutcome(t *testing.T) {
 			withoutLate[n] = f
 		}
 	}
-	w := newWorldFrom(t, withoutLate) // every migration except 0013
+	w := newWorldFrom(t, withoutLate) // every migration except 0014
 	if err := achieved("ver_u1").call(ctx(t), w.outcome(t)); err != nil {
 		t.Fatal(err)
 	}

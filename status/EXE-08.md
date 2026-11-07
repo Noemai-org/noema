@@ -24,7 +24,7 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Session 2026-11-06 · EXE-08 slice B: database-side verification of receipts (DEBT-01, Option B)
 ### Session summary
 - What changed (PR links): the slice B pull request on `feat/EXE-08-sig-db`, STACKED on noema#214 (the CI job, ruling A16). Do not merge before docs#117 (rulings A2 and A16).
-  - Migration `0012_receipt_signature.sql`: schema `noema_sig`; `signing_key` (K1: `key_id = identity.ed25519.version`; at most two ACTIVE per identity; a newer version each time; only ACTIVE to RETIRED or REVOKED, REVOKED keeps `compromised_since`); `key_register`, `key_retire`, `key_revoke` (the only way to change it; no runtime role can execute them); `noema_sig.verify` (D11, `SECURITY DEFINER`, fixed `search_path`, no exception handler); `signed_jcs` on `execution_receipt`; a `BEFORE INSERT` trigger, `ENABLE ALWAYS`, that checks the stored document is the signed one, every bound field equals the row's column, tenant, attempt and idempotency key equal `grant_spend`, and the signature verifies over the tag `noema/receipt/v1` plus the signed bytes, else `NS001`; `receipt_insert` (the only insert path; `execution_rw` loses `INSERT`); every object owned by `noema_migrator` and every function schema-qualified.
+  - Migration `0013_receipt_signature.sql`: schema `noema_sig`; `signing_key` (K1: `key_id = identity.ed25519.version`; at most two ACTIVE per identity; a newer version each time; only ACTIVE to RETIRED or REVOKED, REVOKED keeps `compromised_since`); `key_register`, `key_retire`, `key_revoke` (the only way to change it; no runtime role can execute them); `noema_sig.verify` (D11, `SECURITY DEFINER`, fixed `search_path`, no exception handler); `signed_jcs` on `execution_receipt`; a `BEFORE INSERT` trigger, `ENABLE ALWAYS`, that checks the stored document is the signed one, every bound field equals the row's column, tenant, attempt and idempotency key equal `grant_spend`, and the signature verifies over the tag `noema/receipt/v1` plus the signed bytes, else `NS001`; `receipt_insert` (the only insert path; `execution_rw` loses `INSERT`); every object owned by `noema_migrator` and every function schema-qualified.
   - `db.Migrate` refuses while an event trigger of pgsodium is enabled (D10a). `init.sh` creates the extension once, disables its event triggers, sets the setting off, and revokes everything from PUBLIC. Compose builds the pinned image (`deploy/spike/pgsodium/Dockerfile`; moving it out of `spike` is a follow-up that also repoints the CI job).
   - `ledger.Complete` stores through `receipt_insert`; the Controller signs with an Ed25519 `ReceiptSigner` (`signing.Ring.SignReceipt`, EXE-07 slice 1) and no longer holds a receipt key ID. Grants stay HMAC.
   - Test infrastructure: `testpg` bootstraps pgsodium in every test database when the extension is installed; `internal/sigfixture` (no import of Execution, so Outcome's tests stay independent) and `execution/signing/signingtest` make SYNTHETIC keys and signed receipts.
@@ -44,7 +44,7 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Pre-work for the next agent
 - Exact next step: SEC-13 (the Security Reviewer) validates the six closure checks on the final head; then noema#94 is merged `main` in, renumbered after this migration, its condition (g) changed to "the receipt row exists", and its shape tests turned into verification tests (Track 2).
 - Open questions (owner): where `cmd/migrate` and the start-up check land (Architect).
-- Files to read first: `services/core/migrations/0012_receipt_signature.sql`, `services/core/platform/db/sig_test.go`, `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` D4 to D16.
+- Files to read first: `services/core/migrations/0013_receipt_signature.sql`, `services/core/platform/db/sig_test.go`, `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` D4 to D16.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
 
 # Session 2026-11-06 15:00 WAT · EXE-08 (DEBT-01 slice C: #94 continuation)
@@ -59,3 +59,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Pre-work for the next agent
 - Exact next step: Codex review at the final head once CI is green; founders decide the merge order.
 - Do not touch: `services/core/migrations/testdata/0002_grant_spent_void.noema94.sql` (pinned).
+
+## Update 2026-11-07 (Founder decision D12: migration numbers)
+- `0013_receipt_signature.sql` (noema#229) and `0014_grant_spent_void.sql` (this PR) replace the provisional `0012` and `0013` named in the sessions above. 0012 is noema#168's, 0015 noema#259's, 0016 noema#234's, 0017 noema#261's, 0018 noema#263's. If the merge order changes, the later PR renumbers.

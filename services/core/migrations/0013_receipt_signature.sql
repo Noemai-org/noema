@@ -1,4 +1,4 @@
--- 0012: database-side verification of execution receipts (Ed25519 through pgsodium). EXE-08 (W4) slice B; DEBT-01, Option B.
+-- 0013: database-side verification of execution receipts (Ed25519 through pgsodium). EXE-08 (W4) slice B; DEBT-01, Option B.
 -- DEC-2026-11-01-receipt-and-record-signing D4 to D8, D10 to D13, D15, D16; rulings A2 and A16 (docs#117). Forward-only: never edited after merge.
 --
 -- Before this migration, execution_rw could INSERT any row into execution_receipt, so a forged REJECTED_STALE_VERSION receipt (any 64 hex

@@ -114,11 +114,11 @@ func privileges(t *testing.T, pool *pgxpool.Pool) map[string]string {
 	return out
 }
 
-// REC-03 (E1): Migrate has no gap check. A database migrated without the grant-void migration (0013, noema#94) takes it later; a
+// REC-03 (E1): Migrate has no gap check. A database migrated without the grant-void migration (0014, noema#94) takes it later; a
 // fresh database takes everything in order. Both end with the same privileges, and record_read works in both. It uses the real file:
-// 0013 replaces decision_grant_guard and must not disturb a Record privilege.
+// 0014 replaces decision_grant_guard and must not disturb a Record privilege.
 func TestTheGrantVoidMigrationAppliedLateGivesTheSamePrivilegesAsAFreshDatabase(t *testing.T) {
-	const late = "0013_grant_spent_void.sql"
+	const late = "0014_grant_spent_void.sql"
 	fresh, _ := testpg.NewDatabase(t)
 	all := migrationsWith(t, nil, "")
 	if got, err := db.Migrate(ctx(t), fresh, all); err != nil || !slices.Contains(got, late) {

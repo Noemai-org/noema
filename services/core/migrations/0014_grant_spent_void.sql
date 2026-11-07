@@ -1,4 +1,4 @@
--- 0013_grant_spent_void.sql (noema#94, renumbered from 0002 under D3 after 0012, the receipt signature migration of EXE-08 slice B)
+-- 0014_grant_spent_void.sql (noema#94, renumbered from 0002 under D3 and again under D12 of 7 Nov 2026, after 0013, the receipt signature migration of EXE-08 slice B)
 --
 -- PERD v1.18 section 38.2, REQ-EXE-004, INV-27, US-19 (DEC-2026-10-28-spent-grant-void): a decision_grant moves
 -- ISSUED -> SPENT, VOID or EXPIRED, and SPENT -> VOID only for a confirmed REJECTED_STALE_VERSION refusal.
@@ -18,14 +18,14 @@
 --       the shape of transport_result but no value set; that is a limitation of this check, not of the contract;
 --   (f) there is no external acknowledgement: the member is present and null in the signed document, and null or empty in
 --       the row;
---   (g) the receipt row exists. Its signature was verified inside the database by 0012 (Ed25519 over the exact bytes in
+--   (g) the receipt row exists. Its signature was verified inside the database by 0013 (Ed25519 over the exact bytes in
 --       signed_jcs, key from signing_key, not revoked) before the row could be stored, and receipt_insert is the only insert
 --       path (DEBT-01, DEC-2026-11-01-receipt-and-record-signing). A receipt row that this function can read is therefore a
 --       verified one; this migration does not re-check the signature's shape, because a shape check is not a verification.
 -- raw_status (the class, then the raw status code, e.g. VERSION_CONFLICT_409_412:409:VERSION_MISMATCH) is a diagnostic and
 -- decides nothing, but it must agree with the signed transport_result: its part before the first colon is the same class.
 -- A contradiction makes the receipt ambiguous, and an ambiguous receipt does not void a grant.
--- The signature is verified by 0012 on insert, so this guard needs no signature condition of its own. It must run after 0012:
+-- The signature is verified by 0013 on insert, so this guard needs no signature condition of its own. It must run after 0013:
 -- applied before it, the guard would trust rows no one had verified (this is why #94's 0002 was renumbered).
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
 -- That guarantee comes from mock-case's OpenAPI contract (route response 409 VERSION_MISMATCH, "nothing applied"), not from a

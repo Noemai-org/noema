@@ -1,7 +1,7 @@
 package db_test
 
 // EXE-08 (W4) slice B, DEBT-01 Option B: the database verifies every execution receipt's Ed25519 signature before it is stored
-// (DEC-2026-11-01 D4 to D8, D10 to D13, D15, D16; migration 0012). REQ-AUD-006, REQ-EXE-004, INV-04, INV-27. These tests need the pgsodium
+// (DEC-2026-11-01 D4 to D8, D10 to D13, D15, D16; migration 0013). REQ-AUD-006, REQ-EXE-004, INV-04, INV-27. These tests need the pgsodium
 // extension in the test cluster (testpg bootstraps it when it is installed; the CI job builds it in, ruling A16). A cluster without it
 // fails them: there is no skip. Every key and document is SYNTHETIC (AGENT-25): generated in the test, never mounted anywhere.
 

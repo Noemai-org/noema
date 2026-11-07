@@ -20,7 +20,7 @@ import (
 // idempotency_key, execution_state, transport_result, external_ack, sig), cross-checked against the row's own columns and
 // against grant_spend. raw_status is a diagnostic and may only agree with the signed transport_result.
 
-// Migration 0013 (noema#94, renumbered from 0002) runs after 0012, which verifies every receipt's Ed25519 signature inside the database
+// Migration 0014 (noema#94, renumbered from 0002) runs after 0013, which verifies every receipt's Ed25519 signature inside the database
 // before the row exists (DEBT-01). So the guard no longer looks at the signature, and a signature check here would be a shape check, which
 // is not a verification. The permitted transition is therefore tested with genuinely signed receipts, stored through receipt_insert (the only
 // path). The refused cases plant rows the signed path would itself refuse (a document that contradicts its row, a receipt of another attempt);
@@ -95,7 +95,7 @@ func (r rcp) document() map[string]any {
 	return doc
 }
 
-// voidWorld is a migrated database with the verification trigger of 0012 switched off, for the cases that plant a row the signed path would refuse.
+// voidWorld is a migrated database with the verification trigger of 0013 switched off, for the cases that plant a row the signed path would refuse.
 func voidWorld(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool := migrated(t)
@@ -148,7 +148,7 @@ func TestASpentGrantBecomesVoidOnAConfirmedStaleVersionRefusal(t *testing.T) {
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			pool := migrated(t) // 0012 verification on: the receipt is genuinely signed and stored through receipt_insert
+			pool := migrated(t) // 0013 verification on: the receipt is genuinely signed and stored through receipt_insert
 			seed(t, pool)
 			spentGrant(t, pool, "grt_1", "n1")
 			key := sigfixture.NewKey("grant-void", 1)
