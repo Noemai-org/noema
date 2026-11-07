@@ -149,7 +149,7 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 	sum := sha256.Sum256(raw)
 	hash := "sha256:" + hex.EncodeToString(sum[:])
 	if e := readStatusError(res.StatusCode, res.Header, raw); e != nil {
-		e.RawHash = hash // the bytes that came back, including an error body; the Evidence Layer hashes an error read with them
+		// readStatusError has already put the hash of these bytes on e (an error body is evidence too).
 		return answer{}, e
 	}
 	if !isJSONResponse(res.Header) {
