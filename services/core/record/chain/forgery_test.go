@@ -8,10 +8,13 @@ package chain_test
 // signed interface and arrive with REC-08 itself. All data is SYNTHETIC.
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -26,20 +29,53 @@ func TestAForgedUnsignedRecordEventIsRefusedForEveryRuntimeCredential(t *testing
 		t.Run(emitter, func(t *testing.T) {
 			w := newWorld(t, tenant)
 			pool := w.writer(t, tenant, emitter)
+			// 1. The signed form with a wrong signature is refused by the verification trigger, with its own SQLSTATE (NS001): a refusal that only the trigger can
+			// give, so removing or disabling the trigger turns this red (SR on noema#236: the test must not be satisfiable by removing a function).
+			var state string
 			tx, err := pool.Begin(ctx(t))
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer func() { _ = tx.Rollback(ctx(t)) }()
-			if err := forge(t, tx, tenant, emitter); err == nil {
-				t.Fatalf("a forged event written as %s by a holder of its database credential, with no signing key, was accepted (DEBT-03)", emitter)
+			err = forge(t, tx, tenant, emitter, true)
+			_ = tx.Rollback(ctx(t))
+			if state = sqlState(err); state != "NS001" {
+				t.Fatalf("a forged event with a bad signature, written as %s by a holder of its database credential, gave %v (SQLSTATE %q), want NS001 (DEBT-03)", emitter, err, state)
+			}
+			// 2. The old unsigned form no longer exists: a separate, named fact (42883), not the closure evidence.
+			tx, err = pool.Begin(ctx(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = forge(t, tx, tenant, emitter, false)
+			_ = tx.Rollback(ctx(t))
+			if state = sqlState(err); state != "42883" {
+				t.Fatalf("the unsigned record_insert_t called as %s gave %v (SQLSTATE %q), want 42883 (the function is gone)", emitter, err, state)
+			}
+			// 3. Neither attempt stored an event, and the chain head did not move.
+			var events, headSeq int64
+			if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM record_event WHERE tenant_id = $1`, tenant).Scan(&events); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.admin.QueryRow(ctx(t), `SELECT COALESCE(max(seq), 0) FROM record_chain_head WHERE tenant_id = $1`, tenant).Scan(&headSeq); err != nil {
+				t.Fatal(err)
+			}
+			if events != 0 || headSeq != 0 {
+				t.Fatalf("%d events stored and chain head at seq %d after only refused forgeries", events, headSeq)
 			}
 		})
 	}
 }
 
+func sqlState(err error) string {
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) {
+		return pe.Code
+	}
+	return ""
+}
+
 // forge appends a correctly hashed event as the emitter, the way a holder of the credential can: lock the head, hash, insert.
-func forge(t *testing.T, tx pgx.Tx, tenant, emitter string) error {
+func forge(t *testing.T, tx pgx.Tx, tenant, emitter string, signed bool) error {
 	t.Helper()
 	var seq int64
 	var prev string
@@ -59,6 +95,13 @@ func forge(t *testing.T, tx pgx.Tx, tenant, emitter string) error {
 	bodyJSON, err := crypto.CanonicalJSON(body)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if signed {
+		// The signed form (REC-08), with the registered key of the emitter named and a signature that does not verify, over the exact stored bytes.
+		_, err = tx.Exec(ctx(t), `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NULL, $14, $15, $16)`,
+			"recev_forged01", seq+1, prev, hash, emitter, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, forgedAt, chain.SchemaVersion, emitter, string(bodyJSON),
+			emitter+".ed25519.1", strings.Repeat("ab", 64), bodyJSON)
+		return err
 	}
 	_, err = tx.Exec(ctx(t), `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NULL)`,
 		"recev_forged01", seq+1, prev, hash, emitter, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, forgedAt, chain.SchemaVersion, emitter, string(bodyJSON))
