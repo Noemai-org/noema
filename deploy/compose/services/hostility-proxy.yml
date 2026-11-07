@@ -74,9 +74,11 @@ services:
       HOSTILITY_PROXY_BENCH_TOKEN_FILE: /run/hostility-proxy/bench_token
       HOSTILITY_PROXY_UPSTREAM_TUSHE: "${TUSHE_BASE_URL:-http://sentinel-tushe:9000}"
       HOSTILITY_PROXY_UPSTREAM_RELAY: "${WEBHOOK_RELAY_URL:-http://sentinel-tushe:9000}"
+      # Only read when the route table is routes.standin.json (set HOSTILITY_PROXY_ROUTES_NAME): the Noema-side stand-in, on tushe_net.
+      HOSTILITY_PROXY_UPSTREAM_STANDIN: "${STANDIN_DATA_URL:-http://standin:8093}"
     volumes:
       - hostility_proxy_credentials:/run/hostility-proxy:ro
-      - ../../../benchmark/hostility_proxy/config/routes.json:/etc/hostility-proxy/routes.json:ro
+      - ../../../benchmark/hostility_proxy/config/${HOSTILITY_PROXY_ROUTES_NAME:-routes.json}:/etc/hostility-proxy/routes.json:ro
       - ../../../benchmark/hostility_proxy/config/fixtures:/etc/hostility-proxy/fixtures:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/hostility-proxy", "-healthcheck"]
