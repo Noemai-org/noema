@@ -214,6 +214,20 @@ func TestRowSecurityTheVerifierStillReadsEveryTenantsChainHeadAndWritesNothing(t
 			t.Fatal(err)
 		}
 	}
+	pool := w.verifierPool(t)
+	var n int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM record_chain_head`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("the verifier sees %d chain heads (err %v), want 2: it must read every tenant", n, err)
+	}
+	if _, err := pool.Exec(ctx(t), `UPDATE record_chain_head SET seq = 1 WHERE tenant_id = 'ten_a'`); err == nil {
+		t.Fatal("the verifier updated a chain head: it must read only")
+	}
+}
+
+// verifierPool opens a pool whose connections log in as a role that is a member of record_verify only: the chain verifier of REC-05. It has no
+// tenant mapping, which is what makes it the one role that reads every tenant.
+func (w *rowWorld) verifierPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
 	u, err := url.Parse(w.dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -237,11 +251,25 @@ func TestRowSecurityTheVerifierStillReadsEveryTenantsChainHeadAndWritesNothing(t
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	var n int
-	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM record_chain_head`).Scan(&n); err != nil || n != 2 {
-		t.Fatalf("the verifier sees %d chain heads (err %v), want 2: it must read every tenant", n, err)
+	return pool
+}
+
+// Founder decision D5 (7 Nov 2026): the chain verifier may SET a tenant's kill switch on a proven break; only a person clears it. Today migration
+// 0006 grants UPDATE (kill_switch) without a direction, so the verifier can also reopen a stopped tenant. FAILS on main until a rule
+// (a trigger or a policy) allows false -> true for record_verify and nothing else for that role.
+func TestKillSwitchTheVerifierMayStopATenantButNeverReopenIt(t *testing.T) {
+	w := newRowWorld(t)
+	pool := w.verifierPool(t)
+	tag, err := pool.Exec(ctx(t), `UPDATE tenant SET kill_switch = true WHERE tenant_id = 'ten_a'`)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("control: the verifier could not stop ten_a: rows=%d err=%v; D5 says it may", tag.RowsAffected(), err)
 	}
-	if _, err := pool.Exec(ctx(t), `UPDATE record_chain_head SET seq = 1 WHERE tenant_id = 'ten_a'`); err == nil {
-		t.Fatal("the verifier updated a chain head: it must read only")
+	tag, err = pool.Exec(ctx(t), `UPDATE tenant SET kill_switch = false WHERE tenant_id = 'ten_a'`)
+	var stopped bool
+	if qerr := w.admin.QueryRow(ctx(t), `SELECT kill_switch FROM tenant WHERE tenant_id = 'ten_a'`).Scan(&stopped); qerr != nil {
+		t.Fatal(qerr)
+	}
+	if !stopped {
+		t.Fatalf("the verifier reopened a stopped tenant (rows=%d err=%v); only a person clears the kill switch (D5)", tag.RowsAffected(), err)
 	}
 }
