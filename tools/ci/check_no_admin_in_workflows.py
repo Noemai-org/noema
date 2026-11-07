@@ -8,6 +8,7 @@ Comments are NOT ignored: a comment that names the credential is how it gets wir
 
 Usage: check_no_admin_in_workflows.py [github_dir]
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -17,8 +18,14 @@ SUFFIXES = {".yml", ".yaml"}
 
 
 def violations(github_dir: Path) -> list[str]:
-    found = []
-    for path in sorted(p for p in github_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUFFIXES):
+    found: list[str] = []
+
+    def on_error(exc: OSError) -> None:
+        # Path.rglob silently skips a directory it cannot list, so a hidden workflow could evade this check (Codex review of #191).
+        found.append(f"{exc.filename}: directory cannot be listed ({exc.__class__.__name__})")
+
+    files = sorted(Path(d) / n for d, _dirs, names in os.walk(github_dir, onerror=on_error) for n in names)
+    for path in (p for p in files if p.suffix.lower() in SUFFIXES):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:

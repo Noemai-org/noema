@@ -47,6 +47,44 @@ class Cases(unittest.TestCase):
             (Path(tmp) / "a.yml").write_bytes(b"\xff\xfe\x00bad")
             self.assertEqual(len(c.violations(Path(tmp))), 1)
 
+    def test_a_directory_that_cannot_be_listed_fails(self):
+        """Codex P1 on #191: Path.rglob swallows OSError while walking, so an unreadable subtree vanished and the check printed OK."""
+        import os
+        from unittest import mock
+
+        real = os.scandir
+        with tempfile.TemporaryDirectory() as tmp:
+            hidden = Path(tmp) / "workflows" / "hidden"
+            hidden.mkdir(parents=True)
+            (hidden / "a.yml").write_text("environment: tushe-admin\n")
+
+            def fake(path=".", *a, **k):
+                if str(path) == str(hidden):
+                    raise PermissionError(13, "denied", str(path))
+                return real(path, *a, **k)
+
+            with mock.patch("os.scandir", side_effect=fake):
+                found = c.violations(Path(tmp))
+        self.assertEqual(len(found), 1)
+        self.assertIn("cannot be listed", found[0])
+
+    def test_a_real_unreadable_directory_fails(self):
+        """The same without a mock, where the operating system can deny a listing (a non-root POSIX user, as in CI)."""
+        import os
+
+        if os.name != "posix" or os.geteuid() == 0:
+            self.skipTest("needs a POSIX user that is not root; the mocked test above covers the logic everywhere")
+        with tempfile.TemporaryDirectory() as tmp:
+            hidden = Path(tmp) / "workflows" / "hidden"
+            hidden.mkdir(parents=True)
+            (hidden / "a.yml").write_text("environment: tushe-admin\n")
+            hidden.chmod(0)
+            try:
+                found = c.violations(Path(tmp))
+            finally:
+                hidden.chmod(0o700)
+        self.assertEqual(len(found), 1)
+
     def test_the_real_repository_passes(self):
         self.assertEqual(c.violations(ROOT / ".github"), [])
 
