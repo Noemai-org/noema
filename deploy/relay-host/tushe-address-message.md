@@ -27,7 +27,7 @@ You asked for our HTTPS URL for the webhooks kept active on our tenants. It is:
 Please retry any non-`2xx` under your normal policy.
 
 **What we need from you.**
-1. The signing secret for this endpoint, through the channel we use for credentials. Please do not send it by ordinary email in clear text.
+1. Who generates the signing secret for this endpoint: do you generate it and give it to us, or do we generate it and give it to you? Please tell us in writing, with the secret's format and how a rotation is announced. Whichever way, the secret should travel by the channel we use for credentials, not by ordinary email in clear text. Until you answer, we use a synthetic secret that only our receiver holds.
 2. Confirmation of which of our tenants have this URL registered (R13: webhooks kept active alongside the event feed).
 3. The event types that will be delivered to it, so we can check we are not missing one.
 4. A way to replay a delivery from your side (your deck says any delivery can be replayed); we will use it to check that a duplicate is stored once.
