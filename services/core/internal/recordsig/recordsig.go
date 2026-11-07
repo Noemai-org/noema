@@ -21,7 +21,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
-// Identities are the identities that hold a signing key (migration 0012, D2).
+// Identities are the identities that hold a signing key (migration 0013, D2).
 var Identities = []string{"core-execution", "core-outcome", "core-trust", "core-evidence", "core-workflows", "core-edge", "core-record", "admin"}
 
 const tag = "noema/record-event/v1\n"

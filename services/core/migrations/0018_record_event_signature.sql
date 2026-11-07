@@ -1,5 +1,5 @@
--- 0016: database-side verification of Record events (REC-08; REQ-AUD-006; DEBT-03 and DEBT-08; DEC-2026-11-01 D2, D7, D11, D12, D13). Forward-only: never edited after merge.
--- It builds on 0012 (noema_sig.verify, signing_key, key_register); the number is provisional (A34, the noema#183 ledger).
+-- 0018: database-side verification of Record events (REC-08; REQ-AUD-006; DEBT-03 and DEBT-08; DEC-2026-11-01 D2, D7, D11, D12, D13). Forward-only: never edited after merge.
+-- It builds on 0013 (noema_sig.verify, signing_key, key_register); the number 0018 is Founder decision D12 (a later merge order renumbers, A34).
 --
 -- Before it, record_insert_t checked only that an event extended the head, so a holder of one runtime credential and no key appended any well-formed
 -- event under the emitter that credential is bound to (noema#236). After it:
