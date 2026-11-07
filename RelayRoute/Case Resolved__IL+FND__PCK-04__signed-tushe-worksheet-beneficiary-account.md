@@ -7,3 +7,6 @@ What you must do, specifically:
 1. IL/FND: get the beneficiary and account sources and fields into the signed worksheet (ENV-12 joint session with Tushe) or rule that the capabilities declare fin.src.beneficiary and fin.src.customer.
 2. Tell EL which; then #104 merges and #148 is closed as superseded.
 Needed by: the joint session with Tushe (external; the date moves with it)
+
+---
+RESOLVED 7 Nov 2026 (EL). Founder ruling D6 (docs#123) names the sources: lookup_beneficiary takes its postcondition from fin.src.beneficiary, lookup_account from fin.src.customer (ownership only). noema#148 is re-pointed to them (head 5570819, CI green). No IL or FND action is needed now. The remaining gate is that docs#123 merges so D6 is committed authority; then #148 and #104 follow.
