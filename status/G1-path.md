@@ -64,3 +64,12 @@ One line per node: `node · task · PR (head) · state · blocker`.
 
 ## The shortest chain to G1, in order
 1. REC-01 → TRU-05 (me, with C1 and C2). 2. PCK-02 mechanism → EXE-01 → PLN-01. 3. EVD-01 → TRU-04 and EVD-03. 4. OUT-01 with the DEBT-03 fix → EXP-01. 5. `e2e/` and BEN-05 runs. The longest unknown is EVD-01 (Backlog, C2, no PR).
+
+## Update 6 Nov 2026 (Engineering Lead)
+**A snapshot, not a live view; heads and checks are on each PR.**
+- **Merged since the 5 Nov refresh:** noema#167 (EVD-01 evidence tables, migration 0008, forced RLS) and docs#95 (debt register). Merged on 5 Nov: #145, #134, #129, #136, #160, #112, #165, #159, #135, #147.
+- **TRU-05:** noema#163 (grant issuer, E4 policy binding, freeze `Permission` bound to capability and target) and noema#168 (`decision_record`, forced RLS on it and on `decision_grant`, `decision-record.v2`, migration 0009) are Ready or Draft behind **docs#112**, which carries rulings D1, D6, D7 (and A5, A6 as relayed): not authority until committed, so neither merges before it. noema#197 (stacked on both) signs a Decision Record v2 with the grant keys.
+- **TRU-05 Go writer is blocked on one decision:** `decide.Basis.EvidenceFreshness` lacks `source`, `age_seconds`, `effective_limit_seconds` and `limit_set_by`, which the record requires (TRU-13). Recommendation in noema#197.
+- **PCK-04:** noema#104 (D6 postconditions, `principal_id`) Draft behind docs#112; noema#180 (graph walk: every emitted plan follows the declared edges, roots exact, graph connected) stacked on it; noema#148's descriptors still name `fin.src.core_ledger` and must be re-pointed to D6 after docs#112.
+- **The end-to-end Go test of US-01 and US-06 through the public API is not started.** The public API (EDG-01, now C1's) has no route, so the test would fail at its first hop; the plan is a failing-first tests-only commit citing the red run, then one hop at a time as pieces merge. Not on `main` yet: the session middleware, any public route, the Decision Record writer, the planner's graph selection.
+- **Claims G1 evidence may not make** (unchanged): "writer identity enforced" for non-power emitters (DEBT-07 open); "signatures verified" (DEBT-01, DEBT-03 open).
