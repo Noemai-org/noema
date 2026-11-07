@@ -211,6 +211,7 @@ func (p publicKeys) Lookup(_ context.Context, id string) (receiptsig.PublicKey, 
 
 // stack is Execution and Outcome wired as production is wired, around a real mock-case and a real PostgreSQL.
 type stack struct {
+	dsn     string
 	admin   *pgxpool.Pool
 	clk     *tickClock
 	ctl     *controller.Controller
@@ -272,7 +273,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &stack{admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
+	return &stack{dsn: dsn, admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
 		request: verifier.Request{TenantID: tenant, TransactionRef: txRef, QueryableByKey: true,
 			Bindings:   map[string]string{"subject_resource": txRef, "intent_id": intentRef},
 			Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
