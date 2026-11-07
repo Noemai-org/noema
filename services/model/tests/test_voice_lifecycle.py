@@ -4,7 +4,7 @@ A live microphone must not stay open after an utterance ends, however it ends: t
 the provider goes silent, or closing one stream itself fails.
 """
 
-from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
@@ -35,18 +35,27 @@ def chunk(i: int, level: int) -> AudioChunk:
 
 
 class Source:
-    """A microphone stand-in that records whether it was closed."""
+    """A microphone stand-in with an explicit handle: `aclose()` releases it whether or not anything was read, as a real
+    device handle does. (An async generator that never started has opened nothing, so it is not a faithful stand-in.)"""
 
     def __init__(self, chunks: Sequence[AudioChunk]) -> None:
-        self._chunks = chunks
+        self._items = iter(chunks)
         self.closed = False
 
-    async def stream(self) -> AsyncGenerator[AudioChunk, None]:
+    def stream(self) -> "Source":
+        return self
+
+    def __aiter__(self) -> "Source":
+        return self
+
+    async def __anext__(self) -> AudioChunk:
         try:
-            for item in self._chunks:
-                yield item
-        finally:
-            self.closed = True
+            return next(self._items)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class Failing:
