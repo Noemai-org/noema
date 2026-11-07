@@ -1,5 +1,5 @@
 # compose-scripts (ruling A38, DEBT-16): the shell tests of deploy/compose that need a database run against PostgreSQL 17.11, the same pinned image
-# as core.yml and deploy/compose, inside that image (its initdb, pg_ctl and psql), as its unprivileged postgres user. They need no Docker daemon of their own
+# as core.yml and deploy/compose, inside that image (its initdb, pg_ctl and psql), as its unprivileged postgres user; all three scripts run there, test_secrets_local.sh included (A38, as the reviewer of noema#181 read it). They need no Docker daemon of their own
 # and no secret. The workflow always triggers so its check always reports; the path filter runs inside the job.
 name: compose-scripts
 on:
@@ -25,12 +25,11 @@ jobs:
           fi
       - if: steps.changed.outputs.run == 'true'
         run: |
-          docker run --rm --user postgres --entrypoint sh -v "$PWD:/repo:ro" -w /repo \
+          docker run --rm --user root --entrypoint sh -v "$PWD:/repo:ro" -w /repo \
             postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 -euc '
-            initdb --version | grep -q "(PostgreSQL) 17.11" || { echo "not PostgreSQL 17.11"; initdb --version; exit 1; }
-            for t in deploy/compose/postgres/test_init.sh deploy/compose/postgres/test_provision_env.sh; do
-              echo "== $t"; sh "$t"
-            done'
-      # secrets_local.sh needs python3, which the PostgreSQL image does not have, and touches no database: it runs on the runner.
-      - if: steps.changed.outputs.run == 'true'
-        run: sh deploy/compose/test_secrets_local.sh
+            apk add --no-cache python3 >/dev/null # secrets_local.sh needs python3; the image has none and the scripts touch no other package
+            su-exec postgres sh -euc "
+              initdb --version | grep -q \"(PostgreSQL) 17.11\" || { echo \"not PostgreSQL 17.11\"; initdb --version; exit 1; }
+              for t in deploy/compose/postgres/test_init.sh deploy/compose/postgres/test_provision_env.sh deploy/compose/test_secrets_local.sh; do
+                echo \"== \$t\"; sh \"\$t\"
+              done"'
