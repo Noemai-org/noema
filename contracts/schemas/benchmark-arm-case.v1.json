@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-arm-case.v1.json",
+  "title": "Benchmark arm case (v1, DRAFT): the only view of a case an arm is shown",
+  "description": "DRAFT, with benchmark-case.v2. A projection of a case that holds nothing the Security Reviewer found leaking (noema#246): no `goal` (it names the archetype), no real `case_id` (its category code is a hint), no `category`, `families`, `suite_family`, `expected`, `oracle_ref`, `safety_gate_relevance`, `severity_if_failed`, `provenance`, `fault_plan`, `events_timeline` or `harness`. `case_ref` is opaque and the mapping to the case id is private to the runner. Time is the simulated clock (`received_at`); an arm never reads the wall clock. What the arm is shown is exactly what an applicant to the same service would be shown, identical for every arm (REQ-BEN-007). Generated layer only (INV-22).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "benchmark-arm-case.v1"
+    },
+    "case_ref": {
+      "type": "string",
+      "pattern": "^arm_[0-9a-f]{16}$"
+    },
+    "received_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "text",
+        "voice"
+      ]
+    },
+    "principal": {
+      "type": "object",
+      "properties": {
+        "principal_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "ops",
+              "approver",
+              "audit"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "principal_id",
+        "roles"
+      ],
+      "additionalProperties": false
+    },
+    "utterances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "turn",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "minItems": 1
+    },
+    "permitted_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "uniqueItems": true
+    },
+    "fixture_ref": {
+      "type": "string",
+      "pattern": "^fx_arm_[0-9a-f]{16}$"
+    }
+  },
+  "required": [
+    "schema",
+    "case_ref",
+    "received_at",
+    "channel",
+    "principal",
+    "utterances",
+    "permitted_capabilities",
+    "fixture_ref"
+  ],
+  "additionalProperties": false
+}
