@@ -81,6 +81,9 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Addendum 2026-11-06 · the synthetic-source label (AGENT-25)
 - `Observation.DataSource` and `Observation.Synthetic`: when `DataSource` is set, the `EVIDENCE_READ` event carries `data_source` and `synthetic`; the evidence item itself has no field for them (the contract has none, so nothing changed there). Test: `TestBuilderLabelsEvidenceFromASyntheticSourceOnTheRecord` (red as a compile failure first; mutant that drops the label caught). Needed by the stand-in adapter (noema#205), which owns its own mapping.
+
+## Session 2026-11-07 · error-body provenance (Codex finding on #172, after IL's noema#262)
+A failed read with no normalised response now carries exactly one of `RawHash` (the hash of the bytes that arrived, an empty body included) and `NoBytes` (explicit: a timeout, reset, local refusal or open circuit). SHA-256(empty) is no longer invented for a body that was there, and the `EVIDENCE_READ` event carries `body_received`. I did not make the rule class-based as first planned: `ReadServerError` also covers resets with no response and `ReadMalformed` also covers a local refusal, so a class rule would have refused legitimate no-bytes reads. Caller wiring (`ReadError.RawHash` into the observation) is in the next PR of the chain (#174, where `ClassifyError` lives). Red commit first; four mutants killed.
 # Session 2026-11-05 17:30 WAT · EVD-01 (slice 2c)
 
 ## Session summary
