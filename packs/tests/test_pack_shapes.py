@@ -102,23 +102,29 @@ class Fintech(unittest.TestCase):
 
 
 class LookupDescriptors(unittest.TestCase):
-    """PCK-04 (REQ-AG-001): a READ node in the investigate graph that looks up an entity has an evidence descriptor for it, so a
-    postcondition over that entity type-checks. Founder decision of 3 Nov 2026: the key is the descriptor id declared in the pack
-    (the entity name), not an evidence field; the source is the one the node's capability declares. Minimal; extend when the Tushe
-    worksheet is signed."""
+    """PCK-04 (REQ-AG-001), Architect's ruling D6 of 5 Nov 2026 (proposed in docs#123): the postcondition of a lookup comes from the source that
+    covers the entity. `beneficiary` is read from fin.src.beneficiary (authoritative for beneficiary_list_and_aliases) and `account` from
+    fin.src.customer (authoritative for customer_identity_and_ownership), ownership only. Neither descriptor declares a balance or a state."""
     pack = load(FINTECH)
-    graph = load(PACKS / "fintech" / "graph" / "g1_investigate.json")
-    capabilities = {c["capability_id"]: c for c in pack["capabilities"]}
     descriptors = {d["entity"]: d for d in pack["evidence_descriptors"]}
+    sources = {s["source_id"]: s for s in pack["evidence_sources"]}
 
-    def test_beneficiary_and_account_have_a_minimal_descriptor_from_the_declared_source(self):
-        for node_id, entity in (("lookup_beneficiary", "beneficiary"), ("lookup_account", "account")):
-            node = next(n for n in self.graph["nodes"] if n["node_id"] == node_id)
-            declared = self.capabilities[node["capability_id"]]["verification"]["source"]
-            self.assertIn(entity, self.descriptors, f"{node_id} has no evidence descriptor")
+    def test_beneficiary_and_account_come_from_the_source_that_covers_them(self):
+        want = {
+            "beneficiary": ("fin.src.beneficiary", "beneficiary_list_and_aliases", {"id": {"type": "Reference"}, "transaction": {"type": "Reference"}}),
+            "account": ("fin.src.customer", "customer_identity_and_ownership", {"id": {"type": "Reference"}, "owner": {"type": "Reference"}}),
+        }
+        for entity, (source, fact, fields) in want.items():
+            self.assertIn(entity, self.descriptors, f"no evidence descriptor for {entity}")
             d = self.descriptors[entity]
-            self.assertEqual(d["source"], declared, f"{entity}: the source is the one the node's capability declares")
-            self.assertEqual(d["fields"], {"id": {"type": "Reference"}}, f"{entity}: one field, the descriptor's own id")
+            self.assertEqual(d["source"], source, f"{entity}: the source that covers it")
+            self.assertIn(fact, self.sources[source]["authoritative_for"], f"{source} is authoritative for {fact}")
+            self.assertEqual(d["fields"], fields, f"{entity}: the declared fields")
+
+    def test_no_descriptor_declares_a_balance_or_a_state(self):
+        for entity in ("beneficiary", "account"):
+            fields = set(self.descriptors[entity]["fields"])
+            self.assertEqual(fields & {"balance", "state", "status"}, set(), f"{entity}: no source covers balance or state (DEBT-12)")
 
     def test_the_minimal_descriptors_are_marked_in_the_pack_readme(self):
         text = (PACKS / "README.md").read_text()
