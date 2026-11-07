@@ -354,3 +354,13 @@ func TestBuilderNeedsTheBodyHashOrAnExplicitNoBytesForEveryFailedRead(t *testing
 		t.Errorf("stored payloads with the supplied body hash = %v, want %d", got, len(failed))
 	}
 }
+
+func TestBuilderRefusesNoBytesOnAReadThatHasAResponse(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadOK)
+	o.NoBytes = true
+	if _, err := b.Record(ctx(t), o); err == nil {
+		t.Fatal("a read with a response was stored although it said no bytes arrived")
+	}
+}
