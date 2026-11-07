@@ -420,6 +420,26 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 	if create {
 		t.Error("evidence_verify may create objects in the public schema")
 	}
+	// The enumeration (Security Reviewer, noema#268): relations of every kind (tables, sequences, indexes, views: the aclexplode query above),
+	// columns, SECURITY DEFINER functions, schemas, the database, default privileges, and memberships in both directions.
+	var defaults, reverse, schemas int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_default_acl d, LATERAL aclexplode(d.defaclacl) x JOIN pg_roles g ON g.oid = x.grantee WHERE g.rolname = 'evidence_verify'`).Scan(&defaults); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid WHERE r.rolname = 'evidence_verify'`).Scan(&reverse); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname <> 'public'
+		AND (has_schema_privilege('evidence_verify', n.oid, 'USAGE') OR has_schema_privilege('evidence_verify', n.oid, 'CREATE'))`).Scan(&schemas); err != nil {
+		t.Fatal(err)
+	}
+	if defaults != 0 || reverse != 0 || schemas != 0 {
+		t.Errorf("default privileges naming evidence_verify = %d, roles that are members of it = %d, other schemas it can use or create in = %d; want 0 each", defaults, reverse, schemas)
+	}
+	var dbCreate bool
+	if err := w.admin.QueryRow(ctx(t), `SELECT has_database_privilege('evidence_verify', current_database(), 'CREATE')`).Scan(&dbCreate); err != nil || dbCreate {
+		t.Errorf("evidence_verify may create schemas in the database: %v %v", dbCreate, err)
+	}
 	pol, err := w.admin.Query(ctx(t), `SELECT tablename, cmd, roles::text, qual FROM pg_policies WHERE 'evidence_verify' = ANY (roles) ORDER BY tablename`)
 	if err != nil {
 		t.Fatal(err)
@@ -435,5 +455,31 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 	}
 	if want := "context_snapshot/SELECT/{evidence_verify}/true,evidence_item/SELECT/{evidence_verify}/true"; strings.Join(policies, ",") != want {
 		t.Errorf("policies naming evidence_verify = %v, want %s", policies, want)
+	}
+}
+
+// Security Reviewer, noema#268 (the trap EL named for noema#168): a SECURITY DEFINER function runs as its owner, and FORCE row-level security binds the
+// owner too. A function that reads a forced table needs a SELECT policy for its owner, or it sees no row once the owner is not a superuser (the
+// Compose migration login is not; the test migrator is, and bypasses row security, so only this catalog check and test_init.sh can show it).
+// The check is textual (a function body with FROM or JOIN and a forced table's name), which is the closest a catalog gets to "reads".
+func TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner(t *testing.T) {
+	w := newWorld(t)
+	rows, err := w.admin.Query(ctx(t), `SELECT p.proname, pg_get_userbyid(p.proowner), c.relname
+		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r' AND c.relforcerowsecurity
+		WHERE n.nspname = 'public' AND p.prosecdef AND p.prosrc ~* ('(from|join)\s+(public\.)?' || c.relname || '\M')
+		AND NOT EXISTS (SELECT 1 FROM pg_policy pol WHERE pol.polrelid = c.oid AND pol.polcmd IN ('r', '*')
+		                AND (pol.polroles = '{0}'::oid[] OR p.proowner = ANY (pol.polroles)))
+		ORDER BY 1, 3`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var fn, owner, table string
+		if err := rows.Scan(&fn, &owner, &table); err != nil {
+			t.Fatal(err)
+		}
+		t.Errorf("%s (owner %s) reads %s, which forces row-level security, and no SELECT policy covers its owner", fn, owner, table)
 	}
 }
