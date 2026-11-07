@@ -1,4 +1,5 @@
 {
+  "arm_that_is_not_run.json": "enum",
   "audit_entry_without_an_actor.json": "required",
   "bad_digest.json": "pattern",
   "disposition_not_in_the_decision_set.json": "enum",
@@ -10,6 +11,5 @@
   "noema_internal_field.json": "additionalProperties",
   "proposed_action_without_a_source.json": "required",
   "response_with_a_transport_error.json": "type",
-  "unknown_arm.json": "enum",
   "unknown_operation.json": "enum"
 }

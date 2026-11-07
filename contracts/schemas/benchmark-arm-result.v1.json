@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/benchmark-arm-result.v1.json",
   "title": "Benchmark arm result (v1, neutral)",
-  "description": "What any arm (N Noema, A model and tools, B model and harness, D deterministic rules, A0 naive floor) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). `tool_calls` lists every call or read the arm made through whatever interface it has: a tool call for an arm with tools, an adapter read for Noema, which has no model-visible tools. `evidence` and `executed_actions` name entries of it. A call that got no HTTP response (a timeout, a dropped connection) is recorded with `status` null and a `transport_error`. A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25).",
+  "description": "What any arm (A model and tools, B model and harness, C Noema, D deterministic rules, A0 naive floor; E and F are not tested and write nothing) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). `tool_calls` lists every call or read the arm made through whatever interface it has: a tool call for an arm with tools, an adapter read for Noema, which has no model-visible tools. `evidence` and `executed_actions` name entries of it. A call that got no HTTP response (a timeout, a dropped connection) is recorded with `status` null and a `transport_error`. A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25).",
   "type": "object",
   "properties": {
     "schema": {
@@ -24,9 +24,9 @@
     "arm": {
       "type": "string",
       "enum": [
-        "N",
         "A",
         "B",
+        "C",
         "D",
         "A0"
       ]
