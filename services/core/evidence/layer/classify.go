@@ -44,3 +44,17 @@ func ClassifyError(err error) ReadClass {
 		return ReadMalformed
 	}
 }
+
+// BodyOf says what the response bytes of a failed read were: the hash the adapter recorded for the bytes it received (adapters.ReadError.RawHash), or noBytes when none
+// arrived (a timeout, a reset, a deadline that expired inside a call, an error the adapter did not produce). A nil error has neither. It is the pair the Builder needs for
+// a failed read: exactly one of a body hash and an explicit no-bytes.
+func BodyOf(err error) (rawHash string, noBytes bool) {
+	if err == nil {
+		return "", false
+	}
+	var re *adapters.ReadError
+	if errors.As(err, &re) && re.RawHash != "" {
+		return re.RawHash, false
+	}
+	return "", true
+}
