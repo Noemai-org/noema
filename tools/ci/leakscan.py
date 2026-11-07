@@ -26,8 +26,12 @@ MIN_RUN = 5
 ACCOUNT_DIGITS = 10
 CARD_DIGITS = range(13, 20)
 
-DIGIT_RUN = re.compile(r"(?<![A-Za-z0-9])(\d{5,})(?![A-Za-z0-9])")
+# A number as the model redactor reads it: digits, with a single space or hyphen allowed between two digits (Codex review of #222).
+DIGIT_RUN = re.compile(r"(?<![A-Za-z0-9])\d(?:[ -]?\d)*(?![A-Za-z0-9])")
 FRACTION = re.compile(r"\d{2}:\d{2}:\d{2}[.,]\d+")
+ISO_DATE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")  # hyphens inside a date are not separators inside a number
+# A value that only stands in for a secret: asterisks or x's, or the word redacted or masked, alone or repeated.
+PLACEHOLDER = re.compile(r"^(?:[*xX_=-]+|(?:redacted|masked)(?:[-_]?(?:redacted|masked))*|null|none|true|false)$", re.IGNORECASE)
 
 # Secret shapes. The key-id and key prefixes are built from parts so that this file is not itself a secret finding.
 SECRET_SHAPES = [
@@ -71,9 +75,11 @@ def _luhn(digits: str) -> bool:
 
 
 def _digit_findings(line: str, number: int, path: str):
-    scrubbed = FRACTION.sub(lambda m: " " * len(m.group(0)), line)
+    scrubbed = ISO_DATE.sub(lambda m: " " * len(m.group(0)), FRACTION.sub(lambda m: " " * len(m.group(0)), line))
     for m in DIGIT_RUN.finditer(scrubbed):
-        run = m.group(1)
+        run = re.sub(r"\D", "", m.group(0))
+        if len(run) < MIN_RUN:
+            continue
         if len(run) in CARD_DIGITS and _luhn(run):
             kind = "card_number"
         elif len(run) == ACCOUNT_DIGITS:
@@ -89,8 +95,9 @@ def _secret_findings(line: str, number: int, path: str):
             yield Finding(path, number, kind, len(m.group(0)), _fp(m.group(0)))
     for m in NAMED_SECRET.finditer(line):
         value = m.group(2)
-        # A path to a mounted secret, a URL, or a value with no digit or no letter is not a secret value itself.
-        if value.startswith(("/", "file:")) or not (any(c.isdigit() for c in value) and any(c.isalpha() for c in value)):
+        # A path to a mounted secret and a redaction placeholder are not secret values. A value with no digit is not exempt: a password or a
+        # token need not contain one (Codex review of #222).
+        if value.startswith(("/", "file:")) or PLACEHOLDER.match(value):
             continue
         yield Finding(path, number, "named_secret_value", len(value), _fp(value))
 

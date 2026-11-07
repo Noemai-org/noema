@@ -73,6 +73,27 @@ class Secrets(unittest.TestCase):
         self.assertEqual(kinds('{"token": "[REDACTED]", "password": "********************"}'), [])
 
 
+    def test_a_formatted_account_or_card_number_is_caught(self):
+        """Codex P2 on #222: single spaces or hyphens between digits (the model redactor treats them as part of the number)."""
+        self.assertEqual(kinds('{"account":"0123 456 789"}'), ["account_number"])
+        self.assertEqual(kinds('{"account":"0123-456-789"}'), ["account_number"])
+        self.assertEqual(kinds('{"card":"4111-1111-1111-1111"}'), ["card_number"])
+        self.assertEqual(kinds('{"card":"4111 1111 1111 1111"}'), ["card_number"])
+
+    def test_an_iso_date_and_time_with_hyphens_are_still_not_a_digit_run(self):
+        self.assertEqual(kinds("on 2026-11-05 at 09:00:00 and 2026-11-05T09:00:00Z"), [])
+
+    def test_a_words_only_secret_value_assigned_to_a_secret_name_is_caught(self):
+        """Codex P2 on #222: a password or token need not contain a digit."""
+        self.assertEqual(kinds('{"password":"syntheticpasswordvalue"}'), ["named_secret_value"])
+        self.assertEqual(kinds("api_key=abcdefghijklmnopqrstuv"), ["named_secret_value"])
+
+    def test_paths_and_placeholders_are_still_not_secrets(self):
+        self.assertEqual(kinds('{"password":"/run/secrets/db_password_file"}'), [])
+        self.assertEqual(kinds('{"password":"****************"}'), [])
+        self.assertEqual(kinds('{"token":"redacted-redacted-redacted"}'), [])
+
+
 class Canaries(unittest.TestCase):
     def test_a_seeded_canary_is_caught_whatever_its_shape(self):
         canary = "canary-Zq7-unremarkable-word"
