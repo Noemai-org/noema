@@ -11,7 +11,7 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 
 ## Open points recorded, not decided
 
-1. **Settlement states.** The SoT lifecycle (15.2) is NOT_REQUIRED, PENDING, SETTLED, FAILED, REVERSED, UNKNOWN. The stand-in data contract (`benchmark/fixtures/standin.py`) also emits REVERSAL_PENDING and the string UNAVAILABLE as a state. The port accepts the SoT set plus REVERSAL_PENDING and treats UNAVAILABLE as a read result, not a state. Needs an Architect ruling on whether REVERSAL_PENDING is a settlement state or only a reconciliation classification.
+1. **Settlement states. Resolved by A31 (DEC-2026-11-06):** REVERSAL_PENDING is non-terminal and never SUCCEEDED, FAILED or REVERSED; a decision on it is wait or escalate. The port keeps it as its own state and `SettlementState.IsTerminal` says so (UNAVAILABLE stays a read result, not a state).
 2. **`ReadError.Error()`** still says "case read failed" for every read; harmless, to be generalised in a later slice.
 
 ## Messages

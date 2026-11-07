@@ -200,9 +200,9 @@ const (
 	CreditUnknown       CreditState = "UNKNOWN"
 )
 
-// SettlementState is the settlement lifecycle. The SoT lifecycle is NOT_REQUIRED, PENDING, SETTLED, FAILED, REVERSED
-// and UNKNOWN; REVERSAL_PENDING is added because the stand-in's data contract emits it and the fintech pack's
-// reconciliation reads it. That difference is recorded as an open point in the PR (AGENT-26), not decided here.
+// SettlementState is the settlement lifecycle. The SoT lifecycle is NOT_REQUIRED, PENDING, SETTLED, FAILED, REVERSED and UNKNOWN; REVERSAL_PENDING is
+// added because the stand-in data contract emits it and the fintech pack reads it. By ruling A31 (DEC-2026-11-06) it is non-terminal and is never
+// SUCCEEDED, FAILED or REVERSED: a decision on it is wait or escalate. IsTerminal says which states are final.
 type SettlementState string
 
 // Every settlement state.
@@ -215,6 +215,15 @@ const (
 	SettlementReversalPending SettlementState = "REVERSAL_PENDING"
 	SettlementUnknown         SettlementState = "UNKNOWN"
 )
+
+// IsTerminal reports whether the settlement can still change. REVERSAL_PENDING, PENDING and UNKNOWN can; a state the port does not know is not terminal.
+func (s SettlementState) IsTerminal() bool {
+	switch s {
+	case SettlementNotRequired, SettlementSettled, SettlementFailed, SettlementReversed:
+		return true
+	}
+	return false
+}
 
 // DestinationStatus is the normalised fin.destination_status payload.
 type DestinationStatus struct {
