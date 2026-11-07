@@ -1996,18 +1996,24 @@
     },
     {
       "entity": "beneficiary",
-      "source": "fin.src.core_ledger",
+      "source": "fin.src.beneficiary",
       "fields": {
         "id": {
+          "type": "Reference"
+        },
+        "transaction": {
           "type": "Reference"
         }
       }
     },
     {
       "entity": "account",
-      "source": "fin.src.core_ledger",
+      "source": "fin.src.customer",
       "fields": {
         "id": {
+          "type": "Reference"
+        },
+        "owner": {
           "type": "Reference"
         }
       }

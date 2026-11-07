@@ -14,7 +14,7 @@ Packs are loaded as data, never imported as code (SoT §51). The files are `fint
 
 ## Minimal evidence descriptors (PCK-04)
 
-- `beneficiary` and `account` in `fintech_v1.json` have one field each, `id` (a Reference), the descriptor's own id. Each `source` is the one the lookup node's capability declares (`verification.source`). Both are **minimal; extend when the Tushe worksheet is signed**: the worksheet does not exist yet, so no richer field is invented. A Founder decision of 3 Nov 2026 set the rule: the key is the descriptor id declared in the pack, not an evidence field.
+- `beneficiary` and `account` in `fintech_v1.json` have one field each, `id` (a Reference), the descriptor's own id. `beneficiary` is read from `fin.src.beneficiary` (fields `id` and `transaction`) and `account` from `fin.src.customer` (fields `id` and `owner`, ownership only), the sources that cover them (Architect's ruling D6, proposed in docs#123); there is no balance or state field because no source covers it (DEBT-12). Both are **minimal; extend when the Tushe worksheet is signed**: the worksheet does not exist yet, so no richer field is invented. A Founder decision of 3 Nov 2026 set the rule: the key is the descriptor id declared in the pack, not an evidence field.
 - The sources `fin.src.beneficiary` and `fin.src.customer` exist in `evidence_sources` but no capability names them, so the descriptors do not use them. Which source is right is for the signed worksheet to say.
 
 ## Status (Session A, 24 Oct 2026)
