@@ -234,3 +234,21 @@ func TestAPublicationIsOnTheRecordWithItsPublisher(t *testing.T) {
 		}
 	}
 }
+
+// The guard that refuses a downgrade is SECURITY DEFINER and reads the table as its owner, which FORCE subjects to the policies (Codex P1 on noema#168).
+// A superuser owner bypasses row security, so only the catalog shows it: a SELECT policy must reach the owner of the guard function.
+func TestTheGuardsOwnerCanReadThePublicationsItCompares(t *testing.T) {
+	w := newWorld(t)
+	var reaches, forced bool
+	err := w.admin.QueryRow(ctx(t), `
+		SELECT EXISTS (SELECT 1 FROM pg_policy p, pg_proc f
+		                WHERE p.polrelid = 'policy_publication'::regclass AND p.polcmd IN ('r', '*')
+		                  AND f.proname = 'policy_publication_guard' AND (f.proowner = ANY (p.polroles) OR p.polroles = '{0}')),
+		       (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'policy_publication'::regclass)`).Scan(&reaches, &forced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !forced || !reaches {
+		t.Fatalf("row security forced %v, a SELECT policy reaches the guard's owner %v; want both", forced, reaches)
+	}
+}
