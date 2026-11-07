@@ -40,7 +40,7 @@ class Golden(unittest.TestCase):
     def test_manifest_digest_is_pinned(self) -> None:
         """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
         from benchmark.contracts import sha256_of
-        self.assertEqual(GENERATOR_VERSION, "1.3.0")
+        self.assertEqual(GENERATOR_VERSION, "1.3.1")  # 1.3.1: roles are A1's (ops_agent -> ops, viewer -> audit; ruling A37)
         self.assertEqual(sha256_of(suite().manifest), "sha256:9b59bfa13856fe73f95df8e1af14c43e7a0ef95ba08c28a4d0b5b084f8f61092")
 
 
