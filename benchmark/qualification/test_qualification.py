@@ -17,7 +17,9 @@ from typing import Any
 
 from benchmark.contracts import Contracts
 from benchmark.qualification.__main__ import main
+from benchmark.qualification.pins import is_pinned
 from benchmark.qualification.record import build_record, check_model, validate_record, verify_against_scorecard
+from benchmark.qualification.run import build_baseline
 from benchmark.qualification.test_run import NEW, PINNED, SHA, answers, baseline, run, subset
 from benchmark.scoring.test_report import card_for, fixture
 
@@ -220,6 +222,66 @@ class Validating(unittest.TestCase):
         rec = record(card)
         card["n_cases"] += 1
         self.assertTrue(any("digest" in p for p in verify_against_scorecard(rec, card)))
+
+
+class Strictness(unittest.TestCase):
+    """Defects Codex found in the model-service port (noema#215) that were true of this reference code too (reported by C2 on noema#199)."""
+
+    def test_a_flag_that_is_not_a_real_boolean_never_counts_as_true(self) -> None:
+        for field in ("complete", "tier0_all_zero"):
+            for bad in ("false", "true", 1, 0, None):
+                rec = record()
+                rec[field] = bad
+                got = validate_record(rec)
+                self.assertTrue(any(field in p and "boolean" in p for p in got), (field, bad, got))
+        rec = record()
+        rec["pass_k"] = {**rec["pass_k"], "available": "false"}
+        self.assertTrue(any("available" in p and "boolean" in p for p in validate_record(rec)))
+
+    def test_a_scorecard_flag_that_is_not_a_boolean_cannot_make_a_record(self) -> None:
+        for field in ("complete",):
+            card = scorecard()
+            card[field] = "false"
+            with self.assertRaises(ValueError):
+                record(card)
+        card = scorecard()
+        card["tier0"]["all_zero"] = 1
+        with self.assertRaises(ValueError):
+            record(card)
+
+    def test_the_pinned_rule_is_the_model_services_rule(self) -> None:
+        # services/model/noema_model/harness/config.py check_pinned: the character set, a digit, and none of the floating words as a substring.
+        for refused in ("stable-2", "model-default-1", "gpt-preview-3", "gpt-5-newest", "gpt-5-auto-1", "current-3", "LATEST-1", "gpt-five", "latest", "", "*", " 2026 ", "a b-1", "-2026-10-15"):
+            self.assertFalse(is_pinned(refused), refused)
+        for accepted in ("2026-10-15", "gpt-5-2026-08-07", "claude-5-20261001", "v2.1"):
+            self.assertTrue(is_pinned(accepted), accepted)
+            self.assertEqual([], validate_record(record(version=accepted, drift=run(pinned={**NEW, "version": accepted}, ans=answers(subset(), accepted)))))
+        self.assertTrue(check_model([], PROVIDER, MODEL, "stable-2"))
+
+    def test_a_date_must_be_written_yyyy_mm_dd_and_nothing_else(self) -> None:
+        for bad in ("2026W455", "20261106", "2026-1-6", "2026-11-6", "2026-11-06T00:00:00", " 2026-11-06", "2026-13-01", "2026-02-30"):
+            with self.assertRaises(ValueError, msg=bad):
+                record(qualified_on=bad)
+            rec = record()
+            rec["qualified_on"] = bad
+            self.assertTrue(any("qualified_on" in p for p in validate_record(rec)), bad)
+
+    def test_an_invalid_record_for_this_identity_refuses_even_when_a_valid_one_exists(self) -> None:
+        # Fail closed: a NOT_QUALIFIED record with a bad shape must still revoke, not be ignored.
+        good = record(qualified_on="2026-11-05")
+        broken = record(qualified_on="2026-11-06")
+        broken["verdict"] = "NOT_QUALIFIED"
+        broken["complete"] = "false"
+        got = check_model([good, broken], PROVIDER, MODEL, VERSION)
+        self.assertTrue(any("invalid" in p for p in got), got)
+        self.assertEqual([], check_model([good], PROVIDER, MODEL, VERSION))
+
+    def test_an_invalid_record_for_another_identity_does_not_refuse_this_one(self) -> None:
+        sub = subset()
+        base_b = build_baseline(sub, {**PINNED, "model_id": "decision-model-b"}, answers(sub, PINNED["version"]), commit_sha=SHA)
+        other = record(model_id="decision-model-b", drift=run(pinned={**NEW, "model_id": "decision-model-b"}, base=base_b))
+        other["complete"] = "false"
+        self.assertEqual([], check_model([record(), other], PROVIDER, MODEL, VERSION))
 
 
 class Refusing(unittest.TestCase):

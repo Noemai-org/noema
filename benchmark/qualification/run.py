@@ -12,13 +12,12 @@ An answer is `{"slots": {...}, "answered_by": "<version the provider reports>"}`
 one asked for is drift even when its slots match: an alias that moved is exactly what the canary exists to see. DRIFT outranks PROVIDER_UNAVAILABLE.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
-import datetime
 import re
 from collections.abc import Mapping
 from typing import Any
 
 from benchmark.contracts import sha256_of
-from benchmark.qualification.pins import KINDS, is_pinned
+from benchmark.qualification.pins import KINDS, is_pinned, parse_date
 from benchmark.scoring.diagnostics import understanding_dependent
 
 Json = dict[str, Any]
@@ -59,7 +58,7 @@ def _pinned(pinned: Mapping[str, Any]) -> Json:
 
 
 def _sha(commit_sha: str) -> str:
-    if not _SHA.match(commit_sha):
+    if not _SHA.fullmatch(commit_sha):
         raise ValueError(f"commit_sha must be a 40-character lowercase hex SHA, not {commit_sha!r}")
     return commit_sha
 
@@ -88,10 +87,23 @@ def build_baseline(subset: Mapping[str, Any], pinned: Mapping[str, Any], answers
     return {"schema": BASELINE_SCHEMA, "subset_id": subset["subset_id"], "cases_sha256": subset["cases_sha256"], "pinned": pin, "commit_sha": _sha(commit_sha), "cases": cases}
 
 
+def _same(a: Any, b: Any) -> bool:
+    """JSON equality by type: a boolean is never a number (in Python True == 1), None is never 0, and a string is never a number. Numbers compare as one JSON number."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return bool(a == b)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    return type(a) is type(b) and bool(a == b)
+
+
 def _differing(expected: Mapping[str, Any], observed: Mapping[str, Any]) -> list[Json]:
     out = []
     for slot in sorted(set(expected) | set(observed)):
-        if slot in expected and slot in observed and expected[slot] == observed[slot]:
+        if slot in expected and slot in observed and _same(expected[slot], observed[slot]):
             continue
         diff: Json = {"slot": slot}
         if slot in expected:
@@ -117,7 +129,7 @@ def compare(subset: Mapping[str, Any], baseline: Mapping[str, Any], pinned: Mapp
     if any(base_pin[name] != pin[name] for name in ("kind", "provider", "model_id")):
         raise ValueError(f"the baseline is for {base_pin['provider']}/{base_pin['model_id']} ({base_pin['kind']}), not {pin['provider']}/{pin['model_id']} ({pin['kind']})")
     _answers(subset, answers)
-    datetime.date.fromisoformat(recorded_on)
+    parse_date(recorded_on)
     rows = []
     for case_id in subset["case_ids"]:
         expected = baseline["cases"][case_id]
@@ -150,12 +162,12 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
         out.append("pinned needs a kind (llm or speech), a provider and a model_id")
     if not is_pinned(pin.get("version")):
         out.append(f"pinned.version {pin.get('version')!r} is not pinned")
-    if not isinstance(record["commit_sha"], str) or not _SHA.match(record["commit_sha"]):
+    if not isinstance(record["commit_sha"], str) or not _SHA.fullmatch(record["commit_sha"]):
         out.append("commit_sha must be a 40-character lowercase hex SHA")
     try:
-        datetime.date.fromisoformat(str(record["recorded_on"]))
+        parse_date(record["recorded_on"])
     except ValueError:
-        out.append(f"recorded_on {record['recorded_on']!r} is not an ISO date")
+        out.append(f"recorded_on {record['recorded_on']!r} is not a date written YYYY-MM-DD")
     if record["result"] not in RESULTS:
         out.append(f"result must be one of {', '.join(RESULTS)}, not {record['result']!r}")
     cases = record["cases"] if isinstance(record["cases"], list) else []
@@ -168,7 +180,11 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
             out.append(f"case {case_id}: status {status!r} is not one of {', '.join(STATUSES)}")
             continue
         statuses.append(status)
-        drifted = bool(case.get("differing_slots")) or bool(case.get("version_mismatch"))
+        if type(case.get("version_mismatch")) is not bool:
+            out.append(f"case {case_id}: version_mismatch must be a boolean, not {case.get('version_mismatch')!r}")
+            statuses.pop()
+            continue
+        drifted = bool(case.get("differing_slots")) or case["version_mismatch"]
         if (status == "DRIFT") != drifted and status != "UNAVAILABLE":
             out.append(f"case {case_id}: status {status} does not agree with its differing_slots and version_mismatch")
     if record["result"] in RESULTS and len(statuses) == len(cases) and record["result"] != _result(statuses):

@@ -51,7 +51,7 @@ python -m benchmark.qualification check --records benchmark/qualification/record
 
 ## The lookup contract for the model service (C2)
 
-An ID may be used only if a valid `QUALIFIED` record matches its provider, model ID and version exactly, and the latest record for it (by `qualified_on`) is `QUALIFIED`. A later `NOT_QUALIFIED` revokes; two records of one day that disagree refuse; an unpinned version is refused before any lookup. `record.check_model` is the reference implementation.
+An ID may be used only if a valid `QUALIFIED` record matches its provider, model ID and version exactly, and the latest record for it (by `qualified_on`) is `QUALIFIED`. A later `NOT_QUALIFIED` revokes; two records of one day that disagree refuse; an unpinned version is refused before any lookup. `record.check_model` is the reference implementation. Three rules make it strict (Codex on the model-service port, relayed by C2): a version is pinned by the model service's own rule (`check_pinned`: the character set, a digit, and none of `latest`, `default`, `auto`, `stable`, `preview`, `current`, `newest` as a substring); a date is `YYYY-MM-DD` and nothing else, and dates are compared parsed; **an invalid record for the identity refuses the lookup (fail closed)** instead of being ignored, so a malformed NOT_QUALIFIED record still revokes. Flags are real booleans, and slot values are compared by JSON type (a boolean is never the number 1).
 
 **What a PASS does not decide.** Whether a drift is acceptable, and whether the new version is then qualified, is the qualification record's decision record (a founder decision). A `PASS` in a run record is not a qualification.
 

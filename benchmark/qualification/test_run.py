@@ -209,6 +209,48 @@ class Comparing(unittest.TestCase):
             run(short)
 
 
+class JsonEquality(unittest.TestCase):
+    """Slot values are compared by JSON type: in Python True == 1, which must never read as no difference (Codex on the port, relayed by C2)."""
+
+    def drift_for(self, expected: Any, observed: Any) -> str:
+        sub = subset()
+        base_answers = answers(sub, PINNED["version"])
+        first = sub["case_ids"][0]
+        base_answers[first] = {"slots": {"flag": expected}, "answered_by": PINNED["version"]}
+        base = build_baseline(sub, PINNED, base_answers, commit_sha=SHA)
+        new_answers = answers(sub, NEW["version"])
+        new_answers[first] = {"slots": {"flag": observed}, "answered_by": NEW["version"]}
+        rec = compare(sub, base, NEW, new_answers, commit_sha=SHA, recorded_on="2026-11-06")
+        return str({c["case_id"]: c for c in rec["cases"]}[first]["status"])
+
+    def test_a_boolean_and_a_number_are_different_values(self) -> None:
+        for expected, observed in ((True, 1), (1, True), (False, 0), (0, False), (True, 1.0), ("1", 1), (1, "1"), (None, 0), (None, False), ([], False), ({}, None)):
+            self.assertEqual("DRIFT", self.drift_for(expected, observed), (expected, observed))
+
+    def test_equal_json_values_are_not_drift(self) -> None:
+        for value in (True, False, 1, 1.5, "a", None, [1, "a", True], {"k": [1, 2]}):
+            self.assertEqual("MATCH", self.drift_for(value, value), value)
+        self.assertEqual("MATCH", self.drift_for(1, 1.0))  # one JSON number
+
+    def test_nested_values_are_compared_by_type_too(self) -> None:
+        self.assertEqual("DRIFT", self.drift_for({"ok": True}, {"ok": 1}))
+        self.assertEqual("DRIFT", self.drift_for([True], [1]))
+
+    def test_a_recorded_on_date_must_be_yyyy_mm_dd(self) -> None:
+        sub = subset()
+        for bad in ("2026W455", "20261106", "2026-11-6"):
+            with self.assertRaises(ValueError, msg=bad):
+                compare(sub, baseline(sub), NEW, answers(sub, NEW["version"]), commit_sha=SHA, recorded_on=bad)
+        rec = run()
+        rec["recorded_on"] = "2026W455"
+        self.assertTrue(any("recorded_on" in p for p in validate_run_record(rec)))
+
+    def test_a_version_mismatch_flag_must_be_a_real_boolean(self) -> None:
+        rec = run()
+        rec["cases"][0]["version_mismatch"] = "false"
+        self.assertTrue(any("version_mismatch" in p and "boolean" in p for p in validate_run_record(rec)), validate_run_record(rec))
+
+
 class Validating(unittest.TestCase):
     def test_a_result_the_cases_do_not_support_is_invalid(self) -> None:
         rec = run()
