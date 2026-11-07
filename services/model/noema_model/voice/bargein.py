@@ -61,5 +61,7 @@ async def play_until_barge_in(
                 return monitor.result(True)
         return monitor.result(False)
     finally:
-        await answer.aclose()
-        await microphone.aclose()
+        try:
+            await answer.aclose()
+        finally:
+            await microphone.aclose()  # still runs if closing the answer failed, so the microphone never stays open
