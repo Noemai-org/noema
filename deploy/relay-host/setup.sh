@@ -55,6 +55,16 @@ token_file="${DUCKDNS_TOKEN_FILE:-}"
 [ -n "$token_file" ] || fail "DUCKDNS_TOKEN_FILE is not set (a path to a file holding the DuckDNS token; the token itself is never accepted here)"
 [ -f "$token_file" ] || fail "DUCKDNS_TOKEN_FILE '$token_file' is not a file"
 [ -s "$token_file" ] || fail "DUCKDNS_TOKEN_FILE '$token_file' is empty"
+# The token goes into a curl configuration line between double quotes. This script is the secret boundary: a token file that could change that
+# line (a quote, a backslash, a space, an ampersand, a second line) is refused here, in --check too, before anything is sent. The token is never
+# printed. A DuckDNS token is a single token of letters, digits and hyphens.
+[ "$(wc -l < "$token_file" | tr -d ' ')" -le 1 ] || fail "DUCKDNS_TOKEN_FILE '$token_file' has more than one line: it must hold the token and nothing else"
+check_token="$(tr -d '\r\n' < "$token_file")"
+case "$check_token" in
+  ""|*[!A-Za-z0-9-]*) check_token=""; fail "DUCKDNS_TOKEN_FILE '$token_file' does not hold a single token of letters, digits and hyphens" ;;
+esac
+[ "${#check_token}" -ge 16 ] && [ "${#check_token}" -le 64 ] || { check_token=""; fail "DUCKDNS_TOKEN_FILE '$token_file': the token must be 16 to 64 characters"; }
+check_token=""
 [ -f "$compose_file" ] || fail "compose file not found at $compose_file"
 
 if [ -n "${WEBHOOK_RELAY_PUBLISH:-}" ] && [ "$WEBHOOK_RELAY_PUBLISH" != "$loopback_publish" ]; then
