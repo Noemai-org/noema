@@ -103,7 +103,8 @@ type Ledger interface {
 	// inside the same transaction.
 	Spend(ctx context.Context, cmd SpendCommand) (SpendResult, error)
 	// Void records GRANT_VOIDED and the RecoveryRequest addressed to Trust, once per grant.
-	Void(ctx context.Context, g Grant, reason VoidReason) error
+	// facts are extra string facts the GRANT_VOIDED event carries (for a policy void, the bound and the active policy version); nil for none.
+	Void(ctx context.Context, g Grant, reason VoidReason, facts VoidFacts) error
 	// Complete is E11: insert the signed receipt (one per grant and attempt; the first writer wins), update
 	// the idempotency record, append RECEIPT, and enqueue the Outcome verification. It returns false when a
 	// receipt for this grant and attempt already exists.

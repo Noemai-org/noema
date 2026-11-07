@@ -92,7 +92,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, fmt.Errorf("%sread decision: %w", errPrefix, err)
 	}
 	if !allowed {
-		return c.void(ctx, g, VoidPolicySuperseded)
+		return c.voidWith(ctx, g, VoidPolicySuperseded, VoidFacts{"bound_policy_version": g.PolicyVersion})
 	}
 	// A grant binds the exact policy_id and version it was decided under: if the active version of that policy_id is not the grant's, or the
 	// grant names none, or the policy has none, the grant is refused and the case goes back to Trust (a recovery request), never executed.
@@ -101,7 +101,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, fmt.Errorf("%sread active policy: %w", errPrefix, err)
 	}
 	if !policyBound(g.PolicyVersion) || active != g.PolicyVersion {
-		return c.void(ctx, g, VoidPolicySuperseded)
+		return c.voidWith(ctx, g, VoidPolicySuperseded, VoidFacts{"bound_policy_version": g.PolicyVersion, "active_policy_version": active})
 	}
 	if err := c.at(PointAfterE4); err != nil {
 		return Outcome{}, err
@@ -241,7 +241,11 @@ func bound(g Grant, s PlanStep) bool {
 }
 
 func (c *Controller) void(ctx context.Context, g Grant, reason VoidReason) (Outcome, error) {
-	if err := c.Ledger.Void(ctx, g, reason); err != nil {
+	return c.voidWith(ctx, g, reason, nil)
+}
+
+func (c *Controller) voidWith(ctx context.Context, g Grant, reason VoidReason, facts VoidFacts) (Outcome, error) {
+	if err := c.Ledger.Void(ctx, g, reason, facts); err != nil {
 		return Outcome{}, fmt.Errorf("%svoid: %w", errPrefix, err)
 	}
 	return Outcome{Void: reason}, nil

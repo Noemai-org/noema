@@ -148,7 +148,7 @@ func (m movedPolicy) ActivePolicyVersion(context.Context, controller.Grant) (str
 func TestAPolicyChangeBeforeTheWriteIsReconstructableWithBothVersions(t *testing.T) {
 	mc := startMockCase(t)
 	s := newStack(t, mc)
-	s.ctl.Bind = movedPolicy{Binder: s.trust, active: policyScope + "@2"}
+	s.ctl.Bind = movedPolicy{Binder: s.trust, active: policyScope + "@2.0"}
 	grant, err := s.trust.issueCreate(bg(t))
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestAPolicyChangeBeforeTheWriteIsReconstructableWithBothVersions(t *testing
 	if voided == nil {
 		t.Fatalf("AUTHORITY %v holds no POLICY_SUPERSEDED void", r.items("AUTHORITY"))
 	}
-	if voided["bound_policy_version"] != policyScope+"@1" || voided["active_policy_version"] != policyScope+"@2" {
-		t.Fatalf("the void names %v, want bound_policy_version %s@1 and active_policy_version %s@2", voided, policyScope, policyScope)
+	if voided["bound_policy_version"] != policyScope+"@1.0" || voided["active_policy_version"] != policyScope+"@2.0" {
+		t.Fatalf("the void names %v, want bound_policy_version %s@1.0 and active_policy_version %s@2.0", voided, policyScope, policyScope)
 	}
 }

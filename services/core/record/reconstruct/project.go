@@ -60,7 +60,7 @@ type projection struct {
 
 var (
 	observedKeys   = []string{"classification", "fact_status", "source"}
-	authorityKeys  = []string{"grant_id", "plan_id", "confirmation_id", "capability_id", "attempt", "reason"}
+	authorityKeys  = []string{"grant_id", "plan_id", "confirmation_id", "capability_id", "attempt", "reason", "bound_policy_version", "active_policy_version"}
 	downstreamKeys = []string{"capability_id", "fact_status", "source", "watch_id", "recovery_request_id", "delivery_status"}
 )
 

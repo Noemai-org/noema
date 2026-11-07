@@ -176,6 +176,9 @@ func Points() []Point {
 	return out
 }
 
+// VoidFacts are string facts a GRANT_VOIDED event carries beyond the grant and the reason. The keys are fixed by the reconstruction projection.
+type VoidFacts map[string]string
+
 // ErrCrash is returned by a Boundary hook to stand for the process dying at that point: Execute returns at
 // once, without cleanup, and only what was committed survives.
 var ErrCrash = errors.New(errPrefix + "crash injected")

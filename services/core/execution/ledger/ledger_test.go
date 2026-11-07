@@ -144,7 +144,7 @@ func TestAVoidGrantRaisesOneRecoveryRequestAndNeverDispatches(t *testing.T) {
 func TestAVoidGrantThatPassesTheChecksIsNeverSpent(t *testing.T) {
 	w := newWorld(t)
 	g := w.issue(t, 1)
-	if err := w.led.Void(ctx(t), g, controller.VoidStateChanged); err != nil {
+	if err := w.led.Void(ctx(t), g, controller.VoidStateChanged, nil); err != nil {
 		t.Fatal(err)
 	}
 	out := mustExecute(t, w, g.GrantID)
@@ -372,7 +372,7 @@ func TestLedgerMethodsNeedADeadline(t *testing.T) {
 	if _, err := w.led.Spend(bg, controller.SpendCommand{}); err == nil {
 		t.Error("Spend accepted no deadline")
 	}
-	if err := w.led.Void(bg, controller.Grant{}, controller.VoidExpired); err == nil {
+	if err := w.led.Void(bg, controller.Grant{}, controller.VoidExpired, nil); err == nil {
 		t.Error("Void accepted no deadline")
 	}
 	if _, err := w.led.Complete(bg, controller.Receipt{}); err == nil {
@@ -437,7 +437,7 @@ func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
 				c.setup(w, g)
 			}
 			if c.direct {
-				if err := w.led.Void(ctx(t), g, c.reason); err != nil {
+				if err := w.led.Void(ctx(t), g, c.reason, nil); err != nil {
 					t.Fatal(err)
 				}
 			} else if out := mustExecute(t, w, g.GrantID); out.Void != c.reason {

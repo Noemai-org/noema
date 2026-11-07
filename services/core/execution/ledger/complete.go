@@ -22,7 +22,7 @@ const (
 // Void records a void grant (REQ-EXE-001): the grant is marked VOID, one RecoveryRequest addressed to Trust is
 // inserted (unique per grant), an outbox event wakes Trust's side, and GRANT_VOIDED goes on the Record, all in one
 // transaction. It happens once per grant: a grant that is no longer ISSUED (already void, or spent) is left alone.
-func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller.VoidReason) error {
+func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller.VoidReason, facts controller.VoidFacts) error {
 	return l.inTx(ctx, pgx.ReadCommitted, func(tx pgx.Tx) error {
 		var status string
 		err := tx.QueryRow(ctx, `SELECT status FROM decision_grant WHERE tenant_id = $1 AND grant_id = $2 FOR UPDATE`, g.TenantID, g.GrantID).Scan(&status)
@@ -52,7 +52,11 @@ func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller
 		if err := l.outbox(ctx, tx, obx, g.TenantID, topicRecoveryRequested, payload); err != nil {
 			return err
 		}
-		return l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventGrantVoided, "", string(reason), map[string]any{"grant_id": g.GrantID, "reason": string(reason)})
+		voidPayload := map[string]any{"grant_id": g.GrantID, "reason": string(reason)}
+		for k, v := range facts {
+			voidPayload[k] = v
+		}
+		return l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventGrantVoided, "", string(reason), voidPayload)
 	})
 }
 

@@ -325,7 +325,7 @@ func (w *World) Spend(_ context.Context, cmd controller.SpendCommand) (controlle
 }
 
 // Void implements controller.Ledger: once per grant.
-func (w *World) Void(_ context.Context, g controller.Grant, reason controller.VoidReason) error {
+func (w *World) Void(_ context.Context, g controller.Grant, reason controller.VoidReason, _ controller.VoidFacts) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.voids[g.GrantID] != "" || w.spentGrants[g.GrantID] {
