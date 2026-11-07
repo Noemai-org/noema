@@ -104,11 +104,12 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 		timeout   time.Duration
 		wantClass layer.ReadClass
 		wantState string
+		wantBody  bool // whether the real fault leaves response bytes for the adapter to hash
 	}{
-		{"HTTP_5XX 503", readFaultPlan(t, "fp_evd_read_5xx_v1", "HTTP_5XX", map[string]any{"status": 503}), 5 * time.Second, layer.ReadServerError, "UNAVAILABLE"},
-		{"HTTP_429 with Retry-After", readFaultPlan(t, "fp_evd_read_429_v1", "HTTP_429", map[string]any{"retry_after_seconds": 2}), 5 * time.Second, layer.ReadRateLimited, "UNAVAILABLE"},
-		{"TIMEOUT_BEFORE_COMMIT longer than the read's deadline", readFaultPlan(t, "fp_evd_read_timeout_v1", "TIMEOUT_BEFORE_COMMIT", map[string]any{"delay_ms": 4000}), time.Second, layer.ReadTimeout, "UNAVAILABLE"},
-		{"a real 404 for a case the target does not hold", nil, 5 * time.Second, layer.ReadNotFound, "UNKNOWN"}, // absence is never a negative fact
+		{"HTTP_5XX 503", readFaultPlan(t, "fp_evd_read_5xx_v1", "HTTP_5XX", map[string]any{"status": 503}), 5 * time.Second, layer.ReadServerError, "UNAVAILABLE", true},
+		{"HTTP_429 with Retry-After", readFaultPlan(t, "fp_evd_read_429_v1", "HTTP_429", map[string]any{"retry_after_seconds": 2}), 5 * time.Second, layer.ReadRateLimited, "UNAVAILABLE", true},
+		{"TIMEOUT_BEFORE_COMMIT longer than the read's deadline", readFaultPlan(t, "fp_evd_read_timeout_v1", "TIMEOUT_BEFORE_COMMIT", map[string]any{"delay_ms": 4000}), time.Second, layer.ReadTimeout, "UNAVAILABLE", false},
+		{"a real 404 for a case the target does not hold", nil, 5 * time.Second, layer.ReadNotFound, "UNKNOWN", true}, // absence is never a negative fact
 	}
 	for _, s := range steps {
 		if s.plan != nil {
@@ -121,7 +122,8 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 		if class != s.wantClass {
 			t.Fatalf("%s: class = %s (err %v), want %s", s.name, class, readErr, s.wantClass)
 		}
-		o := layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: "cas_missing01", ReadBy: "TRUST",
+		rawHash, noBytes := layer.BodyOf(readErr) // the adapter's own record of the bytes it received (noema#262)
+		o := layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: "cas_missing01", ReadBy: "TRUST", RawHash: rawHash, NoBytes: noBytes,
 			EffectiveAt: clk.Now(), AuthorityClass: "AUTHORITATIVE_FOR:case_status", ResourceScope: "res_synthetic", PrincipalScope: "prn_synthetic",
 			Sensitivity: "S2_internal", Synthetic: true, Read: layer.Read{Class: class, ReadAt: clk.Now()}, Src: layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second}}
 		item, err := builder.Record(bg, o)
@@ -130,6 +132,22 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 		}
 		if string(item.Status) != s.wantState {
 			t.Errorf("%s: status = %s, want %s", s.name, item.Status, s.wantState)
+		}
+		// Provenance (Codex finding on noema#172): the Record says whether a body arrived, and a body that arrived is never stored as the hash of nothing.
+		var received bool
+		var stored string
+		if err := admin.QueryRow(bg, `SELECT (e.payload->>'body_received')::boolean, p.raw_hash FROM record_event e JOIN evidence_item i ON i.evidence_id = e.payload->>'evidence_id'
+			JOIN evidence_payload p ON p.tenant_id = i.tenant_id AND p.payload_ref = i.payload_ref WHERE e.payload->>'evidence_id' = $1`, item.EvidenceID).Scan(&received, &stored); err != nil {
+			t.Fatalf("%s: %v", s.name, err)
+		}
+		if received == noBytes {
+			t.Errorf("%s: the event says body_received = %v although the adapter said noBytes = %v", s.name, received, noBytes)
+		}
+		if received && stored != rawHash {
+			t.Errorf("%s: stored raw hash %s, want the adapter's %s", s.name, stored, rawHash)
+		}
+		if s.wantBody != received {
+			t.Errorf("%s: body_received = %v, want %v", s.name, received, s.wantBody)
 		}
 	}
 	var events, known int
