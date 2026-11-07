@@ -79,3 +79,23 @@ func TestATemporaryTenantLoginTableDoesNotRedirectARecordCall(t *testing.T) {
 		t.Fatalf("the login's own chain head: count %d, err %v", own, err)
 	}
 }
+
+// SR design review of noema#234 (7 Nov 2026), ruling A6: the three definer functions of migration 0007 (Outcome's verdict path) read execution_receipt,
+// decision_grant and the verdict tables, and still searched `pg_catalog, public`: a login with TEMPORARY could shadow those tables with its own.
+// They pin `pg_catalog, pg_temp` and name every table by its schema, like the five above. (SEC-08, noema#251, checks every definer function.)
+func TestTheOutcomeDefinerFunctionsPinTheirSearchPathToo(t *testing.T) {
+	pool := migrated(t)
+	for _, fn := range []string{"outcome_record_verdict", "outcome_verdict_complete", "recovery_request_verdict_guard"} {
+		var cfg []string
+		var definer bool
+		if err := pool.QueryRow(ctx(t), `SELECT p.prosecdef, coalesce(p.proconfig, '{}') FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $1`, fn).Scan(&definer, &cfg); err != nil {
+			t.Fatalf("%s: %v", fn, err)
+		}
+		if !definer {
+			t.Errorf("%s is not SECURITY DEFINER", fn)
+		}
+		if want := []string{"search_path=pg_catalog, pg_temp"}; !reflect.DeepEqual(cfg, want) {
+			t.Errorf("%s: proconfig = %v, want %v", fn, cfg, want)
+		}
+	}
+}
