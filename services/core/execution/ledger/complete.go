@@ -52,7 +52,7 @@ func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller
 		if err := l.outbox(ctx, tx, obx, g.TenantID, topicRecoveryRequested, payload); err != nil {
 			return err
 		}
-		return l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventGrantVoided, "", string(reason), map[string]any{"grant_id": g.GrantID, "reason": string(reason)})
+		return l.record(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, eventGrantVoided, "", string(reason), map[string]any{"grant_id": g.GrantID, "reason": string(reason), "policy_version": g.PolicyVersion})
 	})
 }
 
@@ -129,10 +129,9 @@ func (l *Ledger) Dispatching(ctx context.Context, tenantID string) ([]controller
 	if err := needDeadline(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := l.Pool.Query(ctx, `SELECT gs.grant_id, gs.tenant_id, dg.json->>'correlation_id', gs.idempotency_key, ir.logical_action, gs.attempt
+	rows, err := l.Pool.Query(ctx, `SELECT gs.grant_id, gs.tenant_id, dg.json->>'correlation_id', gs.idempotency_key, dg.json->>'capability_id', gs.spent_at, gs.attempt
 		FROM grant_spend gs
 		JOIN decision_grant dg ON dg.grant_id = gs.grant_id
-		JOIN idempotency_record ir ON ir.tenant_id = gs.tenant_id AND ir.idempotency_key = gs.idempotency_key
 		WHERE gs.tenant_id = $1
 		  AND NOT EXISTS (SELECT 1 FROM execution_receipt r WHERE r.grant_id = gs.grant_id AND r.attempt = gs.attempt)
 		ORDER BY gs.spent_at, gs.grant_id`, tenantID)
@@ -144,7 +143,7 @@ func (l *Ledger) Dispatching(ctx context.Context, tenantID string) ([]controller
 	for rows.Next() {
 		var p controller.Pending
 		var corr *string
-		if err := rows.Scan(&p.GrantID, &p.TenantID, &corr, &p.IdempotencyKey, &p.LogicalAction, &p.Attempt); err != nil {
+		if err := rows.Scan(&p.GrantID, &p.TenantID, &corr, &p.IdempotencyKey, &p.CapabilityID, &p.SpentAt, &p.Attempt); err != nil {
 			return nil, fmt.Errorf("%sscan dispatching: %w", errPrefix, err)
 		}
 		if corr != nil {
