@@ -14,6 +14,10 @@ port=54329
 export PGHOST="$work" PGPORT="$port" POSTGRES_USER=postgres NOEMA_SECRETS_DIR="$work/secrets"
 sh "$here/init.sh" >/dev/null
 psql -v ON_ERROR_STOP=1 -X -q -U postgres -d noema -f "$here/assert_roles.sql" | grep -q "roles ok"
+# D10a: pgsodium is there, its event triggers are disabled, and no pgsodium function is executable by PUBLIC (this script needs a server with pgsodium installed).
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_extension where extname = 'pgsodium'")" = "1" ] || { echo "pgsodium is not created in noema"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_event_trigger e join pg_depend d on d.objid = e.oid and d.deptype = 'e' join pg_extension x on x.oid = d.refobjid and x.extname = 'pgsodium' where e.evtenabled <> 'D'")" = "0" ] || { echo "a pgsodium event trigger is enabled"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'pgsodium' and has_function_privilege('public', p.oid, 'EXECUTE')")" = "0" ] || { echo "a pgsodium function is executable by PUBLIC"; exit 1; }
 # As the core's login: it connects, and it creates nothing.
 as_core() { PGPASSWORD="synthetic-noema_core_password" psql -X -q -tA -U noema_core -d noema -c "$1" 2>&1; }
 [ "$(as_core 'select 1')" = "1" ] || { echo "noema_core cannot connect"; exit 1; }
