@@ -10,7 +10,7 @@ Raw audio is never stored here; the audio iterator is consumed and closed, and t
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
@@ -18,6 +18,7 @@ from noema_model.voice.endpoint import AudioSource
 from noema_model.providers.speech.base import (
     FinalTranscript,
     Locale,
+    SpeechEvent,
     SpeechProvider,
     StreamRequest,
 )
@@ -58,30 +59,44 @@ async def transcribe_utterance(
     *,
     deadline_s: float,
     on_partial: Callable[[str], None],
+    cleanup_s: float | None = None,
 ) -> FinalUtterance:
-    """Stream `audio` to `provider` and return its final transcript. `deadline_s` bounds the whole call."""
+    """Stream `audio` to `provider` and return its final transcript. `deadline_s` bounds the whole call.
+
+    Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`), so a provider that stalls while closing cannot hold
+    the result back or keep the audio source open. The audio source is released whatever happens, including when the
+    provider refuses before it returns a stream.
+    """
     last_partial = -1
-    stream = provider.transcribe(request, audio)
+    stream: AsyncIterator[SpeechEvent] | None = None
     try:
-        async with asyncio.timeout(deadline_s):
-            async for event in stream:
-                if isinstance(event, FinalTranscript):
-                    return FinalUtterance.from_final(provider.name, event)
-                if event.sequence <= last_partial:
-                    raise ProviderError(ProviderFailure.MALFORMED)
-                last_partial = event.sequence
-                on_partial(event.text)
-    except TimeoutError:
-        raise ProviderError(ProviderFailure.TIMEOUT) from None
-    finally:
+        stream = provider.transcribe(request, audio)
         try:
-            await _close(stream)
-        finally:
-            await audio.aclose()  # still runs if closing the provider stream failed
+            async with asyncio.timeout(deadline_s):
+                async for event in stream:
+                    if isinstance(event, FinalTranscript):
+                        return FinalUtterance.from_final(provider.name, event)
+                    if event.sequence <= last_partial:
+                        raise ProviderError(ProviderFailure.MALFORMED)
+                    last_partial = event.sequence
+                    on_partial(event.text)
+        except TimeoutError:
+            raise ProviderError(ProviderFailure.TIMEOUT) from None
+    finally:
+        await _release(stream, audio, deadline_s if cleanup_s is None else cleanup_s)
     raise ProviderError(ProviderFailure.MALFORMED)  # the stream ended with no final
 
 
-async def _close(stream: object) -> None:
-    close = getattr(stream, "aclose", None)
-    if close is not None:
-        await close()
+async def _release(stream: AsyncIterator[SpeechEvent] | None, audio: AudioSource, bound_s: float) -> None:
+    """Close the provider stream within `bound_s`, then always close the audio source. A provider close that raises
+    propagates after the audio source is closed; one that never returns is abandoned at the bound."""
+    try:
+        close = getattr(stream, "aclose", None)
+        if close is not None:
+            try:
+                async with asyncio.timeout(bound_s):
+                    await close()
+            except TimeoutError:
+                pass  # abandoned: a stalled provider shutdown must not hold the microphone
+    finally:
+        await audio.aclose()
