@@ -176,7 +176,7 @@ GRANT SELECT ON public.signing_key TO trust_rw, execution_rw, outcome_rw, record
 -- D7, D8, D12: what a receipt must be to be inserted.
 CREATE FUNCTION public.execution_receipt_verify() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-DECLARE doc jsonb; gs public.grant_spend; msg bytea; want_ack jsonb;
+DECLARE doc jsonb; gs public.grant_spend; msg bytea; want_ack jsonb; v_disp timestamptz;
 BEGIN
   IF NEW.signed_jcs IS NULL OR NEW.sig_key_id IS NULL OR NEW.sig_value IS NULL THEN
     RAISE EXCEPTION 'signature not verified: the signed bytes or the signature are missing' USING ERRCODE = 'NS001';
@@ -194,6 +194,15 @@ BEGIN
      OR (NEW.json -> 'sig') IS DISTINCT FROM pg_catalog.jsonb_build_object('key_id', NEW.sig_key_id, 'value', NEW.sig_value) THEN
     RAISE EXCEPTION 'signature not verified: the stored document is not the signed one' USING ERRCODE = 'NS001';
   END IF;
+  -- A signed dispatched_at that is not a timestamp is a signature failure, like any other field that disagrees: without this the cast raised 22007 or 22008, which
+  -- the Go code does not map to a SECURITY_EVENT (SR's finding 2 on noema#229). Only the cast is inside the handler.
+  IF (doc ->> 'dispatched_at') IS NOT NULL THEN
+    BEGIN
+      v_disp := (doc ->> 'dispatched_at')::timestamptz;
+    EXCEPTION WHEN others THEN
+      RAISE EXCEPTION 'signature not verified: the signed dispatched_at is not a timestamp' USING ERRCODE = 'NS001';
+    END;
+  END IF;
   -- D7 check 1: every bound field equals the row's own column. (CASE is computed apart: PL/pgSQL ends an IF condition at the first THEN.)
   IF NEW.external_ack IS NULL THEN want_ack := 'null'::jsonb; ELSE want_ack := pg_catalog.to_jsonb(NEW.external_ack); END IF;
   IF (doc ->> 'receipt_id') IS DISTINCT FROM NEW.receipt_id
@@ -203,7 +212,7 @@ BEGIN
      OR (doc ->> 'idempotency_key') IS DISTINCT FROM NEW.idempotency_key
      OR (doc ->> 'logical_action') IS DISTINCT FROM NEW.logical_action
      OR (doc ->> 'execution_state') IS DISTINCT FROM NEW.execution_state
-     OR (doc ->> 'dispatched_at') IS NULL OR (doc ->> 'dispatched_at')::timestamptz IS DISTINCT FROM NEW.dispatched_at
+     OR (doc ->> 'dispatched_at') IS NULL OR v_disp IS DISTINCT FROM NEW.dispatched_at
      OR (doc -> 'external_ack') IS DISTINCT FROM want_ack
      OR (doc ->> 'transport_result') IS DISTINCT FROM pg_catalog.split_part(NEW.raw_status, ':', 1)
      OR COALESCE(doc ->> 'correlation_id', '') = '' THEN
