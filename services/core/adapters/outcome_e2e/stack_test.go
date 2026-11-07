@@ -91,6 +91,10 @@ var _ controller.Binder = (*trustStandIn)(nil)
 func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
 	return g.IntentHash, nil
 }
+func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return true, nil
 }
@@ -123,7 +127,7 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	now := s.clk.Now()
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
-		PolicyVersion: policyScope + "@1", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
@@ -132,6 +136,10 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	sig, err := s.keys.SignWith(execKeyID, canon)
 	if err != nil {
 		return "", err
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0009): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, jsonb_build_object('decision_id', $1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW'), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant); err != nil {
+		return "", fmt.Errorf("store decision: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, '1', $7, $8, $9)`, g.GrantID, tenant, g.DecisionID, g.Nonce, string(canon), policyScope, g.ExpiresAt, execKeyID, sig); err != nil {

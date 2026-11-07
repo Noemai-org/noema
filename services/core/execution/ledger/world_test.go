@@ -92,6 +92,12 @@ func (b *binder) LatestIntentHash(_ context.Context, g controller.Grant) (string
 	}
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this world's policy is always at the version its grants name.
+func (b *binder) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (b *binder) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return !b.denied, nil
 }
@@ -165,7 +171,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_%04d", n), DecisionID: "dec_0001", PrincipalID: principal,
 		IntentHash: "sha256:" + fmt.Sprintf("%064d", 1), CapabilityID: capab, TargetRef: "TX1", ParamsHash: ph, EvidenceSetHash: "sha256:" + fmt.Sprintf("%064d", 2),
 		PlanHash: "sha256:" + fmt.Sprintf("%064d", 3), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "case:TX1", Source: "mock-case", VersionToken: "v1"}},
-		PolicyVersion: "pol_escalate@1", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: "pol_escalate@1.0", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
 	for _, m := range mutate {
 		m(&g)
@@ -176,6 +182,10 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	}
 	sig, err := w.keys.SignWith(keyID, canon)
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0009): record the decision first.
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, jsonb_build_object('decision_id', $1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW'), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
