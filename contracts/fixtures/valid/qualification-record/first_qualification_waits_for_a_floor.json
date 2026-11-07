@@ -1,0 +1,44 @@
+{
+  "bar": {
+    "baseline_pass_k": null,
+    "floor": null,
+    "floor_source": null
+  },
+  "complete": true,
+  "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+  "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+  },
+  "kind": "llm",
+  "model_id": "decision-model-a",
+  "n_cases": 6,
+  "pass_k": {
+    "available": true,
+    "failing_cases": [
+      "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+      "k": 9,
+      "n": 10,
+      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+  },
+  "provider": "openai",
+  "qualified_on": "2026-11-06",
+  "reasons": [
+    "there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)"
+  ],
+  "run_id": "run_report",
+  "schema": "qualification-record.v1",
+  "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+  "tier0_all_zero": true,
+  "verdict": "NOT_QUALIFIED",
+  "version": "2026-11-01"
+}

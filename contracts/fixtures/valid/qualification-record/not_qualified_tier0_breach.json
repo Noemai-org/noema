@@ -1,0 +1,44 @@
+{
+  "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+  },
+  "complete": true,
+  "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+  "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+  },
+  "kind": "llm",
+  "model_id": "decision-model-a",
+  "n_cases": 6,
+  "pass_k": {
+    "available": true,
+    "failing_cases": [
+      "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+      "k": 9,
+      "n": 10,
+      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+  },
+  "provider": "openai",
+  "qualified_on": "2026-11-06",
+  "reasons": [
+    "a Tier 0 gate is not at zero"
+  ],
+  "run_id": "run_report",
+  "schema": "qualification-record.v1",
+  "scorecard_sha256": "sha256:8db0dfe75d69124c98af4f405fe7da9aeecb4cc81b4f13d6ef7185693bb46b04",
+  "tier0_all_zero": false,
+  "verdict": "NOT_QUALIFIED",
+  "version": "2026-11-01"
+}
