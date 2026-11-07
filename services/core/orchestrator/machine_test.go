@@ -16,13 +16,13 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 )
 
-// The oracle reads the same file with its own, separate pattern, so a bug in the production reader cannot hide itself.
+// The reference reader reads the same file with its own, separate pattern, so a bug in the production reader cannot hide itself.
 var (
 	rowRe    = regexp.MustCompile(`(?m)^\s*- \{from: ([A-Z_]+), to: ([A-Z_]+),`)
 	statesRe = regexp.MustCompile(`(?m)^states: \[([A-Z_, ]+)\]$`)
 )
 
-func oracle(t testing.TB) (states []orchestrator.State, arrows map[orchestrator.Transition]bool) {
+func reference(t testing.TB) (states []orchestrator.State, arrows map[orchestrator.Transition]bool) {
 	t.Helper()
 	raw, err := os.ReadFile("transitions.yaml")
 	if err != nil {
@@ -40,7 +40,7 @@ func oracle(t testing.TB) (states []orchestrator.State, arrows map[orchestrator.
 		arrows[orchestrator.Transition{From: orchestrator.State(r[1]), To: orchestrator.State(r[2])}] = true
 	}
 	if len(states) == 0 || len(arrows) == 0 {
-		t.Fatal("the oracle read nothing")
+		t.Fatal("the reference reader read nothing")
 	}
 	return states, arrows
 }
@@ -56,7 +56,7 @@ func machine(t testing.TB) *orchestrator.Machine {
 
 // REQ-STM-001: the table in Go is the table in the file: the same states in the same order and exactly the same arrows.
 func TestTheTableIsTheFile(t *testing.T) {
-	states, arrows := oracle(t)
+	states, arrows := reference(t)
 	m := machine(t)
 	got := m.Table.States()
 	if len(got) != len(states) {
@@ -90,7 +90,7 @@ func TestTheTableIsTheFile(t *testing.T) {
 
 // REQ-STM-001: every listed transition is applied, and moves the version by exactly one.
 func TestEveryListedTransitionIsApplied(t *testing.T) {
-	_, arrows := oracle(t)
+	_, arrows := reference(t)
 	m := machine(t)
 	for a := range arrows {
 		inv := orchestrator.Investigation{ID: "inv_01", State: a.From, Version: 7}
@@ -110,7 +110,7 @@ func TestEveryListedTransitionIsApplied(t *testing.T) {
 // REQ-STM-001, PERD 28.2 "Any transition not listed is illegal": every pair of states that is not an arrow (a negative test for each prohibited transition,
 // including a state to itself and every exit of a terminal state) is refused with the typed error, changes nothing, and reports no change.
 func TestEveryProhibitedTransitionIsRefused(t *testing.T) {
-	states, arrows := oracle(t)
+	states, arrows := reference(t)
 	m := machine(t)
 	refused := 0
 	for _, from := range states {
@@ -208,7 +208,7 @@ func TestAGuardRefusesButNeverAllows(t *testing.T) {
 // junk states: every applied step is an arrow of the file and moves the version by one; every refused step changes nothing; the terminal states of the file (no exit)
 // are never left.
 func TestNoRandomCommandSequenceReachesAnIllegalState(t *testing.T) {
-	states, arrows := oracle(t)
+	states, arrows := reference(t)
 	m := machine(t)
 	hasExit := map[orchestrator.State]bool{}
 	for a := range arrows {
