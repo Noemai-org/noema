@@ -1,5 +1,5 @@
--- 0012: the policy versions a tenant has published (TRU-08 slice 1). REQ-TRU-005, REQ-OPS-003; INV-09, INV-21; ruling D1.
--- Number provisional: migration numbers are allocated in merge order (ruling A34, noema#183); the second to merge renumbers.
+-- 0015: the policy versions a tenant has published (TRU-08 slice 1). REQ-TRU-005, REQ-OPS-003; INV-09, INV-21; ruling D1.
+-- Number 0015 by Founder decision D12 (0012 #168, 0013 #229, 0014 #233, 0015 #259); if merge order changes, the later PR renumbers (ruling A34).
 -- Forward-only: never edited after merge. No CREATE ROLE (TestNoMigrationAfter0001CreatesARole).
 --
 -- A publication is one row: (tenant, policy_id, version). The active version of a policy_id is the highest one published for it. Versions are numbers

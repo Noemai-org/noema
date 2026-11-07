@@ -19,7 +19,7 @@ import (
 )
 
 // storeBinder answers the active-version question from the publication store, as the tenant's Execution login. The composite production binder is
-// not built (DEBT-23); this is the one line of it that this slice proves.
+// not built (DEBT-23, still open); this is the one line of it that this slice proves.
 type storeBinder struct {
 	controller.Binder
 	exec *pgxpool.Pool

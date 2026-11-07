@@ -1,8 +1,8 @@
 // Package policystore: the policy versions a tenant has published and which one is active (TRU-08 slice 1).
 //
-// Implements: REQ-TRU-005 and REQ-OPS-003 in part (the publication record and the active-version read). Not built here: the publication transaction
-// that voids every unspent grant at once (the lazy void at E4 holds the guarantee until then, DEBT-23), the control-plane endpoint and the policy
-// document store.
+// Implements: REQ-TRU-005 and REQ-OPS-003 in part (the publication record and the active-version read). The grant is not voided at publication: E4 voids
+// it at execution (Founder decision D8, 7 Nov 2026), and only execution_rw writes decision_grant.status. Not built here: the composite production binder,
+// the control-plane endpoint and the policy document store (DEBT-23, still open).
 //
 // May import: internal/contracts, record/chain, platform/{clock,ids}.
 //
