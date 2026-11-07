@@ -2,6 +2,10 @@
 
 **7 Nov 2026 (Core Engineer 1).** As-built on `main` plus noema#243; not authority (the SoT, the PERD and the rulings decide). SYNTHETIC data only. The question: does the Record carry who, intent, evidence, policy version, decision, action, verification, outcome and times, including after a restart (S9) and a policy change during execution (S11)? The answer comes from running the real stack against the real mock-case and reading back through the audit path only (`record_read_chain_t`, `reconstruct.Build`): `services/core/execution/e2e/audit_record_test.go`.
 
+## How to read a reconstruction (ruling A40)
+
+A reconstruction is **consistent, not authenticated**. Every event hash chains to the one before and the chain verifies from genesis (tamper-evident), and the body is built only from those verified events. But nothing yet proves *which writer* appended an event: the database does not check a signature on a Record event, so a holder of one runtime credential could append a well-formed event under that credential's emitter (DEBT-03, REC-08, noema#236 shows it). Until DB-side signature verification (slice B, noema#229) covers receipts and REC-08 covers every Record event, a reconstruction is evidence of consistency, never of authorship. The response field `chain.verified: true` means the hash chain verified, not that the events are authenticated; whether the contract should say so is a question for the Engineering Lead (it would be a contract change, AGENT-15).
+
 ## Method
 
 Events that exist on `main`: Execution (`REVALIDATION_PASSED`/`FAILED`, `GRANT_SPENT`, `DISPATCH_ATTEMPTED`, `RECEIPT`, `GRANT_VOIDED`, `SECURITY_EVENT`) and Outcome (`VERIFICATION_READ`, `VERDICT`, `WATCH_CREATED`, `RECOVERY_REQUESTED`, `SECURITY_EVENT`). Trust, Evidence, Edge and the Planner write **no** Record events on `main` (the grants in the e2e stack are planted by a test stand-in).

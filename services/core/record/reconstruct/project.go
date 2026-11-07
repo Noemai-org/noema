@@ -346,10 +346,20 @@ func project(events []stored) ([]item, error) {
 			if receiptFollows(events, i) {
 				continue // the receipt of this attempt is its ACTION item
 			}
-			extra := map[string]any{"capability_id": ev.payload["capability_id"], "execution_state": "DISPATCHED", "grant_state": grantState(events, i)}
+			capability := capabilityOf(events, i)
+			extra := map[string]any{"capability_id": capability, "execution_state": "DISPATCHED", "grant_state": grantState(events, i)}
 			f, err := facts(p, ev.payload, extra)
 			if err != nil {
 				return nil, fmt.Errorf("dispatch %s: %w", ev.id, err)
+			}
+			out = append(out, mk(f))
+			continue
+		case evReceipt:
+			capability := capabilityOf(events, i)
+			extra := map[string]any{"capability_id": capability, "grant_state": grantState(events, i)}
+			f, err := facts(p, ev.payload, extra)
+			if err != nil {
+				return nil, fmt.Errorf("receipt %s: %w", ev.id, err)
 			}
 			out = append(out, mk(f))
 			continue
@@ -362,14 +372,6 @@ func project(events []stored) ([]item, error) {
 			f, err := facts(p, payload, nil)
 			if err != nil {
 				return nil, fmt.Errorf("verdict %s: %w", ev.id, err)
-			}
-			out = append(out, mk(f))
-			continue
-		case evReceipt:
-			extra := map[string]any{"capability_id": ev.payload["logical_action"], "grant_state": grantState(events, i)}
-			f, err := facts(p, ev.payload, extra)
-			if err != nil {
-				return nil, fmt.Errorf("receipt %s: %w", ev.id, err)
 			}
 			out = append(out, mk(f))
 			continue
@@ -390,20 +392,35 @@ func project(events []stored) ([]item, error) {
 	return out, nil
 }
 
-// capabilityOf is the pack capability an action was made under: a receipt carries it as logical_action (a PackId in execution-receipt.v1), a dispatch
-// as capability_id.
-func capabilityOf(ev stored) any {
-	if c, ok := ev.payload["capability_id"]; ok {
-		return c
+// capabilityOf is the pack capability an action was dispatched under. The dispatch records it (capability_id); logical_action is the grant's
+// capability, a pack ID, since the fix of G1 (noema#243), and is only the fallback for a Record written before the dispatch carried the capability. The event at i is a
+// dispatch or a receipt of one attempt of one grant.
+func capabilityOf(events []stored, i int) any {
+	ev := events[i]
+	grant, _ := ev.payload["grant_id"].(string)
+	if grant == "" {
+		grant = ev.objectRef
+	}
+	attempt, _ := ev.payload["attempt"].(json.Number)
+	for j := range events {
+		d := events[j]
+		if d.eventType != evDispatch || d.objectRef != grant {
+			continue
+		}
+		if a, _ := d.payload["attempt"].(json.Number); a == attempt {
+			if c, ok := d.payload["capability_id"]; ok {
+				return c
+			}
+		}
 	}
 	return ev.payload["logical_action"]
 }
 
 // capabilityOfReceipt is the capability of the receipt with the given receipt_id, or nil when the Record holds no such receipt.
 func capabilityOfReceipt(events []stored, receiptID any) any {
-	for _, ev := range events {
+	for i, ev := range events {
 		if ev.eventType == evReceipt && ev.payload["receipt_id"] == receiptID {
-			return capabilityOf(ev)
+			return capabilityOf(events, i)
 		}
 	}
 	return nil
@@ -475,7 +492,7 @@ func grantState(events []stored, i int) string {
 			return grantExpired
 		}
 	}
-	if c, ok := issued.payload["capability_id"].(string); ok && c != capabilityOf(rc) {
+	if c, ok := issued.payload["capability_id"].(string); ok && c != capabilityOf(events, i) {
 		return grantUnmatched
 	}
 	return grantValid

@@ -834,7 +834,7 @@ func TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline(t *testing.T) {
 
 // S9 (REQ-AUD-003, INV-07): the process died after the dispatch was recorded and before the receipt. The write may have reached the target, so the
 // ACTION section must show the attempt, as DISPATCHED with no receipt, and not leave the action empty. The capability is the one the dispatch
-// recorded (a receipt carries it as logical_action, a PackId in execution-receipt.v1).
+// recorded: logical_action is an action label (ESCALATE_CASE), not a pack capability.
 func TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_s9", []ev{
@@ -857,15 +857,15 @@ func TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability(t *testing.T
 	}
 }
 
-// A receipt takes the place of its dispatch: one attempt is one ACTION item.
-func TestAReceiptReplacesItsDispatch(t *testing.T) {
+// A receipt takes the place of its dispatch: one attempt is one ACTION item, and the receipt's capability is the one the dispatch recorded.
+func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_s9b", []ev{
 		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
 		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
 		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability_id": capability}},
 		{writtenBy: "core-execution", eventType: "RECEIPT", objectRef: grantID, payload: map[string]any{"receipt_id": "rcp_synth0009", "grant_id": grantID, "attempt": 1,
-			"logical_action": capability, "execution_state": "ACKNOWLEDGED", "transport_result": "ACK_2XX"}},
+			"logical_action": "ESCALATE_CASE", "execution_state": "ACKNOWLEDGED", "transport_result": "ACK_2XX"}},
 	}...)
 	raw, err := build(t, w, tenant, "corr_s9b")
 	if err != nil {
