@@ -11,6 +11,7 @@ is tried twice. Each failure is listed in the result so the caller can record `P
 Record.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, Callable, Sequence
 from dataclasses import dataclass
 
@@ -39,6 +40,7 @@ class _ReplayBuffer:
         self._limit = limit
         self._chunks: list[AudioChunk] = []
         self._exhausted = False
+        self._pending: asyncio.Future[AudioChunk] | None = None
         self.overflowed = False
 
     async def stream(self) -> AsyncGenerator[AudioChunk, None]:
@@ -52,7 +54,7 @@ class _ReplayBuffer:
             if self._exhausted:
                 return
             try:
-                item = await self._source.__anext__()
+                item = await self._next()
             except StopAsyncIteration:
                 self._exhausted = True
                 return
@@ -63,7 +65,24 @@ class _ReplayBuffer:
                 index += 1
             yield item
 
+    async def _next(self) -> AudioChunk:
+        """The next live chunk. The read runs as its own task and is shielded, so a provider's deadline cancels only its wait,
+        never the read: cancelling a read inside an async generator would end the generator, and the next provider would
+        hear a truncated utterance as a complete one (Codex P2 on #218)."""
+        if self._pending is None:
+            self._pending = asyncio.ensure_future(self._source.__anext__())
+        pending = self._pending
+        try:
+            return await asyncio.shield(pending)
+        finally:
+            if pending.done():
+                self._pending = None
+
     async def close(self) -> None:
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
         await self._source.aclose()
 
 
