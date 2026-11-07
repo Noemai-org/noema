@@ -1,0 +1,33 @@
+# compose-scripts (ruling A38, DEBT-16): the shell tests of deploy/compose run against PostgreSQL 17.11, the same pinned image as core.yml and
+# deploy/compose, inside that image (its initdb, pg_ctl and psql), as its unprivileged postgres user. They need no Docker daemon of their own
+# and no secret. The workflow always triggers so its check always reports; the path filter runs inside the job.
+name: compose-scripts
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  compose-scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(deploy/compose/|\.github/workflows/compose-scripts\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        run: |
+          docker run --rm --user postgres --entrypoint sh -v "$PWD:/repo:ro" -w /repo \
+            postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24 -euc '
+            initdb --version | grep -q "(PostgreSQL) 17.11" || { echo "not PostgreSQL 17.11"; initdb --version; exit 1; }
+            for t in deploy/compose/postgres/test_init.sh deploy/compose/postgres/test_provision_env.sh deploy/compose/test_secrets_local.sh; do
+              echo "== $t"; sh "$t"
+            done'
