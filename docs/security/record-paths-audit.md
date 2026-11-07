@@ -21,6 +21,13 @@
 5. **Search-path hijack of the writers** (found and closed, noema#234, migration 0014): a login with `TEMPORARY` could shadow `tenant_login` and be mapped to another tenant. All five functions owned by `record_append` now pin `pg_catalog, pg_temp`.
 6. **Immutability** of the Record (`record_event_immutable`, `record_event_no_truncate`): already tested in `platform/db/schema_test.go` and `record/chain`; not repeated here.
 
+## Paths for the A6 row-level-security work (to test once it is built; asked by SR, 7 Nov)
+
+- **P1. `outcome_record_verdict` takes the tenant as an argument (`p_tenant`), not from the login.** It checks `session_user` against the Execution, Trust, Evidence and Orchestrator group roles (so a login that also holds another power is refused), and the receipt it names must exist for `p_tenant`, but nothing ties `p_tenant` to the calling login's tenant. Row-level security with FORCE on `outcome_verdict`, `outcome_watch` and `recovery_request` is only as strong as the tenant the function writes under, so it needs a login-bound tenant (the `tenant_login` lookup, as `record_login_tenant` does) before RLS counts as isolation. Not built.
+- **P2. The three definer functions of migration 0007** (`outcome_record_verdict`, `outcome_verdict_complete`, `recovery_request_verdict_guard`) now pin `pg_catalog, pg_temp` and name their tables (noema#234); SR's catalog-wide test is noema#251.
+- **P3. Tables with RLS still to add (A6):** `grant_spend`, `idempotency_record`, `execution_receipt`, `recovery_request`, `outbox_event`, `record_event`, `record_chain_head`. `decision_record` and `decision_grant` have it in noema#168 (`decision_login_tenant()`). The verifier role reads every tenant by design and needs an explicit all-tenants policy.
+- **P4. Triggers that read other tables as the inserting role** (`decision_grant_guard` reads `execution_receipt` and `grant_spend`): they need a policy for the role that runs them once RLS exists, or they would see no rows and refuse.
+
 ## Findings for SR and the Engineering Lead (not decided here)
 
 - **F1. `record_verify` reads the Record tables directly and across tenants.** That is the verifier's job (REC-05), not audit, but A20 says "audit reads via read functions only". If the Founders mean the verifier too, it needs a cross-tenant read function; today it is a table grant. The test pins the grant exactly so any widening fails.
