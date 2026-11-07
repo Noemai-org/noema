@@ -288,7 +288,7 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 var ErrReceiptSignature = errors.New(errPrefix + "the receipt's signature does not verify")
 
 // ErrSignatureRefused is what a Ledger returns from Complete when the database refused the receipt's signature (SQLSTATE NS001,
-// DEC-2026-11-01 D12). The database verifies every receipt (migration 0012); this controller does not verify it again.
+// DEC-2026-11-01 D12). The database verifies every receipt (migration 0013); this controller does not verify it again.
 var ErrSignatureRefused = errors.New(errPrefix + "the database refused the receipt's signature")
 
 // completeReceipt hands the receipt to the Ledger (E11, and the sweeper's receipt). The database verifies the Ed25519

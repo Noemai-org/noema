@@ -1,7 +1,7 @@
 package e2e_test
 
 // EXE-04 / DEBT-01 (REQ-EXE-004, REQ-SEC-005, INV-03, INV-04, EC-X09; DEC-2026-11-01 D12, D13), noema#90 carried onto the Ed25519 world: the controller does
-// not verify a receipt itself any more, the database does (migration 0012). A receipt the database refuses (NS001) is never written, the attempt stays
+// not verify a receipt itself any more, the database does (migration 0013). A receipt the database refuses (NS001) is never written, the attempt stays
 // DISPATCHING for the sweeper, and the one thing written is a SECURITY_EVENT SIGNATURE_INVALID in a transaction of its own. The fault is real: the
 // signer holds another key than the one registered for the identity, against the real database and the real mock-case. SYNTHETIC.
 
