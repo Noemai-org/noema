@@ -1,0 +1,18 @@
+{
+  "action_verdict_done.json": "enum",
+  "carries_policy_threshold.json": "additionalProperties",
+  "fact_status_ambiguous.json": "enum",
+  "fact_without_as_of.json": "required",
+  "inferred_without_rule.json": "required",
+  "known_listed_as_unknown.json": "not",
+  "known_with_rule.json": "not",
+  "unmasked_account_number.json": "pattern",
+  "unsupported_locale.json": "enum",
+  "still_lists_template_ids.json": "additionalProperties",
+  "missing_outcome_id.json": "required",
+  "missing_classification.json": "required",
+  "lower_case_classification.json": "pattern",
+  "voice_without_audio_ref.json": "required",
+  "voice_carries_raw_audio.json": "additionalProperties",
+  "voice_audio_ref_not_a_reference.json": "pattern"
+}
