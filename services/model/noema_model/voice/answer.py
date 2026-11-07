@@ -26,6 +26,7 @@ class Delivery:
     text: str
     audio: tuple[AudioChunk, ...]
     failure: ProviderFailure | None
+    error_type: str | None = None  # set only for a failure the adapter did not normalise to ProviderError
 
 
 def plan_delivery(locale: Locale, capabilities: ProviderCapabilities) -> DeliveryMode:
@@ -55,4 +56,8 @@ async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisReque
         return _text_only(request, ProviderFailure.TIMEOUT)
     except ProviderError as error:
         return _text_only(request, error.kind)
+    except Exception as error:  # noqa: BLE001 - an adapter bug must not take the answer's text with it (PERD §35.3)
+        # Reported, not swallowed: the class name (never the message, which may hold the answer) is returned for the caller to
+        # record. CancelledError is a BaseException and passes through.
+        return Delivery(DeliveryMode.TEXT_ONLY, request.text, (), ProviderFailure.UNAVAILABLE, type(error).__name__)
     return Delivery(DeliveryMode.SPEAK, request.text, audio, None)
