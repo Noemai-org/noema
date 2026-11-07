@@ -9,9 +9,13 @@ package db_test
 // All data is SYNTHETIC.
 
 import (
+	"context"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -168,14 +172,16 @@ func TestRowSecurityLoginCannotUpdateAnotherTenantsRow(t *testing.T) {
 	}
 }
 
-// Row security must hold on the table owner too: a table that is not FORCEd lets its owner role read across tenants.
+// Row security must hold on the table owner too: a table that is not FORCEd lets its owner role read across tenants. Ruling A6 puts
+// record_event and record_chain_head in the list (the Record functions are owned by record_append, so FORCE is what makes the policy apply to
+// them); only the tenant catalog and the login map are left out, because every login must read them.
 func TestRowSecurityIsEnabledAndForcedOnEveryTenantTable(t *testing.T) {
 	w := newRowWorld(t)
 	rows, err := w.admin.Query(ctx(t), `SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity
 		FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname = 'public' AND c.relkind = 'r'
 		  AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
-		  AND c.relname NOT IN ('tenant', 'record_event', 'record_chain_head', 'tenant_login')
+		  AND c.relname NOT IN ('tenant', 'tenant_login')
 		ORDER BY 1`)
 	if err != nil {
 		t.Fatal(err)
@@ -195,5 +201,47 @@ func TestRowSecurityIsEnabledAndForcedOnEveryTenantTable(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("found no tenant-scoped table: the query is wrong")
+	}
+}
+
+// Positive control for ruling A6 (record_event and record_chain_head get row security with FORCE): the chain verifier (REC-05) reads every
+// tenant's Record by design, with no tenant mapping, and must still do so once the policy exists. It reads, it does not write. Passes today;
+// it keeps the all-tenants policy from being forgotten when RLS is added.
+func TestRowSecurityTheVerifierStillReadsEveryTenantsChainHeadAndWritesNothing(t *testing.T) {
+	w := newRowWorld(t)
+	for _, ten := range []string{"ten_a", "ten_b"} {
+		if _, err := w.admin.Exec(ctx(t), `INSERT INTO record_chain_head (tenant_id, seq, hash) VALUES ($1, 0, 'sha256:' || repeat('0', 64))`, ten); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u, err := url.Parse(w.dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := "record_verify__rs_" + strings.TrimPrefix(u.Path, "/")
+	quoted := pgx.Identifier{role}.Sanitize()
+	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+quoted+` LOGIN IN ROLE record_verify`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if a, err := pgxpool.New(c, strings.Replace(w.dsn, "/"+strings.TrimPrefix(u.Path, "/")+"?", "/postgres?", 1)); err == nil {
+			_, _ = a.Exec(c, `DROP ROLE IF EXISTS `+quoted)
+			a.Close()
+		}
+	})
+	u.User = url.User(role)
+	pool, err := pgxpool.New(ctx(t), u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	var n int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM record_chain_head`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("the verifier sees %d chain heads (err %v), want 2: it must read every tenant", n, err)
+	}
+	if _, err := pool.Exec(ctx(t), `UPDATE record_chain_head SET seq = 1 WHERE tenant_id = 'ten_a'`); err == nil {
+		t.Fatal("the verifier updated a chain head: it must read only")
 	}
 }
