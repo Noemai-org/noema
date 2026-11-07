@@ -7,6 +7,7 @@ package outcomee2e_test
 // is hand-built (the reconstruct package's own tests use hand-built payloads). All data is SYNTHETIC.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -129,5 +130,47 @@ func TestEveryCrashPointOfTheExecutionProtocolLeavesARecordThatReconstructs(t *t
 		if len(r.items("VERIFICATION")) != 0 {
 			t.Errorf("crash at point %d: a verification appeared with no verdict on the Record", p)
 		}
+	}
+}
+
+// movedPolicy is the binder after a policy publication: the decision is still ALLOW, but the policy_id's active version is no longer the grant's.
+type movedPolicy struct {
+	controller.Binder
+	active string
+}
+
+func (m movedPolicy) ActivePolicyVersion(context.Context, controller.Grant) (string, error) {
+	return m.active, nil
+}
+
+// S11 (REQ-AUD-003, INV-21, ruling D1): the policy version moved while the grant waited. E4 voids the grant before any write, and the Record must say
+// so and name both versions, the one the grant was bound to and the one in force, so a reviewer sees what changed without the database.
+func TestAPolicyChangeBeforeTheWriteIsReconstructableWithBothVersions(t *testing.T) {
+	mc := startMockCase(t)
+	s := newStack(t, mc)
+	s.ctl.Bind = movedPolicy{Binder: s.trust, active: policyScope + "@2"}
+	grant, err := s.trust.issueCreate(bg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.ctl.Execute(bg(t), tenant, grant)
+	if err != nil || out.Void != controller.VoidPolicySuperseded {
+		t.Fatalf("Execute: %+v, %v; want a void for POLICY_SUPERSEDED", out, err)
+	}
+	r, err := s.reconstruct(t)
+	if err != nil {
+		t.Fatalf("the Record does not reconstruct: %v", err)
+	}
+	var voided map[string]any
+	for _, f := range r.items("AUTHORITY") {
+		if f["reason"] == "POLICY_SUPERSEDED" {
+			voided = f
+		}
+	}
+	if voided == nil {
+		t.Fatalf("AUTHORITY %v holds no POLICY_SUPERSEDED void", r.items("AUTHORITY"))
+	}
+	if voided["bound_policy_version"] != policyScope+"@1" || voided["active_policy_version"] != policyScope+"@2" {
+		t.Fatalf("the void names %v, want bound_policy_version %s@1 and active_policy_version %s@2", voided, policyScope, policyScope)
 	}
 }
