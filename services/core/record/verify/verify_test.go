@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +72,7 @@ func newWorld(t *testing.T, tenants ...string) *world {
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 3, 2, 0, 0, 0, time.UTC))
 	w := &world{admin: admin, pools: pools, alert: &recordingAlerts{}, met: &recordingMetrics{},
-		app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+		app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: recordsig.All(t, admin, "verify", nil)}}
 	w.ver = testpg.VerifierLogin(t, admin, dsn)
 	w.v = &verify.Verifier{DB: w.ver, Alerts: w.alert, Metrics: w.met, Clock: clk}
 	return w

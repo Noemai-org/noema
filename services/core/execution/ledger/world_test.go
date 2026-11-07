@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/Noemai-org/noema/services/core/execution/signing"
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -156,6 +157,7 @@ func newWorld(t *testing.T) *world {
 	ring := signingtest.Ring(t, 1)
 	signingtest.Register(t, admin, ring)
 	w.ring = ring
+	led.Rec.Signers = recordsig.All(t, admin, "ledger", map[string]chain.Signer{"core-execution": ring})
 	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }

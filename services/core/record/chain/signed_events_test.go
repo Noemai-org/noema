@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -28,7 +29,7 @@ type signedWorld struct {
 
 func newSignedWorld(t *testing.T, tenant string) *signedWorld {
 	t.Helper()
-	return &signedWorld{world: newWorld(t, tenant), keys: map[string]ed25519.PrivateKey{}}
+	return &signedWorld{world: newWorldKeys(t, false, tenant), keys: map[string]ed25519.PrivateKey{}}
 }
 
 func (w *signedWorld) register(t *testing.T, identity string, version int) string {
@@ -64,7 +65,8 @@ func (w *signedWorld) insert(t *testing.T, tenant, emitter string, sign func(bod
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := chain.Body(ev, "recev_signed001", seq+1, prev, payloadHash, forgedAt)
+	eventID := fmt.Sprintf("recev_signed%03d", seq+1)
+	body := chain.Body(ev, eventID, seq+1, prev, payloadHash, forgedAt)
 	if mutate != nil {
 		mutate(body)
 	}
@@ -82,7 +84,7 @@ func (w *signedWorld) insert(t *testing.T, tenant, emitter string, sign func(bod
 	}
 	bodyJSON := jcs
 	_, err = tx.Exec(ctx(t), `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, NULL, $14, $15, $16)`,
-		"recev_signed001", seq+1, prev, hash, emitter, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, forgedAt, chain.SchemaVersion, emitter,
+		eventID, seq+1, prev, hash, emitter, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, forgedAt, chain.SchemaVersion, emitter,
 		string(bodyJSON), keyID, sig, jcs)
 	if err == nil {
 		err = tx.Commit(ctx(t))
