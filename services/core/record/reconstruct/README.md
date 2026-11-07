@@ -42,3 +42,5 @@
 - The handler's refusals and codes; the P95 budget.
 
 `tools/contracts/test_reconstruction_golden.py` validates the golden files against `reconstruction.v3` and recomputes every event hash in Python. Regenerate the golden files with `go test ./record/reconstruct/ -run US0 -update`, and only when a change to the body is intended.
+
+**What a reconstruction proves (ruling A40).** It is *consistent, not authenticated*: the chain verifies from genesis (tamper-evident), but no signature on a Record event is checked yet, so it shows consistency, not who wrote each event. That changes only with DB-side verification of receipts (EXE-08 slice B) and of Record events (REC-08). `chain.verified: true` in the response means the hash chain verified.
