@@ -16,7 +16,9 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from benchmark.contracts import sha256_of
+import functools
+
+from benchmark.contracts import Contracts, sha256_of
 from benchmark.qualification.pins import KINDS, is_pinned, parse_date
 from benchmark.scoring.diagnostics import understanding_dependent
 
@@ -29,6 +31,11 @@ RESULTS = ("PASS", "DRIFT", "PROVIDER_UNAVAILABLE")
 REQUIRED_RUN = ("schema", "subset_id", "layer", "n_cases", "cases_sha256", "pinned", "baseline", "commit_sha", "recorded_on", "answered_versions", "result", "cases")
 PINNED_FIELDS = ("kind", "provider", "model_id", "version")
 _SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+@functools.lru_cache(maxsize=1)
+def _contracts() -> Contracts:
+    return Contracts()
 
 
 def select_subset(cases: list[Json], *, subset_id: str) -> Json:
@@ -152,7 +159,7 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
     missing = [f for f in REQUIRED_RUN if f not in record]
     if missing:
         return [f"run record is missing {', '.join(missing)}"]
-    out: list[str] = []
+    out: list[str] = [f"contract: {e}" for e in _contracts().errors("qualification-run", record)]
     if record["schema"] != RUN_SCHEMA:
         out.append(f"schema must be {RUN_SCHEMA}, not {record['schema']!r}")
     if record["layer"] != "GENERATED":
@@ -184,6 +191,13 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
             out.append(f"case {case_id}: version_mismatch must be a boolean, not {case.get('version_mismatch')!r}")
             statuses.pop()
             continue
+        answered = case.get("answered_by")
+        if answered is not None and isinstance(pin.get("version"), str):
+            should = answered != pin["version"]
+            if case["version_mismatch"] is not should:
+                out.append(f"case {case_id}: version_mismatch is {case['version_mismatch']} but answered_by {answered!r} {'differs from' if should else 'equals'} the pinned version {pin['version']!r}")
+        elif answered is None and case["version_mismatch"] is True:
+            out.append(f"case {case_id}: version_mismatch is true but no version answered (answered_by is null)")
         drifted = bool(case.get("differing_slots")) or case["version_mismatch"]
         if (status == "DRIFT") != drifted and status != "UNAVAILABLE":
             out.append(f"case {case_id}: status {status} does not agree with its differing_slots and version_mismatch")

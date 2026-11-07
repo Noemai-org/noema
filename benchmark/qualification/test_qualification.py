@@ -284,6 +284,42 @@ class Strictness(unittest.TestCase):
         self.assertEqual([], check_model([record(), other], PROVIDER, MODEL, VERSION))
 
 
+class ContractAndEvidence(unittest.TestCase):
+    """Codex on 924c58d: the lookup trusted flags and counts the contract and the evidence do not support."""
+
+    def test_pass_k_is_available_only_with_exactly_five_runs(self) -> None:
+        for k_required, runs in ((1, 1), (5, 4), (4, 5), (5, 6), (0, 0)):
+            rec = record()
+            rec["pass_k"] = {**rec["pass_k"], "k_required": k_required, "runs_supplied": runs}
+            got = validate_record(rec)
+            self.assertTrue(any("five" in p and "pass^k" in p for p in got), (k_required, runs, got))
+            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), (k_required, runs))
+
+    def test_a_scorecard_that_claims_pass_k_without_five_runs_is_not_qualified(self) -> None:
+        card = scorecard()
+        card["tier1"]["diagnostics"]["pass_k"] = {**card["tier1"]["diagnostics"]["pass_k"], "k_required": 1, "runs_supplied": 1}
+        rec = record(card)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("five" in r for r in rec["reasons"]), rec["reasons"])
+
+    def test_a_record_the_contract_refuses_never_allows_a_lookup(self) -> None:
+        mutations: list[Callable[[Json], object]] = [
+            lambda r: r["pass_k"]["rate"].update(rate=4),  # outside [0, 1]
+            lambda r: r.update(extra=1),  # unknown member
+            lambda r: r["drift"].pop("run_sha256"),  # nested required member
+            lambda r: r["bar"].update(floor=1.5, floor_source="DEC-x"),
+            lambda r: r.update(n_cases=0),
+            lambda r: r["pass_k"].update(failing_cases=[""]),
+        ]
+        for mutate in mutations:
+            rec = record()
+            mutate(rec)
+            self.assertTrue(CONTRACTS.errors("qualification-record", rec), "the mutation must break the contract")
+            self.assertTrue(any("contract" in p for p in validate_record(rec)), validate_record(rec))
+            got = check_model([rec], PROVIDER, MODEL, VERSION)
+            self.assertTrue(got and any("invalid" in p for p in got), got)
+
+
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:
         got = check_model([], PROVIDER, MODEL, VERSION)

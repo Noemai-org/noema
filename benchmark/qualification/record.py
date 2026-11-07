@@ -15,18 +15,30 @@ Interim QUALIFIED (A17) means all of:
 The model service's configuration check (C2) refuses an ID with no QUALIFIED record by the same rules as `check_model`; it is not built here.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
+import functools
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from benchmark.contracts import sha256_of
+from benchmark.contracts import Contracts, sha256_of
 from benchmark.qualification.pins import KINDS, is_pinned, parse_date
 from benchmark.qualification.run import validate_run_record
+from benchmark.scoring.diagnostics import PASS_K
 
 Json = dict[str, Any]
 SCHEMA = "qualification-record.v1"
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
 REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons")
+
+
+@functools.lru_cache(maxsize=1)
+def _contracts() -> Contracts:
+    return Contracts()
+
+
+def _five_runs(pass_k: Mapping[str, Any]) -> bool:
+    """pass^k is available only when exactly five runs were supplied and five were required (REQ-BEN-009): the flag alone is not evidence."""
+    return pass_k.get("k_required") == PASS_K and pass_k.get("runs_supplied") == PASS_K
 
 
 def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], drift_result: str, bar: Mapping[str, Any]) -> list[str]:
@@ -37,6 +49,8 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
         reasons.append("a Tier 0 gate is not at zero")
     if pass_k.get("available") is not True:
         reasons.append(f"pass^k was not available ({pass_k.get('reason') or 'no reason given'})")
+    elif not _five_runs(pass_k):
+        reasons.append(f"pass^k is marked available but k_required is {pass_k.get('k_required')!r} and runs_supplied is {pass_k.get('runs_supplied')!r}; it needs exactly five runs")
     if drift_result != "PASS":
         reasons.append(f"the drift check result is {drift_result}, not PASS")
     bars = [b for b in (bar.get("baseline_pass_k"), bar.get("floor")) if b is not None]
@@ -99,7 +113,7 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
     missing = [f for f in REQUIRED if f not in record]
     if missing:
         return [f"record is missing {', '.join(missing)}"]
-    out: list[str] = []
+    out: list[str] = [f"contract: {e}" for e in _contracts().errors("qualification-record", record)]
     if record["schema"] != SCHEMA:
         out.append(f"schema must be {SCHEMA}, not {record['schema']!r}")
     if record["kind"] not in KINDS:
@@ -120,6 +134,8 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         if type(record[flag]) is not bool:
             out.append(f"{flag} must be a boolean, not {record[flag]!r}")
             flags_ok = False
+    if "pass_k" in blocks and blocks["pass_k"].get("available") is True and not _five_runs(blocks["pass_k"]):
+        out.append(f"pass^k is marked available but k_required is {blocks['pass_k'].get('k_required')!r} and runs_supplied is {blocks['pass_k'].get('runs_supplied')!r}; it needs exactly five runs")
     if "pass_k" in blocks and type(blocks["pass_k"].get("available")) is not bool:
         out.append(f"pass_k.available must be a boolean, not {blocks['pass_k'].get('available')!r}")
         flags_ok = False

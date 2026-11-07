@@ -251,6 +251,40 @@ class JsonEquality(unittest.TestCase):
         self.assertTrue(any("version_mismatch" in p and "boolean" in p for p in validate_run_record(rec)), validate_run_record(rec))
 
 
+class VersionMismatchIsDerived(unittest.TestCase):
+    """Codex on 924c58d: `version_mismatch=false` was trusted even when `answered_by` differed from the pinned version."""
+
+    def forged(self) -> Json:
+        rec = run()
+        for case in rec["cases"]:
+            case["answered_by"] = PINNED["version"]  # the old version answered, but the flag says no mismatch
+        rec["answered_versions"] = [PINNED["version"]]
+        return rec
+
+    def test_a_flag_that_disagrees_with_the_answering_version_is_invalid(self) -> None:
+        got = validate_run_record(self.forged())
+        self.assertTrue(any("version_mismatch" in p and "answered_by" in p for p in got), got)
+
+    def test_the_flag_must_also_be_false_when_the_version_matches(self) -> None:
+        rec = run()
+        rec["cases"][0]["version_mismatch"] = True
+        self.assertTrue(any("version_mismatch" in p for p in validate_run_record(rec)))
+
+    def test_a_forged_pass_cannot_become_a_qualification(self) -> None:
+        from benchmark.qualification.record import build_record
+        from benchmark.qualification.test_qualification import scorecard
+        with self.assertRaises(ValueError):
+            build_record(scorecard(), self.forged(), kind="llm", provider=NEW["provider"], model_id=NEW["model_id"], version=NEW["version"], decision_record="DEC-x",
+                         qualified_on="2026-11-06", baseline_pass_k=0.8, floor=None, floor_source=None)
+
+    def test_the_run_record_is_checked_against_its_contract(self) -> None:
+        from benchmark.contracts import Contracts
+        rec = run()
+        rec["cases"][0]["extra"] = 1
+        self.assertTrue(Contracts().errors("qualification-run", rec))
+        self.assertTrue(any("contract" in p for p in validate_run_record(rec)), validate_run_record(rec))
+
+
 class Validating(unittest.TestCase):
     def test_a_result_the_cases_do_not_support_is_invalid(self) -> None:
         rec = run()
