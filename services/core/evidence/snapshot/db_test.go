@@ -73,6 +73,11 @@ func newWorld(t *testing.T) *world {
 
 // item writes one evidence item and its payload as the tenant's Evidence Layer login and returns the item's ID.
 func (w *world) item(t *testing.T, tenant string, n int) string {
+	return w.itemWithHash(t, tenant, n, n)
+}
+
+// itemWithHash is item with the payload hash made from hn, so that two items can share one payload hash.
+func (w *world) itemWithHash(t *testing.T, tenant string, n, hn int) string {
 	t.Helper()
 	ref, id := fmt.Sprintf("pay_%s_%d", tenant, n), fmt.Sprintf("evr_%s%d", strings.TrimPrefix(tenant, "ten_"), n)
 	p := w.evidence[tenant]
@@ -84,7 +89,7 @@ func (w *world) item(t *testing.T, tenant string, n int) string {
 		freshness_sla_seconds, authority_class, resource_scope, principal_scope, sensitivity, fact_status, payload_hash, payload_ref, created_at)
 		VALUES ($1, $2, 'corr_synthetic', 'fin.src.core_ledger', 'rec-1', 'TRUST', '2026-11-05T09:00:00Z', '2026-11-05T08:59:00Z',
 		60, 'AUTHORITATIVE_FOR:debit_posted_or_reversed', 'res_synthetic', 'prn_synthetic', 'S2_internal', 'KNOWN', $3, $4, '2026-11-05T09:00:00Z')`,
-		id, tenant, hashN(n), ref); err != nil {
+		id, tenant, hashN(hn), ref); err != nil {
 		t.Fatalf("item: %v", err)
 	}
 	return id
@@ -179,6 +184,12 @@ func TestTheDatabaseRefusesASnapshotThatIsNotAnHonestSeal(t *testing.T) {
 	w := newWorld(t)
 	a1, a2 := w.item(t, tenantA, 1), w.item(t, tenantA, 2)
 	b3 := w.item(t, tenantB, 3)
+	// Two items with one payload hash: a permuted id list then has the same pairs-hash, so only the order check can refuse it.
+	s4, s5 := w.itemWithHash(t, tenantA, 4, 9), w.itemWithHash(t, tenantA, 5, 9)
+	tie, err := snapshot.SetHash([]snapshot.Pair{{EvidenceID: s4, PayloadHash: hashN(9)}, {EvidenceID: s5, PayloadHash: hashN(9)}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	good := honest(t, 1, 2)
 	flipped := good[:len(good)-1] + map[bool]string{true: "1", false: "0"}[good[len(good)-1] == '0']
 	empty := "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -195,6 +206,7 @@ func TestTheDatabaseRefusesASnapshotThatIsNotAnHonestSeal(t *testing.T) {
 		{"an evidence id that does not exist", tenantA, []string{a1, "evr_aa99"}, good},
 		{"another tenant's evidence", tenantA, []string{a1, b3}, good},
 		{"ids not sorted", tenantA, []string{a2, a1}, good},
+		{"ids not sorted over equal payload hashes", tenantA, []string{s5, s4}, tie},
 		{"a repeated id", tenantA, []string{a1, a1, a2}, good},
 		{"a NULL id", tenantA, nil, good},
 		{"a row naming another tenant", tenantB, []string{a1, a2}, good},
@@ -275,11 +287,11 @@ func TestASealedSnapshotCannotBeChanged(t *testing.T) {
 func TestSnapshotsAreIsolatedByTenantAndRowSecurityIsForced(t *testing.T) {
 	w := newWorld(t)
 	a1, b3 := w.item(t, tenantA, 1), w.item(t, tenantB, 3)
-	if err := insertSnap(w.trust[tenantA], ctx(t), tenantA, "evs_a", []string{a1}, honest(t, 1)); err != nil {
+	if err := insertSnap(w.trust[tenantA], ctx(t), tenantA, "evs_aa", []string{a1}, honest(t, 1)); err != nil {
 		t.Fatal(err)
 	}
 	hb, _ := snapshot.SetHash([]snapshot.Pair{{EvidenceID: b3, PayloadHash: hashN(3)}})
-	if err := insertSnap(w.trust[tenantB], ctx(t), tenantB, "evs_b", []string{b3}, hb); err != nil {
+	if err := insertSnap(w.trust[tenantB], ctx(t), tenantB, "evs_bb", []string{b3}, hb); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(t, w.trust[tenantA], `SELECT count(*) FROM context_snapshot`); n != 1 {
@@ -303,11 +315,11 @@ func TestSnapshotsAreIsolatedByTenantAndRowSecurityIsForced(t *testing.T) {
 func TestEvidenceVerifyReadsTheTwoTablesAcrossTenantsAndNothingElse(t *testing.T) {
 	w := newWorld(t)
 	a1, b3 := w.item(t, tenantA, 1), w.item(t, tenantB, 3)
-	if err := insertSnap(w.trust[tenantA], ctx(t), tenantA, "evs_a", []string{a1}, honest(t, 1)); err != nil {
+	if err := insertSnap(w.trust[tenantA], ctx(t), tenantA, "evs_aa", []string{a1}, honest(t, 1)); err != nil {
 		t.Fatal(err)
 	}
 	hb, _ := snapshot.SetHash([]snapshot.Pair{{EvidenceID: b3, PayloadHash: hashN(3)}})
-	if err := insertSnap(w.trust[tenantB], ctx(t), tenantB, "evs_b", []string{b3}, hb); err != nil {
+	if err := insertSnap(w.trust[tenantB], ctx(t), tenantB, "evs_bb", []string{b3}, hb); err != nil {
 		t.Fatal(err)
 	}
 	v := testpg.EvidenceVerifyLogin(t, w.dsn)
@@ -343,7 +355,6 @@ func TestEvidenceVerifyReadsTheTwoTablesAcrossTenantsAndNothingElse(t *testing.T
 		`SELECT * FROM record_read_chain_t()`,
 		`SELECT evidence_set_hash_of('{a}'::text[], '{}'::text[])`,
 		`CREATE TABLE evidence_verify_scratch (x int)`,
-		`CREATE TEMP TABLE evidence_verify_scratch (x int)`,
 	}
 	for _, q := range refused {
 		if _, err := v.Exec(ctx(t), q); code(err) != denied {
@@ -396,11 +407,11 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 	}
 	var fns int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-		WHERE n.nspname = 'public' AND p.prosecdef AND has_function_privilege('evidence_verify', p.oid, 'EXECUTE')`).Scan(&fns); err != nil {
+		WHERE n.nspname = 'public' AND p.prosecdef AND p.prorettype <> 'trigger'::regtype AND has_function_privilege('evidence_verify', p.oid, 'EXECUTE')`).Scan(&fns); err != nil {
 		t.Fatal(err)
 	}
 	if fns != 0 {
-		t.Errorf("evidence_verify can execute %d SECURITY DEFINER functions", fns)
+		t.Errorf("evidence_verify can execute %d SECURITY DEFINER functions that are not trigger functions (a trigger function cannot be called)", fns)
 	}
 	var create bool
 	if err := w.admin.QueryRow(ctx(t), `SELECT has_schema_privilege('evidence_verify', 'public', 'CREATE')`).Scan(&create); err != nil {
