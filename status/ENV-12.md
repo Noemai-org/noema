@@ -38,7 +38,7 @@ Items 1 to 6 are what the response should settle for the adapters (ruling A10: t
 | 16 reset and replay | reset, replay by name | stand-in `DELETE` then `PUT`; proxy plan reload | scenario reset (slide 11) | none |
 | 17 ground-truth export | machine-readable artefacts | `synthetic/at_runs` records | Tushe export | Noema covers |
 | 18 mutation isolation | monetary mutation denied | the stand-in has no write route (BD-08); proxy routes allow reads only | key scopes | none |
-| 19 audit completeness | actor, request, correlation, state, timestamp | mock-case request log | `/v1/audit-events` joined to the request (slide 16); causation is not built (declined) | Tushe by date |
+| 19 audit completeness | actor, request, correlation, state, timestamp | mock-case command log (truth endpoint) | `/v1/audit-events` joined to the request (slide 16); causation is not built (declined) | Tushe by date |
 | 20 simulator diagnostics | injected versus real | none | `injected` and `payout.fault_injected` (R12) | Tushe by date; item 6 |
 
 **What I can pre-run for the joint session now:** AT-01, 02, 03, 05, 06, 07, 10, 11, 14, 16 and 18 against the existing environment, and AT-04 and 17 from the recorded runs. **What cannot be pre-run:** AT-09, 13, 15 (conditions), 19 and 20 (Tushe's), and every "live" column. A pre-run script that prints the table above with a pass or fail per row is not built; I will build it once Tushe's response fixes the routes, because most rows need them.
