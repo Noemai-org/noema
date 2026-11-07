@@ -98,6 +98,10 @@ class Broken(unittest.TestCase):
             ("Noema is in the 99th percentile", "99"),
             ("Noema is 1.5x faster", "1.5"),
             ("Noema is -95% wrong", "-95"),
+            ("Noema handled 1e9 cases", "1e9"),
+            ("Noema handled 1.5e3 cases", "1.5e3"),
+            ("Noema is wrong in 2E-4 of cases", "2E-4"),
+            ("Noema handled 1e+9 cases", "1e+9"),
         ):
             got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
             self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
