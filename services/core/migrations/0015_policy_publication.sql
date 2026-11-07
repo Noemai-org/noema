@@ -6,7 +6,7 @@
 -- of two or three components, compared as numbers and only within one policy_id. A version that is not higher than the active one (the same, or a
 -- downgrade) is refused by a trigger, so no caller can make an older policy active again by publishing it.
 
--- The numeric key of a dotted version: three integers, the third 0 when absent. 1.10 > 1.9; 01.010 is 1.10; 3.1 and 3.1.0 are the same version.
+-- The numeric key of a dotted version: three integers, the third 0 when absent. 1.10 > 1.9. The CHECK below admits one spelling per version.
 CREATE FUNCTION policy_version_key(v text) RETURNS integer[]
 LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $$
   SELECT ARRAY[p[1]::integer, p[2]::integer, COALESCE(p[3], '0')::integer] FROM (SELECT string_to_array(v, '.') AS p) s
@@ -15,7 +15,9 @@ $$;
 CREATE TABLE policy_publication (
   tenant_id     text NOT NULL REFERENCES tenant (tenant_id),
   policy_id     text NOT NULL CHECK (policy_id ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$'),
-  version       text NOT NULL CHECK (version ~ '^[0-9]+\.[0-9]+(\.[0-9]+)?$'),
+  -- One spelling per version (SR on noema#259): no leading zeros, no third component of 0 (3.1 and 3.1.0 are one version, so only 3.1 is accepted), and
+  -- components of at most nine digits, so each fits the integer key and none is a typo that could never be superseded. E4 compares this exact string.
+  version       text NOT NULL CHECK (version ~ '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(\.[1-9][0-9]{0,8})?$'),
   version_key   integer[] NOT NULL,
   published_by  text NOT NULL,
   published_at  timestamptz NOT NULL DEFAULT now(),

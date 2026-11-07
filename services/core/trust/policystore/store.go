@@ -28,7 +28,7 @@ var (
 	tenantRe      = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	correlationRe = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
 	policyIDRe    = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
-	versionRe     = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+	versionRe     = regexp.MustCompile(`^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(\.[1-9][0-9]{0,8})?$`)
 	publisherRe   = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
 )
 

@@ -18,3 +18,12 @@ State: slice 1 in review (Draft, stacked on noema#163). Owner per tasks.csv: C1;
 - Open questions (owner): migration number (Steward, noema#183).
 - Files to read first: `trust/policystore/doc.go`, `migrations/0015_policy_publication.sql`.
 - Do not touch: `execution/controller` E4 (noema#163).
+
+# Session 2026-11-07 (later) · TRU-08
+
+## Session summary
+- What changed: SR's notes on noema#259. Notes 1 and 2: a version has one spelling (CHECK and Go pattern: no leading zeros, no third component of 0, components of at most nine digits). Note 4: the insert-only tests assert the SQLSTATE and the trigger is exercised as the owner (23000); Trust's attempts are asserted as 42501.
+- Why: SR review at `5b12ae1`; a typo such as `2147483647.0` could never be superseded (no revoke), and `3.1` versus `3.1.0` made E4's exact-string compare disagree with the numeric key.
+- Risks: a version such as `1.0.0` is now refused (use `1.0`). Packs use two components today (`3.1`, `3.2`). Reversible by a forward migration if a Founder prefers to admit the trailing zero.
+- Tests added (REQ-TRU-005, INV-09): `TestAMalformedPolicyIDOrVersionIsRefused` (5 new cases), `TestTheDatabaseRefusesANonCanonicalOrOversizedVersionAndTheTriggerRefusesEdits`; `TestVersionsCompareAsNumbersAndNotAsText` and the downgrade test now expect ErrRequest for non-canonical spellings. Seen failing first.
+- Not done: note 3 (where the control-plane credential injects `PublishedBy`: waits for OD-P-79); note 5 (owner policy under a non-superuser owner is catalog-only; unproven in CI).

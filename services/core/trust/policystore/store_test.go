@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -114,8 +115,9 @@ func TestVersionsCompareAsNumbersAndNotAsText(t *testing.T) {
 			t.Fatalf("publishing %s after a lower number: %v", v, err)
 		}
 	}
-	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "01.010"); !errors.Is(err, policystore.ErrNotNewer) {
-		t.Fatalf("01.010 is the number 1.10 again: err %v, want ErrNotNewer", err)
+	// SR on noema#259 (note 2): 01.010 is not a second spelling of 1.10. A version has one spelling, so E4's exact-string compare and the numeric key agree.
+	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "01.010"); !errors.Is(err, policystore.ErrRequest) {
+		t.Fatalf("01.010 is not the canonical spelling of 1.10: err %v, want ErrRequest", err)
 	}
 	if v := active(t, w.execA, tenantA, "fin.pol"); v != "fin.pol@1.10" {
 		t.Fatalf("active %q, want fin.pol@1.10", v)
@@ -129,7 +131,7 @@ func TestARepublishOrADowngradeIsRefusedAndWritesNothing(t *testing.T) {
 	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "3.1"); err != nil {
 		t.Fatal(err)
 	}
-	for _, v := range []string{"3.1", "3.0", "2.9.9", "3.1.0"} {
+	for _, v := range []string{"3.1", "3.0", "2.9.9"} { // 3.1.0 is not a second spelling of 3.1: it is refused as malformed (SR on noema#259)
 		if err := w.publish(t, w.trustA, tenantA, "fin.pol", v); !errors.Is(err, policystore.ErrNotNewer) {
 			t.Errorf("publishing %s over 3.1: err %v, want ErrNotNewer", v, err)
 		}
@@ -163,6 +165,9 @@ func TestAMalformedPolicyIDOrVersionIsRefused(t *testing.T) {
 	for name, c := range map[string][2]string{
 		"an upper-case policy id": {"Fin.pol", "1.0"}, "a version with a letter": {"fin.pol", "1.x"}, "one component": {"fin.pol", "1"},
 		"four components": {"fin.pol", "1.0.0.0"}, "an empty version": {"fin.pol", ""}, "an at sign in the id": {"fin@pol", "1.0"}, "a leading dot": {"fin.pol", ".1.0"},
+		// SR on noema#259 (notes 1 and 2): one spelling per version, and components that fit the integer key
+		"a leading zero": {"fin.pol", "01.0"}, "a leading zero in the second component": {"fin.pol", "1.01"}, "a trailing zero component": {"fin.pol", "3.1.0"},
+		"a component over nine digits": {"fin.pol", "99999999999.0"}, "a ten-digit component that fits no integer key": {"fin.pol", "2147483647.0"},
 	} {
 		if err := w.publish(t, w.trustA, tenantA, c[0], c[1]); !errors.Is(err, policystore.ErrRequest) {
 			t.Errorf("%s: err %v, want ErrRequest", name, err)
@@ -250,5 +255,47 @@ func TestTheGuardsOwnerCanReadThePublicationsItCompares(t *testing.T) {
 	}
 	if !forced || !reaches {
 		t.Fatalf("row security forced %v, a SELECT policy reaches the guard's owner %v; want both", forced, reaches)
+	}
+}
+
+// SR on noema#259 (notes 1, 2 and 4): the database refuses what the Go pattern refuses (a caller that skips the store reaches the same CHECK), and the
+// insert-only rule is exercised as a role that holds the privilege, with the SQLSTATE asserted, so the trigger is what refuses and not a missing grant.
+func TestTheDatabaseRefusesANonCanonicalOrOversizedVersionAndTheTriggerRefusesEdits(t *testing.T) {
+	w := newWorld(t)
+	// a Trust login, so the guard passes and the CHECK is what refuses; the key is given so that the key CHECK does not fire first
+	direct := func(version, key string) error {
+		_, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by)
+			VALUES ($1, 'fin.pol', $2, `+key+`, 'adm_synth01')`, tenantA, version)
+		return err
+	}
+	for v, key := range map[string]string{"01.0": "ARRAY[1,0,0]", "1.01": "ARRAY[1,1,0]", "3.1.0": "ARRAY[3,1,0]", "99999999999.0": "ARRAY[1,0,0]", "2147483647.0": "ARRAY[2147483647,0,0]"} {
+		var pe *pgconn.PgError
+		// a component beyond the integer range fails while the key CHECK computes its key (22003); every other form fails the version CHECK (23514)
+		want := "23514"
+		if v == "99999999999.0" {
+			want = "22003"
+		}
+		if err := direct(v, key); !errors.As(err, &pe) || pe.Code != want {
+			t.Errorf("version %q inserted directly: %v, want SQLSTATE %s", v, err, want)
+		} else if want == "23514" && pe.ConstraintName != "policy_publication_version_check" {
+			t.Errorf("version %q refused by %q, want policy_publication_version_check", v, pe.ConstraintName)
+		}
+	}
+	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "1.0"); err != nil {
+		t.Fatal(err)
+	}
+	// as Trust: no privilege to edit or delete (42501)
+	for _, q := range []string{`UPDATE policy_publication SET published_by = 'adm_other01'`, `DELETE FROM policy_publication`} {
+		var pe *pgconn.PgError
+		if _, err := w.trustA.Exec(ctx(t), q); !errors.As(err, &pe) || pe.Code != "42501" {
+			t.Errorf("%s as Trust: %v, want insufficient_privilege (42501)", q, err)
+		}
+	}
+	// as the owner, who holds the privilege: the trigger refuses (23000 class, integrity_constraint_violation)
+	for _, q := range []string{`UPDATE policy_publication SET published_by = 'adm_other01'`, `DELETE FROM policy_publication`, `TRUNCATE policy_publication`} {
+		var pe *pgconn.PgError
+		if _, err := w.admin.Exec(ctx(t), q); !errors.As(err, &pe) || pe.Code != "23000" {
+			t.Errorf("%s as the owner: %v, want the insert-only trigger (23000)", q, err)
+		}
 	}
 }
