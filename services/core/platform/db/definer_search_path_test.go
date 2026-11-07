@@ -56,3 +56,48 @@ func TestEverySecurityDefinerFunctionPinsItsSearchPathToCatalogAndTemp(t *testin
 			len(open), len(all), strings.Join(open, "\n  "))
 	}
 }
+
+// A trigger function that is NOT a SECURITY DEFINER runs with the search_path of the session that fired it, and reads other tables by name. With
+// TEMPORARY held, that session can shadow a table the function reads. decision_grant_guard (migration 0001, replaced by the grant-void guard of
+// noema#94/#233) reads execution_receipt and grant_spend this way: a temporary execution_receipt holding a forged "confirmed refusal" would let
+// execution_rw void a spent grant without any signature check (DEBT-01). Every function that backs a trigger therefore pins its search_path to
+// `pg_catalog, pg_temp` too. FAILS today; main has the 0001 guard and the other trigger functions unpinned.
+func TestEveryTriggerFunctionPinsItsSearchPathToCatalogAndTemp(t *testing.T) {
+	pool := migrated(t)
+	rows, err := pool.Query(ctx(t), `SELECT p.oid::regprocedure::text, coalesce(p.proconfig::text[], ARRAY[]::text[])
+		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE p.prorettype = 'trigger'::regtype AND n.nspname = 'public'
+		  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+		ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var open, all []string
+	for rows.Next() {
+		var fn string
+		var cfg []string
+		if err := rows.Scan(&fn, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		all = append(all, fn)
+		ok := false
+		for _, c := range cfg {
+			if strings.EqualFold(strings.ReplaceAll(c, `"`, ""), pinned) {
+				ok = true
+			}
+		}
+		if !ok {
+			open = append(open, fn)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(all) < 4 {
+		t.Fatalf("found only %d trigger functions (%v): the query is looking in the wrong place", len(all), all)
+	}
+	if len(open) > 0 {
+		t.Fatalf("%d of %d trigger functions do not pin search_path to pg_catalog, pg_temp:\n  %s", len(open), len(all), strings.Join(open, "\n  "))
+	}
+}
