@@ -16,6 +16,7 @@ Usage: leakscan.py [--canary FILE] [--allow FILE] PATH [PATH ...]    (exit 0: cl
 """
 import argparse
 import hashlib
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -111,11 +112,22 @@ def _lines_of(path: Path) -> list[str]:
     return [ln.rstrip("\n") for ln in path.read_text(encoding="utf-8").splitlines()]
 
 
+def _files_of(root: Path, found: list[Finding]) -> list[Path]:
+    """Every file under root. os.walk with an error callback, not Path.rglob: rglob silently skips a directory it cannot list, and a scan
+    that did not look everywhere must not say OK (Codex review of #222). A directory that cannot be listed becomes a finding."""
+    if not root.is_dir():
+        return [root]
+
+    def on_error(exc: OSError) -> None:
+        found.append(Finding(str(exc.filename or root), 0, f"unreadable_directory ({exc.__class__.__name__})", 0, "-"))
+
+    return sorted(Path(d) / n for d, _dirs, names in os.walk(root, onerror=on_error) for n in names)
+
+
 def scan_paths(paths, canaries=(), allow=()) -> list[Finding]:
     found: list[Finding] = []
     for root in paths:
-        root = Path(root)
-        files = sorted(p for p in root.rglob("*") if p.is_file()) if root.is_dir() else [root]
+        files = _files_of(Path(root), found)
         for f in files:
             try:
                 text = f.read_bytes().decode("utf-8", errors="replace")

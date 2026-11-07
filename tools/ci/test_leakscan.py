@@ -131,6 +131,47 @@ class Cli(unittest.TestCase):
         self.assertEqual(out.count("leakscan FAIL"), 1)
         self.assertIn("canary", out)
 
+    def test_a_directory_that_cannot_be_listed_is_a_finding_not_a_clean_scan(self):
+        """Codex P1 on #222: Path.rglob swallows OSError while walking, so an unreadable subtree vanished and the scan printed OK."""
+        import os
+        from unittest import mock
+
+        real = os.scandir
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "hidden").mkdir()
+            (Path(tmp) / "hidden" / "a.log").write_text(f"acct {ACCOUNT}\n")
+            (Path(tmp) / "ok.log").write_text("fine\n")
+            hidden = str(Path(tmp) / "hidden")
+
+            def fake(path=".", *a, **k):
+                if str(path) == hidden:
+                    raise PermissionError(13, "denied", str(path))
+                return real(path, *a, **k)
+
+            with mock.patch("os.scandir", side_effect=fake):
+                code, out = self.run_main([tmp])
+        self.assertEqual(code, 1)
+        self.assertIn("unreadable_directory", out)
+        self.assertNotIn("leakscan OK", out)
+
+    def test_a_real_unreadable_directory_is_a_finding(self):
+        """The same P1 without a mock, where the operating system can deny a listing (a non-root POSIX user, as in CI)."""
+        import os
+
+        if os.name != "posix" or os.geteuid() == 0:
+            self.skipTest("needs a POSIX user that is not root; the mocked test above covers the logic everywhere")
+        with tempfile.TemporaryDirectory() as tmp:
+            hidden = Path(tmp) / "hidden"
+            hidden.mkdir()
+            (hidden / "a.log").write_text(f"acct {ACCOUNT}\n")
+            hidden.chmod(0)
+            try:
+                code, out = self.run_main([tmp])
+            finally:
+                hidden.chmod(0o700)
+        self.assertEqual(code, 1)
+        self.assertIn("unreadable_directory", out)
+
     def test_a_missing_path_is_a_usage_error(self):
         code, _ = self.run_main(["/no/such/path/for/leakscan"])
         self.assertEqual(code, 2)
