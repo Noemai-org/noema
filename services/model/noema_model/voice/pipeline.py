@@ -74,8 +74,10 @@ async def transcribe_utterance(
     except TimeoutError:
         raise ProviderError(ProviderFailure.TIMEOUT) from None
     finally:
-        await _close(stream)
-        await audio.aclose()
+        try:
+            await _close(stream)
+        finally:
+            await audio.aclose()  # still runs if closing the provider stream failed
     raise ProviderError(ProviderFailure.MALFORMED)  # the stream ended with no final
 
 

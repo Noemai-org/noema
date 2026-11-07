@@ -77,8 +77,14 @@ class EndpointDetector:
 
 async def until_end_of_speech(audio: AsyncIterator[AudioChunk], detector: EndpointDetector) -> AsyncGenerator[AudioChunk, None]:
     """Pass audio through up to and including the chunk that ends the utterance, then stop."""
-    async for chunk in audio:
-        state = detector.feed(chunk)
-        yield chunk
-        if state is EndpointState.ENDED:
-            return
+    try:
+        async for chunk in audio:
+            state = detector.feed(chunk)
+            yield chunk
+            if state is EndpointState.ENDED:
+                return
+    finally:
+        # The source may be any async iterator; close it when it can be closed, so a live microphone never stays open.
+        close = getattr(audio, "aclose", None)
+        if close is not None:
+            await close()
