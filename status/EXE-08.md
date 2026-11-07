@@ -19,3 +19,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Open questions (owner): is OD-P-72 approved (Architect/Founders; the record is still `Proposed`); wire `test_init.sh` into the `compose` job (needs a `.github` change, a founder approval).
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
+
+## Update 2026-11-07 (Founder decision D12)
+- The row-security migration is `0017_row_security.sql` (was the provisional 0015). Its parent noema#168 becomes 0012 (the owner of that PR renames its file). If the merge order changes, the later PR renumbers.

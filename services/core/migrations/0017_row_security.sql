@@ -1,4 +1,4 @@
--- 0015: row-level security with FORCE on the Execution, Outcome and Record tables (ruling A6 of 6 Nov 2026; REQ-SEC-004, INV-12, REQ-AUD-001, REQ-AUD-003).
+-- 0017: row-level security with FORCE on the Execution, Outcome and Record tables (ruling A6 of 6 Nov 2026; REQ-SEC-004, INV-12, REQ-AUD-001, REQ-AUD-003).
 -- Forward-only: never edited after merge. Row security restricts which rows a login sees and writes; it does not authenticate a receipt or a Record event.
 --
 -- The tenant of a row is the tenant of the login that connected: decision_login_tenant() (migration 0009, noema#168) reads tenant_login by session_user,
