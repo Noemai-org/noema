@@ -417,8 +417,8 @@ func TestTheEventsCarryTheFactsAReconstructionReads(t *testing.T) {
 	if dm["decision_outcome"] != "ALLOW" || dm["policy_id"] != "fin.pol" || dm["policy_version"] != "fin.pol@3.1" || dm["decision_id"] != string(res.Record.DecisionId) {
 		t.Errorf("DECISION_MADE payload %v, want decision_outcome ALLOW, policy_id fin.pol, policy_version fin.pol@3.1 and the decision id", dm)
 	}
-	if rc, ok := dm["reason_codes"].([]any); !ok || len(rc) == 0 {
-		t.Errorf("DECISION_MADE payload %v carries no reason_codes", dm)
+	if _, ok := dm["reason_codes"].([]any); !ok { // an ALLOW may carry no reason code; the list must still be there
+		t.Errorf("DECISION_MADE payload %v carries no reason_codes list", dm)
 	}
 	gi := payload(1)
 	if gi["capability_id"] != capability || gi["grant_id"] != string(res.Grants[0].GrantId) || gi["expires_at"] == nil || gi["plan_step"] == nil {

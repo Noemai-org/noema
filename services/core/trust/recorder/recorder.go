@@ -139,7 +139,8 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		actor = emitter
 	}
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
-		Payload: map[string]any{"decision_id": decisionID, "outcome": string(d.Outcome()), "policy_version": policy, "sig_key_id": rec.Sig.KeyId}}); err != nil {
+		Payload: map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
+			"policy_version": policy, "sig_key_id": rec.Sig.KeyId}}); err != nil {
 		return Result{}, fmt.Errorf("%sappend DECISION_MADE: %w", errPrefix, err)
 	}
 	var disposition *string
@@ -173,7 +174,8 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, fmt.Errorf("%sinsert grant %d: %w", errPrefix, i, err)
 		}
 		if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "GRANT_ISSUED", ObjectRef: string(g.GrantId),
-			Payload: map[string]any{"grant_id": string(g.GrantId), "decision_id": decisionID, "plan_step": g.PlanStep, "expires_at": string(g.ExpiresAt)}}); err != nil {
+			Payload: map[string]any{"grant_id": string(g.GrantId), "decision_id": decisionID, "capability_id": string(g.CapabilityId), "plan_step": g.PlanStep,
+				"expires_at": string(g.ExpiresAt)}}); err != nil {
 			return Result{}, fmt.Errorf("%sappend GRANT_ISSUED %d: %w", errPrefix, i, err)
 		}
 		res.Grants = append(res.Grants, g)
@@ -225,6 +227,14 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 
 func stamp(t time.Time) contracts.CommonV1Timestamp {
 	return contracts.CommonV1Timestamp(t.UTC().Format(timeLayout))
+}
+
+func reasonStrings(d decide.Decision) []string {
+	out := []string{}
+	for _, c := range d.Reasons() {
+		out = append(out, c.String())
+	}
+	return out
 }
 
 func reasonCodes(d decide.Decision) []contracts.DecisionRecordV2ReasonCodesItem {
