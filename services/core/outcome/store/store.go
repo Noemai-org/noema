@@ -139,6 +139,9 @@ func (s *Store) RecordVerdict(ctx context.Context, w verifier.Write) error {
 		rbErr := rollback(ctx, tx, s.RollbackTimeout)
 		var pe *pgconn.PgError
 		if errors.As(err, &pe) && pe.Code == pgUniqueViolation && pe.ConstraintName == verificationKeyCon {
+			if rbErr != nil { // the duplicate is real, but so is the failed cleanup: report both, with the classification kept for errors.Is
+				return errors.Join(verifier.ErrAlreadyVerified, rbErr)
+			}
 			return verifier.ErrAlreadyVerified
 		}
 		return errors.Join(err, rbErr)
