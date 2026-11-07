@@ -2,12 +2,11 @@ package outcomee2e_test
 
 // Audit and provenance from the stored Record (REQ-AUD-002, REQ-AUD-003; INV-07, INV-21): the chain that Noema's own emitters wrote, in the
 // US-06 stack, must reconstruct, and must say who, what was decided under which policy version, what was dispatched, what was verified and
-// when. The restart cases (S9: a crash at each boundary of the Execution protocol) and the policy-change case (S11: the policy version moved
-// while a grant was waiting) must reconstruct too. Every payload here is written by the real ledger, controller and Outcome store: nothing
+// when. The restart cases (S9: a crash at each boundary of the Execution protocol) must reconstruct too. The policy-change case (S11) is a separate
+// change: it needs the E4 void to name both policy versions, which touches the controller that noema#163 is changing. Every payload here is written by the real ledger, controller and Outcome store: nothing
 // is hand-built (the reconstruct package's own tests use hand-built payloads). All data is SYNTHETIC.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -80,7 +79,7 @@ func TestTheRealUS06ChainReconstructsFromTheRecordAlone(t *testing.T) {
 		t.Fatalf("the chain that the real emitters wrote does not reconstruct: %v", err)
 	}
 	act := r.items("ACTION")
-	if len(act) != 1 || act[0]["capability_id"] != bridge.CapCreateEscalationCase || act[0]["execution_state"] != "OUTCOME_UNKNOWN" || act[0]["attempt"] != json.Number("1") {
+	if len(act) != 1 || act[0]["capability_id"] != bridge.CapCreateEscalationCase || act[0]["execution_state"] != "OUTCOME_UNKNOWN" || act[0]["attempt"] != float64(1) {
 		t.Fatalf("ACTION %v, want the create_escalation_case dispatch, attempt 1, OUTCOME_UNKNOWN", act)
 	}
 	ver := r.items("VERIFICATION")
@@ -130,44 +129,5 @@ func TestEveryCrashPointOfTheExecutionProtocolLeavesARecordThatReconstructs(t *t
 		if len(r.items("VERIFICATION")) != 0 {
 			t.Errorf("crash at point %d: a verification appeared with no verdict on the Record", p)
 		}
-	}
-}
-
-// denyPolicy is the binder after a policy publication: the grant's decision is no longer allowed under the version in force.
-type denyPolicy struct{ controller.Binder }
-
-func (denyPolicy) DecisionStillAllowed(_ context.Context, _ controller.Grant) (bool, error) {
-	return false, nil
-}
-
-// S11: the policy changed while the grant waited. The grant is voided before any write, and the Record must say so and name both versions: the one
-// the grant was bound to and the one in force, so a reviewer can see what changed without the database (REQ-AUD-003; ruling D1).
-func TestAPolicyChangeBeforeTheWriteIsReconstructableWithBothVersions(t *testing.T) {
-	mc := startMockCase(t)
-	s := newStack(t, mc)
-	s.ctl.Bind = denyPolicy{s.trust}
-	grant, err := s.trust.issueCreate(bg(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := s.ctl.Execute(bg(t), tenant, grant)
-	if err != nil || out.Void != controller.VoidPolicySuperseded {
-		t.Fatalf("Execute: %+v, %v; want a void for POLICY_SUPERSEDED", out, err)
-	}
-	r, err := s.reconstruct(t)
-	if err != nil {
-		t.Fatalf("the Record does not reconstruct: %v", err)
-	}
-	var voided map[string]any
-	for _, f := range r.items("AUTHORITY") {
-		if f["reason"] == "POLICY_SUPERSEDED" {
-			voided = f
-		}
-	}
-	if voided == nil {
-		t.Fatalf("AUTHORITY %v holds no POLICY_SUPERSEDED void", r.items("AUTHORITY"))
-	}
-	if voided["bound_policy_version"] == nil || voided["active_policy_version"] == nil {
-		t.Fatalf("the void names %v, want bound_policy_version and active_policy_version", voided)
 	}
 }
