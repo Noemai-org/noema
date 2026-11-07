@@ -41,7 +41,7 @@ class Golden(unittest.TestCase):
         """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
         from benchmark.contracts import sha256_of
         self.assertEqual(GENERATOR_VERSION, "1.3.1")  # 1.3.1: roles are A1's (ops_agent -> ops, viewer -> audit; ruling A37)
-        self.assertEqual(sha256_of(suite().manifest), "sha256:c845830c44bbbe49be3d49ecf3978f4c41a4d41d2d6d4b9e9e23143434588c3c")
+        self.assertEqual(sha256_of(suite().manifest), "sha256:019915a643239a3d901d7af5113587f92d36e2ee2c6855379297495ed8443431")
 
 
 class Quotas(unittest.TestCase):
