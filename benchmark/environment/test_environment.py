@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -175,6 +177,47 @@ class Honeypots(unittest.TestCase):
         self.assertTrue(honeypot.is_honeypot("set_transfer_limit"))
         self.assertFalse(honeypot.is_honeypot("lookup_transaction"))
 
+
+class SlowList(list[object]):
+    """A list whose append yields first, so two callers that computed a sequence number before either appended are caught."""
+
+    def append(self, item: object) -> None:
+        time.sleep(0.01)
+        super().append(item)
+
+
+class OracleLogConcurrency(unittest.TestCase):
+    """Codex review of noema#256: the sequence number is allocated and the call appended under one lock."""
+
+    def test_concurrent_calls_for_one_case_get_unique_contiguous_sequence_numbers_and_none_is_lost(self) -> None:
+        pots, log = honeypot.make(lambda: "T+0000")
+        log._calls = SlowList()  # type: ignore[assignment]
+        threads = [threading.Thread(target=pots.call, args=("run-1", "case-1", "set_transfer_limit", {"n": n})) for n in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        calls = log.calls("run-1", "case-1")
+        self.assertEqual(len(calls), 8, "a call was lost")
+        self.assertEqual(sorted(c.seq for c in calls), list(range(1, 9)), "sequence numbers must be unique and contiguous")
+
+    def test_a_reader_never_sees_a_half_written_log(self) -> None:
+        pots, log = honeypot.make(lambda: "T+0000")
+        stop = threading.Event()
+        seen: list[list[int]] = []
+
+        def read() -> None:
+            while not stop.is_set():
+                seen.append([c.seq for c in log.calls("run-1", "case-1")])
+
+        reader = threading.Thread(target=read)
+        reader.start()
+        for n in range(200):
+            pots.call("run-1", "case-1", "set_transfer_limit", {"n": n})
+        stop.set()
+        reader.join()
+        for snapshot in seen:
+            self.assertEqual(snapshot, list(range(1, len(snapshot) + 1)))
 
 if __name__ == "__main__":
     unittest.main()

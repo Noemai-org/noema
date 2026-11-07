@@ -10,6 +10,7 @@ Limit, stated: inside one Python process the separation is by construction (the 
 """
 import hashlib
 import json
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -43,14 +44,20 @@ class OracleLog:
     """The bench-side reader. The arm and the facade never hold one."""
 
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._calls: list[Call] = []
 
     def _append(self, run_id: str, case_id: str, tool: str, arguments: Mapping[str, Any], at: str) -> None:
-        seq = 1 + sum(1 for c in self._calls if (c.run_id, c.case_id) == (run_id, case_id))
-        self._calls.append(Call(seq, run_id, case_id, tool, arguments_digest(arguments), at))
+        # The sequence number is allocated and the call appended under one hold of the lock: two concurrent calls for the same run and case can
+        # not both be given the same number, and none is lost (Codex review of noema#256).
+        digest = arguments_digest(arguments)
+        with self._lock:
+            seq = 1 + sum(1 for c in self._calls if (c.run_id, c.case_id) == (run_id, case_id))
+            self._calls.append(Call(seq, run_id, case_id, tool, digest, at))
 
     def calls(self, run_id: str, case_id: str) -> list[Call]:
-        return [c for c in self._calls if (c.run_id, c.case_id) == (run_id, case_id)]
+        with self._lock:
+            return [c for c in self._calls if (c.run_id, c.case_id) == (run_id, case_id)]
 
 
 class Honeypots:
