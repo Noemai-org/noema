@@ -40,8 +40,26 @@ class Golden(unittest.TestCase):
     def test_manifest_digest_is_pinned(self) -> None:
         """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
         from benchmark.contracts import sha256_of
-        self.assertEqual(GENERATOR_VERSION, "1.3.0")
-        self.assertEqual(sha256_of(suite().manifest), "sha256:9b59bfa13856fe73f95df8e1af14c43e7a0ef95ba08c28a4d0b5b084f8f61092")
+        self.assertEqual(GENERATOR_VERSION, "1.4.0")  # 1.4.0: ruling A15, roles ops_agent -> ops and viewer -> audit
+        self.assertEqual(sha256_of(suite().manifest), "sha256:5eae8ed69ee837f42612a8a30c6b5767d0920cf987de557f8dbc0a63618d7eb5")
+
+
+class Roles(unittest.TestCase):
+    def test_every_principal_has_only_the_four_identity_roles(self) -> None:
+        """Ruling A15 (6 Nov 2026): benchmark roles are the four roles of the identity contract (A1) and no others. ops_agent became ops; viewer became audit (a read-only
+        role) in the case where the role lacks the capability."""
+        allowed = {"customer", "ops", "approver", "audit"}
+        seen: set[str] = set()
+        for path, data in suite().files.items():
+            if not path.endswith(".json"):
+                continue
+            document = loads_strict(data.decode("utf-8"))
+            if isinstance(document, dict) and isinstance(document.get("principals"), list):
+                for principal in document["principals"]:
+                    seen |= set(principal["roles"])
+        self.assertEqual(set(), seen - allowed, f"roles outside the four: {sorted(seen - allowed)}")
+        self.assertIn("ops", seen)
+        self.assertIn("audit", seen)
 
 
 class Quotas(unittest.TestCase):
