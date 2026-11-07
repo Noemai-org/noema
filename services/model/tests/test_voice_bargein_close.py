@@ -1,6 +1,5 @@
 """Both streams are closed even when one fails to close (VOI-10, REQ-VOI-004, AGENT-13; Codex P2 on #218)."""
 
-from collections.abc import AsyncGenerator
 
 import pytest
 
@@ -17,18 +16,30 @@ def chunk(i: int, level: int) -> AudioChunk:
 
 
 class Tracked:
+    """An audio handle: `aclose()` releases it whether or not anything was read, as a real device or stream handle does."""
+
     def __init__(self, levels: list[int], fail_on_close: bool = False) -> None:
-        self._levels, self._fail = levels, fail_on_close
+        self._levels = iter(enumerate(levels))
+        self._fail = fail_on_close
         self.closed = False
 
-    async def stream(self) -> AsyncGenerator[AudioChunk, None]:
+    def stream(self) -> "Tracked":
+        return self
+
+    def __aiter__(self) -> "Tracked":
+        return self
+
+    async def __anext__(self) -> AudioChunk:
         try:
-            for i, level in enumerate(self._levels):
-                yield chunk(i, level)
-        finally:
-            self.closed = True
-            if self._fail:
-                raise RuntimeError("close failed")
+            i, level = next(self._levels)
+        except StopIteration:
+            raise StopAsyncIteration from None
+        return chunk(i, level)
+
+    async def aclose(self) -> None:
+        self.closed = True
+        if self._fail:
+            raise RuntimeError("close failed")
 
 
 def test_a_failure_closing_the_answer_still_closes_the_microphone() -> None:

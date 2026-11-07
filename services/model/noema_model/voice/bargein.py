@@ -9,11 +9,11 @@ This module does not handle it; the playback loop is frame-synchronous (one micr
 deterministic stand-in for the real one.
 """
 
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from noema_model.providers.speech.base import AudioChunk
-from noema_model.voice.endpoint import EndpointDetector, EndpointState, VadConfig
+from noema_model.voice.endpoint import AudioSource, EndpointDetector, EndpointState, VadConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,8 +44,8 @@ class BargeInMonitor:
 
 
 async def play_until_barge_in(
-    answer: AsyncGenerator[AudioChunk, None],
-    microphone: AsyncGenerator[AudioChunk, None],
+    answer: AudioSource,
+    microphone: AudioSource,
     monitor: BargeInMonitor,
     play: Callable[[AudioChunk], None],
 ) -> BargeInResult:
