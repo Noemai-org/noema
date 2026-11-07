@@ -13,10 +13,10 @@ import (
 
 // reviewed names every catalog object that mentions one of the two tables, with the reason it cannot bypass tenant scoping.
 var reviewedPaths = map[string]string{
-	"function decision_grant_requires_allow": "trigger on decision_grant; SECURITY INVOKER, so it reads decision_record as the inserting login and row security applies to it (a foreign tenant's ALLOW is invisible)",
+	"function decision_grant_requires_allow": "trigger on decision_grant; SECURITY INVOKER, so it reads public.decision_record as the inserting login and row security applies to it (a foreign tenant's ALLOW is invisible); search_path = pg_catalog, pg_temp so a temporary table cannot stand in for it",
 	"function decision_grant_guard":          "trigger on decision_grant (migration 0001); compares columns of OLD and NEW only; reads no other table",
 	"function decision_record_tenant_guard":  "trigger on decision_record; SECURITY DEFINER with search_path = pg_catalog, pg_temp; reads public.tenant_login and pg_roles, never decision_record",
-	"function outcome_record_verdict":        "Outcome (migration 0007); SECURITY DEFINER, reads decision_grant to check a verdict's correlation; its policy sees only the caller's tenant because the policy keys on session_user, and its search_path pins pg_temp last since migration 0011",
+	"function outcome_record_verdict":        "Outcome (migration 0007); SECURITY DEFINER, reads decision_grant to check a verdict's correlation; its policy sees only the caller's tenant because the policy keys on session_user, and its search_path pins pg_temp last since migration 0012",
 	"function reject_mutation":               "trigger function that always raises; reads no table",
 }
 
