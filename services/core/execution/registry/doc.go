@@ -8,6 +8,7 @@
 // Must never: load an incomplete descriptor; expose any route or adapter for a PROHIBITED capability
 // (BD-08, INV-05); move money.
 //
-// Created by T1 of DEC-2026-10-20 (PERD v1.11 §64.2). An empty boundary package: its contents arrive with
-// the engine tracks, and nothing is built here yet.
+// Built by EXE-01. Load decodes a pack as data through the generated contract type and New refuses the whole set when
+// a descriptor is incomplete, an ID repeats, or a monetary-write descriptor is not prohibited. Callable is the only
+// way to obtain a handle, and it refuses every prohibited and unregistered ID with a typed error.
 package registry

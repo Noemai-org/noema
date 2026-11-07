@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # SEC-11: the topology of every run profile (dev, ci, bench, demo), read from `docker compose config`; needs no running stack.
+      - run: python3 -I deploy/compose/netcheck/profiles.py --self-test
       - run: make up
       - run: docker compose -f deploy/compose/docker-compose.yml --profile dev ps
       - run: make net-matrix

@@ -123,7 +123,7 @@ func newAT(t *testing.T) *atEnvironment {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		b, _ := io.ReadAll(res.Body)
 		return res.StatusCode, string(b)
 	}
@@ -157,7 +157,7 @@ func (e *atEnvironment) call(viaProxy bool, method, path, body string) (int, map
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	raw, _ := io.ReadAll(res.Body)
 	var out map[string]any
 	dec := json.NewDecoder(bytes.NewReader(raw))
