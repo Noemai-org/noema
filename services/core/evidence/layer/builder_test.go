@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -306,5 +307,50 @@ func TestBuilderWithoutARollbackTimeoutIsRefused(t *testing.T) {
 	}
 	if n := w.count(t, `SELECT count(*) FROM evidence_item`); n != 0 {
 		t.Fatalf("%d items stored by a refused builder", n)
+	}
+}
+
+// Codex review of noema#172 (error-body provenance), REQ-CTX-001, INV-19: a read that failed and has no normalised response either carries the hash of the bytes it
+// received or says explicitly that no bytes arrived (a timeout, a reset, a local refusal). SHA-256(empty) is never invented for a body that was there, and the Record
+// event says which of the two it was. The adapter's own ReadError.RawHash (noema#262) is what the caller passes.
+func TestBuilderNeedsTheBodyHashOrAnExplicitNoBytesForEveryFailedRead(t *testing.T) {
+	failed := []layer.ReadClass{layer.ReadTimeout, layer.ReadServerError, layer.ReadRateLimited, layer.ReadCircuitOpen, layer.ReadNotFound, layer.ReadMalformed, layer.ReadOutOfScope}
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	for _, class := range failed {
+		base := observation(tenantA, class)
+		base.Payload, base.RawHash = nil, ""
+		base.SourceRecordID = "rec-" + string(class)
+
+		neither := base
+		if _, err := b.Record(ctx(t), neither); err == nil {
+			t.Errorf("%s: a failed read with neither a body hash nor an explicit no-bytes was stored", class)
+		}
+		both := base
+		both.RawHash, both.NoBytes = "sha256:"+strings.Repeat("ef", 32), true
+		if _, err := b.Record(ctx(t), both); err == nil {
+			t.Errorf("%s: a read that claims both a body hash and no bytes was stored", class)
+		}
+		withBody := base
+		withBody.SourceRecordID = "rec-body-" + string(class)
+		withBody.RawHash = "sha256:" + strings.Repeat("ef", 32)
+		if _, err := b.Record(ctx(t), withBody); err != nil {
+			t.Errorf("%s: a failed read with its body hash was refused: %v", class, err)
+		}
+		noBytes := base
+		noBytes.SourceRecordID = "rec-none-" + string(class)
+		noBytes.NoBytes = true
+		if _, err := b.Record(ctx(t), noBytes); err != nil {
+			t.Errorf("%s: a failed read with explicit no-bytes was refused: %v", class, err)
+		}
+	}
+	if got := w.rows(t, `SELECT count(*) FROM record_event WHERE payload->>'body_received' = 'true'`); got[0] != fmt.Sprint(len(failed)) {
+		t.Errorf("events saying a body was received = %v, want %d", got, len(failed))
+	}
+	if got := w.rows(t, `SELECT count(*) FROM record_event WHERE payload->>'body_received' = 'false'`); got[0] != fmt.Sprint(len(failed)) {
+		t.Errorf("events saying no body was received = %v, want %d", got, len(failed))
+	}
+	if got := w.rows(t, `SELECT count(*) FROM evidence_payload WHERE raw_hash = $1`, "sha256:"+strings.Repeat("ef", 32)); got[0] != fmt.Sprint(len(failed)) {
+		t.Errorf("stored payloads with the supplied body hash = %v, want %d", got, len(failed))
 	}
 }
