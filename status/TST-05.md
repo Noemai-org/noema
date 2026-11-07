@@ -63,3 +63,7 @@ Proposed, for the Security Reviewer to own and adjust:
 
 1. Is a copy of the Trust stand-in in tagged non-test code acceptable to the Security Reviewer (it holds a synthetic signing key, only in a `crashinject` build)? The alternative is a driver that is itself a compiled `go test` binary.
 2. N seeds per point, and the CI time budget (REQ-TST-009: the chaos subset under 15 minutes per merge).
+
+## 2026-11-07 · ruling A30: option B; slice 1 built
+
+The Architect chose option B (a Go test, real SIGKILL, no new CI job; A30). Slice 1 is `services/core/adapters/outcome_e2e/crash_test.go` (points 1 and 2, in noema#TST-05-slice-1's PR). The shared kill-point list with RESIST S9 is in that package's README (A40). Not yet built: slice 2 (points 3 and 4, with a FaultPlan and a kill on the truth endpoint's state) and the third S9 point, which needs an Outcome boundary hook from Core Engineer 2. The earlier sections of this file describe the superseded option 2.
