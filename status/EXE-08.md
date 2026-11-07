@@ -2,7 +2,7 @@
 
 Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs EXE-07 (slice 1 merged in noema#129) and SEC-12; done when failing-first forgery, replay and downgrade tests pass and noema#94 and noema#90 can be released.
 
-## State: slice A in review (draft until CI is green at the final head and Codex is READY). EXE-08 is not Done.
+## State: slice A merged (noema#178). Slice B (this section, below) is a Draft stacked on the CI job of noema#214. EXE-08 is not Done.
 
 ## Slice A (this session): ownership and privileges, no extension
 - Migration `0010_record_tables_to_migrator.sql`: the Record tables belong to `noema_migrator`; `record_append` holds grants, not ownership, and loses `CREATE` on `public` (DEBT-05). D14, D15, D16 and §6.1 of DEC-2026-11-01-receipt-and-record-signing.
@@ -19,3 +19,30 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Open questions (owner): is OD-P-72 approved (Architect/Founders; the record is still `Proposed`); wire `test_init.sh` into the `compose` job (needs a `.github` change, a founder approval).
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
+
+
+## Session 2026-11-06 · EXE-08 slice B: database-side verification of receipts (DEBT-01, Option B)
+### Session summary
+- What changed (PR links): the slice B pull request on `feat/EXE-08-sig-db`, STACKED on noema#214 (the CI job, ruling A16). Do not merge before docs#117 (rulings A2 and A16).
+  - Migration `0013_receipt_signature.sql`: schema `noema_sig`; `signing_key` (K1: `key_id = identity.ed25519.version`; at most two ACTIVE per identity; a newer version each time; only ACTIVE to RETIRED or REVOKED, REVOKED keeps `compromised_since`); `key_register`, `key_retire`, `key_revoke` (the only way to change it; no runtime role can execute them); `noema_sig.verify` (D11, `SECURITY DEFINER`, fixed `search_path`, no exception handler); `signed_jcs` on `execution_receipt`; a `BEFORE INSERT` trigger, `ENABLE ALWAYS`, that checks the stored document is the signed one, every bound field equals the row's column, tenant, attempt and idempotency key equal `grant_spend`, and the signature verifies over the tag `noema/receipt/v1` plus the signed bytes, else `NS001`; `receipt_insert` (the only insert path; `execution_rw` loses `INSERT`); every object owned by `noema_migrator` and every function schema-qualified.
+  - `db.Migrate` refuses while an event trigger of pgsodium is enabled (D10a). `init.sh` creates the extension once, disables its event triggers, sets the setting off, and revokes everything from PUBLIC. Compose builds the pinned image (`deploy/spike/pgsodium/Dockerfile`; moving it out of `spike` is a follow-up that also repoints the CI job).
+  - `ledger.Complete` stores through `receipt_insert`; the Controller signs with an Ed25519 `ReceiptSigner` (`signing.Ring.SignReceipt`, EXE-07 slice 1) and no longer holds a receipt key ID. Grants stay HMAC.
+  - Test infrastructure: `testpg` bootstraps pgsodium in every test database when the extension is installed; `internal/sigfixture` (no import of Execution, so Outcome's tests stay independent) and `execution/signing/signingtest` make SYNTHETIC keys and signed receipts.
+- Why: DEBT-01 (Tier 0). A holder of `execution_rw` could insert a forged `REJECTED_STALE_VERSION` receipt (any 64 hex characters as a signature) and the SPENT-to-VOID guard of noema#94 would have trusted it.
+- Risks, and how they are contained: verification fails closed (no extension, a library that cannot load, the function raising: the insert fails and the transaction keeps nothing; tested both ways). The private key is never in PostgreSQL. A compromised core process still holds the signing key (named in DEC-2026-11-01 section 7). Existing receipt-writing tests now sign their receipts.
+- Tests added (REQ-AUD-006, REQ-EXE-004, INV-04, INV-27), written first and seen failing (`key_register(...) does not exist`): `platform/db/sig_test.go`, one per closure check of SR: a genuine receipt is stored; a forged receipt is refused by every path (receipt_insert, direct INSERT, owner INSERT under `session_replication_role = replica`); replay onto another grant, tenant, attempt, key, state, receipt or acknowledgement; a genuinely signed receipt that contradicts the spend; rotation (two ACTIVE keys, a third refused, a retired key refused, an old version refused); a revoked key and `compromised_since`; another identity's key; verification unavailable (extension dropped, function raising); no runtime role can alter, drop, disable, replace or bypass the control or touch `signing_key`; no runtime role is a member of `noema_migrator` or holds a privileged attribute; the table keeps K1 and D5 for the owner too; the purpose binds to the identity in the verifier; `Migrate` refuses an enabled event trigger; and the DEBT-01 closure test on the held noema#94 guard (testdata), with a negative control in which the trigger is off and `INSERT` is granted, where the same forgery voids the grant.
+- Mutations run and reverted (all caught unless named): status unchecked; spend match removed; trigger not ENABLE ALWAYS; `INSERT` not revoked; purpose-identity binding removed; the event-trigger guard removed. Not reachable by any test, stated: the verifier's parse of the key ID against the row (the table's own constraint already makes them equal).
+- Regression cases added: the tests above. Debt entries: none new. Conflicts raised: none.
+- Local evidence: PostgreSQL 16.15 with pgsodium v3.1.11 and libsodium 1.0.22 built from the pinned sources, `go test ./...` and `deploy/compose/postgres/test_init.sh` pass; the CI job runs 17.11 (ruling A16). The red run: the red run (every sig test failed on `function key_register(unknown, unknown, unknown) does not exist` with 0012 removed).
+
+### Not built in this slice (named)
+- `cmd/migrate` and the one-shot Compose `migrate` service (D14a): migrations still run as the bootstrap superuser in Compose. The core's start-up check for the extension and the event trigger (D10a, D13) is not wired in `cmd/core`.
+- Controller verification of the receipt's Ed25519 signature (noema#90's step) and the `SECURITY_EVENT` on `NS001` (D12): noema#90 is held.
+- The Outcome side and the Record events (REC-08, DEBT-03): the trigger for `record_event` and the key table's other identities.
+- noema#94 and noema#90 are not touched; their release order is in their PR bodies.
+
+## Pre-work for the next agent
+- Exact next step: SEC-13 (the Security Reviewer) validates the six closure checks on the final head; then noema#94 is merged `main` in, renumbered after this migration, its condition (g) changed to "the receipt row exists", and its shape tests turned into verification tests (Track 2).
+- Open questions (owner): where `cmd/migrate` and the start-up check land (Architect).
+- Files to read first: `services/core/migrations/0013_receipt_signature.sql`, `services/core/platform/db/sig_test.go`, `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` D4 to D16.
+- Do not touch: noema#94, noema#90 (held, DEBT-01).

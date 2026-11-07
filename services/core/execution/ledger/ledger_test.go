@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestCrashAfterSpendIsSweptToOutcomeUnknownWithoutADispatch(t *testing.T) {
 func TestAFailedRecordAppendFailsTheSpend(t *testing.T) {
 	w := newWorld(t)
 	g := w.issue(t, 1)
-	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
+	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}, Signers: w.led.Rec.Signers} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
 	_, err := w.ctl.Execute(ctx(t), tenant, g.GrantID)
 	if err == nil {
 		t.Fatal("Execute succeeded although the Record could not be written")
@@ -326,9 +327,21 @@ func TestCompleteIsFirstWriterWins(t *testing.T) {
 	out := mustExecute(t, w, g.GrantID)
 	again := *out.Receipt
 	again.ReceiptID = "rcp_01OTHERWRITER00000000000A"
+	// The second writer's receipt is genuine (signed by the same ring): it loses only because the first one is already stored.
+	var err error
+	again.Sig.KeyID, again.Sig.Value, again.SignedJCS, err = w.ring.SignReceipt(again.Document())
+	if err != nil {
+		t.Fatal(err)
+	}
 	ok, err := w.led.Complete(ctx(t), again)
 	if err != nil || ok {
 		t.Fatalf("second Complete = %v, %v; want false, nil", ok, err)
+	}
+	// The same receipt with only its ID changed keeps the first receipt's signature, which no longer matches: the database refuses it (NS001).
+	forged := *out.Receipt
+	forged.ReceiptID = "rcp_01FORGEDWRITER0000000000B"
+	if ok, err := w.led.Complete(ctx(t), forged); ok || err == nil || !strings.Contains(err.Error(), "NS001") {
+		t.Fatalf("a receipt whose ID was changed under the old signature: %v, %v; want a refusal with NS001", ok, err)
 	}
 	for q, want := range map[string]int{`SELECT count(*) FROM execution_receipt`: 1, `SELECT count(*) FROM record_event WHERE event_type = 'RECEIPT'`: 1,
 		`SELECT count(*) FROM outbox_event WHERE topic = 'outcome.verify'`: 1} {
