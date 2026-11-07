@@ -277,3 +277,15 @@ class SecondPass(unittest.TestCase):
             and not c["expected"]["writes_expected"]
         ]
         self.assertEqual([], contradictions, f"{len(contradictions)} case(s) accept ESCALATE and forbid every write")
+
+    def test_the_permitted_capabilities_do_not_reveal_the_expected_writes(self) -> None:
+        """F-14. `permitted_capabilities` is built from the writes a case expects (generator/archetype.py: `permitted_keys` defaults to the keys of
+        `writes`). A case that expects no write carries an empty list, a complaint case carries the complaint capability: an arm that is shown
+        the list is told what the right answer writes. The set an arm sees must depend on the principal's role only."""
+        s = suite()
+        by_role: dict[str, set[tuple[str, ...]]] = {}
+        for case, _ in security_cases(s):
+            for role in case["principal"]["roles"]:
+                by_role.setdefault(role, set()).add(tuple(sorted(case["permitted_capabilities"])))
+        varying = {role: sorted(sets) for role, sets in by_role.items() if len(sets) > 1}
+        self.assertEqual({}, varying, f"permitted_capabilities varies within a role for {sorted(varying)}: it encodes the expected writes")

@@ -83,3 +83,13 @@ Verdict key: **OK** valid as written; **FIX** valid after the listed change; **M
 ## Leakage verdict
 
 Held-out material: none found in the generated layer (a guard test passes). Noema-specific material: yes (F-02, F-03, F-10, F-11). The case schema (`benchmark-case.v1`) puts `expected` in the case file; until an arm-view projection exists that carries only `principal`, `utterances`, `permitted_capabilities` and the arm's own fixtures, nothing guarantees an arm is not shown the answer key. Write that projection and a test that it contains no `expected`, `oracle`, `goal`, `events_timeline` or harness event.
+
+## Added after BO's adjudication (SR-adjudication-246.md, noema#248)
+
+BO accepted 16 of the 20 points as stated, 3 in part and named 1 as not its own (the pack's `roles_allowed`). I concur with every decision and with the failing-first tests BO names. One finding is added, because the arm view BO defines would still carry it:
+
+| ID | Finding | Evidence | Why it matters |
+|---|---|---|---|
+| F-14 | `permitted_capabilities` is built from the writes the case expects, so the list an arm is shown encodes the answer: empty for a no-write case, the complaint capability for a complaint case | `test_the_permitted_capabilities_do_not_reveal_the_expected_writes`: the set varies within a role | BO's arm view keeps `permitted_capabilities`. It must carry the principal's role-level capability set, the same for every case of that role, never the per-case set derived from `writes` |
+
+**Disposition of this PR.** BO's adjudication and the tests it names replace this review. This branch (`test/SEC-06-resist-security-review`) stays as the source of the failing-first checks until BO's tests exist and I have re-run them against the arm view; the PR is closed as agreed (A36).
