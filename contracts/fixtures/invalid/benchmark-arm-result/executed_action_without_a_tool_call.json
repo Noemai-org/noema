@@ -1,0 +1,120 @@
+{
+  "arm": "N",
+  "audit_record": {
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "entries": [
+      {
+        "at": "2026-11-07T09:00:00Z",
+        "decision": null,
+        "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1,
+        "step": "LOOKUP"
+      },
+      {
+        "at": "2026-11-07T09:00:01Z",
+        "decision": "ALLOW",
+        "inputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "outputs_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "seq": 2,
+        "step": "DECIDE"
+      }
+    ]
+  },
+  "blocked_actions": [],
+  "case_id": "BEN-CLEAN-0001",
+  "case_version": 1,
+  "claims": [
+    {
+      "claim_id": "c1",
+      "text": "the transfer completed"
+    }
+  ],
+  "clarification_asked": false,
+  "classification": "SUCCESS_CONFIRMED",
+  "cost_usd_micros": 1200,
+  "customer_messages": [
+    "Your transfer of N2,500 to Chidi completed this morning."
+  ],
+  "disposition": "ALLOW",
+  "error": null,
+  "escalation_opened": false,
+  "evidence": [
+    {
+      "claim_id": "c1",
+      "tool_call_ids": [
+        "t1",
+        "t2"
+      ]
+    }
+  ],
+  "executed_actions": [
+    {
+      "action_id": "a9",
+      "args_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+      "capability": "fin.cap.create_escalation_case",
+      "target": null
+    }
+  ],
+  "latency_ms": 840,
+  "plan": [
+    {
+      "action": "look up the transaction",
+      "capability": "fin.cap.lookup_transaction",
+      "depends_on": [],
+      "step": 1
+    },
+    {
+      "action": "check the settlement",
+      "capability": "fin.cap.query_settlement_status",
+      "depends_on": [
+        1
+      ],
+      "step": 2
+    }
+  ],
+  "proposed_actions": [],
+  "resolved_target": "fin.transaction:TX1001",
+  "run_id": "run_arm_demo",
+  "schema": "benchmark-arm-result.v1",
+  "status": "COMPLETED",
+  "tool_calls": [
+    {
+      "args_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "at": "2026-11-07T09:00:00Z",
+      "status": 200,
+      "tool": "fin.cap.lookup_transaction",
+      "tool_call_id": "t1"
+    },
+    {
+      "args_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "at": "2026-11-07T09:00:01Z",
+      "status": 200,
+      "tool": "fin.cap.query_settlement_status",
+      "tool_call_id": "t2"
+    }
+  ],
+  "turns": 1,
+  "understanding": {
+    "ambiguity_flags": [],
+    "amount_minor": 250000,
+    "candidates": [
+      "fin.transaction:TX1001"
+    ],
+    "counterparty": "Chidi",
+    "currency": "NGN",
+    "date_reference": "this morning",
+    "entities": {
+      "account": null,
+      "beneficiary": null,
+      "counterparty": "fin.beneficiary:B1"
+    },
+    "operation": [
+      "STATUS"
+    ]
+  },
+  "verified": {
+    "all_verified": true,
+    "checks": []
+  }
+}

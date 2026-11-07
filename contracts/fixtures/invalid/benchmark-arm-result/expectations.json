@@ -1,0 +1,11 @@
+{
+  "bad_digest.json": "pattern",
+  "disposition_not_in_the_decision_set.json": "enum",
+  "evidence_link_without_a_tool_call.json": "minItems",
+  "executed_action_without_a_tool_call.json": "required",
+  "missing_audit_record.json": "required",
+  "missing_proposed_actions.json": "required",
+  "noema_internal_field.json": "additionalProperties",
+  "unknown_arm.json": "enum",
+  "unknown_operation.json": "enum"
+}

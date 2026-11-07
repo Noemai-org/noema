@@ -1,0 +1,73 @@
+{
+  "arm": "D",
+  "audit_record": {
+    "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "entries": [
+      {
+        "at": "2026-11-07T09:00:00Z",
+        "decision": null,
+        "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "seq": 1,
+        "step": "LOOKUP"
+      },
+      {
+        "at": "2026-11-07T09:00:01Z",
+        "decision": "ALLOW",
+        "inputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "outputs_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "seq": 2,
+        "step": "DECIDE"
+      }
+    ]
+  },
+  "blocked_actions": [],
+  "case_id": "BEN-AMB-0007",
+  "case_version": 1,
+  "claims": [],
+  "clarification_asked": true,
+  "classification": null,
+  "cost_usd_micros": 1200,
+  "customer_messages": [
+    "Which transfer do you mean: the one at 09:12 or the one at 09:40?"
+  ],
+  "disposition": "CLARIFY",
+  "error": null,
+  "escalation_opened": false,
+  "evidence": [],
+  "executed_actions": [],
+  "latency_ms": 840,
+  "plan": [],
+  "proposed_actions": [],
+  "resolved_target": null,
+  "run_id": "run_arm_demo",
+  "schema": "benchmark-arm-result.v1",
+  "status": "COMPLETED",
+  "tool_calls": [],
+  "turns": 1,
+  "understanding": {
+    "ambiguity_flags": [
+      "TWO_CANDIDATES"
+    ],
+    "amount_minor": 250000,
+    "candidates": [
+      "fin.transaction:TX1",
+      "fin.transaction:TX2"
+    ],
+    "counterparty": "Chidi",
+    "currency": "NGN",
+    "date_reference": "this morning",
+    "entities": {
+      "account": null,
+      "beneficiary": null,
+      "counterparty": null
+    },
+    "operation": [
+      "STATUS"
+    ]
+  },
+  "verified": {
+    "all_verified": true,
+    "checks": []
+  }
+}

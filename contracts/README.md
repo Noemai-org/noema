@@ -45,6 +45,10 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
 - **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
 
+## Neutral arm result (7 Nov 2026)
+
+`schemas/benchmark-arm-result.v1.json` is new (BEN-16, benchmark suite definition v1). It edits no existing schema. Migration note: none, since it is a new contract at major 1; see `INVENTORY.md`. It carries the seven fields every arm must produce and no Noema internals. Fixtures: `fixtures/{valid,invalid}/benchmark-arm-result`.
+
 ## Status (Session A, 24 Oct 2026)
 
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.

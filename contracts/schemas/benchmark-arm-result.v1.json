@@ -1,0 +1,691 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-arm-result.v1.json",
+  "title": "Benchmark arm result (v1, neutral)",
+  "description": "What any arm (N Noema, A model and tools, B model and harness, D deterministic rules, A0 naive floor) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "benchmark-arm-result.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$"
+    },
+    "case_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "arm": {
+      "type": "string",
+      "enum": [
+        "N",
+        "A",
+        "B",
+        "D",
+        "A0"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "COMPLETED",
+        "ERROR"
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "CLARIFY",
+        "CONFIRM",
+        "WAIT",
+        "ESCALATE",
+        "REJECT",
+        "UNKNOWN"
+      ]
+    },
+    "classification": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        }
+      ]
+    },
+    "resolved_target": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      ]
+    },
+    "clarification_asked": {
+      "type": "boolean"
+    },
+    "escalation_opened": {
+      "type": "boolean"
+    },
+    "customer_messages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Claim"
+      }
+    },
+    "understanding": {
+      "$ref": "#/$defs/Understanding"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceLink"
+      }
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlanStep"
+      }
+    },
+    "proposed_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProposedAction"
+      }
+    },
+    "blocked_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BlockedAction"
+      }
+    },
+    "executed_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExecutedAction"
+      }
+    },
+    "verified": {
+      "$ref": "#/$defs/Verified"
+    },
+    "audit_record": {
+      "$ref": "#/$defs/AuditRecord"
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ToolCall"
+      }
+    },
+    "turns": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "cost_usd_micros": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "run_id",
+    "case_id",
+    "case_version",
+    "arm",
+    "status",
+    "error",
+    "disposition",
+    "classification",
+    "resolved_target",
+    "clarification_asked",
+    "escalation_opened",
+    "customer_messages",
+    "claims",
+    "understanding",
+    "evidence",
+    "plan",
+    "proposed_actions",
+    "blocked_actions",
+    "executed_actions",
+    "verified",
+    "audit_record",
+    "tool_calls",
+    "turns",
+    "latency_ms",
+    "cost_usd_micros"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "MinorUnitsOrNull": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "ActionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$"
+    },
+    "ToolCallId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$"
+    },
+    "Claim": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "claim_id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "Understanding": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "STATUS",
+              "COMPLAINT",
+              "ESCALATION",
+              "REMEDY_REQUEST",
+              "NONE"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "amount_minor": {
+          "$ref": "#/$defs/MinorUnitsOrNull"
+        },
+        "currency": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            }
+          ]
+        },
+        "counterparty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          ]
+        },
+        "date_reference": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          ]
+        },
+        "ambiguity_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$"
+          },
+          "uniqueItems": true
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "uniqueItems": true
+        },
+        "entities": {
+          "$ref": "#/$defs/Entities"
+        }
+      },
+      "required": [
+        "operation",
+        "amount_minor",
+        "currency",
+        "counterparty",
+        "date_reference",
+        "ambiguity_flags",
+        "candidates",
+        "entities"
+      ],
+      "additionalProperties": false
+    },
+    "Entities": {
+      "type": "object",
+      "properties": {
+        "counterparty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "beneficiary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "account": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        }
+      },
+      "required": [
+        "counterparty",
+        "beneficiary",
+        "account"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceLink": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "tool_call_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolCallId"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "claim_id",
+        "tool_call_ids"
+      ],
+      "additionalProperties": false
+    },
+    "PlanStep": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "capability": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "step",
+        "action",
+        "capability",
+        "depends_on"
+      ],
+      "additionalProperties": false
+    },
+    "ProposedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "action_id",
+        "capability",
+        "target",
+        "args_digest"
+      ],
+      "additionalProperties": false
+    },
+    "BlockedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        }
+      },
+      "required": [
+        "action_id",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        }
+      },
+      "required": [
+        "action_id",
+        "capability",
+        "target",
+        "args_digest",
+        "tool_call_id"
+      ],
+      "additionalProperties": false
+    },
+    "Verified": {
+      "type": "object",
+      "properties": {
+        "all_verified": {
+          "type": "boolean"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VerificationCheck"
+          }
+        }
+      },
+      "required": [
+        "all_verified",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "VerificationCheck": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "read_tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        },
+        "state_after": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "matches_expected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action_id",
+        "read_tool_call_id",
+        "state_after",
+        "matches_expected"
+      ],
+      "additionalProperties": false
+    },
+    "AuditRecord": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuditEntry"
+          }
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "entries",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "AuditEntry": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "step": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "inputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "outputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "decision": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "seq",
+        "at",
+        "step",
+        "inputs_digest",
+        "outputs_digest",
+        "decision"
+      ],
+      "additionalProperties": false
+    },
+    "ToolCall": {
+      "type": "object",
+      "properties": {
+        "tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "tool",
+        "args_digest",
+        "at",
+        "status"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
