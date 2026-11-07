@@ -14,7 +14,7 @@ import (
 
 var recordTables = []string{"record_event", "record_chain_head", "tenant_login"}
 var writeVerbs = []string{"INSERT", "UPDATE", "DELETE", "TRUNCATE"}
-var recordWriters = []string{"record_insert_t", "record_lock_head_t", "provision_tenant_login", "provision_emitter_login", "record_login_tenant"}
+var recordWriters = []string{"record_insert_t", "record_lock_head_t", "provision_tenant_login", "record_login_tenant"}
 
 func hasTablePriv(t *testing.T, role, table, verb string) bool {
 	t.Helper()
@@ -30,6 +30,13 @@ func hasTablePriv(t *testing.T, role, table, verb string) bool {
 func executors(t *testing.T, fn string) []string {
 	t.Helper()
 	pool := migrated(t)
+	var exists int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = $1`, fn).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists == 0 {
+		t.Fatalf("function %s does not exist: an empty executor list would be read as 'nobody can call it' and count as evidence", fn)
+	}
 	rows, err := pool.Query(ctx(t), `SELECT r.rolname FROM pg_roles r, pg_proc p
 		WHERE p.pronamespace = 'public'::regnamespace AND p.proname = $1 AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
 		  AND r.rolname = ANY($2) ORDER BY 1`, fn, runtimeRoles)
@@ -93,22 +100,38 @@ func TestTheVerifierReadsDirectlyAndHoldsNothingElse(t *testing.T) {
 	}
 }
 
-// Who may call each Record writer is pinned: the five powers and the emitter group, and nobody else among the runtime roles (record_append owns them).
-func TestOnlyThePowersAndEmittersCallTheRecordWriters(t *testing.T) {
-	allowed := []string{"evidence_rw", "execution_rw", "orchestrator_rw", "outcome_rw", "record_append", "record_emitter", "trust_rw"}
-	for _, fn := range []string{"record_insert_t", "record_lock_head_t"} {
-		for _, role := range executors(t, fn) {
-			if !slices.Contains(allowed, role) {
-				t.Errorf("%s can execute %s", role, fn)
-			}
+// Who may call each Record function is pinned EXACTLY: the expected set must be the whole set, so a missing grant fails as surely as an extra one.
+// Among the runtime roles only (migrations 0001 to 0014; the migration login reaches them through its membership of record_append, outside this list).
+func TestExactlyTheExpectedRolesCallEachRecordFunction(t *testing.T) {
+	powers := []string{"evidence_rw", "execution_rw", "orchestrator_rw", "outcome_rw", "record_append", "record_emitter", "trust_rw"}
+	want := map[string][]string{
+		"record_insert_t":        powers,
+		"record_lock_head_t":     powers,
+		"record_read_chain_t":    {"record_append", "record_read"},
+		"record_login_tenant":    {"record_append"},
+		"provision_tenant_login": {"record_append"},
+	}
+	for fn, roles := range want {
+		got := executors(t, fn)
+		if !slices.Equal(got, roles) { // both sorted by name
+			t.Errorf("%s: executable by %v, want exactly %v", fn, got, roles)
 		}
 	}
-	for _, fn := range []string{"provision_tenant_login", "provision_emitter_login", "record_login_tenant"} {
-		for _, role := range executors(t, fn) {
-			if role != "record_append" {
-				t.Errorf("%s can execute %s: provisioning and the tenant lookup are for the migration login (through its membership) and the owner only", role, fn)
-			}
-		}
+}
+
+// provision_emitter_login arrives with noema#181. Until then this test is skipped, visibly, instead of passing on an empty result; once the function
+// exists it must be executable by record_append alone.
+func TestExactlyRecordAppendProvisionsEmitterLogins(t *testing.T) {
+	pool := migrated(t)
+	var exists int
+	if err := pool.QueryRow(ctx(t), `SELECT count(*) FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'provision_emitter_login'`).Scan(&exists); err != nil {
+		t.Fatal(err)
+	}
+	if exists == 0 {
+		t.Skip("provision_emitter_login does not exist until noema#181 merges: not covered, not proven")
+	}
+	if got := executors(t, "provision_emitter_login"); !slices.Equal(got, []string{"record_append"}) {
+		t.Errorf("provision_emitter_login: executable by %v, want exactly [record_append]", got)
 	}
 }
 

@@ -16,7 +16,7 @@
 
 1. **Table privileges** of every runtime role on `record_event`, `record_chain_head`, `tenant_login` for `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE` (`has_table_privilege`).
 2. **Function privileges** (`has_function_privilege`) of every runtime role on `record_insert_t`, `record_lock_head_t`, `record_login_tenant`, `provision_tenant_login`, `provision_emitter_login` (the last exists only once noema#181 merges; the check is then live).
-3. **Who may call each writer**: pinned to the five powers, `record_emitter`, and `record_append` for the writers; `record_append` alone for provisioning and the tenant lookup.
+3. **Who may call each Record function, exactly** (a missing grant fails as surely as an extra one): the five powers, `record_emitter` and `record_append` for `record_insert_t` and `record_lock_head_t`; `record_append` and `record_read` for `record_read_chain_t`; `record_append` alone for `record_login_tenant` and `provision_tenant_login`. A function that does not exist fails the check instead of reading as 'nobody can call it'. `provision_emitter_login` arrives with noema#181: its test is skipped, visibly, until then, so it is **not covered**.
 4. **Operator or audit roles in the catalog**: none matching `ops`, `operator` or `audit`.
 5. **Search-path hijack of the writers** (found and closed, noema#234, migration 0014): a login with `TEMPORARY` could shadow `tenant_login` and be mapped to another tenant. All five functions owned by `record_append` now pin `pg_catalog, pg_temp`.
 6. **Immutability** of the Record (`record_event_immutable`, `record_event_no_truncate`): already tested in `platform/db/schema_test.go` and `record/chain`; not repeated here.
@@ -27,5 +27,7 @@
 - **F2. No row-level security on the Record tables yet** (the rest of A6, not built): a role that holds `SELECT` sees every tenant's rows. Only `record_verify` holds it, by design. Planned: RLS + `FORCE` on these tables, stacked on noema#168's `decision_login_tenant()`; the verifier needs an explicit all-tenants policy.
 - **F3. `PUBLIC` can execute two trigger functions** (`outcome_verdict_complete`, `outcome_watch_guard`). They return `trigger` and cannot be called directly; recorded for completeness.
 - **F4. Not checked:** the core process itself holds every login (DEBT-13); `noema_migrator` and the superuser are outside the runtime roles by design (D14); network-level access to the database; the Temporal database.
+
+**Status of the control:** the grants above are evidence of the *current design*, not proof of tenant isolation. F1 and F2 stay open for the Security Reviewer and the decision owner; this note does not call the A20 control proven.
 
 Nothing here changes a ruling, threshold or contract.
