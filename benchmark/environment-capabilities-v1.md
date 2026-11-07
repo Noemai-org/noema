@@ -2,7 +2,7 @@
 
 Date: 7 Nov 2026 · From: Benchmark Owner (role agent) · To: Integration Lead (IL) · Status: **a request list, not a design decision.** IL owns the environment (ruling A10). Nothing here is built, and none of it is sent to the arm builders. Generated layer only; no held-out or oracle material reaches an arm (INV-22).
 
-The suite definition needs the comparison arms (A, B, D) and Noema (N) to face **the same environment, tools, permissions and oracle**. Today the environment serves Noema through mock-case, the hostility proxy, the stand-in and the webhook relay, each with its own routes and credentials, and the runner drives Noema's public API. Nothing is exposed to an arm. This list is what the benchmark needs the environment to provide. Items marked **new** do not exist; **exists** items are named so you can reuse them.
+The suite definition needs the comparison arms (A, B, D) and Noema (C) to face **the same environment, tools, permissions and oracle**. Today the environment serves Noema through mock-case, the hostility proxy, the stand-in and the webhook relay, each with its own routes and credentials, and the runner drives Noema's public API. Nothing is exposed to an arm. This list is what the benchmark needs the environment to provide. Items marked **new** do not exist; **exists** items are named so you can reuse them.
 
 For each item: what, why (family), how I will check it, current state.
 

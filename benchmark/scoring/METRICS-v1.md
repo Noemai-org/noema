@@ -89,7 +89,7 @@ Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in 
 
 ## 4. Comparing arms (proposed; pre-registered; for the Founders' approval)
 
-Cases are paired: the same cases, the same environment, the same oracle for N, A, B, D. For arms `X` and `Y` and a metric that is a per-case success, let `b` = cases where `X` succeeded and `Y` failed, `c` = the reverse, `m = n − b − c` the concordant ones.
+Cases are paired: the same cases, the same environment, the same oracle for C, A, B, D. For arms `X` and `Y` and a metric that is a per-case success, let `b` = cases where `X` succeeded and `Y` failed, `c` = the reverse, `m = n − b − c` the concordant ones.
 
 - The difference is `δ = (b − c) / n`.
 - The **95% interval of δ is the paired Newcombe interval (method 10)** built from the two Wilson intervals and the correlation of the pairs. For failure counts with few events, the **exact conditional binomial test on the `b + c` discordant pairs** is used instead, and its exact two-sided p-value and the interval of the paired odds are reported.
