@@ -117,6 +117,11 @@ BEGIN
      OR pg_has_role(session_user, 'evidence_rw', 'MEMBER') OR pg_has_role(session_user, 'orchestrator_rw', 'MEMBER') THEN
     RAISE EXCEPTION 'outcome_record_verdict: the calling login is not Outcome''s own' USING ERRCODE = 'insufficient_privilege';
   END IF;
+  -- The tenant comes from the login, not from the caller's argument (SR's P1 on noema#234; REQ-SEC-004, INV-12, DEBT-08): Outcome's login for one tenant
+  -- cannot record a verdict, a Record event or an outbox row for another tenant by passing that tenant as p_tenant.
+  IF p_tenant IS DISTINCT FROM public.record_login_tenant('write') THEN
+    RAISE EXCEPTION 'outcome_record_verdict: the tenant is not the one the calling login is mapped to' USING ERRCODE = 'insufficient_privilege';
+  END IF;
   SELECT r.attempt, g.json->>'correlation_id' INTO v_attempt, v_corr
     FROM public.execution_receipt r JOIN public.decision_grant g ON g.grant_id = r.grant_id AND g.tenant_id = r.tenant_id
     WHERE r.receipt_id = p_receipt_id AND r.tenant_id = p_tenant;
@@ -214,3 +219,6 @@ BEGIN
   RETURN NEW;
 END $function$
 ;
+
+-- The function above is owned by the migration role and now asks record_login_tenant (owned by record_append, callable by no one else) for the login's tenant.
+GRANT EXECUTE ON FUNCTION public.record_login_tenant(text) TO noema_migrator;
