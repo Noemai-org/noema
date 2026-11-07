@@ -16,3 +16,7 @@
 - Open questions (owner): canary deadline and subset location (Founder); close #212 (Founder).
 - Files to read first: benchmark/qualification/README.md on #199; services/model/noema_model/qualification/README.md.
 - Do not touch: benchmark/ (BO).
+
+## Session 2026-11-07 · rulings A36 and A29 (model service half)
+- Fixtures regenerated from #199 at 216c939 (the A17 record: `drift` and `bar` blocks, five runs, drift PASS, bar), and the lookup now fails closed: any invalid record for the identity refuses it (the skipped record might have been the revocation). Red commit first (fixtures and the test change), then the gate. Five mutants killed (fail-closed, below-bar, drift, no-bar, five-runs).
+- #212 closed (A36). The pin rule is the harness's own (`check_pinned`); BO's `pins.py` now matches it and says a golden test here compares them (the gate pin cases).

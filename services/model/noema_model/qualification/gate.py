@@ -3,7 +3,7 @@
 Rules, as the benchmark module states them (`record.check_model` is the reference; `tests/test_qualification_gate.py` runs every case it gave):
 
 - an unpinned version (an alias such as `latest`) is refused before any lookup;
-- only a valid QUALIFIED record for exactly this provider, model ID and version allows; records that fail validation are ignored, and if none is valid the ID is refused;
+- only a valid QUALIFIED record for exactly this provider, model ID and version allows; any record that fails validation for this identity refuses it (fail closed, A36), never skipped;
 - the latest record by `qualified_on` decides: a later NOT_QUALIFIED revokes; two records of one day that disagree refuse;
 - a record file that cannot be read is an error for the whole directory, never a skipped file: a missing record must not look like a qualified model (fail closed).
 """
@@ -21,8 +21,9 @@ from noema_model.platform.config import ConfigError
 SCHEMA = "qualification-record.v1"
 KINDS = ("llm", "speech")
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
-REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "decision_record",
+REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons")
+FIVE = 5  # REQ-BEN-009: pass^k needs exactly five runs; the benchmark module's PASS_K
 
 Record = Mapping[str, Any]
 
@@ -50,14 +51,33 @@ def is_pinned(version: Any) -> bool:
     return True
 
 
-def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any]) -> list[str]:
+def _five_runs(pass_k: Mapping[str, Any]) -> bool:
+    """pass^k is available only when exactly five runs were supplied and five were required: the flag alone is not evidence."""
+    return pass_k.get("k_required") == FIVE and pass_k.get("runs_supplied") == FIVE
+
+
+def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], drift_result: str, bar: Mapping[str, Any]) -> list[str]:
+    """Interim QUALIFIED (A17): complete, Tier 0 at zero, drift PASS, and pass^k not below the bar (the higher of the baseline's own and a Founder-set floor; none means no bar)."""
     reasons = []
     if not complete:
         reasons.append("the run is not complete")
     if not tier0_all_zero:
         reasons.append("a Tier 0 gate is not at zero")
-    if not pass_k.get("available"):
-        reasons.append(f"pass^k was not available ({pass_k.get('reason') or 'no reason given'})")
+    if pass_k.get("available") is not True:
+        reasons.append("pass^k was not available")
+    elif not _five_runs(pass_k):
+        reasons.append("pass^k is marked available but does not have exactly five runs")
+    if drift_result != "PASS":
+        reasons.append(f"the drift check result is {drift_result}, not PASS")
+    bars = [b for b in (bar.get("baseline_pass_k"), bar.get("floor")) if b is not None]
+    if not bars:
+        reasons.append("there is no pass^k bar: a first qualification waits for a Founder-set floor")
+    elif pass_k.get("available") is True:
+        rate = (pass_k.get("rate") or {}).get("rate")
+        if rate is None:
+            reasons.append("pass^k has no rate to compare with the bar")
+        elif rate < max(bars):
+            reasons.append(f"pass^k {rate} is below the bar {max(bars)}")
     return reasons
 
 
@@ -100,20 +120,25 @@ def validate_record(record: Record) -> list[str]:
         out.append("run_id must be a non-empty string")
     if isinstance(record["n_cases"], bool) or not isinstance(record["n_cases"], int) or record["n_cases"] < 1:
         out.append("n_cases must be a positive integer")
-    if not isinstance(record["pass_k"], Mapping):
-        out.append("pass_k must be an object")
+    blocks = {name: record[name] for name in ("pass_k", "drift", "bar") if isinstance(record[name], Mapping)}
+    out += [f"{name} must be an object" for name in ("pass_k", "drift", "bar") if name not in blocks]
     if not isinstance(record["reasons"], list):
         out.append("reasons must be a list")
+    flags_ok = True
+    for flag in ("complete", "tier0_all_zero"):
+        if type(record[flag]) is not bool:
+            out.append(f"{flag} must be a boolean, not {record[flag]!r}")
+            flags_ok = False
+    if "pass_k" in blocks:
+        if type(blocks["pass_k"].get("available")) is not bool:
+            out.append(f"pass_k.available must be a boolean, not {blocks['pass_k'].get('available')!r}")
+            flags_ok = False
+        elif blocks["pass_k"]["available"] and not _five_runs(blocks["pass_k"]):
+            out.append("pass^k is marked available but does not have exactly five runs")
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
-    elif record["verdict"] == "QUALIFIED" and isinstance(record["pass_k"], Mapping):
-        flags = (record["complete"], record["tier0_all_zero"], record["pass_k"].get("available"))
-        if not all(isinstance(f, bool) for f in flags):
-            out.append("complete, tier0_all_zero and pass_k.available must be JSON booleans")
-        else:
-            out += [f"verdict is QUALIFIED but {r}" for r in _reasons(record["complete"], record["tier0_all_zero"], record["pass_k"])]
-    elif record["verdict"] == "QUALIFIED":
-        out.append("verdict is QUALIFIED but pass^k is not recorded")
+    elif record["verdict"] == "QUALIFIED" and len(blocks) == 3 and flags_ok:
+        out += [f"verdict is QUALIFIED but {r}" for r in _reasons(record["complete"], record["tier0_all_zero"], blocks["pass_k"], str(blocks["drift"].get("result")), blocks["bar"])]
     return out
 
 
@@ -125,12 +150,11 @@ def check_model(records: Sequence[Record], provider: str, model_id: str, version
     matching = [r for r in records if r.get("provider") == provider and r.get("model_id") == model_id and r.get("version") == version and (kind is None or r.get("kind") == kind)]
     if not matching:
         return [f"{who}: no qualification record"]
-    problems = [validate_record(r) for r in matching]
-    valid = [r for r, p in zip(matching, problems, strict=True) if not p]
-    if not valid:
-        return [f"{who}: no qualification record is valid ({'; '.join(p for ps in problems for p in ps)})"]
-    latest = max(datetime.date.fromisoformat(r["qualified_on"]) for r in valid).isoformat()
-    newest = [r for r in valid if r["qualified_on"] == latest]
+    bad = [p for r in matching for p in validate_record(r)]
+    if bad:  # fail closed (A36): an invalid record for this identity is never skipped, because the skipped one might have been the revocation
+        return [f"{who}: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): {'; '.join(bad)}"]
+    latest = max(datetime.date.fromisoformat(r["qualified_on"]) for r in matching).isoformat()
+    newest = [r for r in matching if r["qualified_on"] == latest]
     verdicts = {r["verdict"] for r in newest}
     if len(verdicts) > 1:
         return [f"{who}: records of {latest} disagree (QUALIFIED and NOT_QUALIFIED); re-run the qualification"]
