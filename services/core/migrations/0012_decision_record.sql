@@ -1,4 +1,4 @@
--- 0009: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
+-- 0012: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
 -- REQ-TRU-001, REQ-TRU-008, REQ-DATA-001; INV-03, INV-16. Number decided by the Architect on 4 Nov 2026 (after noema#136's 0007).
 -- Forward-only: this file is never edited after merge. No CREATE ROLE here (TestNoMigrationAfter0001CreatesARole).
 
