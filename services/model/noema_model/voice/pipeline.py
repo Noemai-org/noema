@@ -10,12 +10,12 @@ Raw audio is never stored here; the audio iterator is consumed and closed, and t
 """
 
 import asyncio
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
+from noema_model.voice.endpoint import AudioSource
 from noema_model.providers.speech.base import (
-    AudioChunk,
     FinalTranscript,
     Locale,
     SpeechProvider,
@@ -54,7 +54,7 @@ class FinalUtterance:
 async def transcribe_utterance(
     provider: SpeechProvider,
     request: StreamRequest,
-    audio: AsyncGenerator[AudioChunk, None],
+    audio: AudioSource,
     *,
     deadline_s: float,
     on_partial: Callable[[str], None],
