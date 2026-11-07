@@ -21,8 +21,9 @@ OUTCOME_BASIS = "ORACLE_FINAL_STATE"
 REQUIRED = ("id", "text", "run_id", "scorecard_ref", "k", "n", "rate", "ci95", "method", "population", "outcome_basis", "tier0_all_zero")
 SLICES = ("by_family", "by_category")
 _SIGN = "[-+−–]"
-# The stated Wilson interval, Tier names and k = 5 are method words, not numbers. A signed 95% (-95%) is a number and stays.
-_STRIPPED = re.compile(r"\bTier [0-3]\b|(?<!" + _SIGN + r")\b95\s?%|\bk\s?=\s?5\b|pass\^k")
+# Method words are not numbers: Tier names, k = 5, and the 95% of the Wilson interval when it is written as a confidence level ("95% confidence", "95% interval", "95% CI",
+# "95% Wilson", "Wilson 95%"). Any other 95% (a claimed rate such as "95% of cases") is a number and must be the claim's own. A signed 95% (-95%) is a number too.
+_STRIPPED = re.compile(r"\bTier [0-3]\b|(?<!" + _SIGN + r")\b95\s?%(?=\s+(?:confidence|interval|CI\b|Wilson))|\bWilson\s+95\s?%|\bk\s?=\s?5\b|pass\^k")
 # A number is refused unless it is the claim's own, whatever surrounds it: a sign (-99%), a range (5-99%) or a unit (99th, 1.5x). A digit that continues a word or follows a letter and a
 # hyphen is part of an identifier (B4, US-01, run-12) and is not a number.
 _NUMBER = re.compile(r"(?<![\w.])(?<!\w-)" + _SIGN + r"?\d[\d,]*(?:\.\d+)?(?:[-–]\d[\d,]*(?:\.\d+)?)?(?!\d)")
@@ -127,6 +128,8 @@ def _claim_problems(claim: Json, cards: Mapping[str, Json]) -> list[str]:
         out.append(f"claim {cid}: ci95 {claim['ci95']!r} does not match the scorecard's {rate['wilson95']!r}")
     if rate["rule_of_three_upper"] is not None and claim.get("bound") != rate["rule_of_three_upper"]:
         out.append(f"claim {cid}: zero failures in {rate['n']} cases needs its rule-of-three bound {rate['rule_of_three_upper']!r}; the claim has bound {claim.get('bound')!r}")
+    elif rate["rule_of_three_upper"] is None and "bound" in claim:
+        out.append(f"claim {cid}: the scorecard has no rule-of-three bound for this rate (it is not a zero-failure rate), so the claim must not state a bound; it has bound {claim['bound']!r}")
     return out + _text_problems(claim)
 
 
@@ -164,6 +167,14 @@ def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
     for run_id, name in sorted({k for k in keys if keys.count(k) > 1}, key=str):
         problems.append(f"run {run_id}: the {name} distribution appears more than one time in the publication (one record per run and slice; a later record must never hide an earlier one)")
     runs = sorted({c["run_id"] for c in claims if "run_id" in c})
+    for d in publication.get("distributions") or []:
+        absent = [f for f in ("run_id", "slice", "rows") if not isinstance(d, Mapping) or f not in d]
+        if absent:
+            problems.append(f"a distribution record is missing {', '.join(absent)} (every distribution names its run, its slice and its rows)")
+        elif d["run_id"] not in runs:
+            problems.append(f"run {d['run_id']}: a {d['slice']} distribution is published for a run no claim cites, so no claim ties these numbers to a scorecard in the evidence bundle")
+        elif d["slice"] not in SLICES:
+            problems.append(f"run {d['run_id']}: the distribution slice {d['slice']!r} is not one of {', '.join(SLICES)}")
     for run_id in runs:
         card = cards.get(run_id)
         if card is None:
@@ -178,6 +189,6 @@ def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
                 seen_tier0 = True
             elif not seen_tier0:
                 problems.append(f"claim {claim.get('id')}: listed before the Tier 0 claim of run {run_id}; Tier 0 is published first (R4)")
-        rows = {d["slice"]: d["rows"] for d in publication.get("distributions") or [] if d.get("run_id") == run_id}
+        rows = {d["slice"]: d["rows"] for d in publication.get("distributions") or [] if isinstance(d, Mapping) and d.get("run_id") == run_id and "slice" in d and "rows" in d}
         problems += _distribution_problems(run_id, card, rows)
     return sorted(problems)

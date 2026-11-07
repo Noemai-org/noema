@@ -187,6 +187,49 @@ class Broken(unittest.TestCase):
         pub["distributions"].append(copy.deepcopy(pub["distributions"][0]))  # an identical duplicate is still a duplicate
         self.assertTrue(any("more than one" in x for x in problems(pub, cards)))
 
+    def test_a_bound_the_scorecard_does_not_have_is_refused(self) -> None:
+        # Codex on 13ca998: with `rule_of_three_upper` null the supplied `bound` was never checked, and the invented bound was then allowed in the text as well.
+        pub, cards = publication()
+        self.assertNotIn("bound", pub["claims"][1])
+        pub["claims"][1]["bound"] = 0.000001
+        got = problems(pub, cards)
+        self.assertTrue(any("C1" in x and "bound" in x for x in got), got)
+        pub["claims"][1]["text"] = "Correct terminal handling on the generated suite, with an upper bound of 0.000001"
+        self.assertTrue(any("C1" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_a_wrong_bound_where_the_scorecard_has_one_is_still_refused(self) -> None:
+        pub, cards = publication()
+        zero = pub["claims"][0]
+        self.assertIn("bound", zero)
+        zero["bound"] = zero["bound"] / 2
+        self.assertTrue(any("C0" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_ninety_five_percent_is_exempt_only_as_a_confidence_level(self) -> None:
+        # Codex on 13ca998: every unsigned `95%` was stripped, so "95% of cases were handled correctly" passed with no number backing it.
+        for text in ("95% of cases were handled correctly", "About 95% were handled correctly", "Handled correctly in 95 % of cases"):
+            got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
+            self.assertTrue(any("C1" in x and "95" in x for x in got), (text, got))
+        for text in ("Correct terminal handling, with the Wilson 95% interval", "Correct terminal handling at the 95% confidence level", "Correct terminal handling (95% CI)",
+                     "Correct terminal handling, 95% Wilson interval"):
+            pub, cards = publication()
+            pub["claims"][1]["text"] = text
+            self.assertEqual([], problems(pub, cards), text)
+
+    def test_a_distribution_for_a_run_no_claim_cites_is_refused(self) -> None:
+        # Codex on 13ca998: a distribution for `run_nonexistent` with arbitrary numbers passed because only the runs named by claims were visited.
+        pub, cards = publication()
+        pub["distributions"].append({"run_id": "run_nonexistent", "slice": "by_family", "rows": {"B1": {"n": 999, "k": 999}}})
+        got = problems(pub, cards)
+        self.assertTrue(any("run_nonexistent" in x and "no claim" in x for x in got), got)
+
+    def test_a_distribution_without_a_run_or_a_slice_is_refused(self) -> None:
+        for missing in ("run_id", "slice"):
+            pub, cards = publication()
+            broken = copy.deepcopy(pub["distributions"][0])
+            del broken[missing]
+            pub["distributions"].append(broken)
+            self.assertTrue(any("distribution" in x and missing in x for x in problems(pub, cards)), missing)
+
     def test_a_missing_family_in_the_distribution_is_named_as_cherry_picking(self) -> None:
         def mutate(p: Json, c: Json) -> None:
             del p["distributions"][0]["rows"]["B4"]
