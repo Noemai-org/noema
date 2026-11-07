@@ -10,3 +10,5 @@ Loads the circuit-breaker policy (`MinSamples`, `Cooldown`) and the dispatch bud
 Contract note (AGENT-15): `execution-limits.v1.json` is a new file. No existing schema changes meaning, and no pack changes. Both Founders approve the new contract file.
 
 Tests: `go test ./execution/limits/` from `services/core`.
+
+**Ceilings (SR's note 1 on noema#195).** `Load` accepts `min_samples` and `max_dispatches` up to 2147483647. A pack with `max_dispatches` 2147483647 passes the loader and defeats the dispatch budget, and a huge `min_samples` means the breaker never opens. The numbers are Founder-reviewed pack data, not code, and choosing a lower ceiling is a policy decision (REQ-AGT-005), so the loader does not invent one. Pack review (PCK) must reject a budget or a sample count above the value the Founders set; until they set one this README is where the gap is written.

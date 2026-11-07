@@ -83,8 +83,16 @@ func TestADocumentThatIsNotExactlyTheContractIsRefused(t *testing.T) {
 		"wrong version":          `{"schema_version":"2.0","pack_id":"fin","label":"SYNTHETIC","circuit_breaker":` + goodBreaker + `,"dispatch_budget":` + goodBudget + `}`,
 	}
 	for name, in := range cases {
-		if l, err := limits.Load(strings.NewReader(in)); err == nil {
+		l, err := limits.Load(strings.NewReader(in))
+		if err == nil {
 			t.Errorf("%s: accepted: %+v", name, l)
+			continue
+		}
+		// Every case is refused as a *limits.Error with the SCHEMA_INVALID code, so a case cannot pass by failing for another reason (a read error, a nil
+		// pointer turned into an error) (SR's note 2 on noema#195).
+		var le *limits.Error
+		if !errors.As(err, &le) || le.Code != limits.CodeSchemaInvalid {
+			t.Errorf("%s: refused with %v, not a *limits.Error with code %s", name, err, limits.CodeSchemaInvalid)
 		}
 	}
 }
