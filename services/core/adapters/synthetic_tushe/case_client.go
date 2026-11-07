@@ -3,6 +3,8 @@ package synthetic_tushe
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -190,11 +192,11 @@ func (c *CaseClient) GetCase(ctx context.Context, tenantID, caseID string) (adap
 	}
 	var w wireCase
 	if err := strictJSON(hdr, raw, &w); err != nil {
-		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
+		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 	}
 	rec, ok := w.record()
 	if !ok {
-		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
+		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 	}
 	return rec, nil
 }
@@ -231,13 +233,13 @@ func (c *CaseClient) FindCases(ctx context.Context, q adapters.CaseQuery) (adapt
 	}
 	var w wirePage
 	if err := strictJSON(hdr, raw, &w); err != nil || w.Complete == nil || (!*w.Complete && w.NextCursor == "") || (*w.Complete && w.NextCursor != "") {
-		return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
+		return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 	}
 	page := adapters.CasePage{Complete: *w.Complete, NextCursor: w.NextCursor}
 	for _, it := range w.Items {
 		rec, ok := it.record()
 		if !ok {
-			return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status)}
+			return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 		}
 		page.Items = append(page.Items, rec)
 	}
@@ -458,6 +460,20 @@ func classifyRoute(status int, h http.Header, raw []byte) adapters.WriteResult {
 
 // readStatusError maps a non-200 read to its failure. A nil result means 200.
 func readStatusError(status int, h http.Header, raw []byte) *adapters.ReadError {
+	e := readStatusErrorCore(status, h, raw)
+	if e != nil {
+		e.RawHash = hashOf(raw) // the bytes received, so the Evidence Layer can hash an error read
+	}
+	return e
+}
+
+// hashOf is "sha256:" and the hex SHA-256 of the bytes.
+func hashOf(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func readStatusErrorCore(status int, h http.Header, raw []byte) *adapters.ReadError {
 	code, _ := errCode(raw)
 	rc := rawCode(status, code)
 	switch {
