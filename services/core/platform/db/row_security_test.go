@@ -107,6 +107,23 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 			t.Errorf("%s as ten_a inserted an outbox_event for ten_b", group)
 		}
 	}
+	// Codex P2 on #190: idempotency_record is an INSERT path of execution_rw as well. A same-tenant control proves the statement works,
+	// so the cross-tenant refusal can only be about the tenant.
+	const insertIdem = `INSERT INTO idempotency_record (tenant_id, idempotency_key, logical_action, params_hash, attempt, status, last_grant_id, created_at, updated_at)
+		VALUES ($1, $2, 'act', 'h', 1, 'DISPATCHING', $3, $4, $4)`
+	if _, err := pools["execution_rw"].Exec(ctx(t), insertIdem, "ten_a", "idem_own", "grt_a", exp); err != nil {
+		t.Fatalf("control: execution_rw as ten_a cannot insert its own tenant's idempotency_record: %v", err)
+	}
+	if _, err := pools["execution_rw"].Exec(ctx(t), insertIdem, "ten_b", "idem_x", "grt_b", exp); err == nil {
+		t.Error("execution_rw as ten_a inserted an idempotency_record for ten_b")
+	}
+	var idemRows int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM idempotency_record WHERE idempotency_key = 'idem_x'`).Scan(&idemRows); err != nil {
+		t.Fatal(err)
+	}
+	if idemRows != 0 {
+		t.Errorf("a cross-tenant idempotency_record was stored: %d row(s)", idemRows)
+	}
 	var n int
 	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM decision_grant WHERE grant_id = 'grt_x'`).Scan(&n); err != nil {
 		t.Fatal(err)
