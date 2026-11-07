@@ -4,17 +4,28 @@
     "digest": "abc",
     "entries": [
       {
+        "actor": "arm",
         "at": "2026-11-07T09:00:00Z",
         "decision": null,
+        "evidence_ids": [
+          "t1"
+        ],
         "inputs_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "outcome": null,
         "outputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "seq": 1,
         "step": "LOOKUP"
       },
       {
+        "actor": "arm",
         "at": "2026-11-07T09:00:01Z",
         "decision": "ALLOW",
+        "evidence_ids": [
+          "t1",
+          "t2"
+        ],
         "inputs_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "outcome": "STATUS_REPORTED",
         "outputs_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "seq": 2,
         "step": "DECIDE"
@@ -77,14 +88,16 @@
       "at": "2026-11-07T09:00:00Z",
       "status": 200,
       "tool": "fin.cap.lookup_transaction",
-      "tool_call_id": "t1"
+      "tool_call_id": "t1",
+      "transport_error": null
     },
     {
       "args_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "at": "2026-11-07T09:00:01Z",
       "status": 200,
       "tool": "fin.cap.query_settlement_status",
-      "tool_call_id": "t2"
+      "tool_call_id": "t2",
+      "transport_error": null
     }
   ],
   "turns": 1,
@@ -107,7 +120,7 @@
     ]
   },
   "verified": {
-    "all_verified": true,
+    "all_verified": null,
     "checks": []
   }
 }
