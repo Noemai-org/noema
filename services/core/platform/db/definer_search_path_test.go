@@ -13,7 +13,21 @@ import (
 	"testing"
 )
 
-const pinned = "search_path=pg_catalog, pg_temp"
+// Two spellings are accepted: `pg_catalog, pg_temp` (noema#234, noema#167) and `pg_catalog, public, pg_temp` (EL's DEBT-21 and the pin in noema#168). What matters is
+// that pg_temp is named, and last, so a temporary table cannot shadow a real one, and that pg_catalog comes first.
+var pinnedForms = []string{"search_path=pg_catalog, pg_temp", "search_path=pg_catalog, public, pg_temp"}
+
+func isPinned(cfg []string) bool {
+	for _, c := range cfg {
+		c = strings.ReplaceAll(c, `"`, "")
+		for _, f := range pinnedForms {
+			if strings.EqualFold(c, f) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func TestEverySecurityDefinerFunctionPinsItsSearchPathToCatalogAndTemp(t *testing.T) {
 	pool := migrated(t)
@@ -34,13 +48,7 @@ func TestEverySecurityDefinerFunctionPinsItsSearchPathToCatalogAndTemp(t *testin
 			t.Fatal(err)
 		}
 		all = append(all, fn)
-		ok := false
-		for _, c := range cfg {
-			if strings.EqualFold(strings.ReplaceAll(c, `"`, ""), pinned) {
-				ok = true
-			}
-		}
-		if !ok {
+		if !isPinned(cfg) {
 			open = append(open, fn)
 		}
 	}
@@ -81,13 +89,7 @@ func TestEveryTriggerFunctionPinsItsSearchPathToCatalogAndTemp(t *testing.T) {
 			t.Fatal(err)
 		}
 		all = append(all, fn)
-		ok := false
-		for _, c := range cfg {
-			if strings.EqualFold(strings.ReplaceAll(c, `"`, ""), pinned) {
-				ok = true
-			}
-		}
-		if !ok {
+		if !isPinned(cfg) {
 			open = append(open, fn)
 		}
 	}
