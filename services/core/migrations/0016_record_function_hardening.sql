@@ -222,3 +222,9 @@ END $function$
 
 -- The function above is owned by the migration role and now asks record_login_tenant (owned by record_append, callable by no one else) for the login's tenant.
 GRANT EXECUTE ON FUNCTION public.record_login_tenant(text) TO noema_migrator;
+
+-- SR's note 1 on noema#234: the trigger functions of 0001 and 0007 that read no relation are pinned too (ALTER FUNCTION keeps the body, so nothing else changes).
+-- decision_grant_guard reads two tables and is rewritten, qualified and pinned, in noema#233 (migration 0014).
+ALTER FUNCTION public.reject_mutation() SET search_path = pg_catalog, pg_temp;
+ALTER FUNCTION public.idempotency_record_guard() SET search_path = pg_catalog, pg_temp;
+ALTER FUNCTION public.outcome_watch_guard() SET search_path = pg_catalog, pg_temp;
