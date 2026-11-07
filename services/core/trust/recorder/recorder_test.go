@@ -6,6 +6,7 @@ package recorder_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math/rand"
 	"testing"
@@ -388,5 +389,39 @@ func TestAPackVersionThatIsNotTheContractsIsRefusedBeforeAnythingIsWritten(t *te
 		if !errors.Is(err, recorder.ErrRequest) {
 			t.Errorf("pack version %q: err %v, want ErrRequest", pack, err)
 		}
+	}
+}
+
+// REQ-AUD-003 / the reconstruct projection (record/reconstruct/project.go): the events this writer appends carry the facts a reconstruction reads, under the
+// keys it reads them by. DECISION_MADE: decision_outcome, reason_codes, policy_id and policy_version. GRANT_ISSUED: grant_id, capability_id, plan_step and
+// expires_at (a reader derives the grant's state and capability from it). A payload under other keys would be left out of the reconstruction.
+func TestTheEventsCarryTheFactsAReconstructionReads(t *testing.T) {
+	w := newWorld(t)
+	b := evaluated(t)
+	res, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := chain.ReadChain(ctx(t), w.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := func(i int) map[string]any {
+		var m map[string]any
+		if rows[i].Payload == nil || json.Unmarshal([]byte(*rows[i].Payload), &m) != nil {
+			t.Fatalf("event %d has no readable payload", i)
+		}
+		return m
+	}
+	dm := payload(0)
+	if dm["decision_outcome"] != "ALLOW" || dm["policy_id"] != "fin.pol" || dm["policy_version"] != "fin.pol@3.1" || dm["decision_id"] != string(res.Record.DecisionId) {
+		t.Errorf("DECISION_MADE payload %v, want decision_outcome ALLOW, policy_id fin.pol, policy_version fin.pol@3.1 and the decision id", dm)
+	}
+	if rc, ok := dm["reason_codes"].([]any); !ok || len(rc) == 0 {
+		t.Errorf("DECISION_MADE payload %v carries no reason_codes", dm)
+	}
+	gi := payload(1)
+	if gi["capability_id"] != capability || gi["grant_id"] != string(res.Grants[0].GrantId) || gi["expires_at"] == nil || gi["plan_step"] == nil {
+		t.Errorf("GRANT_ISSUED payload %v, want grant_id, capability_id %s, plan_step and expires_at", gi, capability)
 	}
 }
