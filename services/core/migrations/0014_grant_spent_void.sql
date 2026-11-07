@@ -32,11 +32,14 @@
 -- real target's contract: Tushe defines no case API. It must be re-verified against any real target before production use.
 -- Outcome's own read follows from the outbox event written in the same transaction; it is not a precondition.
 --
+-- The function is pinned to search_path = pg_catalog, pg_temp and names its tables by schema: a session that may create a temporary table could otherwise
+-- shadow execution_receipt with a forged refusal and void a spent grant with no signature check (SR on noema#233; test: grant_void_searchpath_test.go).
+--
 -- Everything else in decision_grant_guard is as in 0001: no DELETE, only the status may change, and a status other than
 -- ISSUED is final except for the one transition above. The triggers are not touched; the function behind the row trigger
 -- is replaced. Forward-only: 0001 is not edited.
 
-CREATE OR REPLACE FUNCTION decision_grant_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION decision_grant_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'DELETE on decision_grant is not allowed' USING ERRCODE = 'integrity_constraint_violation';
@@ -48,11 +51,11 @@ BEGIN
   END IF;
   IF OLD.status <> 'ISSUED' AND NEW.status <> OLD.status THEN
     IF OLD.status = 'SPENT' AND NEW.status = 'VOID'
-       AND (SELECT count(*) FROM execution_receipt WHERE grant_id = OLD.grant_id) = 1
+       AND (SELECT count(*) FROM public.execution_receipt WHERE grant_id = OLD.grant_id) = 1
        AND EXISTS (
          SELECT 1
-           FROM execution_receipt r
-           JOIN grant_spend gs ON gs.grant_id = r.grant_id
+           FROM public.execution_receipt r
+           JOIN public.grant_spend gs ON gs.grant_id = r.grant_id
           WHERE r.grant_id = OLD.grant_id
             AND gs.tenant_id = OLD.tenant_id
             AND r.tenant_id = OLD.tenant_id
