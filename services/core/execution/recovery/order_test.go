@@ -235,3 +235,22 @@ func TestAnUnreadableLaterVerdictRevokesTheEarlierPairAsAuthority(t *testing.T) 
 		t.Errorf("a fresh pair after the unreadable verdict: %+v", v)
 	}
 }
+
+// Architect ruling A6 (8 Nov 2026; the Founders' instruction, to be committed as a decision record): a COMPENSATED verdict does not authorise a retry. The
+// harm was already undone; another dispatch needs a verdict that says the target is not in the wanted state. REQ-RCV-001, REQ-RCV-002, AGENT-08, INV-07.
+func TestACompensatedVerdictDoesNotAuthoriseARetry(t *testing.T) {
+	rs := seq("c1", dispatch(1), verdict("COMPENSATED"), decided("ALLOW"), dispatch(2))
+	v := recovery.CheckRetryOrder(rs)
+	if len(v) != 1 || v[0].Reason != recovery.NoNonAchievedVerdict || v[0].Attempt != 2 {
+		t.Fatalf("a retry after COMPENSATED and a new ALLOW: %+v, want one NoNonAchievedVerdict violation at attempt 2", v)
+	}
+	// A failed verdict before it still counts once a later failed verdict restarts the wait: COMPENSATED ends the authority of the earlier pair.
+	rs = seq("c2", dispatch(1), verdict("NOT_ACHIEVED"), verdict("COMPENSATED"), decided("ALLOW"), dispatch(2))
+	if v := recovery.CheckRetryOrder(rs); len(v) != 1 || v[0].Reason != recovery.NoNonAchievedVerdict {
+		t.Fatalf("COMPENSATED after NOT_ACHIEVED then ALLOW: %+v, want a violation (it ends the authority of the earlier verdict)", v)
+	}
+	// Control: the same sequence with NOT_ACHIEVED is ordered.
+	if v := recovery.CheckRetryOrder(seq("c3", dispatch(1), verdict("NOT_ACHIEVED"), decided("ALLOW"), dispatch(2))); len(v) != 0 {
+		t.Fatalf("control: %+v", v)
+	}
+}
