@@ -12,7 +12,7 @@ This note describes what was found. It defines no requirement. Three questions, 
 
 | # | Where | What it is | Why it is listed |
 |---|---|---|---|
-| 1 | `services/core/platform/egress/egress_test.go` (`fakeResolver`) | A hand-written DNS resolver returning fixed answers to the callback egress guard | A resolver answer is a fault (DNS rebinding, NXDOMAIN) produced by the test, not by a Tushe FaultPlan or the hostility proxy (AGENT-12). It is a unit test of one interface, but the rule says faults come from FaultPlans or the proxy. Owner of SEC-05 to say whether this stays as a unit-level exception. |
+| 1 | `services/core/platform/egress/egress_test.go` (`fakeResolver`) | A hand-written DNS resolver returning fixed answers to the callback egress guard | A resolver answer is a fault (DNS rebinding, NXDOMAIN) produced by the test, not by a Tushe FaultPlan or the hostility proxy (AGENT-12). It is a unit test of one interface, but the rule says faults come from FaultPlans or the proxy. **Decided by the Security Reviewer (noema#293, 7 Nov 2026): stays as a recorded exception, named "resolver seam in `platform/egress` only".** Reason: the property under test (DNS rebinding: one name's answer changes between registration, delivery and dial) cannot be driven by the hostility proxy, which sits on HTTP routes and not on DNS; the real network is still used where it matters (`TestTheTransportDialsTheCheckedAddressAndNothingElse` dials a real listener). Condition: when callback delivery is wired (SEC-05 slice 2) one test with the system resolver is added (a name that resolves to loopback is refused at registration and at delivery, no fake); SEC-05 stays In progress until it exists. |
 | 2 | `services/core/trust/decide/proposer_swap_test.go` | A canned-proposal stub (Proposer A) and recorded provider replies (Proposer B) | Recorded replies are labelled and the real `EscalateCase` runs on mock-case; the stub is a test input, not a mocked failure mode. Listed because it is the largest double. |
 | 3 | `services/core/adapters/synthetic_tushe/case_client_test.go` | Exchanges recorded from the real mock-case, labelled SYNTHETIC | A recording, not a mock; listed so the label check (AGENT-25) is visible. |
 
@@ -53,7 +53,7 @@ Restricted to the P0 paths (`services/core/{trust,execution,outcome,record}`, `p
 ## 4. What is not done
 
 - The CI run history for the same-commit P0 PRs was not examined.
-- Exceptions 1 and `BENCH_OUT` are listed, not removed: removing them changes SEC-05 and model-service files outside this task's allowlist. Each needs an owner decision (stay as a recorded exception, or change).
+- The resolver fake (row 1) is decided: it stays as a recorded exception with the SEC-05 slice 2 condition above. `BENCH_OUT` is listed, not removed: changing the model service is outside this task's allowlist and the Architect has not decided (noema#293).
 - Python test packages other than `services/model/tests` were searched by import only.
 
 ## 5. Suggested follow-ups (for the Steward to place; none is started)

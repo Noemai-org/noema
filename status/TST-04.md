@@ -4,6 +4,7 @@ Updated 2026-11-07. Owner: EL. Done when: audit note committed with any exceptio
 
 ## State
 - Audit note: `docs/audits/TST-04-test-suite-audit.md`. In review.
+- SR decided the resolver fake (noema#293): recorded exception "resolver seam in platform/egress only", with a system-resolver test due in SEC-05 slice 2. One open: `BENCH_OUT`, the Architect's.
 - Not Done: two exceptions (the `fakeResolver` in `egress_test.go`; `BENCH_OUT` in the model service) are listed, not fixed, because fixing them is outside this task's files and needs owner decisions. The task's "any exceptions fixed" clause is therefore not met until those are decided.
 
 # Session 2026-11-07 · TST-04
