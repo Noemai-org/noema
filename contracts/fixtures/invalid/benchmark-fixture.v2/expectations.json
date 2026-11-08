@@ -1,0 +1,9 @@
+{
+  "no_tenants.json": "minItems",
+  "missing_subject_tenant.json": "required",
+  "transaction_without_tenant_id.json": "required",
+  "bad_tenant_id_shape.json": "pattern",
+  "marker_too_short.json": "minLength",
+  "tenant_without_markers.json": "minItems",
+  "extra_field_on_tenant.json": "additionalProperties"
+}
