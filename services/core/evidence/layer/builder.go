@@ -178,6 +178,11 @@ func checkResponse(o Observation) error {
 		}
 		return nil
 	}
+	if o.Read.Class != ReadOK {
+		// A read that did not succeed has no normalised payload to keep: an out-of-scope body is what the requester may not see (INV-22) and a
+		// not-found or error body is not a fact (INV-19). The body hash above is all that is kept.
+		return fmt.Errorf("%sa read that did not succeed (%s) cannot carry a payload", builderPrefix, o.Read.Class)
+	}
 	if o.NoBytes {
 		return fmt.Errorf("%sa read with a response cannot say no bytes arrived", builderPrefix)
 	}

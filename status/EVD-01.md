@@ -114,3 +114,11 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 
 ## Addendum 2026-11-06 · for the adapter owners (from Codex's finding on noema#172)
 - `layer.Observation.RawHash` must be the SHA-256 of the bytes the adapter actually received. The case adapter returns the decoded record only, so the story test of this branch hashes the decoded record as a stand-in. Adapters (ENV-03, ENV-05, ENV-08, the stand-in adapter) need to expose the wire-bytes hash next to the decoded answer; without it the builder refuses a present response.
+
+# Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
+
+## Session summary
+- What changed: `evidence/layer/builder.go` `checkResponse` refuses a payload on any read whose class is not OK (the body hash or an explicit no-bytes is all a failed read keeps), so an OUT_OF_SCOPE or error body is never persisted (INV-19, INV-22). Founder decision of 8 Nov: do it in #172, the root of the chain, before the Codex sweep.
+- Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
+- Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
+- Debt entries: none. Conflicts raised: none.
