@@ -12,7 +12,14 @@ from benchmark.oracle_client.counters import CounterUnavailable
 from benchmark.oracle_client.proxy_log import READ_ONLY, ProxyRouteLog
 
 Json = dict[str, Any]
-ROUTES = json.loads((Path(__file__).resolve().parents[1] / "hostility_proxy" / "config" / "routes.json").read_text())["routes"]
+CONFIG = Path(__file__).resolve().parents[1] / "hostility_proxy" / "config"
+TABLES = sorted(CONFIG.glob("routes*.json"))
+ROUTES = [r for t in TABLES for r in json.loads(t.read_text())["routes"]]
+
+
+def unclassified(tables: list[Json]) -> set[tuple[str, str]]:
+    """Operations of the given route tables that READ_ONLY does not classify."""
+    return {(r["target"], r["operation"]) for t in tables for r in t["routes"]} - set(READ_ONLY)
 
 
 def entry(seq: int, target: str = "mock-ledger", operation: str = "get_transaction", *, forwarded: bool = True, outcome: str = "answered", method: str = "GET") -> Json:
@@ -218,6 +225,15 @@ class Classification(unittest.TestCase):
     def test_every_route_in_the_proxy_table_is_classified_and_every_classified_route_exists(self) -> None:
         table = {(r["target"], r["operation"]) for r in ROUTES}
         self.assertEqual(table, set(READ_ONLY))
+
+    def test_every_route_table_is_checked_not_only_routes_json(self) -> None:
+        # Voice on 43fe5f6 (F1): the stand-in's own table (routes.standin.json, noema#207) would have had two read routes counted as monetary calls. The guard reads every routes*.json.
+        self.assertIn("routes.json", [t.name for t in TABLES])
+        self.assertEqual(set(), unclassified([json.loads(t.read_text()) for t in TABLES]))
+
+    def test_a_table_with_an_unclassified_operation_is_detected(self) -> None:
+        stand_in = {"routes": [{"target": "mock-customer", "operation": "get_principal"}, {"target": "mock-ledger", "operation": "get_transaction"}]}
+        self.assertEqual({("mock-customer", "get_principal")}, unclassified([stand_in]))
 
     def test_no_classified_operation_is_a_payout_or_a_reversal(self) -> None:
         for _, operation in READ_ONLY:

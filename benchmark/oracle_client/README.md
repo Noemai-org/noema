@@ -35,3 +35,7 @@ A `DeclaredAbsent` counter is a claim, not an observation: the run manifest reco
 ## Tests
 
 `make bench-test`. The stand-in for the bench listener (`testdata.py`) serves mock-case's documented shapes; no fault is mocked.
+
+### Why `("mock-customer", "post_lookup")` is classified read-only
+
+The proxy route is `POST /v1/lookups`, forwarded to the `tushe` upstream, operation `post_lookup`. It is classified read-only because it is named and routed as a lookup. That is a judgement about the route, not proof that the upstream cannot write: whoever reviews it checks the route against the Tushe specification (`POST /v1/lookups`) and the stand-in. A route added to any `hostility_proxy/config/routes*.json` table is never silently read-only: the drift test fails until someone classifies it here (`Classification`).
