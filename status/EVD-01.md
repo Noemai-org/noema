@@ -84,3 +84,11 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Session 2026-11-07 · error-body provenance (Codex finding on #172, after IL's noema#262)
 A failed read with no normalised response now carries exactly one of `RawHash` (the hash of the bytes that arrived, an empty body included) and `NoBytes` (explicit: a timeout, reset, local refusal or open circuit). SHA-256(empty) is no longer invented for a body that was there, and the `EVIDENCE_READ` event carries `body_received`. I did not make the rule class-based as first planned: `ReadServerError` also covers resets with no response and `ReadMalformed` also covers a local refusal, so a class rule would have refused legitimate no-bytes reads. Caller wiring (`ReadError.RawHash` into the observation) is in the next PR of the chain (#174, where `ClassifyError` lives). Red commit first; four mutants killed.
+
+# Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
+
+## Session summary
+- What changed: `evidence/layer/builder.go` `checkResponse` refuses a payload on any read whose class is not OK (the body hash or an explicit no-bytes is all a failed read keeps), so an OUT_OF_SCOPE or error body is never persisted (INV-19, INV-22). Founder decision of 8 Nov: do it in #172, the root of the chain, before the Codex sweep.
+- Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
+- Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
+- Debt entries: none. Conflicts raised: none.
