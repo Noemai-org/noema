@@ -6,6 +6,7 @@ import copy
 import json
 import unittest
 from functools import lru_cache
+from typing import Any
 
 from benchmark.generator.generate import PACK, Suite, generate
 from benchmark.generator.held import HOLDS, held_cases
@@ -18,11 +19,12 @@ def suite() -> Suite:
     return generate(20261020)
 
 
-def pack() -> dict:
-    return json.loads(PACK.read_text(encoding="utf-8"))
+def pack() -> dict[str, Any]:
+    out: dict[str, Any] = json.loads(PACK.read_text(encoding="utf-8"))
+    return out
 
 
-def oracles() -> dict:
+def oracles() -> dict[str, Any]:
     return suite().oracles
 
 
