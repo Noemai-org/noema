@@ -8,7 +8,7 @@
         "customer"
       ],
       "display_name": "Ada",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "beneficiaries": [
@@ -21,7 +21,7 @@
         "Tee"
       ],
       "account_last4": "4821",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     },
     {
       "beneficiary_id": "ben_0002",
@@ -31,7 +31,7 @@
         "Tunde"
       ],
       "account_last4": "7710",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "transactions": [
@@ -47,7 +47,7 @@
       "switch": "APPROVED",
       "destination": "CREDITED",
       "settlement": "SETTLED",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     },
     {
       "ref": "fin.transaction:TX3002",
@@ -61,19 +61,19 @@
       "switch": "APPROVED",
       "destination": "CREDITED",
       "settlement": "SETTLED",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "cases": [],
   "enterprise_strings": [],
   "tenants": [
     {
-      "tenant_id": "tn_alpha",
+      "tenant_id": "ten_alpha",
       "display_name": "Alpha Bank (synthetic)",
       "markers": [
         "ALPHA-MARK-0001"
       ]
     }
   ],
-  "subject_tenant": "tn_alpha"
+  "subject_tenant": "ten_alpha"
 }

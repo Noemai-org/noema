@@ -8,7 +8,7 @@
         "customer"
       ],
       "display_name": "Bola",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "beneficiaries": [
@@ -18,7 +18,7 @@
       "name": "Chidi Okafor",
       "aliases": [],
       "account_last4": "1204",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "transactions": [
@@ -34,7 +34,7 @@
       "switch": "TIMED_OUT",
       "destination": "PENDING",
       "settlement": "PENDING",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "cases": [
@@ -43,7 +43,7 @@
       "transaction": "fin.transaction:TX4001",
       "status": "OPEN",
       "owner_queue": "SYNTH_QUEUE_L1",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "enterprise_strings": [
@@ -55,10 +55,10 @@
   ],
   "tenants": [
     {
-      "tenant_id": "tn_alpha",
+      "tenant_id": "ten_alpha",
       "display_name": "Alpha Bank (synthetic)",
       "markers": []
     }
   ],
-  "subject_tenant": "tn_alpha"
+  "subject_tenant": "ten_alpha"
 }

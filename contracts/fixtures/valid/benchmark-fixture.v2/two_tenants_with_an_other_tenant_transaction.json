@@ -8,7 +8,15 @@
         "customer"
       ],
       "display_name": "Bola",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
+    },
+    {
+      "principal_id": "usr_synthb01",
+      "roles": [
+        "customer"
+      ],
+      "display_name": "Kemi",
+      "tenant_id": "ten_beta"
     }
   ],
   "beneficiaries": [
@@ -18,7 +26,15 @@
       "name": "Chidi Okafor",
       "aliases": [],
       "account_last4": "1204",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
+    },
+    {
+      "beneficiary_id": "ben_0002",
+      "owner": "usr_synthb01",
+      "name": "Ngozi Eze",
+      "aliases": [],
+      "account_last4": "1204",
+      "tenant_id": "ten_beta"
     }
   ],
   "transactions": [
@@ -34,12 +50,12 @@
       "switch": "TIMED_OUT",
       "destination": "PENDING",
       "settlement": "PENDING",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     },
     {
       "ref": "fin.transaction:TB4001",
-      "owner": "usr_synth002",
-      "beneficiary": "ben_0001",
+      "owner": "usr_synthb01",
+      "beneficiary": "ben_0002",
       "direction": "OUTGOING",
       "amount_minor": 500000,
       "currency": "NGN",
@@ -48,7 +64,7 @@
       "switch": "TIMED_OUT",
       "destination": "PENDING",
       "settlement": "PENDING",
-      "tenant_id": "tn_beta"
+      "tenant_id": "ten_beta"
     }
   ],
   "cases": [
@@ -57,7 +73,7 @@
       "transaction": "fin.transaction:TX4001",
       "status": "OPEN",
       "owner_queue": "SYNTH_QUEUE_L1",
-      "tenant_id": "tn_alpha"
+      "tenant_id": "ten_alpha"
     }
   ],
   "enterprise_strings": [
@@ -69,19 +85,19 @@
   ],
   "tenants": [
     {
-      "tenant_id": "tn_alpha",
+      "tenant_id": "ten_alpha",
       "display_name": "Alpha Bank (synthetic)",
       "markers": [
         "ALPHA-MARK-0001"
       ]
     },
     {
-      "tenant_id": "tn_beta",
+      "tenant_id": "ten_beta",
       "display_name": "Beta Bank (synthetic)",
       "markers": [
         "BETA-MARK-00001"
       ]
     }
   ],
-  "subject_tenant": "tn_alpha"
+  "subject_tenant": "ten_alpha"
 }
