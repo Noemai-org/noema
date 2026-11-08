@@ -409,8 +409,8 @@ func TestTheSignatureIsOverTheCanonicalJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !k.VerifyBytes(g.Sig, want) {
-		t.Fatal("the signature is not over the JCS form of the grant without sig")
+	if !k.VerifyBytes(g.Sig, crypto.GrantSigningMessage(want)) {
+		t.Fatal("the signature is not over the grant label, a 0x00 byte and the JCS form of the grant without sig")
 	}
 	pretty, _ := json.MarshalIndent(g, "", "    ")
 	var back contracts.DecisionGrantV1
@@ -606,5 +606,49 @@ func TestKeysDoNotAliasTheCallersSecret(t *testing.T) {
 	}
 	if err := other.Verify(after); err != nil {
 		t.Fatalf("the key in use after the wipe is not the original secret: %v", err)
+	}
+}
+
+// Ruling of 8 Nov 2026 on noema#292 (SR on noema#163, finding 1): a grant signature covers the domain label, a 0x00 byte and the JCS bytes. A signature over
+// bare JCS, or under the confirmation-request label, is not a grant signature, so a signer for another object type under the same key cannot mint a grant.
+func TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused(t *testing.T) {
+	ks := keys(t)
+	g, err := issuer(t, ks).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ks.Verify(g); err != nil {
+		t.Fatalf("the issued grant must verify: %v", err)
+	}
+	raw, err := json.Marshal(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "sig")
+	canon, err := crypto.CanonicalJSON(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ring := crypto.NewKeyRing(map[string][]byte{g.Sig.KeyId: k2})
+	for name, msg := range map[string][]byte{
+		"bare JCS":                         canon,
+		"the confirmation-request label":   crypto.ConfirmationRequestSigningMessage(canon),
+		"the grant label without the 0x00": append([]byte(crypto.GrantLabel), canon...),
+	} {
+		sig, err := ring.SignWith(g.Sig.KeyId, msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forged := g
+		forged.Sig.Value = sig
+		if err := ks.Verify(forged); !errors.Is(err, grants.ErrSignature) {
+			t.Errorf("a grant signed over %s must be refused, got %v", name, err)
+		}
 	}
 }

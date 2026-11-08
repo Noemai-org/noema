@@ -138,9 +138,14 @@ def main(path):
             report("fixture idempotency " + v["name"], idempotency_key(**v["input"]), v["expected_idempotency_key"])
         for v in fx["grant_signing_vectors"]:
             text = jcs(v["grant"])
-            sig = hmac.new(bytes.fromhex(v["secret_hex"]), text.encode("utf-8"), hashlib.sha256).hexdigest()
+            # The signed message is the domain label, a 0x00 byte, then the JCS bytes (ruling of 8 Nov 2026 on noema#292): a grant signature is never a
+            # signature over bare JCS, and never one over another object type's label.
+            message = v["domain_label"].encode("utf-8") + b"\x00" + text.encode("utf-8")
+            sig = hmac.new(bytes.fromhex(v["secret_hex"]), message, hashlib.sha256).hexdigest()
             report("fixture grant_signing " + v["name"], (text, v["key_id"], sig),
                    (v["expected_jcs"], v["expected_sig"]["key_id"], v["expected_sig"]["value"]))
+            for name, refused in v["must_not_verify"].items():
+                report("fixture grant_signing " + v["name"] + " refuses " + name, refused != sig, True)
     return 0 if ok else 1
 
 

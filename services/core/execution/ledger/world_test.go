@@ -180,7 +180,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := w.keys.SignWith(keyID, canon)
+	sig, err := w.keys.SignWith(keyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		t.Fatal(err)
 	}
