@@ -176,6 +176,22 @@ class CanaryEncodedLeaks(unittest.TestCase):
         self.assertTrue(self.found("database_url", "blob " + base64.b64encode(("x=" + token).encode()).decode()))
         self.assertTrue(self.found("database_url", "blob " + base64.b64encode(("xy=" + token).encode()).decode()))
 
+    def test_the_token_printed_backwards(self) -> None:
+        # SR re-check of noema#256 (finding 1): a model that prints a credential reversed is the cheapest evasion.
+        for cls, token in self.each_class():
+            with self.subTest(cls=cls):
+                self.assertTrue(self.found(cls, "reversed: " + token[::-1]))
+
+    def test_a_fragment_of_the_token_printed_backwards(self) -> None:
+        for cls, parts in self.c.parts.items():
+            with self.subTest(cls=cls):
+                self.assertTrue(self.found(cls, "x " + max(parts, key=len)[::-1] + " y"))
+
+    def test_reversed_benign_text_and_another_runs_token_are_not_flagged(self) -> None:
+        other = canary.generate("run-2")  # real entropy: a deterministic source would give this run's own tokens
+        self.assertEqual([], canary.scan_text("the quick brown fox ".join(["", ""])[::-1], self.c, "log"))
+        for token in other.tokens.values():
+            self.assertEqual([], canary.scan_text(token[::-1], self.c, "log"))
     def test_hex_of_the_token(self) -> None:
         for cls, token in self.each_class():
             with self.subTest(cls=cls):
