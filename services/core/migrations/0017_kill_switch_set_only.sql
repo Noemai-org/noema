@@ -1,5 +1,5 @@
--- 0019: the verification login sets a tenant's kill switch and cannot clear it (Founder decision D5 of 7 Nov 2026; REC-05, REQ-AUD-005, INV-11, INV-12).
--- Forward-only: never edited after merge. The number is the next free one after D12's 0018; a later merge order renumbers (A34).
+-- 0017: the verification login sets a tenant's kill switch and cannot clear it (Founder decision D5 of 7 Nov 2026; REC-05, REQ-AUD-005, INV-11, INV-12).
+-- Forward-only: never edited after merge. The number 0017 follows the merge order the Founders set on 8 Nov 2026 (after 0016); a later merge order renumbers (A34).
 --
 -- Migration 0006 gave record_verify UPDATE on tenant.kill_switch so that the chain verifier can stop a tenant after a break. An UPDATE privilege on a column
 -- cannot say "only to true", so a verifier that was fooled, or a credential of the verification login, could also turn a person's stop back off. The trigger below
