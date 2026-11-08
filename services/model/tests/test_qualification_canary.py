@@ -262,3 +262,15 @@ def test_an_empty_subset_is_refused_not_reported_as_a_clean_pass() -> None:
     base = {**BASELINE, "cases": {}, "cases_sha256": module._digest([])}
     with pytest.raises(ValueError, match="empty"):
         canary(ScriptedAsker({}), subset=empty, baseline=base)
+
+
+# EL's reviewer-role statement on noema#215 (non-blocking 2): the deadline is an argument and must be a positive finite number; None, NaN, zero, a negative, a bool or infinity
+# would defeat it (asyncio.timeout(None) waits forever).
+@pytest.mark.parametrize("bad", [None, float("nan"), 0, -1.0, True, float("inf"), "5"], ids=repr)
+def test_a_timeout_that_is_not_a_positive_finite_number_is_refused_before_any_call(bad: Any) -> None:
+    class Never:
+        async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+            raise AssertionError("the asker was called")
+
+    with pytest.raises(ValueError, match="timeout_s"):
+        canary(Never(), timeout_s=bad)
