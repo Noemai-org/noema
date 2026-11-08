@@ -130,6 +130,14 @@ class LookupDescriptors(unittest.TestCase):
         text = (PACKS / "README.md").read_text()
         self.assertIn("minimal; extend when the Tushe worksheet is signed", text)
 
+    def test_the_pack_readme_does_not_contradict_the_sources_the_descriptors_use(self):
+        # Voice review of noema#148: an earlier sentence said no capability names fin.src.beneficiary and fin.src.customer "so the descriptors do not use them".
+        text = (PACKS / "README.md").read_text()
+        self.assertNotIn("so the descriptors do not use them", text)
+        for source, fact in (("fin.src.beneficiary", "beneficiary_list_and_aliases"), ("fin.src.customer", "customer_identity_and_ownership")):
+            self.assertIn(source, text)
+            self.assertIn(fact, text, f"the README names what {source} is authoritative for")
+
 
 class References(unittest.TestCase):
     """Every ID used exists (a subset of what packcheck enforces)."""
