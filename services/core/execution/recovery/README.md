@@ -21,3 +21,6 @@ Recovery after an uncertain or failed write. Built by RCV-01 (slice 1, 2026-11-0
 ## Tests
 
 `go test ./execution/recovery/` (no database). Each test names REQ-RCV-001; a `rapid` property builds Record sequences with retries that are ordered, missing a verdict, missing an ALLOW or in the wrong order, and requires the checker to flag exactly the broken ones with the right reason.
+
+**COMPENSATED (Architect ruling A6, 8 Nov 2026; the Founders' instruction, to be committed).** A `COMPENSATED` verdict does not authorise a retry. `CheckRetryOrder` treats it as a recognised verdict that authorises nothing and that ends the authority of any earlier failed verdict. A Trust `CLARIFY` or `CONFIRM` on a recovery escalates, as before.
+
