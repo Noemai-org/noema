@@ -209,7 +209,7 @@ func TestDecisionGrantOnlyItsStatusMovesAndFinalIsFinal(t *testing.T) {
 func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	pool, dsn := migratedDSN(t)
 	seed(t, pool)
-	exec := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a") // the tenant's own login: row-level security (migration 0017) needs a mapped login
+	exec := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a") // the tenant's own login: row-level security (migration 0018) needs a mapped login
 	if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)

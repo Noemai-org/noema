@@ -184,7 +184,7 @@ func TestExecutionCannotRaiseAVerdictSourcedRecoveryRequest(t *testing.T) {
 	if err := notAchieved("ver_e2", "rrq_e2").call(ctx(t), p); err != nil {
 		t.Fatal(err)
 	}
-	exec := testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", tenant) // the tenant's own login: row-level security (migration 0017) needs a mapped login
+	exec := testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", tenant) // the tenant's own login: row-level security (migration 0018) needs a mapped login
 	for name, verdict := range map[string]string{"an ACHIEVED verdict": "ver_e1", "a verdict that has its request": "ver_e2", "a verdict that does not exist": "ver_none"} {
 		_, err := exec.Exec(ctx(t), `INSERT INTO recovery_request (recovery_request_id, tenant_id, verdict_id, reason, created_at) VALUES ('rrq_f_' || $1, 'ten_aa', $1, 'r', now())`, verdict)
 		if err == nil {

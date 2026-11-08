@@ -22,3 +22,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 
 ## Update 2026-11-07 (Founder decision D12)
 - The row-security migration is `0017_row_security.sql` (was the provisional 0015). Its parent noema#168 becomes 0012 (the owner of that PR renames its file). If the merge order changes, the later PR renumbers.
+
+## Update 2026-11-08 (merge order set by the Founders)
+- The row-security migration is `0018_row_security.sql` and the kill-switch migration (identical to noema#265's) is `0017_kill_switch_set_only.sql`; #168 is 0012. Numbers follow the merge order (A34); a later merge order renumbers again.
