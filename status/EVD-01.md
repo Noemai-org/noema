@@ -117,3 +117,10 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 
 ## EVD-03 slice 1 · the evidence_set_hash (stacked on #176)
 `services/core/evidence/snapshot/hash.go`: `SetHash` in Go, tested against the CON-04 golden vectors (positive and negative) and a 50-permutation property; six mutants killed. Failing-first: tests-only commit "EVD-03: failing-first tests for the evidence_set_hash". Not yet built: the `context_snapshot` table, the sealer (refuses an empty set; writes `CONTEXT_SNAPSHOT_SEALED`), and the nightly recompute job. The table is a Trust-written, tenant-bound table (migration, roles and RLS per ruling A6), so it needs the EL/C1 decision on which login seals (Trust's) before I write the migration: blocked on that one line, noted below.
+# Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
+
+## Session summary
+- What changed: `evidence/layer/builder.go` `checkResponse` refuses a payload on any read whose class is not OK (the body hash or an explicit no-bytes is all a failed read keeps), so an OUT_OF_SCOPE or error body is never persisted (INV-19, INV-22). Founder decision of 8 Nov: do it in #172, the root of the chain, before the Codex sweep.
+- Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
+- Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
+- Debt entries: none. Conflicts raised: none.
