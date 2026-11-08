@@ -40,7 +40,7 @@ CREATE ROLE record_verify NOLOGIN;
 CREATE ROLE record_emitter NOLOGIN;
 -- The verification job logs in as this; migration 0006 grants record_verify its privileges.
 CREATE ROLE noema_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'verify_pw' IN ROLE record_verify;
--- The nightly evidence recompute's login (EVD-03, D9): a member of no role, so it holds only what migration 0019 grants it directly (SELECT on
+-- The nightly evidence recompute's login (EVD-03, D9): a member of no role, so it holds only what migration 0020 grants it directly (SELECT on
 -- context_snapshot and evidence_item, with one SELECT policy on each). It is not a power and not noema_verify (the Record verifier).
 CREATE ROLE evidence_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'evidence_verify_pw';
 CREATE DATABASE noema OWNER noema_migrator;

@@ -26,3 +26,10 @@ Updated 2026-11-07. Plan task EVD-03 (owner C2; REQ-CTX-004). Slice 1 (the hash)
 - Why: Security Reviewer, noema#268 at f841aa0: under a non-superuser owner the guard sees no evidence row and every snapshot is refused. Real, and invisible to the Go tests (the test migrator is a superuser). Reproduced first: `test_init.sh` printed "an evidence id does not name an evidence item of tenant ten_aa" for an honest snapshot.
 - Tests added: `TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner` (textual FROM/JOIN check, red before the policy), the `test_init.sh` sealing path (red before the policy), the shared-secret refusal, the extended grants enumeration. Red commit 3b94543.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-08 · EVD-03 (slice 2) · relay-issue answers
+
+## Session summary
+- Migration renumbered `0019_context_snapshot.sql` to `0020_context_snapshot.sql` (Repo Steward, relay issue #286: noema#265 holds 0019). Earlier sections of this file say 0019; that is the same file under its old number.
+- EL's exception record for `evidence_verify` is the comment on relay issue #282; it is linked from noema#268. IL (issue #284) accepts `evidence_ids text[]` with no items table.
+- `TestEvidenceVerifyHoldsExactlyTheGrantsD9Names` now covers every non-trigger function in `public`, not only SECURITY DEFINER ones (EL's condition 3, "EXECUTE on no function").

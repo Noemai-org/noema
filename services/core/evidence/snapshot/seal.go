@@ -64,7 +64,7 @@ type Sealer struct {
 
 // Seal sorts the evidence IDs, reads their payload hashes, computes the evidence_set_hash, appends CONTEXT_SNAPSHOT_SEALED to the Record and
 // stores the snapshot, all in tx, which must come from a pool that logs in as the tenant's Trust login. The database recomputes the hash from the
-// stored items and refuses a set that is empty, unsorted, repeated or not the tenant's own (migration 0019); this function refuses the
+// stored items and refuses a set that is empty, unsorted, repeated or not the tenant's own (migration 0020); this function refuses the
 // same early, with a typed error for the empty set. On any error the caller rolls tx back and nothing is left: the Record event and the row stand or
 // fall together.
 func (s *Sealer) Seal(ctx context.Context, tx pgx.Tx, in Input) (Sealed, error) {

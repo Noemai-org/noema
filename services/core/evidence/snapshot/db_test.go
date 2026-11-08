@@ -413,6 +413,14 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 	if fns != 0 {
 		t.Errorf("evidence_verify can execute %d SECURITY DEFINER functions that are not trigger functions (a trigger function cannot be called)", fns)
 	}
+	var anyFn int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		WHERE n.nspname = 'public' AND p.prorettype <> 'trigger'::regtype AND has_function_privilege('evidence_verify', p.oid, 'EXECUTE')`).Scan(&anyFn); err != nil {
+		t.Fatal(err)
+	}
+	if anyFn != 0 {
+		t.Errorf("evidence_verify can execute %d functions in public (EL condition 3: EXECUTE on no function)", anyFn)
+	}
 	var create bool
 	if err := w.admin.QueryRow(ctx(t), `SELECT has_schema_privilege('evidence_verify', 'public', 'CREATE')`).Scan(&create); err != nil {
 		t.Fatal(err)

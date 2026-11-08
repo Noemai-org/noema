@@ -45,7 +45,7 @@ echo "$bad" | grep -q "not the hash of the stored items" || { echo "a snapshot w
 good_hash="$(as_login trust_rw__ten_aa "select evidence_set_hash_of(array['evr_aa1'], array['$h'])")"
 out="$(seal "'$good_hash'" || true)"
 [ -z "$out" ] || { echo "an honest snapshot was refused under a non-superuser migration login: $out"; exit 1; }
-# After 0019 (EVD-03, D9): the evidence recompute's login reads the two tables and can write, read or create nothing else.
+# After 0020 (EVD-03, D9): the evidence recompute's login reads the two tables and can write, read or create nothing else.
 as_ev() { PGPASSWORD="synthetic-evidence_verify_password" psql -X -q -tA -U evidence_verify -d noema -c "$1" 2>&1; }
 [ "$(as_ev 'select count(*) from context_snapshot')" = "1" ] || { echo "evidence_verify cannot read context_snapshot"; exit 1; }
 [ "$(as_ev 'select count(*) from evidence_item')" = "1" ] || { echo "evidence_verify cannot read evidence_item"; exit 1; }
