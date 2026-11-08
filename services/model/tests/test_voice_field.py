@@ -126,7 +126,8 @@ def test_the_confidence_interval_brackets_the_p95_and_is_open_when_the_sample_is
 
 def test_the_report_states_n_method_and_interval_so_it_can_be_published() -> None:
     result = run_gate(good())
-    assert result.method == "nearest-rank P95; distribution-free 95% interval from order statistics"
+    assert result.method == ("nearest-rank P95; distribution-free 95% interval from order statistics; "
+                             "correctness with the exact (Clopper-Pearson) 95% interval")
     assert result.confidence == 0.95
 
 

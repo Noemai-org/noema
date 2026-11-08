@@ -1,18 +1,24 @@
 """Analysis of the field sessions for the real-conditions voice gate (VOI-14, REQ-VOI-005; PERD §45.4, SoT §37.5).
 
-The gate's numbers are arguments taken from PERD §45.4 by the caller; none is written here (AGENT-16). A session counts only
-with both server timestamps. One missing either is a failure that stays in the denominator as an infinite latency: a run
-cannot pass by dropping its failures. An unannotated session counts as incorrect.
+The gate's numbers are arguments taken from PERD §45.4 and from the Founder's decision F5 of 8 Nov 2026 by the caller; none is
+written here (AGENT-16). F5: Intent Object correctness against the script annotation at least 90%, the lower end of its 95%
+interval at least 80%, and at least 30 sessions in each required locale. (REQ-VOI-003's 95% for key-slot accuracy is a different
+measure and is not computed here.)
 
-The report carries what a published number needs (n, the method and an interval). The interval is distribution-free, from
-order statistics of the binomial, so it makes no assumption about the latency distribution; with a sample too small to bound
-the percentile from above, the upper bound is infinite rather than a guess.
+A session counts only with both server timestamps. One missing either is a failure that stays in the denominator as an infinite
+latency: a run cannot pass by dropping its failures. An unannotated session counts as incorrect.
 
-Records hold references and times only: no audio and no transcript (AGENT-13). A session with no consent reference is
-refused, since its audio could not be stored (REQ-VOI-004).
+The report carries what a published number needs (n, the method and an interval). The latency interval is distribution-free, from
+order statistics of the binomial, so it makes no assumption about the latency distribution; with a sample too small to bound the
+percentile from above, the upper bound is infinite rather than a guess. The correctness interval is the exact (Clopper-Pearson)
+binomial interval, which never under-covers.
+
+Records hold references and times only: no audio and no transcript (AGENT-13). A session with no consent reference is refused,
+since its audio could not be stored (REQ-VOI-004).
 """
 
 import math
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -22,7 +28,11 @@ from noema_model.voice.latency import nearest_rank_percentile
 _PERCENTILE = 0.95
 _CONFIDENCE = 0.95
 _PIDGIN_LOCALE = "pcm"
-_METHOD = "nearest-rank P95; distribution-free 95% interval from order statistics"
+_BISECTION_STEPS = 100
+_METHOD = (
+    "nearest-rank P95; distribution-free 95% interval from order statistics; "
+    "correctness with the exact (Clopper-Pearson) 95% interval"
+)
 
 
 class GateVerdict(StrEnum):
@@ -51,6 +61,9 @@ class FieldAnalysis:
     ci_low_ms: float
     ci_high_ms: float
     correct_rate: float
+    correct_ci_low: float
+    correct_ci_high: float
+    locale_counts: tuple[tuple[str, int], ...]  # sessions per required locale, in the order the caller listed them
     method: str
     confidence: float
 
@@ -72,12 +85,43 @@ def _interval(ordered: Sequence[float], fraction: float, confidence: float) -> t
     return ordered[low_rank - 1], math.inf
 
 
+def clopper_pearson(successes: int, n: int, confidence: float) -> tuple[float, float]:
+    """The exact two-sided binomial interval for `successes` of `n`, by bisection on the binomial tail."""
+    tail = (1 - confidence) / 2
+    low = 0.0
+    if successes > 0:  # the p at which P(X >= successes) = tail; that probability rises with p
+        lo, hi = 0.0, 1.0
+        for _ in range(_BISECTION_STEPS):
+            mid = (lo + hi) / 2
+            if 1 - _binomial_cdf(successes - 1, n, mid) < tail:
+                lo = mid
+            else:
+                hi = mid
+        low = (lo + hi) / 2
+    high = 1.0
+    if successes < n:  # the p at which P(X <= successes) = tail; that probability falls with p
+        lo, hi = 0.0, 1.0
+        for _ in range(_BISECTION_STEPS):
+            mid = (lo + hi) / 2
+            if _binomial_cdf(successes, n, mid) > tail:
+                lo = mid
+            else:
+                hi = mid
+        high = (lo + hi) / 2
+    return low, high
+
+
 def _latency_ms(session: FieldSession) -> float:
     if session.eos_server_ms is None or session.admitted_server_ms is None:
         return math.inf
     if session.admitted_server_ms < session.eos_server_ms:
         raise ValueError("admission before end of speech: a clock error, not a latency")
     return float(session.admitted_server_ms - session.eos_server_ms)
+
+
+def _check_share(value: float) -> None:
+    if not (math.isfinite(value) and 0.0 <= value <= 1.0):
+        raise ValueError("shares must be in [0, 1]")
 
 
 def analyse(
@@ -87,12 +131,16 @@ def analyse(
     min_sessions: int,
     min_pidgin_share: float,
     correctness_floor: float,
+    correctness_lower_floor: float,
+    required_locales: Sequence[str],
+    min_sessions_per_locale: int,
 ) -> FieldAnalysis:
-    if target_ms < 1 or min_sessions < 1:
+    if target_ms < 1 or min_sessions < 1 or min_sessions_per_locale < 1:
         raise ValueError("target and minimum sessions must be positive")
-    for share in (min_pidgin_share, correctness_floor):
-        if not (math.isfinite(share) and 0.0 <= share <= 1.0):
-            raise ValueError("shares must be in [0, 1]")
+    for share in (min_pidgin_share, correctness_floor, correctness_lower_floor):
+        _check_share(share)
+    if not required_locales or len(set(required_locales)) != len(required_locales):
+        raise ValueError("required locales must be a non-empty list without repeats")
     if not sessions:
         raise ValueError("no sessions")
     if any(session.consent_ref is None for session in sessions):
@@ -106,17 +154,25 @@ def analyse(
     p95 = nearest_rank_percentile(latencies, _PERCENTILE)
     ci_low, ci_high = _interval(sorted(latencies), _PERCENTILE, _CONFIDENCE)
     pidgin_share = sum(1 for s in sessions if s.locale == _PIDGIN_LOCALE) / n
-    correct_rate = sum(1 for s in sessions if s.correct is True) / n
+    correct = sum(1 for s in sessions if s.correct is True)
+    correct_rate = correct / n
+    correct_low, correct_high = clopper_pearson(correct, n, _CONFIDENCE)
+    per_locale = Counter(s.locale for s in sessions)
+    locale_counts = tuple((locale, per_locale.get(locale, 0)) for locale in required_locales)
 
     reasons: list[str] = []
     if n < min_sessions:
         reasons.append("too few sessions")
+    if any(count < min_sessions_per_locale for _, count in locale_counts):
+        reasons.append("too few sessions in a required locale")
     if pidgin_share < min_pidgin_share:
         reasons.append("pidgin share below the minimum")
     if p95 > target_ms:
         reasons.append("p95 over the target")
     if correct_rate < correctness_floor:
         reasons.append("correctness below the floor")
+    if correct_low < correctness_lower_floor:
+        reasons.append("correctness interval below the floor")
     return FieldAnalysis(
         verdict=GateVerdict.FAIL if reasons else GateVerdict.PASS,
         reasons=tuple(reasons),
@@ -127,6 +183,9 @@ def analyse(
         ci_low_ms=ci_low,
         ci_high_ms=ci_high,
         correct_rate=correct_rate,
+        correct_ci_low=correct_low,
+        correct_ci_high=correct_high,
+        locale_counts=locale_counts,
         method=_METHOD,
         confidence=_CONFIDENCE,
     )
