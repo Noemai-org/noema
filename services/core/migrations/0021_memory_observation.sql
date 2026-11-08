@@ -1,5 +1,5 @@
--- 0020: operational memory (MEM-01; Founder decision D10 of 7 Nov 2026; REQ-MEM-001, REQ-MEM-002, INV-12, REQ-SEC-004). Forward-only: never edited after merge.
--- The number is the next free one after 0019 and provisional: the noema#183 ledger assigns it, and the later PR renumbers (A34).
+-- 0021: operational memory (MEM-01; Founder decision D10 of 7 Nov 2026; REQ-MEM-001, REQ-MEM-002, INV-12, REQ-SEC-004). Forward-only: never edited after merge.
+-- The number 0021 is assigned on the noema#183 ledger by the Repo Steward (0019 noema#265, 0020 noema#268, 0021 this PR); the later PR to merge renumbers (A34).
 --
 -- Operational memory is data, never authority (REQ-MEM-001). The table is closed to every runtime role: no login of any power can read, write, update or delete
 -- it. The one write path is memory_observation_record, a SECURITY DEFINER function that only the orchestrator's power (orchestrator_rw) may call and that takes
