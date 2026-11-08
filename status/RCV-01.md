@@ -31,3 +31,6 @@ Updated 2026-11-05. Plan task RCV-01: owner C1; REQ-RCV-001; Needs OUT-01 (merge
 ### Pre-work for the next agent
 - Exact next step: none for this fix.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Update 2026-11-08 (Architect ruling A6, noema follow-up PR)
+- `COMPENSATED` no longer authorises a retry in `CheckRetryOrder`; a Trust CLARIFY or CONFIRM on a recovery still escalates. Both open questions in the earlier note are answered. Test: `TestACompensatedVerdictDoesNotAuthoriseARetry` (red first).
