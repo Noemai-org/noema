@@ -32,7 +32,7 @@ func ctx(t testing.TB) context.Context {
 
 type world struct {
 	admin *pgxpool.Pool
-	exec  *pgxpool.Pool // connections run as execution_rw
+	pools map[string]*pgxpool.Pool // one pool per tenant, logged in as that tenant's execution_rw login (DEBT-04)
 	app   *chain.Appender
 	dsn   string
 }
@@ -48,18 +48,48 @@ func newWorld(t *testing.T, tenants ...string) *world {
 			t.Fatal(err)
 		}
 	}
-	exec, err := db.OpenAsRole(ctx(t), dsn, "execution_rw")
-	if err != nil {
-		t.Fatal(err)
+	pools := map[string]*pgxpool.Pool{}
+	for _, id := range tenants {
+		pools[id] = testpg.TenantLogin(t, admin, dsn, "execution_rw", id)
 	}
-	t.Cleanup(exec.Close)
 	clk := clock.NewManual(time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC))
-	return &world{admin: admin, exec: exec, dsn: dsn, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+	return &world{admin: admin, pools: pools, dsn: dsn, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+}
+
+// pool is the connection pool that logs in as the tenant's execution login.
+func (w *world) pool(tenant string) *pgxpool.Pool {
+	p, ok := w.pools[tenant]
+	if !ok {
+		panic("test world has no login for tenant " + tenant)
+	}
+	return p
+}
+
+// groupOfEmitter is the group role whose login writes as a power's own emitter (migration 0004, DEBT-07). Any other emitter is
+// written through a login that the mapping binds to it, with the execution group's privileges.
+var groupOfEmitter = map[string]string{"core-trust": "trust_rw", "core-execution": "execution_rw", "core-outcome": "outcome_rw", "core-evidence": "evidence_rw", "core-workflows": "orchestrator_rw"}
+
+// writer is the pool of the login bound to the emitter for the tenant. Logins are created on first use.
+func (w *world) writer(t *testing.T, tenant, emitter string) *pgxpool.Pool {
+	t.Helper()
+	key := tenant + "/" + emitter
+	if p, ok := w.pools[key]; ok {
+		return p
+	}
+	if group, ok := groupOfEmitter[emitter]; ok {
+		if emitter == "core-execution" {
+			return w.pool(tenant)
+		}
+		w.pools[key] = testpg.TenantLogin(t, w.admin, w.dsn, group, tenant)
+	} else {
+		w.pools[key] = testpg.EmitterLogin(t, w.admin, w.dsn, tenant, emitter)
+	}
+	return w.pools[key]
 }
 
 func (w *world) append(t *testing.T, ev chain.Event) chain.Stored {
 	t.Helper()
-	tx, err := w.exec.Begin(ctx(t))
+	tx, err := w.writer(t, ev.TenantID, ev.WrittenBy).Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +149,7 @@ func TestConcurrentAppendsLeaveOneChain(t *testing.T) {
 		go func(g int) {
 			defer wg.Done()
 			for i := 0; i < each; i++ {
-				tx, err := w.exec.Begin(ctx(t))
+				tx, err := w.pool("ten_aa").Begin(ctx(t))
 				if err != nil {
 					errs <- err
 					return
@@ -150,7 +180,7 @@ func TestConcurrentAppendsLeaveOneChain(t *testing.T) {
 // EC-E16, REQ-AUD-001: if the append fails, the enclosing transaction fails and the action does not happen.
 func TestFailedAppendRollsBackTheActionWithIt(t *testing.T) {
 	w := newWorld(t, "ten_aa")
-	tx, err := w.exec.Begin(ctx(t))
+	tx, err := w.pool("ten_aa").Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,14 +206,14 @@ func TestFailedAppendRollsBackTheActionWithIt(t *testing.T) {
 func TestRecordInsertRefusesAnEventThatDoesNotExtendTheHead(t *testing.T) {
 	w := newWorld(t, "ten_aa")
 	w.append(t, event("ten_aa", 1))
-	tx, err := w.exec.Begin(ctx(t))
+	tx, err := w.pool("ten_aa").Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(ctx(t)) }()
 	var seq int64
 	var head string
-	if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head('ten_aa')`).Scan(&seq, &head); err != nil {
+	if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
 		t.Fatal(err)
 	}
 	insert := func(s int64, prev string) error {
@@ -191,7 +221,7 @@ func TestRecordInsertRefusesAnEventThatDoesNotExtendTheHead(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx(t), `SELECT record_insert('ten_aa','recev_X1',$1,$2,'sha256:h','EXECUTION','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'1.0','EXECUTION','{}'::jsonb,NULL)`, s, prev)
+		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_X1',$1,$2,'sha256:h','core-execution','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'3.0','core-execution','{"tenant_id":"ten_aa"}'::jsonb,NULL)`, s, prev)
 		if err != nil {
 			_, _ = tx.Exec(ctx(t), `ROLLBACK TO SAVEPOINT s`)
 		}
@@ -272,7 +302,7 @@ func TestAppendingRoleCannotRewriteTheRecord(t *testing.T) {
 	w := newWorld(t, "ten_aa")
 	w.append(t, event("ten_aa", 1))
 	for _, stmt := range []string{`UPDATE record_event SET hash = 'x'`, `DELETE FROM record_event`, `TRUNCATE record_event`, `UPDATE record_chain_head SET seq = 9`} {
-		_, err := w.exec.Exec(ctx(t), stmt)
+		_, err := w.pool("ten_aa").Exec(ctx(t), stmt)
 		var pe *pgconn.PgError
 		if !errors.As(err, &pe) || pe.Code != "42501" {
 			t.Fatalf("%q as execution_rw: got %v, want permission denied", stmt, err)
@@ -312,7 +342,7 @@ func TestAppendRefusesEventsOutsideTheContract(t *testing.T) {
 	} {
 		ev := good
 		mutate(&ev)
-		tx, err := w.exec.Begin(ctx(t))
+		tx, err := w.pool("ten_aa").Begin(ctx(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -329,7 +359,7 @@ func TestAppendRefusesEventsOutsideTheContract(t *testing.T) {
 // A context without a deadline is refused (AGENTS.md section 7).
 func TestAppendNeedsAContextDeadline(t *testing.T) {
 	w := newWorld(t, "ten_aa")
-	tx, err := w.exec.Begin(ctx(t))
+	tx, err := w.pool("ten_aa").Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +409,7 @@ func TestEveryGrantVoidReasonIsAcceptedKeptAsWrittenAndDistinct(t *testing.T) {
 func TestAnUnknownGrantVoidReasonIsRejected(t *testing.T) {
 	w := newWorld(t, "ten_aa")
 	for _, bad := range []string{"SOMETHING_ELSE", "expired", "Expired", "", " EXPIRED", "EXPIRED ", "TIMEOUT", "REJECTED_STALE_VERSION2", "SUCCEEDED"} {
-		tx, err := w.exec.Begin(ctx(t))
+		tx, err := w.pool("ten_aa").Begin(ctx(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -421,7 +451,7 @@ func TestTheCoreRefusesWhatTheContractListsButTheTableDoesNotMarkAsWrittenByTheC
 	w.append(t, event("ten_aa", 1))
 	for _, name := range refused {
 		for _, actor := range []string{name, "approver:usr_1", "customer:usr_1"} {
-			tx, err := w.exec.Begin(ctx(t))
+			tx, err := w.pool("ten_aa").Begin(ctx(t))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -466,7 +496,7 @@ func TestAdminIsBothAnEmitterAndAPrincipalKindWithDistinctMeanings(t *testing.T)
 	}
 	refuse := func(name, writtenBy, actor string) {
 		t.Helper()
-		tx, err := w.exec.Begin(ctx(t))
+		tx, err := w.pool("ten_aa").Begin(ctx(t))
 		if err != nil {
 			t.Fatal(err)
 		}

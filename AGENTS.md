@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 5dee74f80ae806fd0c6136522ca091bdff54b237. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 275c2245d911208961057a1a52095952c6a21043. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -269,7 +269,7 @@ All of this section is **working practice**.
 **Task status.**
 
 - Task status lives on the board. The task owner moves the board.
-- An agent never edits the plan or `tasks.csv` to record progress.
+- An agent never edits the plan to record progress. The Repo Steward is the only writer of `tasks.csv` status (`current_status` and `blocked`); no other agent writes it. Merged evidence is the threshold for Verified and Done: merged code and tests that meet the task's `done_when`, with a check-run link at the merged head. Lower statuses (Backlog, Ready, In progress, In review) and `blocked` with a named blocker may follow the board and the open pull requests, and the Steward says what is missing. Every other agent reports progress in its PR description and session file, and the Steward reads those as claims, not as evidence.
 - An agent records progress in its PR description, using the hand-off report of plan §4.1 step 6 (template [`docs/poc/execution/templates/agent-handoff.md`](docs/poc/execution/templates/agent-handoff.md)), and in its session file.
 - The plan changes only by change request and a new version file (plan §19).
 

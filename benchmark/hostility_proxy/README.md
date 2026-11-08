@@ -23,7 +23,8 @@ A plan (`contracts/schemas/fault-plan.v1.json`, or `fault-plan.v2.json`, which a
 
 | Effect | Params | What the system under test observes |
 |---|---|---|
-| `LATENCY`, `NEAR_TIMEOUT_BEFORE`, `NEAR_TIMEOUT_AFTER` | `delay_ms` | the real answer, `delay_ms` late (set it just under or just over the caller's timeout) |
+| `LATENCY`, `NEAR_TIMEOUT_BEFORE` | `delay_ms` | the request is held `delay_ms`, then forwarded, and the real answer follows (set it just under or just over the caller's timeout). A caller that gives up first leaves nothing behind: the request was never forwarded |
+| `NEAR_TIMEOUT_AFTER` | `delay_ms` | EC-T09, a late success: the request is forwarded and applied at once, and only the real answer is held `delay_ms`. A caller that gives up first leaves an applied request behind; one that waits gets the answer late |
 | `TIMEOUT_BEFORE_COMMIT` | `delay_ms` | nothing reaches Tushe; the connection is held `delay_ms`, then dropped |
 | `TIMEOUT_AFTER_COMMIT` | `delay_ms` | the request reaches Tushe; the answer is held `delay_ms`, then the connection is dropped |
 | `DROP_RESPONSE` | none | the request reaches Tushe; the connection is dropped at once |
@@ -47,6 +48,12 @@ A plan (`contracts/schemas/fault-plan.v1.json`, or `fault-plan.v2.json`, which a
 `clock.start` starts a simulated clock (used for `STALE_READ` and `LATE_EVENT`); `POST /control/v1/clock/advance {"step": "..."}` or `{"by": "PT10S"}` moves it.
 
 Reproduction (REQ-ENV-004): `seed` feeds every choice the proxy makes. The same plan and seed on the simulated clock give an identical trace and identical answers (`GET /control/v1/trace` returns `trace_hash`); a different seed changes what the seed chooses (`TestReplayFromTheSameSeedIsIdentical`).
+
+## The per-route request log
+
+`GET /control/v1/requests` (bench credential) lists every request that reached the data side, in order, whether or not a fault fired: `seq`, `target`, `operation`, `method`, `path` (no query string), `call_no`, the `fault` that fired, whether it was `forwarded` to the system behind the proxy and that system's `upstream_status`, the `outcome` (`answered`; `dropped` when the connection was cut with no answer; `refused` when the proxy itself refused, for example a path outside the route table, shown as target and operation `-`), and the `status` the caller was told. Use `?target=T` or `?target=T&operation=O` for one route. `counts` gives the number of requests per route and `log_hash` the digest of the entries, which is the same for the same plan, seed and calls (no time or duration is recorded).
+
+It holds no header, body or query string. A request body and an `Idempotency-Key` are kept only as SHA-256 digests (`request_body_sha256`, `idempotency_key_sha256`), so a test can say "the same key twice" or "the system was reached once" without the log holding either. A write that was applied and whose answer was dropped shows as `forwarded: true`, `outcome: "dropped"` (EC-T09, EC-E16). The log keeps the first 10000 entries (`RequestLogLimit`); later requests are still counted and `dropped` says how many were not kept. `DELETE /control/v1/fault-plan` and `POST /control/v1/reset` clear it (`TestRequestLog...` in `request_log_test.go`).
 
 ## Test account numbers
 
