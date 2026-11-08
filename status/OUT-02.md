@@ -14,3 +14,10 @@ Updated 2026-11-06. Plan task OUT-02 (owner C2+AG; REQ-VER-002; Needs OUT-01, me
 
 ## Pre-work for the next agent
 - Exact next step: a reader per entity for the verifier, when the first non-case outcome is on a G1/G2 path.
+
+# Session 2026-11-08 · OUT-02 slice 1 · EL's reviewer-role findings at 8b37cc1
+
+## Session summary
+- What changed: `outcome/predicate/outcomes_eval_test.go` only. EL's three blocking mutation survivors now fail a test: dropping `case.created_by_intent == intent_id` (case_opened), `complaint_ref.subject == subject_resource` (complaint_logged), `attachment.case == case_id` (evidence_recorded). A fourth survivor I found while checking (dropping `case.subject == subject_resource` from the `exists` of case_opened) is killed too. Non-blocking notes done: the row-order test uses `case_opened` with three row sets in both orders, and `status_explained` covers all three confirmed classes.
+- Mutation results (pack predicate edited, tests run, pack restored): created_by_intent 4 failing cases, complaint subject 3, attachment.case 2, exists subject 1.
+- Debt entries: none. Conflicts raised: none.
