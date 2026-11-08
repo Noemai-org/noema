@@ -1,6 +1,6 @@
-"""BEN-16, ruling on noema#346: the case-write oracles follow the pack and are held, not counted in n, until the pack owner states what `permit_case_writes` means.
+"""BEN-16, ruling on noema#346: the case-write oracles follow the pack; a case that contradicts it is held and not counted in n.
 
-The module reads the rule and its condition from the pack at run time; it does not interpret the condition (Architect, 8 Nov 2026). Written before `held.py` and seen failing. SYNTHETIC; generated layer only (INV-22).
+The module reads the rule and its condition from the pack at run time; the meaning is the pack owner's (EL, noema#346). Written before the change to `held.py` and seen failing. SYNTHETIC; generated layer only (INV-22).
 """
 import copy
 import json
@@ -22,53 +22,61 @@ def pack() -> dict:
     return json.loads(PACK.read_text(encoding="utf-8"))
 
 
-class Hold(unittest.TestCase):
-    def test_every_case_expecting_a_case_write_is_held_on_346_with_the_pack_s_own_condition(self) -> None:
-        held = held_cases(suite().cases, pack())
-        expecting = {cid for cid, c in suite().cases.items() if any(w["capability"] in {"fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence"} for w in c["expected"]["writes_expected"])}
-        self.assertTrue(expecting)
-        self.assertEqual(expecting, set(held))
-        for entry in held.values():
-            self.assertEqual({"held_on": "noema#346", "rule_id": RULE, "condition": "subject_resource.status == 'RESOLVED'"}, entry)
+def oracles() -> dict:
+    return suite().oracles
 
-    def test_a_case_with_no_write_governed_by_the_rule_is_not_held(self) -> None:
-        held = held_cases(suite().cases, pack())
-        reads_only = [cid for cid, c in suite().cases.items() if not c["expected"]["writes_expected"]]
-        self.assertTrue(reads_only)
-        self.assertEqual(set(), set(reads_only) & set(held))
+
+class Hold(unittest.TestCase):
+    """EL's answer on noema#346 (8 Nov 2026): `subject_resource.status == 'RESOLVED'` is the intent-slot ambiguity gate: a case write needs the reference resolved to exactly one transaction.
+    A case that expects a governed write while its oracle has no single resolved target contradicts the pack: it is held (not counted in n) and recorded as a finding."""
+
+    def test_no_generated_case_expects_a_governed_write_without_a_single_resolved_target(self) -> None:
+        held = held_cases(suite().cases, oracles(), pack())
+        self.assertEqual({}, held, "a case expects a case write the pack's slot rule would not permit")
+        expecting = [cid for cid, c in suite().cases.items() if any(w["capability"] in {"fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence"} for w in c["expected"]["writes_expected"])]
+        self.assertTrue(expecting)
+        self.assertTrue(all(oracles()[cid]["correct_target"] is not None for cid in expecting))
+
+    def test_a_case_that_expects_a_case_write_but_has_no_resolved_target_is_held_with_the_pack_s_condition(self) -> None:
+        cid = next(c for c, k in suite().cases.items() if k["expected"]["writes_expected"])
+        bad = copy.deepcopy(oracles())
+        bad[cid]["correct_target"] = None
+        held = held_cases(suite().cases, bad, pack())
+        self.assertEqual({cid: {"held_on": "noema#346", "rule_id": RULE, "condition": "subject_resource.status == 'RESOLVED'"}}, held)
+
+    def test_a_case_with_no_governed_write_is_never_held(self) -> None:
+        bad = copy.deepcopy(oracles())
+        for cid in bad:
+            bad[cid]["correct_target"] = None
+        held = held_cases(suite().cases, bad, pack())
+        self.assertTrue(held)
+        for cid in held:
+            self.assertTrue(suite().cases[cid]["expected"]["writes_expected"], cid)
 
     def test_the_condition_is_read_from_the_pack_not_hard_coded(self) -> None:
         changed = copy.deepcopy(pack())
         for rule in changed["policy"]["rules"]:
             if rule["rule_id"] == RULE:
                 rule["condition"] = "subject_resource.status != 'RESOLVED'"
-        held = held_cases(suite().cases, changed)
-        self.assertTrue(held)
-        self.assertEqual({"subject_resource.status != 'RESOLVED'"}, {e["condition"] for e in held.values()})
+        cid = next(c for c, k in suite().cases.items() if k["expected"]["writes_expected"])
+        bad = copy.deepcopy(oracles())
+        bad[cid]["correct_target"] = None
+        self.assertEqual("subject_resource.status != 'RESOLVED'", held_cases(suite().cases, bad, changed)[cid]["condition"])
 
-    def test_the_hold_follows_the_rule_s_applies_to(self) -> None:
-        changed = copy.deepcopy(pack())
-        for rule in changed["policy"]["rules"]:
-            if rule["rule_id"] == RULE:
-                rule["applies_to"] = ["fin.cap.record_investigation_evidence"]
-        only_evidence = held_cases(suite().cases, changed)
-        self.assertLess(len(only_evidence), len(held_cases(suite().cases, pack())) + 1)
-        for cid in only_evidence:
-            self.assertTrue(any(w["capability"] == "fin.cap.record_investigation_evidence" for w in suite().cases[cid]["expected"]["writes_expected"]))
-
-    def test_a_pack_without_the_rule_holds_nothing(self) -> None:
-        changed = copy.deepcopy(pack())
-        changed["policy"]["rules"] = [r for r in changed["policy"]["rules"] if r["rule_id"] != RULE]
-        self.assertEqual({}, held_cases(suite().cases, changed))
-
-    def test_a_trivially_true_condition_holds_nothing(self) -> None:
-        changed = copy.deepcopy(pack())
-        for rule in changed["policy"]["rules"]:
+    def test_a_pack_without_the_rule_or_with_a_trivial_condition_holds_nothing(self) -> None:
+        bad = copy.deepcopy(oracles())
+        for cid in bad:
+            bad[cid]["correct_target"] = None
+        no_rule = copy.deepcopy(pack())
+        no_rule["policy"]["rules"] = [r for r in no_rule["policy"]["rules"] if r["rule_id"] != RULE]
+        self.assertEqual({}, held_cases(suite().cases, bad, no_rule))
+        trivial = copy.deepcopy(pack())
+        for rule in trivial["policy"]["rules"]:
             if rule["rule_id"] == RULE:
                 rule["condition"] = "true"
-        self.assertEqual({}, held_cases(suite().cases, changed))
+        self.assertEqual({}, held_cases(suite().cases, bad, trivial))
 
-    def test_the_registry_names_the_issue_that_lifts_the_hold(self) -> None:
+    def test_the_registry_names_the_issue(self) -> None:
         self.assertEqual({RULE: "noema#346"}, dict(HOLDS))
 
 
