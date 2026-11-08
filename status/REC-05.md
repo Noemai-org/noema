@@ -36,3 +36,15 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 - Not decided here: which login a person clears the switch with in production (the control plane, EXE-06, route names per D14), and an audit event for a clear.
 - Pre-work: when EXE-06 exists, add a test that its ops login clears the switch and that the clear is recorded.
 
+
+## Session 2026-11-08 · REC-05 review F1 on noema#265: deny every non-superuser, not only record_verify
+### Session summary
+- What changed (PR links): noema#265: migration `0017_kill_switch_set_only.sql` (edited in place: unmerged) and `kill_switch_test.go`; the same trigger is carried in noema#261.
+- Why: the reviewer's F1 at `b0a6393`: the trigger refused a clear only for members of `record_verify`, so any other role given the column by a later grant could clear the switch. Today no other role holds the grant (migration 0006 gave it to `record_verify` only), so it was not exploitable, but the rule was written against one role instead of denying by default.
+- Tests added (REQ-AUD-005, INV-11, INV-12): `TestNoRuntimeLoginCanClearTheKillSwitchEvenWithTheGrant`: for each of six runtime groups, grant the column to the group (the mistaken grant), set the switch, and require the guard's own refusal (42501, "kill switch"), not a missing privilege. Failing first at `6c5d347` ([CI run](https://github.com/Noemai-org/noema/actions/runs/42475905418/job/128717109142), `core` red on all six).
+- Not done, and why: the reviewer also asked to allow clears "only through the person-authenticated C-ADMIN path" and to test it. That path is EXE-06 (ruling A9: the C-ADMIN credential, the ops role, a SECURITY_EVENT naming the actor) and does not exist yet; the database cannot tell a person from a process. Until EXE-06 the person's path is the administrator (a superuser, break-glass). The rule is now deny-by-default, so EXE-06 only adds its one login.
+- Debt entries: none new (EXE-06 is the planned owner of the person path). Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: EXE-06 adds the ops login to `tenant_kill_switch_guard` and writes the SECURITY_EVENT on every clear.
+- Do not touch: migration 0017 after it merges (forward-only).
