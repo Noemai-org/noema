@@ -19,3 +19,15 @@ Updated 2026-11-05. Plan task RCV-01: owner C1; REQ-RCV-001; Needs OUT-01 (merge
 - Open questions (owner): where the ops alert goes in the POC (Ops Lead); whether `COMPENSATED` counts as a verdict that authorises a retry (Architect; today it does, literally "non-ACHIEVED"); whether a Trust `CLARIFY` or `CONFIRM` on a recovery should ever be passed to a person instead of escalating (Architect; today it escalates).
 - Files to read first: `services/core/execution/recovery/README.md`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-06 · RCV-01 fix: an unreadable later verdict ends the authority of an earlier pair
+### Session summary
+- What changed (PR links): the small fix pull request on `fix/RCV-01-unreadable-verdict`: `execution/recovery/order.go` and its test.
+- Why: Codex's P2 on noema#196 (about code merged in noema#175). In a chain `NOT_ACHIEVED`, `ALLOW`, then a `VERDICT` that cannot be read or is not in the enum, then a dispatch with attempt 2, the checker accepted the retry on the earlier pair. An unreadable verdict is later evidence, and unknown is never safe (REQ-RCV-001, INV-15, AGENT-08).
+- Risks, and how they are contained: the checker only flags more, never less. A readable failed verdict and a new ALLOW after the unreadable one authorise the retry again.
+- Tests added (REQ-RCV-001): five unreadable shapes each give one `NO_NON_ACHIEVED_VERDICT`; a fresh pair after the unreadable verdict is accepted. The test failed before the fix (five cases accepted). Mutation run and reverted (caught): the default branch removed.
+- Regression cases added: the test above. Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: none for this fix.
+- Do not touch: noema#94, noema#90 (held, DEBT-01).
