@@ -31,7 +31,7 @@ jobs:
       - if: steps.changed.outputs.run == 'true'
         run: |
           docker build -t noema-pg-sig:ci deploy/spike/pgsodium
-          docker run -d --name noema-pg-sig -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 noema-pg-sig:ci
+          docker run -d --name noema-pg-sig -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 noema-pg-sig:ci
           for _ in $(seq 1 60); do docker exec noema-pg-sig pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
           sleep 2
           docker exec noema-pg-sig pg_isready -U postgres
