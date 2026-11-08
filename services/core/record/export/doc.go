@@ -3,7 +3,7 @@
 // Implements: REQ-AUD-003, REQ-BEN-001, REQ-BEN-009. SoT: INV-12 (the tenant comes from the session), INV-22 (nothing from the
 // oracle or the held-out set), INV-11 (a chain that does not verify is refused).
 //
-// May import: platform/{crypto,clock}, record/chain.
+// May import: platform/crypto, record/chain, pgx (the transaction type).
 //
 // Must never: be an HTTP route (ruling A109: a library function the Noema arm runner calls); read the Record except through the
 // tenant-bound record_read path; take the tenant from an argument other than the session; import the benchmark, the oracle or the

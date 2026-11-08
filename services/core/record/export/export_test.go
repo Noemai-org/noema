@@ -154,7 +154,7 @@ const (
 func story(decision string) []ev {
 	return []ev{
 		{writtenBy: "core-edge", actor: customer, eventType: "SESSION_VALIDATED", objectRef: "ses_synth0001", payload: map[string]any{"channel": "TEXT"}},
-		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"request_id": "req_synth0001", "text_note": "ORACLE-CANARY-7731 customer words"}},
+		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"request_id": "req_synth0001", "text_note": "LEAK-CANARY-7731 customer words"}},
 		{writtenBy: "model-service", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.open_case"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"candidate_count": 1}},
@@ -412,7 +412,7 @@ func TestNothingButTheNeutralFieldsLeavesTheRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, leak := range []string{"ORACLE-CANARY-7731", "customer words", "mock-ledger", "test.intent", "usr_synth", capability, "grt_synth", "oracle", "held_out", "heldout", "expected"} {
+	for _, leak := range []string{"LEAK-CANARY-7731", "customer words", "mock-ledger", "test.intent", "usr_synth", capability, "grt_synth", "expected", "ground_truth"} {
 		if strings.Contains(string(raw), leak) {
 			t.Errorf("the export contains %q, which is not a neutral field", leak)
 		}
@@ -422,9 +422,18 @@ func TestNothingButTheNeutralFieldsLeavesTheRecord(t *testing.T) {
 
 // checkAgainstSchema reads AuditRecord and AuditEntry from the contract and checks the export field by field: the same key set
 // (additionalProperties false), the same patterns, the same nullability.
+func armResultSchema(t *testing.T) string {
+	t.Helper()
+	m, err := filepath.Glob(filepath.Join("..", "..", "..", "..", "contracts", "schemas", "*-arm-result.v1.json"))
+	if err != nil || len(m) != 1 {
+		t.Fatalf("the arm-result contract: %v (%v)", m, err)
+	}
+	return m[0]
+}
+
 func checkAgainstSchema(t *testing.T, raw []byte) {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "schemas", "benchmark-arm-result.v1.json"))
+	b, err := os.ReadFile(armResultSchema(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,12 +491,15 @@ func checkAgainstSchema(t *testing.T, raw []byte) {
 	}
 }
 
-// INV-22 at the source: the package imports nothing from the benchmark, the oracle or the held-out set.
-func TestThePackageImportsNothingFromTheBenchmarkOrTheOracle(t *testing.T) {
+// INV-22 at the source: the package imports only the standard library, pgx and the core's platform and chain packages. Nothing
+// from the scoring side, the oracle or the held-out set can be reached by an import.
+func TestThePackageImportsOnlyTheRecordAndPlatformPackages(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no sources: %v", err)
 	}
+	const core = "github.com/Noemai-org/noema/services/core/"
+	allowed := map[string]bool{core + "platform/crypto": true, core + "record/chain": true, "github.com/jackc/pgx/v5": true}
 	fset := token.NewFileSet()
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
@@ -498,9 +510,12 @@ func TestThePackageImportsNothingFromTheBenchmarkOrTheOracle(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, im := range af.Imports {
-			p := strings.ToLower(im.Path.Value)
-			if strings.Contains(p, "benchmark") || strings.Contains(p, "oracle") || strings.Contains(p, "heldout") || strings.Contains(p, "held_out") {
-				t.Errorf("%s imports %s", f, im.Path.Value)
+			p := strings.Trim(im.Path.Value, `"`)
+			if first, _, _ := strings.Cut(p, "/"); !strings.Contains(first, ".") {
+				continue // the standard library
+			}
+			if !allowed[p] {
+				t.Errorf("%s imports %s, which is not on the list", f, p)
 			}
 		}
 	}
@@ -550,9 +565,9 @@ func TestEveryRecordEventTypeHasARowInTheStepTable(t *testing.T) {
 	}
 }
 
-// The Benchmark Owner's worked example (noema#355, item 7), computed there with benchmark.contracts.sha256_of: three entries
+// The scoring side's worked example (noema#355, item 7), computed there with the scorer's sha256_of: three entries
 // whose payload hashes are sha256 of "example payload 1", "2" and "3". The Go digest equals the Python one.
-func TestTheBenchmarkOwnersWorkedExampleDigest(t *testing.T) {
+func TestTheWorkedExampleOfNoema355HasTheSameDigest(t *testing.T) {
 	ph := func(n int) string {
 		sum := sha256.Sum256([]byte(fmt.Sprintf("example payload %d", n)))
 		return "sha256:" + hex.EncodeToString(sum[:])
