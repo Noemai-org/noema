@@ -1,6 +1,6 @@
 package db_test
 
-// TRU-05 slice 2 (migration 0009; Architect, 4 Nov 2026): the Decision Record is written before any grant, and a grant exists only for an
+// TRU-05 slice 2 (migration 0012; Architect, 4 Nov 2026): the Decision Record is written before any grant, and a grant exists only for an
 // ALLOW decision of the same tenant. REQ-TRU-008 acceptance: grants where the decision outcome is not ALLOW: 0, by a database trigger.
 // REQ-TRU-001 / REQ-DATA-001: decision_record is insert-only and only Trust writes it. All rows are SYNTHETIC.
 
@@ -419,5 +419,52 @@ func TestTheSignedDispositionMustBeTheColumnTheForeignKeyChecks(t *testing.T) {
 	}
 	if err := insert("dec_5", "", ""); err != nil {
 		t.Fatalf("no disposition anywhere: %v", err)
+	}
+}
+
+// SR on noema#168 (finding 1, verified by the reviewer): decision_grant_requires_allow ran as the inserting role with no pinned search_path and read
+// decision_record unqualified. PostgreSQL searches the session's temporary schema first unless pg_temp is named, so a Trust login holding TEMPORARY could
+// create a temporary decision_record holding an ALLOW row and insert a grant for a decision that was never recorded (INV-17, REQ-TRU-008).
+func TestATemporaryTableCannotStandInForTheDecisionRecordInTheGrantGuard(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	tx, err := trust.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	for _, q := range []string{
+		`CREATE TEMP TABLE decision_record (decision_id text, tenant_id text, outcome text)`,
+		`INSERT INTO decision_record VALUES ('dec_forged', 'ten_a', 'ALLOW')`,
+	} {
+		if _, err := tx.Exec(ctx(t), q); err != nil {
+			t.Skipf("the login holds no TEMPORARY privilege here, so the shadow cannot be built: %v", err)
+		}
+	}
+	_, err = tx.Exec(ctx(t), fmt.Sprintf(grantFor, "dec_forged"))
+	wantCode(t, err, violation, "a grant for a decision that exists only in a temporary table")
+}
+
+// SR on noema#168 (finding 4, verified by the reviewer): Trust may insert a grant, never one that is already spent or void. Only execution_rw moves the
+// status (D8), so the insert policy admits status ISSUED only.
+func TestTrustCannotInsertAGrantThatIsAlreadySpentOrVoid(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx(t), decisionRow("dec_ok", "ten_a", "ALLOW")); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	for _, status := range []string{"SPENT", "VOID", "EXPIRED"} {
+		err := tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value, status)
+			VALUES ('grt_%s', 'ten_a', 'dec_ok', 'n_%[1]s', jsonb_build_object('decision_id', 'dec_ok', 'tenant_id', 'ten_a'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa', '%[1]s')`, status))
+		wantCode(t, err, denied, "Trust inserting a grant with status "+status)
+	}
+	if err := tryAs(t, trust, fmt.Sprintf(grantFor, "dec_ok")); err != nil {
+		t.Fatalf("an ISSUED grant by Trust: %v", err)
 	}
 }

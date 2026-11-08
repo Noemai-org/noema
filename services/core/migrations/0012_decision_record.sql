@@ -1,4 +1,4 @@
--- 0009: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
+-- 0012: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
 -- REQ-TRU-001, REQ-TRU-008, REQ-DATA-001; INV-03, INV-16. Number decided by the Architect on 4 Nov 2026 (after noema#136's 0007).
 -- Forward-only: this file is never edited after merge. No CREATE ROLE here (TestNoMigrationAfter0001CreatesARole).
 
@@ -84,13 +84,16 @@ ALTER TABLE decision_record FORCE ROW LEVEL SECURITY;
 ALTER TABLE decision_grant ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_grant_read ON decision_grant FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
 CREATE POLICY decision_grant_read_definer ON decision_grant FOR SELECT TO CURRENT_USER USING (tenant_id = decision_login_tenant());
-CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
+-- Trust inserts a grant as ISSUED only: spent, void and expired are moved by Execution alone (D8), so a grant cannot be born already spent or void.
+CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant() AND status = 'ISSUED');
 CREATE POLICY decision_grant_status ON decision_grant FOR UPDATE TO execution_rw USING (tenant_id = decision_login_tenant()) WITH CHECK (tenant_id = decision_login_tenant());
 ALTER TABLE decision_grant FORCE ROW LEVEL SECURITY;
 
 -- The Decision Record comes first, and only an ALLOW decision of the grant's own tenant can have a grant (REQ-TRU-008: grants where the
--- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record.
-CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql AS $$
+-- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record, so row security applies to its read.
+-- Its search_path is pinned to the catalog and pg_temp LAST and the table is schema-qualified: otherwise PostgreSQL searches the session's temporary schema
+-- first, and a login holding TEMPORARY could shadow decision_record with a temporary table holding an ALLOW row (SR on noema#168; INV-17).
+CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE decided text;
 BEGIN
   -- The signed grant document is what Execution decodes; the columns are what this guard reads. They must name the same decision and tenant.
@@ -99,7 +102,7 @@ BEGIN
       NEW.json ->> 'decision_id', NEW.json ->> 'tenant_id', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
-  SELECT d.outcome INTO decided FROM decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
+  SELECT d.outcome INTO decided FROM public.decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
   IF decided IS DISTINCT FROM 'ALLOW' THEN
     RAISE EXCEPTION 'decision_grant: decision % of tenant % is not a recorded ALLOW decision', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
