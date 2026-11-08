@@ -286,3 +286,21 @@ func TestAReadErrorCanCarryTheHashOfTheBytesItReceived(t *testing.T) {
 		t.Fatal("RawHash must be a field of ReadError")
 	}
 }
+
+// A31 (DEC-2026-11-06): REVERSAL_PENDING is non-terminal and is never SUCCEEDED, FAILED or REVERSED; a decision on it is wait or escalate.
+// The port keeps it as its own state and says so, so no caller can read it as a final one.
+func TestReversalPendingIsNonTerminalAndNeverAFinalState(t *testing.T) {
+	terminal := map[SettlementState]bool{SettlementNotRequired: true, SettlementSettled: true, SettlementFailed: true, SettlementReversed: true,
+		SettlementPending: false, SettlementReversalPending: false, SettlementUnknown: false}
+	for s, want := range terminal {
+		if got := s.IsTerminal(); got != want {
+			t.Errorf("%s: IsTerminal = %v, want %v", s, got, want)
+		}
+	}
+	if SettlementReversalPending == SettlementSettled || SettlementReversalPending == SettlementFailed || SettlementReversalPending == SettlementReversed {
+		t.Fatal("REVERSAL_PENDING must be its own state")
+	}
+	if SettlementState("SOMETHING_ELSE").IsTerminal() {
+		t.Fatal("a state the port does not know is never terminal")
+	}
+}
