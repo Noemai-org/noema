@@ -189,7 +189,7 @@
       "pattern": "^[A-Z][A-Z0-9_]*$"
     },
     "voice": {
-      "description": "Audio of the spoken answer, if the channel is voice. audio_ref is a reference to stored audio and is null when none exists. Never raw audio (AGENT-13).",
+      "description": "Audio of the spoken answer, if the channel is voice. audio_ref is an opaque reference to stored spoken-answer audio, `aud_` followed by 2 to 32 letters or digits, and is null when none exists. Never raw audio (AGENT-13).",
       "type": "object",
       "properties": {
         "audio_ref": {
@@ -197,7 +197,7 @@
             "string",
             "null"
           ],
-          "pattern": "^[a-z]+_[A-Za-z0-9_]{2,64}$"
+          "pattern": "^aud_[A-Za-z0-9]{2,32}$"
         }
       },
       "required": [
