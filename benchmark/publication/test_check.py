@@ -106,6 +106,14 @@ class Broken(unittest.TestCase):
             got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
             self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
 
+    def test_an_exponent_number_is_refused_even_when_its_mantissa_is_an_allowed_number(self) -> None:
+        # Codex on bd40967: with 1 among the claim's own k and n, `1e9`, `1E+9` and `1e-9` must still be refused whole.
+        for text, token in (("Noema handled 1e9 cases", "1e9"), ("Noema handled 1E+9 cases", "1E+9"), ("Noema is wrong in 1e-9 of cases", "1e-9")):
+            def mutate(p: Json, c: Json, t: str = text) -> None:
+                p["claims"][1].update(k=1, n=1, text=t)
+            got = self.one(mutate)
+            self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
+
     def test_identifiers_and_the_stated_interval_in_the_text_are_still_accepted(self) -> None:
         pub, cards = publication()
         pub["claims"][1]["text"] = "Family B4 of US-01 under the 95% interval, Tier 0, is handled; pass^k with k = 5 is reported separately"
