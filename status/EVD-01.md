@@ -101,3 +101,11 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 
 ### Caller wiring (#174)
 `layer.BodyOf(err)` returns the adapter error's `RawHash` or an explicit no-bytes (a nil error has neither). The real-fault e2e test now passes both through and asserts, on the real mock-case faults, that the event's `body_received` agrees with the adapter, that a body that arrived is stored under the adapter's hash and not the hash of nothing (503, 429 and a real 404 carry bodies; the timeout does not). Stated: `BodyOf` and its unit test were written together, not failing first; a mutation that ignores the hash is killed by the unit test and by the e2e test. The e2e test itself went red when the builder rule landed in #172, then green.
+
+# Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
+
+## Session summary
+- What changed: `evidence/layer/builder.go` `checkResponse` refuses a payload on any read whose class is not OK (the body hash or an explicit no-bytes is all a failed read keeps), so an OUT_OF_SCOPE or error body is never persisted (INV-19, INV-22). Founder decision of 8 Nov: do it in #172, the root of the chain, before the Codex sweep.
+- Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
+- Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
+- Debt entries: none. Conflicts raised: none.

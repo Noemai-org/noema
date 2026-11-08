@@ -364,3 +364,31 @@ func TestBuilderRefusesNoBytesOnAReadThatHasAResponse(t *testing.T) {
 		t.Fatal("a read with a response was stored although it said no bytes arrived")
 	}
 }
+
+// REQ-CTX-001, INV-19, INV-22 (EL's review of noema#172, point 3): a read that did not succeed has no normalised payload to keep. An
+// OUT_OF_SCOPE or UNAUTHORIZED read must never persist the body of what the requester may not see, and a NOT_FOUND or error body is not
+// a fact. Only an OK read carries a payload; a failed one carries its body hash or an explicit no-bytes, and nothing else.
+func TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed(t *testing.T) {
+	failed := []layer.ReadClass{layer.ReadTimeout, layer.ReadServerError, layer.ReadRateLimited, layer.ReadCircuitOpen, layer.ReadNotFound, layer.ReadMalformed, layer.ReadOutOfScope}
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	for _, class := range failed {
+		o := observation(tenantA, class) // the helper's observation carries a payload object and a valid raw hash
+		o.SourceRecordID = "rec-payload-" + string(class)
+		if o.Payload == nil || o.RawHash == "" {
+			t.Fatalf("%s: the helper no longer builds a payload with a hash; fix the test", class)
+		}
+		if item, err := b.Record(ctx(t), o); err == nil {
+			t.Errorf("%s: a failed read was stored with its payload: %+v", class, item)
+		}
+	}
+	for _, q := range []string{`SELECT count(*) FROM evidence_payload`, `SELECT count(*) FROM evidence_item`, `SELECT count(*) FROM record_event`} {
+		if n := w.count(t, q); n != 0 {
+			t.Errorf("%s = %d after the refusals", q, n)
+		}
+	}
+	// The OK read with its payload is still accepted.
+	if _, err := b.Record(ctx(t), observation(tenantA, layer.ReadOK)); err != nil {
+		t.Fatalf("an OK read with its payload was refused: %v", err)
+	}
+}
