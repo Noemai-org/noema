@@ -1,14 +1,26 @@
 package export
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
+	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
-// ErrNotImplemented is returned by the stub; the implementation commit removes it.
-var ErrNotImplemented = errors.New("export: not implemented")
+// rollbackTimeout bounds the cleanup of a request: the rollback runs on a context detached from the request's deadline, and never
+// without a limit (as in record/reconstruct).
+const rollbackTimeout = 5 * time.Second
 
 // Errors the export returns. Each is a refusal: nothing is exported with it.
 var (
@@ -25,10 +37,10 @@ type TxBeginner interface {
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
-// Session is what the edge's session check established. The tenant is never an argument of its own (INV-12).
+// Session is what the edge's session check established (EDG-01). The tenant is never an argument of its own (INV-12).
 type Session struct{ TenantID string }
 
-// Entry is one entry of the neutral audit_record.
+// Entry is one entry of the neutral audit_record. The fields are those of AuditEntry in benchmark-arm-result.v1.
 type Entry struct {
 	Seq           int      `json:"seq"`
 	At            string   `json:"at"`
@@ -41,22 +53,212 @@ type Entry struct {
 	Outcome       *string  `json:"outcome"`
 }
 
-// AuditRecord is the neutral audit_record: the entries and a digest of the whole.
+// AuditRecord is the neutral audit_record: the entries and the digest of the whole.
 type AuditRecord struct {
 	Entries []Entry `json:"entries"`
 	Digest  string  `json:"digest"`
 }
 
-// StepOf returns the neutral step of a Record event type. inCase is false for the system-level types the export leaves out.
-func StepOf(eventType string) (step string, inCase, known bool) { return "", false, false }
+var (
+	hashRe  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	atRe    = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$`)
+	labelRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+)
 
-// Digest is the digest of the whole: sha256 of the canonical JSON of the entries array alone.
-func Digest(entries []Entry) (string, error) { return "", ErrNotImplemented }
+// sha256Of is the digest of the canonical JSON of v: "sha256:" and 64 lower-case hex digits.
+func sha256Of(v any) (string, error) {
+	b, err := crypto.CanonicalJSON(v)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
 
-// JSON is the canonical JSON of the audit_record, the same bytes for the same Record.
-func (a AuditRecord) JSON() ([]byte, error) { return nil, ErrNotImplemented }
+// Digest is the digest of the whole: the digest of the canonical JSON of the entries array alone.
+func Digest(entries []Entry) (string, error) {
+	if entries == nil {
+		entries = []Entry{}
+	}
+	return sha256Of(entries)
+}
 
-// AuditRecordOf exports one correlation of the session tenant's Record.
+// JSON is the canonical JSON of the audit_record: the same bytes for the same Record.
+func (a AuditRecord) JSON() ([]byte, error) { return crypto.CanonicalJSON(a) }
+
+// AuditRecordOf exports one correlation of the session tenant's Record as the neutral audit_record. In one read-only REPEATABLE
+// READ transaction it reads the tenant's whole chain through record_read (the database takes the tenant from the login), checks
+// the handle is the session tenant's, verifies the chain from genesis and only then builds the entries from those same rows. A
+// chain that does not verify, another tenant's handle, an unknown event type or a payload that cannot be read is a refusal.
 func AuditRecordOf(ctx context.Context, db TxBeginner, s Session, correlationID string) (AuditRecord, error) {
-	return AuditRecord{}, ErrNotImplemented
+	if s.TenantID == "" {
+		return AuditRecord{}, ErrNoSession
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return AuditRecord{}, errors.New("export: the context needs a deadline")
+	}
+	rows, err := readChain(ctx, db)
+	if err != nil {
+		return AuditRecord{}, err
+	}
+	if len(rows) == 0 {
+		return AuditRecord{}, ErrNotFound
+	}
+	if t, err := tenantOf(rows[0]); err != nil || t != s.TenantID {
+		return AuditRecord{}, fmt.Errorf("%w (%v)", ErrTenantMismatch, err)
+	}
+	if _, err := chain.VerifyRows(s.TenantID, rows); err != nil {
+		return AuditRecord{}, fmt.Errorf("%w: %w", ErrIntegrity, err)
+	}
+	var span []chain.Row
+	for _, r := range rows {
+		if r.CorrelationID == correlationID {
+			span = append(span, r)
+		}
+	}
+	if len(span) == 0 {
+		return AuditRecord{}, ErrNotFound
+	}
+	entries, err := entriesOf(span)
+	if err != nil {
+		return AuditRecord{}, err
+	}
+	digest, err := Digest(entries)
+	if err != nil {
+		return AuditRecord{}, err
+	}
+	return AuditRecord{Entries: entries, Digest: digest}, nil
+}
+
+func readChain(ctx context.Context, db TxBeginner) ([]chain.Row, error) {
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, fmt.Errorf("export: begin: %w", err)
+	}
+	defer func() {
+		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
+		defer cancel()
+		_ = tx.Rollback(rctx)
+	}()
+	return chain.ReadChain(ctx, tx)
+}
+
+func tenantOf(r chain.Row) (string, error) {
+	var b struct {
+		TenantID string `json:"tenant_id"`
+	}
+	if err := json.Unmarshal([]byte(r.Body), &b); err != nil {
+		return "", err
+	}
+	return b.TenantID, nil
+}
+
+// entriesOf builds the entries of one verified span. seq is renumbered 1..n; inputs_digest links each entry to the payload hash of
+// the previous exported one; evidence ids tc_1, tc_2 ... follow the EVIDENCE_READ events in chain order.
+func entriesOf(span []chain.Row) ([]Entry, error) {
+	entries := make([]Entry, 0, len(span))
+	prevOut, reads := []string{}, 0
+	for _, r := range span {
+		step, inCase, known := StepOf(r.EventType)
+		if !known {
+			return nil, fmt.Errorf("%w: %s", ErrUnmapped, r.EventType)
+		}
+		if !inCase {
+			continue
+		}
+		if r.EventType == "EVIDENCE_READ" {
+			reads++
+		}
+		at, err := atOf(r)
+		if err != nil {
+			return nil, err
+		}
+		if !hashRe.MatchString(r.PayloadHash) {
+			return nil, fmt.Errorf("%w: event %s has no payload hash", ErrUnprojectable, r.EventID)
+		}
+		in, err := sha256Of(prevOut)
+		if err != nil {
+			return nil, err
+		}
+		e := Entry{Seq: len(entries) + 1, At: at, Step: step, Actor: neutralActor(r.EventType, r.WrittenBy, r.Actor), EvidenceIDs: evidenceFor(step, reads),
+			InputsDigest: in, OutputsDigest: r.PayloadHash}
+		if err := setLabels(&e, r); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+		prevOut = []string{r.PayloadHash}
+	}
+	return entries, nil
+}
+
+// evidenceFor: the READ_EVIDENCE, DECIDE and EXPLAIN steps list every evidence read so far; every other step lists none.
+func evidenceFor(step string, reads int) []string {
+	ids := []string{}
+	if step == "READ_EVIDENCE" || step == "DECIDE" || step == "EXPLAIN" {
+		for i := 1; i <= reads; i++ {
+			ids = append(ids, "tc_"+strconv.Itoa(i))
+		}
+	}
+	return ids
+}
+
+func atOf(r chain.Row) (string, error) {
+	var b struct {
+		At string `json:"at"`
+	}
+	if err := json.Unmarshal([]byte(r.Body), &b); err != nil || !atRe.MatchString(b.At) {
+		return "", fmt.Errorf("%w: event %s has no readable time", ErrUnprojectable, r.EventID)
+	}
+	return b.At, nil
+}
+
+// setLabels sets `decision` on DECISION_MADE and `outcome` on VERDICT, and nothing on any other entry (noema#355 item 4).
+func setLabels(e *Entry, r chain.Row) error {
+	switch r.EventType {
+	case "DECISION_MADE":
+		var p struct {
+			Outcome string `json:"decision_outcome"`
+		}
+		if err := payloadInto(r, &p); err != nil || !dispositions[p.Outcome] {
+			return fmt.Errorf("%w: event %s carries no legal disposition", ErrUnprojectable, r.EventID)
+		}
+		e.Decision = &p.Outcome
+	case "VERDICT":
+		label, ok := verdictLabel(r)
+		if !ok {
+			return fmt.Errorf("%w: event %s carries no readable verdict", ErrUnprojectable, r.EventID)
+		}
+		e.Outcome = &label
+	}
+	return nil
+}
+
+func payloadInto(r chain.Row, v any) error {
+	if r.Payload == nil {
+		return errors.New("no payload")
+	}
+	return json.Unmarshal([]byte(*r.Payload), v)
+}
+
+// verdictLabel reads the verdict enum. Outcome writes the verdict document nested under "verdict" (outcome/store), the enum at
+// verdict.verdict; the flat form {"verdict": "<enum>"} that the reconstruction reads is accepted too.
+func verdictLabel(r chain.Row) (string, bool) {
+	var p struct {
+		Verdict json.RawMessage `json:"verdict"`
+	}
+	if payloadInto(r, &p) != nil {
+		return "", false
+	}
+	var flat string
+	if json.Unmarshal(p.Verdict, &flat) == nil && labelRe.MatchString(flat) {
+		return flat, true
+	}
+	var nested struct {
+		Verdict string `json:"verdict"`
+	}
+	d := json.NewDecoder(bytes.NewReader(p.Verdict))
+	if d.Decode(&nested) == nil && labelRe.MatchString(nested.Verdict) {
+		return nested.Verdict, true
+	}
+	return "", false
 }
