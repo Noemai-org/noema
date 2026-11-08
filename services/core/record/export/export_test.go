@@ -381,6 +381,23 @@ func TestAnUnknownCorrelationIsNotFoundAndTheContextNeedsADeadline(t *testing.T)
 	}
 }
 
+// Outcome writes the verdict document nested under "verdict" (outcome/store), the enum at verdict.verdict; the flat form that the
+// reconstruction reads is accepted too (execution/recovery does the same). Both give the same outcome label.
+func TestTheVerdictLabelIsReadFromTheNestedDocumentOutcomeWrites(t *testing.T) {
+	w := newWorld(t)
+	s := story("ALLOW")
+	s[17].payload = map[string]any{"verdict": map[string]any{"verdict": "NOT_ACHIEVED", "verdict_id": "ver_synth0001"}, "reason": "READ_MISMATCH"}
+	w.append(t, tenant, "corr_case01", s...)
+	got, err := export1(t, w, tenant, "corr_case01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := got.Entries[len(got.Entries)-2]
+	if last.Step != "VERIFY" || deref(last.Outcome) != "NOT_ACHIEVED" {
+		t.Fatalf("got step=%s outcome=%v, want VERIFY and NOT_ACHIEVED", last.Step, deref(last.Outcome))
+	}
+}
+
 // An event whose payload does not carry a legal disposition or verdict label is refused, never guessed (fail closed).
 func TestAnIllegalDispositionOrVerdictIsRefused(t *testing.T) {
 	for name, mut := range map[string]func([]ev){
