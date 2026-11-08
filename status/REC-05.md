@@ -32,7 +32,7 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 - Next: slice 3, the on-demand endpoint (ops and audit only), wired by EDG-01.
 
 ## Update 2026-11-07 (Founder decision D5: set-only kill switch, noema#265)
-- Added migration `0019_kill_switch_set_only.sql` and `platform/db/kill_switch_test.go` (committed red first at fe06dbb). The verification login may set any tenant's kill switch (it is all-tenant by design, a named exception, SR F1) and cannot clear it; the administrator can.
+- Added migration `0017_kill_switch_set_only.sql` and `platform/db/kill_switch_test.go` (committed red first at fe06dbb). The verification login may set any tenant's kill switch (it is all-tenant by design, a named exception, SR F1) and cannot clear it; the administrator can.
 - Not decided here: which login a person clears the switch with in production (the control plane, EXE-06, route names per D14), and an audit event for a clear.
 - Pre-work: when EXE-06 exists, add a test that its ops login clears the switch and that the clear is recorded.
 
