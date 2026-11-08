@@ -11,6 +11,6 @@
 - The refusal names a `Reason` and a field and never carries a value, so the text never reaches a log through an error. The gateway logs nothing.
 - Same raw body and context give the same bytes; normalising a canonical text again changes nothing (property tests).
 
-**Not here.** Deduplication by `request_id` (REQ-INP-003, core), the schema gate on the Intent Object and `intent_hash` (UND-04), and the `INPUT_RECEIVED` Record event with the input hash (core). The `request_id` must already be a lower-case UUID; the gateway does not normalise identifiers.
+**Not here.** The gateway does **not** deduplicate on `request_id`: REQ-INP-003 is the caller's job, per the contract's description (a redelivered body gives the same canonical input again). Deduplication by `request_id` (REQ-INP-003, core), the schema gate on the Intent Object and `intent_hash` (UND-04), and the `INPUT_RECEIVED` Record event with the input hash (core). The `request_id` must already be a lower-case UUID; the gateway does not normalise identifiers.
 
 **Tests.** `pytest tests/test_input_gateway.py` from `services/model/`.
