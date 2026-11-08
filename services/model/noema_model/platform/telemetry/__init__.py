@@ -152,6 +152,7 @@ class CostFileTelemetry:
 
     def __init__(self, inner: Telemetry, out: Path) -> None:
         self._inner = inner
+        self._out = out
         self._dir = out / "cost"
 
     def count(self, name: str, labels: Mapping[str, str], value: int = 1) -> None:
@@ -172,6 +173,9 @@ class CostFileTelemetry:
         if not _ALLOWED.fullmatch(correlation_id) or len(correlation_id) > MAX_CORRELATION_ID_LENGTH:
             raise CostFileRefused(f"correlation id of {len(correlation_id)} characters is not 1 to {MAX_CORRELATION_ID_LENGTH} characters of [A-Za-z0-9_-]")
         self._dir.mkdir(parents=True, exist_ok=True)
+        # Only <out>/cost itself: a link there would carry the files anywhere, including into held-out custody (INV-22; ruling of 8 Nov 2026 on noema#293).
+        if self._dir.is_symlink() or self._dir.resolve().parent != self._out.resolve():
+            raise CostFileRefused("the cost directory is a link or lies outside the bench output directory")
         for sequence in range(1, MAX_CALLS_PER_CORRELATION + 1):
             try:
                 with open(self._dir / f"{correlation_id}-{sequence:03d}.json", "x", encoding="utf-8") as handle:

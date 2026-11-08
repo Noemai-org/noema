@@ -21,7 +21,7 @@ The end-to-end packages (`adapters/outcome_e2e`, `adapters/synthetic_tushe` faul
 ## 2. No benchmark-only branches (REQ-TST-006)
 
 - Searched the production code of `services/core` and `services/model` for benchmark, oracle, held-out and profile switches. `services/core` has none: its only environment reads are `NOEMA_CORE_ADDR` (`cmd/core/main.go:81`) and the test harness's database URL (`internal/testpg/testpg.go:244`). Comments that mention the benchmark describe who reads a field, not a code path.
-- **One exception, for the reviewer to accept or reject: `BENCH_OUT` in `services/model/noema_model/main.py` and `platform/telemetry/__init__.py:186`.** When set (only by the bench override of the Compose stack), each model call's record is also written as a cost file (REQ-NFR-007). It adds accounting output only; it does not change any request, response, decision or provider choice. It is a benchmark-triggered branch in production code, so it is a REQ-TST-006 question even though its effect is observability. Smallest alternative if rejected: always write the cost file to a configured path and let the bench set the path (no branch on "bench"). Not changed here; changing a model-service default is not on this task's allowlist.
+- **`BENCH_OUT` in `services/model/noema_model/main.py` and `platform/telemetry/__init__.py` (REQ-NFR-007): accepted by the Architect on 8 Nov 2026 as an observability-only exception for the POC (noema#293).** When set (only by the bench override of the Compose stack), each model call's record is also written as a cost file; it changes no request, response, decision or provider choice. The Architect's two conditions are tests in `services/model/tests/test_cost_files.py`, both passing: `test_decisions_are_identical_with_and_without_bench_out` (the returned call and everything the wrapped telemetry sees are identical with it set and unset) and `test_cost_files_are_written_only_under_bench_out_cost_and_never_through_a_link` plus `test_the_bench_compose_override_mounts_benchmark_output_and_no_held_out_custody` (INV-22). **The custody test found a real gap, now fixed:** the writer followed a symbolic link at `$BENCH_OUT/cost`, so the files could have been carried anywhere, including into held-out custody. `CostFileTelemetry` now refuses a linked or outside cost directory (`CostFileRefused`).
 - `benchmark/` code is outside this question (it is the benchmark).
 
 ## 3. Tests before code, from PR history (AGENT-11, REQ-TST-001)
@@ -53,10 +53,10 @@ Restricted to the P0 paths (`services/core/{trust,execution,outcome,record}`, `p
 ## 4. What is not done
 
 - The CI run history for the same-commit P0 PRs was not examined.
-- The resolver fake (row 1) is decided: it stays as a recorded exception with the SEC-05 slice 2 condition above. `BENCH_OUT` is listed, not removed: changing the model service is outside this task's allowlist and the Architect has not decided (noema#293).
+- Both exceptions are decided and recorded (the resolver fake by SR, `BENCH_OUT` by the Architect), so the task's "any exceptions fixed" is met: one stays as a recorded exception with a follow-up test owed by SEC-05 slice 2, the other is accepted with two tests and one fix. The 37 same-commit P0 PRs are not proved test-first by history; their CI runs were not examined.
 - Python test packages other than `services/model/tests` were searched by import only.
 
 ## 5. Suggested follow-ups (for the Steward to place; none is started)
 
 1. A CI check that a PR whose title cites a task in a P0 path has at least one commit that adds a test before the first source commit (would make section 3 a check, not an audit). It belongs to MEM-02 or PLT-09, not here.
-2. Decide the two exceptions in section 1 (row 1) and section 2 (`BENCH_OUT`) with their owners.
+2. SEC-05 slice 2 owes the system-resolver test (a name that resolves to loopback is refused at registration and at delivery, no fake).

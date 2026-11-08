@@ -20,3 +20,10 @@ Updated 2026-11-07. Owner: EL. Done when: audit note committed with any exceptio
 - Open questions (owner): are the two exceptions accepted? (SEC-05 owner; Architect for BENCH_OUT)
 - Files to read first: `docs/audits/TST-04-test-suite-audit.md`.
 - Do not touch: `services/core/platform/egress`, `services/model/noema_model` from this task.
+
+# Session 2026-11-08 · TST-04
+
+## Session summary
+- What changed: both exceptions decided (SR: resolver seam; Architect, noema#293: `BENCH_OUT` accepted for the POC on two conditions). Tests added in `services/model/tests/test_cost_files.py`: decisions identical with it unset; cost files only under `$BENCH_OUT/cost` and never through a link; the bench compose override mounts no held-out custody (INV-22). The custody test failed first and found that the writer followed a symbolic link; fixed in `platform/telemetry/__init__.py`.
+- Tests: the model service suite passes (686) and `mypy --strict` is clean on the changed module.
+- Done-when: the audit note is committed and the exceptions are decided and recorded. One follow-up is owed elsewhere: SEC-05 slice 2's system-resolver test.

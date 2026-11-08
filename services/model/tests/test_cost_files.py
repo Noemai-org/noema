@@ -170,3 +170,46 @@ def test_events_and_spans_still_reach_the_wrapped_telemetry(tmp_path: Path) -> N
 def test_the_file_holds_the_record_text_unchanged(tmp_path: Path) -> None:
     CostFileTelemetry(NullTelemetry(), tmp_path).event(COST_EVENT, "corr_1", {"record": '{"a":1}'})
     assert (tmp_path / "cost" / "corr_1-001.json").read_text() == '{"a":1}'
+
+
+# Architect's ruling of 8 Nov 2026 on noema#293 (item 2): BENCH_OUT is accepted as an observability-only exception for the POC on two conditions, tested here.
+# REQ-TST-006, REQ-NFR-007, INV-22.
+
+def test_decisions_are_identical_with_and_without_bench_out(tmp_path: Path) -> None:
+    """The cost files add output and nothing else: the call a model request gets back, and everything the wrapped telemetry sees, are the same."""
+    plain_inner = InMemoryTelemetry()
+    plain = run(harness_with(cost_files_from_environment(plain_inner, {})).generate(request())).call
+    wrapped_inner = InMemoryTelemetry()
+    wrapped = run(harness_with(cost_files_from_environment(wrapped_inner, {"BENCH_OUT": str(tmp_path)})).generate(request())).call
+    assert wrapped.to_dict() == plain.to_dict()
+    assert wrapped_inner.counts == plain_inner.counts
+    assert wrapped_inner.observations == plain_inner.observations
+    assert wrapped_inner.events == plain_inner.events
+    assert wrapped_inner.spans == plain_inner.spans
+    assert not list(tmp_path.glob("**/*.tmp"))
+    assert [p.name for p in (tmp_path / "cost").iterdir()] and not any(p.is_dir() for p in (tmp_path / "cost").iterdir())
+
+
+def test_cost_files_are_written_only_under_bench_out_cost_and_never_through_a_link(tmp_path: Path) -> None:
+    """A path that leaves $BENCH_OUT/cost is refused, so the writer can never reach held-out custody (INV-22), even if the directory is a link into it."""
+    custody = tmp_path / "custody"
+    custody.mkdir()
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "cost").symlink_to(custody, target_is_directory=True)
+    telemetry = CostFileTelemetry(InMemoryTelemetry(), out)
+    with pytest.raises(CostFileRefused):
+        telemetry.event(COST_EVENT, "corr_inv22", {"record": "{}"})
+    assert not list(custody.iterdir())
+    for hostile in ("../corr", "a/b", "..", "/etc/passwd", "corr\x00x"):
+        with pytest.raises(CostFileRefused):
+            CostFileTelemetry(InMemoryTelemetry(), tmp_path / "ok").event(COST_EVENT, hostile, {"record": "{}"})
+    assert not (tmp_path / "corr").exists()
+
+
+def test_the_bench_compose_override_mounts_benchmark_output_and_no_held_out_custody() -> None:
+    text = (Path(__file__).resolve().parents[3] / "deploy" / "compose" / "bench-model.yml").read_text()
+    live = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    volumes = [line for line in live if line.lstrip().startswith("- ") and ":" in line]
+    assert volumes == ["      - ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out"]
+    assert not any("held" in line.lower() for line in live)
