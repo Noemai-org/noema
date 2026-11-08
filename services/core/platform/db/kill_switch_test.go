@@ -1,11 +1,13 @@
 package db_test
 
-// REC-05 / D5 (Founder decision, 7 Nov 2026): the chain verifier may set a tenant's kill switch; only a person clears it. REQ-AUD-005, INV-11, INV-12.
+// REC-05 / D5 (Founder decision D5 of 7 Nov 2026, DEC-2026-11-07-founder-decisions-block-d): the chain verifier may set a tenant's kill switch; only a person clears it. REQ-AUD-005, INV-11, INV-12.
 // The verification login holds UPDATE on tenant.kill_switch so that it can stop a tenant after a break (migration 0006); that privilege must not let it
 // clear the switch, whether the break was real or the verifier was fooled. Synthetic tenants.
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,5 +82,30 @@ func TestNoRuntimeLoginCanClearTheKillSwitchEvenWithTheGrant(t *testing.T) {
 				t.Fatalf("kill_switch = %v, %v; a refused clear must change nothing", on, err)
 			}
 		})
+	}
+}
+
+// Review of noema#265 (second re-review): the guard lets a superuser clear the switch, as the person's break-glass path until the control plane's ops login
+// (EXE-06, ruling A71) exists. The database cannot tell a person from a process, so what can be shown is that no SERVICE can be that superuser: every login
+// role the deployment creates for a service is NOSUPERUSER. This is a guard on an existing property (it passes today, so there is no red run); it fails the
+// day someone adds a superuser login to the bootstrap, which is the only way a runtime process could clear a person's stop. REQ-AUD-005, INV-11, ruling D5.
+func TestNoServiceLoginIsCreatedAsASuperuser(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "deploy", "compose", "postgres", "init.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	logins := 0
+	for n, line := range strings.Split(string(b), "\n") {
+		l := strings.TrimSpace(line)
+		if strings.HasPrefix(l, "--") || !strings.Contains(l, "CREATE ROLE") || !strings.Contains(l, " LOGIN") || strings.Contains(l, "NOLOGIN") {
+			continue
+		}
+		logins++
+		if !strings.Contains(l, "NOSUPERUSER") {
+			t.Errorf("init.sh line %d creates a login that is not NOSUPERUSER: %s", n+1, l)
+		}
+	}
+	if logins < 4 {
+		t.Fatalf("found %d login roles in init.sh; the scan is looking in the wrong place", logins)
 	}
 }
