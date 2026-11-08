@@ -20,3 +20,12 @@
 ## Session 2026-11-07 · rulings A36 and A29 (model service half)
 - Fixtures regenerated from #199 at 216c939 (the A17 record: `drift` and `bar` blocks, five runs, drift PASS, bar), and the lookup now fails closed: any invalid record for the identity refuses it (the skipped record might have been the revocation). Red commit first (fixtures and the test change), then the gate. Five mutants killed (fail-closed, below-bar, drift, no-bar, five-runs).
 - #212 closed (A36). The pin rule is the harness's own (`check_pinned`); BO's `pins.py` now matches it and says a golden test here compares them (the gate pin cases).
+
+# Session 2026-11-08 · UND-13 slice 2 · EL's blocking finding on noema#215
+
+## Session summary
+- What changed: `qualification/gate.py` (a rate, floor or baseline must be a finite int or float, not a bool, within 0..1; `fullmatch` for the digest and the date; a non-string reason invalidates the record), `qualification/canary.py` (`timeout_s` must be a positive finite number), README (nothing calls the gate yet; the NaN note; the import line).
+- Why: EL's reviewer-role statement at ddb9be1: a NaN rate added no reason (every comparison with NaN is false), so a malformed record could pass the gate. I had posted "READY FOR CODEX" over that open finding; it was premature and is corrected here.
+- Tests added (REQ-INT-006, AGENT-28): `tests/test_qualification_gate_malformed.py` (eleven bad rates, ten bad floors and baselines, trailing newline, four unhashable or non-string reasons) and the canary deadline cases. Red first (commit 89af9249).
+- Not done: the same weakness is said to exist in the benchmark module (noema#199, Benchmark Owner's code): reported by relay issue. Wiring `require_qualified` into start-up is the next slice. Per-case reasons for UNAVAILABLE are a later change.
+- Debt entries: none. Conflicts raised: none.

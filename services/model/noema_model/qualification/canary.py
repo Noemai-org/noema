@@ -11,6 +11,7 @@ answer, never the oracle's expectation. No timeout is chosen here (AGENT-16): th
 import asyncio
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -125,6 +126,8 @@ async def _ask(asker: Asker, case: Mapping[str, Any], timeout_s: float) -> CaseA
 
 async def run_canary(*, subset: Mapping[str, Any], baseline: Mapping[str, Any], pinned: Mapping[str, Any], asker: Asker, commit_sha: str, recorded_on: str, timeout_s: float) -> Json:
     """Ask every subset case once, in order, and return the run record. A failed or timed-out call is UNAVAILABLE for that case; any other error propagates."""
+    if type(timeout_s) not in (int, float) or not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError(f"timeout_s must be a positive finite number from configuration, not {timeout_s!r} (None would wait forever)")
     pin = _pinned(pinned)
     _check_inputs(subset, baseline, pin)
     if not _SHA.match(commit_sha):

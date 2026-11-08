@@ -10,6 +10,7 @@ Rules, as the benchmark module states them (`record.check_model` is the referenc
 
 import datetime
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -51,6 +52,11 @@ def is_pinned(version: Any) -> bool:
     return True
 
 
+def _is_ratio(value: Any) -> bool:
+    """A real number from 0 to 1. Not a bool (a bool is an int), not NaN or infinity (every comparison with NaN is false, so a NaN would pass `rate < bar`), not a string."""
+    return type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1
+
+
 def _five_runs(pass_k: Mapping[str, Any]) -> bool:
     """pass^k is available only when exactly five runs were supplied and five were required: the flag alone is not evidence."""
     return pass_k.get("k_required") == FIVE and pass_k.get("runs_supplied") == FIVE
@@ -76,18 +82,20 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
         rate = (pass_k.get("rate") or {}).get("rate")
         if rate is None:
             reasons.append("pass^k has no rate to compare with the bar")
+        elif not _is_ratio(rate) or not all(_is_ratio(b) for b in bars):
+            reasons.append("the pass^k rate or the bar is not a number from 0 to 1")
         elif rate < max(bars):
             reasons.append(f"pass^k {rate} is below the bar {max(bars)}")
     return reasons
 
 
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")  # used with fullmatch: `$` would accept a trailing newline
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # used with fullmatch
 
 
 def _valid_date(value: Any) -> bool:
     """The one canonical spelling, YYYY-MM-DD, that is also a real calendar day: other ISO spellings of a day (2026W455) are refused so two records of one day compare equal."""
-    if not isinstance(value, str) or not _DATE.match(value):
+    if not isinstance(value, str) or not _DATE.fullmatch(value):
         return False
     try:
         datetime.date.fromisoformat(value)
@@ -114,7 +122,7 @@ def validate_record(record: Record) -> list[str]:
         out.append(f"version {record['version']!r} is not pinned")
     if not _valid_date(record["qualified_on"]):
         out.append(f"qualified_on {record['qualified_on']!r} is not an ISO date")
-    if not isinstance(record["scorecard_sha256"], str) or not _DIGEST.match(record["scorecard_sha256"]):
+    if not isinstance(record["scorecard_sha256"], str) or not _DIGEST.fullmatch(record["scorecard_sha256"]):
         out.append("scorecard_sha256 must be sha256: and 64 lowercase hex characters")
     if not isinstance(record["run_id"], str) or not record["run_id"].strip():
         out.append("run_id must be a non-empty string")
@@ -124,6 +132,12 @@ def validate_record(record: Record) -> list[str]:
     out += [f"{name} must be an object" for name in ("pass_k", "drift", "bar") if name not in blocks]
     if not isinstance(record["reasons"], list):
         out.append("reasons must be a list")
+    elif not all(isinstance(r, str) for r in record["reasons"]):
+        out.append("every reason must be a string")
+    if "pass_k" in blocks and isinstance(blocks["pass_k"].get("rate"), Mapping) and blocks["pass_k"]["rate"].get("rate") is not None and not _is_ratio(blocks["pass_k"]["rate"]["rate"]):
+        out.append("pass_k.rate.rate must be a number from 0 to 1")
+    if "bar" in blocks:
+        out += [f"bar.{name} must be a number from 0 to 1 or absent" for name in ("baseline_pass_k", "floor") if blocks["bar"].get(name) is not None and not _is_ratio(blocks["bar"][name])]
     flags_ok = True
     for flag in ("complete", "tier0_all_zero"):
         if type(record[flag]) is not bool:
