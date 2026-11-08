@@ -179,7 +179,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 		t.Fatal(err)
 	}
 	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
-	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, jsonb_build_object('decision_id', $1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID); err != nil {
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID, testpg.DecisionDocJSON(g.DecisionID, g.TenantID, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)

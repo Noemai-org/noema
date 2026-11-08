@@ -26,7 +26,17 @@ CREATE TABLE decision_record (
     -- the key and the signature are stored in the document and in two columns: one signature, one key (A13, REQ-TRU-001)
     AND json #>> '{sig,key_id}' IS NOT DISTINCT FROM sig_key_id AND json #>> '{sig,value}' IS NOT DISTINCT FROM sig_value
     -- the signed disposition is the column the composite foreign key checks, so it is tenant-scoped and ESCALATE (REQ-TRU-010)
-    AND json ->> 'disposition_decision_id' IS NOT DISTINCT FROM disposition_decision_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+    AND json ->> 'disposition_decision_id' IS NOT DISTINCT FROM disposition_decision_id),  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+  -- A13 (ruling of 8 Nov 2026 on noema#329): a record missing a bound field is invalid. Each is a non-empty string; issued_at and expires_at are UTC timestamps
+  -- and the record expires after it is issued. IS NOT DISTINCT FROM and coalesce keep NULL from passing a CHECK.
+  CONSTRAINT decision_record_bound_fields CHECK (coalesce(
+    jsonb_typeof(json -> 'intent_id') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'intent_id', '') <> ''
+    AND jsonb_typeof(json -> 'correlation_id') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'correlation_id', '') <> ''
+    AND jsonb_typeof(json -> 'policy_version') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'policy_version', '') <> ''
+    AND jsonb_typeof(json -> 'intent_hash') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'intent_hash', '') <> ''
+    AND CASE WHEN jsonb_typeof(json -> 'issued_at') IS NOT DISTINCT FROM 'string' AND jsonb_typeof(json -> 'expires_at') IS NOT DISTINCT FROM 'string'
+              AND json ->> 'issued_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$' AND json ->> 'expires_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$'
+             THEN (json ->> 'expires_at')::timestamptz > (json ->> 'issued_at')::timestamptz ELSE false END, false))
 );
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
@@ -94,7 +104,7 @@ ALTER TABLE decision_grant FORCE ROW LEVEL SECURITY;
 -- Its search_path is pinned to the catalog and pg_temp LAST and the table is schema-qualified: otherwise PostgreSQL searches the session's temporary schema
 -- first, and a login holding TEMPORARY could shadow decision_record with a temporary table holding an ALLOW row (SR on noema#168; INV-17).
 CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
-DECLARE decided text;
+DECLARE decided text; rec jsonb; rec_expires timestamptz; grant_expires timestamptz;
 BEGIN
   -- The signed grant document is what Execution decodes; the columns are what this guard reads. They must name the same decision and tenant.
   IF NEW.json ->> 'decision_id' IS DISTINCT FROM NEW.decision_id OR NEW.json ->> 'tenant_id' IS DISTINCT FROM NEW.tenant_id THEN
@@ -102,10 +112,26 @@ BEGIN
       NEW.json ->> 'decision_id', NEW.json ->> 'tenant_id', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
-  SELECT d.outcome INTO decided FROM public.decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
+  SELECT d.outcome, d.json INTO decided, rec FROM public.decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
   IF decided IS DISTINCT FROM 'ALLOW' THEN
     RAISE EXCEPTION 'decision_grant: decision % of tenant % is not a recorded ALLOW decision', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  -- A grant derives from its decision (ruling of 8 Nov 2026 on noema#329; INV-17, REQ-TRU-008): the same intent, the same policy version, and no longer
+  -- life than the record. Execution still revalidates at spend (E4); these rules mean the Record never shows a grant its decision does not authorise.
+  IF NEW.json ->> 'intent_hash' IS DISTINCT FROM rec ->> 'intent_hash' THEN
+    RAISE EXCEPTION 'decision_grant: the grant names another intent than decision %', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.json ->> 'policy_version' IS DISTINCT FROM rec ->> 'policy_version' THEN
+    RAISE EXCEPTION 'decision_grant: the grant names another policy version than decision %', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NOT coalesce(NEW.json ->> 'expires_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$', false) THEN
+    RAISE EXCEPTION 'decision_grant: the signed grant carries no valid expires_at' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  rec_expires := (rec ->> 'expires_at')::timestamptz;   -- the record's CHECK guarantees its shape
+  grant_expires := (NEW.json ->> 'expires_at')::timestamptz;
+  IF grant_expires > rec_expires OR NEW.expires_at > rec_expires THEN
+    RAISE EXCEPTION 'decision_grant: the grant outlives decision % (it expires after the record)', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
   END IF;
   RETURN NEW;
 END $$;
