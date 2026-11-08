@@ -27,3 +27,11 @@ A claim is supported only by KNOWN facts (INV-13, EXP-02): citing an INFERRED fa
 
 ### Codex review of #224, round four
 Name detection no longer depends on capitalisation: every word of a rendered text must occur in the facts (value, label, as_of, kind), in the pack's reviewed templates for the locale, or be an ordinary function word, so `we spoke to bello` is blocked. A consequence to know about: a model text that uses words the templates do not (for instance "money is safe") is blocked and falls back to the template; widening the vocabulary is a pack-data change for EXP-03/EXP-04, not code. Duplicate fact IDs are refused. Red commit first; three mutants killed (one, forcing the duplicate's status to KNOWN, is equivalent because the duplicate error already blocks).
+
+# Session 2026-11-08 · EXP-01 slice 3 · the forbidden-claim lists as pack data (Architect decision A3)
+
+## Session summary
+- What changed: `packs/fintech/templates/en-NG.forbidden.json` (nine patterns, from PERD 31.2 and the earlier Python list), `explanation.LoadForbidden`, README lines in `packs/fintech/templates/` and `services/core/explanation/`. The Python template test now reads the pack file instead of its own literal list, so one source feeds both checks.
+- Tests added: `forbidden_test.go` (load; every pack template passes its own list; the seven PERD claims are blocked by check 3; a missing, empty, blank, duplicate, invalid or non-array file fails closed) and `ForbiddenClaimsFile` in `packs/tests` (shape, coverage, packcheck does not take the sibling for a locale). Red first (commit 89d723b).
+- Directory check (the Architect asked): the templates live in `packs/fintech/templates/<locale>.json` (R3 (c)); `LoadTemplates` and packcheck read only that exact name per declared locale, so `<locale>.forbidden.json` beside them is not read as a locale.
+- Debt entries: none. Conflicts raised: none.

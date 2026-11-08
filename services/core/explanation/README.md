@@ -9,3 +9,5 @@
 **Not here.** The model renderer and the HTTP route (model service, REQ-EXP-001); other locales (EXP-04); a forbidden-pattern list as pack data (not yet in the pack: `Validate` takes the patterns as an argument and the PR notes this).
 
 **Tests.** `go test ./explanation` from `services/core/`.
+
+**Forbidden-claim lists.** `LoadForbidden(dir, locale)` reads `<dir>/<locale>.forbidden.json` (pack data, Architect decision A3) and returns the patterns to pass to `Validate`. It fails closed on a missing file, an empty list, a blank, repeated or non-compiling pattern.

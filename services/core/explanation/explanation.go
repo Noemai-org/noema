@@ -57,6 +57,37 @@ func LoadTemplates(dir string, locales []string) (Templates, error) {
 	return t, nil
 }
 
+// LoadForbidden reads <dir>/<locale>.forbidden.json: the locale's forbidden-claim patterns of PERD 31.2 check 3, pack data next to the templates (Architect
+// decision A3). The file is a JSON array of regular expressions. A missing file, a file that is not an array of strings, an empty list, an empty or blank
+// pattern, a duplicate, or a pattern that does not compile is an error: a locale with no usable list cannot be validated, so it fails closed.
+func LoadForbidden(dir, locale string) ([]string, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, locale+".forbidden.json")) // #nosec G304 -- the directory is configuration
+	if err != nil {
+		return nil, fmt.Errorf("explanation: forbidden-claim file for %s: %w", locale, err)
+	}
+	var patterns []string
+	if err := json.Unmarshal(raw, &patterns); err != nil {
+		return nil, fmt.Errorf("explanation: the forbidden-claim file for %s is not an array of strings: %w", locale, err)
+	}
+	if len(patterns) == 0 {
+		return nil, fmt.Errorf("explanation: the forbidden-claim file for %s is empty", locale)
+	}
+	seen := map[string]bool{}
+	for _, p := range patterns {
+		if strings.TrimSpace(p) == "" {
+			return nil, fmt.Errorf("explanation: the forbidden-claim file for %s has an empty pattern", locale)
+		}
+		if seen[p] {
+			return nil, fmt.Errorf("explanation: the forbidden-claim file for %s repeats %q", locale, p)
+		}
+		seen[p] = true
+		if _, err := regexp.Compile(p); err != nil {
+			return nil, fmt.Errorf("explanation: the forbidden pattern %q for %s does not compile: %w", p, locale, err)
+		}
+	}
+	return patterns, nil
+}
+
 // Keys lists a locale's template keys, sorted.
 func (t Templates) Keys(locale string) []string {
 	var keys []string
