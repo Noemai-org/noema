@@ -45,7 +45,7 @@ The consent is recorded as evidence: an opaque `consent_ref`, the consent-text v
 
 Runtime audio is different and not covered here: at runtime raw audio is held in memory for transcription only and discarded (REQ-VOI-004). This section covers only consented benchmark and field recordings.
 
-- **Storage.** One separate encrypted bucket in the approved self-hosted S3-compatible store (the anchor-store decision), **without Object Lock, so deletion works**. It has its own credential. No model-provider credential and no core credential can read it. This is not a new service, so no new AGENT-14 entry is needed beyond a note. Audio is never in the repository, a fixture, a log, a trace or a PR (AGENT-13).
+- **Storage.** One separate encrypted bucket in the Founder's AWS account (changed from the self-hosted store on 8 Nov 2026), **without Object Lock, so deletion works**. It has its own credential, **readable by the two Founders only**; no model-provider credential and no core credential can read it. This is not a new service, so no new AGENT-14 entry is needed beyond a note. Audio is never in the repository, a fixture, a log, a trace or a PR (AGENT-13).
 - **Access.** The two Founders only. The Voice Engineer role works from transcripts and annotations, never from raw audio; no agent session holds the audio.
 - **Provider terms.** Audio goes to a speech provider only after that provider's data terms are confirmed (REQ-INT-006, PERD R-18). The first provider samples are synthetic audio only (F4).
 - **Retention.** Audio is kept for the study only and **deleted 90 days after analysis**. Deletion is logged, without keeping the deleted data. Masked transcripts and annotations may outlive the audio.
