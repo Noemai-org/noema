@@ -48,3 +48,13 @@ Updated 2026-11-03. Plan task REC-05: owner C1; REQ-AUD-005; Needs REC-01; done 
 ### Pre-work for the next agent
 - Exact next step: EXE-06 adds the ops login to `tenant_kill_switch_guard` and writes the SECURITY_EVENT on every clear.
 - Do not touch: migration 0017 after it merges (forward-only).
+
+## Session 2026-11-08 · REC-05 second re-review of noema#265
+### Session summary
+- What changed (PR links): noema#265 (and noema#261, which carries the same file): a test, comments and README text; no behaviour change.
+- Why: the re-review at `8203292` accepted F1 and left two gates. (1) The authority: D5 is committed in `DEC-2026-11-07-founder-decisions-block-d` and the clear rule is ruling A71 of `DEC-2026-11-08-rulings-a41-onward` (docs#140, merged); the migration, README and test now cite those records instead of 'the Founders' instruction'. (2) The superuser escape hatch: the database cannot show that a superuser credential is held by a person. What can be shown is that no service login is a superuser: `TestNoServiceLoginIsCreatedAsASuperuser` reads `deploy/compose/postgres/init.sh` and requires every `CREATE ROLE ... LOGIN` to say `NOSUPERUSER`. It passes today (a guard on an existing property, so there is no red run); with `SUPERUSER` put on one login it fails (checked and reverted).
+- Not done: the person-authenticated C-ADMIN path (EXE-06, ruling A71) and the SECURITY_EVENT on a clear. That the superuser is held by a person only is an operating rule for a runbook; I did not write runbook commands for code that does not exist.
+- Debt entries: none new. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: EXE-06 adds the ops login to `tenant_kill_switch_guard` and writes the SECURITY_EVENT naming the actor on every clear.
