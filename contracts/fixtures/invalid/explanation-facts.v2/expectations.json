@@ -14,5 +14,9 @@
   "lower_case_classification.json": "pattern",
   "voice_without_audio_ref.json": "required",
   "voice_carries_raw_audio.json": "additionalProperties",
-  "voice_audio_ref_not_a_reference.json": "pattern"
+  "voice_audio_ref_not_a_reference.json": "pattern",
+  "voice_audio_ref_other_prefix.json": "pattern",
+  "voice_audio_ref_embedded_underscore.json": "pattern",
+  "voice_audio_ref_oversized.json": "pattern",
+  "voice_audio_ref_base64_audio.json": "pattern"
 }
