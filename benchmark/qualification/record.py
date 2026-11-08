@@ -9,13 +9,16 @@ Interim QUALIFIED (A17) means all of:
 - the run is complete;
 - every Tier 0 gate is at zero;
 - the drift check result is PASS;
-- pass^k is not below the bar. The bar is the higher of the pinned baseline's own pass^k and a Founder-set floor (pack data, set by a decision record). With neither there is no
+- pass^k is not below the bar. The bar is the pinned baseline's own pass^k (A17's wording; the Founders' correction of 8 Nov 2026 dropped "the higher of"); only a first
+  qualification, which has no baseline, uses the Founder-set floor (set by a decision record). With neither there is no
   bar, and a first qualification waits for a Founder-set floor: the verdict is NOT_QUALIFIED.
 
 The model service's configuration check (C2) refuses an ID with no QUALIFIED record by the same rules as `check_model`; it is not built here.
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
 import functools
+import math
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -25,6 +28,7 @@ from benchmark.qualification.run import validate_run_record
 from benchmark.scoring.diagnostics import PASS_K
 
 Json = dict[str, Any]
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = "qualification-record.v1"
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
 REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
@@ -53,21 +57,32 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
         reasons.append(f"pass^k is marked available but k_required is {pass_k.get('k_required')!r} and runs_supplied is {pass_k.get('runs_supplied')!r}; it needs exactly five runs")
     if drift_result != "PASS":
         reasons.append(f"the drift check result is {drift_result}, not PASS")
-    bars = [b for b in (bar.get("baseline_pass_k"), bar.get("floor")) if b is not None]
-    if not bars:
+    baseline, floor = bar.get("baseline_pass_k"), bar.get("floor")
+    bar_value = baseline if baseline is not None else floor
+    if bar_value is None:
         reasons.append("there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)")
+    elif not is_fraction(bar_value):
+        reasons.append(f"the pass^k bar {bar_value!r} is not a finite number between 0 and 1")
     elif pass_k.get("available") is True:
-        rate = (pass_k.get("rate") or {}).get("rate")
+        rate_block = pass_k.get("rate")
+        rate = rate_block.get("rate") if isinstance(rate_block, Mapping) else None
         if rate is None:
             reasons.append("pass^k has no rate to compare with the bar")
-        elif rate < max(bars):
-            reasons.append(f"pass^k {rate} is below the bar {max(bars)}")
+        elif not is_fraction(rate):
+            reasons.append(f"the pass^k rate {rate!r} is not a finite number between 0 and 1")
+        elif rate < bar_value:
+            reasons.append(f"pass^k {rate} is below the bar {bar_value}")
     return reasons
 
 
+def is_fraction(value: Any) -> bool:
+    """A finite int or float from 0 to 1. A bool is an int, NaN fails every comparison, and a string is not a number: none of them is a rate (C2 on noema#199)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
+
+
 def _fraction(name: str, value: float | None) -> None:
-    if value is not None and not 0 <= value <= 1:
-        raise ValueError(f"{name} must be between 0 and 1, not {value!r}")
+    if value is not None and not is_fraction(value):
+        raise ValueError(f"{name} must be a finite number between 0 and 1, not {value!r}")
 
 
 def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
@@ -139,6 +154,19 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
     if "pass_k" in blocks and type(blocks["pass_k"].get("available")) is not bool:
         out.append(f"pass_k.available must be a boolean, not {blocks['pass_k'].get('available')!r}")
         flags_ok = False
+    for name, value in (("scorecard_sha256", record["scorecard_sha256"]), *(("drift." + k, blocks["drift"].get(k)) for k in ("run_sha256", "cases_sha256") if "drift" in blocks and k in blocks["drift"])):
+        if not isinstance(value, str) or not DIGEST.fullmatch(value):
+            out.append(f"{name} is not a sha256 digest written sha256:<64 lowercase hex>")
+    if "bar" in blocks:
+        for field in ("baseline_pass_k", "floor"):
+            if blocks["bar"].get(field) is not None and not is_fraction(blocks["bar"][field]):
+                out.append(f"bar.{field} {blocks['bar'][field]!r} must be a finite number between 0 and 1")
+    if "pass_k" in blocks and blocks["pass_k"].get("available") is True and isinstance(blocks["pass_k"].get("rate"), Mapping):
+        rate = blocks["pass_k"]["rate"].get("rate")
+        if rate is not None and not is_fraction(rate):
+            out.append(f"pass_k.rate.rate {rate!r} must be a finite number between 0 and 1")
+    if not isinstance(record["reasons"], list) or not all(isinstance(r, str) for r in record["reasons"]):
+        out.append("reasons must be a list of strings")
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
     elif record["verdict"] == "QUALIFIED" and len(blocks) == 3 and flags_ok:

@@ -37,7 +37,7 @@ Made by `record` from a scorecard (`python -m benchmark.scoring ... --repeat-res
 1. the run is `complete`;
 2. every Tier 0 gate is zero (`tier0_all_zero`);
 3. the drift result is `PASS`;
-4. pass^k (`available`, exactly five runs) is not below the **bar**, the higher of the pinned baseline's own pass^k (`--baseline-record`, which must be the QUALIFIED record of the version the run was compared against) and a Founder-set floor (`--floor` with `--floor-source`, the decision record that set it; the floor is pack data).
+4. pass^k (`available`, exactly five runs) is not below the **bar**: the pinned baseline's own pass^k (`--baseline-record`, which must be the QUALIFIED record of the version the run was compared against). Only a first qualification, which has no baseline, uses the Founder-set floor (`--floor` with `--floor-source`, the decision record that set it; the floor is pack data). Founders' correction of 8 Nov 2026: the earlier "higher of baseline and floor" wording is dropped (A17's wording governs).
 
 With no baseline record and no floor there is no bar: a **first qualification waits for a Founder-set floor** and the verdict is `NOT_QUALIFIED`. No number is chosen here (REQ-AGT-005). `decision_record` names the decision record that holds the qualification; `scorecard_sha256` and the drift `run_sha256` bind the record to the evidence.
 

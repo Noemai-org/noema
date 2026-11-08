@@ -119,10 +119,11 @@ class Making(unittest.TestCase):
         self.assertTrue(any("floor" in r for r in rec["reasons"]), rec["reasons"])
         self.assertEqual([], validate_record(rec))
 
-    def test_a_floor_sets_the_bar_and_the_higher_of_floor_and_baseline_governs(self) -> None:
+    def test_the_floor_is_the_first_qualification_bar_and_afterwards_the_baseline_governs(self) -> None:
+        # Founders' correction of 8 Nov 2026 (A17's wording): "not below the pinned baseline's own pass^k"; the "higher of floor and baseline" wording is dropped.
         self.assertEqual("QUALIFIED", record(baseline_pass_k=None, floor=0.85, floor_source="DEC-2026-11-05-floor")["verdict"])
         self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=None, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
-        self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.8, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("QUALIFIED", record(baseline_pass_k=0.8, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
         self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.95, floor=0.5, floor_source="DEC-2026-11-05-floor")["verdict"])
 
     def test_a_floor_needs_the_decision_record_that_set_it(self) -> None:
@@ -222,6 +223,57 @@ class Validating(unittest.TestCase):
         rec = record(card)
         card["n_cases"] += 1
         self.assertTrue(any("digest" in p for p in verify_against_scorecard(rec, card)))
+
+
+class Malformed(unittest.TestCase):
+    """C2 on noema#199 (issue #367): the same NaN fail-open as the service gate. Every comparison with NaN is false, so a NaN rate added no reason and a QUALIFIED verdict could stand."""
+
+    BAD_NUMBERS = (float("nan"), float("inf"), float("-inf"), True, False, "0.9", None, -0.1, 1.1)
+
+    def test_a_rate_that_is_not_a_finite_number_between_zero_and_one_never_stands_as_qualified(self) -> None:
+        for bad in self.BAD_NUMBERS:
+            rec = record()
+            rec["pass_k"] = {**rec["pass_k"], "rate": {**rec["pass_k"]["rate"], "rate": bad}}
+            got = validate_record(rec)
+            self.assertTrue(any("rate" in p for p in got), (bad, got))
+            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), bad)
+
+    def test_a_baseline_or_floor_that_is_not_a_finite_number_between_zero_and_one_is_refused(self) -> None:
+        for field in ("baseline_pass_k", "floor"):
+            for bad in (float("nan"), float("inf"), True, "0.9", -0.1, 1.1):
+                rec = record()
+                rec["bar"] = {**rec["bar"], field: bad}
+                got = validate_record(rec)
+                self.assertTrue(any(field in p or "bar" in p for p in got), (field, bad, got))
+                self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), (field, bad))
+
+    def test_building_a_record_refuses_a_number_that_is_not_finite_or_is_a_bool(self) -> None:
+        for bad in (float("nan"), float("inf"), True):
+            with self.assertRaises(ValueError):
+                record(baseline_pass_k=bad)
+            with self.assertRaises(ValueError):
+                record(baseline_pass_k=None, floor=bad, floor_source="DEC-2026-11-05-floor")
+
+    def test_a_digest_or_date_with_a_trailing_newline_is_not_a_digest_or_a_date(self) -> None:
+        # A `$` in a pattern accepts a trailing newline under Python's re; a whole-string match does not.
+        digests = [k for k, v in record().items() if isinstance(v, str) and v.startswith("sha256:")]
+        self.assertTrue(digests)
+        for key in digests:
+            rec = record()
+            rec[key] = rec[key] + "\n"
+            self.assertTrue(any(key in p for p in validate_record(rec)), key)
+        rec = record()
+        rec["qualified_on"] = "2026-11-06\n"
+        self.assertTrue(any("qualified_on" in p for p in validate_record(rec)))
+
+    def test_a_reason_that_is_not_a_string_is_refused_not_raised(self) -> None:
+        for reasons in ([1], [None], "not a list", [["x"]]):
+            rec = record(baseline_pass_k=0.95)
+            self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+            rec["reasons"] = reasons
+            got = validate_record(rec)
+            self.assertTrue(any("reasons" in p for p in got), (reasons, got))
+            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), reasons)
 
 
 class Strictness(unittest.TestCase):
