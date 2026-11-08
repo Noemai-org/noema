@@ -20,7 +20,7 @@ The chain verification job. Created by T1 of DEC-2026-10-20; slice 1 built by RE
 
 - **Signed, exported checkpoints** (REC-07): a rewrite that is consistent in itself, including the head row, is not detected until chain heads are anchored outside Postgres. The Record is tamper-evident, not tamper-proof.
 - **The endpoint.** `RunTenant` is the function behind it; EDG-01 wires it behind the ops and audit role check, and no endpoint is wired before DEBT-04 option A lands.
-- **The database role.** The job needs read access to `record_event`, `record_chain_head`, `tenant` and `signing_key` (migration 0018), and `UPDATE (kill_switch)` on `tenant`. Today the tests run as the administrator. A dedicated login role is a migration, and it waits for noema#107's `0003` to merge so the numbers do not collide.
+- **The database role.** The job needs read access to `record_event`, `record_chain_head`, `tenant` and `signing_key` (migration 0019), and `UPDATE (kill_switch)` on `tenant`. Today the tests run as the administrator. A dedicated login role is a migration, and it waits for noema#107's `0003` to merge so the numbers do not collide.
 - **Scheduling** (nightly and before every release run): REC-06 and the orchestrator call `Run`.
 - **Replay** of each decision from its recorded inputs (REQ-AUD-005): a later slice.
 

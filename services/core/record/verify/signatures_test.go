@@ -1,7 +1,7 @@
 package verify_test
 
 // REC-08 / REQ-AUD-006: the chain verifier checks every signature of the Record (DEC-2026-11-01 D5, D7, D8, row 13). The tampering is done by the
-// administrator with the immutability trigger off, the one way past the INSERT-only roles; the signature trigger of migration 0018 is not in the way of an
+// administrator with the immutability trigger off, the one way past the INSERT-only roles; the signature trigger of migration 0019 is not in the way of an
 // UPDATE, so these rows are what a database credential that disabled the trigger could leave behind. Every key and event is SYNTHETIC (AGENT-25).
 
 import (
