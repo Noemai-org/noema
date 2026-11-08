@@ -153,7 +153,7 @@ func (t *ExplanationFactsV2UnknownsItem) UnmarshalJSON(b []byte) error {
 }
 
 // ExplanationFactsV2Voice is generated from explanation-facts.v2.json#/properties/voice.
-// Audio of the spoken answer, if the channel is voice. audio_ref is a reference to stored audio and is null when none exists. Never raw audio (AGENT-13).
+// Audio of the spoken answer, if the channel is voice. audio_ref is an opaque reference to stored spoken-answer audio, `aud_` followed by 2 to 32 letters or digits, and is null when none exists. Never raw audio (AGENT-13).
 type ExplanationFactsV2Voice struct {
 	AudioRef *string `json:"audio_ref"`
 }

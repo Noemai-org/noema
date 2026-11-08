@@ -55,10 +55,10 @@ class ExplanationFactsV2UnknownsItem(ContractModel):
 
 
 class ExplanationFactsV2Voice(ContractModel):
-    """Audio of the spoken answer, if the channel is voice. audio_ref is a reference to stored audio and is null when none exists. Never raw audio (AGENT-13). Source: explanation-facts.v2.json#/properties/voice"""
+    """Audio of the spoken answer, if the channel is voice. audio_ref is an opaque reference to stored spoken-answer audio, `aud_` followed by 2 to 32 letters or digits, and is null when none exists. Never raw audio (AGENT-13). Source: explanation-facts.v2.json#/properties/voice"""
 
     model_config = ConfigDict(extra="forbid")
-    audio_ref: Annotated[str, StringConstraints(pattern='^[a-z]+_[A-Za-z0-9_]{2,64}$')] | None
+    audio_ref: Annotated[str, StringConstraints(pattern='^aud_[A-Za-z0-9]{2,32}$')] | None
 
 
 class ExplanationFactsV2FactsItem(ContractModel):
