@@ -6,9 +6,9 @@ Puts the webhook relay (`synthetic/webhook_relay`) on one small public host so T
 
 ## Founder click-script
 
-You need: a DuckDNS account, an AWS account, about 20 minutes. The Founder chose the name `noema-relay-4821` on 6 Nov 2026, so the host is `noema-relay-4821.duckdns.org`. If the name you actually reserve in step 1 is different, use yours everywhere below: `RELAY_HOSTNAME` takes whatever you reserved, and nothing else in the script depends on this name.
+You need: a DuckDNS account, an AWS account, about 20 minutes. The relay's address is a DuckDNS name the Founder reserves in step 1. By DEC-2026-11-05 D5 it is not written in any repository file: it lives in the GitHub Environment variable `RELAY_HOSTNAME` (and in the Founder's issue). Below, `<NAME>` stands for the subdomain and `$RELAY_HOSTNAME` for the full name; nothing in the script depends on which name it is.
 
-1. **DuckDNS name.** Sign in at duckdns.org. Under "domains", add the subdomain `noema-relay-4821` (the full name is `noema-relay-4821.duckdns.org`). Copy your token from the top of the page (it is a single token of letters, digits and hyphens; the script refuses a token file with anything else in it, or more than one line). Do not type an IP address by hand and do not use your own computer's address: the record must point at the instance's static IP (step 3), which the script sets for you in step 7 (it sends no address, so DuckDNS uses the one the instance calls from).
+1. **DuckDNS name.** Sign in at duckdns.org. Under "domains", add the subdomain `<NAME>` (the full name is `<NAME>.duckdns.org`). Copy your token from the top of the page (it is a single token of letters, digits and hyphens; the script refuses a token file with anything else in it, or more than one line). Do not type an IP address by hand and do not use your own computer's address: the record must point at the instance's static IP (step 3), which the script sets for you in step 7 (it sends no address, so DuckDNS uses the one the instance calls from).
 2. **Lightsail instance.** In the AWS console open Lightsail, then "Create instance". Platform Linux/Unix, blueprint "OS only", Ubuntu 24.04 LTS, the smallest plan. Name it `noema-relay`. Create.
 3. **Static IP.** Lightsail, Networking, "Create static IP". Attach it to `noema-relay`. Do this before step 7: the DuckDNS record must point at the static address, which survives a restart.
 4. **Ports 80 and 443.** Open the instance, Networking tab, "IPv4 Firewall", "Add rule" twice: HTTP (TCP 80) and HTTPS (TCP 443), both from any IPv4 address. Port 80 must stay open: Caddy renews its certificate over it. SSH (22): edit the existing rule and tick "Restrict to IP address", then enter your own current public address (the one you will connect from); leave no other rule open. Do not open 8090: the relay listens on 127.0.0.1 only.
@@ -31,13 +31,13 @@ You need: a DuckDNS account, an AWS account, about 20 minutes. The Founder chose
 7. **Run the script.** First the dry run, which changes nothing; then the real one:
 
    ```sh
-   export RELAY_HOSTNAME=noema-relay-4821.duckdns.org DUCKDNS_TOKEN_FILE="$HOME/duckdns.token"
+   export RELAY_HOSTNAME=<NAME>.duckdns.org DUCKDNS_TOKEN_FILE="$HOME/duckdns.token"
    deploy/relay-host/setup.sh --check
    deploy/relay-host/setup.sh
    ```
 
    It prints "the relay is reachable by name" and exits 0 when it works. It exits 3 and says what to check if the name does not answer within a minute.
-8. **Test the URL.** From any computer: `curl -i https://noema-relay-4821.duckdns.org/healthz` must answer `200`. A browser showing a valid padlock on that address confirms the certificate.
+8. **Test the URL.** From any computer: `curl -i https://$RELAY_HOSTNAME/healthz` must answer `200`. A browser showing a valid padlock on that address confirms the certificate.
 
 When step 8 answers `200`, send Tushe the message in `tushe-address-message.md` (host, TLS, health path, what Tushe sends and what we need back). Do not send it before: Tushe asked for the address (deck v4, R13), and an address that does not answer is worse than none. The signing secret Tushe returns goes into the relay's volume file only (see below), never into the core's environment.
 

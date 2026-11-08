@@ -1,6 +1,6 @@
 # Draft message to Tushe: the address of Noema's webhook receiver
 
-Status: DRAFT for the Founder to send, only after `curl https://noema-relay-4821.duckdns.org/healthz` answers `200` (deploy/relay-host/README.md, step 8). Written 2026-11-06. SYNTHETIC test environment. It contains no internal strategy, benchmark detail or hidden test material and must stay that way (AGENTS.md section 11, frozen external documents).
+Status: DRAFT for the Founder to send, only after `curl https://$RELAY_HOSTNAME/healthz` answers `200`; the Founder fills `<RELAY_HOSTNAME>` below from the GitHub Environment variable of that name (DEC-2026-11-05 D5: the address is not written in any repository file) (deploy/relay-host/README.md, step 8). Written 2026-11-06. SYNTHETIC test environment. It contains no internal strategy, benchmark detail or hidden test material and must stay that way (AGENTS.md section 11, frozen external documents).
 
 ---
 
@@ -10,13 +10,13 @@ Hello,
 
 You asked for our HTTPS URL for the webhooks kept active on our tenants. It is:
 
-**https://noema-relay-4821.duckdns.org/webhooks**
+**https://<RELAY_HOSTNAME>/webhooks**
 
-**Host.** `noema-relay-4821.duckdns.org`, one small public server that runs only the receiver. It is a test endpoint for this environment; if the address ever has to change we will tell you before it does.
+**Host.** `<RELAY_HOSTNAME>`, one small public server that runs only the receiver. It is a test endpoint for this environment; if the address ever has to change we will tell you before it does.
 
 **TLS.** HTTPS only. The certificate is issued by a public CA (Let's Encrypt, with ZeroSSL as the fallback the TLS server may use) and renews automatically; TLS 1.2 or 1.3. Plain HTTP on port 80 only answers certificate challenges and redirects to HTTPS.
 
-**Health.** `GET https://noema-relay-4821.duckdns.org/healthz` answers `200` with no data. It is only a liveness check, not a test of the receiver (we know you send no synthetic ping, and we have not asked for one).
+**Health.** `GET https://<RELAY_HOSTNAME>/healthz` answers `200` with no data. It is only a liveness check, not a test of the receiver (we know you send no synthetic ping, and we have not asked for one).
 
 **What we expect to receive.** `POST /webhooks`, `Content-Type: application/json`, a Standard Webhooks v1 delivery: the headers `webhook-id`, `webhook-timestamp` and `webhook-signature` (`v1,<base64>`), the signature being HMAC-SHA-256 over `<webhook-id>.<webhook-timestamp>.<body>` using the exact body bytes. One or more signatures separated by spaces are accepted, so a secret can be rotated. The timestamp must be within five minutes of our clock, in either direction.
 

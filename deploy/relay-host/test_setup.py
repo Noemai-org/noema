@@ -26,7 +26,7 @@ class SetupCheck(unittest.TestCase):
             token_file = Path(tmp) / "duckdns.token"
             if token_bytes is not None:
                 token_file.write_bytes(token_bytes)
-            e = {"PATH": os.environ["PATH"], "HOME": tmp, "RELAY_HOSTNAME": "noema-relay-4821.duckdns.org", "DUCKDNS_TOKEN_FILE": str(token_file)}
+            e = {"PATH": os.environ["PATH"], "HOME": tmp, "RELAY_HOSTNAME": "relay-example.duckdns.org", "DUCKDNS_TOKEN_FILE": str(token_file)}
             e.update(env)
             return subprocess.run([BASH, str(SCRIPT), "--check"], env=e, capture_output=True, text=True, timeout=30, check=False)
 
