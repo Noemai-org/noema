@@ -35,3 +35,11 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Tests added: `forbidden_test.go` (load; every pack template passes its own list; the seven PERD claims are blocked by check 3; a missing, empty, blank, duplicate, invalid or non-array file fails closed) and `ForbiddenClaimsFile` in `packs/tests` (shape, coverage, packcheck does not take the sibling for a locale). Red first (commit 89d723b).
 - Directory check (the Architect asked): the templates live in `packs/fintech/templates/<locale>.json` (R3 (c)); `LoadTemplates` and packcheck read only that exact name per declared locale, so `<locale>.forbidden.json` beside them is not read as a locale.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-08 (later) · EXP-01 slice 3 · EL's blocking finding on noema#224
+
+## Session summary
+- What changed: the figure, digit-run and word patterns of `explanation.go` read any script (`\p{Nd}`, `\p{L}`, `\p{M}`), and the digit-run length counts runes, not bytes. README: the non-semantic binding, the caller must take outcome and classification from the verdict, `ErrNoTemplate` is never shown, why `Validate` is long.
+- Why: EL's statement at 8caf0dd was NOT READY: fullwidth and Arabic-Indic digits and a Cyrillic name passed checks 2 and 4. I had posted "READY FOR CODEX" at 140fe67 over that open finding; that was premature and is corrected here.
+- Tests added (PERD 31.2 checks 2 and 4, AGENT-13): `unicode_test.go` (nine inputs must be blocked, long digit runs in other scripts must be blocked by check 4, every pack template still passes). Red first (commit e18f3286).
+- Debt entries: none. Conflicts raised: none. The `forbidden == nil` case of `Validate` is still allowed (tests pass nil on purpose); the production caller loads the list with `LoadForbidden`.

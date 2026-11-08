@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
@@ -127,9 +128,9 @@ func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
 
 var (
 	sentenceEnd = regexp.MustCompile(`[.!?]+\s+|[.!?]+$`)
-	figure      = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9][0-9,.:]*[0-9]|[0-9]`) // a calendar date is one value, then times and numbers
-	digitRun    = regexp.MustCompile(`[0-9]+`)
-	words       = regexp.MustCompile(`[A-Za-z][A-Za-z'’]*`)
+	figure      = regexp.MustCompile(`\p{Nd}{4}-\p{Nd}{2}-\p{Nd}{2}|\p{Nd}[\p{Nd},.:]*\p{Nd}|\p{Nd}`) // a calendar date is one value, then times and numbers
+	digitRun    = regexp.MustCompile(`\p{Nd}+`)
+	words       = regexp.MustCompile(`[\p{L}\p{M}][\p{L}\p{M}'’]*`)
 )
 
 // openers are the ordinary function words of English (pronouns, articles, auxiliaries), lowercase. They are language syntax, not domain data. Every other word of a
@@ -286,7 +287,7 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 		}
 	}
 	for _, run := range digitRun.FindAllString(r.Text, -1) {
-		if len(run) > maxDigitRun {
+		if utf8.RuneCountInString(run) > maxDigitRun {
 			out = append(out, fmt.Sprintf("check 4: an unmasked digit run of %d", len(run)))
 		}
 	}
