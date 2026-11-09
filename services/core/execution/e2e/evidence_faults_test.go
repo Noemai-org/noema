@@ -169,9 +169,13 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 	}
 }
 
-// EVD-01 slice 3, G1 story: a healthy read of a real case is KNOWN with its payload hash on the Record, and the same read judged after its
-// freshness window is STALE, never KNOWN (INV-23). The target is the real mock-case; the case is created through the real adapter.
-func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
+// EVD-01 slice 3, G1 story: an observation built from a healthy read of a real case is KNOWN with its payload hash on the Record, and the same observation judged
+// after its freshness window is STALE, never KNOWN (INV-23). The case is created and read through the real adapter and the real mock-case, but the raw hash in the
+// observation is a SYNTHETIC input: the adapter returns the decoded record, not the wire bytes, so this test proves the builder's freshness and Record behaviour and
+// does NOT prove that a stored raw hash identifies bytes the adapter received on a successful read. The failed-read path does (TestEvidenceFromARealFaultedReadIsNeverKnown
+// asserts the adapter's own RawHash against the event); the successful-read path waits for the adapter to expose the response-byte hash (Codex P2 on noema#176,
+// status/EVD-01.md, noema WAITING issue to the adapter owner).
+func TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale(t *testing.T) {
 	mc := startMockCase(t)
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
@@ -206,8 +210,8 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	if layer.ClassifyError(err) != layer.ReadOK {
 		t.Fatalf("a healthy read was classed %s (%v)", layer.ClassifyError(err), err)
 	}
-	// The case adapter returns the decoded record, not the wire bytes, so this test hashes the decoded record as the "raw" body. A real
-	// adapter must hand the builder the hash of the bytes it received (noted for the adapter owners in status/EVD-01.md).
+	// SYNTHETIC raw hash: the case adapter returns the decoded record, not the wire bytes, so the hash of the re-marshalled record stands in for the body. It does not
+	// identify bytes anyone received. Until the adapter exposes the response-byte hash of a successful read, nothing claims this path as provenance.
 	decoded, err := json.Marshal(rec)
 	if err != nil {
 		t.Fatal(err)
