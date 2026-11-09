@@ -35,3 +35,7 @@ Written only by the integration-lead role (see `README.md`). Append dated entrie
 
 **Next task**
 - TST-05 design note and exactly-one-effect kill-point list (starts on the Architect's answer to Escalation 1); TEN-06 the moment #115 merges (needs `PAGINATE`); TST-06 chaos subset with the Benchmark agent after the TST-05 design.
+
+### 2026-11-06 · TEN-02 verdict half
+
+- The Outcome half of TEN-02 is `services/core/outcome/verifier/ten02_test.go`: six scenarios (effect present; verifiably absent; acknowledged but absent; incomplete page; malformed read; refused read), 64 seeded concurrent replays each (seed 20261103), every replay equal to the committed expectation. With the Trust half (noema#119) both halves are shown once both merge. Not shown: a replay on the real mock-case or a database (decision logic only).
