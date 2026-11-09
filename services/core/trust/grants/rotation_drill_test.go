@@ -60,7 +60,9 @@ func allowAt(t *testing.T, at time.Duration) decide.Decision {
 	}
 	b := basis()
 	b.EvaluatedAt = epoch.Add(at).Unix()
-	b.EvidenceFreshness = []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: b.EvaluatedAt - 30}}
+	fresh := append([]decide.Freshness(nil), b.EvidenceFreshness...) // the shared basis carries a complete item (source, age, limit, who set it); only its time moves
+	fresh[0].EffectiveAt = b.EvaluatedAt - 30
+	b.EvidenceFreshness = fresh
 	d, err = d.WithBasis(b)
 	if err != nil {
 		t.Fatal(err)
