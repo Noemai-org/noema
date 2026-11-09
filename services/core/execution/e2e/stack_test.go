@@ -119,8 +119,8 @@ func (s *trustStandIn) issue(ctx context.Context, capability, target string, par
 	if err != nil {
 		return "", err
 	}
-	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0009): record the decision first.
-	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, jsonb_build_object('decision_id', $1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW'), 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant); err != nil {
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant, testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
 		return "", fmt.Errorf("store decision: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
