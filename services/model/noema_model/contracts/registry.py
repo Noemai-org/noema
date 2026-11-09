@@ -7,6 +7,7 @@ from typing import Any
 
 from . import (
     action_graph_v1,
+    action_graph_v2,
     candidates_request_v1,
     candidates_response_v1,
     canonical_input_v1,
@@ -58,6 +59,8 @@ from . import (
 TYPES: dict[str, Any] = {
     "action-graph.v1": action_graph_v1.ActionGraphV1,
     "action-graph.v1#RecoveryAction": action_graph_v1.ActionGraphV1RecoveryAction,
+    "action-graph.v2": action_graph_v2.ActionGraphV2,
+    "action-graph.v2#RecoveryAction": action_graph_v2.ActionGraphV2RecoveryAction,
     "candidates-request.v1": candidates_request_v1.CandidatesRequestV1,
     "candidates-request.v1#AmountRange": candidates_request_v1.CandidatesRequestV1AmountRange,
     "candidates-response.v1": candidates_response_v1.CandidatesResponseV1,

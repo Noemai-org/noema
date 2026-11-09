@@ -2103,6 +2103,9 @@
         "ABSENT"
       ]
     },
+    "principal_id": {
+      "type": "Reference"
+    },
     "intent_id": {
       "type": "Reference"
     },
