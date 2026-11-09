@@ -124,3 +124,20 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 - Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
 - Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-09 12:30 WAT · EVD-01
+
+## Session summary
+- What changed (noema#174, noema#176): (1) #174: a typed nil `*adapters.ReadError` made `ClassifyError` and `BodyOf` panic (`errors.As` is true for it). Failing test first (`c5d7b20`, red locally: nil pointer dereference), fix `51fc945`: it is MALFORMED and no-bytes. This is the failing-first evidence Codex asked for on the classifier; the original mapping table was written with the code, as its test says, and is still covered by the eleven-mutant check. (2) #176: the healthy-read story test hashed the re-marshalled record as the "raw" body. It is renamed `TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale` and says it proves freshness and Record behaviour only. The successful-read path is not claimed as provenance.
+- Why: Codex P2 on noema#174 (no red run for the classifier) and P2 on noema#176 (decoded JSON stood in for response bytes; INV-19, REQ-CTX-001).
+- Risks, and how they are contained: (2) is a claim correction, not new behaviour; nothing is weakened. The adapter is outside EVD-01's allowlist, so it is not changed here; the ask is noema#390.
+- Tests added (REQ-CTX-002, INV-19, AGENT-11): `TestATypedNilReadErrorIsAnUnforeseenFailureAndNeverAPanic`.
+- Regression cases added: the same test.
+- Debt entries: none new; the gap is tracked in noema#390 (adapter exposes the response-byte hash of a successful read).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#390 lands, pass the adapter's success-read hash through the builder in the G1 story test and assert it against the bytes the real mock-case sent; then rename the test back.
+- Open questions (owner): the adapter owner (IL) on the field name and the success-read hash (noema#390).
+- Files to read first: `services/core/evidence/layer/classify.go`, `services/core/execution/e2e/evidence_faults_test.go`.
+- Do not touch: `services/core/adapters/` from EVD-01.

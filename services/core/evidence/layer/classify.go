@@ -17,7 +17,8 @@ func ClassifyError(err error) ReadClass {
 		return ReadOK
 	}
 	var re *adapters.ReadError
-	if !errors.As(err, &re) {
+	if !errors.As(err, &re) || re == nil {
+		// errors.As is true for a typed nil *ReadError, which carries no failure to read: it is an error nobody foresaw, MALFORMED, never a panic.
 		// A deadline that expires inside a call, or a network timeout the adapter did not wrap, means the source could not be read in time:
 		// UNAVAILABLE, not an unreadable answer.
 		var ne net.Error
@@ -53,7 +54,7 @@ func BodyOf(err error) (rawHash string, noBytes bool) {
 		return "", false
 	}
 	var re *adapters.ReadError
-	if errors.As(err, &re) && re.RawHash != "" {
+	if errors.As(err, &re) && re != nil && re.RawHash != "" {
 		return re.RawHash, false
 	}
 	return "", true
