@@ -144,7 +144,7 @@ func newWorld(t *testing.T) *world {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)}
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	params := map[string]any{"transaction_ref": "TX1", "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED", "epoch": int64(1)}
 	b := &binder{l: led, params: params, fields: controller.KeyFields{TransactionID: "TX1", LogicalAction: "ESCALATE_CASE", ReasonCode: "CUSTOMER_DISPUTE_UNRECOGNIZED",
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
