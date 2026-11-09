@@ -83,7 +83,7 @@ func (c Checker) Check(ctx context.Context, r verifier.Receipt) (verifier.Authen
 	if err != nil {
 		return verifier.AuthNotChecked, fmt.Errorf("%slook up %s: %w", errPrefix, r.SigKeyID, err)
 	}
-	if !found || (pk.Status != Active && pk.Status != Retired) || len(pk.Key) != ed25519.PublicKeySize {
+	if !found || (pk.Status != Active && pk.Status != Retired) || !crypto.UsableEd25519PublicKey(pk.Key) {
 		return verifier.AuthInvalid, nil
 	}
 	sig, err := hex.DecodeString(r.SigValue)
