@@ -39,7 +39,6 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 ## Session 2026-11-05 (evening) · TRU-05 slice 1 follow-ups from Codex
 - A grant now needs a `reconcile.Permission` bound to the step's capability **and target** (`FreezeGate.PermitTarget`, additive in `trust/reconcile/freeze.go`; `Permit` is unchanged and yields a permission that names no target, which opens no grant). The `frozen` flag a caller passes comes from the reconciliation result for that same target; the gate does not read freeze state itself. The pack version of the basis is checked against the grant contract's pattern before signing. Both found by Codex at `9dbb363` and `4546400`; tests first, mutants caught.
 - Touches `trust/reconcile` (T6.2, another task) additively; the existing `Permit` tests in `internal/corpus` are unchanged and pass.
-<<<<<<< HEAD
 
 ## Session 2026-11-06 · TRU-05 slice 3a (signing a Decision Record v2), Engineering Lead
 - Added `Keys.SignRecord` and `Keys.VerifyRecord` (`trust/grants/record.go`): HMAC-SHA-256 with the grant keys over the domain label `noema/decision-record/v2`, a newline, and the JCS form of the record without `sig` (ruling A5; the contract is `decision-record.v2` in noema#168). Only major 2 is signed. Tests first (did not compile): sign and verify; a change to any of six fields breaks it; an inactive key is refused; the signature is not valid over the bare JCS bytes, and is over label, newline and JCS. Mutants without the label, without the newline and accepting v1 are caught; skipping the version error on verify is an equivalent mutant.
@@ -63,5 +62,3 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 
 ## Pre-work for the next agent
 - Branches stacked on #168 (#197, #237, #261, #233) insert records or grants directly in tests: merge this head in and add the bound fields.
-=======
->>>>>>> pr168y
