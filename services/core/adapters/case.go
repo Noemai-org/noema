@@ -140,6 +140,9 @@ type ReadError struct {
 	Failure    ReadFailure
 	RawCode    string
 	RetryAfter time.Duration
+	// RawHash is "sha256:" and the hex SHA-256 of the response bytes the adapter received, set wherever it has them (a non-2xx body, a malformed
+	// 2xx body). It is empty only when no bytes arrived (a timeout, a reset, no response). The Evidence Layer needs it to hash an error read.
+	RawHash string
 }
 
 func (e *ReadError) Error() string {

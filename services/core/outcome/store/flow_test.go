@@ -81,7 +81,9 @@ type flow struct {
 	clk   *clock.Manual
 	pages *pages
 	v     *verifier.Verifier
+	st    *store.Store
 	req   verifier.Request
+	build func(verifier.Store) *verifier.Verifier // the same verifier over another store, for a test that watches what the store is asked to write
 }
 
 func theCase(status string) verifier.Case {
@@ -114,15 +116,19 @@ func newFlowOn(t *testing.T, auth verifier.Authenticity, failAppend int32, pool 
 	if failAppend > 0 {
 		recIDs = &failingIDs{inner: gen, n: failAppend}
 	}
-	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}}
+	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}, RollbackTimeout: 5 * time.Second}
 	pg := &pages{byKey: []verifier.CasePage{done(theCase("OPEN"))}, byTx: []verifier.CasePage{done(theCase("OPEN"))}}
 	keys := crypto.NewKeyRing(map[string][]byte{"k_out": []byte("synthetic-test-key-not-a-secret")})
-	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: pg, Store: st, Signer: hmacSigner{keys}, Authenticity: authResult{auth}, Scope: pack.Scope,
-		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
-	if err != nil {
-		t.Fatal(err)
+	build := func(store verifier.Store) *verifier.Verifier {
+		v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: pg, Store: store, Signer: hmacSigner{keys}, Authenticity: authResult{auth}, Scope: pack.Scope,
+			Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
 	}
-	return &flow{world: w, clk: clk, pages: pg, v: v, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, VerificationID: "vrf_flow1", TransactionRef: subject, QueryableByKey: true,
+	v := build(st)
+	return &flow{world: w, clk: clk, pages: pg, v: v, st: st, build: build, req: verifier.Request{TenantID: tenant, ReceiptID: receipt1, VerificationID: "vrf_flow1", TransactionRef: subject, QueryableByKey: true,
 		Bindings:   map[string]string{"subject_resource": subject, "intent_id": intentID},
 		Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
 }

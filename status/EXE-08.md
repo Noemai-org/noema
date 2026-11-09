@@ -19,3 +19,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Open questions (owner): is OD-P-72 approved (Architect/Founders; the record is still `Proposed`); wire `test_init.sh` into the `compose` job (needs a `.github` change, a founder approval).
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
+
+## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
+- `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.
