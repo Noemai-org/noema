@@ -20,10 +20,29 @@ type PolicyRuleVersion struct {
 	Version  string
 }
 
-// Freshness records the effective time of one evidence item the decision rested on (REQ-TRU-001 evidence_freshness[]).
+// LimitSetBy says which limit set the effective freshness limit of an evidence item (SoT §43.2, enums.v1 LimitSetBy).
+type LimitSetBy string
+
+// The three values of the contract's enum.
+const (
+	LimitBySource          LimitSetBy = "SOURCE"
+	LimitByTrustProfile    LimitSetBy = "TRUST_PROFILE"
+	LimitByProfileOverride LimitSetBy = "PROFILE_OVERRIDE"
+)
+
+func (l LimitSetBy) valid() bool {
+	return l == LimitBySource || l == LimitByTrustProfile || l == LimitByProfileOverride
+}
+
+// Freshness records one evidence item the decision rested on with what the Decision Record's evidence_freshness[] item requires (REQ-TRU-001,
+// decision-record.v2): the source, the age at evaluation, the effective limit and who set it. The gate step T9 builds it from the read; no caller does.
 type Freshness struct {
-	EvidenceID  string
-	EffectiveAt int64
+	EvidenceID            string
+	EffectiveAt           int64
+	Source                string
+	AgeSeconds            int64
+	EffectiveLimitSeconds int64
+	LimitSetBy            LimitSetBy
 }
 
 // Basis is what a decision rests on (REQ-TRU-001): the pack version, the policy version of each rule that decided, the
@@ -54,7 +73,7 @@ func (b Basis) valid() bool {
 		}
 	}
 	for _, f := range b.EvidenceFreshness {
-		if f.EvidenceID == "" || f.EffectiveAt <= 0 {
+		if f.EvidenceID == "" || f.EffectiveAt <= 0 || f.Source == "" || f.AgeSeconds < 0 || f.EffectiveLimitSeconds < 1 || !f.LimitSetBy.valid() {
 			return false
 		}
 	}
