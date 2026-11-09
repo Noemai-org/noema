@@ -1,4 +1,5 @@
 {
+ "action-graph.v2/missing_roots.json": "required",
  "action-graph/edge_without_condition.json": "required",
  "action-graph/extra_node_field.json": "additionalProperties",
  "action-graph/free_form_escalation_ref.json": "enum",
