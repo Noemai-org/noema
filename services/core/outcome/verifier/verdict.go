@@ -50,5 +50,8 @@ func (r *run) store(d decision) (Result, error) {
 	if err := r.v.cfg.Store.RecordVerdict(r.ctx, w); err != nil {
 		return Result{}, fmt.Errorf("verifier: store verdict %s: %w", verdictID, err)
 	}
+	if err := r.v.at(PointAfterVerdictStored); err != nil {
+		return Result{}, err
+	}
 	return Result{VerdictID: verdictID, Verdict: d.verdict, Reason: d.reason}, nil
 }

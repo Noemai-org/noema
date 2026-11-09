@@ -91,6 +91,12 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	if err != nil {
 		t.Fatalf("testpg: connect to %s: %v", name, err)
 	}
+	// As deploy/compose/postgres/init.sh does: record_append holds CREATE on public while the migrations run, because
+	// migration 0001 hands tables and functions to it (PostgreSQL needs the new owner to hold CREATE). Migration 0010
+	// (EXE-08, DEBT-05) revokes it; the tests pin that.
+	if _, err := pool.Exec(ctx, "GRANT CREATE ON SCHEMA public TO record_append"); err != nil {
+		t.Fatalf("testpg: grant CREATE to record_append: %v", err)
+	}
 	t.Cleanup(func() {
 		pool.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -107,7 +113,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 
 // clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
 // migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
-var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter"}
+var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter", "noema_migrator"}
 
 func ensureRoles(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -139,6 +145,40 @@ func ensureRoles(url string) error {
 var powerOf = map[string]string{
 	"trust_rw": "trust", "execution_rw": "execution", "outcome_rw": "outcome", "evidence_rw": "evidence",
 	"orchestrator_rw": "orchestrator", "record_read": "record_read", "record_emitter": "record_emitter",
+}
+
+// VerifierLogin creates the all-tenant verification login of REC-05 (noema_verify in Compose): a LOGIN role that is a member of
+// record_verify and of nothing else, with no tenant mapping, and returns a pool whose connections authenticate as it. The role is
+// dropped when the test ends.
+func VerifierLogin(t testing.TB, admin *pgxpool.Pool, dsn string) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("testpg: parse dsn: %v", err)
+	}
+	dbName := strings.TrimPrefix(u.Path, "/")
+	role := "record_verify__" + dbName
+	quoted := pgx.Identifier{role}.Sanitize()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := admin.Exec(ctx, `CREATE ROLE `+quoted+` LOGIN IN ROLE record_verify`); err != nil {
+		t.Fatalf("testpg: create %s: %v", role, err)
+	}
+	t.Cleanup(func() {
+		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if a, err := pgxpool.New(c, strings.Replace(dsn, "/"+dbName+"?", "/postgres?", 1)); err == nil {
+			_, _ = a.Exec(c, `DROP ROLE IF EXISTS `+quoted)
+			a.Close()
+		}
+	})
+	u.User = url.User(role)
+	pool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("testpg: connect as %s: %v", role, err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }
 
 // TenantLogin creates a LOGIN role for one tenant and one power, maps it to the tenant in tenant_login, and returns a pool
