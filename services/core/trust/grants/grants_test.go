@@ -5,12 +5,13 @@ package grants_test
 // two verifies during rotation, a retired key is rejected (REQ-SEC-005). All keys, IDs and values here are SYNTHETIC.
 
 import (
-	"bytes"
 	"encoding/hex"
+	"os"
+
+	"bytes"
 	"encoding/json"
 	"errors"
 	"math/rand"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -225,11 +226,13 @@ func TestAGrantBindsTheExactPolicyItWasDecidedUnder(t *testing.T) {
 		"numeric, not text":                        {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.10")}, "", "fin.pol@3.10"},
 		"three parts":                              {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1.2")}, "", "fin.pol@3.1.2"},
 		"repeated version":                         {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.1"), rule("b", "fin.pol", "3.1")}, "", "fin.pol@3.1"},
-		"two policies: the named one, though the other has a higher version": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
-		"two policies: the named one, in the other order":                    {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
-		"a leading-zero version is schema-valid (Codex P2)":                  {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "03.01")}, "", "fin.pol@03.01"},
-		"leading zeros compare as numbers: 3.010 is newer than 3.9":          {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.010")}, "", "fin.pol@3.010"},
-		"two policies: the named one with two versions":                      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
+		"two policies: the named one, though the other has a higher version":      {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"two policies: the named one, in the other order":                         {[]decide.PolicyRuleVersion{rule("b", "fin.zzz", "1.0"), rule("a", "fin.aaa", "9.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"the same version string under two policy IDs: naming one gives that one": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "1.0"), rule("b", "fin.zzz", "1.0")}, "fin.zzz", "fin.zzz@1.0"},
+		"the same version string under two policy IDs: naming the other gives it": {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "1.0"), rule("b", "fin.zzz", "1.0")}, "fin.aaa", "fin.aaa@1.0"},
+		"a leading-zero version is schema-valid (Codex P2)":                       {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "03.01")}, "", "fin.pol@03.01"},
+		"leading zeros compare as numbers: 3.010 is newer than 3.9":               {[]decide.PolicyRuleVersion{rule("a", "fin.pol", "3.9"), rule("b", "fin.pol", "3.010")}, "", "fin.pol@3.010"},
+		"two policies: the named one with two versions":                           {[]decide.PolicyRuleVersion{rule("a", "fin.aaa", "9.0"), rule("b", "fin.zzz", "1.0"), rule("c", "fin.zzz", "1.1")}, "fin.zzz", "fin.zzz@1.1"},
 	} {
 		s := step()
 		s.PolicyID = c.policy
@@ -388,6 +391,16 @@ func TestKeysRefuseWhatCannotBeUsedSafely(t *testing.T) {
 	}
 	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), 0); err == nil {
 		t.Error("an issuer with no validity must not start")
+	}
+	// Codex P2 on noema#163: the timestamps have whole seconds, so a window under one second would be written with expires_at equal to not_before
+	// and E2 would treat the grant as expired on arrival.
+	for _, d := range []time.Duration{time.Millisecond, 999 * time.Millisecond} {
+		if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), d); err == nil {
+			t.Errorf("an issuer with a validity of %s must not start", d)
+		}
+	}
+	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), time.Second); err != nil {
+		t.Errorf("a validity of one second: %v", err)
 	}
 }
 
@@ -562,6 +575,40 @@ func TestAFreezePermissionIsBoundToTheTargetOfTheGrant(t *testing.T) {
 	}
 	if _, err := gate.PermitTarget(false, capability, ""); err == nil {
 		t.Fatal("the gate gave a permission that names no target")
+	}
+}
+
+// SR on noema#163 (finding 2): a loader that zeroes its buffer after constructing the keys must not turn the signing key into zeros. NewKeys hands the
+// secret to the key ring, which copies it; this pins that, so a later change that keeps the caller's slice fails here.
+func TestKeysDoNotAliasTheCallersSecret(t *testing.T) {
+	secret := append([]byte(nil), k1...)
+	ks, err := grants.NewKeys([]grants.Key{{ID: "k1", Secret: secret}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := issuer(t, ks).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range secret {
+		secret[i] = 0 // the loader wipes its buffer
+	}
+	if err := ks.Verify(before); err != nil {
+		t.Fatalf("a grant signed before the caller's buffer was wiped no longer verifies: %v", err)
+	}
+	after, err := issuer(t, ks).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Sig.Value == "" || ks.Verify(after) != nil {
+		t.Fatal("a grant signed after the buffer was wiped must still be signed with the real key")
+	}
+	other, err := grants.NewKeys([]grants.Key{{ID: "k1", Secret: k1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Verify(after); err != nil {
+		t.Fatalf("the key in use after the wipe is not the original secret: %v", err)
 	}
 }
 

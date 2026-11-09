@@ -142,11 +142,11 @@ type Issuer struct {
 	validity time.Duration
 }
 
-// NewIssuer refuses to start without keys, an ID source, an entropy source and a positive validity. The validity (REQ-TRU-008 default
+// NewIssuer refuses to start without keys, an ID source, an entropy source and a validity of at least one second. The validity (REQ-TRU-008 default
 // 10 minutes, ADOPTED) comes from configuration, not from here.
 func NewIssuer(keys *Keys, ids IDs, entropy io.Reader, validity time.Duration) (*Issuer, error) {
-	if keys == nil || ids == nil || entropy == nil || validity <= 0 {
-		return nil, errors.New("grants: an issuer needs keys, an ID source, an entropy source and a positive validity")
+	if keys == nil || ids == nil || entropy == nil || validity < time.Second {
+		return nil, errors.New("grants: an issuer needs keys, an ID source, an entropy source and a validity of at least one second (timestamps have whole seconds)")
 	}
 	return &Issuer{keys: keys, ids: ids, entropy: entropy, validity: validity}, nil
 }

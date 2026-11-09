@@ -4,6 +4,5 @@
 //
 // Must never: import the internals of trust, execution or outcome, set a state by assigning a field, or decide, execute or verify anything itself.
 //
-// This is an empty boundary package created by PLT-01. Its contents arrive with the tasks named in
-// the README of the PERD §64.2 tree; nothing is built here yet.
+// STM-01 slice 1: the table (table.go), the machine (machine.go). The projection table, the optimistic-lock store and the Record event are the next slice.
 package orchestrator
