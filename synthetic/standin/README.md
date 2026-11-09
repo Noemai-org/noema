@@ -47,7 +47,29 @@ The service refuses (401) an assertion that is missing, malformed, signed with a
 - The assertion proves that the holder of the principal key named the principal; it does not authenticate an end user by itself. The trusted adapter must mint it from the authenticated session (INV-12), and the key must be held only by that adapter. Tushe binds a principal differently; the adapter mapping absorbs that when the interface is frozen.
 - Field names are the PERD 34.4 [REC] shapes, our reading, not Tushe's. Cases stay in mock-case.
 - State is in memory: a restart empties it and the loader loads again. Evidence records the `digest`.
-- Slice 1: the service, its tests and its image. Compose wiring, the hostility proxy's routes to it, and the Compose profile checks follow in the next slice.
+- Slice 2: Compose wiring (`deploy/compose/services/standin.yml`, profiles `ci`, `bench` and `netcheck`, never `dev` or `demo`) and the connection-test matrix rows. Still to come: the hostility proxy's routes to it (an upstream and route entries, when the core's adapters for the stand-in exist) and a cross-language drift guard for the golden file.
+
+## Running it
+
+| Variable | Meaning |
+|---|---|
+| `STANDIN_DATA_LISTEN` | `host:port` or `:port` for the data side (the networks the container joins decide who reaches it) |
+| `STANDIN_CONTROL_LISTEN` or `STANDIN_CONTROL_BIND_VIA` + `STANDIN_CONTROL_PORT` | exactly one: an explicit `host:port` naming one interface, or the local address that shares a subnet with a host known to be on the benchmark network only (Compose: `standin-anchor`) |
+| `STANDIN_BENCH_TOKEN_FILE`, `STANDIN_RUNTIME_TOKEN_FILE`, `STANDIN_PRINCIPAL_KEY_FILE` | paths to the three credentials; they differ |
+| `STANDIN_CLOCK_START` | optional, RFC 3339. Starts a simulated clock (see below); unset means the system clock |
+
+`standin init-credentials -file=P ...` creates each missing credential as random hex and never replaces one; Compose runs it as `standin-credentials` into three named volumes. `standin -healthcheck` exits 0 if the data listener accepts a connection.
+
+## The simulated clock (ENV-05, 7 Nov 2026)
+
+With `STANDIN_CLOCK_START` set, the identity check (expiry and the five-minute limit) reads a clock that starts there and moves only when the benchmark advances it, so a run is reproducible (REQ-ENV-004, INV-21) and a client on the simulated clock is not refused as expired:
+
+| Route (control side, bench credential) | Does |
+|---|---|
+| `GET /control/v1/clock` | `clock_source` `SYNTHETIC`, `simulated`, `now` |
+| `POST /control/v1/clock/advance` `{"by":"PT10S"}` | moves the clock forward by an ISO 8601 time duration (`PT#H#M#S`, above zero, at most 24 hours; never backwards). `409` on the system clock |
+
+`StandinClient` takes its clock through `StandinOptions.Now`; give it the same simulated time as the service. The real clock stays the default, so nothing changes unless the variable is set.
 
 ## Tests
 
