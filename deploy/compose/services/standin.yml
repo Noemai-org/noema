@@ -70,6 +70,8 @@ services:
       STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
       STANDIN_BENCH_TOKEN_FILE: /run/standin/bench/token
       STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+      # Empty means the system clock. Set it (for example 2026-10-01T09:40:00Z) to run on the simulated clock the benchmark advances.
+      STANDIN_CLOCK_START: "${STANDIN_CLOCK_START:-}"
     volumes:
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_bench_credential:/run/standin/bench:ro

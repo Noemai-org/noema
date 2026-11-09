@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "correlation_id": "corr_4c21f9",
+  "locale": "en-NG",
+  "facts": [],
+  "unknowns": [
+    {
+      "fact_id": "f3",
+      "kind": "beneficiary.credited",
+      "status": "UNAVAILABLE",
+      "why_code": "SOURCE_TIMEOUT"
+    }
+  ],
+  "actions": [],
+  "advice": [],
+  "next_steps": [],
+  "outcome_id": "fin.outcome.exception.case_opened",
+  "classification": "SUCCESS_CONFIRMED"
+}
