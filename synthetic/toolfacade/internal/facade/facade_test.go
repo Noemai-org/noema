@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/synthetic/toolfacade/internal/facade"
 )
@@ -417,4 +419,58 @@ func TestSliceOneHoldsNoClientOfAnySystem(t *testing.T) {
 			t.Errorf("facade.go mentions %q: slice 1 reaches no system", bad)
 		}
 	}
+}
+
+func TestAMalformedPackEntryFailsClosed(t *testing.T) {
+	// Codex finding 2 on noema#361: a capability without a `prohibited` member decoded as false and would have been offered as callable. The member must be
+	// present and a boolean, and so must the other members the facade relies on. A prohibited capability must never be offered by accident (BD-08, INV-05).
+	for name, entry := range map[string]string{
+		"prohibited absent":      `{"capability_id":"fin.cap.move_money","risk_class":"R3_money","business_meaning":"x"}`,
+		"prohibited null":        `{"capability_id":"fin.cap.move_money","risk_class":"R3_money","business_meaning":"x","prohibited":null}`,
+		"prohibited a string":    `{"capability_id":"fin.cap.move_money","risk_class":"R3_money","business_meaning":"x","prohibited":"yes"}`,
+		"capability id absent":   `{"risk_class":"R0_read","business_meaning":"x","prohibited":false}`,
+		"risk class absent":      `{"capability_id":"fin.cap.a","business_meaning":"x","prohibited":false}`,
+		"business meaning empty": `{"capability_id":"fin.cap.a","risk_class":"R0_read","business_meaning":"","prohibited":false}`,
+	} {
+		pack := `{"capabilities":[` + entry + `]}`
+		if _, err := facade.New(facade.Options{BenchToken: benchToken, Pack: []byte(pack)}); err == nil {
+			t.Errorf("%s: want startup refused", name)
+		}
+	}
+}
+
+func TestASlowBodyIsCutOffAndDoesNotPinTheService(t *testing.T) {
+	// Codex finding 3 on noema#361: ReadHeaderTimeout does not bound the body. An arm that opens requests and sends a body very slowly must be cut off.
+	s, err := facade.New(facade.Options{BenchToken: benchToken, Pack: []byte(`{"capabilities":[{"capability_id":"fin.cap.a","risk_class":"R0_read","business_meaning":"x","prohibited":false}]}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const limit = 300 * time.Millisecond
+	srv := facade.HTTPServer("127.0.0.1:0", s.DataHandler(), limit)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// Complete headers promising 1000 bytes, then send one byte and stall.
+	_, _ = conn.Write([]byte("POST /tools/a HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer t\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{"))
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	start := time.Now()
+	_, _ = io.ReadAll(conn) // returns when the server closes the connection or answers and closes
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("the stalled body held the connection for %v; the read deadline is %v", took, limit)
+	}
+	// A normal request still works on the same server.
+	resp, err := http.Get("http://" + ln.Addr().String() + "/clock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
 }

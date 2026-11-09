@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	readHeaderTimeout = 5 * time.Second
-	shutdownTimeout   = 10 * time.Second
-	healthDialTimeout = 2 * time.Second
+	requestReadTimeout = 10 * time.Second
+	shutdownTimeout    = 10 * time.Second
+	healthDialTimeout  = 2 * time.Second
 )
 
 func main() {
@@ -52,8 +52,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "toolfacade:", err)
 		os.Exit(2)
 	}
-	data := &http.Server{Addr: cfg.DataListen, Handler: s.DataHandler(), ReadHeaderTimeout: readHeaderTimeout}
-	control := &http.Server{Addr: cfg.ControlListen, Handler: s.ControlHandler(), ReadHeaderTimeout: readHeaderTimeout}
+	data := facade.HTTPServer(cfg.DataListen, s.DataHandler(), requestReadTimeout)
+	control := facade.HTTPServer(cfg.ControlListen, s.ControlHandler(), requestReadTimeout)
 	errs := make(chan error, 2)
 	for _, srv := range []*http.Server{data, control} {
 		go func() { errs <- srv.ListenAndServe() }()

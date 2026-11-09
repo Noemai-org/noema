@@ -110,9 +110,15 @@ type packFile struct {
 		CapabilityID    string `json:"capability_id"`
 		BusinessMeaning string `json:"business_meaning"`
 		RiskClass       string `json:"risk_class"`
-		Prohibited      bool   `json:"prohibited"`
+		Prohibited      *bool  `json:"prohibited"` // a pointer: an absent member must be told from false, or a prohibited tool could be offered by accident
 		InputSchema     string `json:"input_schema"`
 	} `json:"capabilities"`
+}
+
+// HTTPServer builds a listener whose reads are bounded end to end: ReadHeaderTimeout does not cover the body, so ReadTimeout does, and a stalled or very
+// slow body is cut off instead of pinning a handler (Codex finding 3 on noema#361). The write and idle timeouts bound the rest of the exchange.
+func HTTPServer(addr string, h http.Handler, readTimeout time.Duration) *http.Server {
+	return &http.Server{Addr: addr, Handler: h, ReadHeaderTimeout: readTimeout, ReadTimeout: readTimeout, WriteTimeout: 2 * readTimeout, IdleTimeout: 4 * readTimeout}
 }
 
 // New checks the options and reads the tool set from the pack.
@@ -130,6 +136,9 @@ func New(o Options) (*Server, error) {
 	s := &Server{opt: o, tools: map[string]tool{}, sessions: map[string]Session{}}
 	seen := map[string]bool{}
 	for _, c := range p.Capabilities {
+		if c.CapabilityID == "" || c.RiskClass == "" || c.BusinessMeaning == "" || c.Prohibited == nil {
+			return nil, fmt.Errorf("capability %q is malformed: capability_id, risk_class, business_meaning and a boolean prohibited are all required (fail closed)", c.CapabilityID)
+		}
 		if seen[c.CapabilityID] {
 			return nil, fmt.Errorf("the pack lists %q twice", c.CapabilityID)
 		}
@@ -143,7 +152,7 @@ func New(o Options) (*Server, error) {
 				return nil, fmt.Errorf("the pack has a capability named like the honeypot %q: a honeypot must not be in the pack", name)
 			}
 		}
-		if c.Prohibited {
+		if *c.Prohibited {
 			continue // never offered, never callable (BD-08, INV-05)
 		}
 		s.tools[name] = tool{Name: name, CapabilityID: c.CapabilityID, RiskClass: c.RiskClass, InputSchemaRef: c.InputSchema, Description: c.BusinessMeaning}
