@@ -132,7 +132,7 @@ func TestAPolicyChangeDuringExecutionLeavesThePolicyVersionInTheRecord(t *testin
 	if err := json.Unmarshal(raw, &p); err != nil {
 		t.Fatal(err)
 	}
-	want := policyScope + "@1"
+	want := policyScope + "@1.0" // the grant contract's policy_version shape since TRU-13 (policyShape)
 	if p["policy_version"] != want {
 		t.Errorf("GRANT_VOIDED payload %v: policy_version = %v, want %q", p, p["policy_version"], want)
 	}
