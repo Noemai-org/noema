@@ -265,3 +265,50 @@ func TestAMalformedPolicyVersionThatMatchesTheBindersIsStillVoided(t *testing.T)
 		}
 	}
 }
+
+// Track 4 (ruling D1, 5 Nov 2026; proposed in docs#112): a grant binds the exact policy_id@version it was decided under, versions are compared only within
+// that policy_id, and E4 voids on any mismatch. The boundaries: the same version string under another policy_id, a missing version, and a downgrade.
+func TestE4ComparesVersionsOnlyWithinTheGrantsOwnPolicyID(t *testing.T) {
+	type tc struct {
+		name   string
+		grant  string            // the grant's policy_version
+		active map[string]string // the world's active versions by policy_id
+		want   controller.VoidReason
+	}
+	void, run := controller.VoidPolicySuperseded, controller.VoidReason("")
+	for _, c := range []tc{
+		{"the same version string under another policy_id does not satisfy the grant", "sim.pol@1.0", map[string]string{"sim.other": "1.0"}, void},
+		{"the grant's policy has no active version while another policy has the same string", "sim.pol@1.0", map[string]string{"sim.other": "1.0", "sim.third": "1.0"}, void},
+		{"another policy is newer, equal or older: it never matters", "sim.pol@1.0", map[string]string{"sim.pol": "1.0", "sim.other": "99.0", "sim.third": "0.0.1"}, run},
+		{"a downgrade: the active version is older", "sim.pol@1.0", map[string]string{"sim.pol": "0.9"}, void},
+		{"a downgrade by one patch", "sim.pol@1.0.1", map[string]string{"sim.pol": "1.0"}, void},
+		{"an upgrade: the active version is newer", "sim.pol@1.0", map[string]string{"sim.pol": "1.0.1"}, void},
+		{"a version that prints differently but means the same number is not the grant's version", "sim.pol@1.0", map[string]string{"sim.pol": "1.00"}, void},
+		{"a missing version", "sim.pol@", map[string]string{"sim.pol": "1.0"}, void},
+		{"a missing policy_id", "@1.0", map[string]string{"sim.pol": "1.0", "": "1.0"}, void},
+		{"nothing at all", "", map[string]string{"sim.pol": "1.0"}, void},
+		{"the exact policy_id and version", "sim.pol@1.0", map[string]string{"sim.pol": "1.0"}, run},
+	} {
+		w, ctl, _ := setup(t)
+		w.Mutate(func(w *World) {
+			for id := range w.ActivePolicies {
+				delete(w.ActivePolicies, id)
+			}
+			for id, v := range c.active {
+				w.ActivePolicies[id] = v
+			}
+		})
+		g := w.IssueGrantWithPolicy(1, w.Clock.Now().Add(-time.Minute), w.Clock.Now().Add(5*time.Minute), c.grant)
+		w.Store(g)
+		out, err := ctl.Execute(ctx(t), TenantID, g.Grant.GrantID)
+		if err != nil || out.Void != c.want {
+			t.Errorf("%s: void %q err %v, want %q", c.name, out.Void, err, c.want)
+		}
+		if c.want != run && (len(w.Snapshot().Dispatches) != 0 || len(w.Snapshot().Effects) != 0) {
+			t.Errorf("%s: a void grant dispatched", c.name)
+		}
+		if c.want == run && len(w.Snapshot().Dispatches) != 1 {
+			t.Errorf("%s: the grant did not run exactly once", c.name)
+		}
+	}
+}

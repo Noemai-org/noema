@@ -179,7 +179,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
