@@ -49,6 +49,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 
 `schemas/benchmark-case.v2.json`, `benchmark-oracle.v2.json` and `benchmark-arm-case.v1.json` are drafts for the PERD §48.1 amendment (ruling A27). Nothing uses them yet and no existing schema is edited. Migration note: see `INVENTORY.md`. The arm case is the only view of a case an arm is shown. Fixtures: `fixtures/{valid,invalid}/benchmark-case.v2`, `benchmark-oracle.v2`, `benchmark-arm-case`.
 
+## Action Graph v2 (1 Nov 2026)
+
+`schemas/action-graph.v2.json` sits beside `action-graph.v1.json`, which is not edited (AGENT-15). Task PCK-04. Source: PERD v1.19 REQ-AG-001 as amended by `DEC-2026-10-31-proof-depth-and-completeness` D9 ("every node other than a declared root has at least one incoming edge"); the `roots` field and the connectedness rule were approved by the Architect on 1 Nov 2026 (E1, option a).
+
+- **What v2 is.** v1 plus a required `roots` array: one or more unique node IDs, the nodes the planner may start from. Every other node needs an incoming edge.
+- **What packcheck adds** (not expressible in the schema): every root names a node of the graph; every non-root node has an incoming edge; every node has at least one postcondition; every WRITE node has at least one precondition; a graph with more than one node is connected by its edges, so a flat list of endpoints fails.
+- **Migration note.** A new required property is breaking for a v1 document, hence a new major. A graph is v1 or v2: a v1 graph lacks `roots` and does not validate as v2. packcheck now loads every graph as v2. The only graphs are the three fintech files, which gain `roots` in the same change; the conformance packs carry no graph. `pack.v1.json` changes only the description of `action_graph_files`, which now names v2; validation is unchanged. No generated models exist yet (CON-03); they are generated when CON-03 lands.
+
 ## Status (Session A, 24 Oct 2026)
 
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.
