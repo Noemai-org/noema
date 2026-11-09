@@ -54,7 +54,7 @@ func CheckRetryOrder(rows []chain.Row) []Violation {
 				case v == "ACHIEVED":
 					verdictSeen, allowAfter = false, false // nothing to recover: it cancels an earlier failed verdict
 				case v == "COMPENSATED":
-					verdictSeen, allowAfter = false, false // the harm was undone (ruling A6, 8 Nov 2026): it authorises no retry and ends the authority of any earlier failed verdict
+					verdictSeen, allowAfter = false, false // the harm was undone (ruling A68, DEC-2026-11-08-rulings-a41-onward): it authorises no retry and ends the authority of any earlier failed verdict
 				case verdicts[v]:
 					verdictSeen, allowAfter = true, false // a later verdict restarts the wait for an ALLOW
 				default:

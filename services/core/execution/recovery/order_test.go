@@ -236,7 +236,7 @@ func TestAnUnreadableLaterVerdictRevokesTheEarlierPairAsAuthority(t *testing.T) 
 	}
 }
 
-// Architect ruling A6 (8 Nov 2026; the Founders' instruction, to be committed as a decision record): a COMPENSATED verdict does not authorise a retry. The
+// Ruling A68 of DEC-2026-11-08-rulings-a41-onward (merged; called A6 in the 8 Nov answers to C1): a COMPENSATED verdict does not authorise a retry. The
 // harm was already undone; another dispatch needs a verdict that says the target is not in the wanted state. REQ-RCV-001, REQ-RCV-002, AGENT-08, INV-07.
 func TestACompensatedVerdictDoesNotAuthoriseARetry(t *testing.T) {
 	rs := seq("c1", dispatch(1), verdict("COMPENSATED"), decided("ALLOW"), dispatch(2))
