@@ -33,7 +33,7 @@ var (
 
 func basis() decide.Basis {
 	return decide.Basis{PackVersion: "fin.pack@1.0.0", PolicyRules: []decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}},
-		EvidenceSnapshotID: "snap_01", EvidenceFreshness: []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30}}, EvaluatedAt: epoch.Unix()}
+		EvidenceSnapshotID: "snap_01", EvidenceFreshness: []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitBySource}}, EvaluatedAt: epoch.Unix()}
 }
 
 func decision(t *testing.T, o decide.Outcome) decide.Decision {
