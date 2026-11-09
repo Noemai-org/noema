@@ -183,3 +183,27 @@ func TestBodyOfTakesTheAdaptersHashAndSaysNoBytesWhenThereIsNone(t *testing.T) {
 		}
 	}
 }
+
+// REQ-CTX-002, INV-19, AGENT-11 (Codex P2 on noema#174, failing-first for a new case): an adapter that returns a typed nil *ReadError inside an error interface is a bug
+// in the adapter, and the classifier must treat it as an error nobody foresaw (MALFORMED, so UNKNOWN, never KNOWN) and say no bytes arrived, not panic. errors.As finds the
+// typed nil and returns true, so a classifier that reads the failure through it dereferences nil.
+func TestATypedNilReadErrorIsAnUnforeseenFailureAndNeverAPanic(t *testing.T) {
+	var typedNil *adapters.ReadError
+	var err error = typedNil
+	wrapped := fmt.Errorf("case read: %w", err)
+	for name, e := range map[string]error{"a typed nil": err, "a wrapped typed nil": wrapped} {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("%s: panic: %v", name, r)
+				}
+			}()
+			if got := layer.ClassifyError(e); got != layer.ReadMalformed {
+				t.Errorf("%s: ClassifyError = %s, want %s", name, got, layer.ReadMalformed)
+			}
+			if hash, noBytes := layer.BodyOf(e); hash != "" || !noBytes {
+				t.Errorf("%s: BodyOf = (%q, %v), want (\"\", true)", name, hash, noBytes)
+			}
+		}()
+	}
+}
