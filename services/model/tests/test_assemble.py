@@ -11,7 +11,7 @@ import pytest
 
 from noema_model.harness import Harness, assemble_harness
 from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL
-from noema_model.platform.telemetry import InMemoryTelemetry, cost_files_from_environment
+from noema_model.platform.telemetry import COST_EVENT, InMemoryTelemetry
 from noema_model.providers.llm.base import HttpResponse
 from tests.support import ManualClock, RecordingTransport, raw_config, run
 from tests.test_harness_call import request, version
@@ -70,13 +70,12 @@ def test_the_reason_never_carries_a_credential(tmp_path: Path) -> None:
     assert result.harness is None and "sk-synthetic" not in result.reason
 
 
-def test_a_valid_configuration_builds_a_harness_that_answers_and_writes_its_cost_file(tmp_path: Path) -> None:
-    out = tmp_path / "bench"
-    telemetry = cost_files_from_environment(InMemoryTelemetry(), {"BENCH_OUT": str(out)})
+def test_a_valid_configuration_builds_a_harness_that_answers_and_emits_its_cost_event(tmp_path: Path) -> None:
+    telemetry = InMemoryTelemetry()
     transport = RecordingTransport(chat_reply(version("alpha")))
     result = assemble_harness(write(tmp_path, raw_config(providers=("alpha",))), ManualClock(), telemetry, transport)
     assert isinstance(result.harness, Harness) and result.reason == ""
     answer = run(result.harness.generate(request()))
     assert answer.value.surface == "20k" and transport.requests
-    (written,) = (out / "cost").glob("*.json")
-    assert json.loads(written.read_text()) == answer.call.to_dict()
+    (event,) = [fields for name, _, fields in telemetry.events if name == COST_EVENT]
+    assert json.loads(str(event["record"])) == answer.call.to_dict()
