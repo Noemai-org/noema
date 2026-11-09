@@ -14,3 +14,5 @@ Written only by the voice-engineer role (see `README.md`). Append dated entries,
 **Blocked**
 - VOI-01 `done_when` "interface tests pass against a recorded sample per provider": needs each vendor's API document and either a recorded sample or founder approval for a live call (REQ-INT-006). Nothing is invented meanwhile.
 - Lint conflict: `tools/lint/pyrules.py` `harness_only_providers` allows only `harness/` to import `providers`, while the boundary docstrings let `voice` import it. The voice pipeline will take a provider through a structural Protocol it defines itself, so no import is needed. Raised in the VOI-01 PR.
+
+- VOI-18 on `feat/VOI-18-modular-pipeline-guard`, STACKED on VOI-01 (#186): `providers/speech/guard.py` refuses a speech-to-speech provider in `bench` and `demo`, and any unknown profile. Wiring it into service start-up waits for a config loader for speech providers (none exists on `main`).

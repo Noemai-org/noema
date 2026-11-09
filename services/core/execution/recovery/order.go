@@ -55,8 +55,9 @@ func CheckRetryOrder(rows []chain.Row) []Violation {
 					verdictSeen, allowAfter = false, false // nothing to recover: it cancels an earlier failed verdict
 				case verdicts[v]:
 					verdictSeen, allowAfter = true, false // a later verdict restarts the wait for an ALLOW
+				default:
+					verdictSeen, allowAfter = false, false // unreadable or unknown: never a non-ACHIEVED verdict, and it ends the authority of any earlier pair
 				}
-				// an unreadable or unknown verdict changes nothing: unknown is never a non-ACHIEVED verdict
 			case "DECISION_MADE":
 				if verdictSeen && payloadString(r, "decision_outcome") == "ALLOW" {
 					allowAfter = true
