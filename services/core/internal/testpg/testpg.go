@@ -312,9 +312,10 @@ const (
 	FixtureIssuedAt      = "2026-11-07T09:00:00.000Z"
 	FixtureRecordExpires = "2099-01-01T00:00:00.000Z"
 	// BoundFieldsSQL is a jsonb expression holding the fields of a Decision Record that the database requires (intent_id, correlation_id, policy_version,
-	// intent_hash, issued_at, expires_at). Append it to a document with ||.
+	// intent_hash, issued_at, expires_at, and the three authority layers at PASS, which an ALLOW needs). Append it to a document with ||.
 	BoundFieldsSQL = `jsonb_build_object('intent_id', 'int_synth01', 'correlation_id', 'corr_synth01', 'policy_version', '` + FixturePolicyVersion +
-		`', 'intent_hash', '` + FixtureIntentHash + `', 'issued_at', '` + FixtureIssuedAt + `', 'expires_at', '` + FixtureRecordExpires + `')`
+		`', 'intent_hash', '` + FixtureIntentHash + `', 'issued_at', '` + FixtureIssuedAt + `', 'expires_at', '` + FixtureRecordExpires + `',
+		'authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS', 'business', 'PASS'))`
 	// GrantBoundSQL is the same for a grant document: it agrees with BoundFieldsSQL and expires before it.
 	GrantBoundSQL = `jsonb_build_object('intent_hash', '` + FixtureIntentHash + `', 'policy_version', '` + FixturePolicyVersion + `', 'expires_at', '2026-11-07T10:00:00.000Z')`
 )
@@ -327,6 +328,7 @@ func DecisionDocJSON(decisionID, tenant, intentHash, policyVersion, correlation 
 		"decision_id": decisionID, "tenant_id": tenant, "outcome": "ALLOW", "sig": map[string]string{"key_id": "k1", "value": "aa"},
 		"intent_id": "int_synth01", "correlation_id": correlation, "policy_version": policyVersion, "intent_hash": intentHash,
 		"issued_at": FixtureIssuedAt, "expires_at": FixtureRecordExpires,
+		"authority": map[string]string{"technical": "PASS", "policy": "PASS", "business": "PASS"},
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {

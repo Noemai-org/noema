@@ -38,6 +38,15 @@ CREATE TABLE decision_record (
               AND json ->> 'issued_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$' AND json ->> 'expires_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$'
              THEN (json ->> 'expires_at')::timestamptz > (json ->> 'issued_at')::timestamptz ELSE false END, false))
 );
+-- Codex P1 on noema#168: decision-record.v2 requires the technical, policy and business authority layers to all be PASS for an ALLOW. The database is the
+-- grant gate, so a record that says ALLOW while a layer FAILed or was not evaluated, or that names no authority, is refused here and no grant can follow
+-- (INV-03, INV-17; REQ-TRU-001, REQ-TRU-008). It applies to ALLOW only: a refusal records the layer that failed. IS NOT DISTINCT FROM and coalesce keep NULL
+-- from passing a CHECK; a layer that is not the JSON string PASS, or is absent, never equals 'PASS'.
+ALTER TABLE decision_record ADD CONSTRAINT decision_record_allow_authority CHECK (outcome <> 'ALLOW' OR coalesce(
+  jsonb_typeof(json -> 'authority') IS NOT DISTINCT FROM 'object'
+  AND jsonb_typeof(json #> '{authority,technical}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,technical}' IS NOT DISTINCT FROM 'PASS'
+  AND jsonb_typeof(json #> '{authority,policy}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,policy}' IS NOT DISTINCT FROM 'PASS'
+  AND jsonb_typeof(json #> '{authority,business}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,business}' IS NOT DISTINCT FROM 'PASS', false));
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
 

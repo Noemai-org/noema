@@ -468,3 +468,44 @@ func TestTrustCannotInsertAGrantThatIsAlreadySpentOrVoid(t *testing.T) {
 		t.Fatalf("an ISSUED grant by Trust: %v", err)
 	}
 }
+
+// Codex P1 on noema#168 at 620464b: decision-record.v2 requires all three authority layers to be PASS for an ALLOW, but the database checked only the
+// outcome, so a Trust login whose document and column both said ALLOW while business was FAIL could store the record and then take a grant for it.
+// The database is the grant gate (INV-03, INV-17; REQ-TRU-008), so the record itself must carry the rule. All rows SYNTHETIC.
+func TestAnAllowRecordNeedsAllThreeAuthorityLayersToPass(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	insert := func(outcome, authority string) error {
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('dec_auth', 'ten_a', jsonb_build_object('decision_id', 'dec_auth', 'tenant_id', 'ten_a', 'outcome', '%[1]s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || (`+testpg.BoundFieldsSQL+` - 'authority') || %[2]s,
+			'%[1]s', 'sha256:%064[3]d', '[]', 'k1', 'aa')`, outcome, authority, 1))
+	}
+	pass := func(layer, value string) string {
+		l := map[string]string{"technical": "PASS", "policy": "PASS", "business": "PASS"}
+		l[layer] = value
+		return fmt.Sprintf(`jsonb_build_object('authority', jsonb_build_object('technical', '%s', 'policy', '%s', 'business', '%s'))`, l["technical"], l["policy"], l["business"])
+	}
+	for _, layer := range []string{"technical", "policy", "business"} {
+		for _, value := range []string{"FAIL", "NOT_EVALUATED", "pass", ""} {
+			wantCode(t, insert("ALLOW", pass(layer, value)), violation, "an ALLOW whose "+layer+" authority is '"+value+"'")
+		}
+	}
+	wantCode(t, insert("ALLOW", `'{}'::jsonb`), violation, "an ALLOW with no authority at all")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', 'PASS')`), violation, "an ALLOW whose authority is a string")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS'))`), violation, "an ALLOW with one layer missing")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS', 'business', to_jsonb(true)))`), violation, "an ALLOW whose layer is not a string")
+	if err := insert("ALLOW", pass("technical", "PASS")); err != nil {
+		t.Fatalf("an ALLOW whose three layers PASS: %v", err)
+	}
+	// the rule is about ALLOW: a refusal records the layer that failed, and must stay storable
+	if err := insert("REJECT", pass("business", "FAIL")); err != nil {
+		t.Fatalf("a REJECT whose business layer FAILed: %v", err)
+	}
+	// and a grant cannot be reached through a record that was never storable: no row, no grant
+	if _, err := pool.Exec(ctx(t), decisionRow("dec_ok", "ten_a", "ALLOW")); err == nil {
+		t.Log("fixture note: decisionRow ALLOW carries authority (see testpg.BoundFieldsSQL)")
+	}
+}
