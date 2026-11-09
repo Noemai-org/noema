@@ -105,7 +105,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -312,7 +312,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -381,7 +381,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -450,7 +450,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -519,7 +519,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -588,7 +588,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -657,7 +657,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -726,7 +726,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -802,7 +802,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -888,7 +888,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -973,7 +973,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1057,7 +1057,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1141,7 +1141,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1216,7 +1216,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1285,7 +1285,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1354,7 +1354,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1423,7 +1423,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1492,7 +1492,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1561,7 +1561,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1630,7 +1630,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
@@ -1699,7 +1699,7 @@
         ],
         "roles_allowed": [
           "customer",
-          "ops_agent"
+          "ops"
         ]
       },
       "policy_templates": [
