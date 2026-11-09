@@ -20,7 +20,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
 
-
 ## Session 2026-11-06 · EXE-08 slice B: database-side verification of receipts (DEBT-01, Option B)
 ### Session summary
 - What changed (PR links): the slice B pull request on `feat/EXE-08-sig-db`, STACKED on noema#214 (the CI job, ruling A16). Do not merge before docs#117 (rulings A2 and A16).
@@ -62,3 +61,6 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 
 ## Update 2026-11-07 (Founder decision D12: migration numbers)
 - `0013_receipt_signature.sql` (noema#229) and `0014_grant_spent_void.sql` (this PR) replace the provisional `0012` and `0013` named in the sessions above. 0012 is noema#168's, 0015 noema#259's, 0016 noema#234's, 0017 noema#261's, 0018 noema#263's. If the merge order changes, the later PR renumbers.
+
+## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
+- `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.

@@ -478,3 +478,16 @@ func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
 		t.Fatalf("covered %d reasons, the Record accepts %d: %v", len(seen), len(chain.GrantVoidReasons()), chain.GrantVoidReasons())
 	}
 }
+
+// RCV-02 (REQ-RCV-003, Architect ruling A3): DISPATCH_ATTEMPTED carries the capability and the target of the grant it spends, so the
+// dispatch budget can be counted from the Record by tenant_id, correlation_id, capability and target_ref.
+func TestDispatchAttemptedCarriesTheBudgetKey(t *testing.T) {
+	w := newWorld(t)
+	g := w.issue(t, 1)
+	mustExecute(t, w, g.GrantID)
+	n := w.count(t, fmt.Sprintf(`SELECT count(*) FROM record_event
+		WHERE event_type = 'DISPATCH_ATTEMPTED' AND payload::jsonb->>'capability' = '%s' AND payload::jsonb->>'target_ref' = '%s'`, g.CapabilityID, g.TargetRef))
+	if n != 1 {
+		t.Fatalf("DISPATCH_ATTEMPTED events carrying capability %q and target_ref %q: %d, want 1", g.CapabilityID, g.TargetRef, n)
+	}
+}

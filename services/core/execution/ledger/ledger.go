@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -44,12 +45,31 @@ type Ledger struct {
 	Clock clock.Clock
 	IDs   IDSource
 	Rec   *chain.Appender
+	// RollbackTimeout bounds the rollback of a failed transaction after the caller's context has ended (ruling A24). It comes from configuration and
+	// has no default: a Ledger without one refuses to start a transaction.
+	RollbackTimeout time.Duration
 }
 
 var (
 	_ controller.Ledger      = (*Ledger)(nil)
 	_ controller.GrantSource = (*Ledger)(nil)
 )
+
+var errNoRollbackBound = errors.New(errPrefix + "RollbackTimeout is required: a rollback after a cancelled context must be bounded")
+
+// rolledBack is what rollbackBounded needs of a transaction.
+type rolledBack interface {
+	Rollback(ctx context.Context) error
+}
+
+// rollbackBounded rolls tx back with context.WithTimeout(context.WithoutCancel(ctx), bound): the rollback is still tried when the caller's context is
+// already done, so no connection returns to the pool inside a transaction, and it is abandoned after the bound when the server does not answer (A24).
+// A rollback that fails is not an error of the step: the step's own error is the one to report, and the server rolls back a dropped session.
+func rollbackBounded(ctx context.Context, tx rolledBack, bound time.Duration) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), bound)
+	defer cancel()
+	_ = tx.Rollback(rctx)
+}
 
 func needDeadline(ctx context.Context) error {
 	if _, ok := ctx.Deadline(); !ok {
@@ -63,12 +83,15 @@ func (l *Ledger) inTx(ctx context.Context, level pgx.TxIsoLevel, fn func(pgx.Tx)
 	if err := needDeadline(ctx); err != nil {
 		return err
 	}
+	if l.RollbackTimeout <= 0 {
+		return errNoRollbackBound
+	}
 	tx, err := l.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: level})
 	if err != nil {
 		return fmt.Errorf("%sbegin: %w", errPrefix, err)
 	}
 	if err := fn(tx); err != nil {
-		_ = tx.Rollback(context.WithoutCancel(ctx))
+		rollbackBounded(ctx, tx, l.RollbackTimeout)
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {

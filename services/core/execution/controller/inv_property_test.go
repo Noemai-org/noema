@@ -68,6 +68,7 @@ var defects = []defect{
 	{name: "a grant the ledger never stored", unstored: true, prepare: fresh},
 	{name: "the kill switch on", prepare: fresh, world: func(w *World) { w.KillSwitch = true }},
 	{name: "the decision no longer ALLOW", prepare: fresh, world: func(w *World) { w.DecisionAllowed = false }},
+	{name: "the grant's policy has a newer active version", prepare: fresh, world: func(w *World) { w.ActivePolicies["sim.pol"] = "2.0" }},
 	{name: "the intent superseded", prepare: fresh, world: func(w *World) { w.IntentHash = hashOf("intent-2") }},
 	{name: "the target version moved", prepare: fresh, world: func(w *World) { w.TargetVersion = "v_2" }},
 }
