@@ -104,3 +104,13 @@ func TestScopedModeRefusesCredentialsThatAreNotDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestScopedModeRefusesARuntimeCredentialEqualToTheBenchOne(t *testing.T) {
+	// Codex finding 2 on noema#365: with equal runtime and bench values the map in NewScoped collapsed them and the shared credential was identified as the bench.
+	// The constructor must refuse it itself, not rely on the config loader.
+	for name, c := range map[string][2]string{"equal": {bench, bench}, "both empty": {"", ""}, "runtime empty": {"", bench}, "bench empty": {rt, ""}} {
+		if _, err := auth.NewScoped(c[0], c[1], map[string]string{"ten_a": tokA}); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}

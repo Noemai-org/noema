@@ -48,6 +48,12 @@ func NewScoped(runtimeToken, benchToken string, tenantTokens map[string]string) 
 	if len(tenantTokens) == 0 {
 		return nil, errors.New("scoped mode needs at least one tenant credential")
 	}
+	if runtimeToken == "" || benchToken == "" {
+		return nil, errors.New("the runtime and the bench credentials must both be set")
+	}
+	if runtimeToken == benchToken {
+		return nil, errors.New("the runtime credential and the bench credential must differ: the runtime must never hold the oracle credential")
+	}
 	seen := map[string]string{runtimeToken: "the runtime credential", benchToken: "the bench credential"}
 	a := &Authenticator{runtime: sha256.Sum256([]byte(runtimeToken)), bench: sha256.Sum256([]byte(benchToken))}
 	for tenant, token := range tenantTokens {
