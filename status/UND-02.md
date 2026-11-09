@@ -109,3 +109,18 @@ Non-blocking item (27 Oct), status 28 Oct: the exception-logging defect is fixed
 | 2026-10-28 (failing-first) | Founder (relayed by the user) | D | The founder requires failing-first CI evidence before merging #93; do not merge. (1) Push only the failing regression test, no fix, to a temporary branch and wait for CI; (2) report the run link, commit SHA and exact failure reason; (3) verify #93's branch holds the same tests and the fix and that the checks at the final head are green; (4) review `evidence/transport.py`, confirm it cannot carry or expose the credential, report and log it as a non-blocking limitation | (1)(2) Commit `766257289d55539db6a7d5733c36f1e03abfbc16` on `evidence/und-02-header-failing-first`, draft PR #95 (CI runs on pull requests only), run https://github.com/Noemai-org/noema/actions/runs/40732002057: `model` failed, 3 failed and 592 passed, the raw `ValueError: Invalid header value b'***'` and `UnicodeEncodeError` escaping instead of a `ProviderError`; #95 closed. (3)(4) see the next entry |
 
 Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/evidence/transport.py` cannot carry or expose a credential today. Its only caller, `EvidenceClient.fetch` (`evidence/client.py` line 202), sends the constant header `content-type: application/json`; the link's identity is the client certificate and key held in the `ssl.SSLContext` (`platform/mtls/__init__.py`), which never enter a header, the URL or the body; its handler maps `URLError` and `OSError` to `CandidateSourceError("the evidence API did not answer")` and the mTLS loader maps its errors to `ConfigError("mTLS material is missing or unusable")`, neither with a header value. A `ValueError` from `putheader` is not caught there, but it could only name the constant header. Limitation: if a later change adds a secret-bearing header to this link, it has the same unmapped-`ValueError` exposure that #93 closes for `providers/llm/transport.py`; that change would need the same fix and test. No change is made now (owner: D; non-blocking).
+
+# Session 2026-11-07 · UND-02 (the Input Gateway; plan row UND-02, the earlier text of this file maps to UND-03 and AMB-01)
+
+## Session summary
+- What changed: `services/model/noema_model/understanding/gateway/` (`gateway.py`, README) and `tests/test_input_gateway.py`. PR: noema#270.
+- Why: plan row UND-02 (REQ-INP-001; Needs CON-03, Done); REQ-INP-002 (identity from the session only).
+- Risks: new code on the model side of the boundary; it only normalises and refuses. A body naming identity or system fields is refused, not ignored.
+- Tests added (REQ-INP-001, REQ-INP-002, REQ-VOI-001, INV-12): every valid contract fixture round-trips, every invalid fixture is refused for its own reason, empty and over-length text (limit counted after NFC), encoding, non-final transcripts, unknown fields at both levels, identity and system fields in the body, channel and voice block, confidences (bool, NaN, infinity, strings), idempotent normalisation and identical bytes (Hypothesis), no text in a refusal, import and clock checks. Written first; red (ImportError) on the first commit.
+- Regression cases added: none (new code). Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: UND-04 (schema gate twice, `intent_hash` over JCS) takes `CanonicalInputV1` from here; core's `INPUT_RECEIVED` event and `request_id` deduplication (REQ-INP-003) are core's.
+- Open questions: none.
+- Files to read first: `services/model/noema_model/understanding/gateway/README.md`.
+- Do not touch: the generated contract models.

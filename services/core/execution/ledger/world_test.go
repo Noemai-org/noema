@@ -92,6 +92,12 @@ func (b *binder) LatestIntentHash(_ context.Context, g controller.Grant) (string
 	}
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this world's policy is always at the version its grants name.
+func (b *binder) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (b *binder) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return !b.denied, nil
 }
@@ -144,7 +150,7 @@ func newWorld(t *testing.T) *world {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)}
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	params := map[string]any{"transaction_ref": "TX1", "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED", "epoch": int64(1)}
 	b := &binder{l: led, params: params, fields: controller.KeyFields{TransactionID: "TX1", LogicalAction: "ESCALATE_CASE", ReasonCode: "CUSTOMER_DISPUTE_UNRECOGNIZED",
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
@@ -165,7 +171,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_%04d", n), DecisionID: "dec_0001", PrincipalID: principal,
 		IntentHash: "sha256:" + fmt.Sprintf("%064d", 1), CapabilityID: capab, TargetRef: "TX1", ParamsHash: ph, EvidenceSetHash: "sha256:" + fmt.Sprintf("%064d", 2),
 		PlanHash: "sha256:" + fmt.Sprintf("%064d", 3), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "case:TX1", Source: "mock-case", VersionToken: "v1"}},
-		PolicyVersion: "pol_escalate@1", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: "pol_escalate@1.0", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
 	for _, m := range mutate {
 		m(&g)
