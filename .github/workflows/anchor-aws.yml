@@ -1,0 +1,44 @@
+# SEC-14: proves the anchoring requirement on the real AWS test bucket (S3 Object Lock, COMPLIANCE): the put-only writer can put, cannot
+# delete or overwrite, and the object stays listed. See deploy/spike/anchor-store/aws_check.py and docs/security/anchor-aws-click-script.md.
+# Two jobs. `selftest` runs on a pull request that changes these paths and reads no secret. `aws` runs only by hand or on a weekly
+# schedule, only from main, in the Environment `anchor-store` (main-only deployments, Founder as required reviewer). The test bucket
+# holds synthetic objects; the production writer key is never in GitHub.
+name: anchor-aws
+on:
+  pull_request:
+    paths: ['deploy/spike/anchor-store/aws_check.py', 'deploy/spike/anchor-store/test_aws_check.py', 'deploy/spike/anchor-store/s3.py', '.github/workflows/anchor-aws.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '41 5 * * 1'
+permissions:
+  contents: read
+jobs:
+  selftest:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Self-test against a synthetic S3 model (a correct store passes; eight flaws are caught)
+        working-directory: deploy/spike/anchor-store
+        run: python3 test_aws_check.py
+  aws:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: anchor-store
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Self-test first
+        working-directory: deploy/spike/anchor-store
+        run: python3 test_aws_check.py
+      - name: Anchoring requirement against the AWS test bucket
+        working-directory: deploy/spike/anchor-store
+        env:
+          ANCHOR_BUCKET: ${{ vars.ANCHOR_BUCKET }}
+          ANCHOR_REGION: ${{ vars.ANCHOR_REGION }}
+          ANCHOR_WRITER_KEY_ID: ${{ secrets.ANCHOR_WRITER_KEY_ID }}
+          ANCHOR_WRITER_SECRET: ${{ secrets.ANCHOR_WRITER_SECRET }}
+          ANCHOR_VERIFIER_KEY_ID: ${{ secrets.ANCHOR_VERIFIER_KEY_ID }}
+          ANCHOR_VERIFIER_SECRET: ${{ secrets.ANCHOR_VERIFIER_SECRET }}
+        run: python3 aws_check.py
