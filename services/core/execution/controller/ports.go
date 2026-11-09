@@ -34,6 +34,9 @@ type Binder interface {
 	LatestIntentHash(ctx context.Context, g Grant) (string, error)
 	// DecisionStillAllowed reports that the grant's decision outcome is ALLOW and its policy version is still ACTIVE (E4).
 	DecisionStillAllowed(ctx context.Context, g Grant) (bool, error)
+	// ActivePolicyVersion returns policy_id@version of the grant's policy as it is ACTIVE now, or "" when that policy has no active
+	// version. Only the grant's own policy_id is looked up: versions are never compared across policy IDs (ruling of 5 Nov 2026).
+	ActivePolicyVersion(ctx context.Context, g Grant) (string, error)
 	// Plan returns the stored plan step the grant names, with the parameters to send (E5).
 	Plan(ctx context.Context, g Grant) (PlanStep, error)
 	// WritesEnabled is false when the tenant kill switch is on or the circuit is open (E6). An error means
