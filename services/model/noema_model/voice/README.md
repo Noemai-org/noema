@@ -4,6 +4,6 @@
 
 **REQs.** REQ-VOI-001, REQ-VOI-002, REQ-VOI-003.
 
-**Status.** Empty boundary package (PLT-01). Filled by VOI-01 to VOI-16. The import rules and prohibitions are in `__init__.py`.
+**Status.** `confidence.py` (VOI-03): per-token to per-slot confidence, a missing confidence counts as low. The rest is filled by VOI-02 to VOI-16. The import rules and prohibitions are in `__init__.py`.
 
-**Tests.** `pytest` from `services/model/` (none for this package yet).
+**Tests.** `pytest` from `services/model/`: `tests/test_voice_confidence.py`.
