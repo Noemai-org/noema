@@ -7,6 +7,8 @@ package contracts
 var Types = map[string]func() any{
 	"action-graph.v1":                                         func() any { return new(ActionGraphV1) },
 	"action-graph.v1#RecoveryAction":                          func() any { return new(ActionGraphV1RecoveryAction) },
+	"action-graph.v2":                                         func() any { return new(ActionGraphV2) },
+	"action-graph.v2#RecoveryAction":                          func() any { return new(ActionGraphV2RecoveryAction) },
 	"candidates-request.v1":                                   func() any { return new(CandidatesRequestV1) },
 	"candidates-request.v1#AmountRange":                       func() any { return new(CandidatesRequestV1AmountRange) },
 	"candidates-response.v1":                                  func() any { return new(CandidatesResponseV1) },
