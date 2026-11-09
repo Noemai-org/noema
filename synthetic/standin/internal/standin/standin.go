@@ -36,12 +36,14 @@ const (
 )
 
 // Options holds the two credentials and the identity key. They are read from files by the caller and must all differ: the key that loads never reads,
-// the key that reads never loads, and the key that signs identities is neither. Now is the clock (nil means the system clock).
+// the key that reads never loads, and the key that signs identities is neither. Now is the clock (nil means the system clock). ClockStart, when set,
+// starts a simulated clock that only the benchmark advances (clock.go); it cannot be combined with Now.
 type Options struct {
 	BenchToken   string
 	RuntimeToken string
 	PrincipalKey string
 	Now          func() time.Time
+	ClockStart   time.Time
 }
 
 type principal struct {
@@ -88,6 +90,7 @@ type loaded struct {
 // Server holds one stand-in.
 type Server struct {
 	opt Options
+	sim *simClock // nil on the system clock
 	mu  sync.RWMutex
 	cur *loaded
 }
@@ -100,10 +103,18 @@ func New(o Options) (*Server, error) {
 	if o.BenchToken == o.RuntimeToken || o.BenchToken == o.PrincipalKey || o.RuntimeToken == o.PrincipalKey {
 		return nil, errors.New("the bench credential, the runtime credential and the principal key must all differ")
 	}
-	if o.Now == nil {
+	s := &Server{}
+	switch {
+	case !o.ClockStart.IsZero() && o.Now != nil:
+		return nil, errors.New("set either ClockStart or Now, not both: two clocks are ambiguous")
+	case !o.ClockStart.IsZero():
+		s.sim = &simClock{now: o.ClockStart.UTC()}
+		o.Now = s.sim.Now
+	case o.Now == nil:
 		o.Now = time.Now
 	}
-	return &Server{opt: o}, nil
+	s.opt = o
+	return s, nil
 }
 
 func jsonOut(w http.ResponseWriter, status int, v any) {
@@ -142,6 +153,8 @@ func (s *Server) ControlHandler() http.Handler {
 	mux.HandleFunc("PUT /control/v1/standin", s.put)
 	mux.HandleFunc("GET /control/v1/standin", s.status)
 	mux.HandleFunc("DELETE /control/v1/standin", s.clear)
+	mux.HandleFunc("GET /control/v1/clock", s.getClock)
+	mux.HandleFunc("POST /control/v1/clock/advance", s.advanceClock)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Data-Source", Label)
 		if !bearer(r, s.opt.BenchToken) {
