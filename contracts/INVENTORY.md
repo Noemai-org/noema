@@ -17,6 +17,7 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 | `policy-rule.v1.json` | §15.3 | §23.4 | REQ-TRU-001 | |
 | `policy-version.v1.json` | §15.3, INV-26 | §23.4 | REQ-TRU-001 | |
 | `clock.v1.json` | §15.3 | §23.5 | REQ-TRU-001 | SYNTHETIC until validated by counsel |
+| `execution-limits.v1.json` | §35 | §25 (REQ-CAP-003, REQ-RCV-003) | REQ-CAP-003, REQ-RCV-003 | Circuit-breaker policy and dispatch budget as pack data (Architect ruling A3, AGENT-16); data in `packs/fintech/limits/execution_limits.json`. A new file, so no existing contract changes meaning (AGENT-15 migration note: additive). SYNTHETIC |
 | `reason-catalogue-entry.v1.json` | §43.2 | §23.3 | REQ-TRU-001 | Pack tier of the reason codes (money-and-value-lists §2.3) |
 
 ## C-2 · Money and core enums
@@ -102,6 +103,7 @@ Gap decisions applied here: DEC-2026-10-18-con01-gap-closure (Noemai-org/docs#14
 | Schema | SoT | PERD | Requirements | Notes |
 |---|---|---|---|---|
 | `action-graph.v1.json` | §43.9 | §24 | REQ-AG-001, REQ-AG-002, REQ-PLN-001 | Pack data. The PERD names the node fields but not the types of `on_unknown`, `on_failure`, `recovery_ref` and `escalation_ref`; smallest safe types chosen (PERD §30.1, §30.2) |
+| `action-graph.v2.json` | §43.9 | §24 | REQ-AG-001, REQ-AG-002, REQ-PLN-001, REQ-AG-003 | `action-graph.v1.json` plus a required `roots` list (1 or more unique node IDs): the declared roots of PERD v1.19 REQ-AG-001, the only nodes exempt from the incoming-edge rule. AGENT-15 migration note: a new required property is breaking, so a new major; v1 is not edited. The three fintech graphs move to v2 in the same change (PCK-04); no other graph exists. No generated models exist yet (CON-03) |
 | `evidence-descriptor.v1.json` | §43.7 | §21.4, §24 | REQ-AG-001 | Typed fields per evidence entity so predicates type-check at pack load. Not in the SoT or PERD; added under AGENT-02 |
 | `memory-observation.v1.json` | §35.1 | §33 | REQ-MEM-001, REQ-MEM-002 | The PERD lists the envelope fields only, not the fields of each kind; `observation` is held to typed scalars until each kind's owner supplies them (open decision) |
 | `integration-contract.v1.json` | §39 | §39.5, §39.7 | REQ-API-001, REQ-API-006, REQ-API-007 | The three partner obligations, two scoped credentials and signed events. `noema.resolution` is `noema-resolution.v1.json` (C-6), referenced by name |

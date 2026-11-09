@@ -7,6 +7,7 @@ from typing import Any
 
 from . import (
     action_graph_v1,
+    action_graph_v2,
     candidates_request_v1,
     candidates_response_v1,
     canonical_input_v1,
@@ -27,6 +28,7 @@ from . import (
     evidence_item_v1,
     evidence_payload_v1,
     evidence_source_v1,
+    execution_limits_v1,
     execution_receipt_v1,
     explanation_facts_v1,
     explanation_facts_v2,
@@ -59,6 +61,8 @@ from . import (
 TYPES: dict[str, Any] = {
     "action-graph.v1": action_graph_v1.ActionGraphV1,
     "action-graph.v1#RecoveryAction": action_graph_v1.ActionGraphV1RecoveryAction,
+    "action-graph.v2": action_graph_v2.ActionGraphV2,
+    "action-graph.v2#RecoveryAction": action_graph_v2.ActionGraphV2RecoveryAction,
     "candidates-request.v1": candidates_request_v1.CandidatesRequestV1,
     "candidates-request.v1#AmountRange": candidates_request_v1.CandidatesRequestV1AmountRange,
     "candidates-response.v1": candidates_response_v1.CandidatesResponseV1,
@@ -156,6 +160,7 @@ TYPES: dict[str, Any] = {
     "evidence-item.v1": evidence_item_v1.EvidenceItemV1,
     "evidence-payload.v1": evidence_payload_v1.EvidencePayloadV1,
     "evidence-source.v1": evidence_source_v1.EvidenceSourceV1,
+    "execution-limits.v1": execution_limits_v1.ExecutionLimitsV1,
     "execution-receipt.v1": execution_receipt_v1.ExecutionReceiptV1,
     "explanation-facts.v1": explanation_facts_v1.ExplanationFactsV1,
     "explanation-facts.v2": explanation_facts_v2.ExplanationFactsV2,
