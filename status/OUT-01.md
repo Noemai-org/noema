@@ -24,3 +24,13 @@
 ## Pre-work for the next agent
 - Exact next step: IL wires `verifier.Points()` into the shared kill-point list of noema#252 and kills the core at `PointAfterVerdictStored`.
 - Do not touch: the Store contract.
+
+# Session 2026-11-06 · OUT-01 follow-up (bounded rollback)
+
+## Session summary
+- What changed: the Outcome store's rollback after a failed write no longer runs on a context with no deadline (the reviewer's P1 on noema#172 found the same pattern in the Evidence builder; this is my own merged code). `outcome/store/store.go`: `rollback(ctx, tx, limit)` detaches from the caller's cancellation but is bounded; the rollback's own error is joined to the original one, not swallowed. `Store.RollbackTimeout` is a new field and a store without a positive one refuses to write: the limit is a safety parameter the deployment owner sets (REQ-AGT-005), the arch-lint's threshold-literal rule forbids a literal in this package, and no config mechanism exists yet (`platform/config` is empty), so no default is chosen here.
+- Tests: `TestEveryDetachedContextInTheStoreHasItsOwnDeadline` (a source guard, red first) and `TestAStoreWithoutARollbackTimeoutRefusesToWrite` (mutant caught). Test worlds set 5 s.
+- Debt: `cmd/core` must supply `RollbackTimeout` from configuration with the Outcome wiring (DEBT-10). Same pattern remains in `execution/ledger/ledger.go` (Execution's owner).
+
+## Session 2026-11-07 · review of #202 (P1)
+`Store.RecordVerdict` returned a clean `ErrAlreadyVerified` after a unique violation without looking at the rollback result, so a failed cleanup was lost. Now it returns `errors.Join(ErrAlreadyVerified, rbErr)` when the rollback failed (the classification stays for `errors.Is`) and the bare error only when it succeeded. Regression: `TestADuplicateVerdictWithAFailedRollbackReportsBothAndStoresNothingNew`, a real duplicate on the real database with an expired rollback bound; red commit first, then the fix; the mutation that drops the check is killed. Note, stated: the verifier replays the stored verdict on a duplicate, so through `Verify` a replayed verdict still hides the rollback error; the store-level guarantee (and the metric a caller can attach) is what this PR fixes.

@@ -1,0 +1,6 @@
+{
+  "missing_roots.json": "required",
+  "empty_roots.json": "minItems",
+  "duplicate_root.json": "uniqueItems",
+  "root_not_a_slot_name.json": "pattern"
+}
