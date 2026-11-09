@@ -1,4 +1,4 @@
--- 0009: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
+-- 0012: the Decision Record, and the rule that a grant exists only for an ALLOW decision of the same tenant (TRU-05; PERD 38.2).
 -- REQ-TRU-001, REQ-TRU-008, REQ-DATA-001; INV-03, INV-16. Number decided by the Architect on 4 Nov 2026 (after noema#136's 0007).
 -- Forward-only: this file is never edited after merge. No CREATE ROLE here (TestNoMigrationAfter0001CreatesARole).
 
@@ -22,8 +22,31 @@ CREATE TABLE decision_record (
   CONSTRAINT decision_record_disposition_fkey FOREIGN KEY (tenant_id, disposition_decision_id, disposition_outcome) REFERENCES decision_record (tenant_id, decision_id, outcome),
   CONSTRAINT decision_record_document_matches_columns CHECK (
     json ->> 'outcome' IS NOT DISTINCT FROM outcome AND json ->> 'decision_id' IS NOT DISTINCT FROM decision_id
-    AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id)  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+    AND json ->> 'tenant_id' IS NOT DISTINCT FROM tenant_id
+    -- the key and the signature are stored in the document and in two columns: one signature, one key (A13, REQ-TRU-001)
+    AND json #>> '{sig,key_id}' IS NOT DISTINCT FROM sig_key_id AND json #>> '{sig,value}' IS NOT DISTINCT FROM sig_value
+    -- the signed disposition is the column the composite foreign key checks, so it is tenant-scoped and ESCALATE (REQ-TRU-010)
+    AND json ->> 'disposition_decision_id' IS NOT DISTINCT FROM disposition_decision_id),  -- IS NOT DISTINCT: a document without the field is refused, not passed as NULL
+  -- A13 (ruling of 8 Nov 2026 on noema#329): a record missing a bound field is invalid. Each is a non-empty string; issued_at and expires_at are UTC timestamps
+  -- and the record expires after it is issued. IS NOT DISTINCT FROM and coalesce keep NULL from passing a CHECK.
+  CONSTRAINT decision_record_bound_fields CHECK (coalesce(
+    jsonb_typeof(json -> 'intent_id') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'intent_id', '') <> ''
+    AND jsonb_typeof(json -> 'correlation_id') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'correlation_id', '') <> ''
+    AND jsonb_typeof(json -> 'policy_version') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'policy_version', '') <> ''
+    AND jsonb_typeof(json -> 'intent_hash') IS NOT DISTINCT FROM 'string' AND coalesce(json ->> 'intent_hash', '') <> ''
+    AND CASE WHEN jsonb_typeof(json -> 'issued_at') IS NOT DISTINCT FROM 'string' AND jsonb_typeof(json -> 'expires_at') IS NOT DISTINCT FROM 'string'
+              AND json ->> 'issued_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$' AND json ->> 'expires_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$'
+             THEN (json ->> 'expires_at')::timestamptz > (json ->> 'issued_at')::timestamptz ELSE false END, false))
 );
+-- Codex P1 on noema#168: decision-record.v2 requires the technical, policy and business authority layers to all be PASS for an ALLOW. The database is the
+-- grant gate, so a record that says ALLOW while a layer FAILed or was not evaluated, or that names no authority, is refused here and no grant can follow
+-- (INV-03, INV-17; REQ-TRU-001, REQ-TRU-008). It applies to ALLOW only: a refusal records the layer that failed. IS NOT DISTINCT FROM and coalesce keep NULL
+-- from passing a CHECK; a layer that is not the JSON string PASS, or is absent, never equals 'PASS'.
+ALTER TABLE decision_record ADD CONSTRAINT decision_record_allow_authority CHECK (outcome <> 'ALLOW' OR coalesce(
+  jsonb_typeof(json -> 'authority') IS NOT DISTINCT FROM 'object'
+  AND jsonb_typeof(json #> '{authority,technical}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,technical}' IS NOT DISTINCT FROM 'PASS'
+  AND jsonb_typeof(json #> '{authority,policy}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,policy}' IS NOT DISTINCT FROM 'PASS'
+  AND jsonb_typeof(json #> '{authority,business}') IS NOT DISTINCT FROM 'string' AND json #>> '{authority,business}' IS NOT DISTINCT FROM 'PASS', false));
 CREATE INDEX decision_record_tenant_outcome_idx ON decision_record (tenant_id, outcome);
 CREATE INDEX decision_record_disposition_idx ON decision_record (disposition_decision_id) WHERE disposition_decision_id IS NOT NULL;
 
@@ -66,6 +89,10 @@ REVOKE ALL ON FUNCTION decision_login_tenant() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION decision_login_tenant() TO trust_rw, execution_rw, outcome_rw;
 ALTER TABLE decision_record ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_record_read ON decision_record FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
+-- outcome_record_verdict (0007) is SECURITY DEFINER and joins decision_grant, so it reads as its owner, which FORCE subjects to the policies. CURRENT_USER is
+-- that owner here, because the same role applies this file. The scope is unchanged: decision_login_tenant() reads session_user, so the owner reads a tenant's
+-- rows only inside a call made by that tenant's login, and a session with no mapping still sees none.
+CREATE POLICY decision_record_read_definer ON decision_record FOR SELECT TO CURRENT_USER USING (tenant_id = decision_login_tenant());
 CREATE POLICY decision_record_write ON decision_record FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
 -- FORCE: the table's owner is subject to the policies too, so a migration or admin role that is not a superuser reads and writes no tenant's rows without
 -- a tenant mapping (ruling A6). A superuser bypasses row security in PostgreSQL whatever is set; no runtime login is one.
@@ -75,14 +102,18 @@ ALTER TABLE decision_record FORCE ROW LEVEL SECURITY;
 -- their status, Outcome reads them. Foreign keys that point at the table (grant_spend, receipts) are checked without row security by PostgreSQL.
 ALTER TABLE decision_grant ENABLE ROW LEVEL SECURITY;
 CREATE POLICY decision_grant_read ON decision_grant FOR SELECT TO trust_rw, execution_rw, outcome_rw USING (tenant_id = decision_login_tenant());
-CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant());
+CREATE POLICY decision_grant_read_definer ON decision_grant FOR SELECT TO CURRENT_USER USING (tenant_id = decision_login_tenant());
+-- Trust inserts a grant as ISSUED only: spent, void and expired are moved by Execution alone (D8), so a grant cannot be born already spent or void.
+CREATE POLICY decision_grant_write ON decision_grant FOR INSERT TO trust_rw WITH CHECK (tenant_id = decision_login_tenant() AND status = 'ISSUED');
 CREATE POLICY decision_grant_status ON decision_grant FOR UPDATE TO execution_rw USING (tenant_id = decision_login_tenant()) WITH CHECK (tenant_id = decision_login_tenant());
 ALTER TABLE decision_grant FORCE ROW LEVEL SECURITY;
 
 -- The Decision Record comes first, and only an ALLOW decision of the grant's own tenant can have a grant (REQ-TRU-008: grants where the
--- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record.
-CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE decided text;
+-- decision is not ALLOW: 0). The trigger runs as the inserting role, which is Trust and holds SELECT on decision_record, so row security applies to its read.
+-- Its search_path is pinned to the catalog and pg_temp LAST and the table is schema-qualified: otherwise PostgreSQL searches the session's temporary schema
+-- first, and a login holding TEMPORARY could shadow decision_record with a temporary table holding an ALLOW row (SR on noema#168; INV-17).
+CREATE FUNCTION decision_grant_requires_allow() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+DECLARE decided text; rec jsonb; rec_expires timestamptz; grant_expires timestamptz;
 BEGIN
   -- The signed grant document is what Execution decodes; the columns are what this guard reads. They must name the same decision and tenant.
   IF NEW.json ->> 'decision_id' IS DISTINCT FROM NEW.decision_id OR NEW.json ->> 'tenant_id' IS DISTINCT FROM NEW.tenant_id THEN
@@ -90,11 +121,38 @@ BEGIN
       NEW.json ->> 'decision_id', NEW.json ->> 'tenant_id', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
-  SELECT d.outcome INTO decided FROM decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
+  SELECT d.outcome, d.json INTO decided, rec FROM public.decision_record d WHERE d.decision_id = NEW.decision_id AND d.tenant_id = NEW.tenant_id;
   IF decided IS DISTINCT FROM 'ALLOW' THEN
     RAISE EXCEPTION 'decision_grant: decision % of tenant % is not a recorded ALLOW decision', NEW.decision_id, NEW.tenant_id
       USING ERRCODE = 'integrity_constraint_violation';
   END IF;
+  -- A grant derives from its decision (ruling of 8 Nov 2026 on noema#329; INV-17, REQ-TRU-008): the same intent, the same policy version, and no longer
+  -- life than the record. Execution still revalidates at spend (E4); these rules mean the Record never shows a grant its decision does not authorise.
+  IF NEW.json ->> 'intent_hash' IS DISTINCT FROM rec ->> 'intent_hash' THEN
+    RAISE EXCEPTION 'decision_grant: the grant names another intent than decision %', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.json ->> 'policy_version' IS DISTINCT FROM rec ->> 'policy_version' THEN
+    RAISE EXCEPTION 'decision_grant: the grant names another policy version than decision %', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NOT coalesce(NEW.json ->> 'expires_at' ~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z$', false) THEN
+    RAISE EXCEPTION 'decision_grant: the signed grant carries no valid expires_at' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  rec_expires := (rec ->> 'expires_at')::timestamptz;   -- the record's CHECK guarantees its shape
+  grant_expires := (NEW.json ->> 'expires_at')::timestamptz;
+  IF grant_expires > rec_expires OR NEW.expires_at > rec_expires THEN
+    RAISE EXCEPTION 'decision_grant: the grant outlives decision % (it expires after the record)', NEW.decision_id USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER decision_grant_requires_allow BEFORE INSERT ON decision_grant FOR EACH ROW EXECUTE FUNCTION decision_grant_requires_allow();
+
+-- outcome_record_verdict (migration 0007) is a SECURITY DEFINER function that reads decision_grant. Its search_path was pg_catalog, public: PostgreSQL searches the
+-- session's temporary schema first for tables unless pg_temp is named, so a login with the TEMPORARY privilege could create pg_temp.decision_grant and have the
+-- function read forged rows in place of the row-secured table. Pin pg_temp last (the same rule as noema#167). Only the setting changes, not the body.
+DO $$
+DECLARE f regprocedure;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure FROM pg_proc p WHERE p.proname = 'outcome_record_verdict' AND p.pronamespace = 'public'::regnamespace LOOP
+    EXECUTE format('ALTER FUNCTION %s SET search_path = pg_catalog, public, pg_temp', f);
+  END LOOP;
+END $$;
