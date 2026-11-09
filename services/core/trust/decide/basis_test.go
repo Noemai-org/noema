@@ -18,7 +18,7 @@ func fullBasis() decide.Basis {
 		PackVersion:        "fin.pack@1.0.0",
 		PolicyRules:        []decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_reads", PolicyID: "fin.pol", Version: "3.1"}},
 		EvidenceSnapshotID: "snap_01",
-		EvidenceFreshness:  []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: 1_700_000_000}},
+		EvidenceFreshness:  []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: 1_700_000_000, Source: "fin.src.ledger", AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}},
 		EvaluatedAt:        1_700_000_100,
 	}
 }
