@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 9e892be3f41c6df659fe1bf6807018d0e394124c. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 3a2a8fd90c20c8bd1a9bd3ab68783001eea2fcf6. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -376,6 +376,8 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 6. CONFLICT blocks, if any.
 
 **Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+
+**Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 
 **In the `docs` repository** (carried forward unchanged):
 
