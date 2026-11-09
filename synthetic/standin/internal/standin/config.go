@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config is the service's configuration: where to listen and the credential files. The control listener is placed either at an explicit
@@ -98,6 +99,13 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 	}
 	if c.Options.PrincipalKey, err = secret(getenv, readFile, "STANDIN_PRINCIPAL_KEY_FILE"); err != nil {
 		return nil, err
+	}
+	if v := getenv("STANDIN_CLOCK_START"); v != "" {
+		start, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return nil, fmt.Errorf("STANDIN_CLOCK_START must be an RFC 3339 time such as 2026-10-01T09:40:00Z (got %q)", v)
+		}
+		c.Options.ClockStart = start.UTC()
 	}
 	return c, nil
 }

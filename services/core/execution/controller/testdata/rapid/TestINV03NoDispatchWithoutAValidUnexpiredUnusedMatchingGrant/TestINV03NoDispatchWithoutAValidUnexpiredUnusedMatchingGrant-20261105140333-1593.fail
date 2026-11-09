@@ -1,0 +1,13 @@
+# 2026/11/05 14:03:33.866860 [TestINV03NoDispatchWithoutAValidUnexpiredUnusedMatchingGrant] [rapid] draw defect: controller_test.defect{name:"the grant's policy has a newer active version", valid:false, unstored:false, prepare:(func(*controller_test.World, time.Time) controller.SignedGrant)(0x6683c0), world:(func(*controller_test.World))(0x661b40)}
+# 2026/11/05 14:03:33.866872 [TestINV03NoDispatchWithoutAValidUnexpiredUnusedMatchingGrant] [rapid] draw fault: 0
+# 2026/11/05 14:03:33.866875 [TestINV03NoDispatchWithoutAValidUnexpiredUnusedMatchingGrant] [rapid] draw presentations: 1
+# 2026/11/05 14:03:33.867041 [TestINV03NoDispatchWithoutAValidUnexpiredUnusedMatchingGrant] "the grant's policy has a newer active version" under fault 0: 1 dispatches and 1 spent grants; a grant with this defect must reach nothing
+# 
+v0.4.8#16730141899067884202
+0x9867f1f40f739
+0xd
+0x0
+0x0
+0x0
+0x0
+0x0
