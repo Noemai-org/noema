@@ -33,7 +33,7 @@ var (
 
 func basis() decide.Basis {
 	return decide.Basis{PackVersion: "fin.pack@1.0.0", PolicyRules: []decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"}},
-		EvidenceSnapshotID: "snap_01", EvidenceFreshness: []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30}}, EvaluatedAt: epoch.Unix()}
+		EvidenceSnapshotID: "snap_01", EvidenceFreshness: []decide.Freshness{{EvidenceID: "ev_1", EffectiveAt: epoch.Unix() - 30, Source: "fin.src.ledger", AgeSeconds: 30, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitBySource}}, EvaluatedAt: epoch.Unix()}
 }
 
 func decision(t *testing.T, o decide.Outcome) decide.Decision {
@@ -389,6 +389,16 @@ func TestKeysRefuseWhatCannotBeUsedSafely(t *testing.T) {
 	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), 0); err == nil {
 		t.Error("an issuer with no validity must not start")
 	}
+	// Codex P2 on noema#163: the timestamps have whole seconds, so a window under one second would be written with expires_at equal to not_before
+	// and E2 would treat the grant as expired on arrival.
+	for _, d := range []time.Duration{time.Millisecond, 999 * time.Millisecond} {
+		if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), d); err == nil {
+			t.Errorf("an issuer with a validity of %s must not start", d)
+		}
+	}
+	if _, err := grants.NewIssuer(keys(t), ids.New(clock.NewManual(epoch), nil), bytes.NewReader(make([]byte, 64)), time.Second); err != nil {
+		t.Errorf("a validity of one second: %v", err)
+	}
 }
 
 // The canonical form is what is signed: field order and whitespace in the JSON the grant travels in do not matter (REQ-TRU-008: JCS).
@@ -562,5 +572,39 @@ func TestAFreezePermissionIsBoundToTheTargetOfTheGrant(t *testing.T) {
 	}
 	if _, err := gate.PermitTarget(false, capability, ""); err == nil {
 		t.Fatal("the gate gave a permission that names no target")
+	}
+}
+
+// SR on noema#163 (finding 2): a loader that zeroes its buffer after constructing the keys must not turn the signing key into zeros. NewKeys hands the
+// secret to the key ring, which copies it; this pins that, so a later change that keeps the caller's slice fails here.
+func TestKeysDoNotAliasTheCallersSecret(t *testing.T) {
+	secret := append([]byte(nil), k1...)
+	ks, err := grants.NewKeys([]grants.Key{{ID: "k1", Secret: secret}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := issuer(t, ks).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range secret {
+		secret[i] = 0 // the loader wipes its buffer
+	}
+	if err := ks.Verify(before); err != nil {
+		t.Fatalf("a grant signed before the caller's buffer was wiped no longer verifies: %v", err)
+	}
+	after, err := issuer(t, ks).Issue(decision(t, decide.Allow), step())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Sig.Value == "" || ks.Verify(after) != nil {
+		t.Fatal("a grant signed after the buffer was wiped must still be signed with the real key")
+	}
+	other, err := grants.NewKeys([]grants.Key{{ID: "k1", Secret: k1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Verify(after); err != nil {
+		t.Fatalf("the key in use after the wipe is not the original secret: %v", err)
 	}
 }

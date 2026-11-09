@@ -212,3 +212,26 @@ func TestPropertyTheCheckerFlagsExactlyTheBrokenRetries(t *testing.T) {
 		}
 	})
 }
+
+// A verdict that cannot be read, or is not one of the enum, is later evidence than an earlier failed verdict and ALLOW. It must not leave
+// that earlier pair standing as authority for a retry: unknown is never safe (Codex review of noema#196, REQ-RCV-001, INV-15, AGENT-08).
+func TestAnUnreadableLaterVerdictRevokesTheEarlierPairAsAuthority(t *testing.T) {
+	for name, bad := range map[string]ev{
+		"no verdict member":   {"VERDICT", `{"reason":"X"}`},
+		"unknown enum":        verdict("MAYBE"),
+		"not json":            {"VERDICT", `{`},
+		"verdict is a number": {"VERDICT", `{"verdict":7}`},
+		"no payload at all":   {"VERDICT", ""},
+	} {
+		rows := seq("c1", dispatch(1), verdict("NOT_ACHIEVED"), decided("ALLOW"), bad, dispatch(2))
+		v := recovery.CheckRetryOrder(rows)
+		if len(v) != 1 || v[0].Reason != recovery.NoNonAchievedVerdict {
+			t.Errorf("%s: violations = %+v, want one %s", name, v, recovery.NoNonAchievedVerdict)
+		}
+	}
+	// A readable failed verdict and a new ALLOW after the unreadable one authorise the retry again.
+	ok := seq("c1", dispatch(1), verdict("NOT_ACHIEVED"), decided("ALLOW"), ev{"VERDICT", `{`}, verdict("NOT_ACHIEVED"), decided("ALLOW"), dispatch(2))
+	if v := recovery.CheckRetryOrder(ok); len(v) != 0 {
+		t.Errorf("a fresh pair after the unreadable verdict: %+v", v)
+	}
+}
