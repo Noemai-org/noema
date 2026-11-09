@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit edb85872ea00894b4b6aa557fbe2b38a7532cd62. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 3a2a8fd90c20c8bd1a9bd3ab68783001eea2fcf6. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -269,7 +269,7 @@ All of this section is **working practice**.
 **Task status.**
 
 - Task status lives on the board. The task owner moves the board.
-- An agent never edits the plan or `tasks.csv` to record progress.
+- An agent never edits the plan to record progress. The Repo Steward is the only writer of `tasks.csv` status (`current_status` and `blocked`); no other agent writes it. Merged evidence is the threshold for Verified and Done: merged code and tests that meet the task's `done_when`, with a check-run link at the merged head. Lower statuses (Backlog, Ready, In progress, In review) and `blocked` with a named blocker may follow the board and the open pull requests, and the Steward says what is missing. Every other agent reports progress in its PR description and session file, and the Steward reads those as claims, not as evidence.
 - An agent records progress in its PR description, using the hand-off report of plan §4.1 step 6 (template [`docs/poc/execution/templates/agent-handoff.md`](docs/poc/execution/templates/agent-handoff.md)), and in its session file.
 - The plan changes only by change request and a new version file (plan §19).
 
@@ -376,6 +376,8 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 6. CONFLICT blocks, if any.
 
 **Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+
+**Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 
 **In the `docs` repository** (carried forward unchanged):
 

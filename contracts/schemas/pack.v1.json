@@ -87,7 +87,7 @@
       }
     },
     "action_graph_files": {
-      "description": "Graph files relative to the pack file's folder, each an action-graph.v1.json document (T2). The fintech graphs live in packs/fintech/graph/.",
+      "description": "Graph files relative to the pack file's folder, each an action-graph.v2.json document (T2; v2 since PCK-04). The fintech graphs live in packs/fintech/graph/.",
       "type": "array",
       "items": {
         "type": "string",
