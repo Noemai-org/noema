@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -46,6 +47,9 @@ type Store struct {
 	Clock clock.Clock
 	IDs   IDSource
 	Rec   *chain.Appender
+	// RollbackTimeout bounds the rollback after a failed write. It must be positive: the value is a safety parameter that the deployment owner
+	// sets (no default is chosen here, REQ-AGT-005), and a store without one refuses to write rather than roll back without a limit.
+	RollbackTimeout time.Duration
 }
 
 var _ verifier.Store = (*Store)(nil)
@@ -107,23 +111,40 @@ func (s *Store) FindVerdict(ctx context.Context, tenantID, verificationID string
 	return f, true, nil
 }
 
+// rollback rolls the transaction back on a context detached from the caller's cancellation but with a deadline of its own, so that a stalled
+// database cannot hold the connection after the answer is decided. Its error is returned for the caller to report with the original one.
+func rollback(ctx context.Context, tx pgx.Tx, limit time.Duration) error {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), limit)
+	defer cancel()
+	if err := tx.Rollback(rctx); err != nil {
+		return fmt.Errorf("%srollback: %w", errPrefix, err)
+	}
+	return nil
+}
+
 // RecordVerdict stores a verification: see Store. If another delivery of the same verification stored its verdict first, it
 // returns verifier.ErrAlreadyVerified and stores nothing.
 func (s *Store) RecordVerdict(ctx context.Context, w verifier.Write) error {
 	if err := needDeadline(ctx); err != nil {
 		return err
 	}
+	if s.RollbackTimeout <= 0 {
+		return errors.New(errPrefix + "the store needs a positive rollback timeout")
+	}
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("%sbegin: %w", errPrefix, err)
 	}
 	if err := s.write(ctx, tx, w); err != nil {
-		_ = tx.Rollback(context.WithoutCancel(ctx))
+		rbErr := rollback(ctx, tx, s.RollbackTimeout)
 		var pe *pgconn.PgError
 		if errors.As(err, &pe) && pe.Code == pgUniqueViolation && pe.ConstraintName == verificationKeyCon {
+			if rbErr != nil { // the duplicate is real, but so is the failed cleanup: report both, with the classification kept for errors.Is
+				return errors.Join(verifier.ErrAlreadyVerified, rbErr)
+			}
 			return verifier.ErrAlreadyVerified
 		}
-		return err
+		return errors.Join(err, rbErr)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("%scommit verdict %s: %w", errPrefix, w.Verdict.VerdictID, err)
