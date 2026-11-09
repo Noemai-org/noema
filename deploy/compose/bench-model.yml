@@ -1,13 +1,18 @@
-# Bench startup only (REQ-NFR-007): lets the model service write each call's cost record to $BENCH_OUT/cost/.
+# Bench startup only (REQ-NFR-007): the model service writes each call's cost record to $BENCH_OUT/cost/. The WRITER is not in the service's code (Architect's
+# ruling A55, 8 Nov 2026): this file mounts benchmark/model_cost read-only as the package `model_cost` and starts `model_cost.model_app:app`, which hands the
+# service its cost-file telemetry. The service itself reads no benchmark variable.
 # NOT included by docker-compose.yml. `make bench-model-up` adds it with `-f`; no other profile or target ever does, so
-# `make up` and the CI stack have no BENCH_OUT and no writable mount. The three variables are set by that target:
+# `make up` and the CI stack have no BENCH_OUT, no writable mount and no benchmark code. The three variables are set by that target:
 #   NOEMA_BENCH_OUT  absolute host path of the Makefile's BENCH_OUT
 #   NOEMA_BENCH_UID, NOEMA_BENCH_GID  the invoking user, so the files on the host are theirs
-# The mount holds benchmark output only; nothing here mounts benchmark-heldout (INV-22).
+# The two mounts are benchmark output and the read-only writer code; nothing here mounts benchmark-heldout (INV-22).
 services:
   model:
     user: "${NOEMA_BENCH_UID:?set by make bench-model-up}:${NOEMA_BENCH_GID:?set by make bench-model-up}"
+    entrypoint: ["python", "-m", "uvicorn", "model_cost.model_app:app", "--host", "0.0.0.0", "--port", "8081"]
     environment:
       BENCH_OUT: /bench-out
+      PYTHONPATH: /bench
     volumes:
       - ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out
+      - ../../benchmark/model_cost:/bench/model_cost:ro
