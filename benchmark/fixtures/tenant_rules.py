@@ -74,16 +74,19 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
         elif transactions[c["transaction"]] != c["tenant_id"]:
             out.append(f"case {c['ref']!r}: transaction {c['transaction']!r} is in another tenant")
 
-    markers: dict[str, str] = {}
+    shown: dict[str, str] = {}  # casefolded marker -> the marker as written, for the messages
+    markers: dict[str, str] = {}  # casefolded marker -> tenant: the cross-tenant scan compares lowercased (benchmark/environment/canary.py), so markers differing by case are one marker
     for tid, tenant in tenants.items():
-        for marker in tenant["markers"]:
+        for written in tenant["markers"]:
+            marker = written.casefold()
+            shown.setdefault(marker, written)
             if marker in markers and markers[marker] != tid:
-                out.append(f"marker {marker!r} is shared by tenants {markers[marker]!r} and {tid!r}")
+                out.append(f"marker {shown[marker]!r} is shared by tenants {markers[marker]!r} and {tid!r}")
             markers.setdefault(marker, tid)
     for a, ta in sorted(markers.items()):
         for b, tb in sorted(markers.items()):
             if ta != tb and a != b and a in b:
-                out.append(f"marker {b!r} of tenant {tb!r} contains marker {a!r} of tenant {ta!r}: the leak scan could not tell them apart")
+                out.append(f"marker {shown[b]!r} of tenant {tb!r} contains marker {shown[a]!r} of tenant {ta!r}: the leak scan could not tell them apart")
 
     strings: list[tuple[str, str]] = []  # (tenant_id, text) for every string that belongs to a tenant: every string field of its objects, ids and refs included
     strings += [(t["tenant_id"], t["display_name"]) for t in doc["tenants"]]  # a tenant's own display name is a string of that tenant
@@ -98,6 +101,6 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
             strings.append((objects[s["target"]], s["text"]))
     for tid, text in strings:
         for marker, mt in markers.items():
-            if mt != tid and marker in text:
-                out.append(f"marker {marker!r} of tenant {mt!r} appears in a string of tenant {tid!r}")
+            if mt != tid and marker in text.casefold():
+                out.append(f"marker {shown[marker]!r} of tenant {mt!r} appears in a string of tenant {tid!r}")
     return out

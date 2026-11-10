@@ -67,6 +67,8 @@ make bench-test       # or: python -m unittest discover -s benchmark/generator -
 
 **1.3.1 (7 Nov 2026, ruling A37):** the roles of the pack and of the cases are the four session roles of ruling A1 (customer, ops, approver, audit). The pack's `ops_agent` is `ops`; the case role `viewer` is `audit` (read-only). Three cases and the pack's trust profiles change, so the manifest digest changes (pinned in `test_generate.py`).
 
+**1.3.2 (9 Nov 2026, ruling A31 on top of 1.3.1):** `state_reversal_pending` expects `WAIT` with `ESCALATE` as the only alternative, never `ALLOW`; REVERSAL_PENDING is non-terminal and never SUCCEEDED, FAILED or REVERSED. 1.3.1 and 1.3.2 changed only expectations, not the case set; the manifest digest changed.
+
 ## The arm view
 
 `benchmark.generator.arm_view.arm_case(case, role_map, salt=...)` projects a generated case to `benchmark-arm-case.v1`, the only thing an arm is shown (noema#260). It carries the principal's role-level `permitted_capabilities` from the role map (pack data, noema#359), never the case's own list, which is built from what the case expects to write and so varies by case (Security Reviewer F-14, noema#307). `case_ref` and `fixture_ref` are digests of a run-private salt, so only the runner can map them back. Test: `test_arm_view.py` (including the within-role invariance test).
