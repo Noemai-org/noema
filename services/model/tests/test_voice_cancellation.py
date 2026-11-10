@@ -119,3 +119,120 @@ def test_a_failure_in_the_display_callback_still_releases_the_audio_source() -> 
     with pytest.raises(RuntimeError):
         run(transcribe_utterance(OneFinal(), REQUEST, gated(source), deadline_s=GUARD_S, on_partial=display))
     assert source.closed
+
+
+# ---- Security Reviewer F1 on #193 at f36d0d5 (AGENT-13, REQ-VOI-004) and the conditions of the AGENT-12 exception ----------------------------------
+#
+# An abandoned provider that swallows its cancellation kept calling the display callback after the call had returned, so a late
+# partial could land in the next utterance or in another session. The conditions of the exception granted on noema#412 say a
+# fault test in this seam must assert that the audio is released and that no text is delivered after the call returns, not only
+# that an exception was raised. The providers are scripted and SYNTHETIC; the time in them is real.
+
+PERIOD_S = 0.02
+SETTLE_S = 0.4  # many provider periods: a late delivery would show up here
+MAX_LATE = 30  # 0.6 s of late partials at most
+
+
+class Scripted:
+    """One provider, many faults. `mode` picks the behaviour after an opening partial."""
+
+    capabilities = CAPS
+
+    def __init__(self, mode: str) -> None:
+        self.name = f"scripted-{mode}"
+        self._mode = mode
+        self.stream_closed = False
+
+    async def transcribe(self, request: StreamRequest, audio: AsyncIterator[AudioChunk]) -> AsyncIterator[SpeechEvent]:
+        try:
+            yield PartialTranscript(0, "send")
+            mode = self._mode
+            if mode == "error":
+                raise ProviderError(ProviderFailure.UNAVAILABLE)
+            if mode == "no_final":
+                return
+            if mode == "backwards":
+                yield PartialTranscript(0, "again")
+                return
+            if mode == "hang":
+                await asyncio.Event().wait()
+            if mode == "stall_on_cancel":
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    await asyncio.Event().wait()
+            if mode == "swallows_cancellation":
+                for sequence in range(1, MAX_LATE + 1):  # bounded, so an unfixed pipeline fails the test instead of hanging the loop
+                    try:
+                        await asyncio.sleep(PERIOD_S)
+                    except asyncio.CancelledError:
+                        pass  # the fault: cancellation is swallowed and the provider carries on
+                    yield PartialTranscript(sequence, f"late {sequence}")
+            if mode == "close_failure":
+                try:
+                    yield FinalTranscript("send ten", (TokenConfidence("send", 0.9),), 0.9, None, None)
+                finally:
+                    raise RuntimeError("close failed")
+            if mode == "stall_closing":
+                try:
+                    yield FinalTranscript("send ten", (TokenConfidence("send", 0.9),), 0.9, None, None)
+                finally:
+                    await asyncio.Event().wait()
+        finally:
+            self.stream_closed = True
+
+
+FAULT_FAMILIES = [
+    ("error", ProviderFailure.UNAVAILABLE),
+    ("no_final", ProviderFailure.MALFORMED),
+    ("backwards", ProviderFailure.MALFORMED),
+    ("hang", ProviderFailure.TIMEOUT),
+    ("stall_on_cancel", ProviderFailure.TIMEOUT),
+    ("swallows_cancellation", ProviderFailure.TIMEOUT),
+    ("close_failure", ProviderFailure.UNAVAILABLE),
+    ("stall_closing", None),  # a valid final is returned; the stalled shutdown is abandoned
+]
+
+
+@pytest.mark.parametrize("mode,expected", FAULT_FAMILIES)
+def test_every_fault_family_releases_the_audio_and_delivers_no_text_after_the_call_returns(
+        mode: str, expected: ProviderFailure | None) -> None:
+    delivered: list[str] = []
+
+    async def call() -> tuple[bool, int, int]:
+        source = Source(loud_then_silent())
+        provider = Scripted(mode)
+        try:
+            result = await asyncio.wait_for(
+                transcribe_utterance(provider, REQUEST, gated(source), deadline_s=DEADLINE_S, cleanup_s=DEADLINE_S,
+                                     on_partial=delivered.append),
+                timeout=GUARD_S,
+            )
+            assert expected is None and result.text == "send ten"
+        except ProviderError as error:
+            assert error.kind is expected
+        released = source.closed
+        at_return = len(delivered)
+        await asyncio.sleep(SETTLE_S)  # real time, during which an abandoned provider could still deliver
+        return released, at_return, len(delivered)
+
+    released, at_return, later = run(call())
+    assert released
+    assert later == at_return, f"{later - at_return} text(s) were delivered after the call returned"
+
+
+def test_a_provider_that_swallows_cancellation_is_told_to_stop_and_ends_at_its_next_event() -> None:
+    """SR's repro: the abandoned task must stop, not only stop delivering."""
+
+    async def call() -> bool:
+        provider = Scripted("swallows_cancellation")
+        with pytest.raises(ProviderError):
+            await asyncio.wait_for(
+                transcribe_utterance(provider, REQUEST, gated(Source(loud_then_silent())), deadline_s=DEADLINE_S,
+                                     cleanup_s=DEADLINE_S, on_partial=lambda _: None),
+                timeout=GUARD_S,
+            )
+        await asyncio.sleep(SETTLE_S)
+        return provider.stream_closed
+
+    assert run(call())
