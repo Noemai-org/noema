@@ -19,7 +19,7 @@ DERIVED_OR_IDENTITY = {
     "tenant_id", "tenant", "principal_id", "principal", "actor", "session", "role", "roles",
     "epoch", "logical_resolution_epoch", "created_by_intent", "intent_id", "correlation_id",
     "expected_version_token", "version_token", "idempotency_key", "grant_id", "payload_hash",
-    "evidence_packet_hash", "decision_id",
+    "evidence_packet_hash", "decision_id", "confirmation_id",
 }
 
 
@@ -60,9 +60,10 @@ class InputSchemas(unittest.TestCase):
             with self.subTest(c["capability_id"]):
                 s = json.loads((PACKS / c["input_schema"]).read_text(encoding="utf-8"))
                 example = {k: "x" for k in s.get("required", [])}
-                for bad in ("tenant_id", "principal_id", "epoch"):
-                    with self.assertRaises(jsonschema.ValidationError):
-                        jsonschema.validate({**example, bad: "ten_a"}, s)
+                # Security Reviewer (noema#417): the conformance test sends an extra field and requires a refusal, for every never-supplied name.
+                for bad in sorted(DERIVED_OR_IDENTITY):
+                    with self.subTest(extra=bad), self.assertRaises(jsonschema.ValidationError):
+                        jsonschema.validate({**example, bad: "x"}, s)
 
 
 if __name__ == "__main__":
