@@ -1,0 +1,11 @@
+{
+  "unknown_status.json": "enum",
+  "diagnostic_flag_disagrees_with_mode.json": "if",
+  "forced_schema_not_marked_diagnostic.json": "if",
+  "refused_with_tool_calls.json": "if",
+  "negative_cost.json": "minimum",
+  "missing_usage.json": "required",
+  "label_not_synthetic.json": "const",
+  "unknown_field.json": "additionalProperties",
+  "tool_call_without_name.json": "required"
+}
