@@ -230,3 +230,46 @@ func refusalFor(name string) (state, text string) {
 	}
 	return "?", "?"
 }
+
+// C2's P2 on noema#181 (and EXE-08 / ruling A6, SEC-08): provision_emitter_login is SECURITY DEFINER and owned by record_append, so it pins its
+// search_path to the catalog and the temporary schema last, exactly like every other function record_append owns (noema#234's catalog test checks
+// the same list once both are merged). Without the pin an unqualified tenant_login resolves to a temporary table of the caller first.
+func TestProvisionEmitterLoginPinsItsSearchPathToCatalogAndTemp(t *testing.T) {
+	w := newTenantWorld(t)
+	var cfg []string
+	if err := w.admin.QueryRow(ctx(t), `SELECT coalesce(proconfig, '{}') FROM pg_proc WHERE oid = 'provision_emitter_login(text,text,text)'::regprocedure`).Scan(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if want := "search_path=pg_catalog, pg_temp"; len(cfg) != 1 || cfg[0] != want {
+		t.Fatalf("proconfig = %v, want [%s]", cfg, want)
+	}
+}
+
+// The exploit the pin closes: a session makes a temporary table named tenant_login and calls the function. The mapping row must reach the real table.
+func TestATemporaryTenantLoginTableDoesNotCaptureAnEmitterMapping(t *testing.T) {
+	w := newTenantWorld(t)
+	login := "emit_tmp_" + w.suffix
+	createEmitterRole(t, w, login, "record_emitter")
+	conn, err := w.admin.Acquire(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx(t), `CREATE TEMP TABLE tenant_login (login_role text, power text, tenant_id text, emitter text)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(ctx(t), `SELECT provision_emitter_login($1, 'ten_a', 'core-edge')`, login); err != nil {
+		t.Fatalf("a valid emitter login was refused: %v", err)
+	}
+	var inTemp int
+	if err := conn.QueryRow(ctx(t), `SELECT count(*) FROM pg_temp.tenant_login`).Scan(&inTemp); err != nil {
+		t.Fatal(err)
+	}
+	var inReal int
+	if err := conn.QueryRow(ctx(t), `SELECT count(*) FROM public.tenant_login WHERE login_role = $1`, login).Scan(&inReal); err != nil {
+		t.Fatal(err)
+	}
+	if inTemp != 0 || inReal != 1 {
+		t.Fatalf("the mapping went to the temporary table (%d rows) instead of the real one (%d rows)", inTemp, inReal)
+	}
+}
