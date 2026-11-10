@@ -12,6 +12,17 @@ Json = dict[str, Any]
 OBJECTS = (("principals", "principal_id"), ("beneficiaries", "beneficiary_id"), ("transactions", "ref"), ("cases", "ref"))
 
 
+def _strings(node: Any) -> list[str]:
+    """Every string in a JSON value, nested ones included."""
+    if isinstance(node, str):
+        return [node]
+    if isinstance(node, Mapping):
+        return [text for value in node.values() for text in _strings(value)]
+    if isinstance(node, list):
+        return [text for value in node for text in _strings(value)]
+    return []
+
+
 def problems(doc: Mapping[str, Any]) -> list[str]:
     out: list[str] = []
     tenants = {t["tenant_id"]: t for t in doc["tenants"]}
@@ -37,15 +48,25 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
     beneficiaries = {b["beneficiary_id"]: b["tenant_id"] for b in doc["beneficiaries"]}
     transactions = {t["ref"]: t["tenant_id"] for t in doc["transactions"]}
     for b in doc["beneficiaries"]:
-        if b["owner"] in principals and principals[b["owner"]] != b["tenant_id"]:
+        if b["owner"] not in principals:
+            out.append(f"beneficiary {b['beneficiary_id']!r}: owner {b['owner']!r} is not a principal of the fixture")
+        elif principals[b["owner"]] != b["tenant_id"]:
             out.append(f"beneficiary {b['beneficiary_id']!r}: owner {b['owner']!r} is in another tenant")
     for t in doc["transactions"]:
-        if t["owner"] in principals and principals[t["owner"]] != t["tenant_id"]:
+        if t["owner"] not in principals:
+            out.append(f"transaction {t['ref']!r}: owner {t['owner']!r} is not a principal of the fixture")
+        elif principals[t["owner"]] != t["tenant_id"]:
             out.append(f"transaction {t['ref']!r}: owner {t['owner']!r} is in another tenant")
-        if t["beneficiary"] in beneficiaries and beneficiaries[t["beneficiary"]] != t["tenant_id"]:
+        if t["beneficiary"] is None:
+            continue  # a transaction may have no beneficiary
+        if t["beneficiary"] not in beneficiaries:
+            out.append(f"transaction {t['ref']!r}: beneficiary {t['beneficiary']!r} is not a beneficiary of the fixture")
+        elif beneficiaries[t["beneficiary"]] != t["tenant_id"]:
             out.append(f"transaction {t['ref']!r}: beneficiary {t['beneficiary']!r} is in another tenant")
     for c in doc["cases"]:
-        if c["transaction"] in transactions and transactions[c["transaction"]] != c["tenant_id"]:
+        if c["transaction"] not in transactions:
+            out.append(f"case {c['ref']!r}: transaction {c['transaction']!r} is not a transaction of the fixture")
+        elif transactions[c["transaction"]] != c["tenant_id"]:
             out.append(f"case {c['ref']!r}: transaction {c['transaction']!r} is in another tenant")
 
     markers: dict[str, str] = {}
@@ -55,11 +76,10 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
                 out.append(f"marker {marker!r} is shared by tenants {markers[marker]!r} and {tid!r}")
             markers.setdefault(marker, tid)
 
-    strings: list[tuple[str, str]] = []  # (tenant_id, text) for every string that belongs to a tenant
-    for p in doc["principals"]:
-        strings.append((p["tenant_id"], p["display_name"]))
-    for b in doc["beneficiaries"]:
-        strings += [(b["tenant_id"], b["name"]), *((b["tenant_id"], a) for a in b["aliases"])]
+    strings: list[tuple[str, str]] = []  # (tenant_id, text) for every string that belongs to a tenant: every string field of its objects, ids and refs included
+    for kind, _ in OBJECTS:
+        for item in doc[kind]:
+            strings += [(item["tenant_id"], text) for text in _strings(item)]
     objects = {**{k: v for k, v in transactions.items()}, **{c["ref"]: c["tenant_id"] for c in doc["cases"]}, **beneficiaries, **principals}
     for s in doc["enterprise_strings"]:
         if s["target"] not in objects:

@@ -73,6 +73,54 @@ class Rules(unittest.TestCase):
         doc["enterprise_strings"].append({"target": "fin.transaction:NOPE", "field": "narration", "text": "x"})
         self.assertTrue(any("NOPE" in p for p in problems(doc)))
 
+    def test_a_reference_to_an_object_the_fixture_does_not_hold_is_refused(self) -> None:
+        # Codex P2 on ab7542d: a missing owner, beneficiary or case transaction passed because the membership guards skipped it.
+        doc = two()
+        doc["transactions"][0]["owner"] = "usr_missing"
+        self.assertTrue(any("usr_missing" in p and "transaction" in p for p in problems(doc)), problems(doc))
+        doc = two()
+        doc["transactions"][0]["beneficiary"] = "ben_9999"
+        self.assertTrue(any("ben_9999" in p for p in problems(doc)), problems(doc))
+        doc = two()
+        doc["cases"][0]["transaction"] = "fin.transaction:NOPE"
+        self.assertTrue(any("NOPE" in p and "case" in p for p in problems(doc)), problems(doc))
+        doc = two()
+        doc["beneficiaries"][0]["owner"] = "usr_missing"
+        self.assertTrue(any("usr_missing" in p and "beneficiary" in p for p in problems(doc)), problems(doc))
+
+    def test_a_transaction_with_no_beneficiary_is_still_allowed(self) -> None:
+        doc = two()
+        doc["transactions"][0]["beneficiary"] = None
+        self.assertEqual([], problems(doc))
+
+    def test_another_tenant_s_marker_in_a_resource_reference_is_refused(self) -> None:
+        # Codex P2 on ab7542d: only names and enterprise text were scanned, so a marker in a ref passed and a legitimate read could expose it as a cross-tenant leak.
+        marker = two()["tenants"][1]["markers"][0]
+        doc = two()
+        old = doc["transactions"][0]["ref"]
+        new = old + marker
+        doc["transactions"][0]["ref"] = new
+        for c in doc["cases"]:
+            if c["transaction"] == old:
+                c["transaction"] = new
+        got = problems(doc)
+        self.assertTrue(any(marker in p and new in p or "marker" in p and marker in p for p in got), got)
+
+    def test_another_tenant_s_marker_in_any_string_field_of_an_object_is_refused(self) -> None:
+        marker = two()["tenants"][1]["markers"][0]
+        for kind in ("principals", "beneficiaries", "transactions", "cases"):
+            doc = two()
+            item = doc[kind][0]
+            field = next(k for k, v in item.items() if isinstance(v, str) and k not in ("tenant_id", "ref", "principal_id", "beneficiary_id", "owner", "beneficiary", "transaction"))
+            item[field] = item[field] + " " + marker
+            self.assertTrue(any("marker" in p and marker in p for p in problems(doc)), (kind, field, problems(doc)))
+
+    def test_a_marker_in_its_own_tenant_s_object_fields_is_accepted(self) -> None:
+        doc = two()
+        own = doc["tenants"][0]["markers"][0]
+        doc["principals"][0]["display_name"] += " " + own
+        self.assertEqual([], problems(doc))
+
     def test_a_marker_shared_by_two_tenants_is_refused(self) -> None:
         doc = two()
         doc["tenants"][1]["markers"] = list(doc["tenants"][0]["markers"])
