@@ -92,7 +92,12 @@ def test_every_valid_contract_fixture_round_trips_and_every_invalid_one_is_refus
             continue
         out = Gateway(FixedClock(at)).canonicalise(raw, ctx)
         # The gateway always writes milliseconds ("...:02.000Z"); a fixture may omit them. Everything else must be equal.
-        assert json.loads(out.model_dump_json(by_alias=True, exclude_none=True)) == {**fx, "received_at": at.strftime("%Y-%m-%dT%H:%M:%S.000Z")}, path.name
+        # Not exclude_none: it would drop voice.audio_ref, a required key whose value is null, and the result would no longer be a valid v2 document.
+        dumped = json.loads(out.model_dump_json(by_alias=True))
+        dumped = {k: v for k, v in dumped.items() if v is not None}
+        if isinstance(dumped.get("voice"), dict):
+            assert "audio_ref" in dumped["voice"], path.name
+        assert dumped == {**fx, "received_at": at.strftime("%Y-%m-%dT%H:%M:%S.000Z")}, path.name
     for path in sorted(INVALID.glob("*.json")):
         if path.name == "expectations.json":
             continue
