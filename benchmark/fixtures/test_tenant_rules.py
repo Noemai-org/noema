@@ -152,6 +152,19 @@ class Rules(unittest.TestCase):
         doc["tenants"][0]["markers"] = [*doc["tenants"][0]["markers"], own + "-X"]
         self.assertEqual([], [p for p in problems(doc) if "contains" in p])
 
+    def test_markers_that_differ_only_by_case_are_the_same_marker_across_tenants(self) -> None:
+        # IL on noema#260 at 2d78e8d, finding 2: benchmark/environment/canary.py compares lowercased, so the rules do too.
+        doc = two()
+        a = doc["tenants"][0]["markers"][0]
+        doc["tenants"][1]["markers"] = [*doc["tenants"][1]["markers"], a.lower() if a != a.lower() else a.upper()]
+        got = problems(doc)
+        self.assertTrue(any("shared" in p or "contains" in p for p in got), got)
+
+    def test_a_foreign_marker_in_a_different_case_inside_a_string_is_found(self) -> None:
+        doc = two()
+        doc["enterprise_strings"].append({"target": doc["transactions"][-1]["ref"], "field": "narration", "text": "see " + doc["tenants"][0]["markers"][0].lower()})
+        self.assertTrue(any("marker" in p for p in problems(doc)), problems(doc))
+
     def test_the_contract_does_not_claim_an_enforcement_the_code_does_not_do(self) -> None:
         # IL, finding 1: nothing loads the fixture through tenant_rules yet.
         text = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "benchmark-fixture.v2.json").read_text(encoding="utf-8"))["description"]

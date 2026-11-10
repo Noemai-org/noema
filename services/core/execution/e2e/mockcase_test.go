@@ -132,8 +132,10 @@ END $$`)
 // mockCase is a running mock-case: the address of its case listener and the runtime credential file the core's case
 // client reads. It holds no other handle on it.
 type mockCase struct {
-	URL       string
-	TokenFile string
+	URL            string
+	TokenFile      string
+	BenchURL       string // the control and truth listener, for the test-only bench client (evidence_faults_test.go)
+	BenchTokenFile string
 }
 
 func startMockCase(t *testing.T) mockCase {
@@ -221,5 +223,5 @@ func startMockCase(t *testing.T) mockCase {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return mockCase{URL: "http://" + caseAddr, TokenFile: runtimeTokenFile}
+	return mockCase{URL: "http://" + caseAddr, TokenFile: runtimeTokenFile, BenchURL: "http://" + otherAddr, BenchTokenFile: benchTokenFile}
 }
