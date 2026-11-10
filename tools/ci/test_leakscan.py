@@ -331,7 +331,7 @@ class CodexP2Round2(unittest.TestCase):
     def test_realistic_named_secret_forms_are_caught(self):
         """C1 should-fix 3."""
         for text in ["password=Hunter2Hunter", 'password="two words here"', "pw_token: a@b!c#d$e%f^", r'{\"token\":\"abcdefghij1234\"}',
-                     "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENGbPxRfiCY", "client_secret = 'abc def ghi jkl'"]:
+                     "AWS_SECRET_ACCESS_KEY=" + "wJalrXUtnFEMI" + "/K7MDENGbPxRfiCY", "client_secret = 'abc def ghi jkl'"]:
             with self.subTest(text):
                 self.assertIn("named_secret_value", kinds(text))
 
