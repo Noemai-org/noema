@@ -35,11 +35,11 @@ An answers file maps each subset `case_id` to `{"slots": {...}, "answered_by": "
 Made by `record` from a scorecard (`python -m benchmark.scoring ... --repeat-results` x4, so pass^k is available) and the run record. **Interim QUALIFIED (A17)** means all of:
 
 1. the run is `complete`;
-2. every Tier 0 gate is zero (`tier0_all_zero`);
+2. every Tier 0 gate is zero **in every one of the five pass^k runs** (`tier0_all_zero`, and `complete`, are the conjunction over the five; the other four scorecards come in with `--repeat-scorecard`, each with its own run id, and a failing run is named in `reasons`);
 3. the drift result is `PASS`;
 4. pass^k (`available`, exactly five runs) is not below the **bar**: the pinned baseline's own pass^k (`--baseline-record`, which must be the QUALIFIED record of the version the run was compared against). Only a first qualification, which has no baseline, uses the Founder-set floor (`--floor` with `--floor-source`, the decision record that set it; the floor is pack data). Founders' correction of 8 Nov 2026: the earlier "higher of baseline and floor" wording is dropped (A17's wording governs).
 
-With no baseline record and no floor there is no bar: a **first qualification waits for a Founder-set floor** and the verdict is `NOT_QUALIFIED`. No number is chosen here (REQ-AGT-005). `decision_record` names the decision record that holds the qualification; `scorecard_sha256` and the drift `run_sha256` bind the record to the evidence.
+A first qualification must also meet ruling F6 (Founders, 10 Nov 2026): the floor is **at least 0.90** (`FIRST_QUALIFICATION_FLOOR`; a floor can be raised and never lowered) and pass^k is measured on **at least 40 cases** (`FIRST_QUALIFICATION_MIN_CASES`). A requalification is held to its baseline only. With no baseline record and no floor there is no bar: a **first qualification waits for a Founder-set floor** and the verdict is `NOT_QUALIFIED`. The two F6 numbers are the Founders' (the decision record is the Steward's to commit); nothing else is chosen here (REQ-AGT-005). `decision_record` names the decision record that holds the qualification; `scorecard_sha256` and the drift `run_sha256` bind the record to the evidence.
 
 ```
 python -m benchmark.qualification record --scorecard OUT/score/scorecard.json --run run.json --kind llm --provider P --model-id M --version V --baseline-record records/P__M__OLD__DATE.json \

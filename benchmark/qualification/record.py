@@ -31,6 +31,9 @@ Json = dict[str, Any]
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = "qualification-record.v1"
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
+# Ruling F6 (10 Nov 2026): the first-qualification floor is pass^5 of at least 0.90 on at least 40 cases, with Tier 0 at zero; it can be raised and never lowered.
+FIRST_QUALIFICATION_FLOOR = 0.90
+FIRST_QUALIFICATION_MIN_CASES = 40
 REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons")
 
@@ -59,6 +62,14 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
         reasons.append(f"the drift check result is {drift_result}, not PASS")
     baseline, floor = bar.get("baseline_pass_k"), bar.get("floor")
     bar_value = baseline if baseline is not None else floor
+    if baseline is None:
+        if floor is not None and is_fraction(floor) and floor < FIRST_QUALIFICATION_FLOOR:
+            reasons.append(f"the first-qualification floor {floor} is below the minimum {FIRST_QUALIFICATION_FLOOR}, which a floor can be raised above and never lowered below (ruling F6)")
+        if pass_k.get("available") is True:
+            block = pass_k.get("rate")
+            n = block.get("n") if isinstance(block, Mapping) else None
+            if type(n) is not int or n < FIRST_QUALIFICATION_MIN_CASES:
+                reasons.append(f"pass^k was measured on {n!r} cases; a first qualification needs at least {FIRST_QUALIFICATION_MIN_CASES} cases (ruling F6)")
     if bar_value is None:
         reasons.append("there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)")
     elif not is_fraction(bar_value):
@@ -86,8 +97,12 @@ def _fraction(name: str, value: float | None) -> None:
 
 
 def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
-                 baseline_pass_k: float | None, floor: float | None, floor_source: str | None) -> Json:
-    """A record whose numbers are copied from the scorecard and the run record, so an author never types one."""
+                 baseline_pass_k: float | None, floor: float | None, floor_source: str | None, repeat_cards: Sequence[Mapping[str, Any]] = ()) -> Json:
+    """A record whose numbers are copied from the scorecard and the run record, so an author never types one.
+
+    `card` is the primary run. pass^k needs exactly five runs, and Tier 0 and completeness must hold in every one of them (Codex P1 on noema#199), so the other four runs'
+    scorecards come in `repeat_cards`: five distinct run ids, each with real boolean `complete` and `tier0.all_zero`. `complete` and `tier0_all_zero` of the record are the
+    conjunction over the five, and each failing run is named in `reasons`."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
     for name, value in (("provider", provider), ("model_id", model_id), ("decision_record", decision_record)):
@@ -109,16 +124,32 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     for flag, value in (("complete", card["complete"]), ("tier0_all_zero", card["tier0"]["all_zero"]), ("pass_k.available", source["available"])):
         if type(value) is not bool:
             raise ValueError(f"the scorecard's {flag} must be a real boolean, not {value!r}")
+    if source["available"] is True and len(repeat_cards) != PASS_K - 1:
+        raise ValueError(f"pass^k over {PASS_K} runs needs the scorecards of the {PASS_K - 1} other runs (repeat_cards), not {len(repeat_cards)}: Tier 0 is checked in every run")
+    run_ids = [card["run_id"], *(c["run_id"] for c in repeat_cards)]
+    if len(set(run_ids)) != len(run_ids):
+        raise ValueError(f"the runs must have distinct run ids, not {run_ids}")
+    run_reasons: list[str] = []
+    for one in (card, *repeat_cards):
+        for flag, value in (("complete", one["complete"]), ("tier0_all_zero", one["tier0"]["all_zero"])):
+            if type(value) is not bool:
+                raise ValueError(f"run {one['run_id']}: the scorecard's {flag} must be a real boolean, not {value!r}")
+        if not one["complete"]:
+            run_reasons.append(f"run {one['run_id']} is not complete")
+        if not one["tier0"]["all_zero"]:
+            run_reasons.append(f"run {one['run_id']}: a Tier 0 gate is not at zero")
+    all_complete = all(c["complete"] for c in (card, *repeat_cards))
+    all_zero = all(c["tier0"]["all_zero"] for c in (card, *repeat_cards))
     rate = source.get("rate")
     pass_k = {"k_required": source["k_required"], "runs_supplied": source["runs_supplied"], "available": source["available"], "reason": source.get("reason"),
               "rate": None if rate is None else {"k": rate["k"], "n": rate["n"], "rate": rate["rate"]}, "failing_cases": list(source.get("failing_cases") or [])}
     bar = {"baseline_pass_k": baseline_pass_k, "floor": floor, "floor_source": floor_source}
     drift_block = {"result": drift["result"], "run_sha256": sha256_of(drift), "subset_id": drift["subset_id"], "cases_sha256": drift["cases_sha256"],
                    "baseline_version": drift["baseline"]["pinned"]["version"]}
-    reasons = _reasons(card["complete"], card["tier0"]["all_zero"], pass_k, drift["result"], bar)
+    reasons = run_reasons + _reasons(all_complete, all_zero, pass_k, drift["result"], bar)
     return {
         "schema": SCHEMA, "kind": kind, "provider": provider, "model_id": model_id, "version": version, "run_id": card["run_id"], "n_cases": card["n_cases"],
-        "complete": card["complete"], "tier0_all_zero": card["tier0"]["all_zero"], "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "drift": drift_block,
+        "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "drift": drift_block,
         "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
     }
 

@@ -41,7 +41,8 @@ def _baseline_pass_k(path: str | None, drift: dict[str, object], args: argparse.
 def _record(args: argparse.Namespace) -> int:
     card = load_strict(Path(args.scorecard))
     drift = load_strict(Path(args.run))
-    record = build_record(card, drift, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
+    repeats = [load_strict(Path(path)) for path in args.repeat_scorecard or []]
+    record = build_record(card, drift, repeat_cards=repeats, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
                           qualified_on=args.qualified_on, baseline_pass_k=_baseline_pass_k(args.baseline_record, drift, args), floor=args.floor, floor_source=args.floor_source)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -126,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     for flag in ("--scorecard", "--run", "--provider", "--model-id", "--version", "--decision-record", "--qualified-on", "--out"):
         rec.add_argument(flag, required=True)
     rec.add_argument("--kind", required=True, choices=KINDS)
+    rec.add_argument("--repeat-scorecard", action="append", help="the scorecard of one of the other four pass^k runs, repeatable; Tier 0 must hold in every run")
     rec.add_argument("--baseline-record", help="the qualification record of the pinned baseline version; its pass^k is the bar")
     rec.add_argument("--floor", type=float, help="a Founder-set pass^k floor (pack data); needs --floor-source")
     rec.add_argument("--floor-source", help="the decision record that set the floor")

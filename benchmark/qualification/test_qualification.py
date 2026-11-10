@@ -28,6 +28,23 @@ PROVIDER, MODEL, VERSION, DEC = NEW["provider"], NEW["model_id"], NEW["version"]
 CONTRACTS = Contracts()
 
 
+def repeat_cards(primary: Json | None = None) -> list[Json]:
+    """The scorecards of the four other pass^k runs: each its own run id, complete, Tier 0 at zero (F6: Tier 0 holds in every run)."""
+    out = []
+    for i in range(2, 6):
+        card = copy.deepcopy(primary or scorecard())
+        card["run_id"] = f"run_repeat_{i}"
+        out.append(card)
+    return out
+
+
+def first_card() -> Json:
+    """A scorecard whose pass^k is measured on 40 cases (the first-qualification minimum of ruling F6)."""
+    card = scorecard()
+    card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 38, "n": 40, "rate": 0.95}
+    return card
+
+
 def scorecard() -> Json:
     cases, oracles, results, _ = fixture()
     card = copy.deepcopy(card_for(cases, oracles, results))
@@ -42,14 +59,16 @@ def record(card: Json | None = None, drift: Json | None = None, **changes: Any) 
     args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06", "baseline_pass_k": 0.8,
                   "floor": None, "floor_source": None}
     args.update(changes)
-    return build_record(card or scorecard(), drift or run(), **args)
+    card = card or scorecard()
+    args.setdefault("repeat_cards", repeat_cards(card))
+    return build_record(card, drift or run(), **args)
 
 
 def first_record() -> Json:
     """A first qualification of the baseline version itself, which has no baseline and so needs a floor."""
     sub = subset()
     drift = run(answers(sub, PINNED["version"]), PINNED, sub, baseline(sub))
-    return record(drift=drift, version=PINNED["version"], baseline_pass_k=None, floor=0.5, floor_source="DEC-2026-11-05-floor")
+    return record(card=first_card(), drift=drift, version=PINNED["version"], baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
 
 
 class Making(unittest.TestCase):
@@ -121,10 +140,64 @@ class Making(unittest.TestCase):
 
     def test_the_floor_is_the_first_qualification_bar_and_afterwards_the_baseline_governs(self) -> None:
         # Founders' correction of 8 Nov 2026 (A17's wording): "not below the pinned baseline's own pass^k"; the "higher of floor and baseline" wording is dropped.
-        self.assertEqual("QUALIFIED", record(baseline_pass_k=None, floor=0.85, floor_source="DEC-2026-11-05-floor")["verdict"])
-        self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=None, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("QUALIFIED", record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("NOT_QUALIFIED", record(card=first_card(), baseline_pass_k=None, floor=0.99, floor_source="DEC-2026-11-05-floor")["verdict"])
         self.assertEqual("QUALIFIED", record(baseline_pass_k=0.8, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
         self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.95, floor=0.5, floor_source="DEC-2026-11-05-floor")["verdict"])
+
+    def test_a_first_qualification_floor_below_0_90_does_not_qualify_a_model(self) -> None:
+        # Ruling F6 (10 Nov 2026): the first-qualification floor is pass^5 of at least 0.90 on at least 40 cases; it can be raised and never lowered. `--floor 0.10` qualified a model.
+        for floor in (0.1, 0.5, 0.85, 0.8999):
+            rec = record(card=first_card(), baseline_pass_k=None, floor=floor, floor_source="DEC-2026-11-05-floor")
+            self.assertEqual("NOT_QUALIFIED", rec["verdict"], floor)
+            self.assertTrue(any("0.9" in r and "floor" in r for r in rec["reasons"]), rec["reasons"])
+            self.assertEqual([], validate_record(rec))
+
+    def test_a_first_qualification_on_fewer_than_40_cases_does_not_qualify(self) -> None:
+        card = first_card()
+        card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 39, "n": 39, "rate": 1.0}
+        rec = record(card=card, baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("40" in r and "cases" in r for r in rec["reasons"]), rec["reasons"])
+        self.assertEqual("QUALIFIED", record(baseline_pass_k=0.8)["verdict"], "a requalification is held to its baseline, not to the first-qualification minimum")
+
+    def test_a_record_edited_to_qualify_below_the_first_qualification_floor_is_refused(self) -> None:
+        rec = record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        rec["bar"]["floor"] = 0.1
+        self.assertTrue(any("floor" in p and "0.9" in p for p in validate_record(rec)), validate_record(rec))
+        rec = record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        rec["pass_k"]["rate"]["n"] = 10
+        self.assertTrue(any("40" in p for p in validate_record(rec)), validate_record(rec))
+
+    def test_tier_zero_and_completeness_hold_in_every_one_of_the_five_runs(self) -> None:
+        # Codex P1 on 41f879b: only the primary run's Tier 0 was checked.
+        changes: list[tuple[str, Callable[[Json], object]]] = [("tier0", lambda c: c["tier0"].update(all_zero=False)), ("complete", lambda c: c.update(complete=False))]
+        for field, change in changes:
+            cards = repeat_cards()
+            change(cards[2])
+            rec = record(repeat_cards=cards)
+            self.assertEqual("NOT_QUALIFIED", rec["verdict"], field)
+            self.assertFalse(rec["tier0_all_zero"] if field == "tier0" else rec["complete"], field)
+            self.assertTrue(any("run_repeat_4" in r for r in rec["reasons"]), rec["reasons"])
+            self.assertEqual([], validate_record(rec))
+
+    def test_five_run_pass_k_needs_the_four_other_scorecards_with_distinct_run_ids(self) -> None:
+        card = scorecard()
+        for bad in ([], repeat_cards()[:3], repeat_cards() + repeat_cards()[:1]):
+            with self.assertRaises(ValueError):
+                record(card=card, repeat_cards=bad)
+        same = repeat_cards()
+        same[0]["run_id"] = card["run_id"]
+        with self.assertRaises(ValueError):
+            record(card=card, repeat_cards=same)
+        twice = repeat_cards()
+        twice[1]["run_id"] = twice[0]["run_id"]
+        with self.assertRaises(ValueError):
+            record(card=card, repeat_cards=twice)
+        flag = repeat_cards()
+        flag[0]["tier0"]["all_zero"] = "true"
+        with self.assertRaises(ValueError):
+            record(card=card, repeat_cards=flag)
 
     def test_a_floor_needs_the_decision_record_that_set_it(self) -> None:
         with self.assertRaises(ValueError):
@@ -428,21 +501,26 @@ class Cli(unittest.TestCase):
             code = main(list(argv))
         return code, out.getvalue()
 
-    def files(self, root: Path, card: Json | None = None) -> list[str]:
-        (root / "scorecard.json").write_text(json.dumps(card or scorecard()), encoding="utf-8")
+    def files(self, root: Path, card: Json | None = None, repeats: list[Json] | None = None) -> list[str]:
+        card = card or scorecard()
+        repeats = repeats if repeats is not None else repeat_cards(card)
+        (root / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
+        for i, one in enumerate(repeats):
+            (root / f"repeat-{i}.json").write_text(json.dumps(one), encoding="utf-8")
         (root / "run.json").write_text(json.dumps(run()), encoding="utf-8")
         (root / "baseline-record.json").write_text(json.dumps(first_record()), encoding="utf-8")
         (root / "records").mkdir()
         return ["--scorecard", str(root / "scorecard.json"), "--run", str(root / "run.json"), "--baseline-record", str(root / "baseline-record.json"), "--provider", PROVIDER,
-                "--model-id", MODEL, "--version", VERSION, "--kind", "llm", "--decision-record", DEC, "--qualified-on", "2026-11-06"]
+                "--model-id", MODEL, "--version", VERSION, "--kind", "llm", "--decision-record", DEC, "--qualified-on", "2026-11-06",
+                *[a for i in range(len(repeats)) for a in ("--repeat-scorecard", str(root / f"repeat-{i}.json"))]]
 
     def test_record_then_check_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            code, text = self.run_main("record", *self.files(root), "--out", str(root / "records" / "r.json"))
+            code, text = self.run_main("record", *self.files(root, first_card()), "--out", str(root / "records" / "r.json"))
             self.assertEqual(0, code, text)
             written = json.loads((root / "records" / "r.json").read_text(encoding="utf-8"))
-            self.assertEqual(0.9, written["bar"]["baseline_pass_k"])  # read from the baseline version's own record
+            self.assertEqual(0.95, written["bar"]["baseline_pass_k"])  # read from the baseline version's own record
             base = ["--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION]
             self.assertEqual(0, self.run_main("check", "--records", str(root / "records"), *base)[0])
             code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-02")
@@ -462,15 +540,30 @@ class Cli(unittest.TestCase):
     def test_without_a_baseline_record_or_a_floor_the_first_qualification_is_not_qualified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            args = self.files(root)
+            args = self.files(root, first_card())
             i = args.index("--baseline-record")
             del args[i:i + 2]
             out = root / "r.json"
             code, text = self.run_main("record", *args, "--out", str(out))
             self.assertEqual(1, code, text)
             self.assertTrue(any("floor" in r for r in json.loads(out.read_text(encoding="utf-8"))["reasons"]))
-            code, text = self.run_main("record", *args, "--floor", "0.85", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
+            code, text = self.run_main("record", *args, "--floor", "0.10", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
+            self.assertEqual(1, code, text)  # F6: a floor below 0.90 does not qualify a model
+            code, text = self.run_main("record", *args, "--floor", "0.90", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
             self.assertEqual(0, code, text)
+
+    def test_a_tier_zero_breach_in_a_repeat_run_makes_the_cli_exit_one_and_names_the_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repeats = repeat_cards()
+            repeats[3]["tier0"]["all_zero"] = False
+            out = root / "r.json"
+            code, text = self.run_main("record", *self.files(root, None, repeats), "--out", str(out))
+            self.assertEqual(1, code, text)
+            self.assertIn("run_repeat_5", text)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(2, self.run_main("record", *self.files(root, None, repeat_cards()[:2]), "--out", str(root / "r.json"))[0])  # too few runs: an input error
 
     def test_a_baseline_record_that_is_not_the_runs_baseline_is_an_input_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
