@@ -5,7 +5,9 @@ package session_test
 // cannot be read in full within the limit is refused too.
 
 import (
+	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
@@ -23,7 +26,11 @@ func guarded(t *testing.T, k keys) (http.Handler, *int, *string) {
 	v, clk := verifier(t, k, epoch)
 	calls, got := 0, ""
 	idg := ids.New(clk, nil)
-	h := session.Middleware(v, idg)(session.RefuseBodyIdentity(idg, bodyLimit)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	guard, err := session.RefuseBodyIdentity(idg, bodyLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := session.Middleware(v, idg)(guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		b, _ := io.ReadAll(r.Body)
 		got = string(b)
@@ -120,5 +127,41 @@ func TestTheBodyGuardCannotBeReachedWithoutASession(t *testing.T) {
 	rec := post(h, "", "application/json", `{"tenant_id":"tnt_b"}`)
 	if rec.Code != http.StatusUnauthorized || *calls != 0 {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Codex P1 on noema#198 (INV-12, A1 deny by default): the limit is checked when the guard is built. A limit of math.MaxInt64 made the read bound
+// maxBytes+1 overflow to a negative number, so nothing was read, the body looked empty and the handler ran with the identity unscanned.
+func TestAGuardWithAnUnusableBodyLimitIsNotBuilt(t *testing.T) {
+	idg := ids.New(clock.NewManual(epoch), nil)
+	for name, limit := range map[string]int64{"zero": 0, "negative": -1, "min int64": math.MinInt64, "max int64": math.MaxInt64} {
+		guard, err := session.RefuseBodyIdentity(idg, limit)
+		if !errors.Is(err, session.ErrBodyLimit) || guard != nil {
+			t.Errorf("%s (%d): got guard %v, error %v; want no guard and ErrBodyLimit", name, limit, guard != nil, err)
+		}
+	}
+	if guard, err := session.RefuseBodyIdentity(idg, 1); err != nil || guard == nil {
+		t.Errorf("a limit of 1 byte: guard %v, error %v; want a guard", guard != nil, err)
+	}
+	if guard, err := session.RefuseBodyIdentity(idg, math.MaxInt64-1); err != nil || guard == nil {
+		t.Errorf("the largest limit that does not overflow: guard %v, error %v; want a guard", guard != nil, err)
+	}
+}
+
+// With the largest limit that can be built, a body that names an identity is still refused and the handler never runs.
+func TestAHugeButValidLimitStillScansTheBody(t *testing.T) {
+	k := newKeys(t)
+	v, clk := verifier(t, k, epoch)
+	idg := ids.New(clk, nil)
+	guard, err := session.RefuseBodyIdentity(idg, math.MaxInt64-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	h := session.Middleware(v, idg)(guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(http.StatusNoContent) })))
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	rec := post(h, tok, "application/json", `{"tenant_id":"tnt_b"}`)
+	if rec.Code != http.StatusBadRequest || calls != 0 {
+		t.Fatalf("%d %s, handler calls %d; want 400 and no handler call", rec.Code, rec.Body.String(), calls)
 	}
 }
