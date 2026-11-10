@@ -11,6 +11,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from noema_model.voice.confidence import InvalidConfidence
 from noema_model.voice.clarify import KeySlot, StepKind, VoiceStep, decide_voice_step, key_slot_from_tokens
 
 THRESHOLD = 0.85
@@ -71,10 +72,34 @@ def test_a_provider_that_returns_no_confidence_makes_every_key_slot_confirm() ->
     assert decide_voice_step(slots, THRESHOLD, 0, MAX_FAILED).kind is StepKind.CONFIRM_SLOT
 
 
-@pytest.mark.parametrize("threshold,max_failed", [(math.nan, 2), (-0.1, 2), (1.1, 2), (0.85, 0), (0.85, -1)])
+@pytest.mark.parametrize("threshold,max_failed", [(math.nan, 2), (-0.1, 2), (1.1, 2), (0.85, 0), (0.85, -1), (0.0, 2)])
 def test_a_bad_threshold_or_limit_is_a_configuration_error(threshold: float, max_failed: int) -> None:
     with pytest.raises(ValueError):
         decide_voice_step([slot("amount", 0.99)], threshold, 0, max_failed)
+
+
+def test_a_threshold_of_zero_is_refused_because_it_would_let_every_slot_proceed() -> None:
+    """Security Reviewer note on #228: threshold 0.0 made every slot pass, so a misconfigured pack failed open (REQ-AMB-007)."""
+    with pytest.raises(ValueError):
+        decide_voice_step([slot("amount", 0.0)], 0.0, 0, MAX_FAILED)
+
+
+def test_a_slot_built_from_a_nan_or_infinite_token_confidence_is_refused_not_low() -> None:
+    """C2 P3 on #228: building through the tokens refuses invalid data, while a directly built KeySlot treats it as low;
+    both paths end in a confirmation, never a PROCEED."""
+    for bad in (math.nan, math.inf, -0.1, 1.5):
+        with pytest.raises(InvalidConfidence):
+            key_slot_from_tokens("amount", "20,000", [0.99, bad])
+        assert decide_voice_step([slot("amount", bad)], THRESHOLD, 0, MAX_FAILED).kind is StepKind.CONFIRM_SLOT
+
+
+def test_more_failed_turns_than_the_limit_still_offers_text() -> None:
+    assert decide_voice_step([slot("amount", 0.5)], THRESHOLD, MAX_FAILED + 3, MAX_FAILED).kind is StepKind.OFFER_TEXT
+
+
+def test_a_boolean_confidence_is_low_not_one() -> None:
+    """True == 1 in Python; a bool must never read as a perfect confidence."""
+    assert decide_voice_step([KeySlot("amount", "20,000", True)], THRESHOLD, 0, MAX_FAILED).kind is StepKind.CONFIRM_SLOT  # type: ignore[arg-type]
 
 
 def test_a_negative_failed_turn_count_is_refused() -> None:
