@@ -264,13 +264,18 @@ func TestAReviewerReconstructsTheDecisionsFromTheExportAlone(t *testing.T) {
 		if fmt.Sprint(deref(e.Decision)) != fmt.Sprint(deref(x.decision)) || fmt.Sprint(deref(e.Outcome)) != fmt.Sprint(deref(x.outcome)) {
 			t.Errorf("entry %d (%s): decision=%v outcome=%v, want %v and %v", i+1, e.Step, deref(e.Decision), deref(e.Outcome), deref(x.decision), deref(x.outcome))
 		}
-		if e.OutputsDigest != caseRows[i].PayloadHash {
-			t.Errorf("entry %d: outputs_digest %s is not the event's payload_hash %s", i+1, e.OutputsDigest, caseRows[i].PayloadHash)
+		// Ruling A115: outputs_digest = sha256(JCS(["noema/record-export/v1", event_id, payload_hash])). The event id is not exported, so the digest cannot be
+		// recomputed from a guessed payload; a holder of the Record can. inputs_digest chains the previous outputs_digest.
+		if want := sha256Of(t, []string{"noema/record-export/v1", caseRows[i].EventID, caseRows[i].PayloadHash}); e.OutputsDigest != want {
+			t.Errorf("entry %d: outputs_digest %s, want the A115 commitment %s", i+1, e.OutputsDigest, want)
+		}
+		if e.OutputsDigest == caseRows[i].PayloadHash {
+			t.Errorf("entry %d: outputs_digest is the Record's payload_hash, which a guessed payload can confirm", i+1)
 		}
 		if want := sha256Of(t, prev); e.InputsDigest != want {
-			t.Errorf("entry %d: inputs_digest %s, want the digest of the previous exported payload hash %s", i+1, e.InputsDigest, want)
+			t.Errorf("entry %d: inputs_digest %s, want the digest of the previous outputs_digest %s", i+1, e.InputsDigest, want)
 		}
-		prev = []string{caseRows[i].PayloadHash}
+		prev = []string{e.OutputsDigest}
 		var body struct {
 			At string `json:"at"`
 		}
@@ -601,5 +606,68 @@ func TestTheWorkedExampleOfNoema355HasTheSameDigest(t *testing.T) {
 	const want = "sha256:baae831e7875de3ceb03516bc5c3cefde33e0735e7b0d0640a56e6e981be7cb9"
 	if err != nil || got != want {
 		t.Fatalf("digest %q (%v), want %s", got, err, want)
+	}
+}
+
+// Ruling A115, first adversarial regression (noema#383, the Security Reviewer's F1 on noema#377): no event id of the Record appears anywhere in the export.
+func TestNoRecordEventIDAppearsAnywhereInTheExport(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_case01", story("ALLOW")...)
+	got, err := export1(t, w, tenant, "corr_case01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := got.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := chain.ReadChain(ctx(t), w.readers[tenant])
+	if err != nil || len(rows) < 15 {
+		t.Fatalf("reading the Record: %v (%d rows)", err, len(rows))
+	}
+	for _, r := range rows {
+		if strings.Contains(string(raw), r.EventID) {
+			t.Errorf("the export contains the event id %s", r.EventID)
+		}
+	}
+}
+
+// Ruling A115, second adversarial regression: a guessed set of low-entropy payloads, hashed the obvious ways (the Record's own payload hash, and a digest
+// of it alone or under the format label), matches no value the export carries. Before A115 outputs_digest WAS the payload hash, so every payload below that
+// a case holds would have matched.
+func TestAGuessedSetOfLowEntropyPayloadsMatchesNoExportedValue(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_case01", story("ALLOW")...)
+	got, err := export1(t, w, tenant, "corr_case01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported := map[string]bool{got.Digest: true}
+	for _, e := range got.Entries {
+		exported[e.InputsDigest], exported[e.OutputsDigest] = true, true
+	}
+	guesses := []map[string]any{
+		{}, {"state": "CLOSED"}, {"state": "OPEN"}, {"classification": "SETTLED"}, {"decision_outcome": "ALLOW"}, {"decision_outcome": "ESCALATE"},
+		{"decision_outcome": "REJECT"}, {"fact_status": "KNOWN", "source": "mock-ledger"}, {"fact_status": "KNOWN"}, {"channel": "TEXT"},
+		{"claims": []any{}}, {"candidate_count": 1}, {"attempt": 1},
+	}
+	tried := 0
+	for _, g := range guesses {
+		b, err := crypto.CanonicalJSON(g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(b)
+		h := "sha256:" + hex.EncodeToString(sum[:])
+		for name, v := range map[string]string{"the payload hash": h, "a digest of it": sha256Of(t, []string{h}), "it under the label": sha256Of(t, []string{"noema/record-export/v1", h}),
+			"it with an empty id": sha256Of(t, []string{"noema/record-export/v1", "", h})} {
+			tried++
+			if exported[v] {
+				t.Errorf("the guessed payload %v matches an exported value as %s", g, name)
+			}
+		}
+	}
+	if tried != 4*len(guesses) {
+		t.Fatalf("tried %d candidates", tried)
 	}
 }
