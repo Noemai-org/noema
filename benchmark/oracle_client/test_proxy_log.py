@@ -232,8 +232,12 @@ class Classification(unittest.TestCase):
         self.assertEqual(set(), unclassified([json.loads(t.read_text()) for t in TABLES]))
 
     def test_a_table_with_an_unclassified_operation_is_detected(self) -> None:
-        stand_in = {"routes": [{"target": "mock-customer", "operation": "get_principal"}, {"target": "mock-ledger", "operation": "get_transaction"}]}
-        self.assertEqual({("mock-customer", "get_principal")}, unclassified([stand_in]))
+        # a route that no one has classified (here a made-up payout route) is detected; the stand-in's own read routes are classified now that noema#207 is on main
+        table = {"routes": [{"target": "mock-ledger", "operation": "create_payout"}, {"target": "mock-ledger", "operation": "get_transaction"}]}
+        self.assertEqual({("mock-ledger", "create_payout")}, unclassified([table]))
+
+    def test_the_stand_in_s_read_routes_are_classified_read_only(self) -> None:
+        self.assertLessEqual({("mock-customer", "get_principal"), ("mock-destination", "get_destination_status")}, READ_ONLY)
 
     def test_no_classified_operation_is_a_payout_or_a_reversal(self) -> None:
         for _, operation in READ_ONLY:

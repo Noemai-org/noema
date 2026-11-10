@@ -19,6 +19,8 @@ ROUTE = "/control/v1/requests"
 READ_ONLY = frozenset({
     ("mock-ledger", "get_transaction"), ("mock-ledger", "list_transactions"), ("mock-switch", "get_status"), ("mock-ledger", "get_entries"),
     ("mock-customer", "get_beneficiaries"), ("mock-destination", "events_feed"), ("mock-destination", "relay_pull"), ("mock-customer", "post_lookup"),
+    # the Noema-side stand-in's two read routes (`config/routes.standin.json`, noema#207): both are GET reads, so a G1 run through the stand-in does not count them as monetary calls (Voice F1)
+    ("mock-customer", "get_principal"), ("mock-destination", "get_destination_status"),
 })
 
 
