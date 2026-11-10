@@ -1,0 +1,6 @@
+# Status · OUT-01 follow-up (small-order public keys)
+
+## Session 2026-11-06 · found by the independent validation of the pgsodium spike (docs#117, ruling A16)
+- Finding: Go's `crypto/ed25519` and OpenSSL accept a signature under a public key of small order (the identity key with R = identity and S = 0 verifies for any message); libsodium, which pgsodium wraps, refuses it. The spike's vectors `small_order_key_and_r` and `noncanonical_identity_key` show it. Outcome's receipt checker used `ed25519.Verify` with whatever key the key source returned, so a small-order key in that source would have let anyone forge a receipt; with the identity key the check returned VALID (test red first).
+- Fix: `crypto.UsableEd25519PublicKey` (in `platform/crypto`, where cryptographic constants are not decision code) refuses a key that is not 32 bytes, has y at or above p, or is one of the eight small-order points (checked with the RFC 8032 reference arithmetic: eight times each is the identity). `receiptsig.Checker` treats such a key as unusable (INVALID). Mutants (small-order list off; canonical check off) are each caught.
+- Not a hole today: the key source is a table the deployment controls. It is defence in depth, and a consensus point for adoption: the database (libsodium) is the stricter verifier, the Go side now matches it on these inputs.
