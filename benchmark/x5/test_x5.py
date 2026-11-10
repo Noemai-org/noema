@@ -39,7 +39,7 @@ class FakeFacade:
                 if not facade.split:
                     return False
                 control = self.path.startswith("/control/")
-                return control != (self.server.server_port == facade.control_port)
+                return control != (int(self.request.getsockname()[1]) == facade.control_port)
 
             def log_message(self, *_: Any) -> None:
                 return
