@@ -79,10 +79,12 @@ def _allowed_numbers(claim: Json) -> set[str]:
     return allowed
 
 
-# The words of docs/poc/execution/release/claims.md section 3. A word is matched after the text is normalised (NFKC, so full-width letters and the non-breaking hyphen and space
-# fold to plain ones; invisible characters removed; case folded), and a two-word term takes any run of spaces, hyphens, dashes, minus signs and underscores, or none, between its parts.
+# The words of docs/poc/execution/release/claims.md section 3, matched as STEMS (Security Reviewer's ruling on noema#124, F1 option a): `immutab`, `guarante`, `unforgeab`, `complian`, `certif`
+# take any ending, so `immutably`, `guarantees`, `compliance-ready` and `certification` are the same claim as the listed word. A stem needs a letter boundary BEFORE it and none after, so `uncertified`,
+# `uncertain` and `tamper-evident` stay allowed. The text is normalised first (NFKC, so full-width letters and the non-breaking hyphen and space fold to plain ones; invisible characters removed;
+# case folded), and a two-word term takes any run of spaces, hyphens, dashes, minus signs and underscores, or none, between its parts.
 _SEP = r"[\s\-_\u2010-\u2015\u2212]*"
-FORBIDDEN_WORDS = re.compile(r"(?<![a-z])(tamper" + _SEP + r"proof|immutable|compliant|certified|guaranteed|zero" + _SEP + r"risk|proven" + _SEP + r"in" + _SEP + r"production)(?![a-z])")
+FORBIDDEN_WORDS = re.compile(r"(?<![a-z])(tamper" + _SEP + r"proof|immutab|guarante|unforgeab|complian|certif|zero" + _SEP + r"risk|proven" + _SEP + r"in" + _SEP + r"production)[a-z]*")  # the trailing letters only complete the word for the message
 _INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u034f\u061c\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff"))
 
 
@@ -165,9 +167,27 @@ def _distribution_problems(run_id: str, card: Json, rows_by_slice: Mapping[str, 
     return out
 
 
-def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
+SCORECARD_MEMBERS = ("run_id", "complete", "release_result", "n_cases", "layers", "tier0", "tier1", "by_family", "by_category")
+
+
+def _scorecard_missing(card: Any) -> list[str]:
+    """The members of a bundle scorecard this check reads that it does not have. A scorecard that lacks them is a problem to list, never a crash (Voice N2 on noema#124)."""
+    if not isinstance(card, Mapping):
+        return list(SCORECARD_MEMBERS)
+    missing = [m for m in SCORECARD_MEMBERS if m not in card]
+    if "tier0" not in missing and not (isinstance(card["tier0"], Mapping) and "all_zero" in card["tier0"]):
+        missing.append("tier0.all_zero")
+    return missing
+
+
+def check(publication: Json, all_cards: Mapping[str, Json]) -> list[str]:
     claims = publication.get("claims") or []
     problems: list[str] = []
+    broken = {rid: _scorecard_missing(c) for rid, c in all_cards.items() if _scorecard_missing(c)}
+    cards = {rid: c for rid, c in all_cards.items() if rid not in broken}
+    cited = {c.get("run_id") for c in claims if isinstance(c, Mapping)}
+    for rid in sorted(broken.keys() & cited, key=str):
+        problems.append(f"run {rid}: the scorecard in the bundle is missing {', '.join(broken[rid])}, so no claim on it can be checked")
     if not claims:
         return ["the publication has no claims"]
     seen: set[str] = set()
@@ -175,8 +195,12 @@ def check(publication: Json, cards: Mapping[str, Json]) -> list[str]:
         if claim.get("id") in seen:
             problems.append(f"claim {claim.get('id')}: duplicate claim id")
         seen.add(claim.get("id"))
-        problems += _claim_problems(claim, cards)
-    keys = [(d.get("run_id"), d.get("slice")) for d in publication.get("distributions") or []]
+        if claim.get("run_id") not in broken:
+            problems += _claim_problems(claim, cards)
+    for d in publication.get("distributions") or []:
+        if not isinstance(d, Mapping):
+            problems.append(f"a distribution record is not an object: {d!r} (every distribution is an object naming its run, its slice and its rows)")
+    keys = [(d.get("run_id"), d.get("slice")) for d in publication.get("distributions") or [] if isinstance(d, Mapping)]
     for run_id, name in sorted({k for k in keys if keys.count(k) > 1}, key=str):
         problems.append(f"run {run_id}: the {name} distribution appears more than one time in the publication (one record per run and slice; a later record must never hide an earlier one)")
     runs = sorted({c["run_id"] for c in claims if "run_id" in c})

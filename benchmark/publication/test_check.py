@@ -290,7 +290,7 @@ class Broken(unittest.TestCase):
             self.assertTrue(any(word.lower() in x.lower() and "claims.md" in x for x in got), (word, got))
 
     def test_a_forbidden_word_is_refused_however_it_is_spelt(self) -> None:
-        # SR on 45119d5: "tamperproof", "zero-risk" and a non-breaking hyphen passed. Case, separator, hyphen look-alikes, spaces and invisible characters do not hide a word.
+        # SR on 45119d5 and 049622b: case, separator, hyphen look-alikes, spaces and invisible characters do not hide a word.
         spellings = ("tamperproof", "TamperProof", "tamper-proof", "tamper\u2011proof", "tamper\u2010proof", "tamper\u2013proof", "tamper\u2212proof", "tamper_proof", "tamper  proof",
                      "tamper\u00a0proof", "tam\u200bper-proof", "tamper\u00adproof", "zero-risk", "zero\u2011risk", "zerorisk", "ZERO   RISK", "zero\u00a0risk",
                      "proven-in-production", "proven\u2011in\u2011production", "provenin production", "ｃｏｍｐｌｉａｎｔ", "im\u200dmutable", "guaranteed\u200b", "certified")
@@ -298,11 +298,36 @@ class Broken(unittest.TestCase):
             got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}."))
             self.assertTrue(any("claims.md" in x for x in got), (word, got))
 
-    def test_words_that_only_contain_a_forbidden_word_are_not_refused(self) -> None:
+    def test_other_forms_of_a_forbidden_word_are_refused_as_well(self) -> None:
+        # SR's ruling on noema#124 (F1, option a): the terms are matched as STEMS after a letter boundary, so any ending is the same claim as the listed word. Voice's table (V1) is in it.
+        forms = ("Immutably", "immutability", "immutable", "guarantees", "a guarantee of safety", "no guarantee", "unforgeable", "compliance-ready", "compliance with the rules", "compliant", "certification",
+                 "certifications", "certifies", "ｉｍｍｕｔａｂｌｙ", "unforge\u200bable", "guar\u200dantees", "Zero-Risk", "tamperproofing", "proven in production")
+        for form in forms:
+            got = self.one(lambda p, c, w=form: p["claims"][1].update(text=f"The Record offers {w}."))
+            self.assertTrue(any("claims.md" in x for x in got), (form, got))
+
+    def test_allowed_words_stay_allowed_because_a_stem_needs_a_letter_boundary_before_it(self) -> None:
         pub, cards = publication()
-        for text in ("The Record is tamper-evident.", "Writers are authenticated.", "A guarantee-free statement of results.", "Uncertified claims are not made."):
+        for text in ("The Record is tamper-evident.", "Writers are authenticated.", "Uncertified parties are refused.", "It is uncertain.", "That is certain.", "A tamper-evident chain."):
             pub["claims"][1]["text"] = text
             self.assertEqual([], [x for x in problems(pub, cards) if "claims.md" in x], text)
+
+    def test_a_distribution_record_that_is_not_an_object_is_a_listed_problem_not_a_crash(self) -> None:
+        # Voice N1 on noema#124.
+        for bad in ("by_family", 7, None, ["x"]):
+            pub, cards = publication()
+            pub["distributions"].append(bad)
+            got = problems(pub, cards)
+            self.assertTrue(any("not an object" in x for x in got), (bad, got))
+
+    def test_a_scorecard_missing_a_member_the_check_needs_is_a_listed_problem_not_a_crash(self) -> None:
+        # Voice N2 on noema#124: a bundle scorecard without `complete` or `release_result` raised KeyError and exited 1, the code of "problems found".
+        for member in ("complete", "release_result", "tier0", "n_cases", "layers", "run_id"):
+            pub, cards = publication()
+            for card in cards.values():
+                del card[member]
+            got = problems(pub, cards)
+            self.assertTrue(any("scorecard" in x and member in x for x in got), (member, got))
 
     def test_tamper_evident_is_allowed(self) -> None:
         pub, cards = publication()
