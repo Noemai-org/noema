@@ -212,6 +212,7 @@ TYPES: dict[str, Any] = {
     "qualification-record.v1#Fraction": qualification_record_v1.QualificationRecordV1Fraction,
     "qualification-record.v1#PassK": qualification_record_v1.QualificationRecordV1PassK,
     "qualification-record.v1#Rate": qualification_record_v1.QualificationRecordV1Rate,
+    "qualification-record.v1#Run": qualification_record_v1.QualificationRecordV1Run,
     "qualification-record.v1#Sha256": qualification_record_v1.QualificationRecordV1Sha256,
     "qualification-run.v1": qualification_run_v1.QualificationRunV1,
     "qualification-run.v1#Case": qualification_run_v1.QualificationRunV1Case,

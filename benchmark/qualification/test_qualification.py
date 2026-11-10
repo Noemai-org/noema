@@ -6,6 +6,7 @@ scorer. Generated layer only (INV-22, REQ-AGT-004).
 The benchmark owns the runner side: the record format (`contracts/schemas/qualification-record.v1.json`), how a record is made, and the lookup that refuses an unqualified ID.
 The model service's configuration check (C2) calls the same lookup contract; it is not built here."""
 import copy
+import functools
 import io
 import json
 import tempfile
@@ -15,7 +16,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from typing import Any
 
-from benchmark.contracts import Contracts
+from benchmark.contracts import Contracts, sha256_of
 from benchmark.qualification.__main__ import main
 from benchmark.qualification.pins import is_pinned
 from benchmark.qualification.record import build_record, check_model, validate_record, verify_against_scorecard
@@ -41,7 +42,7 @@ def repeat_cards(primary: Json | None = None) -> list[Json]:
 def first_card() -> Json:
     """A scorecard whose pass^k is measured on 40 cases (the first-qualification minimum of ruling F6)."""
     card = scorecard()
-    card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 38, "n": 40, "rate": 0.95}
+    card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 36, "n": 40, "rate": 0.9}
     return card
 
 
@@ -56,19 +57,50 @@ def scorecard() -> Json:
 
 
 def record(card: Json | None = None, drift: Json | None = None, **changes: Any) -> Json:
-    args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06", "baseline_pass_k": 0.8,
+    args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06", "baseline_pass_k": 0.9,
                   "floor": None, "floor_source": None}
     args.update(changes)
+    if args["baseline_pass_k"] is not None:
+        args.setdefault("baseline_record_sha256", baseline_sha())
     card = card or scorecard()
     args.setdefault("repeat_cards", repeat_cards(card))
     return build_record(card, drift or run(), **args)
 
 
-def first_record() -> Json:
-    """A first qualification of the baseline version itself, which has no baseline and so needs a floor."""
+def first_drift() -> Json:
+    """The drift run of the baseline version against itself: the run record of a first qualification."""
     sub = subset()
-    drift = run(answers(sub, PINNED["version"]), PINNED, sub, baseline(sub))
-    return record(card=first_card(), drift=drift, version=PINNED["version"], baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+    return run(answers(sub, PINNED["version"]), PINNED, sub, baseline(sub))
+
+
+def first(**changes: Any) -> Json:
+    """A first qualification of the baseline version itself, which has no baseline and so needs the floor (A43)."""
+    args: Json = {"card": first_card(), "drift": first_drift(), "version": PINNED["version"], "baseline_pass_k": None, "floor": 0.9, "floor_source": "DEC-2026-11-08-floor"}
+    args.update(changes)
+    return record(**args)
+
+
+def first_record() -> Json:
+    return first()
+
+
+@functools.lru_cache(maxsize=1)
+def _baseline_json() -> str:
+    return json.dumps(first_record())
+
+
+def baseline_record() -> Json:
+    out: Json = json.loads(_baseline_json())
+    return out
+
+
+def baseline_sha() -> str:
+    return sha256_of(baseline_record())
+
+
+def lookup(records: list[Json], provider: str, model_id: str, version: str, kind: str | None = None) -> list[str]:
+    """`check_model` over the records and the baseline record they name, as a records directory holds both."""
+    return check_model([*records, baseline_record()], provider, model_id, version, kind)
 
 
 class Making(unittest.TestCase):
@@ -87,7 +119,7 @@ class Making(unittest.TestCase):
                       "qualified_on", "verdict", "reasons"):
             self.assertIn(field, rec)
         self.assertEqual(card["run_id"], rec["run_id"])
-        self.assertEqual({"baseline_pass_k": 0.8, "floor": None, "floor_source": None}, rec["bar"])
+        self.assertEqual({"baseline_pass_k": 0.9, "floor": None, "floor_source": None, "baseline_record_sha256": baseline_sha()}, rec["bar"])
         self.assertEqual(drift["subset_id"], rec["drift"]["subset_id"])
         self.assertEqual(drift["baseline"]["pinned"]["version"], rec["drift"]["baseline_version"])
         self.assertEqual([], verify_against_scorecard(rec, card))
@@ -140,15 +172,15 @@ class Making(unittest.TestCase):
 
     def test_the_floor_is_the_first_qualification_bar_and_afterwards_the_baseline_governs(self) -> None:
         # Founders' correction of 8 Nov 2026 (A17's wording): "not below the pinned baseline's own pass^k"; the "higher of floor and baseline" wording is dropped.
-        self.assertEqual("QUALIFIED", record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")["verdict"])
-        self.assertEqual("NOT_QUALIFIED", record(card=first_card(), baseline_pass_k=None, floor=0.99, floor_source="DEC-2026-11-05-floor")["verdict"])
+        self.assertEqual("QUALIFIED", first(floor=0.9)["verdict"])
+        self.assertEqual("NOT_QUALIFIED", first(floor=0.99)["verdict"])
         self.assertEqual("QUALIFIED", record(baseline_pass_k=0.8, floor=0.95, floor_source="DEC-2026-11-05-floor")["verdict"])
         self.assertEqual("NOT_QUALIFIED", record(baseline_pass_k=0.95, floor=0.5, floor_source="DEC-2026-11-05-floor")["verdict"])
 
     def test_a_first_qualification_floor_below_0_90_does_not_qualify_a_model(self) -> None:
         # Ruling F6 (10 Nov 2026): the first-qualification floor is pass^5 of at least 0.90 on at least 40 cases; it can be raised and never lowered. `--floor 0.10` qualified a model.
         for floor in (0.1, 0.5, 0.85, 0.8999):
-            rec = record(card=first_card(), baseline_pass_k=None, floor=floor, floor_source="DEC-2026-11-05-floor")
+            rec = first(floor=floor)
             self.assertEqual("NOT_QUALIFIED", rec["verdict"], floor)
             self.assertTrue(any("0.9" in r and "floor" in r for r in rec["reasons"]), rec["reasons"])
             self.assertEqual([], validate_record(rec))
@@ -156,16 +188,16 @@ class Making(unittest.TestCase):
     def test_a_first_qualification_on_fewer_than_40_cases_does_not_qualify(self) -> None:
         card = first_card()
         card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 39, "n": 39, "rate": 1.0}
-        rec = record(card=card, baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        rec = first(card=card)
         self.assertEqual("NOT_QUALIFIED", rec["verdict"])
         self.assertTrue(any("40" in r and "cases" in r for r in rec["reasons"]), rec["reasons"])
         self.assertEqual("QUALIFIED", record(baseline_pass_k=0.8)["verdict"], "a requalification is held to its baseline, not to the first-qualification minimum")
 
     def test_a_record_edited_to_qualify_below_the_first_qualification_floor_is_refused(self) -> None:
-        rec = record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        rec = first()
         rec["bar"]["floor"] = 0.1
         self.assertTrue(any("floor" in p and "0.9" in p for p in validate_record(rec)), validate_record(rec))
-        rec = record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-05-floor")
+        rec = first()
         rec["pass_k"]["rate"]["n"] = 10
         self.assertTrue(any("40" in p for p in validate_record(rec)), validate_record(rec))
 
@@ -309,7 +341,7 @@ class Malformed(unittest.TestCase):
             rec["pass_k"] = {**rec["pass_k"], "rate": {**rec["pass_k"]["rate"], "rate": bad}}
             got = validate_record(rec)
             self.assertTrue(any("rate" in p for p in got), (bad, got))
-            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), bad)
+            self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), bad)
 
     def test_a_baseline_or_floor_that_is_not_a_finite_number_between_zero_and_one_is_refused(self) -> None:
         for field in ("baseline_pass_k", "floor"):
@@ -318,7 +350,7 @@ class Malformed(unittest.TestCase):
                 rec["bar"] = {**rec["bar"], field: bad}
                 got = validate_record(rec)
                 self.assertTrue(any(field in p or "bar" in p for p in got), (field, bad, got))
-                self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), (field, bad))
+                self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), (field, bad))
 
     def test_building_a_record_refuses_a_number_that_is_not_finite_or_is_a_bool(self) -> None:
         for bad in (float("nan"), float("inf"), True):
@@ -346,7 +378,7 @@ class Malformed(unittest.TestCase):
             rec["reasons"] = reasons
             got = validate_record(rec)
             self.assertTrue(any("reasons" in p for p in got), (reasons, got))
-            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), reasons)
+            self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), reasons)
 
 
 class Strictness(unittest.TestCase):
@@ -381,7 +413,7 @@ class Strictness(unittest.TestCase):
         for accepted in ("2026-10-15", "gpt-5-2026-08-07", "claude-5-20261001", "v2.1"):
             self.assertTrue(is_pinned(accepted), accepted)
             self.assertEqual([], validate_record(record(version=accepted, drift=run(pinned={**NEW, "version": accepted}, ans=answers(subset(), accepted)))))
-        self.assertTrue(check_model([], PROVIDER, MODEL, "stable-2"))
+        self.assertTrue(lookup([], PROVIDER, MODEL, "stable-2"))
 
     def test_a_date_must_be_written_yyyy_mm_dd_and_nothing_else(self) -> None:
         for bad in ("2026W455", "20261106", "2026-1-6", "2026-11-6", "2026-11-06T00:00:00", " 2026-11-06", "2026-13-01", "2026-02-30"):
@@ -397,16 +429,16 @@ class Strictness(unittest.TestCase):
         broken = record(qualified_on="2026-11-06")
         broken["verdict"] = "NOT_QUALIFIED"
         broken["complete"] = "false"
-        got = check_model([good, broken], PROVIDER, MODEL, VERSION)
+        got = lookup([good, broken], PROVIDER, MODEL, VERSION)
         self.assertTrue(any("invalid" in p for p in got), got)
-        self.assertEqual([], check_model([good], PROVIDER, MODEL, VERSION))
+        self.assertEqual([], lookup([good], PROVIDER, MODEL, VERSION))
 
     def test_an_invalid_record_for_another_identity_does_not_refuse_this_one(self) -> None:
         sub = subset()
         base_b = build_baseline(sub, {**PINNED, "model_id": "decision-model-b"}, answers(sub, PINNED["version"]), commit_sha=SHA)
         other = record(model_id="decision-model-b", drift=run(pinned={**NEW, "model_id": "decision-model-b"}, base=base_b))
         other["complete"] = "false"
-        self.assertEqual([], check_model([record(), other], PROVIDER, MODEL, VERSION))
+        self.assertEqual([], lookup([record(), other], PROVIDER, MODEL, VERSION))
 
 
 class ContractAndEvidence(unittest.TestCase):
@@ -418,7 +450,7 @@ class ContractAndEvidence(unittest.TestCase):
             rec["pass_k"] = {**rec["pass_k"], "k_required": k_required, "runs_supplied": runs}
             got = validate_record(rec)
             self.assertTrue(any("five" in p and "pass^k" in p for p in got), (k_required, runs, got))
-            self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION), (k_required, runs))
+            self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), (k_required, runs))
 
     def test_a_scorecard_that_claims_pass_k_without_five_runs_is_not_qualified(self) -> None:
         card = scorecard()
@@ -441,57 +473,171 @@ class ContractAndEvidence(unittest.TestCase):
             mutate(rec)
             self.assertTrue(CONTRACTS.errors("qualification-record", rec), "the mutation must break the contract")
             self.assertTrue(any("contract" in p for p in validate_record(rec)), validate_record(rec))
-            got = check_model([rec], PROVIDER, MODEL, VERSION)
+            got = lookup([rec], PROVIDER, MODEL, VERSION)
             self.assertTrue(got and any("invalid" in p for p in got), got)
 
 
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:
-        got = check_model([], PROVIDER, MODEL, VERSION)
+        got = lookup([], PROVIDER, MODEL, VERSION)
         self.assertTrue(any("no qualification record" in p for p in got), got)
 
     def test_a_qualified_record_for_exactly_this_provider_model_and_version_allows(self) -> None:
-        self.assertEqual([], check_model([record()], PROVIDER, MODEL, VERSION))
+        self.assertEqual([], lookup([record()], PROVIDER, MODEL, VERSION))
 
     def test_a_change_of_version_model_or_provider_is_refused(self) -> None:
         rec = record()
         for provider, model, version in ((PROVIDER, MODEL, "2026-11-02"), (PROVIDER, "decision-model-b", VERSION), ("anthropic", MODEL, VERSION)):
-            got = check_model([rec], provider, model, version)
+            got = lookup([rec], provider, model, version)
             self.assertTrue(any("no qualification record" in p for p in got), (provider, model, version, got))
 
     def test_an_unpinned_requested_version_is_refused_even_when_a_record_exists(self) -> None:
         for version in ("", "latest", "default"):
-            got = check_model([record()], PROVIDER, MODEL, version)
+            got = lookup([record()], PROVIDER, MODEL, version)
             self.assertTrue(any("pinned" in p for p in got), (version, got))
 
     def test_a_not_qualified_record_never_allows(self) -> None:
         card = scorecard()
         card["tier0"]["all_zero"] = False
-        self.assertTrue(check_model([record(card)], PROVIDER, MODEL, VERSION))
+        self.assertTrue(lookup([record(card)], PROVIDER, MODEL, VERSION))
 
     def test_an_invalid_record_never_allows(self) -> None:
         rec = record()
         rec["complete"] = False
-        self.assertTrue(check_model([rec], PROVIDER, MODEL, VERSION))
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION))
 
     def test_a_later_failed_requalification_revokes_an_earlier_qualification(self) -> None:
         bad = scorecard()
         bad["tier0"]["all_zero"] = False
         later = record(bad, qualified_on="2026-11-07")
-        self.assertTrue(check_model([record(), later], PROVIDER, MODEL, VERSION))
-        self.assertTrue(check_model([later, record()], PROVIDER, MODEL, VERSION))
+        self.assertTrue(lookup([record(), later], PROVIDER, MODEL, VERSION))
+        self.assertTrue(lookup([later, record()], PROVIDER, MODEL, VERSION))
         earlier_fail = record(bad, qualified_on="2026-11-01")
-        self.assertEqual([], check_model([earlier_fail, record()], PROVIDER, MODEL, VERSION))
+        self.assertEqual([], lookup([earlier_fail, record()], PROVIDER, MODEL, VERSION))
 
     def test_two_records_of_one_day_that_disagree_are_refused(self) -> None:
         bad = scorecard()
         bad["tier0"]["all_zero"] = False
-        got = check_model([record(), record(bad)], PROVIDER, MODEL, VERSION)
+        got = lookup([record(), record(bad)], PROVIDER, MODEL, VERSION)
         self.assertTrue(any("disagree" in p for p in got), got)
 
     def test_the_kind_must_match_when_asked(self) -> None:
-        self.assertTrue(check_model([record()], PROVIDER, MODEL, VERSION, kind="speech"))
-        self.assertEqual([], check_model([record()], PROVIDER, MODEL, VERSION, kind="llm"))
+        self.assertTrue(lookup([record()], PROVIDER, MODEL, VERSION, kind="speech"))
+        self.assertEqual([], lookup([record()], PROVIDER, MODEL, VERSION, kind="llm"))
+
+
+class Lineage(unittest.TestCase):
+    """SR N1 and N2, EL findings 1 and 2 and C1 on noema#199 at 004df05, and the citation of the committed record (A43 of DEC-2026-11-08-rulings-a41-onward)."""
+
+    def test_a_bar_from_a_baseline_names_the_baseline_record_it_came_from(self) -> None:
+        rec = record()
+        self.assertEqual(baseline_sha(), rec["bar"]["baseline_record_sha256"])
+        self.assertIsNone(first_record()["bar"]["baseline_record_sha256"])
+        with self.assertRaises(ValueError):
+            record(baseline_record_sha256=None)
+        with self.assertRaises(ValueError):
+            record(baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-08-floor", card=first_card(), drift=first_drift(), version=PINNED["version"], baseline_record_sha256=baseline_sha())
+        with self.assertRaises(ValueError):
+            record(baseline_record_sha256="sha256:xyz")
+
+    def test_a_hand_written_record_cannot_name_a_typed_baseline_bar(self) -> None:
+        # SR N1: a record with baseline_pass_k 0.10 and a pass^5 of 0.20 on 3 cases validated.
+        rec = record()
+        rec["bar"]["baseline_pass_k"] = 0.1
+        rec["pass_k"]["rate"] = {"k": 1, "n": 3, "rate": 0.2}
+        rec["bar"]["baseline_record_sha256"] = "sha256:" + "a" * 64
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), "the baseline record it names is not among the records")
+        rec["bar"]["baseline_record_sha256"] = None
+        self.assertTrue(any("baseline_record_sha256" in p for p in validate_record(rec)), validate_record(rec))
+
+    def test_the_lookup_resolves_the_baseline_record_and_holds_it_to_the_same_rules(self) -> None:
+        self.assertEqual([], lookup([record()], PROVIDER, MODEL, VERSION))
+        self.assertTrue(check_model([record()], PROVIDER, MODEL, VERSION), "no baseline record among the records")
+        weaker = record()
+        weaker["bar"]["baseline_pass_k"] = 0.5  # a typed value that is not the baseline record's own pass^5
+        self.assertTrue(any("baseline" in p for p in lookup([weaker], PROVIDER, MODEL, VERSION)))
+        base_changes: list[Callable[[Json], object]] = [lambda b: b.update(verdict="NOT_QUALIFIED", reasons=["x"]), lambda b: b.update(kind="speech"), lambda b: b.update(provider="other"),
+                                                        lambda b: b.update(model_id="other-model"), lambda b: b.update(version="2026-01-01")]
+        for base_change in base_changes:
+            base = baseline_record()
+            base_change(base)
+            rec = record(baseline_record_sha256=sha256_of(base))
+            self.assertTrue(check_model([rec, base], PROVIDER, MODEL, VERSION), base)
+
+    def test_a_record_lists_the_five_runs_it_rests_on(self) -> None:
+        # SR N2: five runs on `reasons` text alone are not enough evidence.
+        card = scorecard()
+        cards = repeat_cards(card)
+        rec = record(card, repeat_cards=cards)
+        runs = rec["runs"]
+        self.assertEqual(5, len(runs))
+        self.assertEqual([card["run_id"], *(c["run_id"] for c in cards)], [r["run_id"] for r in runs])
+        self.assertEqual([sha256_of(card), *(sha256_of(c) for c in cards)], [r["scorecard_sha256"] for r in runs])
+        self.assertEqual(rec["scorecard_sha256"], runs[0]["scorecard_sha256"])
+        self.assertEqual([], validate_record(rec))
+        self.assertEqual([], CONTRACTS.errors("qualification-record", rec))
+
+    def test_the_runs_are_checked_when_the_record_is_validated(self) -> None:
+        run_changes: list[tuple[str, Callable[[Json], object]]] = [("count", lambda r: r["runs"].pop()), ("duplicate", lambda r: r["runs"][1].update(run_id=r["runs"][2]["run_id"])),
+                             ("primary", lambda r: r["runs"][0].update(scorecard_sha256="sha256:" + "c" * 64)), ("digest", lambda r: r["runs"][2].update(scorecard_sha256="sha256:zz")),
+                             ("tier0", lambda r: r["runs"][3].update(tier0_all_zero=False)), ("complete", lambda r: r["runs"][4].update(complete=False)), ("shape", lambda r: r["runs"].append("x"))]
+        for name, change in run_changes:
+            rec = record()
+            change(rec)
+            self.assertTrue(validate_record(rec) or CONTRACTS.errors("qualification-record", rec), name)
+            self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION), name)
+
+    def test_a_failing_repeat_run_is_in_the_runs_and_blocks_the_verdict(self) -> None:
+        cards = repeat_cards()
+        cards[1]["tier0"]["all_zero"] = False
+        rec = record(repeat_cards=cards)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertFalse(rec["runs"][2]["tier0_all_zero"])
+        self.assertEqual([], validate_record(rec))
+
+    def test_a_malformed_kind_on_a_later_revoking_record_still_revokes(self) -> None:
+        # EL finding 1: the kind filter ran before validation, so a revoking record with kind "LLM" was dropped and the model was allowed.
+        later = record(qualified_on="2026-11-07")
+        later["verdict"], later["reasons"], later["kind"] = "NOT_QUALIFIED", ["revoked"], "LLM"
+        got = lookup([record(), later], PROVIDER, MODEL, VERSION, kind="llm")
+        self.assertTrue(got, "a malformed record for this identity refuses the lookup whatever kind is asked for")
+        self.assertEqual([], lookup([record()], PROVIDER, MODEL, VERSION, kind="llm"))
+
+    def test_a_requalification_cannot_use_the_first_qualification_floor(self) -> None:
+        # EL finding 2 (A17): the floor is for a FIRST qualification, whose drift run compares the version with itself.
+        rec = record(card=first_card(), baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-08-floor")  # default drift: the baseline is ANOTHER version
+        self.assertNotEqual(rec["drift"]["baseline_version"], rec["version"])
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("baseline" in r and "re-qualification" in r for r in rec["reasons"]), rec["reasons"])
+        self.assertEqual([], validate_record(rec))
+        edited = copy.deepcopy(rec)
+        edited["verdict"], edited["reasons"] = "QUALIFIED", []
+        self.assertTrue(any("re-qualification" in p for p in validate_record(edited)), validate_record(edited))
+        self.assertEqual("QUALIFIED", first()["verdict"])
+
+    def test_a_number_too_large_for_a_float_is_refused_not_raised(self) -> None:
+        # EL 3: math.isfinite(10**400) raises OverflowError.
+        with self.assertRaises(ValueError):
+            record(baseline_pass_k=10 ** 400)
+        rec = record()
+        rec["pass_k"]["rate"]["rate"] = 10 ** 400
+        self.assertTrue(validate_record(rec))
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION))
+
+    def test_every_valid_fixture_is_valid_by_the_code_as_well_as_by_the_schema(self) -> None:
+        # EL 4 and C1 2: a fixture called valid that validate_record refuses misleads.
+        root = Path(__file__).resolve().parents[2] / "contracts" / "fixtures" / "valid" / "qualification-record"
+        for path in sorted(root.glob("*.json")):
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual([], CONTRACTS.errors("qualification-record", doc), path.name)
+            self.assertEqual([], validate_record(doc), path.name)
+
+    def test_the_floor_reasons_cite_the_committed_record_not_a_session_label(self) -> None:
+        rec = record(card=first_card(), drift=first_drift(), version=PINNED["version"], baseline_pass_k=None, floor=0.5, floor_source="DEC-2026-11-08-floor")
+        text = " ".join(rec["reasons"])
+        self.assertIn("A43", text)
+        self.assertIn("DEC-2026-11-08-rulings-a41-onward", text)
+        self.assertNotIn("F6", text)
 
 
 class Cli(unittest.TestCase):
@@ -519,11 +665,13 @@ class Cli(unittest.TestCase):
             root = Path(tmp)
             code, text = self.run_main("record", *self.files(root, first_card()), "--out", str(root / "records" / "r.json"))
             self.assertEqual(0, code, text)
+            (root / "records" / "baseline.json").write_text((root / "baseline-record.json").read_text(encoding="utf-8"), encoding="utf-8")  # a records directory holds the baseline too
             written = json.loads((root / "records" / "r.json").read_text(encoding="utf-8"))
-            self.assertEqual(0.95, written["bar"]["baseline_pass_k"])  # read from the baseline version's own record
-            base = ["--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION]
+            self.assertEqual(0.9, written["bar"]["baseline_pass_k"])
+            self.assertEqual(sha256_of(baseline_record()), written["bar"]["baseline_record_sha256"])  # read from the baseline version's own record
+            base = ["--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION, "--kind", "llm"]
             self.assertEqual(0, self.run_main("check", "--records", str(root / "records"), *base)[0])
-            code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-02")
+            code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-02", "--kind", "llm")
             self.assertEqual(1, code, text)
             self.assertIn("no qualification record", text)
 
@@ -541,16 +689,23 @@ class Cli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             args = self.files(root, first_card())
+            (root / "run.json").write_text(json.dumps(first_drift()), encoding="utf-8")  # a first qualification compares the version with itself
+            args[args.index("--version") + 1] = PINNED["version"]
             i = args.index("--baseline-record")
             del args[i:i + 2]
             out = root / "r.json"
             code, text = self.run_main("record", *args, "--out", str(out))
             self.assertEqual(1, code, text)
             self.assertTrue(any("floor" in r for r in json.loads(out.read_text(encoding="utf-8"))["reasons"]))
-            code, text = self.run_main("record", *args, "--floor", "0.10", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
-            self.assertEqual(1, code, text)  # F6: a floor below 0.90 does not qualify a model
-            code, text = self.run_main("record", *args, "--floor", "0.90", "--floor-source", "DEC-2026-11-05-floor", "--out", str(out))
+            code, text = self.run_main("record", *args, "--floor", "0.10", "--floor-source", "DEC-2026-11-08-floor", "--out", str(out))
+            self.assertEqual(1, code, text)  # A43: a floor below 0.90 does not qualify a model
+            code, text = self.run_main("record", *args, "--floor", "0.90", "--floor-source", "DEC-2026-11-08-floor", "--out", str(out))
             self.assertEqual(0, code, text)
+
+    def test_check_needs_the_kind(self) -> None:
+        # C1 on noema#199: without --kind a record of any kind for the same provider, model id and version answered.
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaises(SystemExit):
+            self.run_main("check", "--records", tmp, "--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION)
 
     def test_a_tier_zero_breach_in_a_repeat_run_makes_the_cli_exit_one_and_names_the_run(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -578,14 +733,14 @@ class Cli(unittest.TestCase):
 
     def test_an_empty_records_directory_is_a_refusal_and_a_missing_one_is_an_input_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            args = ("--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION)
+            args = ("--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION, "--kind", "llm")
             self.assertEqual(1, self.run_main("check", "--records", tmp, *args)[0])
             self.assertEqual(2, self.run_main("check", "--records", str(Path(tmp) / "nope"), *args)[0])
 
     def test_an_unreadable_record_is_an_input_error_not_a_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "bad.json").write_text("{not json", encoding="utf-8")
-            self.assertEqual(2, self.run_main("check", "--records", tmp, "--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION)[0])
+            self.assertEqual(2, self.run_main("check", "--records", tmp, "--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION, "--kind", "llm")[0])
 
     def test_a_path_naming_the_held_out_set_is_refused(self) -> None:
         code, text = self.run_main("check", "--records", "benchmark-heldout/records", "--provider", PROVIDER, "--model-id", MODEL, "--version", VERSION)

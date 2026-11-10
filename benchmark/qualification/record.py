@@ -9,9 +9,10 @@ Interim QUALIFIED (A17) means all of:
 - the run is complete;
 - every Tier 0 gate is at zero;
 - the drift check result is PASS;
-- pass^k is not below the bar. The bar is the pinned baseline's own pass^k (A17's wording; the Founders' correction of 8 Nov 2026 dropped "the higher of"); only a first
-  qualification, which has no baseline, uses the Founder-set floor (set by a decision record). With neither there is no
-  bar, and a first qualification waits for a Founder-set floor: the verdict is NOT_QUALIFIED.
+- pass^k is not below the bar. The bar is the pinned baseline's own pass^k (A17's wording, A43 of DEC-2026-11-08-rulings-a41-onward dropped "the higher of"); only a first
+  qualification, which has no baseline and whose drift run compares the version with itself, uses the floor. With neither there is no bar and the verdict is NOT_QUALIFIED.
+- a bar that comes from a baseline names that baseline's record by digest (`bar.baseline_record_sha256`), and the lookup re-reads it (`check_model`): a typed bar is never trusted.
+- the record lists the five runs it rests on (`runs`), each with its scorecard digest, and Tier 0 and completeness hold in every one.
 
 The model service's configuration check (C2) refuses an ID with no QUALIFIED record by the same rules as `check_model`; it is not built here.
 
@@ -31,11 +32,13 @@ Json = dict[str, Any]
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 SCHEMA = "qualification-record.v1"
 VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
-# Ruling F6 (10 Nov 2026): the first-qualification floor is pass^5 of at least 0.90 on at least 40 cases, with Tier 0 at zero; it can be raised and never lowered.
+# A43 of DEC-2026-11-08-rulings-a41-onward, recorded in DEC-2026-11-06-model-qualification-floor (Founders, 8 Nov 2026, noema#312): the first-qualification floor is pass^5 of at
+# least 0.90 on at least 40 cases, with Tier 0 at zero. A floor can be raised and never lowered.
 FIRST_QUALIFICATION_FLOOR = 0.90
 FIRST_QUALIFICATION_MIN_CASES = 40
+CITE = "A43 of DEC-2026-11-08-rulings-a41-onward"
 REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
-            "qualified_on", "verdict", "reasons")
+            "qualified_on", "verdict", "reasons", "runs")
 
 
 @functools.lru_cache(maxsize=1)
@@ -48,7 +51,7 @@ def _five_runs(pass_k: Mapping[str, Any]) -> bool:
     return pass_k.get("k_required") == PASS_K and pass_k.get("runs_supplied") == PASS_K
 
 
-def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], drift_result: str, bar: Mapping[str, Any]) -> list[str]:
+def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], drift_result: str, bar: Mapping[str, Any], *, requalification: bool = False) -> list[str]:
     reasons = []
     if not complete:
         reasons.append("the run is not complete")
@@ -62,14 +65,16 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
         reasons.append(f"the drift check result is {drift_result}, not PASS")
     baseline, floor = bar.get("baseline_pass_k"), bar.get("floor")
     bar_value = baseline if baseline is not None else floor
+    if baseline is None and requalification:
+        reasons.append(f"this is a re-qualification (the drift run compares the version with another version) and it has no baseline pass^k: the first-qualification floor is for a first qualification only ({CITE})")
     if baseline is None:
         if floor is not None and is_fraction(floor) and floor < FIRST_QUALIFICATION_FLOOR:
-            reasons.append(f"the first-qualification floor {floor} is below the minimum {FIRST_QUALIFICATION_FLOOR}, which a floor can be raised above and never lowered below (ruling F6)")
+            reasons.append(f"the first-qualification floor {floor} is below the minimum {FIRST_QUALIFICATION_FLOOR}, which a floor can be raised above and never lowered below ({CITE})")
         if pass_k.get("available") is True:
             block = pass_k.get("rate")
             n = block.get("n") if isinstance(block, Mapping) else None
             if type(n) is not int or n < FIRST_QUALIFICATION_MIN_CASES:
-                reasons.append(f"pass^k was measured on {n!r} cases; a first qualification needs at least {FIRST_QUALIFICATION_MIN_CASES} cases (ruling F6)")
+                reasons.append(f"pass^k was measured on {n!r} cases; a first qualification needs at least {FIRST_QUALIFICATION_MIN_CASES} cases ({CITE})")
     if bar_value is None:
         reasons.append("there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)")
     elif not is_fraction(bar_value):
@@ -88,7 +93,12 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
 
 def is_fraction(value: Any) -> bool:
     """A finite int or float from 0 to 1. A bool is an int, NaN fails every comparison, and a string is not a number: none of them is a rate (C2 on noema#199)."""
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and 0 <= value <= 1
+    except OverflowError:  # an int too large for a float (10**400) is not a rate
+        return False
 
 
 def _fraction(name: str, value: float | None) -> None:
@@ -97,12 +107,14 @@ def _fraction(name: str, value: float | None) -> None:
 
 
 def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
-                 baseline_pass_k: float | None, floor: float | None, floor_source: str | None, repeat_cards: Sequence[Mapping[str, Any]] = ()) -> Json:
+                 baseline_pass_k: float | None, floor: float | None, floor_source: str | None, baseline_record_sha256: str | None = None,
+                 repeat_cards: Sequence[Mapping[str, Any]] = ()) -> Json:
     """A record whose numbers are copied from the scorecard and the run record, so an author never types one.
 
     `card` is the primary run. pass^k needs exactly five runs, and Tier 0 and completeness must hold in every one of them (Codex P1 on noema#199), so the other four runs'
     scorecards come in `repeat_cards`: five distinct run ids, each with real boolean `complete` and `tier0.all_zero`. `complete` and `tier0_all_zero` of the record are the
-    conjunction over the five, and each failing run is named in `reasons`."""
+    conjunction over the five, and each failing run is named in `reasons`. `runs` lists the five with their scorecard digests (SR N2). A bar from a baseline names the baseline's
+    record by digest, `baseline_record_sha256`, set exactly when `baseline_pass_k` is (SR N1)."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}, not {kind!r}")
     for name, value in (("provider", provider), ("model_id", model_id), ("decision_record", decision_record)):
@@ -115,6 +127,10 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     _fraction("floor", floor)
     if (floor is None) != (floor_source is None or not floor_source.strip()):
         raise ValueError("a floor and the decision record that set it (floor_source) come together")
+    if (baseline_pass_k is None) != (baseline_record_sha256 is None):
+        raise ValueError("a baseline pass^k and the digest of the baseline record it came from (baseline_record_sha256) come together")
+    if baseline_record_sha256 is not None and not DIGEST.fullmatch(baseline_record_sha256):
+        raise ValueError(f"baseline_record_sha256 {baseline_record_sha256!r} is not a digest written sha256:<64 lowercase hex>")
     problems = validate_run_record(drift)
     if problems:
         raise ValueError(f"the drift run record is invalid: {'; '.join(problems)}")
@@ -143,14 +159,16 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     rate = source.get("rate")
     pass_k = {"k_required": source["k_required"], "runs_supplied": source["runs_supplied"], "available": source["available"], "reason": source.get("reason"),
               "rate": None if rate is None else {"k": rate["k"], "n": rate["n"], "rate": rate["rate"]}, "failing_cases": list(source.get("failing_cases") or [])}
-    bar = {"baseline_pass_k": baseline_pass_k, "floor": floor, "floor_source": floor_source}
+    bar = {"baseline_pass_k": baseline_pass_k, "floor": floor, "floor_source": floor_source, "baseline_record_sha256": baseline_record_sha256}
+    runs = [{"run_id": one["run_id"], "scorecard_sha256": sha256_of(one), "complete": one["complete"], "tier0_all_zero": one["tier0"]["all_zero"]} for one in (card, *repeat_cards)]
     drift_block = {"result": drift["result"], "run_sha256": sha256_of(drift), "subset_id": drift["subset_id"], "cases_sha256": drift["cases_sha256"],
                    "baseline_version": drift["baseline"]["pinned"]["version"]}
-    reasons = run_reasons + _reasons(all_complete, all_zero, pass_k, drift["result"], bar)
+    reasons = run_reasons + _reasons(all_complete, all_zero, pass_k, drift["result"], bar, requalification=drift_block["baseline_version"] != version)
     return {
         "schema": SCHEMA, "kind": kind, "provider": provider, "model_id": model_id, "version": version, "run_id": card["run_id"], "n_cases": card["n_cases"],
         "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "drift": drift_block,
         "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
+        "runs": runs,
     }
 
 
@@ -192,6 +210,12 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         for field in ("baseline_pass_k", "floor"):
             if blocks["bar"].get(field) is not None and not is_fraction(blocks["bar"][field]):
                 out.append(f"bar.{field} {blocks['bar'][field]!r} must be a finite number between 0 and 1")
+        sha = blocks["bar"].get("baseline_record_sha256")
+        if (blocks["bar"].get("baseline_pass_k") is None) != (sha is None):
+            out.append("bar.baseline_record_sha256 and bar.baseline_pass_k come together: a bar from a baseline names the baseline record it came from")
+        if sha is not None and (not isinstance(sha, str) or not DIGEST.fullmatch(sha)):
+            out.append("bar.baseline_record_sha256 is not a sha256 digest written sha256:<64 lowercase hex>")
+    out += _run_problems(record, blocks, flags_ok)
     if "pass_k" in blocks and blocks["pass_k"].get("available") is True and isinstance(blocks["pass_k"].get("rate"), Mapping):
         rate = blocks["pass_k"]["rate"].get("rate")
         if rate is not None and not is_fraction(rate):
@@ -201,7 +225,38 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
     if record["verdict"] not in VERDICTS:
         out.append(f"verdict must be one of {', '.join(VERDICTS)}, not {record['verdict']!r}")
     elif record["verdict"] == "QUALIFIED" and len(blocks) == 3 and flags_ok:
-        out += [f"verdict is QUALIFIED but {reason}" for reason in _reasons(record["complete"], record["tier0_all_zero"], blocks["pass_k"], str(blocks["drift"].get("result")), blocks["bar"])]
+        out += [f"verdict is QUALIFIED but {reason}" for reason in _reasons(record["complete"], record["tier0_all_zero"], blocks["pass_k"], str(blocks["drift"].get("result")), blocks["bar"],
+                                                                         requalification=blocks["drift"].get("baseline_version") != record["version"])]
+    return out
+
+
+def _run_problems(record: Mapping[str, Any], blocks: Mapping[str, Mapping[str, Any]], flags_ok: bool) -> list[str]:
+    """The `runs` a record rests on: five when pass^k is available, distinct, the primary first and matching the record, and the record's two flags are the conjunction over them."""
+    runs = record["runs"]
+    if not isinstance(runs, list) or not all(isinstance(r, Mapping) for r in runs):
+        return ["runs must be a list of objects"]
+    out: list[str] = []
+    for index, one in enumerate(runs):
+        for key in ("run_id", "scorecard_sha256", "complete", "tier0_all_zero"):
+            if key not in one:
+                out.append(f"runs[{index}] is missing {key}")
+        if "scorecard_sha256" in one and (not isinstance(one["scorecard_sha256"], str) or not DIGEST.fullmatch(one["scorecard_sha256"])):
+            out.append(f"runs[{index}].scorecard_sha256 is not a sha256 digest written sha256:<64 lowercase hex>")
+        for key in ("complete", "tier0_all_zero"):
+            if key in one and type(one[key]) is not bool:
+                out.append(f"runs[{index}].{key} must be a boolean, not {one[key]!r}")
+    ids = [one.get("run_id") for one in runs]
+    if len(set(map(str, ids))) != len(ids):
+        out.append(f"runs must have distinct run ids, not {ids}")
+    if runs and (runs[0].get("run_id") != record["run_id"] or runs[0].get("scorecard_sha256") != record["scorecard_sha256"]):
+        out.append("runs[0] is the primary run: its run_id and scorecard_sha256 must be the record's")
+    if blocks.get("pass_k", {}).get("available") is True and len(runs) != PASS_K:
+        out.append(f"pass^k is available, so the record rests on exactly {PASS_K} runs, not {len(runs)}")
+    if flags_ok and not out and runs:
+        if record["complete"] != all(one["complete"] for one in runs):
+            out.append("complete is not the conjunction of the runs' complete")
+        if record["tier0_all_zero"] != all(one["tier0_all_zero"] for one in runs):
+            out.append("tier0_all_zero is not the conjunction of the runs' tier0_all_zero")
     return out
 
 
@@ -215,20 +270,55 @@ def verify_against_scorecard(record: Mapping[str, Any], card: Mapping[str, Any])
     return out
 
 
+def _baseline_problems(record: Mapping[str, Any], records: Sequence[Mapping[str, Any]], seen: frozenset[str] = frozenset()) -> list[str]:
+    """Why the bar of this record cannot be trusted: its baseline record is missing, invalid, not QUALIFIED, for another kind, provider, model or version, or has another pass^k.
+
+    The bar is never read from the record alone (SR N1 on noema#199): it is re-read from the baseline record it names by digest, and that record's own lineage is checked the same way."""
+    sha = record["bar"].get("baseline_record_sha256")
+    if sha is None:
+        return []
+    if sha in seen:
+        return [f"the baseline lineage of {record['version']} loops"]
+    found = [b for b in records if sha256_of(b) == sha]
+    if not found:
+        return [f"the baseline record {sha} that the bar came from is not among the records"]
+    base = found[0]
+    bad = validate_record(base)
+    if bad:
+        return [f"the baseline record {sha} is invalid: {'; '.join(bad)}"]
+    out: list[str] = []
+    if base["verdict"] != "QUALIFIED":
+        out.append(f"the baseline record {sha} is NOT_QUALIFIED")
+    for field in ("kind", "provider", "model_id"):
+        if base[field] != record[field]:
+            out.append(f"the baseline record is for another {field} ({base[field]!r}, not {record[field]!r})")
+    if base["version"] != record["drift"]["baseline_version"]:
+        out.append(f"the baseline record is for version {base['version']}, not the version the drift run compared against ({record['drift']['baseline_version']})")
+    rate = (base["pass_k"].get("rate") or {}).get("rate")
+    if rate != record["bar"]["baseline_pass_k"]:
+        out.append(f"bar.baseline_pass_k {record['bar']['baseline_pass_k']!r} is not the baseline record's own pass^k {rate!r}")
+    return out or _baseline_problems(base, records, seen | {sha})
+
+
 def check_model(records: Sequence[Mapping[str, Any]], provider: str, model_id: str, version: str, kind: str | None = None) -> list[str]:
     """Why this provider, model ID and version may not be used; an empty list means it may.
 
     Only a valid QUALIFIED record for exactly this provider, model ID and version allows. The latest record decides: a later failed re-qualification revokes an earlier
-    qualification, and two records of one day that disagree refuse."""
+    qualification, and two records of one day that disagree refuse. Every record of the identity is validated BEFORE the kind is applied, so a malformed revoking record (a wrong
+    `kind` included) still refuses (EL on noema#199). A bar that came from a baseline is re-read from the baseline record it names, which must be among `records`."""
     who = f"{provider}/{model_id}@{version}" + (f" ({kind})" if kind else "")
     if not is_pinned(version):
         return [f"{who}: the version is not pinned (a dated or numbered version, never an alias such as latest)"]
-    matching = [r for r in records if r.get("provider") == provider and r.get("model_id") == model_id and r.get("version") == version and (kind is None or r.get("kind") == kind)]
+    matching = [r for r in records if r.get("provider") == provider and r.get("model_id") == model_id and r.get("version") == version]
     if not matching:
         return [f"{who}: no qualification record"]
     bad = [p for r in matching for p in validate_record(r)]
     if bad:
         return [f"{who}: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): {'; '.join(bad)}"]
+    if kind is not None:
+        matching = [r for r in matching if r["kind"] == kind]
+        if not matching:
+            return [f"{who}: no qualification record"]
     latest = max(parse_date(r["qualified_on"]) for r in matching)
     newest = [r for r in matching if parse_date(r["qualified_on"]) == latest]
     verdicts = {r["verdict"] for r in newest}
@@ -237,4 +327,7 @@ def check_model(records: Sequence[Mapping[str, Any]], provider: str, model_id: s
     if verdicts == {"NOT_QUALIFIED"}:
         reasons = sorted({reason for r in newest for reason in r["reasons"]})
         return [f"{who}: the latest record ({latest.isoformat()}) says NOT_QUALIFIED ({'; '.join(reasons) or 'no reason recorded'})"]
+    lineage = [p for r in newest for p in _baseline_problems(r, records)]
+    if lineage:
+        return [f"{who}: the bar of the latest record cannot be trusted, so the lookup refuses (fail closed): {'; '.join(lineage)}"]
     return []

@@ -9,12 +9,13 @@ import (
 
 // QualificationRecordV1Bar is generated from qualification-record.v1.json#$defs/Bar.
 type QualificationRecordV1Bar struct {
-	BaselinePassK *QualificationRecordV1Fraction `json:"baseline_pass_k"`
-	Floor         *QualificationRecordV1Fraction `json:"floor"`
-	FloorSource   *string                        `json:"floor_source"`
+	BaselinePassK        *QualificationRecordV1Fraction `json:"baseline_pass_k"`
+	Floor                *QualificationRecordV1Fraction `json:"floor"`
+	FloorSource          *string                        `json:"floor_source"`
+	BaselineRecordSha256 *QualificationRecordV1Sha256   `json:"baseline_record_sha256"`
 }
 
-var QualificationRecordV1BarShape = objectShape{name: "QualificationRecordV1Bar", props: map[string]bool{"baseline_pass_k": true, "floor": true, "floor_source": true}, required: []string{"baseline_pass_k", "floor", "floor_source"}, nonNull: map[string]bool{}, closed: true}
+var QualificationRecordV1BarShape = objectShape{name: "QualificationRecordV1Bar", props: map[string]bool{"baseline_pass_k": true, "floor": true, "floor_source": true, "baseline_record_sha256": true}, required: []string{"baseline_pass_k", "floor", "floor_source", "baseline_record_sha256"}, nonNull: map[string]bool{}, closed: true}
 
 func (t *QualificationRecordV1Bar) UnmarshalJSON(b []byte) error {
 	raw, err := QualificationRecordV1BarShape.check(b)
@@ -142,6 +143,32 @@ func (t *QualificationRecordV1Rate) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// QualificationRecordV1Run is generated from qualification-record.v1.json#$defs/Run.
+// One of the runs a record rests on: its run id, the digest of its scorecard and its two verdict flags. pass^k needs exactly five (REQ-BEN-009); Tier 0 and completeness hold in every one (SR on noema#199, N2).
+type QualificationRecordV1Run struct {
+	RunId           string                      `json:"run_id"`
+	ScorecardSha256 QualificationRecordV1Sha256 `json:"scorecard_sha256"`
+	Complete        bool                        `json:"complete"`
+	Tier0AllZero    bool                        `json:"tier0_all_zero"`
+}
+
+var QualificationRecordV1RunShape = objectShape{name: "QualificationRecordV1Run", props: map[string]bool{"run_id": true, "scorecard_sha256": true, "complete": true, "tier0_all_zero": true}, required: []string{"run_id", "scorecard_sha256", "complete", "tier0_all_zero"}, nonNull: map[string]bool{"run_id": true, "scorecard_sha256": true, "complete": true, "tier0_all_zero": true}, closed: true}
+
+func (t *QualificationRecordV1Run) UnmarshalJSON(b []byte) error {
+	raw, err := QualificationRecordV1RunShape.check(b)
+	if err != nil {
+		return err
+	}
+	type alias QualificationRecordV1Run
+	var a alias
+	if err := json.Unmarshal(b, &a); err != nil {
+		return fmt.Errorf("contracts: QualificationRecordV1Run: %w", err)
+	}
+	_ = raw
+	*t = QualificationRecordV1Run(a)
+	return nil
+}
+
 // QualificationRecordV1Sha256 is generated from qualification-record.v1.json#$defs/Sha256.
 type QualificationRecordV1Sha256 string
 
@@ -207,9 +234,10 @@ type QualificationRecordV1 struct {
 	QualifiedOn     string                       `json:"qualified_on"`
 	Verdict         QualificationRecordV1Verdict `json:"verdict"`
 	Reasons         []string                     `json:"reasons"`
+	Runs            []QualificationRecordV1Run   `json:"runs"`
 }
 
-var QualificationRecordV1Shape = objectShape{name: "QualificationRecordV1", props: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true}, required: []string{"schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record", "qualified_on", "verdict", "reasons"}, nonNull: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true}, closed: true}
+var QualificationRecordV1Shape = objectShape{name: "QualificationRecordV1", props: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true}, required: []string{"schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record", "qualified_on", "verdict", "reasons", "runs"}, nonNull: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true}, closed: true}
 
 func (t *QualificationRecordV1) UnmarshalJSON(b []byte) error {
 	raw, err := QualificationRecordV1Shape.check(b)
@@ -234,6 +262,9 @@ func (t QualificationRecordV1) MarshalJSON() ([]byte, error) {
 	a := alias(t)
 	if a.Reasons == nil {
 		a.Reasons = []string{}
+	}
+	if a.Runs == nil {
+		a.Runs = []QualificationRecordV1Run{}
 	}
 	return json.Marshal(a)
 }

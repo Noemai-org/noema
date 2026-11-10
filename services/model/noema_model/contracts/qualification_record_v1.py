@@ -54,6 +54,7 @@ class QualificationRecordV1Bar(ContractModel):
     baseline_pass_k: QualificationRecordV1Fraction | None
     floor: QualificationRecordV1Fraction | None
     floor_source: str | None
+    baseline_record_sha256: QualificationRecordV1Sha256 | None
 
 
 class QualificationRecordV1Drift(ContractModel):
@@ -79,6 +80,16 @@ class QualificationRecordV1PassK(ContractModel):
     failing_cases: list[Annotated[str, StringConstraints(min_length=1)]]
 
 
+class QualificationRecordV1Run(ContractModel):
+    """One of the runs a record rests on: its run id, the digest of its scorecard and its two verdict flags. pass^k needs exactly five (REQ-BEN-009); Tier 0 and completeness hold in every one (SR on noema#199, N2). Source: qualification-record.v1.json#$defs/Run"""
+
+    model_config = ConfigDict(extra="forbid")
+    run_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    scorecard_sha256: QualificationRecordV1Sha256
+    complete: bool
+    tier0_all_zero: bool
+
+
 class QualificationRecordV1(ContractModel):
     """UND-13, REQ-INT-006 (model-drift canary; DEC-2026-10-31 D25), ruling A17 of 6 Nov 2026. The record that lets a model or speech provider version be used: made from the scorecard of a qualification run that includes pas... Source: qualification-record.v1.json"""
 
@@ -100,10 +111,12 @@ class QualificationRecordV1(ContractModel):
     qualified_on: Annotated[str, StringConstraints(pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}$')]
     verdict: QualificationRecordV1Verdict
     reasons: list[Annotated[str, StringConstraints(min_length=1)]]
+    runs: Annotated[list[QualificationRecordV1Run], Field(min_length=1, max_length=5)]
 
 
 QualificationRecordV1Bar.model_rebuild()
 QualificationRecordV1Drift.model_rebuild()
 QualificationRecordV1PassK.model_rebuild()
 QualificationRecordV1Rate.model_rebuild()
+QualificationRecordV1Run.model_rebuild()
 QualificationRecordV1.model_rebuild()

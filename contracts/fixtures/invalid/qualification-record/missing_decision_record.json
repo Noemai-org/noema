@@ -1,6 +1,7 @@
 {
   "bar": {
     "baseline_pass_k": 0.8,
+    "baseline_record_sha256": "sha256:e5ac5993d17b53e109ee009b557d7a57a069c4c17db83bddcc038160b07ff8eb",
     "floor": null,
     "floor_source": null
   },
@@ -33,6 +34,38 @@
   "qualified_on": "2026-11-06",
   "reasons": [],
   "run_id": "run_report",
+  "runs": [
+    {
+      "complete": true,
+      "run_id": "run_report",
+      "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_2",
+      "scorecard_sha256": "sha256:037ed9d5a01a8705e827813bcdc8652938b2583f89a7a370187178d136ce58e5",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_3",
+      "scorecard_sha256": "sha256:267b5013597a18d6bf4e87230533290e1383dcd65ac39e2e2c59b6fa10d267c6",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_4",
+      "scorecard_sha256": "sha256:16bdbe39d3b46e16c9d53f454c18a5c9e0533611c41f6a0d8555abc15465f927",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_5",
+      "scorecard_sha256": "sha256:8a40d24901b826ed256ce241f009526932798ba614a0e721f4c1fc3a51cdf06f",
+      "tier0_all_zero": true
+    }
+  ],
   "schema": "qualification-record.v1",
   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
   "tier0_all_zero": true,

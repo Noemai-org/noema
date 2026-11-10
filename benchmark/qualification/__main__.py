@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from benchmark.contracts import load_strict, pretty_bytes
+from benchmark.contracts import load_strict, pretty_bytes, sha256_of
 from benchmark.qualification.pins import KINDS
 from benchmark.qualification.record import build_record, check_model, validate_record
 from benchmark.qualification.run import build_baseline, compare, select_subset, validate_run_record
@@ -42,7 +42,8 @@ def _record(args: argparse.Namespace) -> int:
     card = load_strict(Path(args.scorecard))
     drift = load_strict(Path(args.run))
     repeats = [load_strict(Path(path)) for path in args.repeat_scorecard or []]
-    record = build_record(card, drift, repeat_cards=repeats, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
+    baseline_record = load_strict(Path(args.baseline_record)) if args.baseline_record else None
+    record = build_record(card, drift, repeat_cards=repeats, baseline_record_sha256=sha256_of(baseline_record) if baseline_record is not None else None, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
                           qualified_on=args.qualified_on, baseline_pass_k=_baseline_pass_k(args.baseline_record, drift, args), floor=args.floor, floor_source=args.floor_source)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -134,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
     chk = sub.add_parser("check")
     for flag in ("--records", "--provider", "--model-id", "--version"):
         chk.add_argument(flag, required=True)
-    chk.add_argument("--kind", choices=KINDS)
+    chk.add_argument("--kind", required=True, choices=KINDS)
     sub_cmd = sub.add_parser("subset")
     for flag in ("--cases", "--subset-id", "--out"):
         sub_cmd.add_argument(flag, required=True)

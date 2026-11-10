@@ -39,7 +39,7 @@ Made by `record` from a scorecard (`python -m benchmark.scoring ... --repeat-res
 3. the drift result is `PASS`;
 4. pass^k (`available`, exactly five runs) is not below the **bar**: the pinned baseline's own pass^k (`--baseline-record`, which must be the QUALIFIED record of the version the run was compared against). Only a first qualification, which has no baseline, uses the Founder-set floor (`--floor` with `--floor-source`, the decision record that set it; the floor is pack data). Founders' correction of 8 Nov 2026: the earlier "higher of baseline and floor" wording is dropped (A17's wording governs).
 
-A first qualification must also meet ruling F6 (Founders, 10 Nov 2026): the floor is **at least 0.90** (`FIRST_QUALIFICATION_FLOOR`; a floor can be raised and never lowered) and pass^k is measured on **at least 40 cases** (`FIRST_QUALIFICATION_MIN_CASES`). A requalification is held to its baseline only. With no baseline record and no floor there is no bar: a **first qualification waits for a Founder-set floor** and the verdict is `NOT_QUALIFIED`. The two F6 numbers are the Founders' (the decision record is the Steward's to commit); nothing else is chosen here (REQ-AGT-005). `decision_record` names the decision record that holds the qualification; `scorecard_sha256` and the drift `run_sha256` bind the record to the evidence.
+A first qualification must also meet A43 of `DEC-2026-11-08-rulings-a41-onward` (recorded in `DEC-2026-11-06-model-qualification-floor`, Founders, 8 Nov 2026, noema#312): the floor is **at least 0.90** (`FIRST_QUALIFICATION_FLOOR`; a floor can be raised and never lowered) and pass^k is measured on **at least 40 cases** (`FIRST_QUALIFICATION_MIN_CASES`). A requalification is held to its baseline only. With no baseline record and no floor there is no bar: a **first qualification waits for a Founder-set floor** and the verdict is `NOT_QUALIFIED`. The two F6 numbers are the Founders' (the decision record is the Steward's to commit); nothing else is chosen here (REQ-AGT-005). `decision_record` names the decision record that holds the qualification; `scorecard_sha256` and the drift `run_sha256` bind the record to the evidence.
 
 ```
 python -m benchmark.qualification record --scorecard OUT/score/scorecard.json --run run.json --kind llm --provider P --model-id M --version V --baseline-record records/P__M__OLD__DATE.json \
@@ -58,3 +58,10 @@ An ID may be used only if a valid `QUALIFIED` record matches its provider, model
 ## Tests
 
 `python -m unittest discover -s benchmark/qualification -t . -p 'test_*.py'`. SYNTHETIC scorecards from the real scorer; generated layer only (INV-22). The tests validate real output against the contract schemas.
+
+## Lineage of a record (SR N1 and N2, EL findings on noema#199)
+
+- A bar from a baseline names the baseline's record by digest (`bar.baseline_record_sha256`), set exactly when `baseline_pass_k` is. `check_model` re-reads that record from the records it is given and refuses unless it is QUALIFIED, valid, for the same kind, provider and model ID, for the version the drift run compared against, and has the same pass^k; its own lineage is checked the same way. A records directory therefore holds the baseline's record as well. `record` takes the digest from `--baseline-record`.
+- A record lists the five runs it rests on (`runs`): run id, scorecard digest, `complete`, `tier0_all_zero`. The record's two flags are the conjunction over them.
+- The first-qualification floor is for a first qualification only: its drift run compares the version with itself. A run against another version without a baseline pass^k is NOT_QUALIFIED.
+- `check_model` validates every record of the identity before it applies `--kind` (now required on `check`), so a malformed revoking record still refuses.

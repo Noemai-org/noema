@@ -154,6 +154,7 @@ var Types = map[string]func() any{
 	"qualification-record.v1#Fraction":                             func() any { return new(QualificationRecordV1Fraction) },
 	"qualification-record.v1#PassK":                                func() any { return new(QualificationRecordV1PassK) },
 	"qualification-record.v1#Rate":                                 func() any { return new(QualificationRecordV1Rate) },
+	"qualification-record.v1#Run":                                  func() any { return new(QualificationRecordV1Run) },
 	"qualification-record.v1#Sha256":                               func() any { return new(QualificationRecordV1Sha256) },
 	"qualification-run.v1":                                         func() any { return new(QualificationRunV1) },
 	"qualification-run.v1#Case":                                    func() any { return new(QualificationRunV1Case) },

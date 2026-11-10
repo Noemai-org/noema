@@ -75,6 +75,15 @@
         "type": "string",
         "minLength": 1
       }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/Run"
+      },
+      "description": "The runs the record rests on, the primary run first (its digest is `scorecard_sha256`). Exactly five when pass^k is available. `complete` and `tier0_all_zero` of the record are the conjunction over these."
     }
   },
   "required": [
@@ -94,7 +103,8 @@
     "decision_record",
     "qualified_on",
     "verdict",
-    "reasons"
+    "reasons",
+    "runs"
   ],
   "additionalProperties": false,
   "$defs": {
@@ -251,12 +261,51 @@
             "string",
             "null"
           ]
+        },
+        "baseline_record_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Sha256"
+            }
+          ],
+          "description": "The digest of the QUALIFIED record of the pinned baseline version that `baseline_pass_k` came from. Set exactly when `baseline_pass_k` is set. The lookup re-reads that record and requires it to be QUALIFIED, for the same kind, provider and model, for the version the drift run compared against, and equal in value (SR on noema#199, N1)."
         }
       },
       "required": [
         "baseline_pass_k",
         "floor",
-        "floor_source"
+        "floor_source",
+        "baseline_record_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "Run": {
+      "type": "object",
+      "description": "One of the runs a record rests on: its run id, the digest of its scorecard and its two verdict flags. pass^k needs exactly five (REQ-BEN-009); Tier 0 and completeness hold in every one (SR on noema#199, N2).",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scorecard_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "tier0_all_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "scorecard_sha256",
+        "complete",
+        "tier0_all_zero"
       ],
       "additionalProperties": false
     }
