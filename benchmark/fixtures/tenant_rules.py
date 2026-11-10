@@ -31,7 +31,7 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
     if doc["subject_tenant"] not in tenants:
         out.append(f"subject_tenant {doc['subject_tenant']!r} is not a listed tenant")
 
-    owner: dict[str, str] = {}  # id or ref -> tenant_id, over the whole fixture
+    first_use: dict[str, tuple[str, str]] = {}  # id or ref -> (kind, tenant_id), over the whole fixture and every object kind
     for kind, key in OBJECTS:
         counts = Counter(item[key] for item in doc[kind])
         for ident, n in counts.items():
@@ -40,9 +40,14 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
         for item in doc[kind]:
             if item["tenant_id"] not in tenants:
                 out.append(f"{kind} {item[key]!r}: tenant_id {item['tenant_id']!r} is not a listed tenant")
-            if item[key] in owner and owner[item[key]] != item["tenant_id"]:
-                out.append(f"{item[key]!r} is used by two tenants")
-            owner.setdefault(item[key], item["tenant_id"])
+            if item[key] in first_use:
+                seen_kind, seen_tenant = first_use[item[key]]
+                if seen_tenant != item["tenant_id"]:
+                    out.append(f"{item[key]!r} is used by two tenants")
+                elif seen_kind != kind:
+                    out.append(f"{item[key]!r} is used by more than one object ({seen_kind} and {kind}): a ref or id is unique across every object kind")
+            else:
+                first_use[item[key]] = (kind, item["tenant_id"])
 
     principals = {p["principal_id"]: p["tenant_id"] for p in doc["principals"]}
     beneficiaries = {b["beneficiary_id"]: b["tenant_id"] for b in doc["beneficiaries"]}
@@ -75,8 +80,13 @@ def problems(doc: Mapping[str, Any]) -> list[str]:
             if marker in markers and markers[marker] != tid:
                 out.append(f"marker {marker!r} is shared by tenants {markers[marker]!r} and {tid!r}")
             markers.setdefault(marker, tid)
+    for a, ta in sorted(markers.items()):
+        for b, tb in sorted(markers.items()):
+            if ta != tb and a != b and a in b:
+                out.append(f"marker {b!r} of tenant {tb!r} contains marker {a!r} of tenant {ta!r}: the leak scan could not tell them apart")
 
     strings: list[tuple[str, str]] = []  # (tenant_id, text) for every string that belongs to a tenant: every string field of its objects, ids and refs included
+    strings += [(t["tenant_id"], t["display_name"]) for t in doc["tenants"]]  # a tenant's own display name is a string of that tenant
     for kind, _ in OBJECTS:
         for item in doc[kind]:
             strings += [(item["tenant_id"], text) for text in _strings(item)]

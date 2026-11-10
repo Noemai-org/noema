@@ -121,6 +121,44 @@ class Rules(unittest.TestCase):
         doc["principals"][0]["display_name"] += " " + own
         self.assertEqual([], problems(doc))
 
+    def test_a_case_and_a_transaction_of_one_tenant_cannot_share_a_ref(self) -> None:
+        # Codex P2 on 7607f21: uniqueness was checked per object kind and across tenants, not across kinds inside one tenant, so enterprise_strings.target was ambiguous.
+        doc = two()
+        doc["cases"][0]["ref"] = doc["transactions"][0]["ref"]
+        got = problems(doc)
+        self.assertTrue(any(doc["transactions"][0]["ref"] in p and "more than one" in p for p in got), got)
+
+    def test_a_tenant_s_display_name_is_scanned_for_another_tenant_s_marker(self) -> None:
+        # IL on noema#260 at ab7542d, finding 2: a tenant's display_name is a string of that tenant.
+        doc = two()
+        doc["tenants"][0]["display_name"] += " " + doc["tenants"][1]["markers"][0]
+        got = problems(doc)
+        self.assertTrue(any("marker" in p and doc["tenants"][1]["markers"][0] in p for p in got), got)
+
+    def test_a_marker_that_contains_or_is_contained_in_another_tenant_s_marker_is_refused(self) -> None:
+        # IL, finding 3: the leak scan for A's marker would fire on B's own longer marker, or a longer match would hide a real leak.
+        for longer_first in (True, False):
+            doc = two()
+            a, b = doc["tenants"][0]["markers"][0], doc["tenants"][1]
+            b["markers"] = [*b["markers"], a + "-X" if longer_first else a[:-1]]
+            if not longer_first:
+                self.assertGreaterEqual(len(a[:-1]), 8)
+            got = problems(doc)
+            self.assertTrue(any("contains" in p and "marker" in p for p in got), (longer_first, got))
+
+    def test_a_marker_inside_the_same_tenant_s_other_marker_is_allowed(self) -> None:
+        doc = two()
+        own = doc["tenants"][0]["markers"][0]
+        doc["tenants"][0]["markers"] = [*doc["tenants"][0]["markers"], own + "-X"]
+        self.assertEqual([], [p for p in problems(doc) if "contains" in p])
+
+    def test_the_contract_does_not_claim_an_enforcement_the_code_does_not_do(self) -> None:
+        # IL, finding 1: nothing loads the fixture through tenant_rules yet.
+        text = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "benchmark-fixture.v2.json").read_text(encoding="utf-8"))["description"]
+        self.assertNotIn("enforced by the loader", text)
+        self.assertIn("checked by `benchmark/fixtures/tenant_rules.py`", text)
+        self.assertIn("follow-up", text)
+
     def test_a_marker_shared_by_two_tenants_is_refused(self) -> None:
         doc = two()
         doc["tenants"][1]["markers"] = list(doc["tenants"][0]["markers"])
