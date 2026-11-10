@@ -14,6 +14,11 @@ The provider runs in its own task, so a deadline or a caller's cancellation neve
 work: a provider that blocks while it is being cancelled is abandoned after `cleanup_s`. It is given a lease on the audio,
 not the audio source, and the lease is revoked at the end of the call, so an abandoned task cannot keep the microphone
 reachable. Anything the provider has itself buffered is outside this module's control.
+
+A provider that swallows its cancellation and carries on is told once more, in the only way left: when the call ends (or the
+deadline passes) a `_Gate` is closed. After that no partial reaches the caller's display callback, and the abandoned task
+returns and closes its stream at its next event, so a late partial can never land in another utterance or session
+(Security Reviewer F1 on #193, AGENT-13).
 """
 
 import asyncio
@@ -61,6 +66,13 @@ class FinalUtterance:
         )
 
 
+class _Gate:
+    """Closed when the call ends or its deadline passes. Nothing is delivered to the caller after that."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+
 class _AudioLease:
     """What the provider reads from. Revoking it ends the stream and drops the only reference the provider holds."""
 
@@ -95,15 +107,17 @@ async def transcribe_utterance(
     happens, including when the provider refuses before it returns a stream.
     """
     bound_s = deadline_s if cleanup_s is None else cleanup_s
+    gate = _Gate()
     lease = _AudioLease(audio)
     outcome: asyncio.Future[FinalUtterance] = asyncio.get_running_loop().create_future()
     outcome.add_done_callback(_mark_retrieved)
-    task = asyncio.ensure_future(_consume(provider, request, lease, on_partial, outcome))
+    task = asyncio.ensure_future(_consume(provider, request, lease, on_partial, outcome, gate))
     task.add_done_callback(_mark_retrieved)
     try:
         watched: set[asyncio.Future[Any]] = {outcome, task}
         await asyncio.wait(watched, timeout=deadline_s, return_when=asyncio.FIRST_COMPLETED)
         if not outcome.done():
+            gate.closed = True  # the deadline has passed: nothing more may reach the caller
             await _stop(task, bound_s)
             raise ProviderError(ProviderFailure.TIMEOUT)
         utterance = outcome.result()  # a failure of the stream is raised here
@@ -114,6 +128,7 @@ async def transcribe_utterance(
             await _stop(task, bound_s)
         return utterance
     finally:
+        gate.closed = True
         await _stop(task, bound_s)
         lease.revoke()
         await audio.aclose()
@@ -125,6 +140,7 @@ async def _consume(
     audio: AsyncIterator[AudioChunk],
     on_partial: Callable[[str], None],
     outcome: "asyncio.Future[FinalUtterance]",
+    gate: _Gate,
 ) -> None:
     """Run the provider's stream. The outcome is set as soon as it is known, before the stream is closed, so a slow
     shutdown never delays the result."""
@@ -133,13 +149,16 @@ async def _consume(
         stream = provider.transcribe(request, audio)
         last_partial = -1
         async for event in stream:
+            if gate.closed:
+                return  # abandoned by the caller: deliver nothing, and let the finally close the stream
             if isinstance(event, FinalTranscript):
                 outcome.set_result(FinalUtterance.from_final(provider.name, event))
                 break
             if event.sequence <= last_partial:
                 raise ProviderError(ProviderFailure.MALFORMED)
             last_partial = event.sequence
-            on_partial(event.text)
+            if not gate.closed:
+                on_partial(event.text)
         else:
             raise ProviderError(ProviderFailure.MALFORMED)  # the stream ended with no final
     except asyncio.CancelledError:
