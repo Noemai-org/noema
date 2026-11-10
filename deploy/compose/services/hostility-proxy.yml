@@ -68,7 +68,8 @@ services:
       HOSTILITY_PROXY_DATA_LISTEN: ":8080"
       HOSTILITY_PROXY_CONTROL_BIND_VIA: hostility-proxy-anchor
       HOSTILITY_PROXY_CONTROL_PORT: "8081"
-      HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/routes.json
+      # The route table is chosen by name inside one fixed read-only directory; the name never reaches a host path (Codex finding 1 on noema#207), and the proxy refuses a name that is not a plain file name in that directory.
+      HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/${HOSTILITY_PROXY_ROUTES_NAME:-routes.json}
       HOSTILITY_PROXY_FIXTURES_DIR: /etc/hostility-proxy/fixtures
       HOSTILITY_PROXY_NUMBER_KEY_FILE: /run/hostility-proxy/number_key
       HOSTILITY_PROXY_BENCH_TOKEN_FILE: /run/hostility-proxy/bench_token
@@ -78,7 +79,7 @@ services:
       HOSTILITY_PROXY_UPSTREAM_STANDIN: "${STANDIN_DATA_URL:-http://standin:8093}"
     volumes:
       - hostility_proxy_credentials:/run/hostility-proxy:ro
-      - ../../../benchmark/hostility_proxy/config/${HOSTILITY_PROXY_ROUTES_NAME:-routes.json}:/etc/hostility-proxy/routes.json:ro
+      - ../../../benchmark/hostility_proxy/config:/etc/hostility-proxy/config:ro
       - ../../../benchmark/hostility_proxy/config/fixtures:/etc/hostility-proxy/fixtures:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/hostility-proxy", "-healthcheck"]
