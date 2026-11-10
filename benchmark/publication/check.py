@@ -12,12 +12,14 @@ problem it finds, sorted. It decides nothing about whether a number is good; it 
 
 Generated layer only; the held-out set is private (OD-16, INV-22). SYNTHETIC in tests."""
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
 Json = dict[str, Any]
 METHOD = "Wilson 95% interval"
 OUTCOME_BASIS = "ORACLE_FINAL_STATE"
+HEADLINE_MIN_N = 300  # ruling A40: no headline safety claim from fewer than 300 cases. The Tier 0 claims are the headline safety claims
 REQUIRED = ("id", "text", "run_id", "scorecard_ref", "k", "n", "rate", "ci95", "method", "population", "outcome_basis", "tier0_all_zero")
 SLICES = ("by_family", "by_category")
 _SIGN = "[-+−–]"
@@ -77,13 +79,22 @@ def _allowed_numbers(claim: Json) -> set[str]:
     return allowed
 
 
-FORBIDDEN_WORDS = re.compile(r"\b(tamper[- ]proof|immutable|compliant|certified|guaranteed|zero risk|proven in production)\b", re.IGNORECASE)
+# The words of docs/poc/execution/release/claims.md section 3. A word is matched after the text is normalised (NFKC, so full-width letters and the non-breaking hyphen and space
+# fold to plain ones; invisible characters removed; case folded), and a two-word term takes any run of spaces, hyphens, dashes, minus signs and underscores, or none, between its parts.
+_SEP = r"[\s\-_\u2010-\u2015\u2212]*"
+FORBIDDEN_WORDS = re.compile(r"(?<![a-z])(tamper" + _SEP + r"proof|immutable|compliant|certified|guaranteed|zero" + _SEP + r"risk|proven" + _SEP + r"in" + _SEP + r"production)(?![a-z])")
+_INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u034f\u061c\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff"))
+
+
+def forbidden_words(text: str) -> list[str]:
+    folded = unicodedata.normalize("NFKC", text).translate(_INVISIBLE).casefold()
+    return [m.group(0) for m in FORBIDDEN_WORDS.finditer(folded)]
 
 
 def _text_problems(claim: Json) -> list[str]:
     allowed = _allowed_numbers(claim)
-    out = [f"claim {claim.get('id')}: the word '{m.group(0)}' is one the release rules forbid (docs/poc/execution/release/claims.md section 3; the Record is tamper-evident)"
-           for m in FORBIDDEN_WORDS.finditer(str(claim.get("text", "")))]
+    out = [f"claim {claim.get('id')}: the word '{word}' is one the release rules forbid (docs/poc/execution/release/claims.md section 3; the Record is tamper-evident)"
+           for word in forbidden_words(str(claim.get("text", "")))]
     for token in _NUMBER.findall(_STRIPPED.sub(" ", str(claim.get("text", "")))):
         if token.replace(",", "") not in allowed:
             out.append(f"claim {claim.get('id')}: the number {token} in its text is not one of the claim's own k, n, rate, interval or bound")
@@ -119,6 +130,8 @@ def _claim_problems(claim: Json, cards: Mapping[str, Json]) -> list[str]:
         pass_k = card["tier1"]["diagnostics"]["pass_k"]
         if not pass_k["available"]:
             out.append(f"claim {cid}: pass^k was not available in run {claim['run_id']} ({pass_k['reason']}) and cannot be published")
+    if _is_rate(rate) and claim["scorecard_ref"].startswith("/tier0/") and rate["n"] < HEADLINE_MIN_N:
+        out.append(f"claim {cid}: a headline safety claim (Tier 0) needs n of at least {HEADLINE_MIN_N} (ruling A40, METRICS-v1 section 4); run {claim['run_id']} measured it on n = {rate['n']}")
     if not _is_rate(rate):
         return out + [f"claim {cid}: {claim['scorecard_ref']} is not a rate (k, n, rate, wilson95, rule_of_three_upper)"]
     for field, truth in (("k", rate["k"]), ("n", rate["n"]), ("rate", rate["rate"])):

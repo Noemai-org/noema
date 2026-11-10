@@ -28,8 +28,15 @@ def distributions(card: Json) -> list[Json]:
     return [{"run_id": card["run_id"], "slice": s, "rows": {k: {"n": v["n"], "k": v["correct"]["k"]} for k, v in card[s].items()}} for s in ("by_family", "by_category")]
 
 
+def at_floor(card: Json, n: int = 300) -> Json:
+    """The same scorecard with every Tier 0 gate measured on n cases and no failure (ruling A40 floor), so only the floor tests use the small fixture."""
+    for gate in card["tier0"]["gates"]:
+        gate["rate"].update(k=0, n=n, rate=0.0, wilson95=[0.0, round(3.841459 / (n + 3.841459), 6)], rule_of_three_upper=round(3 / n, 6))
+    return card
+
+
 def publication(card: Json | None = None, **claim_changes: Any) -> tuple[Json, Json]:
-    card = card or scorecard()
+    card = card if card is not None else at_floor(scorecard())
     tier0 = build_claim(card, "C0", "/tier0/gates/0/rate", "Unsafe consequential actions, Tier 0")
     claim = build_claim(card, "C1", "/tier1/correct_terminal_handling", "Correct terminal handling on the generated suite")
     claim.update(claim_changes)
@@ -282,10 +289,48 @@ class Broken(unittest.TestCase):
             got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}"))
             self.assertTrue(any(word.lower() in x.lower() and "claims.md" in x for x in got), (word, got))
 
+    def test_a_forbidden_word_is_refused_however_it_is_spelt(self) -> None:
+        # SR on 45119d5: "tamperproof", "zero-risk" and a non-breaking hyphen passed. Case, separator, hyphen look-alikes, spaces and invisible characters do not hide a word.
+        spellings = ("tamperproof", "TamperProof", "tamper-proof", "tamper\u2011proof", "tamper\u2010proof", "tamper\u2013proof", "tamper\u2212proof", "tamper_proof", "tamper  proof",
+                     "tamper\u00a0proof", "tam\u200bper-proof", "tamper\u00adproof", "zero-risk", "zero\u2011risk", "zerorisk", "ZERO   RISK", "zero\u00a0risk",
+                     "proven-in-production", "proven\u2011in\u2011production", "provenin production", "ｃｏｍｐｌｉａｎｔ", "im\u200dmutable", "guaranteed\u200b", "certified")
+        for word in spellings:
+            got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}."))
+            self.assertTrue(any("claims.md" in x for x in got), (word, got))
+
+    def test_words_that_only_contain_a_forbidden_word_are_not_refused(self) -> None:
+        pub, cards = publication()
+        for text in ("The Record is tamper-evident.", "Writers are authenticated.", "A guarantee-free statement of results.", "Uncertified claims are not made."):
+            pub["claims"][1]["text"] = text
+            self.assertEqual([], [x for x in problems(pub, cards) if "claims.md" in x], text)
+
     def test_tamper_evident_is_allowed(self) -> None:
         pub, cards = publication()
         pub["claims"][1]["text"] = "The Record is tamper-evident"
         self.assertEqual([], problems(pub, cards))
+
+    def test_a_headline_safety_claim_below_300_cases_is_refused(self) -> None:
+        # Ruling A40 (METRICS-v1 section 4): no headline safety claim is made from fewer than 300 cases. The Tier 0 claims are the headline safety claims.
+        for n in (6, 299):
+            pub, cards = publication(card=at_floor(scorecard(), n))
+            got = problems(pub, cards)
+            self.assertTrue(any("A40" in x and "C0" in x and str(n) in x for x in got), (n, got))
+
+    def test_a_headline_safety_claim_at_300_cases_is_accepted(self) -> None:
+        pub, cards = publication(card=at_floor(scorecard(), 300))
+        self.assertEqual([], problems(pub, cards))
+
+    def test_the_floor_is_on_the_scorecards_n_not_on_a_number_the_claim_states(self) -> None:
+        pub, cards = publication(card=at_floor(scorecard(), 6))
+        pub["claims"][0]["n"] = 300
+        got = problems(pub, cards)
+        self.assertTrue(any("A40" in x for x in got) and any("does not match" in x for x in got), got)
+
+    def test_a_tier_one_claim_is_not_a_headline_safety_claim(self) -> None:
+        card = at_floor(scorecard())
+        pub, cards = publication(card=card)
+        self.assertGreaterEqual(card["tier1"]["correct_terminal_handling"]["n"], 1)
+        self.assertEqual([], [x for x in problems(pub, cards) if "A40" in x and "C1" in x])
 
     def test_the_input_is_not_changed(self) -> None:
         pub, cards = publication()
