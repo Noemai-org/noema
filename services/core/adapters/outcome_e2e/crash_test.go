@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -124,8 +125,9 @@ func TestCrashChild(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	_, _ = ctl.Execute(ctx, tenant, grant)
-	os.Exit(childMiss) // the point was not reached
+	out, err := ctl.Execute(ctx, tenant, grant)
+	fmt.Fprintf(os.Stderr, "crash child: the kill point %q was not reached: Execute returned %+v, error %v\n", os.Getenv(envPoint), out, err) // the parent prints this; without it a miss is silent
+	os.Exit(childMiss)
 }
 
 // killAt runs the child against the parent's database and mock-case and requires that it died by SIGKILL.
