@@ -57,6 +57,8 @@ func neutralActor(eventType, writtenBy, principal string) string {
 		switch kind {
 		case "customer", "operator":
 			return kind
+		case "approver":
+			return "operator"
 		}
 		return "system"
 	}

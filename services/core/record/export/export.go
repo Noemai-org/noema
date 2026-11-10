@@ -160,11 +160,11 @@ func tenantOf(r chain.Row) (string, error) {
 const commitmentLabel = "noema/record-export/v1"
 
 // entriesOf builds the entries of one verified span. seq is renumbered 1..n; inputs_digest links each entry to the outputs_digest of
-// the previous exported one (never to a payload hash, which would reopen the guessing oracle); evidence ids tc_1, tc_2 ... follow the
-// EVIDENCE_READ events in chain order.
+// the previous exported one (never to a payload hash, which would reopen the guessing oracle); ids tc_1, tc_2 ... follow the EVIDENCE_READ and
+// VERIFICATION_READ events in one chain-order sequence (noema#355, Benchmark Owner, 10 Nov).
 func entriesOf(span []chain.Row) ([]Entry, error) {
 	entries := make([]Entry, 0, len(span))
-	prevOut, reads := []string{}, 0
+	prevOut, reads := []string{}, readIDs{}
 	for _, r := range span {
 		step, inCase, known := StepOf(r.EventType)
 		if !known {
@@ -173,9 +173,7 @@ func entriesOf(span []chain.Row) ([]Entry, error) {
 		if !inCase {
 			continue
 		}
-		if r.EventType == "EVIDENCE_READ" {
-			reads++
-		}
+		reads.note(r.EventType)
 		at, err := atOf(r)
 		if err != nil {
 			return nil, err
@@ -191,7 +189,7 @@ func entriesOf(span []chain.Row) ([]Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		e := Entry{Seq: len(entries) + 1, At: at, Step: step, Actor: neutralActor(r.EventType, r.WrittenBy, r.Actor), EvidenceIDs: evidenceFor(step, reads),
+		e := Entry{Seq: len(entries) + 1, At: at, Step: step, Actor: neutralActor(r.EventType, r.WrittenBy, r.Actor), EvidenceIDs: reads.listFor(step),
 			InputsDigest: in, OutputsDigest: out}
 		if err := setLabels(&e, r); err != nil {
 			return nil, err
@@ -202,15 +200,35 @@ func entriesOf(span []chain.Row) ([]Entry, error) {
 	return entries, nil
 }
 
-// evidenceFor: the READ_EVIDENCE, DECIDE and EXPLAIN steps list every evidence read so far; every other step lists none.
-func evidenceFor(step string, reads int) []string {
-	ids := []string{}
-	if step == "READ_EVIDENCE" || step == "DECIDE" || step == "EXPLAIN" {
-		for i := 1; i <= reads; i++ {
-			ids = append(ids, "tc_"+strconv.Itoa(i))
-		}
+// readIDs numbers the reads of one case in chain order: an evidence read and a verification read take the next tc_n of the same sequence.
+type readIDs struct{ evidence, verification, all []string }
+
+func (r *readIDs) note(eventType string) {
+	if eventType != "EVIDENCE_READ" && eventType != "VERIFICATION_READ" {
+		return
 	}
-	return ids
+	id := "tc_" + strconv.Itoa(len(r.all)+1)
+	r.all = append(r.all, id)
+	if eventType == "EVIDENCE_READ" {
+		r.evidence = append(r.evidence, id)
+	} else {
+		r.verification = append(r.verification, id)
+	}
+}
+
+// listFor: READ_EVIDENCE and DECIDE list the evidence reads so far (a verification read cannot precede a decision); VERIFY lists the verification reads
+// at or before it; EXPLAIN lists every id read so far; every other step lists none. The list is empty, never null.
+func (r *readIDs) listFor(step string) []string {
+	var src []string
+	switch step {
+	case "READ_EVIDENCE", "DECIDE":
+		src = r.evidence
+	case "VERIFY":
+		src = r.verification
+	case "EXPLAIN":
+		src = r.all
+	}
+	return append([]string{}, src...)
 }
 
 func atOf(r chain.Row) (string, error) {
