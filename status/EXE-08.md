@@ -33,3 +33,8 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 
 ## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
 - `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.
+
+## Session 2026-11-10 · EXE-08 / noema#243: one name for the dispatch capability (ruling A117)
+- What changed: `execution/ledger/spend.go` no longer writes `capability_id` in `DISPATCH_ATTEMPTED`; the event keeps `capability` and `target_ref` (the execution-limits budget key). `record/reconstruct/project.go` reads `capability` and outputs it as `capability_id` in the reconstruction. No contract change, no debt entry (the reconstruction's output key is unchanged).
+- Why: on 9 Nov I resolved a merge of `main` by writing both `capability` and `capability_id` and flagged it; the Architect ruled A117 on 10 Nov.
+- Tests: failing first at `1b44c41` (`TestDispatchAttemptedNamesTheCapabilityOnlyAsCapability`; the two reconstruct dispatch tests with a payload that has only `capability`), green after.
