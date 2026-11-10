@@ -3,13 +3,18 @@ package session
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
+
+// ErrBodyLimit is returned by RefuseBodyIdentity for a body limit that cannot be applied safely.
+var ErrBodyLimit = errors.New("session: the body limit must be at least 1 and below math.MaxInt64")
 
 // identityKeys are the member names that carry an identity. Any JSON object, at any depth, with one of them (compared with Unicode simple case folding, as encoding/json matches field names) is
 // refused: the principal, the tenant and the role come from the session only (ruling A1, INV-12, AGENT-10).
@@ -22,7 +27,13 @@ var identityKeys = map[string]bool{
 // the body is a single JSON document, read in full within maxBytes, with no member anywhere in it that names an identity; otherwise it is refused
 // 400 INPUT_INVALID with a fixed message that does not repeat the body, and the handler never runs. An accepted body reaches the handler
 // unchanged. A request without a body passes. Mount it inside Middleware, so an unauthenticated request never reaches it.
-func RefuseBodyIdentity(ids IDs, maxBytes int64) func(http.Handler) http.Handler {
+//
+// maxBytes must be at least 1 and below math.MaxInt64: the read bound is maxBytes+1, which overflows to a negative number at MaxInt64 and would read nothing, so the
+// body would look empty and pass unscanned. Any other value returns ErrBodyLimit and no guard (checked here, not on a request).
+func RefuseBodyIdentity(ids IDs, maxBytes int64) (func(http.Handler) http.Handler, error) {
+	if maxBytes < 1 || maxBytes >= math.MaxInt64 {
+		return nil, ErrBodyLimit
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			corr := correlationID(r, ids)
@@ -51,7 +62,7 @@ func RefuseBodyIdentity(ids IDs, maxBytes int64) func(http.Handler) http.Handler
 			r.Body = io.NopCloser(bytes.NewReader(raw))
 			next.ServeHTTP(w, r)
 		})
-	}
+	}, nil
 }
 
 func refuseBody(w http.ResponseWriter, corr string) {
