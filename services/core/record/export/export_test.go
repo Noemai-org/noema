@@ -235,9 +235,9 @@ func TestAReviewerReconstructsTheDecisionsFromTheExportAlone(t *testing.T) {
 		{"AUTHORISE", "executor", nil, nil, nil},
 		{"EXECUTE", "executor", nil, nil, nil},
 		{"EXECUTE", "executor", nil, nil, nil},
-		{"VERIFY", "verifier", nil, nil, nil},
-		{"VERIFY", "verifier", nil, nil, ptr("ACHIEVED")},
-		{"EXPLAIN", "system", []string{"tc_1", "tc_2"}, nil, nil},
+		{"VERIFY", "verifier", []string{"tc_3"}, nil, nil},
+		{"VERIFY", "verifier", []string{"tc_3"}, nil, ptr("ACHIEVED")},
+		{"EXPLAIN", "system", []string{"tc_1", "tc_2", "tc_3"}, nil, nil},
 	}
 	if len(got.Entries) != len(wants) {
 		t.Fatalf("got %d entries, want %d: %+v", len(got.Entries), len(wants), got.Entries)
@@ -383,6 +383,23 @@ func TestAnUnknownCorrelationIsNotFoundAndTheContextNeedsADeadline(t *testing.T)
 	}
 	if _, err := export.AuditRecordOf(context.Background(), w.readers[tenant], export.Session{TenantID: tenant}, "corr_case01"); err == nil {
 		t.Fatal("an export without a context deadline did not fail")
+	}
+}
+
+// noema#355 item 1 (Benchmark Owner, 10 Nov): an approver acting on a case reads as an operator; an auditor, a regulator and an admin do not act on a case and
+// read as the system.
+func TestAPersonsConfirmationReadsAsTheOperatorForAnApproverAndTheSystemForOthers(t *testing.T) {
+	for principal, want := range map[string]string{"customer:usr_synth_014": "customer", "operator:usr_synth_020": "operator", "approver:usr_synth_021": "operator",
+		"auditor:usr_synth_022": "system", "regulator:usr_synth_023": "system", "admin:usr_synth_024": "system"} {
+		w := newWorld(t)
+		w.append(t, tenant, "corr_actor", ev{writtenBy: "core-edge", actor: principal, eventType: "CONFIRMATION_RECEIVED", objectRef: "cnf_synth0001", payload: map[string]any{"confirmation_id": "cnf_synth0001"}})
+		got, err := export1(t, w, tenant, "corr_actor")
+		if err != nil || len(got.Entries) != 1 {
+			t.Fatalf("%s: %v (%d entries)", principal, err, len(got.Entries))
+		}
+		if got.Entries[0].Actor != want {
+			t.Errorf("a confirmation by %s reads as %q, want %q", principal, got.Entries[0].Actor, want)
+		}
 	}
 }
 
@@ -587,23 +604,37 @@ func TestEveryRecordEventTypeHasARowInTheStepTable(t *testing.T) {
 	}
 }
 
-// The scoring side's worked example (noema#355, item 7), computed there with the scorer's sha256_of: three entries
-// whose payload hashes are sha256 of "example payload 1", "2" and "3". The Go digest equals the Python one.
+// The scoring side's worked example (noema#355, recomputed there under ruling A115): three entries whose payload hashes are sha256 of
+// "example payload 1", "2" and "3" and whose event ids are evt_01EXAMPLE000000000000001A, 2B and 3C. The Go digests equal the Python ones.
 func TestTheWorkedExampleOfNoema355HasTheSameDigest(t *testing.T) {
 	ph := func(n int) string {
 		sum := sha256.Sum256([]byte(fmt.Sprintf("example payload %d", n)))
 		return "sha256:" + hex.EncodeToString(sum[:])
 	}
+	ids := []string{"evt_01EXAMPLE000000000000001A", "evt_01EXAMPLE000000000000002B", "evt_01EXAMPLE000000000000003C"}
+	out := func(n int) string { return sha256Of(t, []string{"noema/record-export/v1", ids[n-1], ph(n)}) }
 	entries := []export.Entry{
-		{Seq: 1, At: "2026-11-08T09:00:00Z", Step: "INTAKE", Actor: "customer", EvidenceIDs: []string{}, InputsDigest: sha256Of(t, []string{}), OutputsDigest: ph(1)},
-		{Seq: 2, At: "2026-11-08T09:00:02Z", Step: "READ_EVIDENCE", Actor: "system", EvidenceIDs: []string{"tc_1"}, InputsDigest: sha256Of(t, []string{ph(1)}), OutputsDigest: ph(2)},
-		{Seq: 3, At: "2026-11-08T09:00:03Z", Step: "DECIDE", Actor: "policy", EvidenceIDs: []string{"tc_1"}, InputsDigest: sha256Of(t, []string{ph(2)}), OutputsDigest: ph(3), Decision: ptr("ESCALATE")},
+		{Seq: 1, At: "2026-11-08T09:00:00Z", Step: "INTAKE", Actor: "customer", EvidenceIDs: []string{}, InputsDigest: sha256Of(t, []string{}), OutputsDigest: out(1)},
+		{Seq: 2, At: "2026-11-08T09:00:02Z", Step: "READ_EVIDENCE", Actor: "system", EvidenceIDs: []string{"tc_1"}, InputsDigest: sha256Of(t, []string{out(1)}), OutputsDigest: out(2)},
+		{Seq: 3, At: "2026-11-08T09:00:03Z", Step: "DECIDE", Actor: "policy", EvidenceIDs: []string{"tc_1"}, InputsDigest: sha256Of(t, []string{out(2)}), OutputsDigest: out(3), Decision: ptr("ESCALATE")},
 	}
-	if !strings.HasPrefix(entries[0].InputsDigest, "sha256:4f53cda1") || !strings.HasPrefix(entries[1].InputsDigest, "sha256:36c03b4b") || !strings.HasPrefix(entries[2].InputsDigest, "sha256:7cf7967c") {
-		t.Fatalf("the inputs digests differ from the worked example: %s %s %s", entries[0].InputsDigest, entries[1].InputsDigest, entries[2].InputsDigest)
+	wantOut := []string{
+		"sha256:d09e191ac3627bdce0d15ef945a6983258aef5f0ed113c41261a5e99ee86c84c",
+		"sha256:ce6c7b0eb018b81d67401bcf04dce668f4eacb55e946237b3dc98c68b557dfa7",
+		"sha256:747afbf35e768c83a80cdc20e9da3a48fac69fcfb501d6e3049ad598e022c4e0",
+	}
+	wantIn := []string{
+		"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+		"sha256:946e0362d4cb2d93c6fb0a4edde2bab3702ba789f71b2ca98267e41ed140ad56",
+		"sha256:2423c83369e358576fcc9b91915c2a6d3dba2c4cf4a97ed6e6fc257ceb458447",
+	}
+	for i, e := range entries {
+		if e.OutputsDigest != wantOut[i] || e.InputsDigest != wantIn[i] {
+			t.Fatalf("entry %d: inputs %s outputs %s, want %s and %s", i+1, e.InputsDigest, e.OutputsDigest, wantIn[i], wantOut[i])
+		}
 	}
 	got, err := export.Digest(entries)
-	const want = "sha256:baae831e7875de3ceb03516bc5c3cefde33e0735e7b0d0640a56e6e981be7cb9"
+	const want = "sha256:280b9ff9ea96d75fc5d55e0b64ee65494243437649bdd9b9789894d4247c325f"
 	if err != nil || got != want {
 		t.Fatalf("digest %q (%v), want %s", got, err, want)
 	}
