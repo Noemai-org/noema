@@ -1,8 +1,8 @@
 {
   "unknown_status.json": "enum",
-  "diagnostic_flag_disagrees_with_mode.json": "if",
-  "forced_schema_not_marked_diagnostic.json": "if",
-  "refused_with_tool_calls.json": "if",
+  "diagnostic_flag_disagrees_with_mode.json": "const",
+  "forced_schema_not_marked_diagnostic.json": "const",
+  "refused_with_tool_calls.json": "maxItems",
   "negative_cost.json": "minimum",
   "missing_usage.json": "required",
   "label_not_synthetic.json": "const",

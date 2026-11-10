@@ -46,6 +46,8 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | Schema | SoT | PERD | Requirements | Notes |
 |---|---|---|---|---|
 | `canonical-input.v1.json` | §14 | §19.3 | REQ-INP-001, REQ-INP-002 | PERD names the file `canonical_input.v1.json`; this repository uses kebab-case for every file |
+| `arm-turn.v1.json` | §38.5 | §50.2 | REQ-BEN-007 | The input file of one arm turn for the model service's arm-turn entry point (Architect sync of 10 Nov 2026, A118, Draft until committed): the qualified model (provider_id, model_version), messages, tool definitions as data, token and time bounds; mode NATIVE_TOOL_CALLING or the labelled FORCED_SCHEMA_DIAGNOSTIC. SYNTHETIC only, no oracle or expected-answer field, unknown fields rejected. New file, AGENT-15; no tag (A12) |
+| `arm-turn-result.v1.json` | §38.5 | §50.2 | REQ-BEN-007 | The result file of one arm turn: status, tool calls, text, usage and cost in micro-units, latency; `diagnostic` is true exactly when the mode is the forced-schema diagnostic, which is never a comparison result; only status OK carries tool calls or text. New file, AGENT-15; no tag (A12) |
 | `intent-slot.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-AMB-001 | Five abstract slot types; a RESOLVED slot has `resolved_ref` and only a RESOLVED slot has one |
 | `intent-object.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-INT-004 | Version 1 supersedes nothing; a later version names `intent_id@version`; money in minor units |
 | `clarification.v1.json` | §43.2 | §22.1 (REQ-AMB-004) | REQ-AMB-004, REQ-UI-002 | At most 4 options, no label with 5 or more consecutive digits, at most 2 rounds |

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/arm-turn.v1.json",
+  "title": "Arm turn",
+  "description": "Architect sync of 10 Nov 2026, A118 (Draft until it is committed in docs/decisions): one turn of a model, offered to the model service's arm-turn entry point as a file (`python -m noema_model.harness.arm_turn`). Arms A and B use each provider's NATIVE tool calling through providers/; FORCED_SCHEMA_DIAGNOSTIC (`{tool, arguments}` inside the forced output schema) is a labelled diagnostic only and never a comparison result. The model is selected by its qualified identifier (provider_id and model_version as the harness configuration pins them); an unqualified one is refused by the qualification gate, not by this schema. Tool definitions are data. SYNTHETIC only: the turn carries no oracle, expected tool, held-out or case-answer field (INV-22), and unknown fields are rejected. No comparison-arm run before G3.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "turn_id",
+    "correlation_id",
+    "label",
+    "mode",
+    "provider_id",
+    "model_version",
+    "messages",
+    "tools",
+    "max_output_tokens",
+    "timeout_s"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "turn_id": {
+      "type": "string",
+      "pattern": "^trn_[0-9A-Za-z]{2,32}$"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "label": {
+      "const": "SYNTHETIC"
+    },
+    "mode": {
+      "enum": [
+        "NATIVE_TOOL_CALLING",
+        "FORCED_SCHEMA_DIAGNOSTIC"
+      ]
+    },
+    "provider_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,31}$"
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "enum": [
+              "system",
+              "user",
+              "assistant",
+              "tool"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "tool_call_id": {
+            "type": "string",
+            "pattern": "^call_[0-9A-Za-z]{1,32}$"
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "input_schema"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.]{1,63}$"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "max_output_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4096
+    },
+    "timeout_s": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 120
+    }
+  }
+}
