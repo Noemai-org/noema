@@ -51,3 +51,7 @@ Everything below needs a human; none of it is done by an agent. Order matters wh
 9. **AWS anchor account, anchor-store Environment and Pushover**: docs#111 (`docs/security/anchor-aws-click-script.md`).
 10. **Connect Codex to the GitHub identity that runs these sessions.** Codex answered "create a Codex account and connect to github" on noema#170 and noema#189, so no Codex review can happen until this is done (https://chatgpt.com/codex/cloud/settings/connectors).
 11. **Tushe's final written response (due Wed 11 Nov)**: commit it under `docs/poc/tushe/responses/` with its checksum. Until then G0-T has not passed and no Tushe route is mapped.
+
+### 2026-11-06 · TEN-02 verdict half
+
+- The Outcome half of TEN-02 is `services/core/outcome/verifier/ten02_test.go`: six scenarios (effect present; verifiably absent; acknowledged but absent; incomplete page; malformed read; refused read), 64 seeded concurrent replays each (seed 20261103), every replay equal to the committed expectation. With the Trust half (noema#119) both halves are shown once both merge. Not shown: a replay on the real mock-case or a database (decision logic only).
