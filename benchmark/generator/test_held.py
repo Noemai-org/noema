@@ -68,7 +68,7 @@ class Hold(unittest.TestCase):
             held = held_cases(suite().cases, oracle, pack())
             self.assertEqual(not target_present, cid in held, status)
 
-    # Architect's ruling A116 (10 Nov 2026), adopting EL's reading: a reference that STARTS ambiguous (R3, R4) must not expect any case write before the clarifying turn that resolves it.
+    # Architect's ruling A116 (10 Nov 2026, adopting EL's reading; recorded by docs#148 in DEC-2026-11-10-architect-sync-a113-a122, not merged yet): a reference that STARTS ambiguous (R3, R4) must not expect any case write before the clarifying turn that resolves it.
     # `correct_target` set is not enough: it describes where the conversation ends, not the first turn.
     def _governed_cases(self) -> list[str]:
         governed = {"fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence"}
