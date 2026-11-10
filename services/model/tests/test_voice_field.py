@@ -251,14 +251,37 @@ def test_the_report_states_n_method_and_interval_so_it_can_be_published() -> Non
     assert result.confidence == 0.95
 
 
-def test_a_pass_with_failures_and_an_open_upper_bound_carries_notes_not_silence() -> None:
-    """C2 P2 on #230: 95 fast sessions plus 5 with no server timestamp gave PASS with no caveat."""
+def test_five_failed_sessions_in_a_hundred_fail_the_gate_because_the_upper_bound_is_open() -> None:
+    """A126b (Architect sync, 10 Nov 2026): a latency claim passes only if the upper 95% bound is at or below the target.
+    C2 P2 on #230: 95 fast sessions plus 5 with no server timestamp used to PASS with an infinite upper bound."""
     sessions = [session(i, 1000, "pcm" if i % 2 == 0 else "yo") for i in range(95)] + [
         session(100 + i, None, "pcm" if i % 2 == 0 else "yo") for i in range(5)]
     result = run_gate(sessions)
-    assert result.verdict is GateVerdict.PASS and result.n_failed == 5, result.reasons
-    assert any("5" in note and "no usable latency" in note for note in result.notes)
-    assert any("upper bound" in note and "target" in note for note in result.notes)
+    assert result.p95_ms == 1000.0 and result.ci_high_ms == math.inf and result.n_failed == 5
+    assert result.verdict is GateVerdict.FAIL and "p95 upper bound over the target" in result.reasons
+    assert any("5 of 100" in note and "no usable latency" in note for note in result.notes)
+
+
+def test_the_upper_bound_at_the_target_passes_and_one_millisecond_over_fails() -> None:
+    def hundred(top: int) -> list[FieldSession]:
+        return [session(i, 1000 if i < 99 else top, "pcm" if i % 2 == 0 else "yo") for i in range(100)]
+
+    at = run_gate(hundred(TARGET_MS))  # the 100th of 100 is the upper bound: exactly the target
+    assert at.ci_high_ms == float(TARGET_MS) and at.verdict is GateVerdict.PASS, at.reasons
+    over = run_gate(hundred(TARGET_MS + 1))
+    assert over.p95_ms == 1000.0 and over.ci_high_ms == float(TARGET_MS + 1)
+    assert over.verdict is GateVerdict.FAIL and "p95 upper bound over the target" in over.reasons
+
+
+def test_a_run_too_small_to_bound_the_p95_from_above_cannot_pass() -> None:
+    """71 sessions or fewer have an infinite upper bound (see the exact-rank test); the gate needs 100 anyway."""
+    result = run_gate(good(100)[:71], min_sessions=PERD_MIN_FIELD_SESSIONS)
+    assert result.ci_high_ms == math.inf and "p95 upper bound over the target" in result.reasons
+
+
+def test_a_point_estimate_over_the_target_is_reported_once_as_over_the_target() -> None:
+    result = run_gate([session(i, 5000, "pcm" if i % 2 == 0 else "yo") for i in range(100)])
+    assert "p95 over the target" in result.reasons and "p95 upper bound over the target" not in result.reasons
 
 
 # ---- F5 (Founder, 8 Nov 2026): the five locales ---------------------------------------------------------------------------------
