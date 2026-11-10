@@ -23,6 +23,7 @@ func NewFreezeGate(allowed []string) FreezeGate {
 // Permission cannot be called for a frozen target and a non-allowed capability.
 type Permission struct {
 	capability string
+	target     string // empty for a permission from Permit, which names no target and so opens no grant
 	valid      bool
 }
 
@@ -34,8 +35,29 @@ func (g FreezeGate) Permit(frozen bool, capability string) (Permission, error) {
 	return Permission{capability: capability, valid: true}, nil
 }
 
+// ErrNoTarget is returned when a permission is asked for without naming the target it is for.
+var ErrNoTarget = errors.New("reconcile: a permission must name its target")
+
+// PermitTarget is Permit for one named target: the Permission carries the target, so a grant constructor can check that the proof was obtained for
+// the very target the grant is for (a permission obtained for one target must not open a grant for another). The caller supplies frozen from the
+// reconciliation result for that same target.
+func (g FreezeGate) PermitTarget(frozen bool, capability, target string) (Permission, error) {
+	if target == "" {
+		return Permission{}, ErrNoTarget
+	}
+	p, err := g.Permit(frozen, capability)
+	if err != nil {
+		return Permission{}, err
+	}
+	p.target = target
+	return p, nil
+}
+
 // Valid reports whether the Permission came from Permit.
 func (p Permission) Valid() bool { return p.valid }
 
 // Capability is the capability the Permission was issued for.
 func (p Permission) Capability() string { return p.capability }
+
+// Target is the target the Permission was issued for; empty for a Permission from Permit.
+func (p Permission) Target() string { return p.target }

@@ -84,6 +84,23 @@ Updated 2026-11-04. Plan task EVD-01 (owner C2+AG; REQ-CTX-001, REQ-CTX-002). Ta
 
 ## Session 2026-11-07 · error-body provenance (Codex finding on #172, after IL's noema#262)
 A failed read with no normalised response now carries exactly one of `RawHash` (the hash of the bytes that arrived, an empty body included) and `NoBytes` (explicit: a timeout, reset, local refusal or open circuit). SHA-256(empty) is no longer invented for a body that was there, and the `EVIDENCE_READ` event carries `body_received`. I did not make the rule class-based as first planned: `ReadServerError` also covers resets with no response and `ReadMalformed` also covers a local refusal, so a class rule would have refused legitimate no-bytes reads. Caller wiring (`ReadError.RawHash` into the observation) is in the next PR of the chain (#174, where `ClassifyError` lives). Red commit first; four mutants killed.
+# Session 2026-11-05 17:30 WAT · EVD-01 (slice 2c)
+
+## Session summary
+- What changed: `evidence/layer/classify.go` (`ClassifyError`: adapter read error to read class; unknown failures are MALFORMED, i.e. UNKNOWN) with a table test; `execution/e2e/evidence_faults_test.go`: evidence built from reads that the REAL mock-case faults on (HTTP_5XX 503, HTTP_429 with Retry-After, TIMEOUT_BEFORE_COMMIT beyond the read deadline, and a real 404), through `Builder.Record` on the tenant's evidence login; `execution/e2e/mockcase_test.go` exposes the bench address and token. STACKED on noema#172 (builder) and noema#167 (tables).
+- Result: every faulted or empty read gives UNAVAILABLE or UNKNOWN, none KNOWN; one `EVIDENCE_READ` per read; the Record chain verifies.
+- Order of work, disclosed: `classify.go` and its table test were written in the same step, so the table test was not seen red. Mutants that make both tests fail: unauthorized to OK, 429 without Retry-After, timeout to OK, not found to OK. The e2e test was green on its first run against the real faults.
+- Not done: MALFORMED_RESPONSE and SCHEMA_DRIFT are not mock-case effects (they come from the Tushe/proxy tracks); the malformed mapping is covered by the table test and by the `corrupted_recordings` test of the case client. A healthy KNOWN read through the real target is slice 3.
+- Debt: `execution/e2e/evidence_faults_test.go` copies the bench client of `adapters/outcome_e2e/bench_test.go` (third copy of the mock-case harness pieces); to be filed in the docs debt register.
+
+## Pre-work for the next agent
+- Exact next step: slice 3, the G1 story tests in `execution/e2e` (a healthy read KNOWN, a stale read STALE, with the real target).
+
+## Addendum 2026-11-06 · the reviewer's P2 on noema#174 (ClassifyError not seen failing first)
+- Done properly this time: tests-only commit `da75530` (a bare, a wrapped and a network-timeout error must be TIMEOUT) pushed alone; its `core` run is red ([run](https://github.com/Noemai-org/noema/actions/runs/42199062358/job/127829537492)). The fix commit follows: a deadline that expires in a call, or a `net.Error` that reports a timeout, is `ReadTimeout` (UNAVAILABLE) rather than MALFORMED (UNKNOWN). The original table test of the classifier remains written together with its code; the new rows are the failing-first evidence for the classifier's behaviour.
+
+### Caller wiring (#174)
+`layer.BodyOf(err)` returns the adapter error's `RawHash` or an explicit no-bytes (a nil error has neither). The real-fault e2e test now passes both through and asserts, on the real mock-case faults, that the event's `body_received` agrees with the adapter, that a body that arrived is stored under the adapter's hash and not the hash of nothing (503, 429 and a real 404 carry bodies; the timeout does not). Stated: `BodyOf` and its unit test were written together, not failing first; a mutation that ignores the hash is killed by the unit test and by the e2e test. The e2e test itself went red when the builder rule landed in #172, then green.
 
 # Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
 
