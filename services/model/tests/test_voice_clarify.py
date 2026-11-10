@@ -11,8 +11,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from noema_model.voice.confidence import InvalidConfidence
 from noema_model.voice.clarify import KeySlot, StepKind, VoiceStep, decide_voice_step, key_slot_from_tokens
+from noema_model.voice.confidence import InvalidConfidence
 
 THRESHOLD = 0.85
 MAX_FAILED = 2
@@ -99,7 +99,7 @@ def test_more_failed_turns_than_the_limit_still_offers_text() -> None:
 
 def test_a_boolean_confidence_is_low_not_one() -> None:
     """True == 1 in Python; a bool must never read as a perfect confidence."""
-    assert decide_voice_step([KeySlot("amount", "20,000", True)], THRESHOLD, 0, MAX_FAILED).kind is StepKind.CONFIRM_SLOT  # type: ignore[arg-type]
+    assert decide_voice_step([KeySlot("amount", "20,000", True)], THRESHOLD, 0, MAX_FAILED).kind is StepKind.CONFIRM_SLOT
 
 
 def test_a_negative_failed_turn_count_is_refused() -> None:
