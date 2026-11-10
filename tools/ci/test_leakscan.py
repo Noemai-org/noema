@@ -128,7 +128,8 @@ class Cli(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "a.log").write_text('{"account":"******6789"}\n')
             code, out = self.run_main([tmp])
-        self.assertEqual((code, out.strip()), (0, "leakscan OK"))
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "leakscan OK: scanned 1 files, 1 lines")
 
     def test_a_planted_leak_in_a_nested_file_exits_one_and_names_it(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,6 +197,161 @@ class Cli(unittest.TestCase):
     def test_a_missing_path_is_a_usage_error(self):
         code, _ = self.run_main(["/no/such/path/for/leakscan"])
         self.assertEqual(code, 2)
+
+
+class Vacuous(unittest.TestCase):
+    """C1 blocker 1 on #222: a scan that looked at nothing must not say OK (REQ-SEC-003; the same rule as the unreadable-directory fix)."""
+
+    run_main = Cli.run_main
+
+    def scan(self, make, extra=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            make(Path(tmp))
+            return self.run_main([tmp, *extra])
+
+    def test_an_empty_directory_is_a_usage_error_not_ok(self):
+        code, out = self.scan(lambda d: None)
+        self.assertEqual(code, 2)
+        self.assertNotIn("leakscan OK", out)
+
+    def test_an_empty_file_is_a_usage_error_not_ok(self):
+        code, out = self.scan(lambda d: (d / "a.log").write_text(""))
+        self.assertEqual(code, 2)
+        self.assertNotIn("leakscan OK", out)
+
+    def test_a_symlink_is_a_finding(self):
+        import os
+
+        def make(d):
+            (d / "real").mkdir()
+            (d / "real" / "a.log").write_text(f"acct {ACCOUNT}\n")
+            os.symlink(d / "real", d / "link")
+            (d / "b.log").write_text("fine\n")
+
+        code, out = self.scan(make)
+        self.assertEqual(code, 1)
+        self.assertIn("symlink", out)
+
+    def test_a_gzip_file_is_a_finding(self):
+        import gzip
+
+        def make(d):
+            with gzip.open(d / "a.log.gz", "wb") as f:
+                f.write(f"acct {ACCOUNT}\n".encode())
+            (d / "b.log").write_text("fine\n")
+
+        code, out = self.scan(make)
+        self.assertEqual(code, 1)
+        self.assertIn("binary_or_undecodable", out)
+
+    def test_a_utf16_log_is_a_finding_not_a_clean_scan(self):
+        def make(d):
+            (d / "a.log").write_bytes(f"acct {ACCOUNT}\n".encode("utf-16"))
+            (d / "b.log").write_text("fine\n")
+
+        code, out = self.scan(make)
+        self.assertEqual(code, 1)
+        self.assertIn("binary_or_undecodable", out)
+
+    def test_a_canary_file_without_a_value_is_a_usage_error(self):
+        def make(d):
+            (d / "a.log").write_text("fine\n")
+            (d / "canaries.txt").write_text("\n   \n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            make(d)
+            code, out = self.run_main([str(d / "a.log"), "--canary", str(d / "canaries.txt")])
+        self.assertEqual(code, 2)
+        self.assertNotIn("leakscan OK", out)
+
+    def test_an_invalid_allow_regex_or_missing_file_is_exit_two_not_a_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "a.log").write_text("fine\n")
+            (d / "allow.txt").write_text("([unclosed\n")
+            self.assertEqual(self.run_main([str(d / "a.log"), "--allow", str(d / "allow.txt")])[0], 2)
+            self.assertEqual(self.run_main([str(d / "a.log"), "--allow", str(d / "missing.txt")])[0], 2)
+            self.assertEqual(self.run_main([str(d / "a.log"), "--canary", str(d / "missing.txt")])[0], 2)
+
+    def test_an_allow_pattern_that_matches_everything_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "a.log").write_text(f"acct {ACCOUNT}\n")
+            for rx in (".*", "^", "x*"):
+                (d / "allow.txt").write_text(rx + "\n")
+                code, _ = self.run_main([str(d / "a.log"), "--allow", str(d / "allow.txt")])
+                self.assertEqual(code, 2, "pattern %r matches an empty string and must be refused" % rx)
+
+
+class Fingerprint(unittest.TestCase):
+    """C1 blocker 2: an unsalted short hash of a digit run can be reversed by enumeration, so the report was not safe to log."""
+
+    def test_the_fingerprint_is_not_a_plain_hash_of_the_value(self):
+        import hashlib
+
+        found = s.scan_text(f"acct {ACCOUNT}", "x.log")[0]
+        for algo in ("sha256", "sha1", "md5", "sha512"):
+            plain = hashlib.new(algo, ACCOUNT.encode()).hexdigest()
+            self.assertNotIn(found.fingerprint, plain, algo)
+
+    def test_the_fingerprint_differs_between_runs(self):
+        import subprocess
+
+        code = ("import sys; sys.path.insert(0, %r); import leakscan as s; print(s.scan_text('acct %s', 'x')[0].fingerprint)"
+                % (str(Path(__file__).resolve().parent), ACCOUNT))
+        a = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True).stdout.strip()
+        b = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True).stdout.strip()
+        self.assertNotEqual(a, b)
+
+    def test_the_same_value_has_one_fingerprint_within_a_run(self):
+        a, b = s.scan_text(f"acct {ACCOUNT}\nagain {ACCOUNT}", "x")
+        self.assertEqual(a.fingerprint, b.fingerprint)
+
+
+class CodexP2Round2(unittest.TestCase):
+    """Codex P2 findings on 4a36112."""
+
+    def test_a_date_shaped_prefix_does_not_hide_the_rest_of_an_account_number(self):
+        self.assertEqual(kinds('{"account":"0123-45-67-89"}'), ["account_number"])
+        self.assertEqual(kinds("acct 0123-45-67 89"), ["account_number"])
+
+    def test_a_complete_date_token_is_still_exempt(self):
+        self.assertEqual(kinds("on 2026-11-05, again 2026-11-06T10:00:00Z"), [])
+
+    def test_a_long_fraction_is_not_a_timestamp_fraction(self):
+        """C1 should-fix 7: the fraction mask must not hide ten digits."""
+        self.assertEqual(kinds("x 01:02:03.0123456789"), ["account_number"])
+        self.assertEqual(kinds("at 2026-11-05T09:00:00.123456789Z"), [])
+
+    def test_a_password_with_punctuation_is_caught(self):
+        self.assertEqual(kinds('{"password":"!synthetic.password.value!"}'), ["named_secret_value"])
+        self.assertEqual(kinds('{"password":"synthetic.password.value"}'), ["named_secret_value"])
+
+    def test_realistic_named_secret_forms_are_caught(self):
+        """C1 should-fix 3."""
+        for text in ["password=Hunter2Hunter", 'password="two words here"', "pw_token: a@b!c#d$e%f^", r'{\"token\":\"abcdefghij1234\"}',
+                     "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENGbPxRfiCY", "client_secret = 'abc def ghi jkl'"]:
+            with self.subTest(text):
+                self.assertIn("named_secret_value", kinds(text))
+
+    def test_more_secret_shapes_are_caught(self):
+        for want, text in [("github_token", "x " + "gh" + "p_" + "A" * 36), ("github_token", "github_" + "pat_" + "A" * 30),
+                           ("slack_token", "xo" + "xb-" + "1" * 10 + "-abcdefghij"), ("provider_key", "sk_" + "live_" + "a" * 24),
+                           ("basic_auth", "Authorization: Basic " + "dXNlcjpwYXNzd29yZA=="), ("private_key_block", "-----BEGIN PGP " + "PRIVATE KEY BLOCK-----")]:
+            with self.subTest(want):
+                self.assertIn(want, kinds(text))
+
+    def test_a_long_path_and_a_file_url_are_exempt_and_a_look_alike_is_not(self):
+        """C1 finding 8: the path exemption must be live code with a test that fails without it."""
+        self.assertEqual(kinds("password=/run/secrets/a_long_secret_file_name"), [])
+        self.assertEqual(kinds("token=file:/run/secrets/a_long_secret_file_name"), [])
+        self.assertIn("named_secret_value", kinds("token=run/secrets/not_absolute_but_long_value"))
+
+    def test_a_luhn_invalid_card_length_run_is_not_named_a_card(self):
+        """C1 finding 8: forcing the Luhn check to True must break a test."""
+        self.assertEqual(kinds("n 4111111111111112"), ["digit_run"])
+        self.assertEqual(kinds("n 4111111111111111"), ["card_number"])
 
 
 if __name__ == "__main__":
