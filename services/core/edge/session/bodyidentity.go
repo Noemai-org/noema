@@ -11,7 +11,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
-// identityKeys are the member names that carry an identity. Any JSON object, at any depth, with one of them (compared without regard to case) is
+// identityKeys are the member names that carry an identity. Any JSON object, at any depth, with one of them (compared with Unicode simple case folding, as encoding/json matches field names) is
 // refused: the principal, the tenant and the role come from the session only (ruling A1, INV-12, AGENT-10).
 var identityKeys = map[string]bool{
 	"principal_id": true, "principal": true, "tenant_id": true, "tenant": true, "sub": true, "iss": true, "roles": true, "role": true,
@@ -72,11 +72,22 @@ func plainJSON(raw []byte) bool {
 	return !namesIdentity(doc)
 }
 
+// namesIdentityKey compares with Unicode simple case folding, the folding encoding/json uses to match a member name to a struct field, so a
+// spelling such as U+017F (long s) for "s" cannot reach a handler field the guard did not see.
+func namesIdentityKey(k string) bool {
+	for name := range identityKeys {
+		if strings.EqualFold(k, name) {
+			return true
+		}
+	}
+	return false
+}
+
 func namesIdentity(v any) bool {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, child := range t {
-			if identityKeys[strings.ToLower(k)] || namesIdentity(child) {
+			if namesIdentityKey(k) || namesIdentity(child) {
 				return true
 			}
 		}
