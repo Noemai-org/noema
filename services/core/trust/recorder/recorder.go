@@ -64,7 +64,6 @@ type Request struct {
 	Decision              decide.Decision
 	Evaluated             *decide.BasisBuilder
 	Steps                 []grants.Step // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
-	Actor                 string        // the Record event's actor: the emitter's own identity, or <kind>:<id> of the person
 }
 
 // Result is what was written.
@@ -134,10 +133,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if err != nil {
 		return Result{}, err
 	}
-	actor := r.Actor
-	if actor == "" {
-		actor = emitter
-	}
+	actor := emitter // no authenticated person causes a decision event; a person's identity comes only from the session, never from a request field (INV-12)
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
 		Payload: map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
 			"policy_version": policy, "sig_key_id": rec.Sig.KeyId}}); err != nil {

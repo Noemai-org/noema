@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"math/rand"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,7 +157,7 @@ func step(t *testing.T) grants.Step {
 }
 
 func request(t *testing.T, d decide.Decision, b *decide.BasisBuilder, steps ...grants.Step) recorder.Request {
-	return recorder.Request{TenantID: tenant, CorrelationID: "corr_ABC123", IntentID: "int_01J9X3", IntentHash: h(1), PolicyID: "fin.pol", Decision: d, Evaluated: b, Steps: steps, Actor: "core-trust"}
+	return recorder.Request{TenantID: tenant, CorrelationID: "corr_ABC123", IntentID: "int_01J9X3", IntentHash: h(1), PolicyID: "fin.pol", Decision: d, Evaluated: b, Steps: steps}
 }
 
 func (w *world) write(t *testing.T, r recorder.Request, commit bool) (recorder.Result, error) {
@@ -423,5 +425,34 @@ func TestTheEventsCarryTheFactsAReconstructionReads(t *testing.T) {
 	gi := payload(1)
 	if gi["capability_id"] != capability || gi["grant_id"] != string(res.Grants[0].GrantId) || gi["expires_at"] == nil || gi["plan_step"] == nil {
 		t.Errorf("GRANT_ISSUED payload %v, want grant_id, capability_id %s, plan_step and expires_at", gi, capability)
+	}
+}
+
+// INV-12 / AGENT-10 (Codex P1, noema#237): the Record actor of a decision is never chosen by the caller. A request has no field that names an actor or a
+// principal, and DECISION_MADE and GRANT_ISSUED are written as the emitter's own identity ("no authenticated person caused the event", chain.Event).
+func TestARequestCannotChooseTheRecordActor(t *testing.T) {
+	typ := reflect.TypeOf(recorder.Request{})
+	for i := 0; i < typ.NumField(); i++ {
+		switch n := strings.ToLower(typ.Field(i).Name); n {
+		case "actor", "principal", "principalid", "person", "user", "userid":
+			t.Errorf("recorder.Request has a field %q: a caller could choose the Record actor", typ.Field(i).Name)
+		}
+	}
+	w := newWorld(t)
+	b := evaluated(t)
+	if _, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := chain.ReadChain(ctx(t), w.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("got %d events, want DECISION_MADE and GRANT_ISSUED", len(rows))
+	}
+	for _, r := range rows {
+		if r.Actor != "core-trust" || r.WrittenBy != "core-trust" {
+			t.Errorf("%s: actor %q written_by %q, want both core-trust", r.EventType, r.Actor, r.WrittenBy)
+		}
 	}
 }
