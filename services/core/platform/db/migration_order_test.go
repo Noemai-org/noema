@@ -1,11 +1,14 @@
 package db_test
 
-// Ruling A113 (the Architect, 10 Nov 2026, noema#393): migration numbers follow object dependency, not merge order, and a number below one
-// already on main may merge. That is safe only if a database that already holds the higher files and is then given a lower one ends with the
-// same catalog as a database migrated in name order: the same privileges, triggers, policies, constraints, indexes AND function bodies.
-// Migrate applies every unapplied file in name order and does not look at the highest applied number, so this is a property the files must
-// keep, and this test checks it for every file numbered 0011 to 0016 that exists (the ledger's lower numbers). A lower file that CREATE OR
-// REPLACEs a function that a higher file also replaces would make an upgraded database lose the higher body: this test fails then.
+// Ruling A113 (the Architect, 10 Nov 2026, noema#393): the migration numbers stay as assigned (the gap 0011 to 0016 is accepted) and the files merge
+// in strict ascending order: #181 (0011), #168 (0012), #229 (0013), #233 (0014), #259 (0015), #234 (0016), then #261 and the rest. Out-of-order
+// merging is not allowed. But 0017 (#265) is already on main, ahead of the lower numbers, so every database that holds 0017 is later given 0011 to 0016
+// one after the other. That is safe only if a database that already holds the higher files and is then given a lower one ends with the same catalog as
+// a database migrated in name order: the same privileges, triggers, policies, constraints, indexes AND function bodies. Migrate applies every unapplied
+// file in name order and does not look at the highest applied number, so this is a property the files must keep, and this test checks it for every file
+// numbered 0011 to 0016 that exists (the ledger's lower numbers). A lower file that CREATE OR REPLACEs a function that a higher file also replaces would
+// make an upgraded database lose the higher body: this test fails then. The test describes the upgrade of a database that holds 0017; it does not make
+// a merge path out of order (the order is the ledger's, noema#183).
 // REQ-DATA-001, REQ-AUD-006; AGENTS.md section 7 (forward-only migrations).
 
 import (

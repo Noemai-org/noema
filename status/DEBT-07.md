@@ -32,7 +32,7 @@ Updated 2026-11-05. DEBT-07 (Tier 0 until closed with EDG-01; docs#106 R16, OD-P
 ## Session 2026-11-10 · DEBT-07 / EDG-01 slice 2: the upgrade-path test (ruling A113)
 ### Session summary
 - What changed (PR links): noema#181: merged `main` (the README conflict only) and added `services/core/platform/db/migration_order_test.go`.
-- Why: the Architect's ruling A113 (noema#393, 10 Nov): the numbers stay as assigned and may merge below one on `main`, in strict ascending order, because a database at `main` that is then given a lower file must end with the same catalog as a fresh one. This PR is the first of the lower-numbered files to merge, so it carries the test.
+- Why: the Architect's ruling A113 (noema#393, 10 Nov): the numbers stay as assigned (the gap is accepted) and the files merge in strict ascending order (no out-of-order merge); 0017 (#265) is already on `main`, so a database that holds 0017 is later given 0011 to 0016, and it must end with the same catalog as a fresh one. This PR is the first of the lower-numbered files to merge, so it carries the test.
 - Tests added (REQ-DATA-001, REQ-AUD-006): `TestALowerNumberedMigrationAppliedAfterAHigherOneGivesTheSameCatalog`: for every file numbered 0011 to 0016, migrate a database without it, then with it, and compare with a fresh database: function bodies (`pg_get_functiondef`), owners, ACLs and `search_path` settings, triggers, relations and column ACLs, constraints, indexes, policies. It passes on this branch (a guard; there is no red run). A temporary pair of files, `0012` creating a function and `0016` replacing it, makes it fail on the function body (checked and removed).
 - Debt entries: none. Conflicts raised: none.
 
