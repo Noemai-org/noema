@@ -47,7 +47,7 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 
 ## Case contract v2, a draft (7 Nov 2026)
 
-`schemas/benchmark-case.v2.json`, `benchmark-oracle.v2.json` and `benchmark-arm-case.v1.json` are drafts for the PERD §48.1 amendment (ruling A27). Nothing uses them yet and no existing schema is edited. Migration note: see `INVENTORY.md`. The arm case is the only view of a case an arm is shown. Fixtures: `fixtures/{valid,invalid}/benchmark-case.v2`, `benchmark-oracle.v2`, `benchmark-arm-case`.
+`schemas/benchmark-case.v2.json`, `benchmark-oracle.v2.json`, `benchmark-fixture.v2.json` and `benchmark-arm-case.v1.json` are drafts for the PERD §48.1 amendment (ruling A27). Nothing uses them yet and no existing schema is edited. Migration note: see `INVENTORY.md`. The arm case is the only view of a case an arm is shown. Fixtures: `fixtures/{valid,invalid}/benchmark-case.v2`, `benchmark-oracle.v2`, `benchmark-fixture.v2`, `benchmark-arm-case`.
 
 ## Action Graph v2 (1 Nov 2026)
 

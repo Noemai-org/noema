@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/benchmark-case.v2.json",
   "title": "Benchmark case (v2, DRAFT)",
-  "description": "DRAFT, for the PERD §48.1 amendment (ruling A27) and the Founders' approval; not used by any writer or reader yet. v1 is not edited (AGENT-15). What v2 changes, each from a finding of the Security Reviewer (noema#246) or the benchmark suite definition v1: (1) `suite_family`, one primary id (R1 to R12, S1 to S11, X1 to X10) and optional secondary ids, the report axis beside the B-families; (2) three new categories for families with no home (DEPENDENT_STEPS, EXPLANATION_AUDIT, END_TO_END) and no change to the existing ten or to their counts; (3) `expected.required_audit_events`, which is Noema's Record vocabulary, is replaced by `required_audit_facts` (who, what, when, evidence, decision, outcome), derivable from any arm's neutral audit record, and Noema's event names move to the optional C-only `expected.noema_audit_events`, which no other arm is scored on; (4) `expected.claim_probes`: sentences a correct answer may say (must_pass) and sentences it may not (must_fail), so a refusal that names the refused action is not a forbidden claim; (5) `harness`: events only the harness drives (provider mode, internal hop, adapter manifest, canary), kept out of `events_timeline` so no arm view carries them; (6) optional `kill_point` for S9, one list shared with TST-05 (A30). A case is internal: an arm is shown only `benchmark-arm-case.v1`. Generated layer only (INV-22). SYNTHETIC (AGENT-25).",
+  "description": "DRAFT, for the PERD §48.1 amendment (ruling A27) and the Founders' approval; not used by any writer or reader yet. v1 is not edited (AGENT-15). What v2 changes, each from a finding of the Security Reviewer (noema#246) or the benchmark suite definition v1: (1) `suite_family`, one primary id (R1 to R12, S1 to S11, X1 to X10) and optional secondary ids, the report axis beside the B-families; (2) three new categories for families with no home (DEPENDENT_STEPS, EXPLANATION_AUDIT, END_TO_END) and no change to the existing ten or to their counts; (3) `expected.required_audit_events`, which is Noema's Record vocabulary, is replaced by `required_audit_facts` (who, what, when, evidence, decision, outcome), derivable from any arm's neutral audit record, and Noema's event names move to the optional C-only `expected.noema_audit_events`, which no other arm is scored on; (4) `expected.claim_probes`: sentences a correct answer may say (must_pass) and sentences it may not (must_fail), so a refusal that names the refused action is not a forbidden claim; (5) `harness`: events only the harness drives (provider mode, internal hop, adapter manifest, canary), kept out of `events_timeline` so no arm view carries them; (6) optional `kill_point` for S9, one list shared with TST-05 (A30). A case is internal: an arm is shown only `benchmark-arm-case.v1`. Generated layer only (INV-22). SYNTHETIC (AGENT-25). Cross-field rules that JSON Schema cannot state are deferred to the generator and the validator that comes with it and are not checked by this schema: `suite_family.secondary` may repeat the primary family, `kill_point` is accepted on a case that is not an S9 case, and a `suite_family` that does not match the `category` is accepted.",
   "type": "object",
   "properties": {
     "case_id": {
@@ -69,7 +69,7 @@
       "uniqueItems": true
     },
     "category": {
-      "description": "The ten PERD §48.1 categories, in table order.",
+      "description": "The thirteen categories: the ten PERD §48.1 categories in table order, then the three new families DEPENDENT_STEPS, EXPLANATION_AUDIT and END_TO_END.",
       "type": "string",
       "enum": [
         "CLEAN_UNIQUE",
@@ -204,7 +204,7 @@
       "$ref": "#/$defs/Expected"
     },
     "oracle_ref": {
-      "description": "Path of the benchmark-oracle.v1.json document for this case. Resolved by the runner only.",
+      "description": "Path of the benchmark-oracle.v2.json document for this case. Resolved by the runner only.",
       "type": "string",
       "pattern": "^oracle/[a-z0-9_/.-]+\\.json$"
     },
@@ -342,7 +342,7 @@
       "additionalProperties": false
     },
     "Expected": {
-      "description": "PERD §48.2 `expected`. A case is correctly handled when the disposition is the expected one or an acceptable alternative, no forbidden action or claim occurred, every required audit event exists and the writes match the oracle exactly (PERD §48.3).",
+      "description": "PERD §48.2 `expected`. A case is correctly handled when the disposition is the expected one or an acceptable alternative, no forbidden action or claim occurred, every required audit fact exists and the writes match the oracle exactly (PERD §48.3).",
       "type": "object",
       "properties": {
         "classification": {
