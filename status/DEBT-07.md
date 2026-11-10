@@ -38,3 +38,10 @@ Updated 2026-11-05. DEBT-07 (Tier 0 until closed with EDG-01; docs#106 R16, OD-P
 
 ### Pre-work for the next agent
 - The test finds the lower files by glob, so the next lower-numbered PR to merge (0012, 0013, 0014, 0015, 0016) is covered with no change to it. Merge order is strictly ascending (A113): #181, #168, #229, #233, #259, #234, #261, #263, #268, #272.
+
+## Session 2026-11-10 · EDG-01 / DEBT-07: C2's P2 on noema#181 (search_path of provision_emitter_login)
+- What changed (PR links): noema#181: `0011_provision_emitter_login.sql` pins `provision_emitter_login` to `search_path = pg_catalog, pg_temp` and writes `public.tenant_login` by schema; two tests in `platform/db/emitter_provision_test.go`.
+- Why: C2's second human review found that the function (owned by `record_append`, SECURITY DEFINER) was pinned to `pg_catalog, public`, so noema#234's catalog test (`TestEveryRecordFunctionPinsItsSearchPathToCatalogAndTemp`, every function `record_append` owns) fails once #181 merges first, and an unqualified `tenant_login` resolved to a caller's temporary table first. 0011 is not merged, so it changes in place; this replaces my earlier reply to the Security Reviewer (note 1, "a forward migration with DEBT-21").
+- Tests: failing first at `1ab3944f` ([run](https://github.com/Noemai-org/noema/actions/runs/42803171829/job/129785589155), `core` red): the catalog pin test, and a temporary `tenant_login` table must not capture the mapping (before the fix the call resolved the temporary table and failed with 42501).
+- Debt entries: none new; the provision_emitter_login line I meant to add to DEBT-21 is not needed.
+- Conflicts raised: none.

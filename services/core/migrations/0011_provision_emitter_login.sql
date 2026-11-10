@@ -15,7 +15,7 @@
 GRANT CREATE ON SCHEMA public TO record_append;
 
 CREATE FUNCTION provision_emitter_login(p_login text, p_tenant text, p_emitter text) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = p_login AND r.rolcanlogin) THEN
     RAISE EXCEPTION 'provision: % is not a login role: create it in deploy/compose/postgres/init.sh first', p_login;
@@ -46,7 +46,7 @@ BEGIN
   IF p_emitter NOT IN ('core-edge', 'core-record', 'model-service', 'admin', 'mock-ledger', 'mock-switch', 'mock-destination', 'mock-customer', 'mock-policy', 'mock-case', 'mock-clock') THEN
     RAISE EXCEPTION 'provision: % is not a runtime emitter', p_emitter;
   END IF;
-  INSERT INTO tenant_login (login_role, power, tenant_id, emitter) VALUES (p_login, 'record_emitter', p_tenant, p_emitter);
+  INSERT INTO public.tenant_login (login_role, power, tenant_id, emitter) VALUES (p_login, 'record_emitter', p_tenant, p_emitter);
 END $$;
 ALTER FUNCTION provision_emitter_login(text, text, text) OWNER TO record_append;
 REVOKE ALL ON FUNCTION provision_emitter_login(text, text, text) FROM PUBLIC;
