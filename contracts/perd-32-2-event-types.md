@@ -1,4 +1,4 @@
-<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.21.md section 32.2 (Event types) at docs commit 3a2a8fd90c20c8bd1a9bd3ab68783001eea2fcf6. The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.22.md section 32.2 (Event types) at docs commit c61fb3ee9774df0cc37ab1ed75bb7ea027567965. The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 ### 32.2 Event types
 
@@ -13,6 +13,6 @@
 | Explanation | EXPLANATION_RENDERED · EXPLANATION_BLOCKED |
 | Lifecycle | INVESTIGATION_STATE_CHANGED · INVESTIGATION_RESUMED · OPS_ALERT_RAISED · RESOLUTION_POSTED |
 | Control plane | POLICY_PUBLISHED · PACK_LOADED · KILL_SWITCH_CHANGED · KEY_ROTATED · CONFIG_CHANGED |
-| Security | SECURITY_EVENT{kind: INJECTION_DETECTED, PRINCIPAL_OVERRIDE_ATTEMPT, SIGNATURE_INVALID, CROSS_SCOPE_ATTEMPT, REQUEST_ID_REUSED, IDEMPOTENCY_COLLISION, CHAIN_BREAK} |
+| Security | SECURITY_EVENT{kind: INJECTION_DETECTED, PRINCIPAL_OVERRIDE_ATTEMPT, SIGNATURE_INVALID, CROSS_SCOPE_ATTEMPT, REQUEST_ID_REUSED, IDEMPOTENCY_COLLISION, CHAIN_BREAK, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED} |
 | Providers | PROVIDER_FAILOVER |
 | Memory | MEMORY_OBSERVATION_RECORDED |

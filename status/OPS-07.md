@@ -137,3 +137,20 @@ Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" l
 - Open questions (owner): none.
 - Files to read first: `tools/vendor/repoint_docs.py`.
 - Do not touch: the vendored copies by hand.
+
+# Session 2026-11-10 10:30 WAT · OPS-07
+
+## Session summary
+- What changed (PR links): the five vendored copies re-pointed to the docs commit of docs#148 (rulings A113 to A122): `AGENTS.md` and `CLAUDE.md` (code freeze Wed 9 Dec 12:00 WAT, A120), `contracts/perd-32-2-event-types.md` (PERD v1.22 §32.2, A114).
+- Why: REQ-OPS-005 (copies are re-pointed in the same change set); the docs original wins.
+- Risks, and how they are contained: the pin names the docs#148 head; after docs#148 merges, re-run the script at `origin/main` and push, so the pin is a commit on `main`. Do not merge this PR before that.
+- Tests added (REQ, INV, US or EC IDs): none; `repoint_docs.py --check` is clean at the pinned commit.
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after docs#148 merges, `python3 tools/vendor/repoint_docs.py --docs <docs main>` and push.
+- Open questions (owner): none.
+- Files to read first: docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md
+- Do not touch: the vendored copies by hand.

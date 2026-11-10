@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 3a2a8fd90c20c8bd1a9bd3ab68783001eea2fcf6. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit c61fb3ee9774df0cc37ab1ed75bb7ea027567965. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -72,7 +72,7 @@ Run this at the start of every session.
      - no Phase B result counts before G0 passes, and G0 passes only when both halves, G0-T and G0-N, pass (plan §3, DEC-2026-10-16 E4);
      - if G1 failed, week 2 starts with the slice and ambiguity work waits (plan §3.1);
      - no comparison arm starts before G3 passes (SoT §38.5, plan §3.1);
-     - after the code freeze (Wed 11 Nov 12:00 WAT), only the fixes plan §11 allows merge.
+     - after the code freeze (Wed 9 Dec 12:00 WAT), only the fixes plan §11 allows merge.
    - The work-in-progress limit holds: at most 4 open PRs per driving founder, at most 2 of them P0; see the current plan §5.
 
    If any check fails, stop and report.
