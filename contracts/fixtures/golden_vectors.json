@@ -1,6 +1,6 @@
 {
   "description": "Cross-language golden vectors for Noema POC (CON-04)",
-  "version": "1.0",
+  "version": "1.1",
   "jcs_vectors": [
     {
       "name": "simple_unordered_keys",
@@ -278,9 +278,14 @@
         "single_use": true
       },
       "expected_jcs": "{\"capability_id\":\"fin.cap.create_escalation_case\",\"decision_id\":\"dec_8R4\",\"evidence_set_hash\":\"sha256:5be098765be098765be098765be098765be098765be098765be098765be09876\",\"expires_at\":\"2026-10-01T09:58:00Z\",\"grant_id\":\"grt_3K9\",\"intent_hash\":\"sha256:9f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a81239f3a8123\",\"nonce\":\"n_6c1a\",\"not_before\":\"2026-10-01T09:48:00Z\",\"pack_version\":\"fintech@1.0.0\",\"params_hash\":\"sha256:c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567c11e4567\",\"plan_hash\":\"sha256:d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122d27c1122\",\"plan_step\":2,\"policy_version\":\"fin.pol@3.2\",\"principal_id\":\"usr_88213\",\"schema_version\":\"1.0\",\"single_use\":true,\"target_ref\":\"fin.transaction:TX88213\",\"target_versions\":[{\"resource_ref\":\"fin.case_scope:TX88213\",\"source\":\"fin.src.case_system\",\"version_token\":\"v_17\"}]}",
+      "domain_label": "noema/decision-grant/v1",
       "expected_sig": {
         "key_id": "trust-2026-10",
-        "value": "97e8a71d00cd7e1bc8d00af672cbf22cf970c96435501aa5c8c88d7d860beab5"
+        "value": "ae1f3d2d92ab8ce5b803fe2879060d93de98c7b5bd5789cc4c12c781f0d899d8"
+      },
+      "must_not_verify": {
+        "bare_jcs_signature": "97e8a71d00cd7e1bc8d00af672cbf22cf970c96435501aa5c8c88d7d860beab5",
+        "confirmation_request_label_signature": "2a619a9d5d1a111be8c23b9614cbdd5e864bf8a3ae5d2097b118572286000c90"
       }
     }
   ],
