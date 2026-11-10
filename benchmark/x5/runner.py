@@ -29,10 +29,11 @@ def run(m: Manifest, *, facade_url: str, bench_token: str, driver: Driver) -> Re
     client.put_clock(m.clock_start)  # the runner owns time and sets it once; it never moves backwards
     runs: list[Json] = []
     problems: list[str] = []
-    for arm, model in m.cells:
+    namespace = secrets.token_hex(6)  # per invocation: a reused facade keeps its old calls, so a run id must never repeat across invocations
+    for cell_index, (arm, model) in enumerate(m.cells):
         for case in m.cases:
             for repeat in range(1, REPEATS + 1):
-                run_id = f"x5-dry-{arm}-{case.seed}-{repeat}"
+                run_id = f"x5-dry-{namespace}-c{cell_index}-{arm}-{case.seed}-{repeat}"  # the cell index separates two models on one arm; the id is never in the scorer's output
                 token = secrets.token_hex(24)
                 client.put_sessions([{"token": token, "run_id": run_id, "case_id": case.case_id, "principal": case.principal, "tenant": case.tenant}])
                 tools = client.tools(token)

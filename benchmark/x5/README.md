@@ -25,4 +25,4 @@ Manifest (strict; unknown members refused): `mode` (`dry_run`), `cells` (arms A 
 
 ## Tests
 
-`PYTHONPATH=. python3 -m unittest benchmark.x5.test_x5` (13 tests; also run by `make bench-test`) and `mypy --strict`. Deliberate breaks each caught: the oracle mismatch check, the not-recorded rule, the honeypot-listed flag, the `DRY-RUN-` prefix rule, the live refusal.
+`PYTHONPATH=. python3 -m unittest benchmark.x5.test_x5` (15 tests; also run by `make bench-test`) and `mypy --strict`. Deliberate breaks each caught: the oracle mismatch check, the not-recorded rule, the honeypot-listed flag, the `DRY-RUN-` prefix rule, the live refusal.

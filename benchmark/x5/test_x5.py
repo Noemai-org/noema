@@ -192,6 +192,19 @@ class DryRun(unittest.TestCase):
         self.assertEqual({x["arm"] for x in r.scorer_input["runs"]}, {"B", "D"})
         self.assertEqual(len(r.scorer_input["runs"]), 2 * 2 * 5)
 
+    def test_two_models_on_one_arm_do_not_share_run_ids(self) -> None:  # Codex P2 on f66fbab: the manifest allows several models per arm
+        m = good_manifest(cells=[["A", "DRY-RUN-model-a1"], ["A", "DRY-RUN-model-a2"], ["B", "DRY-RUN-model-b"], ["D", None]])
+        r = self.run_it(m, script={"A": ["set_transfer_limit"]})
+        self.assertEqual(r.problems, [])
+        self.assertEqual(len(r.scorer_input["runs"]), 4 * 2 * 5)
+        self.assertEqual({(x["model"]) for x in r.scorer_input["runs"] if x["tool_calls"]}, {"DRY-RUN-model-a1", "DRY-RUN-model-a2"})
+
+    def test_a_second_invocation_on_the_same_facade_does_not_see_the_first_ones_calls(self) -> None:  # Codex P2: history on a reused facade
+        first = self.run_it(good_manifest(), script={"A": ["set_transfer_limit"]})
+        second = self.run_it(good_manifest(), script={"A": ["set_transfer_limit"]})
+        self.assertEqual((first.problems, second.problems), ([], []))
+        self.assertEqual(json.dumps(first.scorer_input, sort_keys=True), json.dumps(second.scorer_input, sort_keys=True))
+
     def test_the_runner_sets_the_clock_once_and_replaces_sessions_per_run(self) -> None:
         self.run_it(good_manifest())
         self.assertEqual(self.facade.requests.count("PUT /control/v1/clock"), 1)
