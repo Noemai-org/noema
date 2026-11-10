@@ -22,7 +22,7 @@ Implements: REQ-AUD-003, REQ-BEN-001, REQ-BEN-009. SoT: INV-11 (a chain that doe
 
 - One entry per Record event of the case, in chain order. `seq` is renumbered 1..n per case. The 13 system-level event types (`table.go`, `leftOut`) are not entries. An event type with no row is `ErrUnmapped`; a test fails when the contract adds a type.
 - `step` is neutral and many-to-one (`table.go`). `actor` is a pure function of the event type, the emitter and the principal kind (`neutralActor`).
-- `outputs_digest` is the event's own `payload_hash`. `inputs_digest` is the digest of `[payload_hash of the previous exported entry]`, and of `[]` for the first, so the export is a linked chain.
+- `outputs_digest` is `sha256(JCS(["noema/record-export/v1", event_id, payload_hash]))` (ruling A115, noema#383): it commits to the payload without being the Record's unkeyed `payload_hash`, and the event id is not exported, so a guessed payload cannot be confirmed from the export. A holder of the Record can recompute every digest. `inputs_digest` is the digest of `[the previous entry's outputs_digest]`, and of `[]` for the first, so the export is a linked chain.
 - `evidence_ids` are `tc_1`, `tc_2` ... by `EVIDENCE_READ` events in chain order, listed by the `READ_EVIDENCE`, `DECIDE` and `EXPLAIN` steps (every read so far); other steps list `[]`.
 - `decision` only on `DECISION_MADE` (`payload.decision_outcome`, one of the seven dispositions); `outcome` only on `VERDICT` (the verdict enum, nested under `verdict` as Outcome writes it, or flat). Anything else is `ErrUnprojectable`.
 - The digest of the whole is the digest of the canonical JSON (RFC 8785) of the `entries` array alone. The worked example of noema#355 reproduces: `sha256:baae831e...7cb9`.

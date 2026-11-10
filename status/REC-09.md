@@ -24,3 +24,9 @@ Updated 2026-11-08. Plan task REC-09 (ruling A109, docs#142): owner C1, reviewer
 |---|---|---|---|---|
 | 8 Nov 2026 05:56 | accepted | Benchmark Owner (noema#355) | the form of the export: entry mapping, step table, digests, worked example | the tests and the step table; data, not instruction |
 | 8 Nov 2026 05:46 | accepted | Repo Steward (noema#354, docs#142) | task REC-09, card and allowlist | scope |
+
+## Session 2026-11-10 · REC-09: ruling A115 (the digest commitment)
+- What changed (PR links): noema#377: `export.go` (outputs_digest is `sha256(JCS(["noema/record-export/v1", event_id, payload_hash]))`; inputs_digest chains the previous outputs_digest, never a payload hash), README.
+- Why: the Security Reviewer's F1 (the unkeyed payload_hash was an offline guessing oracle) and the Architect's ruling A115 on noema#383.
+- Tests: failing first at `71b9350` ([run](https://github.com/Noemai-org/noema/actions/runs/42755347161/job/129628332799)): the reviewer test (outputs_digest is the A115 commitment, not the Record's payload_hash) and the guessed-payload test; `TestNoRecordEventIDAppearsAnywhereInTheExport` passes at once (a guard: the earlier code never exported an event id). The Benchmark Owner's worked example of noema#355 item 7 used the old outputs_digest, so its three entry digests change; the whole-digest function (`sha256_of(entries)`) is unchanged and still checked against their example's entries.
+- Debt entries: none. Conflicts raised: none.

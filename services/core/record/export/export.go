@@ -153,8 +153,15 @@ func tenantOf(r chain.Row) (string, error) {
 	return b.TenantID, nil
 }
 
-// entriesOf builds the entries of one verified span. seq is renumbered 1..n; inputs_digest links each entry to the payload hash of
-// the previous exported one; evidence ids tc_1, tc_2 ... follow the EVIDENCE_READ events in chain order.
+// commitmentLabel is the format label of ruling A115 (the Architect, 10 Nov 2026, noema#383): outputs_digest is
+// sha256(JCS(["noema/record-export/v1", event_id, payload_hash])). The event id is not exported, so a consumer of the export cannot confirm a guessed
+// payload by hashing it (the Record's payload_hash alone is a deterministic, unkeyed function of the payload); a holder of the Record, which has the
+// event ids, can recompute every digest.
+const commitmentLabel = "noema/record-export/v1"
+
+// entriesOf builds the entries of one verified span. seq is renumbered 1..n; inputs_digest links each entry to the outputs_digest of
+// the previous exported one (never to a payload hash, which would reopen the guessing oracle); evidence ids tc_1, tc_2 ... follow the
+// EVIDENCE_READ events in chain order.
 func entriesOf(span []chain.Row) ([]Entry, error) {
 	entries := make([]Entry, 0, len(span))
 	prevOut, reads := []string{}, 0
@@ -180,13 +187,17 @@ func entriesOf(span []chain.Row) ([]Entry, error) {
 		if err != nil {
 			return nil, err
 		}
+		out, err := sha256Of([]string{commitmentLabel, r.EventID, r.PayloadHash})
+		if err != nil {
+			return nil, err
+		}
 		e := Entry{Seq: len(entries) + 1, At: at, Step: step, Actor: neutralActor(r.EventType, r.WrittenBy, r.Actor), EvidenceIDs: evidenceFor(step, reads),
-			InputsDigest: in, OutputsDigest: r.PayloadHash}
+			InputsDigest: in, OutputsDigest: out}
 		if err := setLabels(&e, r); err != nil {
 			return nil, err
 		}
 		entries = append(entries, e)
-		prevOut = []string{r.PayloadHash}
+		prevOut = []string{out}
 	}
 	return entries, nil
 }
