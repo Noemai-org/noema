@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/record_investigation_evidence.v1.json",
+  "title": "fin.cap.record_investigation_evidence",
+  "description": "Append evidence to a case dossier. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The case the evidence is appended to (descriptor attachment.case)."
+    },
+    "payload": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The evidence content. Its hash is computed by Noema, never passed by the caller."
+    }
+  },
+  "required": [
+    "case_id",
+    "payload"
+  ],
+  "additionalProperties": false
+}
