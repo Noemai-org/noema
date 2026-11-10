@@ -123,6 +123,7 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 	if _, ok := ctx.Deadline(); !ok {
 		return answer{}, &adapters.ReadError{Failure: adapters.ReadInvalid, RawCode: "ADAPTER:NO_DEADLINE"}
 	}
+	// The tenant is validated here but not sent: the stand-in assertion carries the principal only (stand-in README), so isolation rests on principal ids being unique across tenants. Binding the tenant into the assertion needs a stand-in contract ruling (Voice review of noema#205, N1).
 	if err := scope.Validate(); err != nil {
 		return answer{}, err
 	}
@@ -224,7 +225,7 @@ func (c *StandinClient) LedgerEntries(ctx context.Context, scope adapters.Scope,
 	for _, e := range w.Entries {
 		entry := adapters.LedgerEntry{EntryID: e.EntryID, AccountRef: e.AccountRef, TransactionRef: e.TransactionRef, EntryType: adapters.EntryType(e.EntryType),
 			AmountMinor: e.AmountMinor, Currency: e.Currency, PostingStatus: adapters.PostingStatus(e.PostingStatus), PostedAt: e.PostedAt, Version: e.Version}
-		if entry.Validate() != nil {
+		if entry.Validate() != nil || entry.TransactionRef != transactionRef { // like the switch and destination reads: another transaction's entry is a misrouted answer, never evidence about this one
 			return adapters.LedgerRead{}, malformed200(a.hash)
 		}
 		out.Entries = append(out.Entries, entry)

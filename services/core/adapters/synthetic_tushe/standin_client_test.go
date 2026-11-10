@@ -272,6 +272,17 @@ func TestAnAnswerTheClientCannotTrustIsMalformedNeverKnown(t *testing.T) {
 	}
 }
 
+// INV-12, PERD 34.4 (Voice review of noema#205, F1): an entry that belongs to another transaction is a misrouted read, never evidence about the one asked.
+func TestALedgerEntryOfAnotherTransactionIsMalformed(t *testing.T) {
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, strings.Replace(ledgerBody, `"transaction_ref":"tx:1"`, `"transaction_ref":"tx:2"`, 1))
+	l, err := newStandinClient(t, f).LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1")
+	re := sFail(t, err)
+	if re.Failure != adapters.ReadMalformed || re.RawHash != sha(strings.Replace(ledgerBody, `"transaction_ref":"tx:1"`, `"transaction_ref":"tx:2"`, 1)) || len(l.Entries) != 0 {
+		t.Fatalf("got %+v entries=%d, want MALFORMED with the wire hash and no entries", re, len(l.Entries))
+	}
+}
+
 func TestTheRequestIsAGetWithTheRuntimeTokenAndAnAssertionForTheSessionPrincipal(t *testing.T) {
 	f := newFakeStandin(t)
 	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, ledgerBody)
