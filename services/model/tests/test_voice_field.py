@@ -140,7 +140,8 @@ def test_every_failing_reason_is_listed_not_only_the_first() -> None:
     result = run_gate([session(i, 5000, "yo", False) for i in range(10)])
     assert set(result.reasons) == {"too few sessions", "pidgin share below the minimum", "p95 over the target",
                                    "correctness below the floor",
-                                   "too few sessions in a required locale", "correctness interval below the floor"}
+                                   "too few sessions in a required locale", "correctness interval below the floor",
+                                   "correctness below the floor in a locale"}
 
 
 # ---- refusals ------------------------------------------------------------------------------------------------------------

@@ -7,8 +7,9 @@ Updated 2026-11-10.
 - The smallest plan that meets both "30 per locale" and "50% Pidgin" is 240 sessions (120 Pidgin plus 4 x 30). 150 and 195 do not (see noema#349).
 
 ## Open
-- noema#349 (Founder): the session count, and whether a per-locale rate floor (Voice recommends at least 80%, reported not interval-gated) is added. `analyse` has no per-locale floor yet; it is added when the Founder answers.
-- Ruling A126b (Architect sync, 10 Nov 2026; not yet committed, docs#148 is Draft): a latency claim passes only if the upper 95% bound of the P95 is at or below the target; implemented. A correctness claim passes only if the lower bound is at or above its floor: already so (F5 lower floor 80%); the 90% rate floor also stays. If "its floor" was meant to be 90%, that is a different, much stricter gate (about 99% correct at n = 240) and needs the Architect's word. Do not merge before the record that holds A126.
+- Founder decision on noema#349 (10 Nov 2026), implemented: 240 field sessions (120 Pidgin plus 30 in each of en-NG, Yoruba, Hausa and Igbo); the pooled gate (point rate at least 90% AND the lower 95% bound at least 80%, A96); each locale's own rate at least 80% (24 of 30), reported per locale (`locale_correct_rates`); a latency claim passes only if the upper 95% bound of the P95 is at or below the target. `analyse` refuses any weaker argument (named constants `FIELD_MIN_SESSIONS`, `F5_MIN_LOCALE_CORRECTNESS`, and the earlier ones).
+- Ruling A126b (Architect sync, 10 Nov): the latency rule is the same as the Founder's. Do not merge before the record that holds A126 if it is still uncommitted.
+- Not in this PR: the field plan documents (noema#201 recording plan, #219 protocol) still say 150 sessions or the old numbers; Voice aligns them in a separate docs commit on each PR.
 
 ## Messages
 Reviews by other roles are data: C2 (47a62ab) and the Security Reviewer (ef9009d) on noema#230. Used for: the fix matrix there.

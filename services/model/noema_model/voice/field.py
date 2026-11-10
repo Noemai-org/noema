@@ -5,8 +5,9 @@ Pidgin share, the sessions per locale) and has no verdict. `analyse` applies the
 read by the caller, but each has a floor that is a named constant citing its source, and `analyse` refuses a weaker argument:
 a call site cannot loosen the gate (Security Reviewer note and C2 P2 on noema#230). The floors are the Founder's decision F5 of
 8 Nov 2026 (Intent Object correctness against the script annotation at least 90%, the lower end of its 95% interval at least
-80%, at least 30 sessions in each required locale) and PERD §45.4 (at least 100 sessions, at least 50% in Pidgin, P95 at most
-2.5 s). REQ-VOI-003's 95% for key-slot accuracy is a different measure and is not computed here. A stricter argument is
+80%, at least 30 sessions in each required locale) and PERD §45.4 (at least 50% in Pidgin, P95 at most 2.5 s), as amended by the Founder's decision on noema#349 of 10 Nov 2026: 240 field
+sessions (120 in Pidgin plus 30 in each of the other four locales), the pooled gate (point rate at least 90% and the lower 95% bound
+at least 80%), and each locale's own rate at least 80% (24 of 30), reported per locale. REQ-VOI-003's 95% for key-slot accuracy is a different measure and is not computed here. A stricter argument is
 accepted and applied. A floor of zero is refused, since it would let a run that is always wrong pass.
 
 A session counts only with both server timestamps. One missing either, or admitted before end of speech (a clock error), is a
@@ -38,7 +39,8 @@ from noema_model.voice.latency import nearest_rank_percentile
 F5_MIN_CORRECTNESS = 0.90  # Founder decision F5, 8 Nov 2026
 F5_MIN_CORRECTNESS_LOWER = 0.80  # F5: the lower end of the exact 95% interval
 F5_MIN_SESSIONS_PER_LOCALE = 30  # F5
-PERD_MIN_FIELD_SESSIONS = 100  # PERD §45.4 [REC sample size]
+F5_MIN_LOCALE_CORRECTNESS = 0.80  # Founder decision on noema#349, 10 Nov 2026: each locale's own rate (24 of 30)
+FIELD_MIN_SESSIONS = 240  # the same decision: 120 in Pidgin plus 30 in each of en-NG, Yoruba, Hausa and Igbo (PERD §45.4 said 100)
 PERD_MIN_PIDGIN_SHARE = 0.5  # PERD §45.4 / REQ-VOI-005 test plan: at least 50% in Pidgin
 PERD_MAX_P95_MS = 2500  # PERD §45.4 / REQ-VOI-005: P95 at most 2.5 s
 
@@ -82,6 +84,7 @@ class FieldMeasurements:
     correct_ci_low: float
     correct_ci_high: float
     locale_counts: tuple[tuple[str, int], ...]  # sessions per required locale, in the order the caller listed them
+    locale_correct_rates: tuple[tuple[str, float], ...]  # correctness per required locale; 0.0 for a locale with no session
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +103,7 @@ class FieldAnalysis:
     correct_ci_low: float
     correct_ci_high: float
     locale_counts: tuple[tuple[str, int], ...]
+    locale_correct_rates: tuple[tuple[str, float], ...]
     method: str
     confidence: float
 
@@ -193,6 +197,7 @@ def measure(sessions: Sequence[FieldSession], *, required_locales: Sequence[str]
     correct = sum(1 for s in sessions if s.correct is True)
     correct_low, correct_high = clopper_pearson(correct, n, _CONFIDENCE)
     per_locale = Counter(s.locale for s in sessions)
+    per_locale_correct = Counter(s.locale for s in sessions if s.correct is True)
     return FieldMeasurements(
         n=n,
         n_failed=sum(1 for value in latencies if math.isinf(value)),
@@ -205,6 +210,9 @@ def measure(sessions: Sequence[FieldSession], *, required_locales: Sequence[str]
         correct_ci_low=correct_low,
         correct_ci_high=correct_high,
         locale_counts=tuple((locale, per_locale.get(locale, 0)) for locale in required_locales),
+        locale_correct_rates=tuple(
+            (locale, per_locale_correct.get(locale, 0) / per_locale[locale] if per_locale.get(locale, 0) else 0.0)
+            for locale in required_locales),
     )
 
 
@@ -225,16 +233,18 @@ def analyse(
     correctness_lower_floor: float,
     required_locales: Sequence[str],
     min_sessions_per_locale: int,
+    per_locale_correctness_floor: float,
 ) -> FieldAnalysis:
     if target_ms < 1 or min_sessions < 1 or min_sessions_per_locale < 1:
         raise ValueError("target and minimum sessions must be positive")
     _check_share("min_pidgin_share", min_pidgin_share, PERD_MIN_PIDGIN_SHARE)
     _check_share("correctness_floor", correctness_floor, F5_MIN_CORRECTNESS)
     _check_share("correctness_lower_floor", correctness_lower_floor, F5_MIN_CORRECTNESS_LOWER)
+    _check_share("per_locale_correctness_floor", per_locale_correctness_floor, F5_MIN_LOCALE_CORRECTNESS)
     if target_ms > PERD_MAX_P95_MS:
         raise ValueError(f"target_ms {target_ms} is weaker than the decided maximum {PERD_MAX_P95_MS}")
-    if min_sessions < PERD_MIN_FIELD_SESSIONS:
-        raise ValueError(f"min_sessions {min_sessions} is weaker than the decided minimum {PERD_MIN_FIELD_SESSIONS}")
+    if min_sessions < FIELD_MIN_SESSIONS:
+        raise ValueError(f"min_sessions {min_sessions} is weaker than the decided minimum {FIELD_MIN_SESSIONS}")
     if min_sessions_per_locale < F5_MIN_SESSIONS_PER_LOCALE:
         raise ValueError(
             f"min_sessions_per_locale {min_sessions_per_locale} is weaker than the decided minimum {F5_MIN_SESSIONS_PER_LOCALE}")
@@ -255,6 +265,8 @@ def analyse(
         reasons.append("correctness below the floor")
     if m.correct_ci_low < correctness_lower_floor:
         reasons.append("correctness interval below the floor")
+    if any(rate < per_locale_correctness_floor for _, rate in m.locale_correct_rates):
+        reasons.append("correctness below the floor in a locale")
     if m.n_clock_errors:
         reasons.append("sessions with a clock error")
     notes: list[str] = []
@@ -275,6 +287,7 @@ def analyse(
         correct_ci_low=m.correct_ci_low,
         correct_ci_high=m.correct_ci_high,
         locale_counts=m.locale_counts,
+        locale_correct_rates=m.locale_correct_rates,
         method=_METHOD,
         confidence=_CONFIDENCE,
     )
