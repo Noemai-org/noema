@@ -5,6 +5,7 @@ The module reads the rule and its condition from the pack at run time; the meani
 import copy
 import json
 import unittest
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Any
 
@@ -44,7 +45,9 @@ class Hold(unittest.TestCase):
         bad = copy.deepcopy(oracles())
         bad[cid]["correct_target"] = None
         held = held_cases(suite().cases, bad, pack())
-        self.assertEqual({cid: {"held_on": "noema#346", "rule_id": RULE, "condition": "subject_resource.status == 'RESOLVED'"}}, held)
+        self.assertEqual([cid], list(held))
+        self.assertEqual({"held_on": "noema#346", "rule_id": RULE, "condition": "subject_resource.status == 'RESOLVED'"}, {k: v for k, v in held[cid].items() if k != "reason"})
+        self.assertIn("no single resolved target", held[cid]["reason"])
 
     def test_a_case_with_no_governed_write_is_never_held(self) -> None:
         bad = copy.deepcopy(oracles())
@@ -64,6 +67,49 @@ class Hold(unittest.TestCase):
             oracle[cid]["correct_target"] = suite().oracles[cid]["correct_target"] if target_present else None
             held = held_cases(suite().cases, oracle, pack())
             self.assertEqual(not target_present, cid in held, status)
+
+    # Architect's ruling A116 (10 Nov 2026), adopting EL's reading: a reference that STARTS ambiguous (R3, R4) must not expect any case write before the clarifying turn that resolves it.
+    # `correct_target` set is not enough: it describes where the conversation ends, not the first turn.
+    def _governed_cases(self) -> list[str]:
+        governed = {"fin.cap.create_escalation_case", "fin.cap.record_investigation_evidence"}
+        return [cid for cid, c in suite().cases.items() if any(w["capability"] in governed for w in c["expected"]["writes_expected"])]
+
+    def _starts_ambiguous(self, cid: str) -> bool:
+        case, oracle = suite().cases[cid], oracles()[cid]
+        return case["category"] == "AMBIGUITY" or bool(oracle["high_risk_ambiguous"]) or bool(case["expected"]["clarification_expected"])
+
+    def test_a_case_that_starts_ambiguous_and_expects_a_case_write_has_a_clarifying_turn_before_it(self) -> None:
+        ambiguous = [cid for cid in self._governed_cases() if self._starts_ambiguous(cid)]
+        self.assertTrue(ambiguous, "the suite has ambiguity cases that end in a case write (BEN-AMB-0016)")
+        for cid in ambiguous:
+            self.assertGreaterEqual(len(suite().cases[cid]["utterances"]), 2, cid)
+
+    def test_an_ambiguous_start_with_a_write_and_a_resolved_target_but_no_clarifying_turn_is_held(self) -> None:
+        cid = next(c for c in self._governed_cases() if self._starts_ambiguous(c))
+        cases = copy.deepcopy(suite().cases)
+        cases[cid]["utterances"] = cases[cid]["utterances"][:1]
+        self.assertIsNotNone(oracles()[cid]["correct_target"])
+        held = held_cases(cases, oracles(), pack())
+        self.assertEqual([cid], list(held))
+        self.assertEqual("noema#346", held[cid]["held_on"])
+        self.assertIn("clarifying turn", held[cid]["reason"])
+
+    def test_every_marker_of_an_ambiguous_start_is_honoured(self) -> None:
+        cid = next(c for c in self._governed_cases() if self._starts_ambiguous(c))
+        markers: list[tuple[str, Callable[[dict[str, Any], dict[str, Any]], object]]] = [
+            ("category", lambda c, o: c.update(category="AMBIGUITY")), ("flag", lambda c, o: o.update(high_risk_ambiguous=True)),
+            ("clarify", lambda c, o: c["expected"].update(clarification_expected=True))]
+        for marker, change in markers:
+            cases, oracle = copy.deepcopy(suite().cases), copy.deepcopy(oracles())
+            plain = next(c for c in self._governed_cases() if not self._starts_ambiguous(c))
+            cases[plain]["utterances"] = cases[plain]["utterances"][:1]
+            self.assertNotIn(plain, held_cases(cases, oracle, pack()), "a reference that starts resolved needs no clarifying turn")
+            change(cases[plain], oracle[plain])
+            self.assertIn(plain, held_cases(cases, oracle, pack()), marker)
+        self.assertTrue(cid)
+
+    def test_the_unmodified_suite_holds_nothing_under_a116(self) -> None:
+        self.assertEqual({}, held_cases(suite().cases, oracles(), pack()))
 
     def test_a_missing_rule_fails_closed_not_silently_clean(self) -> None:
         # Codex P1: a broken or incomplete pack must never read as "no case is held".

@@ -40,14 +40,30 @@ def _rule(pack: Mapping[str, Any], rule_id: str) -> Json:
     return rule
 
 
+def _starts_ambiguous(case: Mapping[str, Any], oracle: Mapping[str, Any]) -> bool:
+    """A reference that starts ambiguous (R3, R4): an ambiguity case, a high-risk ambiguous oracle, or a case that expects a clarification."""
+    return case.get("category") == "AMBIGUITY" or bool(oracle.get("high_risk_ambiguous")) or bool(case["expected"].get("clarification_expected"))
+
+
 def held_cases(cases: Mapping[str, Json], oracles: Mapping[str, Json], pack: Mapping[str, Any]) -> dict[str, Json]:
-    """case id -> {held_on, rule_id, condition} for every case that expects a governed write although its oracle has no single resolved target. Raises PackRuleError on an unusable rule."""
+    """case id -> {held_on, rule_id, condition, reason} for every case that expects a governed write the pack's slot rule would not permit. Raises PackRuleError on an unusable rule.
+
+    Two ways to contradict the rule. (1) The oracle has no single resolved target. (2) Architect's ruling A116 (10 Nov 2026, adopting EL's reading): the reference starts
+    ambiguous and the case has no later turn to clarify it, so the write would come before the clarifying turn that resolves it; `correct_target` set is not enough, because it
+    says where the conversation ends, not what the first turn resolved."""
     out: dict[str, Json] = {}
     for rule_id, issue in HOLDS:
         rule = _rule(pack, rule_id)
         governed = set(rule["applies_to"])
         for case_id, case in cases.items():
-            expects = any(w["capability"] in governed for w in case["expected"]["writes_expected"])
-            if expects and oracles[case_id].get("correct_target") is None:
-                out.setdefault(case_id, {"held_on": issue, "rule_id": rule_id, "condition": rule["condition"]})
+            if not any(w["capability"] in governed for w in case["expected"]["writes_expected"]):
+                continue
+            oracle = oracles[case_id]
+            if oracle.get("correct_target") is None:
+                reason = "the case expects a governed write but its oracle has no single resolved target"
+            elif _starts_ambiguous(case, oracle) and len(case["utterances"]) < 2:
+                reason = "the reference starts ambiguous and the case has no clarifying turn before the governed write (A116)"
+            else:
+                continue
+            out.setdefault(case_id, {"held_on": issue, "rule_id": rule_id, "condition": rule["condition"], "reason": reason})
     return out
