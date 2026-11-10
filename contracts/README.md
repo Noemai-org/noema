@@ -33,6 +33,8 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 
 `schemas/benchmark-case-result.v2.json` and `schemas/benchmark-scorecard.v2.json` sit beside their v1 files, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` pins their bytes). Task BEN-30; PERD REQ-BEN-009; decision record `DEC-2026-10-31-proof-depth-and-completeness` (D5, D6); approved by the Architect on 2 Nov 2026.
 
+`schemas/benchmark-scorecard.v3.json` sits beside v2, which is not edited (AGENT-15; `tools/contracts/test_benchmark_v3.py` pins its bytes): v2 plus the required `exact_upper95` on every rate (ruling A1; the exact zero-failure bound 1 − 0.05^(1/n)). Fixtures: `fixtures/{valid,invalid}/benchmark-scorecard.v3`.
+
 - **What v2 is.** The case result gains the required integer `turns` (customer turns the runner sent through the public API). The scorecard's `tier1.diagnostics` gains `pass_k` (k fixed at 5; `available: false` with a reason when 5 runs were not supplied, never computed from another k), `turns_to_resolution`, `unnecessary_clarification`, `auto_resolve_precision` and `definitions` (the pre-registered definitions applied). Diagnostics, not gates; no threshold (AGENT-16).
 - **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v1 or v2, never both (tests). The runner, the scorer, its report and CLI move together. `benchmark/replay` (noema#102) validates v1 results and moves to v2 in whichever pull request merges second.
 - **Fixtures.** `fixtures/{valid,invalid}/benchmark-case-result.v2` and `benchmark-scorecard.v2`: every v1 fixture with the new members, plus new valid and invalid cases. No generated models exist yet (CON-03).

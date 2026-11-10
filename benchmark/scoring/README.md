@@ -61,3 +61,7 @@ Each `--repeat-results` is another run of the same cases with its own run ID; on
 `make bench-test` runs unit, property and CLI tests and `mypy --strict`. Each gate has a canary that must trip it; the
 properties cover purity, input-order independence, "one violation adds exactly one to its gate and lowers no other",
 "Tier 0 is never compensated" and "no report without Tier 0". `NOEMA_PROPERTY_PROFILE=deep` runs ten times the examples.
+
+## Scorecard v3 (exact bound)
+
+`benchmark.scoring.v3.scorecard_v3(card)` returns the v2 scorecard with `exact_upper95` on every rate: `1 - 0.05^(1/n)` when no failure was counted in `n` cases, null otherwise (Architect ruling A1 of 10 Nov 2026; Founders' E5). `rule_of_three_upper` (3/n) is kept beside it and not relabelled. The v2 scorer path is unchanged; the CLI switches to v3 only after the contract set (F3) is approved. Contract: `contracts/schemas/benchmark-scorecard.v3.json`.
