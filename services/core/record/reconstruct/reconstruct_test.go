@@ -841,7 +841,7 @@ func TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability(t *testing.T
 		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
 		{writtenBy: "core-execution", eventType: "REVALIDATION_PASSED", objectRef: grantID, payload: map[string]any{"grant_id": grantID}},
 		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
-		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability_id": capability}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
 	}...)
 	raw, err := build(t, w, tenant, "corr_s9")
 	if err != nil {
@@ -863,7 +863,7 @@ func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *test
 	w.append(t, tenant, "corr_s9b", []ev{
 		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
 		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
-		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability_id": capability}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
 		{writtenBy: "core-execution", eventType: "RECEIPT", objectRef: grantID, payload: map[string]any{"receipt_id": "rcp_synth0009", "grant_id": grantID, "attempt": 1,
 			"logical_action": "ESCALATE_CASE", "execution_state": "ACKNOWLEDGED", "transport_result": "ACK_2XX"}},
 	}...)
