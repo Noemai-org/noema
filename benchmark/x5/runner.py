@@ -24,8 +24,8 @@ class Result:
     problems: list[str] = field(default_factory=list)
 
 
-def run(m: Manifest, *, facade_url: str, bench_token: str, driver: Driver) -> Result:
-    client = FacadeClient(facade_url, bench_token)
+def run(m: Manifest, *, facade_url: str, bench_token: str, driver: Driver, control_url: str | None = None) -> Result:
+    client = FacadeClient(facade_url, bench_token, control_url)
     client.put_clock(m.clock_start)  # the runner owns time and sets it once; it never moves backwards
     runs: list[Json] = []
     problems: list[str] = []

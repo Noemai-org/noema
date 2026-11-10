@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.x5 import driver, manifest, runner
+from benchmark.x5.facade_client import FacadeError
 
 Json = dict[str, Any]
 BENCH = "bench-token-for-the-x5-unit-tests-0123456789"
@@ -23,7 +24,7 @@ PACK_TOOLS = ["lookup_transaction", "get_transaction_status"]
 class FakeFacade:
     """The facade's contract (data: GET /tools, POST /tools/{name}; control: PUT sessions and clock, GET calls), in memory, for the unit tests only."""
 
-    def __init__(self, *, hide: tuple[str, ...] = (), forget: bool = False) -> None:
+    def __init__(self, *, hide: tuple[str, ...] = (), forget: bool = False, split: bool = False) -> None:
         self.sessions: dict[str, Json] = {}
         self.clock_set = False
         self.calls: list[Json] = []
@@ -31,8 +32,15 @@ class FakeFacade:
         self.forget = forget  # a facade that fails to log: the oracle disagrees with what was sent
         self.requests: list[str] = []
         facade = self
+        self.split = split  # the real facade: the data side and the control side listen on two ports, each refusing the other's routes
 
         class Handler(BaseHTTPRequestHandler):
+            def _wrong_side(self) -> bool:
+                if not facade.split:
+                    return False
+                control = self.path.startswith("/control/")
+                return control != (self.server.server_port == facade.control_port)
+
             def log_message(self, *_: Any) -> None:
                 return
 
@@ -53,6 +61,8 @@ class FakeFacade:
 
             def do_GET(self) -> None:
                 facade.requests.append("GET " + self.path)
+                if self._wrong_side():
+                    return self._send(404, {})
                 if self.path == "/control/v1/calls":
                     if self._token() != BENCH:
                         return self._send(401, {})
@@ -67,6 +77,8 @@ class FakeFacade:
 
             def do_PUT(self) -> None:
                 facade.requests.append("PUT " + self.path)
+                if self._wrong_side():
+                    return self._send(404, {})
                 if self._token() != BENCH:
                     return self._send(401, {})
                 data = json.loads(self._body() or b"{}")
@@ -80,6 +92,8 @@ class FakeFacade:
 
             def do_POST(self) -> None:
                 facade.requests.append("POST " + self.path)
+                if self._wrong_side():
+                    return self._send(404, {})
                 sess = facade.sessions.get(self._token())
                 if sess is None:
                     return self._send(401, {})
@@ -96,10 +110,20 @@ class FakeFacade:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.control_port = self.server.server_address[1]
+        self.control_url = self.url
+        self.control_server = None
+        if split:
+            self.control_server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+            self.control_port = self.control_server.server_address[1]
+            self.control_url = f"http://127.0.0.1:{self.control_port}"
+            threading.Thread(target=self.control_server.serve_forever, daemon=True).start()
 
     def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
+        for server in (self.server, self.control_server):
+            if server is not None:
+                server.shutdown()
+                server.server_close()
 
 
 def good_manifest(**over: Any) -> Json:
@@ -157,6 +181,14 @@ class DryRun(unittest.TestCase):
     def run_it(self, m: Json, script: dict[str, list[str]] | None = None, facade: FakeFacade | None = None) -> runner.Result:
         f = facade or self.facade
         return runner.run(load(m), facade_url=f.url, bench_token=BENCH, driver=driver.Scripted(script or {}))
+
+    def test_the_real_facade_has_two_listeners_so_the_control_url_is_separate(self) -> None:  # noema#361: data and control sides on two ports
+        f = FakeFacade(split=True)
+        self.addCleanup(f.close)
+        with self.assertRaises(FacadeError):  # one URL for both sides cannot reach the control routes on the data port
+            runner.run(load(good_manifest()), facade_url=f.url, bench_token=BENCH, driver=driver.Scripted({}))
+        r = runner.run(load(good_manifest()), facade_url=f.url, control_url=f.control_url, bench_token=BENCH, driver=driver.Scripted({}))
+        self.assertEqual(r.problems, [])
 
     def test_a_clean_dry_run_emits_the_scorer_shape_with_no_calls(self) -> None:
         r = self.run_it(good_manifest())

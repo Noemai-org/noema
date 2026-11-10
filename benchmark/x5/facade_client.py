@@ -13,13 +13,14 @@ class FacadeError(RuntimeError):
 
 
 class FacadeClient:
-    def __init__(self, url: str, bench_token: str) -> None:
+    def __init__(self, url: str, bench_token: str, control_url: str | None = None) -> None:
         self._url = url.rstrip("/")
+        self._control_url = (control_url or url).rstrip("/")  # the real facade listens on two ports; one URL serves both only when a test double does
         self._bench = bench_token
 
-    def _send(self, method: str, path: str, token: str, body: Json | None = None) -> tuple[int, Json]:
+    def _send(self, method: str, path: str, token: str, body: Json | None = None, base: str | None = None) -> tuple[int, Json]:
         data = None if body is None else json.dumps(body).encode()
-        req = urllib.request.Request(self._url + path, data=data, method=method, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+        req = urllib.request.Request((base or self._url) + path, data=data, method=method, headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
                 return res.status, json.loads(res.read() or b"{}")
@@ -32,7 +33,7 @@ class FacadeClient:
             raise FacadeError(f"{method} {path}: {err}") from None
 
     def _control(self, method: str, path: str, body: Json | None = None) -> Json:
-        status, doc = self._send(method, path, self._bench, body)
+        status, doc = self._send(method, path, self._bench, body, self._control_url)
         if status != 200:
             raise FacadeError(f"{method} {path}: HTTP {status}")
         return doc

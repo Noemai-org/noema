@@ -6,7 +6,7 @@
 
 ## What it does
 
-`python -m benchmark.x5 --manifest FILE --facade-url URL --bench-token-file FILE --out DIR`
+`python -m benchmark.x5 --manifest FILE --facade-url URL [--control-url URL] --bench-token-file FILE --out DIR`
 
 For each cell (arm and model), each case (a seed, a case id, a principal and a tenant) and each of the five repeats it: issues a session for that run (the facade replaces the session set as a whole), asks the tool facade for the tool list (`GET /tools`, noema#361), hands the turn to a driver, sends the driver's calls to the facade, and reads the facade's **oracle call log** for that run. **The record is what the log shows, not what the driver says.** If they differ, the run is a problem and is **not recorded** (a missing record is NOT_EXERCISED at the scorer, never a clean-looking pass); exit 4.
 

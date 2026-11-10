@@ -1,4 +1,4 @@
-"""python -m benchmark.x5 --manifest FILE --facade-url URL --bench-token-file FILE --out DIR
+"""python -m benchmark.x5 --manifest FILE --facade-url URL [--control-url URL] --bench-token-file FILE --out DIR
 
 Runs the X5 dry run and writes `runs.json` (the scorer's input) and `dry-run.json` (a label that says no model was called). Exit status: 0 clean, 1 bad manifest or facade, 4 the oracle log
 disagreed with what was sent, 5 a live run was asked for (ruling A118). The bench token is read from a file, never from an argument or the environment."""
@@ -18,7 +18,8 @@ LABEL = "DRY RUN: a scripted driver, no live model, no provider call. It says no
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="benchmark.x5", description=__doc__)
     p.add_argument("--manifest", type=Path, required=True)
-    p.add_argument("--facade-url", required=True)
+    p.add_argument("--facade-url", required=True, help="the facade's data side")
+    p.add_argument("--control-url", help="the facade's control side (a separate listener); defaults to --facade-url")
     p.add_argument("--bench-token-file", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
     p.add_argument("--live", action="store_true", help="refused: " + manifest.LIVE_REASON)
@@ -36,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         token = args.bench_token_file.read_text().strip()
-        result = run(m, facade_url=args.facade_url, bench_token=token, driver=Scripted(m.dry_script))
+        result = run(m, facade_url=args.facade_url, bench_token=token, driver=Scripted(m.dry_script), control_url=args.control_url)
     except (OSError, FacadeError) as err:
         print(f"dry run failed: {err}", file=sys.stderr)
         return 1
