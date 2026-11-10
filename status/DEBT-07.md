@@ -28,3 +28,13 @@ Updated 2026-11-05. DEBT-07 (Tier 0 until closed with EDG-01; docs#106 R16, OD-P
 ### Pre-work for the next agent
 - Exact next step: DEBT-13, the same per-login secret for the tenant and power logins (`init.sh` loop over `trust_rw` and the other groups); A6 for the Execution and Record tables.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-10 · DEBT-07 / EDG-01 slice 2: the upgrade-path test (ruling A113)
+### Session summary
+- What changed (PR links): noema#181: merged `main` (the README conflict only) and added `services/core/platform/db/migration_order_test.go`.
+- Why: the Architect's ruling A113 (noema#393, 10 Nov): the numbers stay as assigned and may merge below one on `main`, in strict ascending order, because a database at `main` that is then given a lower file must end with the same catalog as a fresh one. This PR is the first of the lower-numbered files to merge, so it carries the test.
+- Tests added (REQ-DATA-001, REQ-AUD-006): `TestALowerNumberedMigrationAppliedAfterAHigherOneGivesTheSameCatalog`: for every file numbered 0011 to 0016, migrate a database without it, then with it, and compare with a fresh database: function bodies (`pg_get_functiondef`), owners, ACLs and `search_path` settings, triggers, relations and column ACLs, constraints, indexes, policies. It passes on this branch (a guard; there is no red run). A temporary pair of files, `0012` creating a function and `0016` replacing it, makes it fail on the function body (checked and removed).
+- Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- The test finds the lower files by glob, so the next lower-numbered PR to merge (0012, 0013, 0014, 0015, 0016) is covered with no change to it. Merge order is strictly ascending (A113): #181, #168, #229, #233, #259, #234, #261, #263, #268, #272.
