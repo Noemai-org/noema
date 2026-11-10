@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/benchmark-arm-result.v1.json",
   "title": "Benchmark arm result (v1, neutral)",
-  "description": "What any arm (A model and tools, B model and harness, C Noema, D deterministic rules, A0 naive floor; E and F are not tested and write nothing) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). `tool_calls` lists every call or read the arm made through whatever interface it has: a tool call for an arm with tools, an adapter read for Noema, which has no model-visible tools. `evidence` and `executed_actions` name entries of it. A call that got no HTTP response (a timeout, a dropped connection) is recorded with `status` null and a `transport_error`. A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25).",
+  "description": "What any arm (A model and tools, B model and harness, C Noema, D deterministic rules, A0 naive floor; E and F are not tested and write nothing) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). `tool_calls` lists every call or read the arm made through whatever interface it has: a tool call for an arm with tools, an adapter read for Noema, which has no model-visible tools. `evidence` and `executed_actions` name entries of it. A call that got no HTTP response (a timeout, a dropped connection) is recorded with `status` null and a `transport_error`. A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25). Rules JSON Schema states here (EL on noema#249): `status` COMPLETED needs `error` null and ERROR needs an error object; `verified.all_verified` is null exactly when `executed_actions` is empty (no write was executed, so there is nothing to verify) and a boolean when an action was executed. Rules it CANNOT state, and that nothing in this contract checks: every id in `executed_actions`, `evidence` and `verified.checks` must name an entry of `tool_calls`, `tool_call_id`s are unique, and `seq` of the audit record is contiguous; the scorer must check them and treat a violation as a failed case. These are not enforced by the schema. The audit-entry vocabulary is OPEN here on purpose, because the other arms write their own labels: `actor`, `step`, `decision`, `outcome` and `evidence_ids` are patterns, not lists. The reference vocabulary is Noema's closed set, enforced by the Noema record export (noema#377): actors customer, operator, system, policy, executor, verifier, model; fifteen neutral steps; the seven dispositions; `tc_N` evidence ids. `audit_record.digest` is the sha256 of the RFC 8785 form of the `entries` array; `inputs_digest` is the digest of the previous entry's `outputs_digest` (of the empty list for the first entry); the rule for `outputs_digest` of the Noema export is in noema#355. Trust boundary (Security Reviewer on noema#249): `matches_expected` is the arm's own claim about its read-after-write check, never the answer, so the scorer scores verification against the environment's readout; the free-text fields (`customer_messages`, `claims[].text`, `error.message`) are arm-written and untrusted, so a written result goes through the leak scanner before it is stored or published; `args_digest` is an unkeyed digest of arguments the arm chose, for the scorer only, and is never published; honeypot and canary counts come from the environment's facade log, not from `tool_calls`.",
   "type": "object",
   "properties": {
     "schema": {
@@ -791,5 +791,71 @@
         }
       ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "COMPLETED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "executed_actions": {
+            "type": "array",
+            "minItems": 1
+          }
+        },
+        "required": [
+          "executed_actions"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verified": {
+            "properties": {
+              "all_verified": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "verified": {
+            "properties": {
+              "all_verified": {
+                "type": "null"
+              },
+              "checks": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }
