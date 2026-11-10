@@ -17,8 +17,10 @@ The report carries what a published number needs (n, the method and an interval)
 from order statistics of the binomial, so it makes no assumption about the latency distribution; with a sample too small to
 bound the percentile from above, the upper bound is infinite, and with one too small to bound it from below the lower bound is
 0.0, rather than a guess. The correctness interval is the exact (Clopper-Pearson) binomial interval, which never under-covers.
-The verdict follows the point estimate of the P95, as PERD §45.4 words it; `notes` says when failures or an open upper bound
-mean the evidence is weaker than the verdict reads.
+A latency claim passes only if the upper 95% bound of the P95 is at or below the target (ruling A126b of the Architect sync of
+10 Nov 2026; not yet committed in a decision record, so this PR says "do not merge before" it). A correctness claim passes only
+if the lower bound of its exact interval is at or above its floor (the F5 lower floor, 80%); the rate floor (90%) also stays.
+`notes` says how many sessions had no usable latency.
 
 Records hold references and times only: no audio and no transcript (AGENT-13). A session with no consent reference is refused,
 since its audio could not be stored (REQ-VOI-004).
@@ -247,6 +249,8 @@ def analyse(
         reasons.append("pidgin share below the minimum")
     if m.p95_ms > target_ms:
         reasons.append("p95 over the target")
+    elif m.ci_high_ms > target_ms:
+        reasons.append("p95 upper bound over the target")  # A126b: the evidence must rule out a P95 over the target
     if m.correct_rate < correctness_floor:
         reasons.append("correctness below the floor")
     if m.correct_ci_low < correctness_lower_floor:
@@ -256,9 +260,6 @@ def analyse(
     notes: list[str] = []
     if m.n_failed:
         notes.append(f"{m.n_failed} of {m.n} sessions have no usable latency and are counted as infinite")
-    if m.ci_high_ms > target_ms:
-        notes.append("the upper bound of the P95 interval is above the target: the point estimate is within it, "
-                     "but the evidence does not rule out a P95 over it")
     return FieldAnalysis(
         verdict=GateVerdict.FAIL if reasons else GateVerdict.PASS,
         reasons=tuple(reasons),
