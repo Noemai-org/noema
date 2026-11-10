@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -91,6 +92,15 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{}, fmt.Errorf("%sread decision: %w", errPrefix, err)
 	}
 	if !allowed {
+		return c.void(ctx, g, VoidPolicySuperseded)
+	}
+	// A grant binds the exact policy_id and version it was decided under: if the active version of that policy_id is not the grant's, or the
+	// grant names none, or the policy has none, the grant is refused and the case goes back to Trust (a recovery request), never executed.
+	active, err := c.Bind.ActivePolicyVersion(ctx, g)
+	if err != nil {
+		return Outcome{}, fmt.Errorf("%sread active policy: %w", errPrefix, err)
+	}
+	if !policyBound(g.PolicyVersion) || active != g.PolicyVersion {
 		return c.void(ctx, g, VoidPolicySuperseded)
 	}
 	if err := c.at(PointAfterE4); err != nil {
@@ -283,3 +293,11 @@ func (c *Controller) sign(rc Receipt) (Receipt, error) {
 	rc.Sig = Sig{KeyID: c.ReceiptKeyID, Value: sig}
 	return rc, nil
 }
+
+// policyShape is the grant contract's pattern for policy_version (decision-grant.v1): a lower-case dotted policy ID, "@", and a numeric
+// dotted version of two or three components.
+var policyShape = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+
+// policyBound reports whether v has the form the grant contract requires. Only then can it be compared; equality of two malformed values
+// proves nothing, so it fails closed.
+func policyBound(v string) bool { return policyShape.MatchString(v) }
