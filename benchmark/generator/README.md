@@ -66,3 +66,7 @@ make bench-test       # or: python -m unittest discover -s benchmark/generator -
 `test_generate.py` proves determinism (byte-identical, a golden manifest digest), the quotas, case-id numbering, the Pidgin share, schema validity of every output, and oracle, fixture and fault-plan consistency. `test_coverage.py` proves the report passes on the suite and fails when a story, a capability, a category or the Pidgin share is removed. A deliberate change to the suite bumps `GENERATOR_VERSION` and the pinned digest in one commit.
 
 **1.3.1 (7 Nov 2026, ruling A37):** the roles of the pack and of the cases are the four session roles of ruling A1 (customer, ops, approver, audit). The pack's `ops_agent` is `ops`; the case role `viewer` is `audit` (read-only). Three cases and the pack's trust profiles change, so the manifest digest changes (pinned in `test_generate.py`).
+
+## The arm view
+
+`benchmark.generator.arm_view.arm_case(case, role_map, salt=...)` projects a generated case to `benchmark-arm-case.v1`, the only thing an arm is shown (noema#260). It carries the principal's role-level `permitted_capabilities` from the role map (pack data, noema#359), never the case's own list, which is built from what the case expects to write and so varies by case (Security Reviewer F-14, noema#307). `case_ref` and `fixture_ref` are digests of a run-private salt, so only the runner can map them back. Test: `test_arm_view.py` (including the within-role invariance test).
