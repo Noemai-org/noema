@@ -16,6 +16,12 @@ BASH = os.environ.get("RELAY_TEST_BASH") or shutil.which("bash")
 UUID = "0b9f2a6e-3c1d-4e7a-9a52-7d1e8c4b6f03"
 
 
+class ImagePin(unittest.TestCase):
+    def test_the_caddy_image_is_pinned_by_digest(self) -> None:  # PLT-02 pinning rule; a tag can move, a digest cannot (ENV-13, noema#189)
+        line = next(l for l in SCRIPT.read_text().splitlines() if l.startswith("caddy_image="))
+        self.assertRegex(line, r'^caddy_image="caddy:2\.8\.4@sha256:[0-9a-f]{64}"$')
+
+
 class SetupCheck(unittest.TestCase):
     def setUp(self) -> None:
         # A test that cannot run is a failure, never a silent skip (set RELAY_TEST_BASH to a bash on a machine without one on PATH).
