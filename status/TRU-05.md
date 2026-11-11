@@ -1,3 +1,15 @@
+
+# Session 2026-11-08 · TRU-05 slice 2 (noema#168)
+
+## Session summary
+- What changed: the Architect's ruling of 8 Nov 2026 on noema#329, all four rules in the database. (d) a CHECK `decision_record_bound_fields`; (a) to (c) in `decision_grant_requires_allow`. Fixtures that insert records and grants directly now carry the bound fields (`testpg.BoundFieldsSQL`, `testpg.GrantBoundSQL`, `testpg.DecisionDocJSON`).
+- Tests added (REQ-TRU-008, INV-17): four, in `platform/db/grant_matches_record_test.go`, seen failing before the migration change.
+- Risks: a grant fixture that omits the intent hash, policy version or a valid expiry is now refused; every existing fixture was updated and the whole `services/core` suite passes locally.
+- Not done: SR's note 5 (owner policy under a non-superuser owner stays unproven). #168 needs a fresh reviewer READY at the new head.
+
+## Pre-work for the next agent
+- Branches stacked on #168 (#197, #237, #261, #233) insert records or grants directly in tests: merge this head in and add the bound fields.
+
 # Status · TRU-05 (Decision Records before grants; HMAC grants over JCS; two active keys)
 
 State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 12:58 UTC), so the task started the same day.
@@ -26,3 +38,11 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 ## Session 2026-11-05 (evening) · TRU-05 slice 1 follow-ups from Codex
 - A grant now needs a `reconcile.Permission` bound to the step's capability **and target** (`FreezeGate.PermitTarget`, additive in `trust/reconcile/freeze.go`; `Permit` is unchanged and yields a permission that names no target, which opens no grant). The `frozen` flag a caller passes comes from the reconciliation result for that same target; the gate does not read freeze state itself. The pack version of the basis is checked against the grant contract's pattern before signing. Both found by Codex at `9dbb363` and `4546400`; tests first, mutants caught.
 - Touches `trust/reconcile` (T6.2, another task) additively; the existing `Permit` tests in `internal/corpus` are unchanged and pass.
+
+# Session 2026-11-08 · TRU-05 signature domain separation
+
+## Session summary
+- What changed: ruling of 8 Nov 2026 on noema#292. A grant signature covers `noema/decision-grant/v1`, a 0x00 byte, then the JCS bytes; the confirmation request gets its own label, `noema/confirmation-request/v1`, in `platform/crypto` for the confirmation signer to use. Trust's issuer, Execution's E1 and every test signer use `crypto.GrantSigningMessage`. Golden vectors 1.0 to 1.1 (`grant_signing_vectors`: new value, `domain_label`, `must_not_verify`), with the migration note in `contracts/fixtures/README.md`; the independent Python checker (`tools/check_vectors.py`) agrees with the Go value.
+- Tests added (REQ-TRU-008, INV-03): `TestGrantSigningVector` (rewritten), `TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused`, two E1 cases in `TestEachCheckVoidsTheGrantWithItsReason`. Seen failing first.
+- Risks: P0 path and a contract fixture change (AGENT-15); both Founders approve. No stored grant exists, so nothing migrates. Stacked on noema#163.
+- Not done: the confirmation signer does not exist yet; this PR only reserves its label and message function.
