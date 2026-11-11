@@ -1,0 +1,41 @@
+# Tool facade CI (arm-facing tool facade; Architect ruling R1, 8 Nov 2026). Builds and tests synthetic/toolfacade only, the test-environment service where
+# the comparison arms meet the same environment as Noema. No GitHub Environment: it needs no secret. The workflow always triggers so its check always
+# reports; the path filter runs inside the job. The test reads packs/fintech_v1.json, so a change to the pack also runs it.
+name: toolfacade
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  toolfacade:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            if git diff --name-only "$base" HEAD | grep -qE '^(synthetic/toolfacade/|packs/fintech_v1\.json|\.github/workflows/toolfacade\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+          else
+            echo run=true >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.changed.outputs.run == 'true'
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: synthetic/toolfacade/go.mod
+          cache: false
+      - if: steps.changed.outputs.run == 'true'
+        working-directory: synthetic/toolfacade
+        run: |
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test -race -count=1 ./...
+          go build ./...
+      - if: steps.changed.outputs.run == 'true'
+        run: docker build -t noema-toolfacade:ci synthetic/toolfacade
+      - if: steps.changed.outputs.run != 'true'
+        run: echo "no synthetic/toolfacade change; nothing to build"

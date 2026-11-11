@@ -37,3 +37,19 @@ Clients of the synthetic enterprise behind the interfaces in `adapters` (PERD §
 ## Corrupted payloads (ENV-15, REQ-ENV-005 as amended)
 
 `testdata/corrupted_recordings.json` holds 18 exchanges: three operations (get by id, find by key, create) under six corrupted-payload families (truncated body, invalid JSON, wrong `Content-Type`, empty body with a success status, extra field, missing required field). They were made by the real hostility proxy, over a real connection, in front of responses recorded from the real mock-case; nothing is written by hand. `benchmark/hostility_proxy` regenerates the file in memory and fails if the committed copy differs (`NOEMA_RECORD_CORRUPTED=1 go test ./internal/proxy -run TestCorruptedCaseExchanges` re-records it). `TestEveryCorruptedPayloadIsNeverAFactOrASuccess` requires each read to be `MALFORMED` or `UNAVAILABLE` and each write to be an unknown outcome (`NO_RESPONSE`, `201:UNRECOGNISED`, no acknowledgement). A 2xx body is read only when the response declares `application/json`; error statuses keep their classification whatever their `Content-Type`.
+
+## StandinClient (ENV-04/05, 6 Nov 2026)
+
+The client of the Noema-side stand-in (`synthetic/standin`), implementing the read ports `Transactions`, `Ledger`, `Switch` and `Destination` of `adapters/fin.go`. Read-only: no write method, no control path, never the loader's credential (a test reads the source). It holds the runtime token and the principal key (files; they must differ) and mints `X-Principal-Assertion` from the `Scope`'s principal on each call (INV-12); the clock is injected. What the Evidence Layer relies on (noema#174 comment):
+
+| Expectation | Behaviour |
+|---|---|
+| deadline on every call | no deadline in the context: `ReadInvalid` `ADAPTER:NO_DEADLINE`, nothing sent |
+| typed errors | `*adapters.ReadError`: 503, 5xx, 429 (with `RetryAfter`) and transport failures are `UNAVAILABLE` with `RawCode` `TIMEOUT`, `CONNECTION_RESET`, `NO_RESPONSE` or `<status>:<CODE>`; 404 `NOT_FOUND`; 400 `INVALID`; 401/403 `UNAUTHORIZED`; anything else `MALFORMED` |
+| `unavailable: true` | `Unavailable` on the read (never an empty answer); the stand-in's `UNAVAILABLE` state strings are not read as states |
+| hash of the wire bytes | `Provenance.RawHash` = `sha256:` + SHA-256 of the exact response bytes |
+| labels | `data_source: "stand-in"` and `synthetic: true` are required and passed through in `Provenance`; any other label is `MALFORMED` |
+| schema drift | unknown fields, wrong `Content-Type`, truncated or trailing data, unknown enum values, a transaction other than the one asked for: `MALFORMED` (UNKNOWN) |
+| no pagination | the stand-in has none; an answer with more items than the query's `Limit` is `MALFORMED`, never cut |
+
+Tests: `standin_client_test.go` (the pinned assertion vector of the stand-in README, every status above, the request's credentials and expiry, a missing deadline, a timeout). Four deliberate breaks of the client (label check, hash, limit check, assertion lifetime) were each caught.

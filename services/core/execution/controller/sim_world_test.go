@@ -170,11 +170,29 @@ func (w *World) IssueGrantWithPolicy(n int, notBefore, expires time.Time, policy
 	if err != nil {
 		panic(err)
 	}
-	sig, err := w.Keys.SignWith(KeyID, canon)
+	sig, err := w.Keys.SignWith(KeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		panic(err)
 	}
 	return controller.SignedGrant{Grant: g, Sig: controller.Sig{KeyID: KeyID, Value: sig}}
+}
+
+// SignWithMessage signs g's grant again with a message built by msg from the grant's JCS bytes; a nil msg signs the bare JCS bytes. It is how a test makes
+// a signature that is not a grant signature (ruling of 8 Nov 2026 on noema#292).
+func (w *World) SignWithMessage(g controller.SignedGrant, msg func([]byte) []byte) controller.SignedGrant {
+	canon, err := crypto.CanonicalJSON(g.Grant)
+	if err != nil {
+		panic(err)
+	}
+	if msg != nil {
+		canon = msg(canon)
+	}
+	sig, err := w.Keys.SignWith(KeyID, canon)
+	if err != nil {
+		panic(err)
+	}
+	g.Sig = controller.Sig{KeyID: KeyID, Value: sig}
+	return g
 }
 
 // Resign signs g's grant again after a test changed it.
@@ -183,7 +201,7 @@ func (w *World) Resign(g controller.SignedGrant) controller.SignedGrant {
 	if err != nil {
 		panic(err)
 	}
-	sig, err := w.Keys.SignWith(KeyID, canon)
+	sig, err := w.Keys.SignWith(KeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		panic(err)
 	}
