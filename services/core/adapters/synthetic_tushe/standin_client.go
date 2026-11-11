@@ -45,7 +45,7 @@ var (
 
 const (
 	standinLabel          = "stand-in"
-	assertionMACLabel     = "noema-standin-principal-v1"
+	assertionMACLabel     = "noema-standin-principal-v2"
 	assertionAudience     = "standin"
 	assertionLifetime     = time.Minute // the stand-in refuses more than five
 	standinBasePath       = "/standin/v1"
@@ -103,18 +103,19 @@ func readCredential(path string) (string, error) {
 	return v, nil
 }
 
-// standinAssertion is the contract of synthetic/standin/README.md: v1.<base64url(principal)>.<expiry>.<hex MAC>, the MAC being
-// HMAC-SHA-256 over the four lines label, audience, principal and expiry.
-func standinAssertion(key []byte, principal string, expiry int64) string {
+// standinAssertion is the contract of synthetic/standin/README.md: v2.<base64url(principal)>.<base64url(tenant)>.<expiry>.<hex MAC>, the MAC being
+// HMAC-SHA-256 over the five lines label, audience, principal, tenant and expiry. Principal and tenant both come from the session scope (INV-12, A135).
+func standinAssertion(key []byte, principal, tenant string, expiry int64) string {
 	m := hmac.New(sha256.New, key)
-	_, _ = fmt.Fprintf(m, "%s\n%s\n%s\n%d", assertionMACLabel, assertionAudience, principal, expiry)
-	return fmt.Sprintf("v1.%s.%d.%s", base64.RawURLEncoding.EncodeToString([]byte(principal)), expiry, hex.EncodeToString(m.Sum(nil)))
+	_, _ = fmt.Fprintf(m, "%s\n%s\n%s\n%s\n%d", assertionMACLabel, assertionAudience, principal, tenant, expiry)
+	return fmt.Sprintf("v2.%s.%s.%d.%s", base64.RawURLEncoding.EncodeToString([]byte(principal)), base64.RawURLEncoding.EncodeToString([]byte(tenant)), expiry, hex.EncodeToString(m.Sum(nil)))
 }
 
 // answer is one HTTP 200 body with the hash of the exact bytes received.
 type answer struct {
-	raw  []byte
-	hash string
+	raw    []byte
+	hash   string
+	tenant string // the tenant of the session that asked: an answer must name the same one (A135)
 }
 
 // get sends one GET and maps every outcome that is not a readable 200 to an *adapters.ReadError. The caller's context must carry a
@@ -136,7 +137,7 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 		return answer{}, &adapters.ReadError{Failure: adapters.ReadInvalid, RawCode: "ADAPTER:INVALID_INPUT"}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("X-Principal-Assertion", standinAssertion(c.key, scope.PrincipalID, c.now().Add(assertionLifetime).Unix()))
+	req.Header.Set("X-Principal-Assertion", standinAssertion(c.key, scope.PrincipalID, scope.TenantID, c.now().Add(assertionLifetime).Unix()))
 	req.Header.Set("Accept", "application/json")
 	res, err := c.http.Do(req)
 	if err != nil {
@@ -156,7 +157,7 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 	if !isJSONResponse(res.Header) {
 		return answer{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(res.StatusCode), RawHash: hash}
 	}
-	return answer{raw: raw, hash: hash}, nil
+	return answer{raw: raw, hash: hash, tenant: scope.TenantID}, nil
 }
 
 // malformed200 is a 2xx the client cannot trust; it carries the hash of the bytes that were received.
@@ -168,10 +169,11 @@ func malformed200(hash string) error {
 type label struct {
 	DataSource string `json:"data_source"`
 	Synthetic  bool   `json:"synthetic"`
+	TenantID   string `json:"tenant_id"`
 }
 
 func (a answer) provenance(l label) (adapters.Provenance, error) {
-	if l.DataSource != standinLabel || !l.Synthetic {
+	if l.DataSource != standinLabel || !l.Synthetic || a.tenant == "" || l.TenantID != a.tenant { // an answer for another tenant, or for none, is a misrouted read
 		return adapters.Provenance{}, malformed200(a.hash)
 	}
 	p := adapters.Provenance{RawHash: a.hash, DataSource: l.DataSource, Synthetic: l.Synthetic}
