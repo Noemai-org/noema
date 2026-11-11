@@ -243,7 +243,8 @@ def test_the_gateway_reads_no_wall_clock_and_imports_no_provider_or_decision_cod
 
 # CR-2026-11-08-VOI-canonical-input-audio-ref (docs#137), REQ-VOI-004, AGENT-13: `null` means the audio was discarded, which is the default and the only value the Gateway
 # lets through until a consent-backed retention path exists. A non-null reference of any shape is refused, with a reason that never carries the value.
-@pytest.mark.parametrize("value", ["raw_01J9X3KQ7M", "rec_raw_01J9X3", "aud_01J9X3KQ7M", "", "UklGRiQAAABXQVZFZm10IBAAAAABAAEA=", "raw_" + "A" * 40, 7, True, [], {}])
+@pytest.mark.parametrize("value", ["raw_01J9X3KQ7M", "rec_raw_01J9X3", "aud_01J9X3KQ7M", "", "UklGRiQAAABXQVZFZm10IBAAAAABAAEA=", "raw_" + "A" * 40, 7, True, [], {},
+                                   "raw_01J9X3KQ7M\n", " raw_01J9X3KQ7M", "raw_\uff21\uff22\uff11\uff12", "RAW_01J9X3KQ7M", "raw_\u0130\u0130", "raw_\u017f\u017f", "\u0000", "raw_" + "9" * 100000])
 def test_a_non_null_audio_reference_is_refused_whatever_its_shape(value: Any) -> None:
     with pytest.raises(InputInvalid) as caught:
         GATEWAY.canonicalise(voice_raw(audio_ref=value), CTX)
