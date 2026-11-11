@@ -54,7 +54,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 
 	// E1: signature, under any active key ID.
 	canon, err := crypto.CanonicalJSON(g)
-	if err != nil || !c.Keys.VerifyWith(sg.Sig.KeyID, canon, sg.Sig.Value) {
+	if err != nil || !c.Keys.VerifyWith(sg.Sig.KeyID, crypto.GrantSigningMessage(canon), sg.Sig.Value) {
 		return c.void(ctx, g, VoidSignatureInvalid)
 	}
 	if err := c.at(PointAfterE1); err != nil {

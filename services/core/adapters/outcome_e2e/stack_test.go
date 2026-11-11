@@ -131,9 +131,13 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sig, err := s.keys.SignWith(execKeyID, canon)
+	sig, err := s.keys.SignWith(execKeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return "", err
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant, testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
+		return "", fmt.Errorf("store decision: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, '1', $7, $8, $9)`, g.GrantID, tenant, g.DecisionID, g.Nonce, string(canon), policyScope, g.ExpiresAt, execKeyID, sig); err != nil {
