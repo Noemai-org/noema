@@ -16,6 +16,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/adapters"
 	"github.com/Noemai-org/noema/services/core/adapters/synthetic_tushe"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -99,7 +100,7 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)) // SYNTHETIC
 	gen := ids.New(clk, nil)
-	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: recordsig.For(t, admin, "evidence-faults", nil, "core-evidence")}}
 
 	steps := []struct {
 		name      string
@@ -192,7 +193,7 @@ func TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale(t *tes
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)) // SYNTHETIC
 	gen := ids.New(clk, nil)
-	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	builder := &layer.Builder{Pool: testpg.TenantLogin(t, admin, dsn, "evidence_rw", tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: recordsig.For(t, admin, "evidence-faults", nil, "core-evidence")}}
 
 	rctx, stop := context.WithTimeout(context.Background(), 10*time.Second)
 	defer stop()

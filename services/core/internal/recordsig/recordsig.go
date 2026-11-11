@@ -61,8 +61,7 @@ func For(t testing.TB, admin *pgxpool.Pool, label string, base map[string]chain.
 		if _, ok := out[id]; ok {
 			continue
 		}
-		sum := sha256.Sum256([]byte(fmt.Sprintf("SYNTHETIC recordsig %s %s", label, id)))
-		priv := ed25519.NewKeyFromSeed(sum[:])
+		priv := synthKey(label, id)
 		pub := []byte(priv.Public().(ed25519.PublicKey))
 		keyID := id + ".ed25519.1"
 		var have []byte
@@ -79,6 +78,29 @@ func For(t testing.TB, admin *pgxpool.Pool, label string, base map[string]chain.
 			t.Fatalf("recordsig: read signing_key: %v", err)
 		}
 		out[id] = signer{keyID: keyID, priv: priv}
+	}
+	return out
+}
+
+// synthKey is the SYNTHETIC private key of an identity in a world named label. The seed is fixed by label and identity, so a second process of the same test (the crash
+// child of TST-05, which cannot reach the administrator pool) derives the same key the parent registered.
+func synthKey(label, id string) ed25519.PrivateKey {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("SYNTHETIC recordsig %s %s", label, id)))
+	return ed25519.NewKeyFromSeed(sum[:])
+}
+
+// Local returns the signers of For without touching the database: for a process that is started by a test whose parent registered the keys (All or For with the same
+// label). It registers nothing, so a key the parent did not register is refused by the database, as it should be.
+func Local(label string, base map[string]chain.Signer, identities ...string) map[string]chain.Signer {
+	out := map[string]chain.Signer{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for _, id := range identities {
+		if _, ok := out[id]; ok {
+			continue
+		}
+		out[id] = signer{keyID: id + ".ed25519.1", priv: synthKey(label, id)}
 	}
 	return out
 }
