@@ -13,7 +13,7 @@ Two separate collections, never mixed:
 | Collection | Task | Purpose | Where it runs |
 |---|---|---|---|
 | Voice subset | VOI-06 (first half, at least 50 sessions), later the rest | Key-slot accuracy and the voice-versus-text gap (VOI-07, VOI-09, VOI-16) | Quiet room, then simulated noise |
-| Field sessions | VOI-12, VOI-13. The F5 gate: at least 30 sessions in each required locale, correctness at least 90% with the lower end of its 95% interval at least 80%, P95 at most 2.5 s, at least 50% Pidgin. **If all five locales are required that is at least 150 measured sessions, not the 100 of PERD §45.4; this is the open question noema#349** | The real-conditions gate G5 (REQ-VOI-005) | Tecno Spark, Airtel 3G, genuine Lagos noise |
+| Field sessions | VOI-12, VOI-13. The G5 field gate, as the Founder decided it on noema#349 and as recorded in DEC-2026-11-10-architect-block-f-a129-a136 §3: **240 sessions, 120 in Pidgin and 30 each in en-NG, Yoruba, Hausa and Igbo**; pooled correctness at least 90% with the lower end of its 95% interval at least 80%; each locale at least 80% (24 of 30), reported per locale; a latency claim passes only if the upper 95% bound of the P95 is at most 2.5 s. This replaces the "at least 100" of PERD §45.4 and REQ-VOI-005 for the G5 field plan only | The real-conditions gate G5 (REQ-VOI-005) | Tecno Spark, Airtel 3G, genuine Lagos noise |
 
 Scripts use **synthetic names and amounts only** (AGENT-25). A speaker never speaks about their own bank account or any real person's details.
 
@@ -75,7 +75,7 @@ Each session carries the script's intended key slots (amount, counterparty, time
 ## 8. What remains before signing
 
 1. The Steward records the F-decisions (noema#363); this plan then cites that record.
-2. The Founders answer noema#349 (150 sessions; pooled or per-locale bound) and §1 is aligned.
+2. noema#349 is decided and recorded (DEC-2026-11-10-architect-block-f-a129-a136 §3: 240 sessions, pooled gate, per-locale floor, latency on the upper bound); §1 is aligned to it.
 3. The Founders confirm: adults only (section 2), the bystander rule (section 3), the bucket region (section 4), and the provider-audio rule (section 4).
 4. Counsel approves the consent text and the points in section 4.
 5. The Founder signs the plan as a new signed file in the `docs` repository.
