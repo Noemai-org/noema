@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"sync/atomic"
@@ -46,10 +47,13 @@ type world struct {
 	key   sigfixture.Key // core-execution's SYNTHETIC key; its public half is registered in this database
 }
 
-func newWorld(t *testing.T) *world {
+func newWorld(t *testing.T) *world { return newWorldFrom(t, migrations.FS) }
+
+// newWorldFrom migrates the given set of migrations only (the upgrade tests leave one out and apply it later).
+func newWorldFrom(t *testing.T, set fs.FS) *world {
 	t.Helper()
 	admin, dsn := testpg.NewDatabase(t)
-	if _, err := db.Migrate(ctx(t), admin, migrations.FS); err != nil {
+	if _, err := db.Migrate(ctx(t), admin, set); err != nil {
 		t.Fatal(err)
 	}
 	w := &world{admin: admin, dsn: dsn, key: sigfixture.NewKey("outcome-store", 1)}

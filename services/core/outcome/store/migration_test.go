@@ -1,10 +1,7 @@
 package store_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
-	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -251,22 +248,12 @@ func TestVerdictsAreInsertOnly(t *testing.T) {
 	}
 }
 
-// Q2: migrations apply by name and a gap is allowed. 0007 on a fresh database, and 0002 (noema#94, pinned) applied
-// afterwards on a database that already has 0007, leave the same working write path.
-func TestUpgradeWhere0002ArrivesAfter0007(t *testing.T) {
-	raw, err := os.ReadFile("../../migrations/testdata/0002_grant_spent_void.noema94.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(raw)
-	if got := hex.EncodeToString(sum[:]); got != "faafb174516bd197acc8935d8b7c8fcfc7f587f6b730096ccf9273bfd4a32626" {
-		t.Fatalf("the pinned noema#94 migration changed: %s", got)
-	}
-	w := newWorld(t) // 0001 and 0007 only
-	if err := achieved("ver_u1").call(ctx(t), w.outcome(t)); err != nil {
-		t.Fatal(err)
-	}
-	files := fstest.MapFS{"0002_grant_spent_void.sql": {Data: raw}}
+// Q2: migrations apply by name and a gap is allowed. Everything but the grant-void migration (0014, noema#94) on a fresh
+// database, then 0014 applied afterwards on a database that already has the Outcome write path, leave the same working write path.
+// It runs the real file, not a pinned copy: 0014 replaces the function behind decision_grant_guard and must not disturb Outcome.
+func TestUpgradeWhereTheGrantVoidMigrationArrivesAfterOutcome(t *testing.T) {
+	const late = "0014_grant_spent_void.sql"
+	files := fstest.MapFS{}
 	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)
@@ -278,15 +265,25 @@ func TestUpgradeWhere0002ArrivesAfter0007(t *testing.T) {
 		}
 		files[e.Name()] = &fstest.MapFile{Data: b}
 	}
+	withoutLate := fstest.MapFS{}
+	for n, f := range files {
+		if n != late {
+			withoutLate[n] = f
+		}
+	}
+	w := newWorldFrom(t, withoutLate) // every migration except 0014
+	if err := achieved("ver_u1").call(ctx(t), w.outcome(t)); err != nil {
+		t.Fatal(err)
+	}
 	applied, err := db.Migrate(ctx(t), w.admin, files)
 	if err != nil {
-		t.Fatalf("0002 after 0007: %v", err)
+		t.Fatalf("%s after Outcome: %v", late, err)
 	}
-	if len(applied) != 1 || applied[0] != "0002_grant_spent_void.sql" {
-		t.Fatalf("applied = %v, want only 0002", applied)
+	if len(applied) != 1 || applied[0] != late {
+		t.Fatalf("applied = %v, want only %s", applied, late)
 	}
 	if err := notAchieved("ver_u2", "rrq_u2").call(ctx(t), w.outcome(t)); err != nil {
-		t.Fatalf("the write path after 0002: %v", err)
+		t.Fatalf("the write path after %s: %v", late, err)
 	}
 }
 
