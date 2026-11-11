@@ -43,7 +43,8 @@
             ]
           },
           "minItems": 1,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         }
       },
       "required": [
@@ -74,7 +75,8 @@
         ],
         "additionalProperties": false
       },
-      "minItems": 1
+      "minItems": 1,
+      "maxItems": 1000
     },
     "permitted_capabilities": {
       "type": "array",
@@ -84,7 +86,8 @@
         "maxLength": 128
       },
       "uniqueItems": true,
-      "description": "The principal's role-level capability set: the same list for every case of the same role, never derived from what the case expects (Security Reviewer F-14: a per-case list encodes the answer). A test over the generated cases must show the set does not vary within a role."
+      "description": "The principal's role-level capability set: the same list for every case of the same role, never derived from what the case expects (Security Reviewer F-14: a per-case list encodes the answer). A test over the generated cases must show the set does not vary within a role.",
+      "maxItems": 1000
     },
     "fixture_ref": {
       "type": "string",

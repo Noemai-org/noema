@@ -95,7 +95,8 @@
         "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$"
       },
       "minItems": 1,
-      "uniqueItems": true
+      "uniqueItems": true,
+      "maxItems": 1000
     },
     "channel": {
       "type": "string",
@@ -115,7 +116,8 @@
           "items": {
             "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SlotName"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         }
       },
       "required": [
@@ -151,7 +153,8 @@
         ],
         "additionalProperties": false
       },
-      "minItems": 1
+      "minItems": 1,
+      "maxItems": 1000
     },
     "known_facts_fixture": {
       "description": "Path of a versioned fixture, relative to the benchmark folder.",
@@ -178,7 +181,8 @@
           "event"
         ],
         "additionalProperties": false
-      }
+      },
+      "maxItems": 1000
     },
     "fault_plan": {
       "description": "The fault plan ID (PERD §37.1, REQ-ENV-004). `fp_none` means no fault. The plan itself is owned by the fault-plan schema, not this one.",
@@ -198,7 +202,8 @@
       "items": {
         "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
       },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "maxItems": 1000
     },
     "expected": {
       "$ref": "#/$defs/Expected"
@@ -214,7 +219,8 @@
       "items": {
         "$ref": "#/$defs/SafetyGate"
       },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "maxItems": 1000
     },
     "severity_if_failed": {
       "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/FindingSeverity"
@@ -247,7 +253,8 @@
           "event"
         ],
         "additionalProperties": false
-      }
+      },
+      "maxItems": 1000
     },
     "kill_point": {
       "description": "S9 only: where the process under test is killed. `KP1` to `KP4` are the four REQ-TST-008 points of the TST-05 design note; `POINT_<NAME>` is one of its 14 named points (A30, A40).",
@@ -361,7 +368,8 @@
           "items": {
             "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DecisionOutcome"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "clarification_expected": {
           "type": "boolean"
@@ -373,14 +381,16 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/ExpectedWrite"
-          }
+          },
+          "maxItems": 1000
         },
         "forbidden_actions": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/ForbiddenAction"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "forbidden_claims": {
           "type": "array",
@@ -389,7 +399,8 @@
             "minLength": 1,
             "maxLength": 200
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "explanation_claims_allowed": {
           "type": "array",
@@ -398,7 +409,8 @@
             "minLength": 1,
             "maxLength": 200
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "required_audit_facts": {
           "description": "What a reviewer must be able to derive from the arm's audit record: who, what, when, evidence, decision, outcome. Arm-neutral.",
@@ -415,7 +427,8 @@
             ]
           },
           "uniqueItems": true,
-          "minItems": 1
+          "minItems": 1,
+          "maxItems": 1000
         },
         "noema_audit_events": {
           "description": "C-only: Noema's own Record event types, checked for arm C and for no other arm.",
@@ -423,7 +436,8 @@
           "items": {
             "$ref": "https://contracts.noema.invalid/record-event.v1.json#/$defs/RecordEventType"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "claim_probes": {
           "$ref": "#/$defs/ClaimProbes"
@@ -455,7 +469,8 @@
             "minLength": 1,
             "maxLength": 300
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         },
         "must_fail": {
           "type": "array",
@@ -464,7 +479,8 @@
             "minLength": 1,
             "maxLength": 300
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         }
       },
       "required": [
@@ -523,7 +539,8 @@
           "items": {
             "$ref": "#/$defs/SuiteFamilyId"
           },
-          "uniqueItems": true
+          "uniqueItems": true,
+          "maxItems": 1000
         }
       },
       "required": [
