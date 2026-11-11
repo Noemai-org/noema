@@ -99,3 +99,24 @@ func TestTheOutcomeDefinerFunctionsPinTheirSearchPathToo(t *testing.T) {
 		}
 	}
 }
+
+// outcome_record_verdict calls record_login_tenant and, when the migration role creates it (production: noema_migrator owns it; in the test cluster the administrator does,
+// so its own privileges hide this), it runs as noema_migrator, which needs EXECUTE on record_login_tenant. Removing the grant of migration 0016 went unseen
+// (definition of done 3c, A131), so the grant is pinned in the catalog, with the other roles that must not hold it.
+func TestTheMigrationRoleCanExecuteRecordLoginTenantAndPublicCannot(t *testing.T) {
+	pool := migrated(t)
+	var can bool
+	if err := pool.QueryRow(ctx(t), `SELECT has_function_privilege('noema_migrator', 'public.record_login_tenant(text)', 'EXECUTE')`).Scan(&can); err != nil {
+		t.Fatal(err)
+	}
+	if !can {
+		t.Fatal("noema_migrator cannot execute record_login_tenant: outcome_record_verdict, owned by the migration role, would fail for every verdict (0016)")
+	}
+	var public bool
+	if err := pool.QueryRow(ctx(t), `SELECT has_function_privilege('public', 'public.record_login_tenant(text)', 'EXECUTE')`).Scan(&public); err != nil {
+		t.Fatal(err)
+	}
+	if public {
+		t.Fatal("PUBLIC can execute record_login_tenant")
+	}
+}
