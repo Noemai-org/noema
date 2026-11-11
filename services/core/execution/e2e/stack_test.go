@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"sync"
 	"testing"
 	"time"
@@ -119,6 +120,10 @@ func (s *trustStandIn) issue(ctx context.Context, capability, target string, par
 	if err != nil {
 		return "", err
 	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant, testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
+		return "", fmt.Errorf("store decision: %w", err)
+	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, '1', $7, $8, $9)`, g.GrantID, tenant, g.DecisionID, g.Nonce, string(canon), policyScope, g.ExpiresAt, keyID, sig); err != nil {
 		return "", fmt.Errorf("store grant: %w", err)
@@ -181,7 +186,13 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: keys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	// One SYNTHETIC key for every stack of the package, so that two runs of the same decision sign the same bytes (the proposer-swap test compares them).
+	ring, err := signingtest.RingAt(t.TempDir(), "e2e", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingtest.Register(t, admin, ring)
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}
