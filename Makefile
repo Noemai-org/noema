@@ -122,7 +122,7 @@ bench-us bench-chaos bench-evil bench-full: bench-venv
 	if [ "$(BENCH_RESET)" = "1" ]; then $(MAKE) reset || exit $$?; $(MAKE) $(BENCH_UP) || exit $$?; reset_flag="--reset-done"; else reset_flag=""; fi; \
 	run_id="$${BENCH_SUITE_RUN_ID:-$$suite-$$(date -u +%Y%m%dT%H%M%SZ)}"; \
 	$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/suite > /dev/null || exit $$?; \
-	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- $(BENCH_SUITE_ARGS)
+	$(BENCH_PY) -m benchmark.suites run $$suite --suite $(BENCH_OUT)/suite --out $(BENCH_OUT)/$$suite --run-id "$$run_id" $$reset_flag -- --cost-dir $(BENCH_OUT)/cost $(BENCH_SUITE_ARGS)
 
 # BEN-05, the G1 evidence run: the g1 suite (every case covering US-01 or US-06) twice, each leg from `make reset` with its own run ID and the same commit, then the replay diff
 # (benchmark/replay, noema#102) of the Trust decisions and verdicts with the named open exclusions. Needs OUT-01 and REC-03 on main and the environment; until then each leg is
@@ -133,7 +133,7 @@ BENCH_G1_DATA_SOURCE ?= stand-in
 bench-g1: bench-venv
 	@$(BENCH_PY) -m benchmark.generator generate --seed $(BENCH_SEED) --out $(BENCH_OUT)/g1-suite > /dev/null || exit $$?; \
 	reset_flag=""; if [ "$(BENCH_RESET)" = "1" ]; then reset_flag="--reset"; fi; \
-	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1-suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" --data-source "$(BENCH_G1_DATA_SOURCE)" $$reset_flag -- $(BENCH_SUITE_ARGS)
+	$(BENCH_PY) -m benchmark.suites g1 --suite $(BENCH_OUT)/g1-suite --out $(BENCH_OUT)/g1 --run-id "$(BENCH_G1_ID)" --commit-sha "$$(git rev-parse HEAD)" --data-source "$(BENCH_G1_DATA_SOURCE)" $$reset_flag -- --cost-dir $(BENCH_OUT)/cost $(BENCH_SUITE_ARGS)
 
 # webhook relay (ENV-13): standard library only; no database or network needed.
 env-relay-test:

@@ -79,33 +79,69 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class Wiring(unittest.TestCase):
-    """`g1` captures per leg and fails the leg as NOT RUN (exit 3) when it cannot."""
 
-    def run_g1_with(self, capture: Any) -> tuple[int, Any]:
+class Wiring(unittest.TestCase):
+    """`g1` captures per leg and fails the leg as NOT RUN (exit 3) when it cannot. No mock library (AGENT-12): module attributes are swapped by hand and restored."""
+
+    def swap(self, module: Any, name: str, value: Any) -> None:
+        old = getattr(module, name)
+        setattr(module, name, value)
+        self.addCleanup(setattr, module, name, old)
+
+    def run_g1_with(self, capture: Any, runner: Callable[[Any, list[str]], int] | None = None) -> tuple[int, list[list[str]], Path]:
         import io
         from contextlib import redirect_stderr, redirect_stdout
-        from unittest import mock
 
         from benchmark.runner.test_suite import suite_dir
         from benchmark.suites import __main__ as entry
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(entry, "mock_case_log", capture), mock.patch.object(entry, "_run", return_value=0) as run, \
-                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-            code = entry.main(["g1", "--suite", str(suite_dir()), "--out", tmp, "--run-id", "w", "--data-source", "stand-in"])
-            return code, run
+        calls: list[list[str]] = []
+
+        def fake_run(args: Any, passthrough: list[str]) -> int:
+            calls.append(list(passthrough))
+            return runner(args, passthrough) if runner else 0
+        self.swap(entry, "mock_case_log", capture)
+        self.swap(entry, "_run", fake_run)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        out = Path(tmp.name) / "g1"
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            code = entry.main(["g1", "--suite", str(suite_dir()), "--out", str(out), "--run-id", "w", "--data-source", "stand-in"])
+        return code, calls, out
+
+    @staticmethod
+    def ok(path: Path, **_: Any) -> Iterator[Path]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"")
+        yield path
 
     def test_each_leg_passes_its_own_captured_log_to_the_runner(self) -> None:
         import contextlib
-
-        @contextlib.contextmanager
-        def ok(path: Path, **_: Any) -> Iterator[Path]:
-            yield path
-        _, run = self.run_g1_with(ok)
-        passthroughs = [c.args[1] for c in run.call_args_list]
-        logs = [p[p.index("--mock-case-log") + 1] for p in passthroughs]
+        _, calls, _ = self.run_g1_with(contextlib.contextmanager(self.ok))
+        logs = [p[p.index("--mock-case-log") + 1] for p in calls]
         self.assertEqual(2, len(logs))
         self.assertNotEqual(logs[0], logs[1])
         self.assertTrue(all(l.endswith("mock-case.log") for l in logs))
+
+    def test_the_active_log_is_outside_the_directory_the_leg_archives_and_survives_the_archive(self) -> None:
+        """Codex P1 on noema#117: `_run` archives the leg directory, so a log created inside it was moved while capture kept writing to it and the runner got a path that no longer existed."""
+        import contextlib
+
+        from benchmark.suites.archive import archive_previous
+        seen: list[tuple[Path, bool]] = []
+
+        def archiving_run(args: Any, passthrough: list[str]) -> int:
+            log = Path(passthrough[passthrough.index("--mock-case-log") + 1])
+            (Path(args.out) / "leftover.txt").parent.mkdir(parents=True, exist_ok=True)
+            (Path(args.out) / "leftover.txt").write_text("an earlier run")
+            archive_previous(Path(args.out))
+            seen.append((log, log.is_file()))
+            return 0
+        _, _, out = self.run_g1_with(contextlib.contextmanager(self.ok), archiving_run)
+        self.assertEqual(2, len(seen))
+        for log, survived in seen:
+            self.assertTrue(survived, f"{log} was archived away")
+            self.assertNotIn(out / "a", log.parents)
+            self.assertNotIn(out / "b", log.parents)
 
     def test_a_capture_that_cannot_start_is_exit_3_and_the_runner_gets_no_log_so_it_records_not_run(self) -> None:
         import contextlib
@@ -114,7 +150,18 @@ class Wiring(unittest.TestCase):
         def broken(path: Path, **_: Any) -> Iterator[Path]:
             raise CaptureFailed("no docker")
             yield path
-        code, run = self.run_g1_with(broken)
+        code, calls, _ = self.run_g1_with(broken)
         self.assertEqual(3, code)
-        self.assertEqual(1, run.call_count)
-        self.assertNotIn("--mock-case-log", run.call_args.args[1])
+        self.assertEqual(1, len(calls))
+        self.assertNotIn("--mock-case-log", calls[0])
+
+
+class SuiteTargets(unittest.TestCase):
+    """Codex P2 on noema#117: the suite targets must pass the cost directory the bench stack writes, or every case's cost is lost (REQ-NFR-007)."""
+
+    def test_the_suite_targets_and_g1_pass_the_generated_cost_directory(self) -> None:
+        makefile = (Path(__file__).resolve().parents[2] / "Makefile").read_text(encoding="utf-8")
+        for target in ("bench-us bench-chaos bench-evil bench-full:", "bench-g1:"):
+            start = makefile.index(target)
+            recipe = makefile[start:makefile.index("\n\n", start)]
+            self.assertIn("--cost-dir $(BENCH_OUT)/cost", recipe, target)

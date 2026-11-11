@@ -99,7 +99,7 @@ def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
         argv += ["--commit-sha", args.commit_sha] if args.commit_sha else []
         argv += ["--reset-done"] if args.reset else []
         try:
-            with mock_case_log(leg_out / "mock-case.log") as log:
+            with mock_case_log(out / "logs" / f"{leg}-mock-case.log") as log:  # beside the leg directories: `_run` archives the leg directory, never this
                 return main(argv + ["--"] + with_log_argument(passthrough, log))
         except CaptureFailed as error:
             print(f"NOT RUN: leg {leg}: {error}", file=sys.stderr)
