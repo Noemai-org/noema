@@ -6,6 +6,7 @@ import (
 
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/auth"
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/faultplan"
+	"github.com/Noemai-org/noema/synthetic/mock_case/internal/scope"
 	"github.com/Noemai-org/noema/synthetic/mock_case/internal/store"
 )
 
@@ -67,7 +68,8 @@ func (s *Server) CaseHandler() http.Handler {
 		mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
 	}
 	mux.HandleFunc("/", notFoundRoute) // any other path or method has no route: JSON 404, never 405
-	return s.gate(auth.Runtime, map[string]bool{"/healthz": true}, noHead(mux), "case")
+	// The credential is the authority on the tenant (R4): a wrong-tenant read looks absent, a wrong-tenant write is 403. Unscoped credentials pass unchanged.
+	return s.gate(auth.Runtime, map[string]bool{"/healthz": true}, scope.Wrap(noHead(mux), s.auth.Tenant, s.forbidTenant), "case")
 }
 
 func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
