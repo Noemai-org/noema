@@ -154,3 +154,20 @@ Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" l
 - Open questions (owner): none.
 - Files to read first: docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md
 - Do not touch: the vendored copies by hand.
+
+# Session 2026-11-11 10:00 WAT · OPS-07
+
+## Session summary
+- What changed (PR links): the vendored copies of `AGENTS.md` and `CLAUDE.md` re-pointed to docs `main` at `601bbc3` (docs#153: build window Sat 12 Dec, demo Sat 12 Dec 14:00).
+- Why: REQ-OPS-005; `docs-drift` fails on `main` until the copies match docs `main`.
+- Risks, and how they are contained: wording only; no code, contract or migration change. `repoint_docs.py --check` is clean at `601bbc3`.
+- Tests added (REQ, INV, US or EC IDs): none.
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none, unless another docs change touches a vendored file.
+- Open questions (owner): none.
+- Files to read first: tools/vendor/repoint_docs.py.
+- Do not touch: the vendored copies by hand.
