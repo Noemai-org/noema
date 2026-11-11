@@ -110,7 +110,6 @@ func TestEveryDefinerThatReadsTheDecisionTablesPinsItsSearchPathWithTempLast(t *
 var definersWithoutTempPinned = map[string]string{
 	"outcome_verdict_complete":       "Outcome (migration 0007); reads outcome tables only",
 	"provision_tenant_login":         "Record (migration 0006); Core Engineer 1, ruling A6",
-	"record_insert_t":                "Record (migration 0004); Core Engineer 1, ruling A6",
 	"record_lock_head_t":             "Record (migration 0004); Core Engineer 1, ruling A6",
 	"record_login_tenant":            "Record (migration 0004); Core Engineer 1, ruling A6",
 	"record_read_chain_t":            "Record (migration 0004); Core Engineer 1, ruling A6",
