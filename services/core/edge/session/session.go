@@ -5,8 +5,10 @@
 // check is a rejection: there is no partial acceptance, and every failure is one error, ErrInvalid, so a caller learns nothing about which
 // check failed. Time comes from platform/clock only (INV-21).
 //
-// Claim names are the smallest safe default (AGENT-02), not a decided contract: `sub`, `aud`, `exp`, `iat`, `tenant_id` and `roles`. See
-// status/EDG-01.md.
+// The contract is the Architect's ruling A1 (D7 of DEC-2026-11-05, docs#115): issuer `noema-poc-idp`, exact match; claims `sub`, `aud`,
+// `exp`, `iat`, `iss`, `tenant_id` and `roles`, all required; exactly one role from customer, ops, approver, audit; ES256 only, with a
+// `kid` from the configured set and no other header member than alg, kid and typ; a lifetime ceiling of 15 minutes. There is no `jti`, so a
+// stolen token works until `exp`: a named residual risk at that lifetime (A1 item 8). See status/EDG-01.md.
 package session
 
 import (
@@ -32,17 +34,29 @@ type Role string
 
 const (
 	RoleCustomer Role = "customer"
-	RoleOperator Role = "operator"
+	RoleOps      Role = "ops"
 	RoleApprover Role = "approver"
+	RoleAudit    Role = "audit"
 )
 
-func knownRole(r Role) bool { return r == RoleCustomer || r == RoleOperator || r == RoleApprover }
+func knownRole(r Role) bool {
+	return r == RoleCustomer || r == RoleOps || r == RoleApprover || r == RoleAudit
+}
+
+// Issuer is the one issuer the core accepts (ruling A1). A token's `iss` must equal it exactly.
+const Issuer = "noema-poc-idp"
+
+// CeilingLifetime is the longest MaxLifetime a verifier may be configured with (ruling A1, item 4).
+const CeilingLifetime = 15 * time.Minute
+
+// MaxSubjectLen bounds `sub` in bytes (ruling A1, item 6). The issuer refuses a longer principal before it signs.
+const MaxSubjectLen = 128
 
 // Principal is the authenticated caller. Nothing else in a request may name one (INV-12).
 type Principal struct {
 	ID        string
 	Tenant    string
-	Roles     []Role
+	Role      Role // exactly one (ruling A1)
 	IssuedAt  time.Time
 	ExpiresAt time.Time
 }
@@ -52,7 +66,8 @@ type Config struct {
 	Keys        map[string]*ecdsa.PublicKey // by kid
 	Audience    string
 	Tenants     []string      // the tenants this deployment serves
-	MaxLifetime time.Duration // the longest a token may live (exp - iat); from configuration, not a literal
+	MaxLifetime time.Duration // the longest a token may live (exp - iat); set, positive and at most CeilingLifetime
+	Skew        time.Duration // the leeway on iat and exp (ruling A21: 60 s, pack data); configuration with no default (zero allows none), below MaxLifetime
 	Clock       clock.Clock
 }
 
@@ -62,6 +77,7 @@ type Verifier struct {
 	audience string
 	tenants  map[string]bool
 	maxLife  time.Duration
+	skew     time.Duration
 	clock    clock.Clock
 }
 
@@ -70,7 +86,13 @@ func NewVerifier(c Config) (*Verifier, error) {
 	if len(c.Keys) == 0 || c.Audience == "" || len(c.Tenants) == 0 || c.MaxLifetime <= 0 || c.Clock == nil {
 		return nil, errors.New("session: keys, audience, tenants, a positive maximum lifetime and a clock are all required")
 	}
-	v := &Verifier{keys: make(map[string]*ecdsa.PublicKey, len(c.Keys)), audience: c.Audience, tenants: make(map[string]bool, len(c.Tenants)), maxLife: c.MaxLifetime, clock: c.Clock}
+	if c.MaxLifetime > CeilingLifetime {
+		return nil, errors.New("session: the maximum lifetime is above the ceiling of 15 minutes")
+	}
+	if c.Skew < 0 || c.Skew >= c.MaxLifetime {
+		return nil, errors.New("session: the skew must be zero or more and below the maximum lifetime")
+	}
+	v := &Verifier{keys: make(map[string]*ecdsa.PublicKey, len(c.Keys)), audience: c.Audience, tenants: make(map[string]bool, len(c.Tenants)), maxLife: c.MaxLifetime, skew: c.Skew, clock: c.Clock}
 	for kid, k := range c.Keys {
 		if kid == "" || k == nil || k.Curve != elliptic.P256() {
 			return nil, fmt.Errorf("session: key %q is missing or not P-256", kid)
@@ -94,6 +116,7 @@ type header struct {
 type claims struct {
 	Sub    string   `json:"sub"`
 	Aud    string   `json:"aud"`
+	Iss    string   `json:"iss"`
 	Tenant string   `json:"tenant_id"`
 	Roles  []string `json:"roles"`
 	Iat    *int64   `json:"iat"`
@@ -103,6 +126,18 @@ type claims struct {
 func invalid(why string) error { return fmt.Errorf("%w: %s", ErrInvalid, why) }
 
 const sigLen = 64
+
+// lowSMax is N/2 of P-256, computed fresh each time: a valid ES256 signature of this verifier has s at or below it. There is no exported or shared
+// big.Int to change (Codex review of noema#198). Issuers pass s through LowS.
+func lowSMax() *big.Int { return new(big.Int).Rsh(elliptic.P256().Params().N, 1) }
+
+// LowS returns the low form of s (N-s when s is above N/2); both verify under ECDSA, only the low one is accepted here.
+func LowS(s *big.Int) *big.Int {
+	if s.Cmp(lowSMax()) > 0 {
+		return new(big.Int).Sub(elliptic.P256().Params().N, s)
+	}
+	return s
+}
 
 // b64 is strict: the unused trailing bits of a segment must be zero, so one token has exactly one spelling. A lenient decoder ignores them,
 // and a token with a respelled last character would verify as the same bytes (found by the fuzz test in CI, 4 Nov 2026).
@@ -122,6 +157,9 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if json.Unmarshal(hb, &h) != nil {
 		return Principal{}, invalid("header")
 	}
+	if !headerMembersAllowed(hb) {
+		return Principal{}, invalid("header member") // jwk, jku, x5u, x5c, crit and anything else that could name or change the key
+	}
 	if h.Alg != "ES256" {
 		return Principal{}, invalid("algorithm")
 	}
@@ -135,6 +173,9 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	}
 	sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	r, s := new(big.Int).SetBytes(sig[:sigLen/2]), new(big.Int).SetBytes(sig[sigLen/2:])
+	if s.Cmp(lowSMax()) > 0 {
+		return Principal{}, invalid("signature") // ECDSA accepts s and N-s alike: only the low form is one spelling of a token (Codex review of noema#198)
+	}
 	if !ecdsa.Verify(key, sum[:], r, s) {
 		return Principal{}, invalid("signature")
 	}
@@ -146,20 +187,32 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if json.Unmarshal(cb, &c) != nil {
 		return Principal{}, invalid("claims")
 	}
-	if c.Sub == "" || c.Iat == nil || c.Exp == nil || c.Aud != v.audience || !v.tenants[c.Tenant] || len(c.Roles) == 0 {
+	if c.Sub == "" || c.Iat == nil || c.Exp == nil || c.Aud != v.audience || c.Iss != Issuer || len(c.Sub) > MaxSubjectLen || !v.tenants[c.Tenant] || len(c.Roles) != 1 {
 		return Principal{}, invalid("claims")
 	}
 	iat, exp := time.Unix(*c.Iat, 0).UTC(), time.Unix(*c.Exp, 0).UTC()
 	now := v.clock.Now()
-	if iat.After(now) || !exp.After(now) || exp.Sub(iat) > v.maxLife || !exp.After(iat) {
+	if iat.After(now.Add(v.skew)) || !exp.Add(v.skew).After(now) || exp.Sub(iat) > v.maxLife || !exp.After(iat) {
 		return Principal{}, invalid("time")
 	}
-	roles := make([]Role, 0, len(c.Roles))
-	for _, r := range c.Roles {
-		if !knownRole(Role(r)) {
-			return Principal{}, invalid("role")
-		}
-		roles = append(roles, Role(r))
+	role := Role(c.Roles[0])
+	if !knownRole(role) {
+		return Principal{}, invalid("role")
 	}
-	return Principal{ID: c.Sub, Tenant: c.Tenant, Roles: roles, IssuedAt: iat, ExpiresAt: exp}, nil
+	return Principal{ID: c.Sub, Tenant: c.Tenant, Role: role, IssuedAt: iat, ExpiresAt: exp}, nil
+}
+
+// headerMembersAllowed accepts only the members alg, kid and typ. A token that names its own key (jwk, jku, x5u, x5c) or carries critical
+// extensions (crit) is refused, as is any member the core does not understand.
+func headerMembersAllowed(hb []byte) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(hb, &m) != nil {
+		return false
+	}
+	for name := range m {
+		if name != "alg" && name != "kid" && name != "typ" {
+			return false
+		}
+	}
+	return true
 }

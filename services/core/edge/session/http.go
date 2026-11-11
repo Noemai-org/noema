@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -45,7 +46,7 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 				writeError(w, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.", corr)
 				return
 			}
-			token, ok := strings.CutPrefix(authz, "Bearer ")
+			token, ok := bearerToken(authz)
 			if !ok {
 				writeError(w, contracts.ErrorsV2ErrorCodeSESSIONINVALID, "The session is not valid.", corr)
 				return
@@ -61,6 +62,54 @@ func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireRole lets a request through only if its session carries one of the allowed roles (ruling A1). It is deny by default: a request with
+// no principal in its context, or a gate with no allowed roles, is refused. A role that is not allowed gets the answer for "not found", so a
+// caller cannot tell a hidden route from a forbidden one (REQ-API-002). Mount it inside Middleware.
+func RequireRole(ids IDs, allowed ...Role) func(http.Handler) http.Handler {
+	allow := make(map[Role]bool, len(allowed))
+	for _, r := range allowed {
+		allow[r] = true
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			corr := correlationID(r, ids)
+			w.Header().Set(CorrelationHeader, corr)
+			p, ok := FromContext(r.Context())
+			if !ok {
+				writeError(w, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.", corr)
+				return
+			}
+			if !allow[p.Role] {
+				writeErrorStatus(w, http.StatusNotFound, contracts.ErrorsV2ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ErrTenantMismatch is returned when a principal's tenant is not the tenant of the database login its request would run on.
+var ErrTenantMismatch = errors.New("session: the token's tenant is not the tenant of the database login")
+
+// CheckTenant refuses a principal whose tenant differs from loginTenant, the tenant the database maps the request's login to (DEBT-04).
+// Empty never matches empty. The ops role acts in its own tenant only, until a decision says otherwise (ruling A1, item 7; REQ-SEC-006).
+func CheckTenant(p Principal, loginTenant string) error {
+	if p.Tenant == "" || loginTenant == "" || p.Tenant != loginTenant {
+		return ErrTenantMismatch
+	}
+	return nil
+}
+
+// bearerToken takes the credential of "<scheme> <credential>" when the scheme is Bearer. The scheme name is case-insensitive (RFC 9110
+// section 11.1); exactly one space separates it from a non-empty credential, which is not changed.
+func bearerToken(authz string) (string, bool) {
+	scheme, cred, ok := strings.Cut(authz, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || cred == "" || strings.HasPrefix(cred, " ") {
+		return "", false
+	}
+	return cred, true
+}
+
 // correlationID keeps a well-formed incoming ID so a call can be traced end to end, and makes a new one otherwise.
 func correlationID(r *http.Request, ids IDs) string {
 	if in := r.Header.Get(CorrelationHeader); correlationShape.MatchString(in) {
@@ -74,8 +123,12 @@ func correlationID(r *http.Request, ids IDs) string {
 }
 
 func writeError(w http.ResponseWriter, code contracts.ErrorsV2ErrorCode, message, corr string) {
+	writeErrorStatus(w, http.StatusUnauthorized, code, message, corr)
+}
+
+func writeErrorStatus(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message, corr string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
+	w.WriteHeader(status)
 	body := contracts.ErrorsV2ErrorEnvelope{Error: contracts.ErrorsV2ErrorBody{Code: code, Message: message, Retryable: false, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		slog.Warn("error response not written", "correlation_id", corr)
