@@ -4,8 +4,9 @@ A deterministic energy detector: no clock, no I/O, time measured only from the s
 to stop sending audio so the provider can settle a final transcript. It never decides what was said.
 
 Its thresholds are arguments. They are tuned in the lab and in the field (VOI-16, REQ-VOI-005), so none is written here
-(AGENT-16). It measures PCM only: the phone sends Opus (PERD §35.1) and decoding that needs a codec dependency, which
-needs an AGENT-14 entry first. Opus audio is refused rather than guessed at.
+(AGENT-16). It measures PCM only: the POC phone sends PCM16 at 16 kHz (ruling A19, accepted as F7; PERD §35.1 names Opus
+and stays unchanged), and decoding Opus would need a codec dependency and an AGENT-14 entry first. Opus audio is refused
+rather than guessed at.
 """
 
 import math

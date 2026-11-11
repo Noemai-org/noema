@@ -32,7 +32,6 @@ from tests.support import run
 REQUEST = StreamRequest(model_version="pinned-2026-01-01", locale_hint=Locale.PCM)
 CAPS = ProviderCapabilities("fake", PipelineMode.TRANSCRIBE_ONLY, Support.YES, (), (), None, Support.YES, "pinned", True)
 DEADLINE_S = 5.0
-LONG_DEADLINE_S = 5.0
 SHORT_DEADLINE_S = 0.05
 
 
@@ -221,6 +220,13 @@ def test_a_short_pause_inside_speech_does_not_end_it() -> None:
 def test_a_click_shorter_than_the_minimum_speech_is_not_speech() -> None:
     detector = EndpointDetector(VAD)
     result = states(detector, [chunk(0, 2000), *[chunk(1 + i, 5) for i in range(20)]])
+    assert set(result) == {EndpointState.WAITING}
+
+
+def test_two_clicks_separated_by_silence_do_not_add_up_to_speech() -> None:
+    """C2 P3 on #193: deleting the reset of the speech counter left every test green."""
+    detector = EndpointDetector(VAD)
+    result = states(detector, [chunk(0, 2000), chunk(1, 5), chunk(2, 2000), chunk(3, 2000)])
     assert set(result) == {EndpointState.WAITING}
 
 

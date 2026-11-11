@@ -14,7 +14,7 @@ from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.voice.endpoint import AudioSource, EndpointDetector, until_end_of_speech
 from noema_model.voice.pipeline import transcribe_utterance
 from tests.support import run
-from tests.test_voice_lifecycle import CAPS, REQUEST, VAD, Source, loud_then_silent
+from tests.support_voice import CAPS, REQUEST, VAD, Source, loud_then_silent
 
 GUARD_S = 5.0  # a hang is a test failure, not a stuck CI job
 
