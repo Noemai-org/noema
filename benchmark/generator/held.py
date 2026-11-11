@@ -10,6 +10,7 @@ the pack: it is HELD (not counted in n) and reported as a finding, not hidden.
 This check is adopted for exactly one condition. If the rule is missing, malformed, or its condition is any other text (even a trivially true one), `held_cases` raises `PackRuleError`
 instead of reporting zero held cases: a broken or changed pack must never read as a clean benchmark. Generated layer only; reads no held-out material (INV-22).
 """
+import re
 from typing import Any, Mapping
 
 Json = dict[str, Any]
@@ -40,6 +41,19 @@ def _rule(pack: Mapping[str, Any], rule_id: str) -> Json:
     return rule
 
 
+# What answers a clarification question in the generated cases (benchmark/generator/lib_clean_ambiguity.py): picking one ("The first one", "The one ending 3334" and the Pidgin forms), saying
+# none is right, or correcting the details ("No, I made a mistake"). "Forget that, I want to open a case instead" changes the request and resolves nothing, so it is NOT here (Codex P1 on
+# noema#358: a second utterance is not a clarification). A closed list on purpose: an unrecognised turn is not assumed to clarify.
+CLARIFYING_ANSWER = re.compile(
+    r"^\s*(?:the\s+(?:first|second|third|last)\s+one|the\s+one\s+(?:ending|wey\s+end\s+for|that\s+ends(?:\s+in)?)\s+\S+|none\s+of\s+these|e\s+no\s+be\s+any\s+of\s+dem|abeg\s+none\s+of\s+these"
+    r"|no,\s+i\s+(?:made\s+a\s+mistake|don\s+mistake)\b.*)\s*[.!]?\s*$", re.IGNORECASE)
+
+
+def _has_clarifying_turn(case: Mapping[str, Any]) -> bool:
+    """A later turn (turn 2 or after; the first turn cannot clarify itself) answers the clarification. The governed write follows the last turn, so such a turn precedes it."""
+    return any(CLARIFYING_ANSWER.match(str(u.get("text", ""))) for u in list(case["utterances"])[1:])
+
+
 def _starts_ambiguous(case: Mapping[str, Any], oracle: Mapping[str, Any]) -> bool:
     """A reference that starts ambiguous (R3, R4): an ambiguity case, a high-risk ambiguous oracle, or a case that expects a clarification."""
     return case.get("category") == "AMBIGUITY" or bool(oracle.get("high_risk_ambiguous")) or bool(case["expected"].get("clarification_expected"))
@@ -49,7 +63,7 @@ def held_cases(cases: Mapping[str, Json], oracles: Mapping[str, Json], pack: Map
     """case id -> {held_on, rule_id, condition, reason} for every case that expects a governed write the pack's slot rule would not permit. Raises PackRuleError on an unusable rule.
 
     Two ways to contradict the rule. (1) The oracle has no single resolved target. (2) Architect's ruling A116 (10 Nov 2026, adopting EL's reading; to be recorded in DEC-2026-11-10-architect-sync-a113-a122 by docs#148, which has not merged, so this check does not rely on A116 as authority until it does): the reference starts
-    ambiguous and the case has no later turn to clarify it, so the write would come before the clarifying turn that resolves it; `correct_target` set is not enough, because it
+    ambiguous and no later turn ANSWERS the clarification (a second utterance is not a clarification: `CLARIFYING_ANSWER`), so the write would come before the clarifying turn that resolves it; `correct_target` set is not enough, because it
     says where the conversation ends, not what the first turn resolved."""
     out: dict[str, Json] = {}
     for rule_id, issue in HOLDS:
@@ -61,7 +75,7 @@ def held_cases(cases: Mapping[str, Json], oracles: Mapping[str, Json], pack: Map
             oracle = oracles[case_id]
             if oracle.get("correct_target") is None:
                 reason = "the case expects a governed write but its oracle has no single resolved target"
-            elif _starts_ambiguous(case, oracle) and len(case["utterances"]) < 2:
+            elif _starts_ambiguous(case, oracle) and not _has_clarifying_turn(case):
                 reason = "the reference starts ambiguous and the case has no clarifying turn before the governed write (Architect's A116, recorded in docs#148)"
             else:
                 continue
