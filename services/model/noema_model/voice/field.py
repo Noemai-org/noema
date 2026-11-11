@@ -47,6 +47,7 @@ PERD_MAX_P95_MS = 2500  # PERD §45.4 / REQ-VOI-005: P95 at most 2.5 s
 _PERCENTILE = 0.95
 _CONFIDENCE = 0.95
 _PIDGIN_LOCALE = Locale.PCM.value
+REQUIRED_LOCALES: tuple[str, ...] = tuple(locale.value for locale in Locale)  # exactly pcm, en-NG, yo, ha, ig; not an argument (Codex P1 on #230)
 _BISECTION_STEPS = 100
 _METHOD = (
     "nearest-rank P95; distribution-free 95% interval from order statistics; "
@@ -231,7 +232,6 @@ def analyse(
     min_pidgin_share: float,
     correctness_floor: float,
     correctness_lower_floor: float,
-    required_locales: Sequence[str],
     min_sessions_per_locale: int,
     per_locale_correctness_floor: float,
 ) -> FieldAnalysis:
@@ -248,7 +248,10 @@ def analyse(
     if min_sessions_per_locale < F5_MIN_SESSIONS_PER_LOCALE:
         raise ValueError(
             f"min_sessions_per_locale {min_sessions_per_locale} is weaker than the decided minimum {F5_MIN_SESSIONS_PER_LOCALE}")
-    m = measure(sessions, required_locales=required_locales)
+    unknown = sorted({s.locale for s in sessions} - set(REQUIRED_LOCALES))
+    if unknown:
+        raise ValueError(f"sessions in a locale outside the five of the voice track: {unknown}")
+    m = measure(sessions, required_locales=REQUIRED_LOCALES)
 
     reasons: list[str] = []
     if m.n < min_sessions:
