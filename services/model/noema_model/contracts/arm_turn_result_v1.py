@@ -39,13 +39,13 @@ class ArmTurnResultV1Usage(ContractModel):
     """ArmTurnResultV1Usage Source: arm-turn-result.v1.json#/properties/usage"""
 
     model_config = ConfigDict(extra="forbid")
-    input_tokens: Annotated[int, Field(ge=0)]
-    output_tokens: Annotated[int, Field(ge=0)]
-    cost_micros: Annotated[int, Field(ge=0)]
+    input_tokens: Annotated[int, Field(ge=0, le=9007199254740991)]
+    output_tokens: Annotated[int, Field(ge=0, le=9007199254740991)]
+    cost_micros: Annotated[int, Field(ge=0, le=9007199254740991)]
 
 
 class ArmTurnResultV1(ContractModel):
-    """The result file of one arm turn (A118, Draft until committed). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a comparison result. Only status OK carries tool cal... Source: arm-turn-result.v1.json"""
+    """The result file of one arm turn (A118, committed in docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a c... Source: arm-turn-result.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion
@@ -60,7 +60,7 @@ class ArmTurnResultV1(ContractModel):
     tool_calls: Annotated[list[ArmTurnResultV1ToolCallsItem], Field(max_length=16)]
     text: Annotated[str, StringConstraints(max_length=8000)] | None
     usage: ArmTurnResultV1Usage
-    latency_ms: Annotated[int, Field(ge=0)]
+    latency_ms: Annotated[int, Field(ge=0, le=9007199254740991)]
 
 
 ArmTurnResultV1ToolCallsItem.model_rebuild()

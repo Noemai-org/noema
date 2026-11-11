@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/arm-turn-result.v1.json",
   "title": "Arm turn result",
-  "description": "The result file of one arm turn (A118, Draft until committed). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a comparison result. Only status OK carries tool calls or text; every other status carries neither. Cost is in micro-units (USD) and counts toward the live-run cap. SYNTHETIC only; unknown fields are rejected.",
+  "description": "The result file of one arm turn (A118, committed in docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a comparison result. Only status OK carries tool calls or text; every other status carries neither. Cost is in micro-units (USD) and counts toward the live-run cap. SYNTHETIC only; unknown fields are rejected.",
   "type": "object",
   "required": [
     "schema_version",
@@ -105,21 +105,25 @@
       "properties": {
         "input_tokens": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "output_tokens": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         },
         "cost_micros": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "maximum": 9007199254740991
         }
       }
     },
     "latency_ms": {
       "type": "integer",
-      "minimum": 0
+      "minimum": 0,
+      "maximum": 9007199254740991
     }
   },
   "allOf": [

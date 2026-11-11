@@ -44,7 +44,7 @@ class ArmTurnV1MessagesItem(ContractModel):
 
 
 class ArmTurnV1(ContractModel):
-    """Architect sync of 10 Nov 2026, A118 (Draft until it is committed in docs/decisions): one turn of a model, offered to the model service's arm-turn entry point as a file (`python -m noema_model.harness.arm_turn`). Arms ... Source: arm-turn.v1.json"""
+    """Architect sync of 10 Nov 2026, A118 (committed in docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md): one turn of a model, offered to the model service's arm-turn entry point as a file (`python -m noema_model.... Source: arm-turn.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion

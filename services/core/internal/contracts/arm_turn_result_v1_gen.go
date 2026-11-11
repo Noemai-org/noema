@@ -110,7 +110,7 @@ func (t *ArmTurnResultV1Usage) UnmarshalJSON(b []byte) error {
 }
 
 // ArmTurnResultV1 is generated from arm-turn-result.v1.json.
-// The result file of one arm turn (A118, Draft until committed). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a comparison result. Only status OK carries tool cal...
+// The result file of one arm turn (A118, committed in docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md). `diagnostic` is true exactly when `mode` is FORCED_SCHEMA_DIAGNOSTIC: a forced-schema result is never a c...
 type ArmTurnResultV1 struct {
 	SchemaVersion CommonV1SchemaVersion          `json:"schema_version"`
 	TurnId        string                         `json:"turn_id"`

@@ -109,7 +109,7 @@ func (t ArmTurnV1ToolsItem) MarshalJSON() ([]byte, error) {
 }
 
 // ArmTurnV1 is generated from arm-turn.v1.json.
-// Architect sync of 10 Nov 2026, A118 (Draft until it is committed in docs/decisions): one turn of a model, offered to the model service's arm-turn entry point as a file (`python -m noema_model.harness.arm_turn`). Arms...
+// Architect sync of 10 Nov 2026, A118 (committed in docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md): one turn of a model, offered to the model service's arm-turn entry point as a file (`python -m noema_model....
 type ArmTurnV1 struct {
 	SchemaVersion   CommonV1SchemaVersion   `json:"schema_version"`
 	TurnId          string                  `json:"turn_id"`
