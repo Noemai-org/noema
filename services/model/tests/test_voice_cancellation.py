@@ -250,7 +250,7 @@ def test_cancelling_the_caller_while_the_provider_shuts_down_still_releases_the_
         seen_partial = asyncio.Event()
         call = asyncio.ensure_future(
             transcribe_utterance(StallsOnCancel(), REQUEST, gated(source), deadline_s=GUARD_S, on_partial=lambda _: seen_partial.set(),
-                                 cleanup_s=GUARD_S))
+                                 cleanup_s=0.5))
         await asyncio.wait_for(seen_partial.wait(), timeout=GUARD_S)
         call.cancel()  # the first cancellation: the cleanup starts and waits on the provider's stalled shutdown
         await asyncio.sleep(0.05)
