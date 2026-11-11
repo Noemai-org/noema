@@ -133,7 +133,7 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sig, err := s.keys.SignWith(execKeyID, canon)
+	sig, err := s.keys.SignWith(execKeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return "", err
 	}

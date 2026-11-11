@@ -87,7 +87,7 @@ func NewKeys(keys []Key) (*Keys, error) {
 	return &Keys{ring: crypto.NewKeyRing(m), signing: keys[0].ID}, nil
 }
 
-// canonical is the JCS form of the grant without its sig: what is signed.
+// canonical is the JCS form of the grant without its sig; the signature covers it under the grant's domain label (crypto.GrantSigningMessage).
 func canonical(g contracts.DecisionGrantV1) ([]byte, error) { return canonicalOf(g) }
 
 // canonicalOf is the JCS form of any contract document without its sig.
@@ -117,8 +117,8 @@ func canonicalDoc(v any, dropSig bool) ([]byte, error) {
 
 // Verify checks the signature of a grant under the key it names, which must be active. Any failure is ErrSignature.
 func (k *Keys) Verify(g contracts.DecisionGrantV1) error {
-	msg, err := canonical(g)
-	if err != nil || !k.VerifyBytes(g.Sig, msg) {
+	canon, err := canonical(g)
+	if err != nil || !k.VerifyBytes(g.Sig, crypto.GrantSigningMessage(canon)) {
 		return ErrSignature
 	}
 	return nil
@@ -214,11 +214,12 @@ func (i *Issuer) Issue(d decide.Decision, s Step) (contracts.DecisionGrantV1, er
 		c := contracts.CommonV1ConfirmationEventId(s.ConfirmationEventID)
 		g.ConfirmationEventId = &c
 	}
-	msg, err := canonical(g)
+	canon, err := canonical(g)
 	if err != nil {
 		return contracts.DecisionGrantV1{}, fmt.Errorf("%w: %v", ErrStep, err)
 	}
-	sig, err := i.keys.ring.SignWith(i.keys.signing, msg)
+	// the signature covers the domain label, a 0x00 byte and the JCS bytes (ruling of 8 Nov 2026 on noema#292)
+	sig, err := i.keys.ring.SignWith(i.keys.signing, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return contracts.DecisionGrantV1{}, fmt.Errorf("grants: sign: %w", err)
 	}

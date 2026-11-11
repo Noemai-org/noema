@@ -62,3 +62,11 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 
 ## Pre-work for the next agent
 - Branches stacked on #168 (#197, #237, #261, #233) insert records or grants directly in tests: merge this head in and add the bound fields.
+
+# Session 2026-11-08 · TRU-05 signature domain separation
+
+## Session summary
+- What changed: ruling of 8 Nov 2026 on noema#292. A grant signature covers `noema/decision-grant/v1`, a 0x00 byte, then the JCS bytes; the confirmation request gets its own label, `noema/confirmation-request/v1`, in `platform/crypto` for the confirmation signer to use. Trust's issuer, Execution's E1 and every test signer use `crypto.GrantSigningMessage`. Golden vectors 1.0 to 1.1 (`grant_signing_vectors`: new value, `domain_label`, `must_not_verify`), with the migration note in `contracts/fixtures/README.md`; the independent Python checker (`tools/check_vectors.py`) agrees with the Go value.
+- Tests added (REQ-TRU-008, INV-03): `TestGrantSigningVector` (rewritten), `TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused`, two E1 cases in `TestEachCheckVoidsTheGrantWithItsReason`. Seen failing first.
+- Risks: P0 path and a contract fixture change (AGENT-15); both Founders approve. No stored grant exists, so nothing migrates. Stacked on noema#163.
+- Not done: the confirmation signer does not exist yet; this PR only reserves its label and message function.
