@@ -39,6 +39,13 @@ esac
 
 fail() { echo "relay-host: $*" >&2; exit 1; }
 
+# The Caddyfile, printed by --check and written by the run from this one function. Admin API off (the default endpoint on the host network could
+# rewrite the proxy). Only the two routes Tushe needs are proxied; every other path is a 404, so the relay's token-protected pull routes are never
+# on the public name (the core pulls inside tushe_net).
+caddyfile() {
+  printf '{\n\tadmin off\n}\n\n%s {\n\thandle /webhooks {\n\t\treverse_proxy 127.0.0.1:8090\n\t}\n\thandle /healthz {\n\t\treverse_proxy 127.0.0.1:8090\n\t}\n\thandle {\n\t\trespond 404\n\t}\n}\n' "$hostname_value"
+}
+
 # (1) Inputs.
 hostname_value="${RELAY_HOSTNAME:-}"
 [ -n "$hostname_value" ] || fail "RELAY_HOSTNAME is not set (the DuckDNS name the Founder reserves, e.g. example.duckdns.org)"
@@ -77,6 +84,10 @@ echo "  dns:        point $subdomain at this host's public address (token read f
 echo "  relay:      docker compose project '$project', service webhook-relay, published on $loopback_publish"
 echo "  tls:        Caddy ($caddy_image, container '$caddy_container', host network), HTTP-01 on ports 80 and 443, proxying to $loopback_publish"
 echo "  state:      $state_dir (Caddyfile; certificates live in the Docker volume 'noema-relay-caddy-data')"
+echo "  caddy:      root inside the container with every capability dropped but NET_BIND_SERVICE, no-new-privileges, read-only root filesystem"
+echo "--- Caddyfile ---"
+caddyfile
+echo "--- end Caddyfile ---"
 if [ "$check_only" -eq 1 ]; then
   echo "relay-host: --check, nothing changed"
   exit 0
@@ -99,13 +110,16 @@ WEBHOOK_RELAY_PUBLISH="$loopback_publish" \
   docker compose -p "$project" -f "$compose_file" --profile relay up -d --build webhook-relay
 echo "relay-host: relay started on $loopback_publish"
 
-# (4) Caddy. The Caddyfile has one site, the hostname; Caddy obtains and renews its certificate by HTTP-01 itself.
+# (4) Caddy. The Caddyfile has one site, the hostname, and two public routes; Caddy obtains and renews its certificate by HTTP-01 itself.
 # `docker rm -f` first so a re-run replaces the container; the certificate volume is kept.
 mkdir -p "$state_dir"
-printf '%s {\n\treverse_proxy 127.0.0.1:8090\n}\n' "$hostname_value" > "$state_dir/Caddyfile"
+caddyfile > "$state_dir/Caddyfile"
 docker rm -f "$caddy_container" >/dev/null 2>&1 || true
+# Hardening (SR review of noema#189, F4). Not non-root: with no-new-privileges a non-root process cannot gain the file capability that binds
+# ports 80 and 443 on the host network, so the container runs as root with every capability dropped but NET_BIND_SERVICE.
 docker run -d --name "$caddy_container" --restart unless-stopped --network host \
-  -v "$state_dir/Caddyfile:/etc/caddy/Caddyfile:ro" -v noema-relay-caddy-data:/data "$caddy_image" >/dev/null
+  --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true --read-only --tmpfs /tmp \
+  -v "$state_dir/Caddyfile:/etc/caddy/Caddyfile:ro" -v noema-relay-caddy-data:/data -v noema-relay-caddy-config:/config "$caddy_image" >/dev/null
 echo "relay-host: Caddy started; it asks for the certificate on first contact (allow up to a minute)"
 
 # (5) Honest status. A 200 from /healthz over HTTPS proves the name resolves to here, Caddy holds a certificate

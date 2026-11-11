@@ -37,12 +37,12 @@ You need: a DuckDNS account, an AWS account, about 20 minutes. The relay's addre
    ```
 
    It prints "the relay is reachable by name" and exits 0 when it works. It exits 3 and says what to check if the name does not answer within a minute.
-8. **Test the URL.** From any computer: `curl -i https://$RELAY_HOSTNAME/healthz` must answer `200`. A browser showing a valid padlock on that address confirms the certificate.
+8. **Test the URL.** From any computer: `curl -i https://$RELAY_HOSTNAME/healthz` must answer `200`. A browser showing a valid padlock on that address confirms the certificate. Also check the redirect (A11) and the closed routes: `curl -sI http://$RELAY_HOSTNAME/healthz` must answer a redirect (308) to HTTPS, and `curl -s -o /dev/null -w '%{http_code}' https://$RELAY_HOSTNAME/v1/stats` must answer `404`.
 
 When step 8 answers `200`, send Tushe the message in `tushe-address-message.md` (host, TLS, health path, what Tushe sends and what we need back). Do not send it before: Tushe asked for the address (deck v4, R13), and an address that does not answer is worse than none. The signing secret Tushe returns goes into the relay's volume file only (see below), never into the core's environment.
 
 ## What the script does not do
 
 - It does not handle the signing secret. The relay's one-shot writes a fresh one into a Docker volume; to use the secret Tushe was given, write it to that volume file (see `deploy/compose/services/webhook-relay.yml`).
-- It does not restrict which relay routes Caddy forwards. `/v1/deliveries` and `/v1/stats` are protected by the relay's pull token; `/webhooks` by the Standard Webhooks signature.
+- The public name forwards only `/webhooks` (Standard Webhooks signature) and `/healthz`; every other path, including the relay's token-protected `/v1/deliveries` and `/v1/stats`, is a 404 there. The core pulls inside `tushe_net`. Caddy's admin API is off. The container drops every capability but `NET_BIND_SERVICE`, sets no-new-privileges and has a read-only root filesystem; it still runs as root inside the container, because a non-root process cannot gain the port-binding capability under no-new-privileges on the host network.
 - Not exercised yet: the DuckDNS call, the Docker start and Caddy's certificate request (no Docker daemon or token where this was written). The first run on the host is the test; report its output.

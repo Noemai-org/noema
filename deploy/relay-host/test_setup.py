@@ -22,6 +22,37 @@ class ImagePin(unittest.TestCase):
         self.assertRegex(line, r'^caddy_image="caddy:2\.8\.4@sha256:[0-9a-f]{64}"$')
 
 
+class CaddyHardening(unittest.TestCase):
+    """SR review of noema#189 (F2, F3, F4): the relay is public, so the generated Caddyfile and the container flags are part of the contract.
+    The Caddyfile is printed by --check from the same function that writes it, so these tests read what the host would get."""
+
+    def caddyfile(self) -> str:
+        r = SetupCheck("run_check").run_check(b"a" * 20)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        start = r.stdout.index("--- Caddyfile ---\n") + len("--- Caddyfile ---\n")
+        return r.stdout[start:r.stdout.index("--- end Caddyfile ---")]
+
+    def test_the_admin_api_is_off(self) -> None:  # F2: the admin endpoint on the host network could rewrite the proxy
+        text = self.caddyfile()
+        self.assertTrue(text.lstrip().startswith("{\n\tadmin off\n}"), text)
+
+    def test_only_the_webhook_and_health_paths_are_public(self) -> None:  # F3: /v1/deliveries and /v1/stats must not be on the internet
+        text = self.caddyfile()
+        self.assertEqual(text.count("reverse_proxy"), 2, text)
+        self.assertRegex(text, r"handle /webhooks \{\n\s*reverse_proxy 127\.0\.0\.1:8090\n\s*\}")
+        self.assertRegex(text, r"handle /healthz \{\n\s*reverse_proxy 127\.0\.0\.1:8090\n\s*\}")
+        self.assertRegex(text, r"handle \{\n\s*respond 404\n\s*\}")
+        self.assertNotIn("/v1/", text)
+
+    def test_the_caddy_container_is_hardened(self) -> None:  # F4
+        run = SCRIPT.read_text()
+        run = run[run.index("docker run -d --name"):]
+        run = run[:run.index(">/dev/null")]
+        for flag in ("--cap-drop ALL", "--cap-add NET_BIND_SERVICE", "--security-opt no-new-privileges:true", "--read-only", "--tmpfs /tmp",
+                     "noema-relay-caddy-config:/config", "noema-relay-caddy-data:/data"):
+            self.assertIn(flag, run)
+
+
 class SetupCheck(unittest.TestCase):
     def setUp(self) -> None:
         # A test that cannot run is a failure, never a silent skip (set RELAY_TEST_BASH to a bash on a machine without one on PATH).
