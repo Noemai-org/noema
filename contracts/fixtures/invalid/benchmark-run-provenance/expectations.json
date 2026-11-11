@@ -1,0 +1,9 @@
+{
+  "extra_field.json": "additionalProperties",
+  "digest_not_sha.json": "pattern",
+  "missing_scorecard_sha.json": "required",
+  "run_id_has_space.json": "pattern",
+  "run_without_digest.json": "required",
+  "run_id_too_long.json": "maxLength",
+  "too_many_runs.json": "maxItems"
+}

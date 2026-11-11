@@ -109,7 +109,8 @@ def _fraction(name: str, value: float | None) -> None:
 
 def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
                  baseline_pass_k: float | None, floor: float | None, floor_source: str | None, baseline_record_sha256: str | None = None,
-                 repeat_cards: Sequence[Mapping[str, Any]] = ()) -> Json:
+                 repeat_cards: Sequence[Mapping[str, Any]] = (), provenance: Mapping[str, Any] | None = None,
+                 repeat_provenance: Sequence[Mapping[str, Any]] = ()) -> Json:
     """A record whose numbers are copied from the scorecard and the run record, so an author never types one.
 
     `card` is the primary run. pass^k needs exactly five runs, and Tier 0 and completeness must hold in every one of them (Codex P1 on noema#199), so the other four runs'
@@ -143,6 +144,10 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
             raise ValueError(f"the scorecard's {flag} must be a real boolean, not {value!r}")
     if source["available"] is True and len(repeat_cards) != PASS_K - 1:
         raise ValueError(f"pass^k over {PASS_K} runs needs the scorecards of the {PASS_K - 1} other runs (repeat_cards), not {len(repeat_cards)}: Tier 0 is checked in every run")
+    if source["available"] is True:
+        _bind_runs(card, repeat_cards, provenance, repeat_provenance)
+    if source["available"] is True and isinstance(source.get("rate"), Mapping) and type(source["rate"].get("n")) is int and source["rate"]["n"] > card["n_cases"]:
+        raise ValueError(f"the scorecard's pass^k denominator {source['rate']['n']} is more than its n_cases {card['n_cases']}: it is a subset of the scored cases and cannot exceed them")
     run_ids = [card["run_id"], *(c["run_id"] for c in repeat_cards)]
     if len(set(run_ids)) != len(run_ids):
         raise ValueError(f"the runs must have distinct run ids, not {run_ids}")
@@ -171,6 +176,38 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
         "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
         "runs": runs,
     }
+
+
+def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]], provenance: Mapping[str, Any] | None, repeat_provenance: Sequence[Mapping[str, Any]]) -> None:
+    """The repeat scorecards are the runs pass^k rests on (Codex P1 on noema#199): the primary's provenance lists the five runs with their result digests, each repeat has its own
+    provenance, and every scorecard is the one its provenance was written beside. Four unrelated clean scorecards fail here, so their safety flags are never read."""
+    if provenance is None:
+        raise ValueError("pass^k over five runs needs the provenance of the primary run (provenance.json, written beside its scorecard): without it the repeat scorecards are not bound to the runs behind pass^k")
+    for one in (provenance, *repeat_provenance):
+        problems = _contracts().errors("benchmark-run-provenance", one)
+        if problems:
+            raise ValueError(f"a provenance file is invalid: {problems[0]}")
+    if provenance["run_id"] != card["run_id"] or provenance["scorecard_sha256"] != sha256_of(card):
+        raise ValueError("the primary provenance is not for the primary scorecard (run_id or scorecard_sha256 differs): the scorecard was edited or is another run's")
+    listed = provenance["pass_k_runs"]
+    ids = [r["run_id"] for r in listed] if isinstance(listed, list) else []
+    if len(ids) != PASS_K or len(set(ids)) != PASS_K:
+        raise ValueError(f"the primary provenance must list exactly five distinct runs for pass^k, not {ids}")
+    digests = {r["run_id"]: r["results_sha256"] for r in listed}
+    if digests.get(card["run_id"]) != provenance["results_sha256"]:
+        raise ValueError("the primary provenance lists a results_sha256 for its own run that is not its own")
+    by_run = {r["run_id"]: r for r in repeat_provenance}
+    for one in repeat_cards:
+        run_id = one["run_id"]
+        if run_id not in digests or run_id == card["run_id"]:
+            raise ValueError(f"repeat scorecard {run_id!r} is not one of the other four runs pass^k rests on ({ids})")
+        found = by_run.get(run_id)
+        if found is None:
+            raise ValueError(f"repeat scorecard {run_id!r} has no provenance")
+        if found["scorecard_sha256"] != sha256_of(one):
+            raise ValueError(f"repeat scorecard {run_id!r}: its provenance's scorecard_sha256 is not this scorecard's digest (edited after scoring)")
+        if found["results_sha256"] != digests[run_id]:
+            raise ValueError(f"repeat scorecard {run_id!r}: its results_sha256 is not the digest the primary's pass^k listed for that run")
 
 
 def validate_record(record: Mapping[str, Any]) -> list[str]:
@@ -225,6 +262,9 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         if rate is not None and not is_fraction(rate):
             out.append(f"pass_k.rate.rate {rate!r} must be a finite number between 0 and 1")
         out += _rate_problems(blocks["pass_k"]["rate"])
+        n = blocks["pass_k"]["rate"].get("n")
+        if type(n) is int and type(record["n_cases"]) is int and n > record["n_cases"]:
+            out.append(f"pass_k.rate.n {n} is more than n_cases {record['n_cases']}: the pass^k denominator is a subset of the scored cases, so it cannot exceed them")
     if not isinstance(record["reasons"], list) or not all(isinstance(r, str) for r in record["reasons"]):
         out.append("reasons must be a list of strings")
     if record["verdict"] not in VERDICTS:

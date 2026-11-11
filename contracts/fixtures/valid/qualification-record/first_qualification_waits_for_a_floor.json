@@ -16,7 +16,7 @@
   },
   "kind": "llm",
   "model_id": "decision-model-a",
-  "n_cases": 6,
+  "n_cases": 10,
   "pass_k": {
     "available": true,
     "failing_cases": [

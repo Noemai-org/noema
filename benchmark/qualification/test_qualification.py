@@ -6,6 +6,7 @@ scorer. Generated layer only (INV-22, REQ-AGT-004).
 The benchmark owns the runner side: the record format (`contracts/schemas/qualification-record.v1.json`), how a record is made, and the lookup that refuses an unqualified ID.
 The model service's configuration check (C2) calls the same lookup contract; it is not built here."""
 import copy
+import hashlib
 import functools
 import io
 import json
@@ -39,10 +40,23 @@ def repeat_cards(primary: Json | None = None) -> list[Json]:
     return out
 
 
+def results_sha(run_id: str) -> str:
+    return "sha256:" + hashlib.sha256(run_id.encode()).hexdigest()
+
+
+def provenance_for(card: Json, repeats: list[Json]) -> tuple[Json, list[Json]]:
+    """The provenance files scoring writes for the primary run and the four repeats: the primary lists all five runs, each file names its own scorecard's digest."""
+    runs = [{"run_id": c["run_id"], "results_sha256": results_sha(c["run_id"])} for c in (card, *repeats)]
+    def one(c: Json, listed: list[Json] | None) -> Json:
+        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "pass_k_runs": listed}
+    return one(card, runs), [one(c, None) for c in repeats]
+
+
 def first_card() -> Json:
     """A scorecard whose pass^k is measured on 40 cases (the first-qualification minimum of ruling F6)."""
     card = scorecard()
     card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 36, "n": 40, "rate": 0.9}
+    card["n_cases"] = 40  # the denominator is a subset of the scored cases (Codex P2 on noema#199)
     return card
 
 
@@ -53,6 +67,7 @@ def scorecard() -> Json:
     card["tier0"]["all_zero"] = True
     card["tier1"]["diagnostics"]["pass_k"] = {"k_required": 5, "runs_supplied": 5, "available": True, "reason": None,
                                               "rate": {"k": 9, "n": 10, "rate": 0.9}, "failing_cases": ["BEN-1-0001"]}
+    card["n_cases"] = 10  # the pass^k denominator is a subset of the scored cases (Codex P2 on noema#199)
     return card
 
 
@@ -64,6 +79,8 @@ def record(card: Json | None = None, drift: Json | None = None, **changes: Any) 
         args.setdefault("baseline_record_sha256", baseline_sha())
     card = card or scorecard()
     args.setdefault("repeat_cards", repeat_cards(card))
+    if "provenance" not in args and len(args["repeat_cards"]) == 4:
+        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"])
     return build_record(card, drift or run(), **args)
 
 
@@ -498,6 +515,91 @@ class ContractAndEvidence(unittest.TestCase):
         rec["bar"].update(floor=None, floor_source="DEC-x")
         self.assertTrue(any("floor_source" in p for p in validate_record(rec)), "a source with no floor is also unpaired")
 
+    # Codex P2 on noema#199 (e846fe6): the pass^k denominator is a subset of the scored cases, so it cannot exceed n_cases.
+    def test_a_pass_k_denominator_larger_than_the_scored_cases_is_invalid_and_cannot_be_built(self) -> None:
+        rec = first_record()
+        rec["n_cases"] = 6
+        got = validate_record(rec)
+        self.assertTrue(any("n_cases" in p and "pass_k" in p for p in got), got)
+        self.assertTrue(check_model([rec], PROVIDER, MODEL, rec["version"]))
+        card = first_card()
+        card["n_cases"] = 6
+        with self.assertRaisesRegex(ValueError, "n_cases"):
+            first(card=card, repeat_cards=repeat_cards(card))
+
+    def test_a_denominator_equal_to_the_scored_cases_is_accepted(self) -> None:
+        self.assertEqual([], [p for p in validate_record(first_record()) if "n_cases" in p])
+        self.assertEqual(40, first_record()["n_cases"])
+
+    def test_the_shipped_first_qualification_fixture_obeys_the_bound(self) -> None:
+        fixture_path = Path(__file__).resolve().parents[2] / "contracts" / "fixtures" / "valid" / "qualification-record" / "first_qualification_with_a_floor.json"
+        shipped = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertLessEqual(shipped["pass_k"]["rate"]["n"], shipped["n_cases"])
+
+
+class RepeatBinding(unittest.TestCase):
+    """Codex P1 on noema#199 (e846fe6): four unrelated clean scorecards must not stand in for the runs pass^k rests on."""
+
+    def build(self, **changes: Any) -> Json:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        args: Json = {"card": card, "drift": first_drift(), "version": PINNED["version"], "baseline_pass_k": None, "floor": 0.9, "floor_source": "DEC-2026-11-08-floor",
+                      "repeat_cards": repeats, "provenance": prov, "repeat_provenance": repeat_prov}
+        args.update(changes)
+        return record(**args)
+
+    def test_a_chain_that_matches_qualifies(self) -> None:
+        self.assertEqual("QUALIFIED", self.build()["verdict"])
+
+    def test_four_unrelated_clean_scorecards_are_refused(self) -> None:
+        unrelated = []
+        for i in range(2, 6):
+            card = copy.deepcopy(first_card())
+            card["run_id"] = f"other_{i}"
+            unrelated.append(card)
+        _, unrelated_prov = provenance_for(first_card(), unrelated)
+        with self.assertRaisesRegex(ValueError, "repeat"):
+            self.build(repeat_cards=unrelated, repeat_provenance=unrelated_prov)
+
+    def test_a_repeat_scorecard_edited_after_scoring_is_refused(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        repeats[0]["tier0"]["all_zero"] = False
+        repeats[0]["tier0"]["all_zero"] = True
+        repeats[0]["n_cases"] += 1
+        with self.assertRaisesRegex(ValueError, "scorecard_sha256"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_a_repeat_whose_results_digest_is_not_the_one_pass_k_listed_is_refused(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        repeat_prov[1]["results_sha256"] = results_sha("a different result set")
+        with self.assertRaisesRegex(ValueError, "results_sha256"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_provenance_is_required_when_pass_k_is_available(self) -> None:
+        with self.assertRaisesRegex(ValueError, "needs the provenance of the primary run"):
+            self.build(provenance=None, repeat_provenance=[])
+
+    def test_the_primary_provenance_must_be_for_the_primary_scorecard(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        prov["scorecard_sha256"] = results_sha("another card")
+        with self.assertRaisesRegex(ValueError, "scorecard_sha256"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_the_listed_runs_must_be_exactly_five_distinct(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        prov["pass_k_runs"] = prov["pass_k_runs"][:4]
+        with self.assertRaisesRegex(ValueError, "five"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
 
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:
@@ -673,14 +775,20 @@ class Cli(unittest.TestCase):
         card = card or scorecard()
         repeats = repeats if repeats is not None else repeat_cards(card)
         (root / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
+        prov, repeat_prov = provenance_for(card, repeats) if len(repeats) == 4 else (None, [])
+        if prov is not None:
+            (root / "provenance.json").write_text(json.dumps(prov), encoding="utf-8")
         for i, one in enumerate(repeats):
-            (root / f"repeat-{i}.json").write_text(json.dumps(one), encoding="utf-8")
+            (root / f"repeat-{i}").mkdir()
+            (root / f"repeat-{i}" / "scorecard.json").write_text(json.dumps(one), encoding="utf-8")
+            if repeat_prov:
+                (root / f"repeat-{i}" / "provenance.json").write_text(json.dumps(repeat_prov[i]), encoding="utf-8")
         (root / "run.json").write_text(json.dumps(run()), encoding="utf-8")
         (root / "baseline-record.json").write_text(json.dumps(first_record()), encoding="utf-8")
         (root / "records").mkdir()
         return ["--scorecard", str(root / "scorecard.json"), "--run", str(root / "run.json"), "--baseline-record", str(root / "baseline-record.json"), "--provider", PROVIDER,
                 "--model-id", MODEL, "--version", VERSION, "--kind", "llm", "--decision-record", DEC, "--qualified-on", "2026-11-06",
-                *[a for i in range(len(repeats)) for a in ("--repeat-scorecard", str(root / f"repeat-{i}.json"))]]
+                *[a for i in range(len(repeats)) for a in ("--repeat-scorecard", str(root / f"repeat-{i}" / "scorecard.json"))]]
 
     def test_record_then_check_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
