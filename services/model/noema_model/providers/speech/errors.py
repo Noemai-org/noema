@@ -1,6 +1,6 @@
 """The provider error types, re-exported for the voice pipeline. The lint lets voice/ import providers.speech and nothing
 else in providers (A9), and a speech stream fails with the same ProviderError the text providers raise, so failover treats
-both alike."""
+both alike. It is a re-export only, with no logic."""
 
 from noema_model.providers.llm.base import ProviderError as ProviderError
 from noema_model.providers.llm.base import ProviderFailure as ProviderFailure
