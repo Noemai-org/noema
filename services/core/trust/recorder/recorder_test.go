@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
@@ -52,6 +53,12 @@ func ctx(t testing.TB) context.Context {
 	return c
 }
 
+// newAppender is the one place this package builds a chain.Appender. When noema#263 (REC-08) lands, Append requires a signing key for the emitter core-trust
+// and this is the only line to change: add Signers from recordsig.For for "core-trust" here (second human review of noema#237, C2).
+func newAppender(clk clock.Clock, idg chain.IDSource) *chain.Appender {
+	return &chain.Appender{Clock: clk, IDs: idg}
+}
+
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	admin, dsn := testpg.NewDatabase(t)
@@ -75,7 +82,7 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: &chain.Appender{Clock: clk, IDs: idg}, Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
+	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
 	return &world{admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 
@@ -455,4 +462,134 @@ func TestARequestCannotChooseTheRecordActor(t *testing.T) {
 			t.Errorf("%s: actor %q written_by %q, want both core-trust", r.EventType, r.Actor, r.WrittenBy)
 		}
 	}
+}
+
+// ---- Record-first: a failed append or insert fails the whole write (PERD 32.4, EC-E16, AGENTS section 5, INV-03, INV-17) ----
+// Each test makes the real component fail (an ID source that errors, a duplicate primary key in the real database), then checks that Write returns the
+// cause and that nothing remains after the caller's rollback. Each was also run against a mutant that swallows that one error (see the PR).
+
+var errBoom = errors.New("synthetic id source failure")
+
+// failingIDs delegates to inner and fails the nth call (1-based) for prefix; every other call passes through.
+type failingIDs struct {
+	inner  interface{ ID(string) (string, error) }
+	prefix string
+	nth    int
+	calls  int
+}
+
+func (f *failingIDs) ID(prefix string) (string, error) {
+	if prefix == f.prefix {
+		f.calls++
+		if f.calls == f.nth {
+			return "", errBoom
+		}
+	}
+	return f.inner.ID(prefix)
+}
+
+// fixedIDs always returns the same ID for prefix and delegates for any other prefix.
+type fixedIDs struct {
+	inner  interface{ ID(string) (string, error) }
+	prefix string
+	id     string
+}
+
+func (f fixedIDs) ID(prefix string) (string, error) {
+	if prefix == f.prefix {
+		return f.id, nil
+	}
+	return f.inner.ID(prefix)
+}
+
+func (w *world) nothingRemains(t *testing.T, what string) {
+	t.Helper()
+	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 0 {
+		t.Errorf("%s: %d decision records remain after the rollback", what, n)
+	}
+	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 0 {
+		t.Errorf("%s: %d grants remain after the rollback", what, n)
+	}
+	if got := w.events(t); len(got) != 0 {
+		t.Errorf("%s: events remain after the rollback: %v", what, got)
+	}
+}
+
+func TestAFailedDecisionMadeAppendFailsTheWriteAndLeavesNothing(t *testing.T) {
+	w := newWorld(t)
+	clk := clock.NewManual(epoch)
+	base := ids.New(clk, rand.New(rand.NewSource(3)))
+	w.w.Appender = newAppender(clk, &failingIDs{inner: base, prefix: "recev", nth: 1})
+	b := evaluated(t)
+	res, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true)
+	if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), "append DECISION_MADE") {
+		t.Fatalf("got %v, want the DECISION_MADE append failure", err)
+	}
+	if res.Record.DecisionId != "" || len(res.Grants) != 0 {
+		t.Errorf("a failed write returned a record or grants: %+v", res)
+	}
+	w.nothingRemains(t, "DECISION_MADE append failed")
+}
+
+func TestAFailedGrantIssuedAppendFailsTheWriteAndLeavesNothing(t *testing.T) {
+	w := newWorld(t)
+	clk := clock.NewManual(epoch)
+	base := ids.New(clk, rand.New(rand.NewSource(3)))
+	w.w.Appender = newAppender(clk, &failingIDs{inner: base, prefix: "recev", nth: 2}) // the second append is the first GRANT_ISSUED
+	b := evaluated(t)
+	_, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true)
+	if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), "append GRANT_ISSUED 0") {
+		t.Fatalf("got %v, want the GRANT_ISSUED append failure", err)
+	}
+	w.nothingRemains(t, "GRANT_ISSUED append failed")
+}
+
+// A REJECT has no grants, so nothing after the record insert could surface a swallowed insert error (a later statement in an aborted transaction would):
+// the write must fail at the insert itself.
+func TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing(t *testing.T) {
+	w := newWorld(t)
+	b := evaluated(t)
+	first := request(t, decision(t, decide.Reject, b), b)
+	if _, err := w.write(t, first, true); err != nil {
+		t.Fatal(err)
+	}
+	clk := clock.NewManual(epoch)
+	dup := *w.w
+	dup.IDs = fixedIDs{inner: ids.New(clk, rand.New(rand.NewSource(4))), prefix: "dec", id: "dec_FIXEDDUP"}
+	dup.Appender = newAppender(clk, ids.New(clk, rand.New(rand.NewSource(5))))
+	w.w = &dup
+	if _, err := w.write(t, first, true); err != nil { // the first use of the fixed decision id succeeds
+		t.Fatal(err)
+	}
+	before := w.count(t, `SELECT count(*) FROM decision_record`)
+	_, err := w.write(t, first, true) // the second use collides on the primary key
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "23505" || !strings.Contains(err.Error(), "insert decision record") {
+		t.Fatalf("got %v, want the unique violation of the decision_record insert", err)
+	}
+	if after := w.count(t, `SELECT count(*) FROM decision_record`); after != before {
+		t.Errorf("a failed insert changed the record count from %d to %d", before, after)
+	}
+}
+
+// Two steps whose grants get the same ID: the second grant insert hits the primary key. A swallowed error would be followed by an append in an aborted
+// transaction (a different SQLSTATE), so the test asserts the insert's own unique violation.
+func TestAFailedGrantInsertFailsTheWriteAndLeavesNothing(t *testing.T) {
+	w := newWorld(t)
+	clk := clock.NewManual(epoch)
+	dupGrants := fixedIDs{inner: ids.New(clk, rand.New(rand.NewSource(6))), prefix: "grt", id: "grt_FIXEDDUP"}
+	issuer, err := grants.NewIssuer(w.keys, dupGrants, rand.New(rand.NewSource(7)), 10*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.w.Issuer = issuer
+	b := evaluated(t)
+	s1, s2 := step(t), step(t)
+	s2.PlanStep = 2
+	_, err = w.write(t, request(t, decision(t, decide.Allow, b), b, s1, s2), true)
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) || pg.Code != "23505" || !strings.Contains(err.Error(), "insert grant 1") {
+		t.Fatalf("got %v, want the unique violation of the second grant insert", err)
+	}
+	w.nothingRemains(t, "grant insert failed")
 }
