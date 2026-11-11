@@ -129,9 +129,12 @@ async def transcribe_utterance(
         return utterance
     finally:
         gate.closed = True
-        await _stop(task, bound_s)
-        lease.revoke()
-        await audio.aclose()
+        try:
+            await _stop(task, bound_s)
+        finally:
+            # A cancellation that lands while the cleanup waits for the provider must not skip the release (Codex P1 on #193).
+            lease.revoke()
+            await audio.aclose()
 
 
 async def _consume(
