@@ -24,7 +24,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"fin.transaction:TX1\",\"version\":1}],\"synthetic\":true,\"unavailable\":false}\n"
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"fin.transaction:TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":false}\n"
       }
     },
     {
@@ -37,7 +37,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"data_source\":\"stand-in\",\"entries\":[],\"synthetic\":true,\"unavailable\":true}\n"
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":true}\n"
       }
     },
     {
@@ -50,7 +50,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"transaction_ref\":\"fin.transaction:TX1\",\"unavailable\":false}\n"
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":true,\"is_terminal\":true,\"raw_code\":\"SYN-00\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T07:10:00+01:00\",\"semantic_status\":\"ACCEPTED\",\"switch_ref\":\"sw_TX1\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX1\",\"unavailable\":false}\n"
       }
     },
     {
@@ -63,7 +63,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"semantic_status\":\"TIMED_OUT\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}\n"
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"semantic_status\":\"TIMED_OUT\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}\n"
       }
     },
     {
@@ -76,7 +76,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}\n"
+        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}\n"
       }
     },
     {
@@ -89,7 +89,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"transaction_ref\":\"fin.transaction:TX1\",\"unavailable\":false}\n"
+        "body": "{\"credit_state\":\"CREDITED\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T07:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"SETTLED\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX1\",\"unavailable\":false}\n"
       }
     },
     {
@@ -102,7 +102,7 @@
       "response": {
         "status": 200,
         "content_type": "application/json",
-        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true}\n"
+        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\"}\n"
       }
     },
     {

@@ -92,7 +92,7 @@ func readOne(t *testing.T, base string, principal, path, query string, status in
 	})
 	c := newStandinClient(t, f)
 	ctx := sdl(t, 5*time.Second)
-	sc := adapters.Scope{TenantID: "ten_aa", PrincipalID: principal}
+	sc := adapters.Scope{TenantID: "ten_alpha", PrincipalID: principal}
 	ref := ""
 	if i := strings.Index(path, "/transactions/"); i >= 0 {
 		ref = strings.Split(path[i+len("/transactions/"):], "/")[0]
