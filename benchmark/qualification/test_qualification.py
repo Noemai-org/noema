@@ -476,6 +476,28 @@ class ContractAndEvidence(unittest.TestCase):
             got = lookup([rec], PROVIDER, MODEL, VERSION)
             self.assertTrue(got and any("invalid" in p for p in got), got)
 
+    # Codex P2 on noema#199 (04a9a68): the rate is checked against its own counts, and the floor against its decision source, on every lookup.
+    def test_a_pass_rate_that_disagrees_with_its_counts_is_invalid(self) -> None:
+        for k, n, rate in ((0, 40, 0.9), (41, 40, 1.0), (-1, 40, 0.9), (36, 40, 0.95), (36, 0, 0.9), (36.0, 40, 0.9)):
+            rec = first_record()
+            rec["pass_k"]["rate"] = {**rec["pass_k"]["rate"], "k": k, "n": n, "rate": rate}
+            got = validate_record(rec)
+            self.assertTrue(any("pass_k.rate" in p for p in got), (k, n, rate, got))
+            self.assertTrue(check_model([rec], PROVIDER, MODEL, rec["version"]), (k, n, rate))
+
+    def test_a_consistent_pass_rate_is_still_accepted(self) -> None:
+        self.assertEqual([], [p for p in validate_record(first_record()) if "pass_k.rate" in p])
+
+    def test_a_floor_needs_its_decision_source_when_a_record_is_looked_up(self) -> None:
+        for source in (None, "", "   "):
+            rec = first_record()
+            rec["bar"]["floor_source"] = source
+            self.assertTrue(any("floor_source" in p for p in validate_record(rec)), (source, validate_record(rec)))
+            self.assertTrue(check_model([rec], PROVIDER, MODEL, rec["version"]), source)
+        rec = first_record()
+        rec["bar"].update(floor=None, floor_source="DEC-x")
+        self.assertTrue(any("floor_source" in p for p in validate_record(rec)), "a source with no floor is also unpaired")
+
 
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:

@@ -285,6 +285,28 @@ class VersionMismatchIsDerived(unittest.TestCase):
         self.assertTrue(any("contract" in p for p in validate_run_record(rec)), validate_run_record(rec))
 
 
+class UnansweredCases(unittest.TestCase):
+    """Codex P2 on noema#199 (04a9a68, run.py): a MATCH needs an answering version and an observed digest; a case no provider answered is UNAVAILABLE (REQ-INT-006)."""
+
+    def test_a_match_with_no_answering_version_is_invalid_and_the_run_is_not_a_pass(self) -> None:
+        rec = run()
+        for case in rec["cases"]:
+            case.update(answered_by=None, observed_sha256=None)
+        rec["answered_versions"] = []
+        got = validate_run_record(rec)
+        self.assertTrue(any("MATCH" in p and "answered_by" in p for p in got), got)
+
+    def test_a_match_with_no_observed_digest_is_invalid(self) -> None:
+        rec = run()
+        rec["cases"][0]["observed_sha256"] = None
+        self.assertTrue(any("observed_sha256" in p for p in validate_run_record(rec)))
+
+    def test_an_unanswered_case_must_be_unavailable_and_carry_no_answer(self) -> None:
+        rec = run()
+        rec["cases"][0].update(status="UNAVAILABLE", answered_by=PINNED["version"])
+        self.assertTrue(any("UNAVAILABLE" in p for p in validate_run_record(rec)), validate_run_record(rec))
+
+
 class Validating(unittest.TestCase):
     def test_a_result_the_cases_do_not_support_is_invalid(self) -> None:
         rec = run()

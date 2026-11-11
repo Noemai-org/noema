@@ -192,6 +192,11 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
             statuses.pop()
             continue
         answered = case.get("answered_by")
+        if status == "UNAVAILABLE":
+            if answered is not None or case.get("observed_sha256") is not None:
+                out.append(f"case {case_id}: status UNAVAILABLE means no provider answered, but answered_by or observed_sha256 is set")
+        elif not isinstance(answered, str) or not answered or not isinstance(case.get("observed_sha256"), str):
+            out.append(f"case {case_id}: status {status} needs an answering version (answered_by) and an observed digest (observed_sha256); a case no provider answered is UNAVAILABLE, never MATCH")
         if answered is not None and isinstance(pin.get("version"), str):
             should = answered != pin["version"]
             if case["version_mismatch"] is not should:

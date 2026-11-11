@@ -27,6 +27,7 @@ from benchmark.contracts import Contracts, sha256_of
 from benchmark.qualification.pins import KINDS, is_pinned, parse_date
 from benchmark.qualification.run import validate_run_record
 from benchmark.scoring.diagnostics import PASS_K
+from benchmark.scoring.stats import PLACES
 
 Json = dict[str, Any]
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
@@ -210,6 +211,9 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         for field in ("baseline_pass_k", "floor"):
             if blocks["bar"].get(field) is not None and not is_fraction(blocks["bar"][field]):
                 out.append(f"bar.{field} {blocks['bar'][field]!r} must be a finite number between 0 and 1")
+        floor, source = blocks["bar"].get("floor"), blocks["bar"].get("floor_source")
+        if (floor is None) != (source is None or not isinstance(source, str) or not source.strip()):
+            out.append("bar.floor and bar.floor_source come together: a Founder-set floor names the decision record that set it, and a source with no floor is meaningless")
         sha = blocks["bar"].get("baseline_record_sha256")
         if (blocks["bar"].get("baseline_pass_k") is None) != (sha is None):
             out.append("bar.baseline_record_sha256 and bar.baseline_pass_k come together: a bar from a baseline names the baseline record it came from")
@@ -220,6 +224,7 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         rate = blocks["pass_k"]["rate"].get("rate")
         if rate is not None and not is_fraction(rate):
             out.append(f"pass_k.rate.rate {rate!r} must be a finite number between 0 and 1")
+        out += _rate_problems(blocks["pass_k"]["rate"])
     if not isinstance(record["reasons"], list) or not all(isinstance(r, str) for r in record["reasons"]):
         out.append("reasons must be a list of strings")
     if record["verdict"] not in VERDICTS:
@@ -228,6 +233,16 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
         out += [f"verdict is QUALIFIED but {reason}" for reason in _reasons(record["complete"], record["tier0_all_zero"], blocks["pass_k"], str(blocks["drift"].get("result")), blocks["bar"],
                                                                          requalification=blocks["drift"].get("baseline_version") != record["version"])]
     return out
+
+
+def _rate_problems(block: Mapping[str, Any]) -> list[str]:
+    """The rate agrees with its own counts: `0 <= k <= n`, `n >= 1`, and `rate` is the scorer's rounded k/n, so a record cannot report zero successes at a passing rate."""
+    k, n, rate = block.get("k"), block.get("n"), block.get("rate")
+    if type(k) is not int or type(n) is not int or n < 1 or not 0 <= k <= n:
+        return [f"pass_k.rate needs integer counts with 0 <= k <= n and n >= 1, not k={k!r}, n={n!r}"]
+    if not is_fraction(rate) or rate != round(k / n, PLACES):
+        return [f"pass_k.rate.rate {rate!r} is not k/n rounded ({round(k / n, PLACES)!r} for k={k}, n={n})"]
+    return []
 
 
 def _run_problems(record: Mapping[str, Any], blocks: Mapping[str, Mapping[str, Any]], flags_ok: bool) -> list[str]:
