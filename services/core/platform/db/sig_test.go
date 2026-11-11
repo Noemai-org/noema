@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -221,6 +222,42 @@ func TestAForgedReceiptIsRefusedByEveryPath(t *testing.T) {
 	_, err = tx.Exec(ctx(t), `INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, external_ack, dispatched_at, json, sig_key_id, sig_value, signed_jcs, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15)`, forged...)
 	wantCode(t, err, ns001, "superuser INSERT under session_replication_role = replica")
+	if w.receipts(t) != 0 {
+		t.Fatalf("%d receipts stored after only refused inserts", w.receipts(t))
+	}
+}
+
+// The stored document must be exactly the signed one plus the row's own signature member (definition of done 3c, A131: removing this check from the trigger went
+// unseen). A genuinely signed receipt whose stored json carries an extra member, lacks a member, or names another signature is refused, and nothing is stored.
+func TestAGenuineSignatureOverADifferentStoredDocumentIsRefused(t *testing.T) {
+	w := newSigWorld(t)
+	k1 := w.register(t, "core-execution", 1)
+	genuine := w.call(t, goodReceipt(), k1, "")
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(genuine[10].(string)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	withJSON := func(mutate func(map[string]any)) []any {
+		d := map[string]any{}
+		for k, v := range doc {
+			d[k] = v
+		}
+		mutate(d)
+		body, err := json.Marshal(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := append([]any(nil), genuine...)
+		args[10] = string(body)
+		return args
+	}
+	for name, args := range map[string][]any{
+		"an extra member":          withJSON(func(d map[string]any) { d["extra"] = "x" }),
+		"another signature value":  withJSON(func(d map[string]any) { d["sig"] = map[string]any{"key_id": k1, "value": strings.Repeat("ab", 64)} }),
+		"another signature key id": withJSON(func(d map[string]any) { d["sig"] = map[string]any{"key_id": "other", "value": genuine[12]} }),
+	} {
+		wantCode(t, w.insertAs(t, "execution_rw", args), ns001, "a genuine signature over "+name)
+	}
 	if w.receipts(t) != 0 {
 		t.Fatalf("%d receipts stored after only refused inserts", w.receipts(t))
 	}
