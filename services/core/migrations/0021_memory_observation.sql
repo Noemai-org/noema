@@ -1,11 +1,17 @@
 -- 0021: operational memory (MEM-01; Founder decision D10 of 7 Nov 2026; REQ-MEM-001, REQ-MEM-002, INV-12, REQ-SEC-004). Forward-only: never edited after merge.
--- The number 0021 is assigned on the noema#183 ledger by the Repo Steward (0019 noema#265, 0020 noema#268, 0021 this PR); the later PR to merge renumbers (A34).
+-- The number 0021 is the last of the noema#183 ledger (0011 #181, 0012 #168, 0013 #229, 0014 #233, 0015 #259, 0016 #234, 0017 #265 merged, 0018 #261, 0019 #263, 0020 #268, 0021 this PR);
+-- the files merge in strict ascending order (A113), and the gap 0011 to 0016 is accepted.
 --
 -- Operational memory is data, never authority (REQ-MEM-001). The table is closed to every runtime role: no login of any power can read, write, update or delete
 -- it. The one write path is memory_observation_record, a SECURITY DEFINER function that only the orchestrator's power (orchestrator_rw) may call and that takes
 -- the tenant from the connecting login, not from an argument (the same binding as the Record functions, DEBT-04). Trust, Execution, Outcome and Evidence have no
 -- privilege of any kind on it, so no decision path can read memory at decision time even by mistake. Reading by the ops inspector and the regression tooling
 -- is a later slice with its own role; nothing here grants a read.
+--
+-- Row-level security is enabled and FORCED (ruling A6, A136), so the table's owner, which is also the definer of memory_observation_record, is held to a policy too:
+-- the one policy is an INSERT policy for the owner whose check is the connecting login's tenant (record_login_tenant('write')), so even the function cannot write
+-- another tenant's row. There is no policy for SELECT, UPDATE, DELETE or ALL, so nobody but a superuser (which bypasses row security whatever is set; no runtime login
+-- is one) can read or change a row through the table.
 --
 -- Rows are append-only (the immutability trigger of migration 0001 and a no-truncate trigger). An observation holds typed scalars only (REQ-MEM-001: no free
 -- text): at most 16 members, each key lower-case snake_case, each value a non-negative integer, a boolean, an UPPER_SNAKE code or a dotted lower-case
@@ -66,3 +72,9 @@ ALTER FUNCTION public.memory_observation_record(text, text, text, jsonb, text, t
 REVOKE ALL ON FUNCTION public.memory_observation_record(text, text, text, jsonb, text, timestamptz, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.memory_observation_record(text, text, text, jsonb, text, timestamptz, text, text) TO orchestrator_rw;
 GRANT EXECUTE ON FUNCTION public.record_login_tenant(text) TO noema_migrator;
+
+-- Row-level security, forced (ruling A6, A136): see the header. The policy's expression runs as the owner, which holds EXECUTE on record_login_tenant above.
+ALTER TABLE public.memory_observation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.memory_observation FORCE ROW LEVEL SECURITY;
+CREATE POLICY memory_observation_insert_own_tenant ON public.memory_observation FOR INSERT TO noema_migrator
+  WITH CHECK (tenant_id = public.record_login_tenant('write'));
