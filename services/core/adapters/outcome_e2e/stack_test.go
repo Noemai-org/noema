@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -130,7 +131,12 @@ func (s *trustStandIn) issueCreateAt(ctx context.Context, version string) (strin
 		return "", err
 	}
 	now := s.clk.Now()
-	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
+	// A grant must carry the policy version of its decision record (migration 0012), so each policy version gets its own recorded decision.
+	decisionID := "dec_us06"
+	if version != "1.0" {
+		decisionID += "v" + strings.ReplaceAll(version, ".", "")
+	}
+	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: decisionID, PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
 		PolicyVersion: policyScope + "@" + version, PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
