@@ -143,7 +143,7 @@ Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" l
 ## Session summary
 - What changed (PR links): the five vendored copies re-pointed to the docs commit of docs#148 (rulings A113 to A122): `AGENTS.md` and `CLAUDE.md` (code freeze Wed 9 Dec 12:00 WAT, A120), `contracts/perd-32-2-event-types.md` (PERD v1.22 §32.2, A114).
 - Why: REQ-OPS-005 (copies are re-pointed in the same change set); the docs original wins.
-- Risks, and how they are contained: the pin was the docs#148 head; docs#148 merged on 10 Nov and the copies are re-pointed to docs `main` at `ad8cda9`. docs#153 (build-window wording in AGENTS.md) is still open, so re-run the script once more after it merges.
+- Risks, and how they are contained: the pin was the docs#148 head; docs#148 merged on 10 Nov and the copies are re-pointed to docs `main` at `90513de`. docs#153 (build-window wording in AGENTS.md) is still open, so re-run the script once more after it merges.
 - Tests added (REQ, INV, US or EC IDs): none; `repoint_docs.py --check` is clean at the pinned commit.
 - Regression cases added: none.
 - Debt entries: none.
