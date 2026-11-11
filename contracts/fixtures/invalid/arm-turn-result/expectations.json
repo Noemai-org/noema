@@ -7,5 +7,9 @@
   "missing_usage.json": "required",
   "label_not_synthetic.json": "const",
   "unknown_field.json": "additionalProperties",
-  "tool_call_without_name.json": "required"
+  "tool_call_without_name.json": "required",
+  "cost_above_the_interop_bound.json": "maximum",
+  "input_tokens_above_the_interop_bound.json": "maximum",
+  "output_tokens_above_the_interop_bound.json": "maximum",
+  "latency_above_the_interop_bound.json": "maximum"
 }
