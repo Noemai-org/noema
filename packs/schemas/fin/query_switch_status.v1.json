@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/query_switch_status.v1.json",
+  "title": "fin.cap.query_switch_status",
+  "description": "Switch status of one transaction (descriptor switch_event.transaction). Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "transaction_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The transaction the person refers to (the fin.transaction resolved in the intent slot subject_resource)."
+    }
+  },
+  "required": [
+    "transaction_ref"
+  ],
+  "additionalProperties": false
+}
