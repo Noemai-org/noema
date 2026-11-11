@@ -47,7 +47,7 @@ The service refuses (401) an assertion that is missing, malformed, signed with a
 - The assertion proves that the holder of the principal key named the principal; it does not authenticate an end user by itself. The trusted adapter must mint it from the authenticated session (INV-12), and the key must be held only by that adapter. Tushe binds a principal differently; the adapter mapping absorbs that when the interface is frozen.
 - Field names are the PERD 34.4 [REC] shapes, our reading, not Tushe's. Cases stay in mock-case.
 - State is in memory: a restart empties it and the loader loads again. Evidence records the `digest`.
-- Slice 2: Compose wiring (`deploy/compose/services/standin.yml`, profiles `ci`, `bench` and `netcheck`, never `dev` or `demo`) and the connection-test matrix rows. Still to come: the hostility proxy's routes to it (an upstream and route entries, when the core's adapters for the stand-in exist) and a cross-language drift guard for the golden file.
+- Slice 2: Compose wiring (`deploy/compose/services/standin.yml`, profiles `ci`, `bench` and `netcheck`, never `dev` or `demo`) and the connection-test matrix rows. The hostility proxy's routes to it are in `benchmark/hostility_proxy/config/routes.standin.json` (ENV-05, 6 Nov 2026; guarded against this table by a proxy test). Still to come: a cross-language drift guard for the golden file.
 
 ## Running it
 
