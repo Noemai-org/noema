@@ -124,7 +124,7 @@ func (c *StandinClient) get(ctx context.Context, scope adapters.Scope, path stri
 	if _, ok := ctx.Deadline(); !ok {
 		return answer{}, &adapters.ReadError{Failure: adapters.ReadInvalid, RawCode: "ADAPTER:NO_DEADLINE"}
 	}
-	// The tenant is validated here but not sent: the stand-in assertion carries the principal only (stand-in README), so isolation rests on principal ids being unique across tenants. Binding the tenant into the assertion needs a stand-in contract ruling (Voice review of noema#205, N1).
+	// The scope (tenant and principal) is validated here and both come from the session: the assertion binds the principal and the tenant (v2, A135), and an answer for another tenant is refused in provenance.
 	if err := scope.Validate(); err != nil {
 		return answer{}, err
 	}
