@@ -8,7 +8,7 @@
 -- privilege of any kind on it, so no decision path can read memory at decision time even by mistake. Reading by the ops inspector and the regression tooling
 -- is a later slice with its own role; nothing here grants a read.
 --
--- Row-level security is enabled and FORCED (ruling A6, A136), so the table's owner, which is also the definer of memory_observation_record, is held to a policy too:
+-- Row-level security is enabled and FORCED (ruling A6, REQ-SEC-004), so the table's owner, which is also the definer of memory_observation_record, is held to a policy too:
 -- the one policy is an INSERT policy for the owner whose check is the connecting login's tenant (record_login_tenant('write')), so even the function cannot write
 -- another tenant's row. There is no policy for SELECT, UPDATE, DELETE or ALL, so nobody but a superuser (which bypasses row security whatever is set; no runtime login
 -- is one) can read or change a row through the table.
@@ -73,7 +73,7 @@ REVOKE ALL ON FUNCTION public.memory_observation_record(text, text, text, jsonb,
 GRANT EXECUTE ON FUNCTION public.memory_observation_record(text, text, text, jsonb, text, timestamptz, text, text) TO orchestrator_rw;
 GRANT EXECUTE ON FUNCTION public.record_login_tenant(text) TO noema_migrator;
 
--- Row-level security, forced (ruling A6, A136): see the header. The policy's expression runs as the owner, which holds EXECUTE on record_login_tenant above.
+-- Row-level security, forced (ruling A6, REQ-SEC-004): see the header. The policy's expression runs as the owner, which holds EXECUTE on record_login_tenant above.
 ALTER TABLE public.memory_observation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.memory_observation FORCE ROW LEVEL SECURITY;
 CREATE POLICY memory_observation_insert_own_tenant ON public.memory_observation FOR INSERT TO noema_migrator

@@ -18,8 +18,8 @@ Updated 2026-11-07. Plan task MEM-01: owner C1; REQ-MEM-001; needs REC-01; done 
 - Files to read first: `services/core/migrations/0021_memory_observation.sql`, `services/core/record/memory/doc.go`.
 - Do not touch: `memory-observation.v1.json` (superseded, kept).
 
-## Session 2026-11-11 · MEM-01 step 2a: row-level security with FORCE (A6, A136) and the header ledger numbers
+## Session 2026-11-11 · MEM-01 step 2a: row-level security with FORCE (A6, REQ-SEC-004) and the header ledger numbers
 - What changed (PR links): noema#272: `0021_memory_observation.sql` enables and FORCES row security on `memory_observation` with one INSERT policy for the owner whose check is `record_login_tenant('write')` (no policy for SELECT, UPDATE, DELETE or ALL); the header and the README name the ledger numbers correctly (0017 is #265, 0019 #263, 0020 #268, 0021 this PR; strict ascending order, A113; the gap is accepted).
-- Why: the Architect's directive of 10 Nov (A136 and ruling A6: every tenant table has RLS plus FORCE); Codex and C2 found the numbers stale.
+- Why: the Architect's directive of 10 Nov (ruling A6 and REQ-SEC-004, which are committed: a tenant table has RLS plus FORCE; the Architect's A136 states the same rule and is recorded in docs#156, still open, so nothing here rests on it); Codex and C2 found the numbers stale.
 - Tests: failing first at f66d0346 ([run](https://github.com/Noemai-org/noema/actions/runs/42972198650/job/130363014814), `core` red): `TestMemoryObservationHasForcedRowSecurityWithOnlyAnOwnTenantInsertPolicy` and `TestTheOwnerCannotInsertAnObservationOutsideTheWritePath` (the owner, with no tenant login behind it, inserts directly before the change). The existing orchestrator-login tests prove the write path still works under the forced policy, because the test cluster's `noema_migrator` is not a superuser.
 - Debt entries: none. Conflicts raised: none.

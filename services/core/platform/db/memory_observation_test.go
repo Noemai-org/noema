@@ -119,7 +119,7 @@ func seventeenMembers() string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
-// A136 / ruling A6 (row-level security with FORCE on every tenant table), REQ-SEC-004, INV-12: memory_observation has row-level security enabled and FORCED, so the
+// Ruling A6 (row-level security with FORCE) applied to this tenant table, REQ-SEC-004, REQ-SEC-004, INV-12: memory_observation has row-level security enabled and FORCED, so the
 // owner (the migration role, and the definer of memory_observation_record) is held to a policy too. The one policy is an INSERT policy for the owner whose check is the
 // connecting login's tenant (record_login_tenant('write')); nothing else is allowed for anybody, so no policy exists for SELECT, UPDATE, DELETE or ALL.
 func TestMemoryObservationHasForcedRowSecurityWithOnlyAnOwnTenantInsertPolicy(t *testing.T) {
