@@ -78,3 +78,8 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Exact next step: EL registers `reconstruct.Route` in the composition root with roles ops and audit and `Handler{DBs, Auth: reconstruct.SessionAuthorizer{}, IDs}`, and removes the not-yet-wired guard test in the same PR.
 - Files to read first: `services/core/record/reconstruct/session.go`, `handler.go`.
 - Do not touch: the migrations.
+
+## C2's review of noema#455 at 48b0b90c (11 Nov 2026), non-blocking points
+- Kind from role (`ops` to `operator`, `audit` to `auditor`) is not written in the PERD (§32.1: a kind is never inferred from an identifier; this is from the role). It needs a line in a decision record (Architect or EL); until then it is mine and labelled so.
+- Subject length (128 at the edge, 64 in the handler) and the meaning of the 409 for a miswired pool: README lines added.
+- Proposed debt entry (REQ-OPS-004), for the docs repository's `debt.md` (Repo Steward or EL): a read function that returns the login's tenant to `record_read`, so `session.CheckTenant` can give a clean answer instead of a failed verification. A migration; not in this allowlist.
