@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
 
 // PERD v1.18 section 38.2, REQ-EXE-004, INV-27, US-19 (DEC-2026-10-28-spent-grant-void): the grant lifecycle is
@@ -42,12 +43,23 @@ var (
 	jsonNull = json.RawMessage("null")
 )
 
+// seedMapped is seed plus a tenant mapping for the session the tests run in. Since noema#168 row security hides a grant from a session with no tenant
+// mapping, so SET ROLE from the administrator would update no row and meet no guard; mapping the session user to ten_a (the seeded tenant) puts the raw
+// statements below in front of the real trigger again, as the tenant's own login would be. The mapping is a fixture row of this test database.
+func seedMapped(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	seed(t, pool)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant_login (login_role, power, tenant_id) VALUES (session_user, 'execution', 'ten_a') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatalf("map the session to ten_a: %v", err)
+	}
+}
+
 // spentGrant makes a grant SPENT, as E8 does: one grant_spend row (attempt 1), then the status change.
 func spentGrant(t *testing.T, pool *pgxpool.Pool, grant, nonce string) {
 	t.Helper()
 	if grant != "grt_1" {
 		if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-			VALUES ($1, 'ten_a', 'dec_1', $2, '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grant, nonce); err != nil {
+			VALUES ($1, 'ten_a', 'dec_1', $2, '{"decision_id":"dec_1","tenant_id":"ten_a"}'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grant, nonce); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -149,7 +161,7 @@ func TestASpentGrantBecomesVoidOnAConfirmedStaleVersionRefusal(t *testing.T) {
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
 			pool := migrated(t) // 0013 verification on: the receipt is genuinely signed and stored through receipt_insert
-			seed(t, pool)
+			seedMapped(t, pool)
 			spentGrant(t, pool, "grt_1", "n1")
 			key := sigfixture.NewKey("grant-void", 1)
 			sigfixture.Register(t, pool, key)
@@ -175,7 +187,7 @@ func TestASpentGrantBecomesVoidOnAConfirmedStaleVersionRefusal(t *testing.T) {
 // A genuinely signed receipt that is not a confirmed refusal is stored, and does not void the grant.
 func TestAGenuinelySignedAcknowledgementDoesNotVoidASpentGrant(t *testing.T) {
 	pool := migrated(t)
-	seed(t, pool)
+	seedMapped(t, pool)
 	spentGrant(t, pool, "grt_1", "n1")
 	key := sigfixture.NewKey("grant-void", 1)
 	sigfixture.Register(t, pool, key)
@@ -210,7 +222,7 @@ func runRefused(t *testing.T, cases []refusedCase) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			pool := voidWorld(t)
-			seed(t, pool)
+			seedMapped(t, pool)
 			spentGrant(t, pool, "grt_1", "n1")
 			c.set(t, pool)
 			wantCode(t, try(t, pool, "execution_rw", voidGrant1), violation, "SPENT -> VOID")
@@ -379,7 +391,7 @@ func TestEveryOtherTransitionOutOfAFinalStatusIsStillRefused(t *testing.T) {
 		for _, to := range targets[from] {
 			t.Run(from+" to "+to, func(t *testing.T) {
 				pool := voidWorld(t)
-				seed(t, pool)
+				seedMapped(t, pool)
 				set(t, pool)
 				before := status(t, pool, "grt_1")
 				wantCode(t, try(t, pool, "postgres", fmt.Sprintf(`UPDATE decision_grant SET status = '%s' WHERE grant_id = 'grt_1'`, to)), violation, from+" to "+to)
@@ -396,7 +408,7 @@ func TestAnIssuedGrantStillMovesToEachFinalStatus(t *testing.T) {
 	for _, to := range []string{"SPENT", "VOID", "EXPIRED"} {
 		t.Run(to, func(t *testing.T) {
 			pool := voidWorld(t)
-			seed(t, pool)
+			seedMapped(t, pool)
 			if err := try(t, pool, "execution_rw", fmt.Sprintf(`UPDATE decision_grant SET status = '%s' WHERE grant_id = 'grt_1'`, to)); err != nil {
 				t.Fatalf("ISSUED -> %s: %v", to, err)
 			}
@@ -407,7 +419,7 @@ func TestAnIssuedGrantStillMovesToEachFinalStatus(t *testing.T) {
 // The permitted transition changes the status and nothing else, and only execution_rw may make it.
 func TestTheVoidOfASpentGrantChangesOnlyItsStatusAndOnlyExecutionMakesIt(t *testing.T) {
 	pool := voidWorld(t)
-	seed(t, pool)
+	seedMapped(t, pool)
 	spentGrant(t, pool, "grt_1", "n1")
 	plantReceipt(t, pool, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
 	wantCode(t, try(t, pool, "postgres", `UPDATE decision_grant SET status = 'VOID', json = '{"a":1}' WHERE grant_id = 'grt_1'`), violation, "status and json together")
@@ -425,7 +437,7 @@ func TestTheVoidOfASpentGrantChangesOnlyItsStatusAndOnlyExecutionMakesIt(t *test
 // The spend is of the grant's tenant: a spend recorded under another tenant never confirms a refusal.
 func TestARefusalNextToASpendOfAnotherTenantDoesNotVoidASpentGrant(t *testing.T) {
 	pool := voidWorld(t)
-	seed(t, pool)
+	seedMapped(t, pool)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`); err != nil {
 		t.Fatal(err)
 	}
