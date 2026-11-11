@@ -2,12 +2,10 @@ package outcomee2e_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"os"
 	"sync"
 	"testing"
@@ -133,9 +131,13 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sig, err := s.keys.SignWith(execKeyID, canon)
+	sig, err := s.keys.SignWith(execKeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return "", err
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant, testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
+		return "", fmt.Errorf("store decision: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, '1', $7, $8, $9)`, g.GrantID, tenant, g.DecisionID, g.Nonce, string(canon), policyScope, g.ExpiresAt, execKeyID, sig); err != nil {
@@ -184,27 +186,6 @@ func (o outcomeSigner) Sign(b []byte) (verifier.Sig, error) {
 	return verifier.Sig{KeyID: outcomeKeyID, Value: v}, err
 }
 
-// receiptRing is the controller's key source in this test: HMAC for grants as today, and Ed25519 for receipts under
-// receiptKeyID, signing the domain tag followed by the canonical receipt (D6). It stands in for EXE-07's signer.
-type receiptRing struct {
-	hmac *crypto.KeyRing
-	priv ed25519.PrivateKey
-}
-
-func (r receiptRing) SignWith(keyID string, msg []byte) (string, error) {
-	if keyID != receiptKeyID {
-		return r.hmac.SignWith(keyID, msg)
-	}
-	return hex.EncodeToString(ed25519.Sign(r.priv, append([]byte("noema/receipt/v1\n"), msg...))), nil
-}
-
-func (r receiptRing) VerifyWith(keyID string, msg []byte, sigHex string) bool {
-	if keyID == receiptKeyID {
-		return false // nothing but Outcome's checker verifies a receipt here
-	}
-	return r.hmac.VerifyWith(keyID, msg, sigHex)
-}
-
 // publicKeys is Outcome's verify-only view of Execution's keys (a stand-in for the signing_key reader, W4).
 type publicKeys map[string]receiptsig.PublicKey
 
@@ -246,11 +227,8 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
-	receiptPub, receiptPriv, err := ed25519.GenerateKey(rand.Reader) // a random key per run
-	if err != nil {
-		t.Fatal(err)
-	}
-	ring := receiptRing{hmac: execKeys, priv: receiptPriv}
+	ring := signingtest.Ring(t, 1) // core-execution's SYNTHETIC key, version 1: receiptKeyID
+	signingtest.Register(t, admin, ring)
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
 	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
@@ -258,7 +236,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: pool["trust_rw"], keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: ring, ReceiptKeyID: receiptKeyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 
 	raw, err := os.ReadFile("../../../../packs/fintech_v1.json")
@@ -271,7 +249,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	def := pack.Definitions[caseOpened]
 	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: 5 * time.Second}
-	pubs := publicKeys{receiptKeyID: {Key: receiptPub, Status: receiptsig.Active}}
+	pubs := publicKeys{receiptKeyID: {Key: ring.PublicKeys()[receiptKeyID], Status: receiptsig.Active}}
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
 	if err != nil {
