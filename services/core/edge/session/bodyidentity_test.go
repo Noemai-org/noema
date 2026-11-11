@@ -165,3 +165,32 @@ func TestAHugeButValidLimitStillScansTheBody(t *testing.T) {
 		t.Fatalf("%d %s, handler calls %d; want 400 and no handler call", rec.Code, rec.Body.String(), calls)
 	}
 }
+
+// A read error is not an empty or a short body (definition of done 3c, A131): a body that delivers valid JSON and then fails must be refused, and the handler
+// must not run on the part that arrived. Mutation: ignoring the read error lets the delivered prefix through.
+type failingBody struct {
+	prefix string
+	read   bool
+}
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if !b.read {
+		b.read = true
+		return copy(p, b.prefix), nil
+	}
+	return 0, errors.New("synthetic connection reset")
+}
+
+func TestABodyThatFailsWhileBeingReadIsRefusedAndTheHandlerNeverRuns(t *testing.T) {
+	k := newKeys(t)
+	h, calls, _ := guarded(t, k)
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), goodClaims(epoch))
+	req := httptest.NewRequest(http.MethodPost, "/v1/conversations", &failingBody{prefix: `{"message":"hi"}`})
+	req.Header.Set("Authorization", tok)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || envelope(t, rec).Code != contracts.ErrorsV2ErrorCodeINPUTINVALID || *calls != 0 {
+		t.Fatalf("%d %s, handler calls %d; want 400 INPUT_INVALID and no handler call", rec.Code, rec.Body.String(), *calls)
+	}
+}
