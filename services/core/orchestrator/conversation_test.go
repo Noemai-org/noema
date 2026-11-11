@@ -153,6 +153,10 @@ func TestARecordFailureStopsTheRunAtThatMoveAndWithholdsTheAnswer(t *testing.T) 
 		if res.Answer != "" || len(f.changes) != n-1 {
 			t.Errorf("append %d failing: answer %q, %d changes recorded; want no answer and %d changes", n, res.Answer, len(f.changes), n-1)
 		}
+		// The investigation the caller gets back has not advanced past what the Record holds: n-1 moves, none unrecorded.
+		if res.Investigation.Version != int64(n-1) || len(res.Changes) != n-1 || (n > 1 && res.Investigation.State != want4()[n-2]) {
+			t.Errorf("append %d failing: returned %+v with %d changes; want version %d, %d changes and the state of the last recorded move", n, res.Investigation, len(res.Changes), n-1, n-1)
+		}
 		if got := f.calls[len(f.calls)-1]; got != "record:"+string(want4()[n-1]) {
 			t.Errorf("append %d failing: the last call was %q; nothing may run after the failed append", n, got)
 		}
