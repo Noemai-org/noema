@@ -37,3 +37,11 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): constructor names and signatures from C1 (the edge chain, noema#445), IL (the stand-in read port, noema#441), C2 (interpreter and evidence); the interface of Trust's decide call (EL, with noema#237).
 - Files to read first: `orchestrator/conversation.go`, `cmd/core/compose.go`.
 - Do not touch: `cmd/core/main.go` and `compose.go` (the composition root is the Engineering Lead's alone).
+
+## Review notes from C2 on the composition PR (2026-11-11, EL)
+1. **Session fields (REQ-INP-002).** `orchestrator.Session{TenantID, PrincipalID}` is smaller than the four identity fields the input gate takes (`principal_id`, `principal_type`, `authn_ref`, `asserted_by`). Neither the edge's `session.Principal` nor the token carries the other three. This is not decided here: it needs an owner (EDG-01 for the token and principal, UND-04 for the gate). Until then the Interpreter adapter cannot be built from this `Session`. Open on noema#454 (owner: Architect or Steward).
+2. **Creation of the investigation** is not recorded by `RunRead`, which starts at RECEIVED and records four moves. Whether the input gateway's `INPUT_RECEIVED` is that event is undecided (owner: Architect). Until it is, a reconstruction would begin at a move from a state with no event.
+3. **A second `RunRead` with the same `InvestigationID`** restarts at version 0. The Record-backed recorder (slice 2) must refuse a stale expected version (unique key on investigation and version) so the same moves cannot be appended twice.
+4. **A port failure or `ErrNotARead`** leaves the investigation in its last state with no failure move, by design. The persistence slice needs a way to resume or close such a run.
+5. **Typed nil.** `missing` compares interface values to nil, so a typed nil pointer in an interface passes. Check when the C1, C2 and IL constructors are plugged in.
+6. **Intent store.** No merged code or task row builds the store of an admitted intent with its `intent_hash` (`Interpretation.IntentRef`, #448's `IntentSource`). Open on noema#454.
