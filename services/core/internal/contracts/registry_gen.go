@@ -65,6 +65,7 @@ var Types = map[string]func() any{
 	"context-snapshot.v1":                                     func() any { return new(ContextSnapshotV1) },
 	"decision-grant.v1":                                       func() any { return new(DecisionGrantV1) },
 	"decision-record.v1":                                      func() any { return new(DecisionRecordV1) },
+	"decision-record.v2":                                      func() any { return new(DecisionRecordV2) },
 	"enums.v1":                                                func() any { return new(EnumsV1) },
 	"enums.v1#ApproverRequirement":                            func() any { return new(EnumsV1ApproverRequirement) },
 	"enums.v1#ApproverRequirement/oneOf/0":                    func() any { return new(EnumsV1ApproverRequirementOption1) },
