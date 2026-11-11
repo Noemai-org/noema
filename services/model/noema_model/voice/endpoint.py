@@ -9,6 +9,7 @@ and stays unchanged), and decoding Opus would need a codec dependency and an AGE
 rather than guessed at.
 """
 
+import asyncio
 import math
 import sys
 from array import array
@@ -100,6 +101,7 @@ class EndpointGate:
         self._detector = detector
         self._done = False
         self._closed = False
+        self._closing: asyncio.Future[None] | None = None
 
     def __aiter__(self) -> "EndpointGate":
         return self
@@ -121,10 +123,15 @@ class EndpointGate:
         return chunk
 
     async def aclose(self) -> None:
+        """Close the source. The close runs as a task of its own that a cancelled caller does not take down, and `_closed` is set only once
+        it has finished, so a second call resumes an interrupted close and never mistakes a started close for a finished one (Codex P1 on #193)."""
         self._done = True
-        if not self._closed:
-            self._closed = True
-            await self._audio.aclose()
+        if self._closed:
+            return
+        if self._closing is None:
+            self._closing = asyncio.ensure_future(self._audio.aclose())
+        await asyncio.shield(self._closing)
+        self._closed = True
 
 
 def until_end_of_speech(audio: AudioSource, detector: EndpointDetector) -> EndpointGate:
