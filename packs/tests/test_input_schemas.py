@@ -89,6 +89,9 @@ class InputSchemas(unittest.TestCase):
         s = self.schema_of("fin.cap.lookup_transaction_history")
         for name in ("from", "to"):
             self.assertEqual(s["properties"][name].get("pattern"), self.TIMESTAMP, name)
+        # Python's re lets "$" match before a trailing newline, ECMA 262 does not: the schema also refuses a newline outright, so every validator agrees.
+        for name in ("from", "to"):
+            self.assertEqual(s["properties"][name].get("not"), {"pattern": "\\n"}, name)
         ok = {"account_ref": "acc_1", "from": "2026-11-10T09:00:00Z", "to": "2026-11-10T10:00:00.123Z"}
         jsonschema.validate(ok, s)
         for bad in ("yesterday", "2026-11-10", "2026-11-10T09:00:00+01:00", "2026-11-10T09:00:00", "\uff12026-11-10T09:00:00Z", "2026-11-10T09:00:00Z\n", "", "9" * 100):

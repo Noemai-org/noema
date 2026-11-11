@@ -13,13 +13,21 @@
     },
     "from": {
       "type": "string",
-      "format": "date-time",
-      "description": "Start of the window, inclusive, RFC 3339 UTC."
+      "description": "Start of the window, inclusive, RFC 3339 instant in UTC with a Z suffix (the common.v1 Timestamp).",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "maxLength": 30,
+      "not": {
+        "pattern": "\\n"
+      }
     },
     "to": {
       "type": "string",
-      "format": "date-time",
-      "description": "End of the window, exclusive, RFC 3339 UTC."
+      "description": "End of the window, exclusive, RFC 3339 instant in UTC with a Z suffix (the common.v1 Timestamp).",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$",
+      "maxLength": 30,
+      "not": {
+        "pattern": "\\n"
+      }
     }
   },
   "required": [

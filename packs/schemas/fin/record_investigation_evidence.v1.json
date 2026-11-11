@@ -14,7 +14,8 @@
     "payload": {
       "type": "string",
       "minLength": 1,
-      "description": "The evidence content. Its hash is computed by Noema, never passed by the caller."
+      "description": "The evidence content. Its hash is computed by Noema, never passed by the caller.",
+      "maxLength": 1048576
     }
   },
   "required": [
