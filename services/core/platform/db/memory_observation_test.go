@@ -118,3 +118,67 @@ func seventeenMembers() string {
 	}
 	return "{" + strings.Join(parts, ", ") + "}"
 }
+
+// A136 / ruling A6 (row-level security with FORCE on every tenant table), REQ-SEC-004, INV-12: memory_observation has row-level security enabled and FORCED, so the
+// owner (the migration role, and the definer of memory_observation_record) is held to a policy too. The one policy is an INSERT policy for the owner whose check is the
+// connecting login's tenant (record_login_tenant('write')); nothing else is allowed for anybody, so no policy exists for SELECT, UPDATE, DELETE or ALL.
+func TestMemoryObservationHasForcedRowSecurityWithOnlyAnOwnTenantInsertPolicy(t *testing.T) {
+	admin, _ := migratedDSN(t)
+	var enabled, forced bool
+	if err := admin.QueryRow(ctx(t), `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = 'public.memory_observation'::regclass`).Scan(&enabled, &forced); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || !forced {
+		t.Fatalf("memory_observation: row security enabled=%v forced=%v, want both true (A6)", enabled, forced)
+	}
+	rows, err := admin.Query(ctx(t), `SELECT polname, polcmd::text, (SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles WHERE oid = ANY (polroles)), pg_get_expr(polwithcheck, polrelid), coalesce(pg_get_expr(polqual, polrelid), '')
+		FROM pg_policy WHERE polrelid = 'public.memory_observation'::regclass`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var name, cmd, roles, check, using string
+		if err := rows.Scan(&name, &cmd, &roles, &check, &using); err != nil {
+			t.Fatal(err)
+		}
+		n++
+		if cmd != "a" || roles != "noema_migrator" || !strings.Contains(check, "record_login_tenant") || using != "" {
+			t.Errorf("policy %s: cmd=%q roles=%q check=%q using=%q, want an INSERT policy for noema_migrator checking record_login_tenant and nothing else", name, cmd, roles, check, using)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("memory_observation has %d policies, want exactly 1 (an INSERT policy for the owner bound to the login's tenant)", n)
+	}
+}
+
+// What FORCE buys: the owner role, used directly (not through memory_observation_record, so with no tenant login behind it), cannot insert a row. Without FORCE the owner
+// bypasses row security and the insert succeeds.
+func TestTheOwnerCannotInsertAnObservationOutsideTheWritePath(t *testing.T) {
+	admin, _ := migratedDSN(t)
+	if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := admin.Acquire(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	tx, err := conn.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	if _, err := tx.Exec(ctx(t), `SET LOCAL ROLE noema_migrator`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx(t), `INSERT INTO public.memory_observation (memory_id, tenant_id, kind, subject_ref, observation, source_correlation_id, observed_at, recorded_by, provenance_ref)
+		VALUES ('mem_direct', 'ten_a', 'ADAPTER_BEHAVIOUR', 'fin.cap.x', '{"samples": 1}'::jsonb, 'corr_01', now(), 'ORCHESTRATOR', 'BEN-VER-0007')`)
+	if err == nil {
+		t.Fatal("the owner inserted into memory_observation directly: row security is not forced on it (A6)")
+	}
+}
