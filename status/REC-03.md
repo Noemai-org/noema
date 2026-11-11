@@ -64,3 +64,17 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Fix: the rollback runs on a context detached from the request's cancellation and bounded to 5 seconds (`rollbackTimeout`). Test first: `TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline` (fails on the old code with "the rollback has no deadline"; passes on the fix).
 - Same pattern elsewhere, outside this PR's scope: `services/core/platform/db/db.go:86` and `:141` (PLT-06) and `services/core/execution/ledger/ledger.go:68` (EXE-02). Both are mine; they need their own small change with the same helper and test.
 - Tenant finding (the other blocking item): answered in the PR; option B with DEBT-04 was accepted by the Architect; see above.
+
+## Session 2026-11-11 10:00 WAT · slice 2: the session Authorizer
+## Session summary
+- What changed (PR links): the REC-03 slice 2 pull request on `feat/REC-03-session-authorizer`, from main: `record/reconstruct/session.go` (`SessionAuthorizer`), its tests, handler comments and the README.
+- Why: the handler was built with a default-refuse authoriser; the running core needs one that takes the caller from the verified session (A146/A147, relayed, to be committed). The route itself is mounted by the composition root (EL, `cmd/core/compose.go`), not here.
+- Risks, and how they are contained: a wrong role-to-kind mapping would serve a customer. The handler checks the role and the principal kind (two layers) and a test fixes each role's `Caller` exactly; mutation checks killed all four mutants run (every role staff, fixed tenant, no-principal accepted, forced role).
+- Tests added (REQ-AUD-003, REQ-API-004, REQ-SEC-004, INV-12, AGENT-10): `record/reconstruct/session_auth_test.go` (6): no principal in the context, ops and audit served through the real `session.Middleware` and `RequireRole`, customer, approver, no session and bad session refused with no events, the handler without the gate, the token's tenant decides the chain, a miswired pool serves nothing (409), the caller built per role.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+- Open: the kind-from-role mapping (`ops` to `operator`, `audit` to `auditor`) is mine; the handler's principal format is `<kind>:<id>` (PERD 32.1) and the session carries a role, not a kind. EL or the Architect to say yes. `cmd/core/no_reconstruction_test.go` stays until EL wires the route and removes it.
+
+## Pre-work for the next agent
+- Exact next step: EL registers `reconstruct.Route` in the composition root with roles ops and audit and `Handler{DBs, Auth: reconstruct.SessionAuthorizer{}, IDs}`, and removes the not-yet-wired guard test in the same PR.
+- Files to read first: `services/core/record/reconstruct/session.go`, `handler.go`.
+- Do not touch: the migrations.

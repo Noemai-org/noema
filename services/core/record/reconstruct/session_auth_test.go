@@ -14,6 +14,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -195,3 +196,36 @@ func TestATokensTenantDecidesWhichChainIsReadAndAMiswiredPoolServesNothing(t *te
 		t.Fatalf("miswired pool: code %s", code)
 	}
 }
+
+// The caller the authorizer builds says what the session says, for every role: the tenant of the token, the kind of the role (staff only for
+// ops and audit), the subject, and the one role. A customer or an approver is never given a staff kind or another role.
+func TestTheSessionAuthorizerBuildsTheCallerFromTheSessionAlone(t *testing.T) {
+	rig := newSessRig(t)
+	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
+	var got reconstruct.Caller
+	var gotErr error
+	probe := authFunc(func(r *http.Request) (reconstruct.Caller, error) {
+		got, gotErr = reconstruct.SessionAuthorizer{}.Authenticate(r)
+		return got, gotErr
+	})
+	h := session.Middleware(rig.v, gen)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = probe.Authenticate(r)
+	}))
+	for role, want := range map[string]reconstruct.Caller{
+		"ops":      {TenantID: other, Principal: "operator:usr_s1", Roles: []string{"ops"}},
+		"audit":    {TenantID: other, Principal: "auditor:usr_s1", Roles: []string{"audit"}},
+		"customer": {TenantID: other, Principal: "customer:usr_s1", Roles: []string{"customer"}},
+		"approver": {TenantID: other, Principal: "approver:usr_s1", Roles: []string{"approver"}},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/x", nil)
+		req.Header.Set("Authorization", "Bearer "+rig.token(t, "usr_s1", other, role))
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if gotErr != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %+v (%v), want %+v", role, got, gotErr, want)
+		}
+	}
+}
+
+type authFunc func(*http.Request) (reconstruct.Caller, error)
+
+func (f authFunc) Authenticate(r *http.Request) (reconstruct.Caller, error) { return f(r) }
