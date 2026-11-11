@@ -96,3 +96,34 @@ func TestInvalidTables(t *testing.T) {
 	}
 	_ = http.StatusOK
 }
+
+// INV-12 (noema ENV-05): the stand-in adapter sends only the signed identity assertion, never a bare principal header, so the request log must attribute from the
+// assertion. The proxy does not hold the key and does not verify the MAC (the stand-in does); this is diagnostic attribution, not authentication.
+func TestAnAssertionAttributeReadsThePrincipalOfAV2Assertion(t *testing.T) {
+	tab, err := Parse([]byte(`{"schema_version":"1.0","synthetic":true,"routes":[{"method":"GET","path":"/standin/v1/principal","upstream":"standin","target":"mock-customer","operation":"get_principal","attrs":{"principal_id":"assertion:X-Principal-Assertion"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const v2 = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42"
+	for name, c := range map[string]struct{ header, want string }{
+		"a v2 assertion":            {v2, "usr_a"},
+		"no header":                 {"", ""},
+		"the old v1 form":           {"v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce", ""},
+		"not base64":                {"v2.!!!.dGVuX2FscGhh.1.00", ""},
+		"too few parts":             {"v2.dXNyX2E", ""},
+		"an empty principal":        {"v2..dGVuX2FscGhh.1.00", ""},
+		"a non-printable principal": {"v2.AQID.dGVuX2FscGhh.1.00", ""},
+	} {
+		r := httptest.NewRequest("GET", "/standin/v1/principal", nil)
+		if c.header != "" {
+			r.Header.Set("X-Principal-Assertion", c.header)
+		}
+		rt := tab.Match(r)
+		if rt == nil {
+			t.Fatalf("%s: no route", name)
+		}
+		if got := rt.Extract(r)["principal_id"]; got != c.want {
+			t.Errorf("%s: principal_id %q, want %q", name, got, c.want)
+		}
+	}
+}
