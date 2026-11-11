@@ -14,6 +14,7 @@ cat > "$work/go" <<'GO'
 [ "$1" = build ] && [ "$2" = -o ] || exit 1
 cat > "$3" <<'IDP'
 #!/bin/sh
+if [ "$1" = issue ]; then shift; while [ $# -gt 0 ]; do [ "$1" = -principal ] && p="$2"; [ "$1" = -role ] && r="$2"; [ "$1" = -ttl ] && t="$2"; shift; done; echo "token-$p-$r-$t"; exit 0; fi
 [ "$1" = keygen ] && [ "$2" = -dir ] || exit 1
 mkdir -p "$3"; echo PRIVATE-STUB > "$3/private.pem"; echo public-stub > "$3/public.pem"
 IDP
@@ -38,4 +39,13 @@ grep -q -- "--tenant-id tnt_a" "$idp/runner-args" || fail "runner-args has no te
 cp "$idp/key/private.pem" "$work/first"
 run BENCH_TENANT=tnt_a BENCH_MAX_BODY_BYTES=1024 >/dev/null || fail "the second run failed"
 cmp -s "$work/first" "$idp/key/private.pem" || fail "a second run replaced the key"
+# Tokens: only with a principal list and a lifetime, one 0400 file per principal named for it; a bad id, role or missing lifetime is refused.
+[ ! -d "$idp/tokens" ] || fail "tokens were made without a principal list"
+if run BENCH_TENANT=tnt_a BENCH_MAX_BODY_BYTES=1024 BENCH_PRINCIPALS="cust_1:customer" >/dev/null 2>&1; then fail "issued tokens without BENCH_TOKEN_TTL"; fi
+if run BENCH_TENANT=tnt_a BENCH_MAX_BODY_BYTES=1024 BENCH_PRINCIPALS="cust_1:root" BENCH_TOKEN_TTL=10m >/dev/null 2>&1; then fail "accepted a role that does not exist"; fi
+if run BENCH_TENANT=tnt_a BENCH_MAX_BODY_BYTES=1024 BENCH_PRINCIPALS="-x:ops" BENCH_TOKEN_TTL=10m >/dev/null 2>&1; then fail "accepted a principal id that reads as a flag"; fi
+run BENCH_TENANT=tnt_a BENCH_MAX_BODY_BYTES=1024 BENCH_PRINCIPALS="cust_1:customer ops_1:ops" BENCH_TOKEN_TTL=10m >/dev/null || fail "the token run failed"
+[ "$(cat "$idp/tokens/cust_1")" = "token-cust_1-customer-10m" ] || fail "the token of cust_1 is not for cust_1 with its role and lifetime"
+[ "$(cat "$idp/tokens/ops_1")" = "token-ops_1-ops-10m" ] || fail "the token of ops_1 is not for ops_1"
+[ "$(stat -c %a "$idp/tokens/cust_1")" = "400" ] || fail "a token file is not mode 0400"
 echo "bench_tokens.sh: ok"

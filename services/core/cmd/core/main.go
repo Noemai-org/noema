@@ -1,7 +1,7 @@
 // Command core is the Noema core service: Trust, Execution, Outcome, the Record, the Evidence
 // Layer, the enterprise adapters and the Temporal workers (SoT §35.6).
 //
-// It serves the two health endpoints and, once the session configuration is given, the protected /v1 API (EDG-01); no /v1 route is registered yet.
+// This skeleton serves only the two health endpoints. It holds no product logic (PLT-01).
 package main
 
 import (
@@ -16,9 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/Noemai-org/noema/services/core/platform/clock"
-	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
 const (
@@ -34,16 +31,6 @@ type readiness func() (ready bool, reason string)
 
 func notReady() (bool, string) {
 	return false, "dependencies are not configured"
-}
-
-// newHandler serves the health routes and, when the session configuration is present, the protected /v1 API (EDG-01). With no protected handler
-// nothing under /v1 is served.
-func newHandler(check readiness, protected http.Handler) http.Handler {
-	mux := newMux(check)
-	if protected != nil {
-		mux.Handle("/v1/", protected)
-	}
-	return mux
 }
 
 // newMux returns the health routes. /healthz says the process is alive; /readyz says it can serve.
@@ -101,12 +88,7 @@ func main() {
 		}
 		return
 	}
-	protected, err := loadEdge(os.Getenv, os.ReadFile, clock.System{}, ids.New(clock.System{}, nil), coreRoutes())
-	if err != nil {
-		logger.Error("session configuration", "error", err.Error())
-		os.Exit(1)
-	}
-	srv := &http.Server{Addr: addr, Handler: newHandler(notReady, protected), ReadHeaderTimeout: headerTimeout}
+	srv := &http.Server{Addr: addr, Handler: newMux(notReady), ReadHeaderTimeout: headerTimeout}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,9 +1,9 @@
-package main
+package edge_test
 
-// EDG-01 slice 3b. REQ-API-004: the core process puts every /v1 call behind a verified session, the identity-in-body guard and the role gate;
-// the health endpoints stay public. AGENT-16: no number or key lives in code, so the verifier's keys, audience, tenants, skew and the body
-// limit come from configuration, and a core with some of it missing does not start (fail closed). A core with none of it serves health only
-// and says it is not ready. Keys and tokens are SYNTHETIC, made per test (AGENT-25).
+// EDG-01 slice 3b. REQ-API-004: Load builds the edge the core process mounts under /v1: a verified session, the role gate and the identity-in-body
+// guard. AGENT-16: no number or key lives in code, so the verifier's keys, audience, tenants, skew and the body limit come from configuration, and
+// a core with some of it missing does not start (fail closed). A core with none of it gets no handler and serves health only. Keys and tokens are
+// SYNTHETIC, made per test (AGENT-25).
 
 import (
 	"net/http"
@@ -51,35 +51,25 @@ func files(t *testing.T, iss *edgetest.Issuer, limits string) env {
 	if err := os.WriteFile(lim, []byte(limits), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return env{envKeyFile: key, envKid: wiredKid, envAudience: wiredAud, envTenants: edgetest.Tenant, envLimitsFile: lim, envMaxBody: "1024"}
+	return env{edge.EnvKeyFile: key, edge.EnvKid: wiredKid, edge.EnvAudience: wiredAud, edge.EnvTenants: edgetest.Tenant, edge.EnvLimitsFile: lim, edge.EnvMaxBody: "1024"}
 }
 
 func load(e env, clk clock.Clock) (http.Handler, error) {
-	return loadEdge(e.get, os.ReadFile, clk, ids.New(clk, nil), nil)
+	return edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), nil)
 }
 
-// A core with none of the session configuration serves no /v1 at all.
-func TestNoSessionConfigurationMountsNoAPI(t *testing.T) {
+// A core with none of the session configuration gets no edge handler, so the composition root mounts no /v1 and serves health only.
+func TestNoSessionConfigurationGivesNoHandler(t *testing.T) {
 	h, err := load(env{}, clock.NewManual(wiringEpoch))
 	if err != nil || h != nil {
 		t.Fatalf("got handler %v, error %v", h, err)
-	}
-	rec := httptest.NewRecorder()
-	newHandler(notReady, h).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/cases", nil))
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("/v1/cases without configuration = %d, want 404", rec.Code)
-	}
-	rec = httptest.NewRecorder()
-	newHandler(notReady, h).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("/readyz = %d, want 503", rec.Code)
 	}
 }
 
 // Fail closed: any one setting missing, with the others given, is a refusal that names the variable and no value.
 func TestAPartialConfigurationIsRefused(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
-	for _, name := range []string{envKeyFile, envKid, envAudience, envTenants, envLimitsFile, envMaxBody} {
+	for _, name := range []string{edge.EnvKeyFile, edge.EnvKid, edge.EnvAudience, edge.EnvTenants, edge.EnvLimitsFile, edge.EnvMaxBody} {
 		e := files(t, iss, limitsOK)
 		delete(e, name)
 		h, err := load(e, clock.NewManual(wiringEpoch))
@@ -93,17 +83,17 @@ func TestAPartialConfigurationIsRefused(t *testing.T) {
 func TestABadConfigurationIsRefused(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	bad := map[string]func(env){
-		"key file missing":        func(e env) { e[envKeyFile] = filepath.Join(t.TempDir(), "nope") },
-		"key file not a key":      func(e env) { _ = os.WriteFile(e[envKeyFile], []byte("hello"), 0o600) },
-		"limits not the contract": func(e env) { _ = os.WriteFile(e[envLimitsFile], []byte(`{"clock_skew_s":60}`), 0o600) },
+		"key file missing":        func(e env) { e[edge.EnvKeyFile] = filepath.Join(t.TempDir(), "nope") },
+		"key file not a key":      func(e env) { _ = os.WriteFile(e[edge.EnvKeyFile], []byte("hello"), 0o600) },
+		"limits not the contract": func(e env) { _ = os.WriteFile(e[edge.EnvLimitsFile], []byte(`{"clock_skew_s":60}`), 0o600) },
 		"skew at the ceiling": func(e env) {
-			_ = os.WriteFile(e[envLimitsFile], []byte(strings.Replace(limitsOK, "60", "900", 1)), 0o600)
+			_ = os.WriteFile(e[edge.EnvLimitsFile], []byte(strings.Replace(limitsOK, "60", "900", 1)), 0o600)
 		},
-		"body limit not a number": func(e env) { e[envMaxBody] = "big" },
-		"body limit zero":         func(e env) { e[envMaxBody] = "0" },
-		"body limit negative":     func(e env) { e[envMaxBody] = "-5" },
-		"body limit max int64":    func(e env) { e[envMaxBody] = "9223372036854775807" },
-		"empty tenant in list":    func(e env) { e[envTenants] = "tnt_a,,tnt_b" },
+		"body limit not a number": func(e env) { e[edge.EnvMaxBody] = "big" },
+		"body limit zero":         func(e env) { e[edge.EnvMaxBody] = "0" },
+		"body limit negative":     func(e env) { e[edge.EnvMaxBody] = "-5" },
+		"body limit max int64":    func(e env) { e[edge.EnvMaxBody] = "9223372036854775807" },
+		"empty tenant in list":    func(e env) { e[edge.EnvTenants] = "tnt_a,,tnt_b" },
 	}
 	for name, mutate := range bad {
 		e := files(t, iss, limitsOK)
@@ -116,17 +106,17 @@ func TestABadConfigurationIsRefused(t *testing.T) {
 	}
 }
 
-// REQ-API-004, REQ-SEC-001: with the configuration, /v1 is behind the verified session, deny by default; health stays public.
-func TestTheConfiguredCoreProtectsV1AndLeavesHealthPublic(t *testing.T) {
+// REQ-API-004, REQ-SEC-001: with the configuration, the handler is behind the verified session, deny by default.
+func TestTheLoadedEdgeIsBehindTheVerifiedSession(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(wiringEpoch)
 	e := files(t, iss, limitsOK)
-	e[envTenants] = "tnt_x," + edgetest.Tenant
+	e[edge.EnvTenants] = "tnt_x," + edgetest.Tenant
 	protected, err := load(e, clk)
 	if err != nil || protected == nil {
 		t.Fatalf("handler %v, error %v", protected, err)
 	}
-	h := newHandler(notReady, protected)
+	h := protected
 	call := func(path, bearer string) int {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		if bearer != "" {
@@ -135,9 +125,6 @@ func TestTheConfiguredCoreProtectsV1AndLeavesHealthPublic(t *testing.T) {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		return rec.Code
-	}
-	if got := call("/healthz", ""); got != http.StatusOK {
-		t.Errorf("/healthz = %d", got)
 	}
 	if got := call("/v1/cases", ""); got != http.StatusUnauthorized {
 		t.Errorf("/v1/cases without a session = %d", got)
@@ -178,7 +165,7 @@ func TestTheLeewayIsTheLimitsDocumentsAndNothingElse(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/cases", nil)
 		req.Header.Set("Authorization", "Bearer "+tok)
 		rec := httptest.NewRecorder()
-		newHandler(notReady, protected).ServeHTTP(rec, req)
+		protected.ServeHTTP(rec, req)
 		if rec.Code != want {
 			t.Errorf("skew %s s: got %d, want %d", skew, rec.Code, want)
 		}
@@ -191,7 +178,7 @@ func TestTheBodyLimitIsTheConfiguredOne(t *testing.T) {
 	clk := clock.NewManual(wiringEpoch)
 	e := files(t, iss, limitsOK)
 	route := edge.Route{Pattern: "POST /v1/probe", Roles: []session.Role{session.RoleOps}, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })}
-	protected, err := loadEdge(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{route})
+	protected, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{route})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +187,7 @@ func TestTheBodyLimitIsTheConfiguredOne(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+wired(iss, session.RoleOps))
 		rec := httptest.NewRecorder()
-		newHandler(notReady, protected).ServeHTTP(rec, req)
+		protected.ServeHTTP(rec, req)
 		return rec.Code
 	}
 	if got := post(`{"a":1}`); got != http.StatusNoContent {
