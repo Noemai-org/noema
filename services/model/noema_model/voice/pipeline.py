@@ -74,10 +74,13 @@ class _Gate:
 
 
 class _AudioLease:
-    """What the provider reads from. Revoking it ends the stream and drops the only reference the provider holds."""
+    """What the provider reads from. Every read runs as its own task that a cancelled provider cannot take down with it, and the lease
+    remembers it, so the release can end an outstanding read before it closes the source (a generator cannot be closed while a read of
+    it is running). Revoking the lease ends the stream and drops the only reference the provider holds."""
 
     def __init__(self, source: AudioSource) -> None:
         self._source: AudioSource | None = source
+        self._pending: "asyncio.Future[AudioChunk] | None" = None
 
     def __aiter__(self) -> "_AudioLease":
         return self
@@ -85,10 +88,22 @@ class _AudioLease:
     async def __anext__(self) -> AudioChunk:
         if self._source is None:
             raise StopAsyncIteration
-        return await self._source.__anext__()
+        read = asyncio.ensure_future(self._source.__anext__())
+        read.add_done_callback(_mark_retrieved)
+        self._pending = read
+        try:
+            return await asyncio.shield(read)
+        finally:
+            if self._pending is read and read.done():
+                self._pending = None
 
-    def revoke(self) -> None:
+    async def revoke(self, bound_s: float) -> None:
+        """End the lease and any read still running, giving the read `bound_s` to end."""
         self._source = None
+        read, self._pending = self._pending, None
+        if read is not None and not read.done():
+            read.cancel()
+            await asyncio.wait({read}, timeout=bound_s)
 
 
 async def transcribe_utterance(
@@ -113,28 +128,59 @@ async def transcribe_utterance(
     outcome.add_done_callback(_mark_retrieved)
     task = asyncio.ensure_future(_consume(provider, request, lease, on_partial, outcome, gate))
     task.add_done_callback(_mark_retrieved)
+    utterance: FinalUtterance | None = None
+    error: BaseException | None = None
     try:
         watched: set[asyncio.Future[Any]] = {outcome, task}
         await asyncio.wait(watched, timeout=deadline_s, return_when=asyncio.FIRST_COMPLETED)
         if not outcome.done():
-            gate.closed = True  # the deadline has passed: nothing more may reach the caller
-            await _stop(task, bound_s)
             raise ProviderError(ProviderFailure.TIMEOUT)
         utterance = outcome.result()  # a failure of the stream is raised here
         await asyncio.wait({task}, timeout=bound_s)  # the provider's own shutdown, bounded
-        if task.done() and not task.cancelled() and task.exception() is not None:
-            raise ProviderError(ProviderFailure.UNAVAILABLE) from task.exception()
-        if not task.done():
-            await _stop(task, bound_s)
-        return utterance
-    finally:
-        gate.closed = True
+    except BaseException as caught:  # held while the audio is released, then raised again unchanged
+        error = caught
+    failure = await _release(task, lease, audio, gate, bound_s)
+    if error is not None:
+        raise error
+    if failure is not None or utterance is None:
+        raise ProviderError(ProviderFailure.UNAVAILABLE) from failure
+    return utterance
+
+
+async def _release(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float) -> BaseException | None:
+    """Release everything the call holds, and return the shutdown failure it saw, if any. It survives a cancellation of the caller: the
+    work is bounded (three waits of at most `bound_s`), so it is finished and the cancellation is raised afterwards."""
+    work = asyncio.ensure_future(_release_work(task, lease, audio, gate, bound_s))
+    cancelled = False
+    while not work.done():
         try:
-            await _stop(task, bound_s)
-        finally:
-            # A cancellation that lands while the cleanup waits for the provider must not skip the release (Codex P1 on #193).
-            lease.revoke()
-            await audio.aclose()
+            await asyncio.shield(work)
+        except asyncio.CancelledError:
+            cancelled = True  # keep waiting: the release is bounded and must not be skipped
+    failure = work.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return failure
+
+
+async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float) -> BaseException | None:
+    gate.closed = True
+    if not task.done():
+        task.cancel()
+    await lease.revoke(bound_s)  # no read of the source may be running when it is closed
+    closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
+    closing.add_done_callback(_mark_retrieved)
+    failure: BaseException | None = None
+    await asyncio.wait({closing}, timeout=bound_s)
+    if not closing.done():
+        failure = TimeoutError("the audio source did not finish closing")
+    elif not closing.cancelled() and closing.exception() is not None:
+        failure = closing.exception()
+    if not task.done():
+        await asyncio.wait({task}, timeout=bound_s)
+    if task.done() and not task.cancelled() and task.exception() is not None:
+        failure = failure or task.exception()  # a shutdown error seen after the bounded wait
+    return failure
 
 
 async def _consume(
@@ -175,14 +221,6 @@ async def _consume(
         close = getattr(stream, "aclose", None)
         if close is not None:
             await close()
-
-
-async def _stop(task: "asyncio.Future[None]", bound_s: float) -> None:
-    """Cancel `task` and give it `bound_s` to finish. One that does not is abandoned, never awaited further."""
-    if task.done():
-        return
-    task.cancel()
-    await asyncio.wait({task}, timeout=bound_s)
 
 
 def _mark_retrieved(task: "asyncio.Future[Any]") -> None:

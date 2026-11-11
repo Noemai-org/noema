@@ -45,10 +45,14 @@ class OneFinal:
 
 
 class StallingSource(Source):
-    """A microphone whose release never finishes."""
+    """A microphone whose release never finishes (until the test lets it, so a regression fails the test instead of hanging the run)."""
+
+    def __init__(self, chunks: list[AudioChunk]) -> None:
+        super().__init__(chunks)
+        self.let_go = asyncio.Event()
 
     async def aclose(self) -> None:
-        await asyncio.Event().wait()
+        await self.let_go.wait()
 
 
 class SlowSource(Source):
@@ -62,17 +66,21 @@ class SlowSource(Source):
 def test_a_source_whose_close_never_returns_cannot_hold_the_call_and_is_a_failure() -> None:
     source = StallingSource(loud_then_silent())
 
-    async def call() -> ProviderError:
+    async def call() -> ProviderError | None:
+        pending = asyncio.ensure_future(
+            transcribe_utterance(OneFinal(), REQUEST, until_end_of_speech(source.stream(), EndpointDetector(VAD)),
+                                 deadline_s=BOUND_S, cleanup_s=BOUND_S, on_partial=lambda _: None))
         try:
-            await asyncio.wait_for(
-                transcribe_utterance(OneFinal(), REQUEST, until_end_of_speech(source.stream(), EndpointDetector(VAD)),
-                                     deadline_s=BOUND_S, cleanup_s=BOUND_S, on_partial=lambda _: None),
-                timeout=GUARD_S)
-        except ProviderError as error:
-            return error
-        raise AssertionError("a microphone that was not released must not look like a success")
+            done, _ = await asyncio.wait({pending}, timeout=GUARD_S)
+            if not done:
+                return None  # the call is still waiting for the source: the bug
+            return pending.exception()  # type: ignore[return-value]
+        finally:
+            source.let_go.set()  # only now may the stalled source finish, so a failure here never hangs the run
+            await asyncio.gather(pending, return_exceptions=True)
 
-    assert run(call()).kind is ProviderFailure.UNAVAILABLE
+    error = run(call())
+    assert isinstance(error, ProviderError) and error.kind is ProviderFailure.UNAVAILABLE
 
 
 def test_a_close_interrupted_by_the_deadline_is_finished_by_the_pipeline() -> None:
@@ -133,18 +141,18 @@ def test_a_provider_read_that_outlives_the_provider_does_not_make_the_close_fail
             await asyncio.shield(sender)
             yield final()
 
-    async def call() -> ProviderError:
+    async def call() -> tuple[BaseException | None, bool]:
         try:
             await asyncio.wait_for(
                 transcribe_utterance(SenderTask(), REQUEST, source, deadline_s=0.05, cleanup_s=0.2, on_partial=lambda _: None),  # type: ignore[arg-type]
                 timeout=GUARD_S)
-        except ProviderError as error:
-            return error
-        raise AssertionError("expected a ProviderError")
+        except BaseException as error:
+            return error, state["finished"]  # read before the loop is torn down, which would finish the generator by itself
+        return None, state["finished"]
 
-    error = run(call())
-    assert error.kind is ProviderFailure.TIMEOUT  # not a RuntimeError from closing a generator that is still running
-    assert state["finished"]
+    error, finished = run(call())
+    assert isinstance(error, ProviderError) and error.kind is ProviderFailure.TIMEOUT  # not a RuntimeError from closing a running generator
+    assert finished
 
 
 def test_a_shutdown_failure_that_surfaces_after_the_bounded_wait_is_not_missed() -> None:
@@ -191,5 +199,36 @@ def test_the_gate_resumes_a_close_that_a_cancelled_caller_left_unfinished(cancel
         await asyncio.gather(first, return_exceptions=True)
         await asyncio.wait_for(gate.aclose(), timeout=GUARD_S)  # the second close must wait for, or redo, the unfinished close
         return source.closed
+
+    assert run(scenario())
+
+
+def test_a_second_cancellation_does_not_cut_the_release_short() -> None:
+    """The caller is cancelled twice while the source is still closing; the cancellation is raised only after the source has really
+    been released (the release is bounded, so waiting for it is safe)."""
+    source = SlowSource(loud_then_silent())
+
+    class Stalls:
+        name = "stalls"
+        capabilities = CAPS
+
+        async def transcribe(self, request: StreamRequest, audio: AsyncIterator[AudioChunk]) -> AsyncIterator[SpeechEvent]:
+            yield PartialTranscript(0, "send")
+            await asyncio.Event().wait()
+            yield final()
+
+    async def scenario() -> bool:
+        seen = asyncio.Event()
+        call = asyncio.ensure_future(
+            transcribe_utterance(Stalls(), REQUEST, until_end_of_speech(source.stream(), EndpointDetector(VAD)),
+                                 deadline_s=GUARD_S, cleanup_s=1.0, on_partial=lambda _: seen.set()))
+        await asyncio.wait_for(seen.wait(), timeout=GUARD_S)
+        call.cancel()
+        await asyncio.sleep(0.05)  # the release is under way: the slow source has not finished closing
+        assert not source.closed
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(call, timeout=GUARD_S)
+        return source.closed  # at the moment the cancellation arrives
 
     assert run(scenario())
