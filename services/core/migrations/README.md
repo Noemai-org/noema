@@ -58,7 +58,7 @@ Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_app
 
 `0017_kill_switch_set_only.sql` (REC-05, Founder decision D5 of 7 Nov 2026; number 0017 by the merge order of 8 Nov 2026): a `BEFORE UPDATE OF kill_switch` trigger on `tenant` (`ENABLE ALWAYS`) refuses a true to false change by every login that is not a superuser, whatever its role and whatever it has been granted (review F1 on noema#265). The verifier sets the switch, only a person clears it; EXE-06 adds the control plane's ops login to the rule in its own migration (ruling A71). A superuser can still clear: it is the operator's own credential, no service login is a superuser (tested), and that only a person holds it is an operating rule. The Go verifier is unchanged.
 
-`0020_context_snapshot.sql` (EVD-03 slice 2; number assigned by the Repo Steward on the merge ledger, noema#183; renumbered from 0019 because noema#265 holds 0019): `context_snapshot` (context-snapshot.v1) and the grants of the `evidence_verify` login (D9).
+`0020_context_snapshot.sql` (EVD-03 slice 2; number assigned by the Repo Steward on the merge ledger, noema#183; renumbered from 0019 by that ledger: 0017 noema#265 (merged), 0018 noema#261, 0019 noema#263, 0020 this file; strict ascending merge order, A113): `context_snapshot` (context-snapshot.v1) and the grants of the `evidence_verify` login (D9).
 
 | Object | Rule |
 |---|---|

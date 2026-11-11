@@ -128,6 +128,50 @@ func TestASnapshotIsNotStoredWhenTheRecordAppendFails(t *testing.T) {
 	}
 }
 
+// REQ-AUD-001, PERD 32.4, EC-E16 (the Record comes first): when the append fails, the snapshot INSERT has not run at all. Checked inside the open transaction, before any
+// rollback, so a sealer that inserted first and appended second (the rollback would hide it) fails here. Mutation: moving the INSERT above the Append in seal.go.
+func TestTheSnapshotIsNotInsertedBeforeTheRecordEventIsAppended(t *testing.T) {
+	w := newWorld(t)
+	a1 := w.item(t, tenantA, 1)
+	s := w.sealer()
+	s.Rec = &chain.Appender{Clock: s.Clock, IDs: failingIDs{}}
+	tx, err := w.trust[tenantA].Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	if _, err := s.Seal(ctx(t), tx, snapshot.Input{TenantID: tenantA, CorrelationID: "corr_synthetic", EvidenceIDs: []string{a1}, ReconciliationID: "rec_synthetic", Classification: "CONSISTENT"}); err == nil {
+		t.Fatal("sealed although the Record append failed")
+	}
+	var n int
+	if err := tx.QueryRow(ctx(t), `SELECT count(*) FROM context_snapshot`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d snapshot rows exist inside the transaction after a failed append (%v): the INSERT ran before the Record event", n, err)
+	}
+}
+
+// REQ-AUD-001: the event and the row stand or fall together. The append succeeds, the INSERT is refused by the database (a classification outside the contract's shape),
+// the error comes back, and after the caller's rollback neither the event nor the row is left. Inside the transaction the event is there, which shows the append ran first.
+func TestAnInsertRefusedAfterASuccessfulAppendLeavesNeitherTheEventNorTheRow(t *testing.T) {
+	w := newWorld(t)
+	a1 := w.item(t, tenantA, 1)
+	s := w.sealer()
+	tx, err := w.trust[tenantA].Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Seal(ctx(t), tx, snapshot.Input{TenantID: tenantA, CorrelationID: "corr_synthetic", EvidenceIDs: []string{a1}, ReconciliationID: "rec_synthetic", Classification: "not-a-classification"}); err == nil {
+		_ = tx.Rollback(ctx(t))
+		t.Fatal("sealed although the database refuses the classification")
+	}
+	_ = tx.Rollback(ctx(t))
+	if n := count(t, w.admin, `SELECT count(*) FROM context_snapshot`); n != 0 {
+		t.Errorf("%d snapshots left behind", n)
+	}
+	if n := count(t, w.admin, `SELECT count(*) FROM record_event WHERE event_type = 'CONTEXT_SNAPSHOT_SEALED'`); n != 0 {
+		t.Errorf("%d CONTEXT_SNAPSHOT_SEALED events left behind", n)
+	}
+}
+
 type failingIDs struct{}
 
 func (failingIDs) ID(string) (string, error) { return "", errors.New("synthetic: no id") }

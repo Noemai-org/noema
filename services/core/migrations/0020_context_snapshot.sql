@@ -1,6 +1,6 @@
 -- 0020: context_snapshot and the evidence_verify login's grants (EVD-03 slice 2; PERD 21.3, 38.2). REQ-CTX-004, INV-17, INV-11, REQ-SEC-004,
 -- DEC-2026-10-16 C1, D9. Forward-only: never edited after merge (AGENTS.md section 7). The number was assigned by the Repo Steward on the merge ledger (noema#183, issue
--- #286): 0019 is noema#265's. The migrator applies by name and accepts a gap.
+-- #286): 0017 is noema#265's (merged), 0018 noema#261's, 0019 noema#263's and 0020 this file's; the files merge in strict ascending order (A113). The migrator applies by name and accepts a gap.
 --
 -- A sealed snapshot is an immutable set of evidence IDs and the hash over their (evidence_id, payload_hash) pairs. The hash is recomputed here, in
 -- the database, from the stored evidence rows of the writer's own tenant: Trust cannot store a hash it did not compute, a set it did not read, or an

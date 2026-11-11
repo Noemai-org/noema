@@ -33,3 +33,16 @@ Updated 2026-11-07. Plan task EVD-03 (owner C2; REQ-CTX-004). Slice 1 (the hash)
 - Migration renumbered `0019_context_snapshot.sql` to `0020_context_snapshot.sql` (Repo Steward, relay issue #286: noema#265 holds 0019). Earlier sections of this file say 0019; that is the same file under its old number.
 - EL's exception record for `evidence_verify` is the comment on relay issue #282; it is linked from noema#268. IL (issue #284) accepts `evidence_ids text[]` with no items table.
 - `TestEvidenceVerifyHoldsExactlyTheGrantsD9Names` now covers every non-trigger function in `public`, not only SECURITY DEFINER ones (EL's condition 3, "EXECUTE on no function").
+
+## Session 2026-11-11 11:30 UTC · EVD-03 slice 2, second-review items (C1's review of 10 Nov on noema#268)
+
+## Session summary
+- What changed: two tests that pin the Record-first order in `Seal` (`TestTheSnapshotIsNotInsertedBeforeTheRecordEventIsAppended`: after a failed append no snapshot row exists inside the open transaction; `TestAnInsertRefusedAfterASuccessfulAppendLeavesNeitherTheEventNorTheRow`: the append succeeds, the INSERT is refused, and after the rollback neither is left), and the stale "0019 is noema#265's" wording in the 0020 header and the migrations README (the ledger on noema#183 is 0017 #265, 0018 #261, 0019 #263, 0020 this file). The migration SQL is unchanged apart from that comment, which is allowed until the file is on `main`.
+- Why: C1's items 1 and 2 on noema#268; A131 3c (a test must fail when the error path is ignored). The existing test rolled back before looking, so an INSERT placed before the append passed it.
+- Risks, and how they are contained: the Postgres-backed tests could not run on this machine (per-tenant logins need passwordless local auth), so their first run is CI's, and the mutation (INSERT above the Append) is described, not run.
+- Tests added: the two above (REQ-AUD-001, EC-E16).
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#263 lands, merge `main`; `init.sh`, `test_init.sh` and `testpg.go` conflict with #181 (C1's note) and #181's duplicate-secret list must cover `evidence_verify_password`.
+- Do not touch: the sealer's order (Append, then INSERT).
