@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"testing"
 
@@ -39,8 +40,10 @@ func seed(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_1', 'ten_a', '{"decision_id":"dec_1","tenant_id":"ten_a","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}'::jsonb || ` + testpg.BoundFieldsSQL + `, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_1', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}'::jsonb || ` + testpg.GrantBoundSQL + `, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatalf("seed: %v", err)
@@ -86,7 +89,9 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{"execution_rw", "decision_grant", "INSERT", false},
 		{"execution_rw", "decision_grant", "DELETE", false},
 		{"execution_rw", "grant_spend", "INSERT", true},
-		{"execution_rw", "execution_receipt", "INSERT", true},
+		// EXE-08 slice B (D16): execution_rw no longer inserts receipts directly; it calls receipt_insert, and the trigger verifies every insert.
+		{"execution_rw", "execution_receipt", "INSERT", false},
+		{"execution_rw", "execution_receipt", "SELECT", true},
 		{"execution_rw", "idempotency_record", "INSERT", true},
 		{"execution_rw", "recovery_request", "INSERT", true},
 		{"outcome_rw", "execution_receipt", "INSERT", false},
@@ -146,13 +151,19 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 	seed(t, pool)
 	for _, q := range []string{
 		`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`,
-		`INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, dispatched_at, json, sig_key_id, sig_value, created_at)
-		 VALUES ('rcp_1', 'ten_a', 'grt_1', 1, 'idk_v1_x', 'A', 'OUTCOME_UNKNOWN', 'TIMEOUT', now(), '{}', 'k', 's', now())`,
 		`INSERT INTO record_chain_head (tenant_id, seq, hash) VALUES ('ten_a', 0, 'sha256:0000000000000000000000000000000000000000000000000000000000000000')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatalf("setup %q: %v", q, err)
 		}
+	}
+	// The receipt is a genuine, signed one (EXE-08 slice B): the table accepts nothing else.
+	w := &sigWorld{pool: pool, keys: map[string]ed25519.PrivateKey{}}
+	k1 := w.register(t, "core-execution", 1)
+	r := goodReceipt()
+	r.idk, r.state, r.raw, r.ack = "idk_v1_x", "OUTCOME_UNKNOWN", "TIMEOUT", ""
+	if _, err := pool.Exec(ctx(t), insertSQL, w.call(t, r, k1, "")...); err != nil {
+		t.Fatalf("setup receipt: %v", err)
 	}
 	for _, c := range []struct{ table, update string }{
 		{"grant_spend", `UPDATE grant_spend SET nonce = 'n2'`},
@@ -208,7 +219,7 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	pool := migrated(t)
 	seed(t, pool)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
+		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`); err != nil {
@@ -219,8 +230,10 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	// The nonce is unique across tenants, not only within one (PERD 38.2: nonce UNIQUE).
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
+		`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_9', 'ten_b', '{"decision_id":"dec_9","tenant_id":"ten_b","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}'::jsonb || ` + testpg.BoundFieldsSQL + `, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`,
 		`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+		 VALUES ('grt_3', 'ten_b', 'dec_9', 'n1', '{"decision_id":"dec_9","tenant_id":"ten_b"}'::jsonb || ` + testpg.GrantBoundSQL + `, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 	} {
 		if _, err := pool.Exec(ctx(t), q); err != nil {
 			t.Fatal(err)

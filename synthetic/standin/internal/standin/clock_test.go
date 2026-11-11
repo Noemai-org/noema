@@ -24,7 +24,7 @@ type simRig struct {
 
 func newSimRig(t *testing.T, start time.Time) *simRig {
 	t.Helper()
-	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, ClockStart: start})
+	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, TenantID: tenant, ClockStart: start})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func (r *simRig) readAs(principal string, exp int64) int {
 	r.t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, r.data.URL+"/standin/v1/principal", nil)
 	req.Header.Set("Authorization", "Bearer "+runtimeToken)
-	req.Header.Set("X-Principal-Assertion", mint(principalKey, "standin", principal, exp))
+	req.Header.Set("X-Principal-Assertion", mint(principalKey, "standin", principal, tenant, exp))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		r.t.Fatal(err)
@@ -104,7 +104,7 @@ func TestOnlyTheBenchCredentialMovesTheClock(t *testing.T) {
 }
 
 func TestARealClockCannotBeAdvanced(t *testing.T) {
-	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey})
+	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, TenantID: tenant})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestARealClockCannotBeAdvanced(t *testing.T) {
 }
 
 func TestAClockStartAndAClockFunctionTogetherAreRefused(t *testing.T) {
-	_, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, ClockStart: simStart, Now: func() time.Time { return simStart }})
+	_, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, TenantID: tenant, ClockStart: simStart, Now: func() time.Time { return simStart }})
 	if err == nil {
 		t.Fatal("two clocks are ambiguous: want an error")
 	}

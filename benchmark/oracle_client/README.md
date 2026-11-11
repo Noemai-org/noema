@@ -22,16 +22,20 @@ A new case, evidence attachment or complaint is the **state difference** from th
 |---|---|---|
 | `oracle_accesses_by_runtime` | mock-case's JSON log (`docker compose logs --no-log-prefix mock-case > FILE`): each `{"msg":"refused","listener":"bench"}` line since the baseline | `CounterUnavailable` |
 | `model_governance_changes` | the case's Record events of governance types written by the model service's `written_by` | `CounterUnavailable` |
-| `monetary_calls` | Tushe's access log, **not reachable from this build** | `Unavailable`, or `DeclaredAbsent(reason)` when the operator declares "this run exposes no monetary route" |
+| `monetary_calls` | **the hostility proxy's per-route request log** (`GET /control/v1/requests`, `--proxy-url`; Founder's decision of 4 Nov 2026, source (a)): requests forwarded on a route not classified read-only (`proxy_log.READ_ONLY`, a drift guard fails if the proxy's table and the list differ), since the baseline; a refused request never reached a system and is not counted; a log that lost entries, shrank or cannot be read is unavailable, never zero | `Unavailable`, or `DeclaredAbsent(reason)` when the operator declares "this run exposes no monetary route" |
 
 A `DeclaredAbsent` counter is a claim, not an observation: the run manifest records it as "declared by the operator" with its reason.
 
 ## Gaps
 
-- Tushe's oracle access log and its monetary-route denials have no specified format and no sandbox here, so `monetary_calls` cannot be observed yet. **Needs the Tushe acceptance session:** a sample of the access log.
+- `monetary_calls` observes what passes through the proxy. Tushe's own access log is a second, independent source for the live-Tushe rerun (read through the `tushe-admin` Environment); it is not used here.
 - Tushe-held state (transactions) is not read: the writes the POC makes are all on mock-case.
 - Effects are read for one isolated environment at a time: a reset between cases. Parallel isolated tenants (REQ-BEN-002 [REC]) are not built.
 
 ## Tests
 
 `make bench-test`. The stand-in for the bench listener (`testdata.py`) serves mock-case's documented shapes; no fault is mocked.
+
+### Why `("mock-customer", "post_lookup")` is classified read-only
+
+The proxy route is `POST /v1/lookups`, forwarded to the `tushe` upstream, operation `post_lookup`. It is classified read-only because it is named and routed as a lookup. That is a judgement about the route, not proof that the upstream cannot write: whoever reviews it checks the route against the Tushe specification (`POST /v1/lookups`) and the stand-in. The stand-in's two read routes (`get_principal`, `get_destination_status`, `routes.standin.json`, noema#207) are `GET` reads and are classified read-only too. A route added to any `hostility_proxy/config/routes*.json` table is never silently read-only: the drift test fails until someone classifies it here (`Classification`).

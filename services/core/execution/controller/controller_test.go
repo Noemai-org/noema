@@ -3,11 +3,13 @@ package controller_test
 import (
 	"context"
 	"errors"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
 
 func setup(t *testing.T) (*World, *controller.Controller, controller.SignedGrant) {
@@ -16,7 +18,7 @@ func setup(t *testing.T) (*World, *controller.Controller, controller.SignedGrant
 	now := w.Clock.Now()
 	g := w.IssueGrant(1, now.Add(-time.Minute), now.Add(10*time.Minute))
 	w.Store(g)
-	c := &controller.Controller{Clock: w.Clock, Keys: w.Keys, ReceiptKeyID: KeyID, Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w}
+	c := &controller.Controller{Clock: w.Clock, Keys: w.Keys, Receipts: signingtest.Ring(t, 1), Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w}
 	return w, c, g
 }
 
@@ -66,6 +68,12 @@ func TestEachCheckVoidsTheGrantWithItsReason(t *testing.T) {
 	}{
 		{"E1 tampered", func(w *World, g *controller.SignedGrant) { g.Grant.PlanStep = 9; w.Store(*g) }, controller.VoidSignatureInvalid},
 		{"E1 unknown key", func(w *World, g *controller.SignedGrant) { g.Sig.KeyID = "retired"; w.Store(*g) }, controller.VoidSignatureInvalid},
+		// ruling of 8 Nov 2026 on noema#292: a grant is signed under its domain label; a signature over bare JCS, or under another object type's label, is no grant signature
+		{"E1 signed over bare JCS", func(w *World, g *controller.SignedGrant) { *g = w.SignWithMessage(*g, nil); w.Store(*g) }, controller.VoidSignatureInvalid},
+		{"E1 signed under the confirmation-request label", func(w *World, g *controller.SignedGrant) {
+			*g = w.SignWithMessage(*g, crypto.ConfirmationRequestSigningMessage)
+			w.Store(*g)
+		}, controller.VoidSignatureInvalid},
 		{"E2 expired", func(w *World, _ *controller.SignedGrant) { w.Clock.Advance(11 * time.Minute) }, controller.VoidExpired},
 		{"E2 not yet valid", func(w *World, g *controller.SignedGrant) {
 			*g = w.IssueGrant(2, w.Clock.Now().Add(time.Minute), w.Clock.Now().Add(5*time.Minute))

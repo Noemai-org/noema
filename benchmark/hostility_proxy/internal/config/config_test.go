@@ -10,7 +10,7 @@ const keyA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 const keyB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 func env(extra map[string]string) func(string) string {
-	base := map[string]string{"HOSTILITY_PROXY_PROFILE": "bench", "HOSTILITY_PROXY_CONTROL_BIND_VIA": "mock-case-db", "HOSTILITY_PROXY_ROUTES_FILE": "/routes",
+	base := map[string]string{"HOSTILITY_PROXY_PROFILE": "bench", "HOSTILITY_PROXY_CONTROL_BIND_VIA": "mock-case-db", "HOSTILITY_PROXY_ROUTES_FILE": "/etc/hostility-proxy/config/routes.json",
 		"HOSTILITY_PROXY_NUMBER_KEY_FILE": "/key", "HOSTILITY_PROXY_BENCH_TOKEN_FILE": "/tok"}
 	for k, v := range extra {
 		if v == "-" {
@@ -72,6 +72,25 @@ func TestRefusals(t *testing.T) {
 	for name, tc := range cases {
 		if _, err := Load(env(tc.env), files(tc.files)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// Codex finding 1 on noema#207: the route table name used to be interpolated into a host bind-mount source by Compose, so a hostile value could mount a host file
+// (../../../../.aws/credentials) into the proxy. Compose now mounts one fixed directory and only the container path varies; the proxy refuses a route table path that
+// is not a clean path inside the config directory, so a name cannot walk out of it.
+func TestARoutesPathThatWalksOutOfTheConfigDirectoryIsRefused(t *testing.T) {
+	for _, bad := range []string{
+		"/etc/hostility-proxy/config/../../../root/.aws/credentials", "/etc/hostility-proxy/config/..", "../../x", "/etc/hostility-proxy/config/./routes.json",
+		"/etc/hostility-proxy/config//routes.json", "/etc/passwd", "/etc/hostility-proxy/config/sub/routes.json", "/etc/hostility-proxy/config/routes.json/..", "/etc/hostility-proxy/config/.hidden", "/etc/hostility-proxy/config/a b.json",
+	} {
+		if _, err := Load(env(map[string]string{"HOSTILITY_PROXY_ROUTES_FILE": bad}), files(good)); err == nil || !strings.Contains(err.Error(), "ROUTES_FILE") {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	for _, ok := range []string{"/etc/hostility-proxy/config/routes.json", "/etc/hostility-proxy/config/routes.standin.json"} {
+		if _, err := Load(env(map[string]string{"HOSTILITY_PROXY_ROUTES_FILE": ok}), files(good)); err != nil {
+			t.Errorf("%q: %v", ok, err)
 		}
 	}
 }
