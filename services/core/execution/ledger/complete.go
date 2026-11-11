@@ -87,16 +87,16 @@ func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, erro
 		}
 		ack := r.ExternalAck
 		now := l.Clock.Now()
-		tag, err := tx.Exec(ctx, `INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state,
-			raw_status, external_ack, dispatched_at, json, sig_key_id, sig_value, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14)
-			ON CONFLICT (grant_id, attempt) DO NOTHING`,
+		// The only path to execution_receipt: receipt_insert, owned by the migration role. Its trigger verifies the Ed25519 signature over the
+		// signed bytes (DEC-2026-11-01 D7, D8, D12); a forged or unverifiable receipt raises NS001 and nothing of this transaction is kept.
+		var inserted bool
+		err = tx.QueryRow(ctx, `SELECT receipt_insert($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15)`,
 			r.ReceiptID, r.TenantID, r.GrantID, r.Attempt, r.IdempotencyKey, r.LogicalAction, string(r.State), raw, ack, r.DispatchedAt, string(body),
-			r.Sig.KeyID, r.Sig.Value, now)
+			r.Sig.KeyID, r.Sig.Value, r.SignedJCS, now).Scan(&inserted)
 		if err != nil {
 			return fmt.Errorf("%sinsert receipt: %w", errPrefix, err)
 		}
-		if tag.RowsAffected() == 0 {
+		if !inserted {
 			return errNothingWritten
 		}
 		if _, err := tx.Exec(ctx, `UPDATE idempotency_record SET status = 'RECEIPTED', external_ref = COALESCE($4, external_ref), updated_at = $5

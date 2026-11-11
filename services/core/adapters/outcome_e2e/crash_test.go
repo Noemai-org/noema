@@ -4,8 +4,6 @@ package outcomee2e_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,6 +18,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/execution/bridge"
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -103,17 +102,15 @@ func TestCrashChild(t *testing.T) {
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The child is killed before any receipt exists, so it signs nothing; the Controller still needs a receipt signer (noema#229), and this is core-execution's SYNTHETIC one.
+	ring := signingtest.Ring(t, 1)
 	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{grant: createPlan()}}
-	ctl := &controller.Controller{Clock: clk, Keys: receiptRing{hmac: execKeys, priv: priv}, ReceiptKeyID: receiptKeyID, Grants: led, Bind: trust,
+	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust,
 		Reval: bridge.CaseRevalidator{Case: cases}, Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 	ctl.Boundary = func(p controller.Point) error {
 		if p == point {

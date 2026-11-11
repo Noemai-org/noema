@@ -16,15 +16,15 @@ import (
 // the idempotency record and the Record events in one transaction. It has no retry loop and no code path
 // that reports success: silence is OUTCOME_UNKNOWN, and "succeeded" belongs to Outcome.
 type Controller struct {
-	Clock        Clock
-	Keys         KeyVerifier
-	ReceiptKeyID string
-	Grants       GrantSource
-	Bind         Binder
-	Reval        Revalidator
-	Ledger       Ledger
-	Out          Dispatcher
-	IDs          IDs
+	Clock    Clock
+	Keys     KeyVerifier
+	Receipts ReceiptSigner // required: a Controller with no receipt signer signs nothing and so dispatches nothing that can be receipted
+	Grants   GrantSource
+	Bind     Binder
+	Reval    Revalidator
+	Ledger   Ledger
+	Out      Dispatcher
+	IDs      IDs
 	// Boundary is called at every step boundary. Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }
@@ -282,15 +282,15 @@ func (rc Receipt) Document() map[string]any {
 }
 
 func (c *Controller) sign(rc Receipt) (Receipt, error) {
-	canon, err := crypto.CanonicalJSON(rc.Document())
-	if err != nil {
-		return rc, err
+	if c.Receipts == nil {
+		return rc, fmt.Errorf("%sno receipt signer", errPrefix)
 	}
-	sig, err := c.Keys.SignWith(c.ReceiptKeyID, canon)
+	keyID, sig, signed, err := c.Receipts.SignReceipt(rc.Document())
 	if err != nil {
 		return rc, fmt.Errorf("%ssign receipt: %w", errPrefix, err)
 	}
-	rc.Sig = Sig{KeyID: c.ReceiptKeyID, Value: sig}
+	rc.Sig = Sig{KeyID: keyID, Value: sig}
+	rc.SignedJCS = signed
 	return rc, nil
 }
 
