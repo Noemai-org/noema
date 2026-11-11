@@ -16,6 +16,7 @@ from typing import Any
 
 from benchmark.contracts import pretty_bytes
 from benchmark.suites.archive import archive_previous
+from benchmark.suites.capture import CaptureFailed, mock_case_log, with_log_argument
 from benchmark.suites.select import SelectionError, load_families, load_suites, select, selection_digest
 from benchmark.suites.subset import subset_suite
 
@@ -97,7 +98,14 @@ def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
         argv = ["run", "g1", "--suite", args.suite, "--out", str(leg_out), "--run-id", f"{args.run_id}-{leg}"]
         argv += ["--commit-sha", args.commit_sha] if args.commit_sha else []
         argv += ["--reset-done"] if args.reset else []
-        return main(argv + (["--"] + passthrough if passthrough else []))
+        try:
+            with mock_case_log(leg_out / "mock-case.log") as log:
+                return main(argv + ["--"] + with_log_argument(passthrough, log))
+        except CaptureFailed as error:
+            print(f"NOT RUN: leg {leg}: {error}", file=sys.stderr)
+            if not (leg_out / "suite-run.json").is_file():
+                main(argv + ["--"] + [a for a in passthrough if a != "--mock-case-log"])  # no log, so the runner records NOT RUN itself
+            return 3
 
     def run_replay(first: Path, second: Path, replay_out: Path) -> int:
         if importlib.util.find_spec("benchmark.replay") is None:
