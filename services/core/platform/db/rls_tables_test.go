@@ -6,7 +6,12 @@ package db_test
 // "Row security" restricts which rows a login sees; it does not authenticate a receipt or an event. All data is SYNTHETIC.
 
 import (
+	"errors"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
 
 var rlsTables = []string{"grant_spend", "idempotency_record", "execution_receipt", "recovery_request", "outbox_event", "outcome_verdict", "outcome_watch",
@@ -77,5 +82,48 @@ func TestTheVerifierReadsEveryTenantsChainHeadAndWritesNothing(t *testing.T) {
 	}
 	if _, err := tx.Exec(ctx(t), `UPDATE record_chain_head SET seq = 9`); err == nil {
 		t.Error("record_verify updated a chain head")
+	}
+}
+
+// The Security Reviewer's condition on noema#229 (settled with C1 on that PR): receipt_insert takes p_tenant_id as an argument, and a SECURITY DEFINER function runs as its
+// owner, so what refuses a tenant that is not the login's is row-level security with FORCE on execution_receipt (this migration). An execution login of tenant A calls
+// receipt_insert with a genuine, validly signed receipt of tenant B and tenant B's own grant_spend: every check of the signature trigger passes, so only the policy can
+// refuse it. The call is refused (42501, row-level security), no execution_receipt row exists, and the same receipt is stored by tenant B's own login (the control: the
+// refusal is the tenant, not the receipt). Mutation: policies that are USING (true) WITH CHECK (true) on grant_spend and execution_receipt let tenant A store it and fail this test.
+func TestATenantAExecutionLoginCannotStoreAGenuineReceiptOfTenantB(t *testing.T) {
+	w := newSigWorld(t) // ten_a, grt_1 and its spend; the session is mapped to ten_a
+	k1 := w.register(t, "core-execution", 1)
+	spend(t, w.pool, "ten_b", "grt_b", "nb", "idk_v1_b", 1)
+	b := goodReceipt()
+	b.tenant, b.grant, b.id, b.idk = "ten_b", "grt_b", "rcp_b", "idk_v1_b"
+	args := w.call(t, b, k1, "")
+	count := func() int {
+		var n int
+		if err := w.pool.QueryRow(ctx(t), `SELECT count(*) FROM execution_receipt WHERE receipt_id = 'rcp_b'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	loginA := testpg.TenantLogin(t, w.pool, w.dsn, "execution_rw", "ten_a")
+	_, err := loginA.Exec(ctx(t), insertSQL, args...)
+	// Refused by row security, at the first place it bites: the signature trigger reads tenant B's grant_spend as the definer, which FORCE subjects to the policy, so tenant A's
+	// login does not see the spend and the receipt "does not match the recorded spend" (NS001); a build in which that read were allowed would meet the WITH CHECK of the
+	// execution_receipt policy (42501). Either way the call is refused and no row is stored.
+	if err == nil {
+		t.Fatal("tenant A's execution login stored a genuine receipt of tenant B")
+	}
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || (pe.Code != "NS001" && pe.Code != "42501") {
+		t.Fatalf("tenant A's execution login storing a genuine receipt of tenant B: got %v, want NS001 (the spend is hidden) or 42501 (row-level security)", err)
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("%d receipt rows of tenant B exist after tenant A's refused call", n)
+	}
+	loginB := testpg.TenantLogin(t, w.pool, w.dsn, "execution_rw", "ten_b")
+	if _, err := loginB.Exec(ctx(t), insertSQL, args...); err != nil {
+		t.Fatalf("control: tenant B's own login must store its genuine receipt: %v", err)
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("control: %d receipt rows of tenant B, want 1", n)
 	}
 }

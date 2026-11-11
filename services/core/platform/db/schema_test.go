@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
@@ -159,6 +160,7 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 	}
 	// The receipt is a genuine, signed one (EXE-08 slice B): the table accepts nothing else.
 	w := &sigWorld{pool: pool, keys: map[string]ed25519.PrivateKey{}}
+	sigfixture.MapSession(t, pool, "ten_a") // the session is the tenant's own for row security (migration 0018)
 	k1 := w.register(t, "core-execution", 1)
 	r := goodReceipt()
 	r.idk, r.state, r.raw, r.ack = "idk_v1_x", "OUTCOME_UNKNOWN", "TIMEOUT", ""
