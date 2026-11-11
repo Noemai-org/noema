@@ -2,6 +2,7 @@ package edge
 
 import (
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -60,14 +61,23 @@ func Load(getenv func(string) string, readFile func(string) ([]byte, error), clk
 	if err != nil {
 		return nil, fmt.Errorf("%s: not a whole number of bytes", EnvMaxBody)
 	}
+	tenants := strings.Split(getenv(EnvTenants), ",")
+	for _, t := range tenants {
+		if t != strings.TrimSpace(t) {
+			return nil, fmt.Errorf("%s: a tenant has surrounding whitespace", EnvTenants)
+		}
+	}
 	v, err := session.NewVerifier(session.Config{Keys: map[string]*ecdsa.PublicKey{getenv(EnvKid): pub}, Audience: getenv(EnvAudience),
-		Tenants: strings.Split(getenv(EnvTenants), ","), MaxLifetime: session.CeilingLifetime, Skew: limits.ClockSkew, Clock: clk})
+		Tenants: tenants, MaxLifetime: session.CeilingLifetime, Skew: limits.ClockSkew, Clock: clk})
 	if err != nil {
 		return nil, fmt.Errorf("session configuration: %w", err)
 	}
 	h, err := Protected(Options{Verifier: v, IDs: ids, MaxBody: maxBody, Routes: routes})
-	if err != nil {
+	if errors.Is(err, session.ErrBodyLimit) {
 		return nil, fmt.Errorf("%s: %w", EnvMaxBody, err)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return h, nil
 }

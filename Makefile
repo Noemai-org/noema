@@ -105,7 +105,6 @@ bench: bench-venv
 	$(BENCH_PY) -m benchmark.scoring --cases $(BENCH_OUT)/suite/cases --oracles $(BENCH_OUT)/suite/oracle --results $(BENCH_OUT)/run/results \
 	  --pack packs/fintech_v1.json --manifest $(BENCH_OUT)/suite/manifest.json --run-id $(BENCH_RUN_ID) --out $(BENCH_OUT)/score
 
-# The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
 # make bench-tokens (EDG-01): the synthetic IdP for a run. Needs BENCH_TENANT and BENCH_MAX_BODY_BYTES (no defaults). Writes $(BENCH_OUT)/idp/core.env (the core's
 # NOEMA_SESSION_* settings) and $(BENCH_OUT)/idp/runner-args (pass them in BENCH_RUNNER_ARGS). Tokens are issued on demand and last at most 15 minutes.
 bench-tokens:
@@ -114,6 +113,7 @@ bench-tokens:
 bench-tokens-test:
 	sh deploy/compose/test_bench_tokens.sh
 
+# The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
 bench-live: bench-venv
 	$(BENCH_PY) -m benchmark.oracle_client.live_check
 

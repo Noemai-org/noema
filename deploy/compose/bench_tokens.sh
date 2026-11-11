@@ -5,7 +5,7 @@
 # stored by default). With BENCH_PRINCIPALS (an argument, not a constant: "id:role id:role ...") and BENCH_TOKEN_TTL (a Go duration, at most 15m, no default) it also
 # issues one token per principal into $BENCH_OUT/idp/tokens/<id>, mode 0400, for the runner's --tokens-dir; those files stop working when the token expires. The private key stays in a 0600 file under a 0700 directory in the git-ignored benchmark output; nothing secret is printed.
 # Required, no defaults: BENCH_TENANT and BENCH_MAX_BODY_BYTES. Optional: BENCH_PRINCIPALS with BENCH_TOKEN_TTL, BENCH_OUT (benchmark/out), BENCH_AUDIENCE (noema-core), BENCH_KID (bench-k1),
-# BENCH_LIMITS_FILE (the pack's session limits), GO (go).
+# BENCH_LIMITS_FILE (the pack's session limits), GO (go). core.env is written without quotes: keep BENCH_OUT and BENCH_LIMITS_FILE free of spaces if it is sourced.
 set -eu
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${BENCH_TENANT:?bench-tokens: BENCH_TENANT is required}"
