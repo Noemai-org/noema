@@ -96,6 +96,8 @@ type Event struct {
 	Kind    string // SECURITY_EVENT only
 	GrantID string
 	Detail  string
+	// Payload, when set, is the event's payload; otherwise a Detail becomes {"detail": Detail}.
+	Payload map[string]any
 }
 
 // Ledger is the one place that writes Postgres. Spend and Complete are single transactions; the Record
