@@ -107,7 +107,7 @@ func TestCrashChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
