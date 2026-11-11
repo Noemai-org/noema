@@ -123,3 +123,16 @@ model-bench-up:
 	mkdir -p $(BENCH_OUT)
 	NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) \
 	  docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench up -d --build --wait
+
+# The full bench stack for a G1 run (ENV-04 wiring): the bench profile with the model's cost files (bench-model.yml) and the stand-in wiring plus the runner's output
+# directory (bench-stack.yml). The runner is a container on bench_net and edge_net (services/bench-runner.yml); the workflow runs the suite in it.
+BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench
+BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g)
+.PHONY: bench-up bench-down
+bench-up:
+	deploy/compose/secrets_local.sh
+	mkdir -p $(BENCH_OUT)
+	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait
+
+bench-down:
+	$(BENCH_ENV) $(BENCH_COMPOSE) down

@@ -36,6 +36,11 @@ def _commit() -> str | None:
     return sha if len(sha) == 40 else None
 
 
+def service_credentials(args: argparse.Namespace) -> tuple[Path | None, Path | None]:
+    """The bench credential file for the stand-in and for the hostility proxy: each one's own, else the shared `--bench-credential-file`."""
+    return args.standin_credential_file or args.bench_credential_file, args.proxy_credential_file or args.bench_credential_file
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="benchmark.runner", description=__doc__)
     p.add_argument("--suite", type=Path, required=True, help="a suite root written by `python -m benchmark.generator generate`")
@@ -46,6 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--admin-token-file", type=Path)
     p.add_argument("--bench-url", default="http://mock-case:8091", help="mock-case's bench listener (bench_net)")
     p.add_argument("--bench-credential-file", type=Path, help="the bench credential, a file (never an argument value)")
+    p.add_argument("--standin-credential-file", type=Path, help="the stand-in's own bench credential (default: --bench-credential-file); each oracle-side service generates its own")
+    p.add_argument("--proxy-credential-file", type=Path, help="the hostility proxy's own bench credential (default: --bench-credential-file)")
     p.add_argument("--mock-case-log", type=Path, help="mock-case's JSON log, captured with `docker compose logs --no-log-prefix mock-case`")
     p.add_argument("--cost-dir", type=Path, help="the model service's bench cost files, $BENCH_OUT/cost (REQ-NFR-007); without it cost is not available")
     p.add_argument("--model-writer", help="the Record `written_by` name of the model service")
@@ -75,22 +82,23 @@ def main(argv: list[str] | None = None) -> int:
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
-    if args.standin_url and not args.bench_credential_file:
-        print("--standin-url needs --bench-credential-file: the stand-in's control route takes the bench credential, and without it the fixture loader would silently be missing")
+    standin_credential, proxy_credential = service_credentials(args)
+    if args.standin_url and not standin_credential:
+        print("--standin-url needs --bench-credential-file (or --standin-credential-file): the stand-in's control route takes a bench credential, and without it the fixture loader would silently be missing")
         return 2
-    if args.proxy_url and not args.bench_credential_file:
-        print("--proxy-url needs --bench-credential-file: the proxy's request log takes the bench credential, and without it monetary_calls would silently have no source")
+    if args.proxy_url and not proxy_credential:
+        print("--proxy-url needs --bench-credential-file (or --proxy-credential-file): the proxy's request log takes a bench credential, and without it monetary_calls would silently have no source")
         return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
-    if args.proxy_url and args.bench_credential_file:
-        monetary: Any = ProxyRouteLog(args.proxy_url, args.bench_credential_file)
+    if args.proxy_url and proxy_credential:
+        monetary: Any = ProxyRouteLog(args.proxy_url, proxy_credential)
     else:
         monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
             "monetary_calls", "no source: pass --proxy-url (the proxy's request log) or declare no monetary route with a reason")
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
-                 fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
+                 fixtures=StandInFixtureLoader(args.standin_url, standin_credential) if args.standin_url and standin_credential else UnavailableFixtureLoader(NO_LOADER), sessions=DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")), run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
                         only=set(args.only) if args.only else None)

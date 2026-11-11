@@ -1,0 +1,99 @@
+# The G1 stack run (ENV-04 wiring; noema#441): the bench stack up with Compose, the runner executed INSIDE it on bench_net and edge_net (services/bench-runner.yml), the live mock-case
+# log captured for the whole run, and the artifacts uploaded. workflow_dispatch only. It reads no secret and calls no model provider.
+#
+# It does not make G1 pass. It exists so that when the pieces it waits for exist, the run is one dispatch away. Today a run ends NOT RUN (exit 3) because the runner has no session
+# tokens (`--tokens-dir`: the Edge's identity contract, EDG-01, mints none yet), nothing in the core calls the stand-in read adapter (noema#441), and the core serves /healthz only.
+# A run that did not run FAILS the job and is never presented as evidence (same rule as bench-suites). The held-out set is never mounted or read (INV-22).
+# Inputs reach the shell only through the environment, never expanded into the script.
+name: bench-g1-stack
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Run ID to record (default: g1-stack-gh<github run id>)"
+        type: string
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: bench-g1-stack
+  cancel-in-progress: false
+jobs:
+  g1-stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Start the bench stack
+        run: make bench-up
+      - id: run
+        name: Run the suite in the runner container, capturing mock-case's live log
+        env:
+          GIVEN_RUN_ID: ${{ inputs.run_id }}
+          GITHUB_RUN: ${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set +e
+          run_id="${GIVEN_RUN_ID:-g1-stack-gh$GITHUB_RUN}"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)"
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out
+          # The runner reads this file during the run (it marks its size before each case and counts refusals after), so it is a live stream, not a copy taken at the end.
+          : > benchmark/out/mock-case.log
+          $compose logs -f --no-log-prefix --since 0s mock-case >> benchmark/out/mock-case.log 2>/dev/null &
+          logpid=$!
+          $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
+          gen=$?
+          code=2
+          if [ "$gen" -eq 0 ]; then
+            $compose exec -T bench-runner python -m benchmark.runner \
+              --suite /bench-out/suite --out /bench-out/run --run-id "$run_id" --commit-sha "$COMMIT" \
+              --api-url http://core:8080 \
+              --bench-url http://mock-case:8091 --bench-credential-file /creds/mock-case/token \
+              --standin-url http://standin:8094 --standin-credential-file /creds/standin/token \
+              --proxy-url http://hostility-proxy:8081 --proxy-credential-file /creds/proxy/bench_token \
+              --mock-case-log /bench-out/mock-case.log --cost-dir /bench-out/cost --model-writer model-service \
+              --tenant-id ten_alpha
+            code=$?
+          fi
+          sleep 2
+          kill "$logpid" 2>/dev/null
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: Summary
+        if: always()
+        env:
+          CODE: ${{ steps.run.outputs.code }}
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          {
+            echo "## bench-g1-stack: run id $RUN_ID, exit code $CODE"
+            case "$CODE" in
+              0) echo "Complete." ;;
+              3) echo "**NOT RUN: no access. This is not a pass and not evidence.** The reason is in the run manifest below; nothing was faked. This job fails on purpose." ;;
+              1) echo "Ran, but incomplete or a gate is not at zero." ;;
+              *) echo "Failed with exit code $CODE (2: bad input or a missing part of the checkout)." ;;
+            esac
+            [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Stop the stack
+        if: always()
+        run: make bench-down
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: bench-g1-stack-${{ github.run_id }}
+          path: |
+            benchmark/out/run/
+            benchmark/out/mock-case.log
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Result (only a run that ran, complete, passes)
+        env:
+          CODE: ${{ steps.run.outputs.code }}
+        run: |
+          case "$CODE" in
+            0) exit 0 ;;
+            3) echo "::error::The run did not run (exit 3, not run: no access). That is not a pass."; exit 1 ;;
+            *) echo "::error::The run ended with exit code $CODE."; exit 1 ;;
+          esac

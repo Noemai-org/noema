@@ -1,0 +1,59 @@
+# bench-runner: the benchmark runner's container (ENV-09; PERD §65.1; ENV-04 wiring). Included by ../docker-compose.yml.
+# A test-environment component, not a Noema deployable (DEC-2026-10-16 E5). Everything here is SYNTHETIC.
+#
+# Why it is a container: bench_net is Docker-internal, so a process on the host cannot reach the truth and control listeners (mock-case, the stand-in, the
+# hostility proxy). The runner is the one caller on bench_net that also reaches the core's public API, so it joins bench_net and edge_net; the core and the model
+# never join bench_net, and profiles.py and the connection-test matrix keep it that way. It has no route out and no provider network.
+#
+# It idles (`sleep infinity`); the workflow runs the suite with `docker compose exec bench-runner python -m benchmark.runner ...` (see
+# .github/workflows/bench-g1-stack.yml). Credentials are the oracle side's own bench credentials, mounted read-only: each service generates its own, which is why the
+# runner has `--standin-credential-file` and `--proxy-credential-file`. The runtime credentials and the principal key are NOT mounted here. The hostility proxy's
+# volume also holds its number key; the runner is oracle-side tooling, and the core and the model never see that volume.
+#
+# Profile: bench only (profiles.py ONLY_IN). The benchmark code, the pack and the contracts are bind mounts, read-only; nothing here mounts benchmark-heldout.
+networks:
+  edge_net:
+    internal: true
+  bench_net:
+    internal: true
+
+volumes:
+  mock_case_bench_credential: {}
+  standin_bench_credential: {}
+  hostility_proxy_credentials: {}
+
+services:
+  bench-runner:
+    image: noema-bench-runner:dev
+    build:
+      context: ../../..
+      dockerfile: deploy/compose/bench-runner/Dockerfile
+    profiles: [bench]
+    networks: [bench_net, edge_net]
+    depends_on:
+      core:
+        condition: service_healthy
+      mock-case:
+        condition: service_healthy
+      standin:
+        condition: service_healthy
+      hostility-proxy:
+        condition: service_healthy
+    command: ["sleep", "infinity"]
+    environment:
+      PYTHONPATH: /repo
+      PYTHONDONTWRITEBYTECODE: "1"
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - ../../../benchmark:/repo/benchmark:ro
+      - ../../../packs:/repo/packs:ro
+      - ../../../contracts:/repo/contracts:ro
+      - mock_case_bench_credential:/creds/mock-case:ro
+      - standin_bench_credential:/creds/standin:ro
+      - hostility_proxy_credentials:/creds/proxy:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import benchmark.runner"]
+      interval: 3s
+      timeout: 5s
+      retries: 10

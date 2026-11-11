@@ -18,6 +18,7 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,7 @@ NETWORKS = {
     "hostility-proxy-anchor": {"bench_net"},
     "standin": {"tushe_net", "bench_net"},
     "standin-anchor": {"bench_net"},
+    "bench-runner": {"bench_net", "edge_net"},
     "webhook-relay": {"tushe_net", "tushe_egress"},
     "evil-provider": {"provider_egress"},
     "mock-case-credentials": set(),
@@ -46,8 +48,11 @@ NETWORKS = {
     "webhook-relay-credentials": set(),
 }
 SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
-ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor"}
+ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
+# The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
+# credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
+BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
 PUBLISHED = {"ui": {("127.0.0.1", "8082")}, "webhook-relay": {("127.0.0.1", "8090")}}
 EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 # The services each profile must build, written out here (PERD section 65.1). A missing service fails, as does an extra one: a profile
@@ -57,17 +62,23 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
-           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}}
+           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"}}
+
+
+# The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
+BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
+BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000"}
 
 
 def resolved(profile):
-    out = subprocess.run(["docker", "compose", "-f", str(COMPOSE_FILE), "--profile", profile, "config", "--format", "json"],
-                         capture_output=True, text=True)
+    files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
+    cmd = ["docker", "compose"] + [a for f in files for a in ("-f", f)] + ["--profile", profile, "config", "--format", "json"]
+    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV} if profile == "bench" else None)
     if out.returncode != 0:
         raise SystemExit(f"docker compose config failed for profile {profile}: {out.stderr.strip()[:300]}")
     return json.loads(out.stdout)
@@ -108,6 +119,8 @@ def check(cfg, profile):
         for vol in svc.get("volumes", []) or []:
             if "docker.sock" in str(vol.get("source", "")):
                 bad.append(f"{profile}: {name} mounts the Docker socket")
+            if vol.get("source") in BENCH_CREDENTIAL_VOLUMES and name not in ORACLE_SIDE and name not in SIDECARS:
+                bad.append(f"{profile}: {name} mounts the bench credential volume {vol['source']} (oracle side only)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -156,6 +169,16 @@ def self_test(configs):
         "the stand-in appears in demo": ("demo", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in anchor appears in demo": ("demo", lambda c: c["services"].update({"standin-anchor": {"networks": {"bench_net": None}}})),
         "the stand-in credentials appear in dev": ("dev", lambda c: c["services"].update({"standin-credentials": dict(sidecar)})),
+        "the bench runner appears in dev": ("dev", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner appears in ci": ("ci", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner appears in demo": ("demo", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner leaves edge_net": ("bench", lambda c: c["services"]["bench-runner"]["networks"].pop("edge_net")),
+        "the bench runner joins tushe_net": ("bench", lambda c: c["services"]["bench-runner"]["networks"].update({"tushe_net": None})),
+        "the bench runner joins provider_egress": ("bench", lambda c: c["services"]["bench-runner"]["networks"].update({"provider_egress": None})),
+        "the bench runner publishes a port": ("bench", lambda c: c["services"]["bench-runner"].update({"ports": [{"host_ip": "127.0.0.1", "published": "9000"}]})),
+        "the bench runner mounts docker.sock": ("bench", lambda c: c["services"]["bench-runner"].update({"volumes": [{"source": "/var/run/docker.sock"}]})),
+        "the core mounts the stand-in bench credential": ("bench", lambda c: c["services"]["core"].setdefault("volumes", []).append({"source": "standin_bench_credential", "target": "/x"})),
+        "the model mounts the mock-case bench credential": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"source": "mock_case_bench_credential", "target": "/x"})),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []

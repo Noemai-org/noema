@@ -1,4 +1,5 @@
 """The command: refuses the held-out set, reports 'not run: no access' rather than faking a run, and exits by what happened."""
+import argparse
 import io
 import json
 import tempfile
@@ -55,9 +56,6 @@ class Cli(unittest.TestCase):
         with self.assertRaises(SystemExit):
             main(["--help"])
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class StandInWiring(unittest.TestCase):
@@ -137,3 +135,34 @@ class ProxyLogWiring(unittest.TestCase):
 
     def test_with_the_proxy_log_monetary_calls_is_no_longer_a_gap(self) -> None:
         self.assertNotIn("monetary_calls", self.reason("--proxy-url", "http://127.0.0.1:9"))
+
+
+class PerServiceCredentials(unittest.TestCase):
+    """G1 stack (bench-runner): mock-case, the stand-in and the hostility proxy each generate their own bench credential, so one `--bench-credential-file` cannot serve all three.
+    `--standin-credential-file` and `--proxy-credential-file` name theirs; each defaults to `--bench-credential-file`, so a single-credential run is unchanged."""
+
+    def picked(self, *flags: str) -> tuple[str, str]:
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import service_credentials
+        args = argparse.Namespace(standin_credential_file=None, proxy_credential_file=None, bench_credential_file=None)
+        for flag, value in zip(flags[::2], flags[1::2]):
+            setattr(args, flag, Path(value))
+        standin, proxy = service_credentials(args)
+        return str(standin), str(proxy)
+
+    def test_each_service_gets_its_own_credential_file_when_named(self) -> None:
+        self.assertEqual(("standin", "proxy"), self.picked("bench_credential_file", "bench", "standin_credential_file", "standin", "proxy_credential_file", "proxy"))
+
+    def test_without_the_per_service_flags_the_single_bench_credential_is_used_as_before(self) -> None:
+        self.assertEqual(("bench", "bench"), self.picked("bench_credential_file", "bench"))
+
+    def test_a_service_credential_alone_is_enough_for_that_service(self) -> None:
+        self.assertEqual(("standin", "proxy"), self.picked("standin_credential_file", "standin", "proxy_credential_file", "proxy"))
+
+    def test_one_service_credential_does_not_replace_the_other_services(self) -> None:
+        self.assertEqual(("standin", "bench"), self.picked("bench_credential_file", "bench", "standin_credential_file", "standin"))
+
+
+if __name__ == "__main__":
+    unittest.main()
