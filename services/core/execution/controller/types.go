@@ -135,6 +135,7 @@ type Receipt struct {
 	ExternalAck     *string
 	State           ExecutionState
 	Sig             Sig
+	SignedJCS       []byte // the exact bytes that were signed (the document without sig), stored so the database can verify them (D8)
 }
 
 // Outcome of one Execute call. Exactly one field group is set.
