@@ -236,3 +236,28 @@ def test_a_provider_that_swallows_cancellation_is_told_to_stop_and_ends_at_its_n
         return provider.stream_closed
 
     assert run(call())
+
+
+# ---- Codex P1 on #193 at cdadcc8: the cleanup itself must survive a cancellation (AGENT-13, REQ-VOI-004) -------------------------------------------
+
+
+def test_cancelling_the_caller_while_the_provider_shuts_down_still_releases_the_audio() -> None:
+    """The caller is cancelled once (a client goes away), the provider's shutdown stalls, and the caller is cancelled again
+    while the cleanup waits for it. The lease must still be revoked and the microphone closed."""
+    source = Source(loud_then_silent())
+
+    async def scenario() -> bool:
+        seen_partial = asyncio.Event()
+        call = asyncio.ensure_future(
+            transcribe_utterance(StallsOnCancel(), REQUEST, gated(source), deadline_s=GUARD_S, on_partial=lambda _: seen_partial.set(),
+                                 cleanup_s=GUARD_S))
+        await asyncio.wait_for(seen_partial.wait(), timeout=GUARD_S)
+        call.cancel()  # the first cancellation: the cleanup starts and waits on the provider's stalled shutdown
+        await asyncio.sleep(0.05)
+        assert not call.done()  # it really is waiting for the provider
+        call.cancel()  # the second cancellation lands inside the cleanup's wait
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(call, timeout=GUARD_S)
+        return source.closed
+
+    assert run(scenario())
