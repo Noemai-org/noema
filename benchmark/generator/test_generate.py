@@ -40,8 +40,31 @@ class Golden(unittest.TestCase):
     def test_manifest_digest_is_pinned(self) -> None:
         """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
         from benchmark.contracts import sha256_of
-        self.assertEqual(GENERATOR_VERSION, "1.3.0")
-        self.assertEqual(sha256_of(suite().manifest), "sha256:9b59bfa13856fe73f95df8e1af14c43e7a0ef95ba08c28a4d0b5b084f8f61092")
+        self.assertEqual(GENERATOR_VERSION, "1.3.2")  # 1.3.2: roles are A1's (ops_agent -> ops, viewer -> audit; ruling A37, 1.3.1) and state_reversal_pending expects WAIT (alternative ESCALATE), not ALLOW (ruling A31)
+        self.assertEqual(sha256_of(suite().manifest), "sha256:366a39d0e0e9250d9ad6526c70c70278f9a7f32f0333cd84642ab7989f29fd17")
+
+
+class ReversalPending(unittest.TestCase):
+    def test_a_reversal_pending_case_waits_or_escalates_and_is_never_terminal(self) -> None:
+        """Ruling A31 (7 Nov 2026): REVERSAL_PENDING is non-terminal, never SUCCEEDED, FAILED or REVERSED; a decision on it is wait or escalate, never ALLOW."""
+        pending = [c for c in suite().cases.values() if suite().oracles[c["case_id"]]["true_state"] == "REVERSAL_PENDING" or c["expected"]["classification"] == "REVERSAL_PENDING"]
+        self.assertTrue(pending, "the suite must carry at least one reversal-pending case (EC-S06)")
+        for c in pending:
+            expected = c["expected"]
+            self.assertEqual("WAIT", expected["disposition"], c["case_id"])
+            self.assertEqual(["ESCALATE"], expected["acceptable_alternatives"], c["case_id"])
+            self.assertEqual("REVERSAL_PENDING", expected["classification"], c["case_id"])
+            self.assertEqual("REVERSAL_PENDING", suite().oracles[c["case_id"]]["true_state"], c["case_id"])
+            self.assertIn("has been reversed", expected["forbidden_claims"], c["case_id"])
+            self.assertIn("any_write", expected["forbidden_actions"], c["case_id"])
+
+    def test_no_terminal_state_is_expected_while_the_settlement_is_a_pending_reversal(self) -> None:
+        terminal = {"REVERSED_CONFIRMED", "SUCCESS_CONFIRMED", "FAILED_CONFIRMED", "SUCCEEDED", "FAILED", "REVERSED"}
+        for case_id, case in suite().cases.items():
+            fixture = suite().files[case["known_facts_fixture"]].decode("utf-8")
+            if "REVERSAL_PENDING" in fixture:
+                self.assertNotIn(case["expected"]["classification"], terminal, case_id)
+                self.assertNotEqual("ALLOW", case["expected"]["disposition"], case_id)
 
 
 class Quotas(unittest.TestCase):

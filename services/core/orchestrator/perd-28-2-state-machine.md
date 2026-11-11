@@ -1,4 +1,4 @@
-<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.20.md section 28.2 (Investigation state machine) at docs commit 275c2245d911208961057a1a52095952c6a21043. The PERD original is normative; this copy exists so a test can check transitions.yaml against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.22.md section 28.2 (Investigation state machine) at docs commit 90513de3bf079483e92f63dc38cb0912081a2581. The PERD original is normative; this copy exists so a test can check transitions.yaml against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 ### 28.2 Investigation state machine [ADOPTED DEC-2026-10-17]
 
@@ -135,7 +135,7 @@ Each state below lists what it means, what moves the investigation into and out 
 **ESCALATING**
 
 - Meaning: an ESCALATE disposition with the escalation plan in progress.
-- Entry: DECISION_MADE (ESCALATE).
+- Entry: DECISION_MADE (ESCALATE); or EXPLAINING_BLOCKED, through a new DECISION_MADE (ESCALATE) and a new Decision Grant.
 - Exit and allowed next states: → PLANNED (action decisions); ESCALATED (case verified, or handoff).
 - Prohibited: a non-escalation write while frozen.
 - Customer is told: "Passing this to the team that can act."
@@ -145,10 +145,19 @@ Each state below lists what it means, what moves the investigation into and out 
 
 - Meaning: the explanation is being rendered and validated.
 - Entry: verdict(s) ready, or ALLOW read.
-- Exit and allowed next states: → COMPLETED, ESCALATED or REJECTED (whichever disposition applies); → EXPLAINING_BLOCKED → fallback.
+- Exit and allowed next states: → COMPLETED, ESCALATED or REJECTED (whichever disposition applies); → EXPLAINING_BLOCKED.
 - Prohibited: a claim not bound to a fact.
 - Customer is told: the answer.
 - Audit: EXPLANATION_RENDERED / BLOCKED.
+
+**EXPLAINING_BLOCKED** (Founder decision E4 of 7 Nov 2026, closing OD-P-60)
+
+- Meaning: the explanation could not be rendered without a claim that is not bound to a fact (REQ-EXP-002).
+- Entry: EXPLAINING, when the validator blocks the explanation.
+- Exit and allowed next states: → a new DECISION_MADE (ESCALATE), then ESCALATING, whose escalation case is routed to OPS (operations). It never returns to EXPLAINING and never goes to ESCALATING without that decision. EXPLAINING_BLOCKED itself writes nothing; the case is opened by ESCALATING, under a new Decision Grant issued from that decision (INV-03, AGENT-08).
+- Prohibited: any write in this state; any unbound claim to the person.
+- Customer is told: the safe fallback text of REQ-EXP-002.
+- Audit: EXPLANATION_BLOCKED{rule}, then the escalation events of ESCALATING.
 
 **COMPLETED** (terminal)
 
