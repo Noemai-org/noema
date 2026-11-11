@@ -22,7 +22,7 @@
 - **Existence oracle (residual).** The primary keys are global (`decision_id`, `grant_id`), so an insert that collides with another tenant's ID fails with a unique violation, which tells the caller the ID exists. IDs are minted by the server (`<prefix>_<ULID>`), not chosen by the caller, so I rate it low; I did not test it.
 - **Triggers.** `decision_record_immutable` and `decision_grant_guard` refuse UPDATE and DELETE, `*_no_truncate` refuses TRUNCATE, for every role including the owner. TRUNCATE ignores row security, which is why it is refused by trigger and not by policy.
 - **`pg_temp` in the new functions.** `decision_login_tenant` and `decision_record_tenant_guard` are `SECURITY DEFINER`, `SET search_path = pg_catalog, pg_temp`, and schema-qualify `public.tenant_login`.
-- **Signing.** Not a database path: see `docs/decision-record-signing.md`.
+- **Signing.** Not a database path: see the contract `contracts/schemas/decision-record.v2.json` and rulings A5 and A13 in `docs/decisions/DEC-2026-11-06-architect-rulings.md` (in the `docs` repository); the signing code is `SignRecord` and `VerifyRecord` in `trust/grants/record.go`, which lands with noema#197.
 
 ## Not checked (SR, please)
 
