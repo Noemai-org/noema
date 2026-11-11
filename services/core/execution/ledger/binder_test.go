@@ -8,10 +8,15 @@ package ledger_test
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
 
 const (
@@ -19,9 +24,20 @@ const (
 	intentHash = "sha256:0000000000000000000000000000000000000000000000000000000000000001"
 )
 
+// trustLogins holds one Trust login per world: testpg creates the role on each call, so a test that publishes twice must reuse it.
+var trustLogins sync.Map
+
 func (w *world) publish(t *testing.T, version string) {
 	t.Helper()
-	if _, err := w.admin.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by) VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01')`,
+	// Only Trust's own tenant login publishes (the table's guard); the Execution login only reads.
+	v, ok := trustLogins.Load(w)
+	if !ok {
+		v = testpg.TenantLogin(t, w.admin, w.admin.Config().ConnString(), "trust_rw", tenant)
+		trustLogins.Store(w, v)
+		t.Cleanup(func() { trustLogins.Delete(w) })
+	}
+	trust := v.(*pgxpool.Pool)
+	if _, err := trust.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by) VALUES ($1, $2, $3, policy_version_key($3), 'adm_synth01')`,
 		tenant, policy, version); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +49,11 @@ func (w *world) storeBinder() *ledger.StoreBinder {
 
 func grantAt(w *world, t *testing.T, n int, version string) controller.Grant {
 	t.Helper()
-	return w.issue(t, n, func(g *controller.Grant) { g.PolicyVersion = policy + "@" + version })
+	// A grant carries the policy version of its decision record (migration 0012), so each version has its own recorded decision.
+	return w.issue(t, n, func(g *controller.Grant) {
+		g.PolicyVersion = policy + "@" + version
+		g.DecisionID = "dec_v" + strings.ReplaceAll(version, ".", "")
+	})
 }
 
 func TestTheActivePolicyVersionIsTheHighestPublishedOne(t *testing.T) {
@@ -83,6 +103,23 @@ func TestAnUnknownDecisionOrAnUnpublishedPolicyIsNeverAllowed(t *testing.T) {
 	g.DecisionID = "dec_neverrecorded"
 	if ok, err := b.DecisionStillAllowed(ctx(t), g); err != nil || ok {
 		t.Fatalf("a decision that is not in the Record: %v, %v; want not allowed", ok, err)
+	}
+}
+
+// E4: a decision that is recorded but is not an ALLOW (here a REJECT) never allows execution, whatever the active policy version is.
+func TestARecordedDecisionThatIsNotAnAllowIsNeverAllowed(t *testing.T) {
+	w := newWorld(t)
+	b := w.storeBinder()
+	w.publish(t, "1.0")
+	g := grantAt(w, t, 1, "1.0")
+	g.DecisionID = "dec_rejected01"
+	doc := testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		VALUES ($1, $2, jsonb_set($3::jsonb, '{outcome}', '"REJECT"'), 'REJECT', $4, '[]', 'k1', 'aa')`, g.DecisionID, tenant, doc, g.IntentHash); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := b.DecisionStillAllowed(ctx(t), g); err != nil || ok {
+		t.Fatalf("a REJECT decision under the active version: %v, %v; want not allowed", ok, err)
 	}
 }
 
