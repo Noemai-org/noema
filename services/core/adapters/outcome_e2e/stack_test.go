@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -113,6 +114,11 @@ func hash(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 // issueCreate issues the grant for create_escalation_case: no expected version, there is no case yet.
 func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
+	return s.issueCreateAt(ctx, "1.0")
+}
+
+// issueCreateAt is issueCreate for a grant bound to policyScope@version.
+func (s *trustStandIn) issueCreateAt(ctx context.Context, version string) (string, error) {
 	s.mu.Lock()
 	s.n++
 	n := s.n
@@ -123,9 +129,14 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 		return "", err
 	}
 	now := s.clk.Now()
-	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
+	// A grant must carry the policy version of its decision record (migration 0012), so each policy version gets its own recorded decision.
+	decisionID := "dec_us06"
+	if version != "1.0" {
+		decisionID += "v" + strings.ReplaceAll(version, ".", "")
+	}
+	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: decisionID, PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
-		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@" + version, PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
@@ -196,6 +207,8 @@ func (p publicKeys) Lookup(_ context.Context, id string) (receiptsig.PublicKey, 
 
 // stack is Execution and Outcome wired as production is wired, around a real mock-case and a real PostgreSQL.
 type stack struct {
+	dsn     string
+	pools   map[string]*pgxpool.Pool // the tenant's own logins by power role, as the stack made them
 	admin   *pgxpool.Pool
 	clk     *tickClock
 	ctl     *controller.Controller
@@ -254,7 +267,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &stack{admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
+	return &stack{dsn: dsn, pools: pool, admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
 		request: verifier.Request{TenantID: tenant, TransactionRef: txRef, QueryableByKey: true,
 			Bindings:   map[string]string{"subject_resource": txRef, "intent_id": intentRef},
 			Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}
