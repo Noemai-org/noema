@@ -29,13 +29,13 @@ import (
 const (
 	testRuntimeToken = "runtime-token-runtime-token-runtime-token-0001"
 	testPrincipalKey = "principal-principal-principal-principal-0003"
-	pinnedVector     = "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce" // synthetic/standin/README.md
+	pinnedVector     = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42" // synthetic/standin/README.md
 )
 
 var testNow = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC) // SYNTHETIC
 
 func TestTheAssertionMatchesThePinnedVectorOfTheStandinReadme(t *testing.T) {
-	if got := standinAssertion([]byte(testPrincipalKey), "usr_a", 1790847660); got != pinnedVector {
+	if got := standinAssertion([]byte(testPrincipalKey), "usr_a", "ten_alpha", 1790847660); got != pinnedVector {
 		t.Fatalf("assertion = %s, want %s", got, pinnedVector)
 	}
 }
@@ -109,10 +109,10 @@ func sdl(t *testing.T, d time.Duration) context.Context {
 var sScope = adapters.Scope{TenantID: "ten_aa", PrincipalID: "usr_a"}
 
 const (
-	ledgerBody = `{"data_source":"stand-in","synthetic":true,"unavailable":false,"entries":[{"entry_id":"le_1_1","account_ref":"acc_usr_a","transaction_ref":"tx:1","entry_type":"DEBIT","amount_minor":500000,"currency":"NGN","posting_status":"POSTED","posted_at":"2026-10-01T09:30:00+01:00","version":1}]}` + "\n"
-	switchBody = `{"data_source":"stand-in","synthetic":true,"unavailable":false,"switch_ref":"sw_1","transaction_ref":"tx:1","raw_code":"SYN-91","raw_code_label":"SYNTHETIC","semantic_status":"TIMED_OUT","is_terminal":false,"destination_ack":false,"received_at":"2026-10-01T09:30:00+01:00","raw_payload_hash":"sha256:` + zeros + `"}`
-	destBody   = `{"data_source":"stand-in","synthetic":true,"unavailable":false,"transaction_ref":"tx:1","credit_state":"PENDING","settlement_state":"PENDING","effective_at":"2026-10-01T09:30:00+01:00","observed_at":"2026-10-01T09:40:00+01:00"}`
-	candBody   = `{"data_source":"stand-in","synthetic":true,"complete":true,"items":[{"transaction_ref":"tx:1","account_ref":"acc_usr_a","direction":"OUTGOING","amount_minor":500000,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"}]}`
+	ledgerBody = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"entries":[{"entry_id":"le_1_1","account_ref":"acc_usr_a","transaction_ref":"tx:1","entry_type":"DEBIT","amount_minor":500000,"currency":"NGN","posting_status":"POSTED","posted_at":"2026-10-01T09:30:00+01:00","version":1}]}` + "\n"
+	switchBody = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"switch_ref":"sw_1","transaction_ref":"tx:1","raw_code":"SYN-91","raw_code_label":"SYNTHETIC","semantic_status":"TIMED_OUT","is_terminal":false,"destination_ack":false,"received_at":"2026-10-01T09:30:00+01:00","raw_payload_hash":"sha256:` + zeros + `"}`
+	destBody   = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false,"transaction_ref":"tx:1","credit_state":"PENDING","settlement_state":"PENDING","effective_at":"2026-10-01T09:30:00+01:00","observed_at":"2026-10-01T09:40:00+01:00"}`
+	candBody   = `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true,"items":[{"transaction_ref":"tx:1","account_ref":"acc_usr_a","direction":"OUTGOING","amount_minor":500000,"currency":"NGN","counterparty":"ben_1","occurred_at":"2026-10-01T09:30:00+01:00"}]}`
 	zeros      = "0000000000000000000000000000000000000000000000000000000000000000"
 )
 
@@ -150,9 +150,9 @@ func TestEachReadReturnsTheDecodedAnswerWithTheHashOfTheWireBytesAndTheLabel(t *
 
 func TestAnUnavailableBodyIsUnavailableNeverEmpty(t *testing.T) {
 	f := newFakeStandin(t)
-	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, `{"data_source":"stand-in","synthetic":true,"unavailable":true,"entries":[]}`)
-	f.body("/standin/v1/transactions/tx:1/switch-status", 200, `{"data_source":"stand-in","synthetic":true,"unavailable":true}`)
-	f.body("/standin/v1/transactions/tx:1/destination-status", 200, `{"data_source":"stand-in","synthetic":true,"unavailable":true,"transaction_ref":"tx:1","credit_state":"UNAVAILABLE","settlement_state":"PENDING","effective_at":"2026-10-01T09:30:00+01:00","observed_at":"2026-10-01T09:40:00+01:00"}`)
+	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":true,"entries":[]}`)
+	f.body("/standin/v1/transactions/tx:1/switch-status", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":true}`)
+	f.body("/standin/v1/transactions/tx:1/destination-status", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":true,"transaction_ref":"tx:1","credit_state":"UNAVAILABLE","settlement_state":"PENDING","effective_at":"2026-10-01T09:30:00+01:00","observed_at":"2026-10-01T09:40:00+01:00"}`)
 	c := newStandinClient(t, f)
 	ctx := sdl(t, 5*time.Second)
 	if l, err := c.LedgerEntries(ctx, sScope, "tx:1"); err != nil || !l.IsUnavailable() || len(l.Entries) != 0 || l.Provenance.RawHash == "" {
@@ -254,7 +254,7 @@ func TestAnAnswerTheClientCannotTrustIsMalformedNeverKnown(t *testing.T) {
 		"another source":     {"application/json", strings.Replace(ledgerBody, `"stand-in"`, `"tushe"`, 1)},
 		"not synthetic":      {"application/json", strings.Replace(ledgerBody, `"synthetic":true`, `"synthetic":false`, 1)},
 		"unknown entry type": {"application/json", strings.Replace(ledgerBody, `"DEBIT"`, `"REFUND"`, 1)},
-		"entries missing":    {"application/json", `{"data_source":"stand-in","synthetic":true,"unavailable":false}`},
+		"entries missing":    {"application/json", `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","unavailable":false}`},
 		"trailing data":      {"application/json", ledgerBody + `{}`},
 	}
 	for name, tc := range bad {
@@ -272,6 +272,17 @@ func TestAnAnswerTheClientCannotTrustIsMalformedNeverKnown(t *testing.T) {
 	}
 }
 
+// INV-12, PERD 34.4 (Voice review of noema#205, F1): an entry that belongs to another transaction is a misrouted read, never evidence about the one asked.
+func TestALedgerEntryOfAnotherTransactionIsMalformed(t *testing.T) {
+	f := newFakeStandin(t)
+	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, strings.Replace(ledgerBody, `"transaction_ref":"tx:1"`, `"transaction_ref":"tx:2"`, 1))
+	l, err := newStandinClient(t, f).LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1")
+	re := sFail(t, err)
+	if re.Failure != adapters.ReadMalformed || re.RawHash != sha(strings.Replace(ledgerBody, `"transaction_ref":"tx:1"`, `"transaction_ref":"tx:2"`, 1)) || len(l.Entries) != 0 {
+		t.Fatalf("got %+v entries=%d, want MALFORMED with the wire hash and no entries", re, len(l.Entries))
+	}
+}
+
 func TestTheRequestIsAGetWithTheRuntimeTokenAndAnAssertionForTheSessionPrincipal(t *testing.T) {
 	f := newFakeStandin(t)
 	f.body("/standin/v1/transactions/tx:1/ledger-entries", 200, ledgerBody)
@@ -284,17 +295,21 @@ func TestTheRequestIsAGetWithTheRuntimeTokenAndAnAssertionForTheSessionPrincipal
 		t.Fatalf("method %s auth %q", r.method, r.auth)
 	}
 	parts := strings.Split(r.assertion, ".")
-	if len(parts) != 4 || parts[0] != "v1" {
+	if len(parts) != 5 || parts[0] != "v2" {
 		t.Fatalf("assertion %q", r.assertion)
 	}
 	who, _ := base64.RawURLEncoding.DecodeString(parts[1])
-	exp, _ := strconv.ParseInt(parts[2], 10, 64)
+	ten, _ := base64.RawURLEncoding.DecodeString(parts[2])
+	exp, _ := strconv.ParseInt(parts[3], 10, 64)
+	if string(ten) != "ten_aa" {
+		t.Fatalf("tenant %q: the assertion must bind the session's tenant (A135)", ten)
+	}
 	if string(who) != "usr_a" || exp <= testNow.Unix() || exp-testNow.Unix() > 300 {
 		t.Fatalf("principal %q expiry %d (now %d): must be the session principal and live at most 5 minutes", who, exp, testNow.Unix())
 	}
 	m := hmac.New(sha256.New, []byte(testPrincipalKey))
-	fmt.Fprintf(m, "noema-standin-principal-v1\nstandin\nusr_a\n%d", exp)
-	if parts[3] != hex.EncodeToString(m.Sum(nil)) {
+	fmt.Fprintf(m, "noema-standin-principal-v2\nstandin\nusr_a\nten_aa\n%d", exp)
+	if parts[4] != hex.EncodeToString(m.Sum(nil)) {
 		t.Fatal("the MAC does not verify with the principal key")
 	}
 	if strings.Contains(r.path+r.query, testRuntimeToken) || strings.Contains(r.path+r.query, testPrincipalKey) {
@@ -379,12 +394,12 @@ func TestACredentialFileThatIsMissingOrEmptyIsRefusedAtConstruction(t *testing.T
 // recorded missing_required_field exchange of the real proxy, ENV-06).
 func TestAMissingListIsMalformedNotEmpty(t *testing.T) {
 	f := newFakeStandin(t)
-	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"complete":true}`)
+	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true}`)
 	_, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
 	if re := sFail(t, err); re.Failure != adapters.ReadMalformed {
 		t.Fatalf("got %+v, want MALFORMED", re)
 	}
-	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"complete":true,"items":[]}`)
+	f.body("/standin/v1/transactions", 200, `{"data_source":"stand-in","synthetic":true,"tenant_id":"ten_aa","complete":true,"items":[]}`)
 	page, err := newStandinClient(t, f).FindCandidates(sdl(t, 5*time.Second), sScope, adapters.TransactionQuery{AccountRef: "acc_usr_a", Limit: 10})
 	if err != nil || !page.ProvesAbsence() {
 		t.Fatalf("a present empty list on a complete page is a real absence: %+v %v", page, err)
@@ -462,4 +477,38 @@ func TestEveryErrorThatReceivedBytesCarriesTheirHash(t *testing.T) {
 			t.Fatalf("a timeout carries RawHash %q", re.RawHash)
 		}
 	})
+}
+
+// A135, INV-12: an answer that names another tenant than the session's is a misrouted read, never evidence (MALFORMED, wire hash kept).
+func TestAnAnswerForAnotherTenantIsMalformed(t *testing.T) {
+	reads := map[string]func(c *StandinClient) error{
+		"ledger-entries": func(c *StandinClient) error {
+			_, err := c.LedgerEntries(sdl(t, 5*time.Second), sScope, "tx:1")
+			return err
+		},
+		"switch-status": func(c *StandinClient) error {
+			_, err := c.SwitchStatus(sdl(t, 5*time.Second), sScope, "tx:1")
+			return err
+		},
+		"destination-status": func(c *StandinClient) error {
+			_, err := c.DestinationStatus(sdl(t, 5*time.Second), sScope, "tx:1")
+			return err
+		},
+	}
+	bodies := map[string]string{"ledger-entries": ledgerBody, "switch-status": switchBody, "destination-status": destBody}
+	for name, read := range reads {
+		for variant, body := range map[string]string{
+			"another tenant": strings.Replace(bodies[name], `"tenant_id":"ten_aa"`, `"tenant_id":"ten_bb"`, 1),
+			"no tenant":      strings.Replace(bodies[name], `"tenant_id":"ten_aa",`, ``, 1),
+		} {
+			t.Run(name+"/"+variant, func(t *testing.T) {
+				f := newFakeStandin(t)
+				f.body("/standin/v1/transactions/tx:1/"+name, 200, body)
+				re := sFail(t, read(newStandinClient(t, f)))
+				if re.Failure != adapters.ReadMalformed || re.RawHash != sha(body) {
+					t.Fatalf("got %+v, want MALFORMED with the wire hash", re)
+				}
+			})
+		}
+	}
 }
