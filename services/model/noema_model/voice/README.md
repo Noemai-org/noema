@@ -6,4 +6,4 @@
 
 **Status.** `confidence.py` (VOI-03) and `clarify.py` (the clarification decision: confirm the heard value, or offer text after the allowed failed turns; a decision function only, wired by AMB-04): per-token to per-slot confidence, a missing confidence counts as low. The rest is filled by VOI-02 to VOI-16. The import rules and prohibitions are in `__init__.py`.
 
-**Tests.** `pytest` from `services/model/`: `tests/test_voice_confidence.py`, `tests/test_voice_clarify.py`.
+**Tests.** `pytest` from `services/model/`: `tests/test_voice_confidence.py`, `tests/test_voice_study.py`, `tests/test_voice_clarify.py`.
