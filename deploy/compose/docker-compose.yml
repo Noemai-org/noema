@@ -64,7 +64,12 @@ volumes:
 
 services:
   postgres:
-    image: postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    # PostgreSQL 17.11 with pgsodium (EXE-08 slice B, ruling A2/A16): built from the one pinned Dockerfile (base image by digest, libsodium by SHA-256,
+    # pgsodium by commit id). The directory is still named spike; moving it is a follow-up that also repoints the CI job. init.sh creates the
+    # extension once and disables its event trigger (DEC-2026-11-01 D10a).
+    image: noema-postgres:dev
+    build:
+      context: ../spike/pgsodium
     profiles: *run_profiles
     networks: [data_net]
     environment:
