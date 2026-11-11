@@ -71,3 +71,19 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Tests added (REQ-TRU-008, INV-03): `TestGrantSigningVector` (rewritten), `TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused`, two E1 cases in `TestEachCheckVoidsTheGrantWithItsReason`. Seen failing first.
 - Risks: P0 path and a contract fixture change (AGENT-15); both Founders approve. No stored grant exists, so nothing migrates. Stacked on noema#163.
 - Not done: the confirmation signer does not exist yet; this PR only reserves its label and message function.
+
+# Session 2026-11-11 · TRU-05 slice 3b (the Decision Record writer, noema#237), definition of done
+
+## Session summary
+- What changed (PR links): noema#237. Merged `main` (grant signing label from noema#337; own recorder diff unchanged, patch-id `e4f65676`). Removed `Request.Actor` (Codex P1: decision events are written as `core-trust`, INV-12). Added tests for the error paths of `Write` (second human review P1, C1): a failing DECISION_MADE append, a failing GRANT_ISSUED append, a duplicate decision id at the `decision_record` insert and a duplicate grant id at the `decision_grant` insert; each error was swallowed in turn and exactly its test went red. Added a test that a Request naming another tenant is refused by the database. All tests build the Appender through `newAppender`, the one line to change when noema#263 makes signed appends mandatory.
+- Why: Record-first (PERD 32.4, EC-E16): a failed append or insert must fail the whole write.
+- Risks, and how they are contained: noema#263 (REC-08) and noema#410 (EVD-02) land in the same area; whichever merges second needs `Signers` from `recordsig` in `newAppender`, and the grant insert may need the evidence-set hash. Neither package exists on `main` yet, so I did not guess at them.
+- Tests added (REQ-TRU-001, REQ-TRU-008, INV-03, INV-12, INV-17): `TestARequestCannotChooseTheRecordActor`, `TestAFailedDecisionMadeAppendFailsTheWriteAndLeavesNothing`, `TestAFailedGrantIssuedAppendFailsTheWriteAndLeavesNothing`, `TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing`, `TestAFailedGrantInsertFailsTheWriteAndLeavesNothing`, `TestARequestNamingAnotherTenantIsRefusedByTheDatabaseAndLeavesNothing`.
+- Regression cases added: the same tests.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#263 merges, set `Signers` in `newAppender` (recorder_test.go) from `recordsig.For` for `core-trust`.
+- Open questions (owner): C1's non-blocking notes 2 to 5 on noema#237 (row counts after refusals, a WAIT/CONFIRM/UNKNOWN record, an empty `policy_id` in the DECISION_MADE payload, idempotency of a retried `Write`): the caller or workflow layer owns idempotency (TRU-08 or EXE-06), EL to confirm which.
+- Files to read first: `services/core/trust/recorder/recorder.go`, `recorder_test.go`.
+- Do not touch: `trust/grants` signing (noema#337).
