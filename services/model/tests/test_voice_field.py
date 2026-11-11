@@ -16,6 +16,7 @@ from noema_model.voice.field import (
     F5_MIN_CORRECTNESS_LOWER,
     F5_MIN_SESSIONS_PER_LOCALE,
     PERD_MAX_P95_MS,
+    REQUIRED_LOCALES,
     FIELD_MIN_SESSIONS,
     F5_MIN_LOCALE_CORRECTNESS,
     PERD_MIN_PIDGIN_SHARE,
@@ -46,14 +47,19 @@ def session(i: int, elapsed: int | None = 1500, locale: str = "pcm", correct: bo
 
 def run_gate(sessions: list[FieldSession], **over: Any) -> FieldAnalysis:
     args: dict[str, Any] = dict(target_ms=TARGET_MS, min_sessions=MIN_SESSIONS, min_pidgin_share=MIN_PIDGIN, correctness_floor=FLOOR,
-                                correctness_lower_floor=LOWER_FLOOR, required_locales=LOCALES, min_sessions_per_locale=PER_LOCALE,
+                                correctness_lower_floor=LOWER_FLOOR, min_sessions_per_locale=PER_LOCALE,
                                 per_locale_correctness_floor=LOCALE_FLOOR)
     args.update(over)
     return analyse(sessions, **args)
 
 
+def loc(i: int) -> str:
+    """The decided plan over 240 sessions: 120 Pidgin, 30 in each of the other four locales."""
+    return "pcm" if i % 2 == 0 else ("en-NG", "yo", "ha", "ig")[(i // 2) % 4]
+
+
 def good(n: int = 240) -> list[FieldSession]:
-    return [session(i, 1000 + i, "pcm" if i % 2 == 0 else "yo") for i in range(n)]
+    return [session(i, 1000 + i, loc(i)) for i in range(n)]
 
 
 def plan(counts: dict[str, int], wrong: int = 0, wrong_in: dict[str, int] | None = None) -> list[FieldSession]:
@@ -107,9 +113,9 @@ def test_twelve_slow_sessions_in_240_leave_p95_on_a_fast_one() -> None:
 
 
 def test_a_p95_exactly_at_the_target_passes_and_one_millisecond_over_fails() -> None:
-    at = run_gate([session(i, TARGET_MS, "pcm" if i % 2 == 0 else "yo") for i in range(240)])
+    at = run_gate([session(i, TARGET_MS, loc(i)) for i in range(240)])
     assert "p95 over the target" not in at.reasons and at.verdict is GateVerdict.PASS
-    over = run_gate([session(i, TARGET_MS + 1, "pcm" if i % 2 == 0 else "yo") for i in range(240)])
+    over = run_gate([session(i, TARGET_MS + 1, loc(i)) for i in range(240)])
     assert "p95 over the target" in over.reasons
 
 
@@ -129,7 +135,7 @@ def test_correctness_is_against_the_annotation_and_an_unannotated_session_is_inc
 
 def test_exactly_ninety_percent_of_240_meets_the_floor_and_one_fewer_does_not() -> None:
     def run_of(correct: int) -> list[FieldSession]:  # the misses alternate over both locales, so no locale floor is near
-        return [session(i, 1000, "pcm" if i % 2 == 0 else "yo", correct=i >= 240 - correct) for i in range(240)]
+        return [session(i, 1000, loc(i), correct=i >= 240 - correct) for i in range(240)]
 
     at = run_gate(run_of(216))
     assert at.correct_rate == 0.9 and at.correct_ci_low >= LOWER_FLOOR and at.verdict is GateVerdict.PASS, at.reasons
@@ -182,7 +188,7 @@ def test_an_admission_before_end_of_speech_is_a_counted_failure_with_a_reason_no
 @pytest.mark.parametrize("over", [{"target_ms": 0}, {"min_sessions": 0}, {"min_pidgin_share": 1.5}, {"correctness_floor": -0.1},
                                   {"min_pidgin_share": math.nan}, {"correctness_lower_floor": -0.1},
                                   {"correctness_lower_floor": 1.1}, {"correctness_lower_floor": math.nan},
-                                  {"required_locales": ()}, {"min_sessions_per_locale": 0}])
+                                  {"min_sessions_per_locale": 0}])
 def test_a_bad_gate_parameter_is_refused(over: dict[str, Any]) -> None:
     with pytest.raises(ValueError):
         run_gate(good(), **over)
@@ -193,7 +199,7 @@ def test_a_floor_of_zero_cannot_be_used_to_pass_a_run_that_is_always_wrong(over:
     """C2 P2 on #230: floor 0.0 let 100 incorrect sessions in one locale PASS."""
     wrong = [session(i, 1000, "yo", correct=False) for i in range(240)]
     with pytest.raises(ValueError):
-        run_gate(wrong, required_locales=("yo",), **over)
+        run_gate(wrong, **over)
 
 
 def test_the_decided_numbers_are_named_constants_and_the_caller_cannot_loosen_them() -> None:
@@ -274,15 +280,15 @@ def test_six_failed_sessions_in_240_fail_the_gate_because_the_upper_bound_is_ope
 
 
 def test_five_failed_sessions_in_240_still_pass_because_the_upper_bound_is_the_235th_value() -> None:
-    sessions = [session(i, 1000, "pcm" if i % 2 == 0 else "yo") for i in range(235)] + [
-        session(300 + i, None, "pcm" if i % 2 == 0 else "yo") for i in range(5)]
+    sessions = [session(i, 1000, loc(i)) for i in range(235)] + [
+        session(300 + i, None, loc(235 + i)) for i in range(5)]
     result = run_gate(sessions)
     assert result.ci_high_ms == 1000.0 and result.verdict is GateVerdict.PASS, result.reasons
 
 
 def test_the_upper_bound_at_the_target_passes_and_one_millisecond_over_fails() -> None:
     def run_with(top: int) -> list[FieldSession]:  # 234 fast values, then 6 at `top`: the 235th value, the bound, is `top`
-        return [session(i, 1000 if i < 234 else top, "pcm" if i % 2 == 0 else "yo") for i in range(240)]
+        return [session(i, 1000 if i < 234 else top, loc(i)) for i in range(240)]
 
     at = run_gate(run_with(TARGET_MS))
     assert at.ci_high_ms == float(TARGET_MS) and at.verdict is GateVerdict.PASS, at.reasons
@@ -306,7 +312,7 @@ def test_a_point_estimate_over_the_target_is_reported_once_as_over_the_target() 
 
 
 def gate5(sessions: list[FieldSession], **over: Any) -> FieldAnalysis:
-    return run_gate(sessions, required_locales=FIVE, **over)
+    return run_gate(sessions, **over)
 
 
 def test_the_smallest_plan_that_meets_both_rules_is_240_sessions() -> None:
@@ -371,7 +377,7 @@ def test_a_small_run_can_meet_the_rate_and_still_fail_on_the_lower_end_of_the_in
     sessions = [session(i, 1000, "pcm", correct=(i != 0)) for i in range(10)]  # 9 of 10 = 90%
     numbers = measure(sessions, required_locales=("pcm",))
     assert numbers.correct_rate == 0.9 and numbers.correct_ci_low < LOWER_FLOOR
-    assert "correctness interval below the floor" in run_gate(sessions, required_locales=("pcm",)).reasons
+    assert "correctness interval below the floor" in run_gate(sessions).reasons
 
 
 def test_a_locale_with_fewer_than_thirty_sessions_fails_even_if_the_total_is_large() -> None:
@@ -393,3 +399,25 @@ def test_the_exact_interval_matches_closed_forms() -> None:
     none_correct = measure([session(i, 1000, "pcm", correct=False) for i in range(10)], required_locales=("pcm",))
     assert none_correct.correct_ci_low == 0.0
     assert none_correct.correct_ci_high == pytest.approx(1 - 0.025 ** (1 / 10), abs=1e-6)  # k = 0
+
+
+# ---- Codex P1 on #230: the locale set is the decision's, never the caller's ----------------------------------------------------
+
+
+def test_the_required_locales_are_exactly_the_five_of_the_voice_track() -> None:
+    assert REQUIRED_LOCALES == ("en-NG", "pcm", "yo", "ha", "ig")
+    assert "required_locales" not in analyse.__code__.co_varnames[: analyse.__code__.co_argcount + analyse.__code__.co_kwonlyargcount]
+
+
+def test_a_run_covering_only_a_subset_of_the_locales_cannot_pass() -> None:
+    """The caller cannot shrink the set: a run of 240 sessions in pcm and yo only fails the three locales it never recorded."""
+    sessions = [session(i, 1000, "pcm" if i % 2 == 0 else "yo") for i in range(240)]
+    result = run_gate(sessions)
+    assert result.verdict is GateVerdict.FAIL
+    assert "too few sessions in a required locale" in result.reasons and "correctness below the floor in a locale" in result.reasons
+    assert dict(result.locale_counts) == {"en-NG": 0, "pcm": 120, "yo": 120, "ha": 0, "ig": 0}
+
+
+def test_a_session_in_an_unknown_locale_is_refused_not_ignored() -> None:
+    with pytest.raises(ValueError, match="outside the five"):
+        run_gate(good(239) + [session(239, 1000, "fr")])
