@@ -61,8 +61,12 @@ func spend(t *testing.T, pool *pgxpool.Pool, tenant, grant, nonce, idk string, a
 	t.Helper()
 	for _, q := range []string{
 		fmt.Sprintf(`INSERT INTO tenant (tenant_id, name) VALUES ('%s', 'T') ON CONFLICT DO NOTHING`, tenant),
+		// The grant guard of migration 0012 (noema#168) refuses a grant whose decision record is absent or whose signed document does not name the record: the record comes
+		// first and the grant's document names its decision and tenant and carries the bound fields, as the seed of schema_test.go does.
+		fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+		 VALUES ('dec_%s', '%s', '{"decision_id":"dec_%s","tenant_id":"%s","outcome":"ALLOW","sig":{"key_id":"k1","value":"aa"}}'::jsonb || `+testpg.BoundFieldsSQL+`, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa')`, grant, tenant, grant, tenant),
 		fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value, status)
-		 VALUES ('%s', '%s', 'dec_%s', '%s', '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa', 'ISSUED')`, grant, tenant, grant, nonce),
+		 VALUES ('%s', '%s', 'dec_%s', '%s', '{"decision_id":"dec_%s","tenant_id":"%s"}'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa', 'ISSUED')`, grant, tenant, grant, nonce, grant, tenant),
 		fmt.Sprintf(`INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('%s', '%s', '%s', '%s', %d, now())`, grant, tenant, nonce, idk, attempt),
 		fmt.Sprintf(`UPDATE decision_grant SET status = 'SPENT' WHERE grant_id = '%s'`, grant),
 	} {
@@ -492,7 +496,15 @@ func TestAForgedReceiptCannotVoidASpentGrantOnTheHeldGuard(t *testing.T) {
 		apply(t, w)
 		wantCode(t, w.insertAs(t, "execution_rw", forge(w, forged)), ns001, "forged receipt through receipt_insert")
 		wantCode(t, w.insertAs(t, "execution_rw", forge(w, strings.Repeat("ab", 64))), ns001, "forged 128-hex receipt through receipt_insert")
-		wantCode(t, try(t, w.pool, "execution_rw", `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_1'`), violation, "void without a receipt")
+		// Through the tenant's own execution login: since noema#168 row security hides a grant from an unmapped session, so SET ROLE from the administrator would update no row and see no guard.
+		own := testpg.TenantLogin(t, w.pool, w.dsn, "execution_rw", "ten_a")
+		voidTx, err := own.Begin(ctx(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, voidErr := voidTx.Exec(ctx(t), `UPDATE decision_grant SET status = 'VOID' WHERE grant_id = 'grt_1'`)
+		_ = voidTx.Rollback(ctx(t))
+		wantCode(t, voidErr, violation, "void without a receipt")
 		var status string
 		if err := w.pool.QueryRow(ctx(t), `SELECT status FROM decision_grant WHERE grant_id = 'grt_1'`).Scan(&status); err != nil || status != "SPENT" {
 			t.Fatalf("grant status %q, %v", status, err)
