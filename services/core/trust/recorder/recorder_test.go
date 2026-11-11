@@ -593,3 +593,23 @@ func TestAFailedGrantInsertFailsTheWriteAndLeavesNothing(t *testing.T) {
 	}
 	w.nothingRemains(t, "grant insert failed")
 }
+
+// INV-12 / REQ-SEC-004 (definition of done 3a): the tenant on a Request is a claim, not an authority. A Request naming another tenant, written through this
+// tenant's login, is refused by the database (the Record append and the decision_record tenant guard bind the tenant to the login), and nothing remains.
+func TestARequestNamingAnotherTenantIsRefusedByTheDatabaseAndLeavesNothing(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_bb', 'B')`); err != nil {
+		t.Fatal(err)
+	}
+	b := evaluated(t)
+	r := request(t, decision(t, decide.Allow, b), b, step(t))
+	r.TenantID = "ten_bb"
+	res, err := w.write(t, r, true)
+	if err == nil {
+		t.Fatalf("a Request naming ten_bb was written through ten_aa's login: %+v", res)
+	}
+	w.nothingRemains(t, "another tenant named in the Request")
+	if n := w.count(t, `SELECT count(*) FROM decision_record WHERE tenant_id = 'ten_bb'`); n != 0 {
+		t.Errorf("%d decision records were written for ten_bb", n)
+	}
+}
