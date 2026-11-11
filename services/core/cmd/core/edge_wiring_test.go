@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/edgetest"
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -21,6 +22,18 @@ import (
 )
 
 var wiringEpoch = time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+
+// The kid and the audience of the configured core are not the helper's defaults, so a core that ignored its configuration would refuse these tokens.
+const (
+	wiredKid = "idp-wired-k9"
+	wiredAud = "noema-wired-aud"
+)
+
+func wired(iss *edgetest.Issuer, role session.Role) string {
+	c := edgetest.Good(wiringEpoch, role)
+	c.Aud = wiredAud
+	return iss.Token(wiredKid, c)
+}
 
 const limitsOK = `{"schema_version":"1.0","pack_id":"fintech","label":"SYNTHETIC","clock_skew_s":60}`
 
@@ -38,11 +51,11 @@ func files(t *testing.T, iss *edgetest.Issuer, limits string) env {
 	if err := os.WriteFile(lim, []byte(limits), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return env{envKeyFile: key, envKid: edgetest.Kid, envAudience: edgetest.Audience, envTenants: edgetest.Tenant, envLimitsFile: lim, envMaxBody: "1024"}
+	return env{envKeyFile: key, envKid: wiredKid, envAudience: wiredAud, envTenants: edgetest.Tenant, envLimitsFile: lim, envMaxBody: "1024"}
 }
 
 func load(e env, clk clock.Clock) (http.Handler, error) {
-	return loadEdge(e.get, os.ReadFile, clk, ids.New(clk, nil))
+	return loadEdge(e.get, os.ReadFile, clk, ids.New(clk, nil), nil)
 }
 
 // A core with none of the session configuration serves no /v1 at all.
@@ -132,16 +145,68 @@ func TestTheConfiguredCoreProtectsV1AndLeavesHealthPublic(t *testing.T) {
 	if got := call("/v1/cases", "garbage"); got != http.StatusUnauthorized {
 		t.Errorf("/v1/cases with a bad session = %d", got)
 	}
-	tok := iss.Token(edgetest.Kid, edgetest.Good(wiringEpoch, session.RoleOps))
+	tok := wired(iss, session.RoleOps)
 	if got := call("/v1/cases", tok); got != http.StatusNotFound {
 		t.Errorf("/v1/cases with a valid session but no registered route = %d, want 404 (deny by default)", got)
 	}
 	other := edgetest.Good(wiringEpoch, session.RoleOps)
-	other.Tenant = "tnt_unlisted"
-	if got := call("/v1/cases", iss.Token(edgetest.Kid, other)); got != http.StatusUnauthorized {
+	other.Tenant, other.Aud = "tnt_unlisted", wiredAud
+	if got := call("/v1/cases", iss.Token(wiredKid, other)); got != http.StatusUnauthorized {
 		t.Errorf("a tenant the deployment does not serve = %d, want 401", got)
+	}
+	if got := call("/v1/cases", iss.Token(edgetest.Kid, edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
+		t.Errorf("a token for another audience and key id than the configured ones = %d, want 401", got)
 	}
 	if got := call("/v1/cases", iss.Token("idp-other", edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
 		t.Errorf("an unknown key id = %d, want 401", got)
+	}
+}
+
+// AGENT-16, ruling A21: the leeway is the pack's clock_skew_s and nothing in code. A session 30 s past its expiry is accepted under a 60 s
+// leeway and refused under none.
+func TestTheLeewayIsTheLimitsDocumentsAndNothingElse(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(wiringEpoch)
+	tok := wired(iss, session.RoleOps)
+	clk.Advance(5*time.Minute + 30*time.Second) // 30 s past exp
+	for skew, want := range map[string]int{"60": http.StatusNotFound, "0": http.StatusUnauthorized} {
+		e := files(t, iss, strings.Replace(limitsOK, `"clock_skew_s":60`, `"clock_skew_s":`+skew, 1))
+		protected, err := load(e, clk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodGet, "/v1/cases", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		newHandler(notReady, protected).ServeHTTP(rec, req)
+		if rec.Code != want {
+			t.Errorf("skew %s s: got %d, want %d", skew, rec.Code, want)
+		}
+	}
+}
+
+// AGENT-16: the body limit is the configured one. With a route registered and a limit of 1024, a 2 KiB body is refused and a small one passes.
+func TestTheBodyLimitIsTheConfiguredOne(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(wiringEpoch)
+	e := files(t, iss, limitsOK)
+	route := edge.Route{Pattern: "POST /v1/probe", Roles: []session.Role{session.RoleOps}, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })}
+	protected, err := loadEdge(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{route})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/v1/probe", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+wired(iss, session.RoleOps))
+		rec := httptest.NewRecorder()
+		newHandler(notReady, protected).ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if got := post(`{"a":1}`); got != http.StatusNoContent {
+		t.Errorf("small body = %d", got)
+	}
+	if got := post(`{"a":"` + strings.Repeat("x", 2048) + `"}`); got != http.StatusBadRequest {
+		t.Errorf("2 KiB body under a 1024-byte limit = %d, want 400", got)
 	}
 }

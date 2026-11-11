@@ -61,7 +61,7 @@ codegen-check:
 	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench bench-live
+.PHONY: bench-test bench-venv bench bench-live bench-tokens bench-tokens-test
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -106,6 +106,14 @@ bench: bench-venv
 	  --pack packs/fintech_v1.json --manifest $(BENCH_OUT)/suite/manifest.json --run-id $(BENCH_RUN_ID) --out $(BENCH_OUT)/score
 
 # The oracle client and every translated fault plan against a real mock-case and PostgreSQL. Needs go and PostgreSQL server binaries on this machine.
+# make bench-tokens (EDG-01): the synthetic IdP for a run. Needs BENCH_TENANT and BENCH_MAX_BODY_BYTES (no defaults). Writes $(BENCH_OUT)/idp/core.env (the core's
+# NOEMA_SESSION_* settings) and $(BENCH_OUT)/idp/runner-args (pass them in BENCH_RUNNER_ARGS). Tokens are issued on demand and last at most 15 minutes.
+bench-tokens:
+	BENCH_OUT="$(abspath $(BENCH_OUT))" deploy/compose/bench_tokens.sh
+
+bench-tokens-test:
+	sh deploy/compose/test_bench_tokens.sh
+
 bench-live: bench-venv
 	$(BENCH_PY) -m benchmark.oracle_client.live_check
 
