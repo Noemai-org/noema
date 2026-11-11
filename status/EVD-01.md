@@ -101,6 +101,19 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 
 ### Caller wiring (#174)
 `layer.BodyOf(err)` returns the adapter error's `RawHash` or an explicit no-bytes (a nil error has neither). The real-fault e2e test now passes both through and asserts, on the real mock-case faults, that the event's `body_received` agrees with the adapter, that a body that arrived is stored under the adapter's hash and not the hash of nothing (503, 429 and a real 404 carry bodies; the timeout does not). Stated: `BodyOf` and its unit test were written together, not failing first; a mutation that ignores the hash is killed by the unit test and by the e2e test. The e2e test itself went red when the builder rule landed in #172, then green.
+# Session 2026-11-05 18:30 WAT · EVD-01 (slice 3)
+
+## Session summary
+- What changed: `execution/e2e/evidence_faults_test.go` gains `TestEvidenceFromAHealthyRealReadIsKnownThenStale`: a case is created through the real adapter on the real mock-case and read back; the evidence is KNOWN with its hash on a hash-only `EVIDENCE_READ` event, and the same read judged one second after its 300 s window is STALE (INV-23), on the injected clock. STACKED on noema#174.
+- Mutants caught: the builder judging against the read's own time (never stale); the payload placed in the event.
+- First version of the hash assertion was wrong (two reads of the same content share a hash); fixed in the test, not in the code.
+- With slices 1 to 3 the card's "Done when" (fuzzed payloads give total, correct statuses) is met on the status function; the item path to the Record is exercised against faulted and healthy real reads. Not done: slice 1b (AUTHORITATIVE_NEGATIVE), blocked on a contract change request (Q-EVD01-1).
+
+## Pre-work for the next agent
+- Exact next step: after #167, #172, #174 and this PR merge, move the board; slice 1b waits for the Architect.
+
+## Addendum 2026-11-06 · for the adapter owners (from Codex's finding on noema#172)
+- `layer.Observation.RawHash` must be the SHA-256 of the bytes the adapter actually received. The case adapter returns the decoded record only, so the story test of this branch hashes the decoded record as a stand-in. Adapters (ENV-03, ENV-05, ENV-08, the stand-in adapter) need to expose the wire-bytes hash next to the decoded answer; without it the builder refuses a present response.
 
 # Session 2026-11-08 · EVD-01 slice 2b · EL's point 3 on noema#172
 
@@ -109,3 +122,20 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 - Tests added: `TestBuilderRefusesAPayloadOnAReadThatDidNotSucceed` (seven failed classes refused, nothing stored, an OK read still accepted). Red first (commit 62a6995).
 - Not done: EL's points 1 and 2 (the no-bytes marker and the persisted effective limit) are one forward migration built with EVD-02 (Architect decision A4); no migration is added to this PR.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-09 12:30 WAT · EVD-01
+
+## Session summary
+- What changed (noema#174, noema#176): (1) #174: a typed nil `*adapters.ReadError` made `ClassifyError` and `BodyOf` panic (`errors.As` is true for it). Failing test first (`c5d7b20`, red locally: nil pointer dereference), fix `51fc945`: it is MALFORMED and no-bytes. This is the failing-first evidence Codex asked for on the classifier; the original mapping table was written with the code, as its test says, and is still covered by the eleven-mutant check. (2) #176: the healthy-read story test hashed the re-marshalled record as the "raw" body. It is renamed `TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale` and says it proves freshness and Record behaviour only. The successful-read path is not claimed as provenance.
+- Why: Codex P2 on noema#174 (no red run for the classifier) and P2 on noema#176 (decoded JSON stood in for response bytes; INV-19, REQ-CTX-001).
+- Risks, and how they are contained: (2) is a claim correction, not new behaviour; nothing is weakened. The adapter is outside EVD-01's allowlist, so it is not changed here; the ask is noema#390.
+- Tests added (REQ-CTX-002, INV-19, AGENT-11): `TestATypedNilReadErrorIsAnUnforeseenFailureAndNeverAPanic`.
+- Regression cases added: the same test.
+- Debt entries: none new; the gap is tracked in noema#390 (adapter exposes the response-byte hash of a successful read).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#390 lands, pass the adapter's success-read hash through the builder in the G1 story test and assert it against the bytes the real mock-case sent; then rename the test back.
+- Open questions (owner): the adapter owner (IL) on the field name and the success-read hash (noema#390).
+- Files to read first: `services/core/evidence/layer/classify.go`, `services/core/execution/e2e/evidence_faults_test.go`.
+- Do not touch: `services/core/adapters/` from EVD-01.
