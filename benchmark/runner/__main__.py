@@ -8,9 +8,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 from benchmark.fixtures.loader import StandInFixtureLoader
 from benchmark.oracle_client.client import OracleClient
+from benchmark.oracle_client.proxy_log import ProxyRouteLog
 from benchmark.oracle_client.counters import DeclaredAbsent, RecordGovernance, RefusalLog, Unavailable
 from benchmark.oracle_client.transport import read_secret
 from benchmark.oracle_client.truth import MockCaseTruth
@@ -62,6 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--mock-case-log", type=Path, help="mock-case's JSON log, captured with `docker compose logs --no-log-prefix mock-case`")
     p.add_argument("--cost-dir", type=Path, help="the model service's bench cost files, $BENCH_OUT/cost (REQ-NFR-007); without it cost is not available")
     p.add_argument("--model-writer", help="the Record `written_by` name of the model service")
+    p.add_argument("--proxy-url", help="the hostility proxy's control listener (bench_net); its per-route request log is the source of monetary_calls (Founder's decision of 4 Nov, source (a))")
     p.add_argument("--declare-no-monetary-route", metavar="REASON", help="declare that this run exposes no monetary route, with the reason; recorded, not observed")
     p.add_argument("--tenant-id", help="the tenant the admin API addresses, for kill_switch events")
     p.add_argument("--provider", action="append", default=[], help="a model provider used in this run (repeatable)")
@@ -91,9 +94,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.standin_url and not args.bench_credential_file:
         print("--standin-url needs --bench-credential-file: the stand-in's control route takes the bench credential, and without it the fixture loader would silently be missing")
         return 2
+    if args.proxy_url and not args.bench_credential_file:
+        print("--proxy-url needs --bench-credential-file: the proxy's request log takes the bench credential, and without it monetary_calls would silently have no source")
+        return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
-    monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
-        "monetary_calls", "no source: Tushe's access log is not reachable and the operator declared nothing")
+    if args.proxy_url and args.bench_credential_file:
+        monetary: Any = ProxyRouteLog(args.proxy_url, args.bench_credential_file)
+    else:
+        monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
+            "monetary_calls", "no source: pass --proxy-url (the proxy's request log) or declare no monetary route with a reason")
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
