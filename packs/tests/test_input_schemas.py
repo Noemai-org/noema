@@ -65,6 +65,49 @@ class InputSchemas(unittest.TestCase):
                     with self.subTest(extra=bad), self.assertRaises(jsonschema.ValidationError):
                         jsonschema.validate({**example, bad: "x"}, s)
 
+    # Definition of done 3b (A131): every input is bounded and validated and fails closed. Every string has a maxLength no larger than the body bound the mock
+    # case already enforces (1 MiB, synthetic/mock_case/internal/api/server.go maxBody); a timestamp is the committed common.v1 Timestamp pattern (JSON Schema
+    # "format" is not enforced by default, so it is not a validation). The cap is a sanity bound; a tighter one is a pack decision (AGENT-16).
+    BODY_BOUND = 1 << 20
+    TIMESTAMP = json.loads((PACKS.parent / "contracts" / "schemas" / "common.v1.json").read_text(encoding="utf-8"))["$defs"]["Timestamp"]["pattern"]
+
+    def schema_of(self, capability_id):
+        c = next(c for c in capabilities(False) if c["capability_id"] == capability_id)
+        return json.loads((PACKS / c["input_schema"]).read_text(encoding="utf-8"))
+
+    def test_every_string_field_is_bounded(self):
+        for c in capabilities(False):
+            s = json.loads((PACKS / c["input_schema"]).read_text(encoding="utf-8"))
+            for name, prop in s["properties"].items():
+                with self.subTest(c["capability_id"], field=name):
+                    self.assertEqual(prop.get("type"), "string")
+                    self.assertTrue(prop.get("minLength", 0) >= 1 or "pattern" in prop, "an empty value is refused")
+                    self.assertIn("maxLength", prop, "an unbounded string is accepted")
+                    self.assertLessEqual(prop["maxLength"], self.BODY_BOUND)
+
+    def test_a_timestamp_field_is_the_committed_pattern_not_an_unenforced_format(self):
+        s = self.schema_of("fin.cap.lookup_transaction_history")
+        for name in ("from", "to"):
+            self.assertEqual(s["properties"][name].get("pattern"), self.TIMESTAMP, name)
+        ok = {"account_ref": "acc_1", "from": "2026-11-10T09:00:00Z", "to": "2026-11-10T10:00:00.123Z"}
+        jsonschema.validate(ok, s)
+        for bad in ("yesterday", "2026-11-10", "2026-11-10T09:00:00+01:00", "2026-11-10T09:00:00", "\uff12026-11-10T09:00:00Z", "2026-11-10T09:00:00Z\n", "", "9" * 100):
+            for field in ("from", "to"):
+                with self.subTest(field=field, value=bad[:20]), self.assertRaises(jsonschema.ValidationError):
+                    jsonschema.validate({**ok, field: bad}, s)
+
+    def test_a_value_over_the_bound_or_empty_or_of_the_wrong_type_is_refused(self):
+        s = self.schema_of("fin.cap.record_investigation_evidence")
+        base = {"case_id": "case_1", "payload": "note"}
+        jsonschema.validate(base, s)
+        for field, bad in (("payload", "x" * (self.BODY_BOUND + 1)), ("payload", ""), ("payload", 0), ("payload", None), ("payload", {"a": 1}),
+                           ("case_id", "c" * 129), ("case_id", ""), ("case_id", 2**63 - 1), ("case_id", -1), ("case_id", None)):
+            with self.subTest(field=field, value=str(bad)[:12]), self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate({**base, field: bad}, s)
+        for missing in ("case_id", "payload"):
+            with self.subTest(missing=missing), self.assertRaises(jsonschema.ValidationError):
+                jsonschema.validate({k: v for k, v in base.items() if k != missing}, s)
+
 
 if __name__ == "__main__":
     unittest.main()
