@@ -89,11 +89,12 @@ func TestABadConfigurationIsRefused(t *testing.T) {
 		"skew at the ceiling": func(e env) {
 			_ = os.WriteFile(e[edge.EnvLimitsFile], []byte(strings.Replace(limitsOK, "60", "900", 1)), 0o600)
 		},
-		"body limit not a number": func(e env) { e[edge.EnvMaxBody] = "big" },
-		"body limit zero":         func(e env) { e[edge.EnvMaxBody] = "0" },
-		"body limit negative":     func(e env) { e[edge.EnvMaxBody] = "-5" },
-		"body limit max int64":    func(e env) { e[edge.EnvMaxBody] = "9223372036854775807" },
-		"empty tenant in list":    func(e env) { e[edge.EnvTenants] = "tnt_a,,tnt_b" },
+		"body limit not a number":       func(e env) { e[edge.EnvMaxBody] = "big" },
+		"body limit zero":               func(e env) { e[edge.EnvMaxBody] = "0" },
+		"body limit negative":           func(e env) { e[edge.EnvMaxBody] = "-5" },
+		"body limit max int64":          func(e env) { e[edge.EnvMaxBody] = "9223372036854775807" },
+		"empty tenant in list":          func(e env) { e[edge.EnvTenants] = "tnt_a,,tnt_b" },
+		"tenant with surrounding space": func(e env) { e[edge.EnvTenants] = "tnt_a, tnt_b" },
 	}
 	for name, mutate := range bad {
 		e := files(t, iss, limitsOK)
@@ -195,5 +196,20 @@ func TestTheBodyLimitIsTheConfiguredOne(t *testing.T) {
 	}
 	if got := post(`{"a":"` + strings.Repeat("x", 2048) + `"}`); got != http.StatusBadRequest {
 		t.Errorf("2 KiB body under a 1024-byte limit = %d, want 400", got)
+	}
+}
+
+// A fault in a route is not blamed on the body-limit setting: the error names the route, and only the body guard's own refusal names NOEMA_MAX_BODY_BYTES.
+func TestARouteFaultIsNotBlamedOnTheBodyLimit(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(wiringEpoch)
+	e := files(t, iss, limitsOK)
+	_, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{{Pattern: "GET /v1/x"}})
+	if err == nil || strings.Contains(err.Error(), edge.EnvMaxBody) || !strings.Contains(err.Error(), "GET /v1/x") {
+		t.Fatalf("a route with no handler and no roles: %v", err)
+	}
+	e[edge.EnvMaxBody] = "0"
+	if _, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), nil); err == nil || !strings.Contains(err.Error(), edge.EnvMaxBody) {
+		t.Fatalf("a zero body limit must name %s: %v", edge.EnvMaxBody, err)
 	}
 }
