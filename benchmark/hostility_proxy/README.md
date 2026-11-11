@@ -51,6 +51,8 @@ Reproduction (REQ-ENV-004): `seed` feeds every choice the proxy makes. The same 
 
 ## The per-route request log
 
+The response also carries `generation`: 32 hex digits, new at every start of the proxy and at every reset of the log (loading or deleting a plan). A reader that took a baseline compares it, so a restart, or a reset refilled by identical calls, is a changed generation and not "no new requests" (A22, noema#170). It is random and is not part of `log_hash`, so the same plan, seed and calls still give the same hash.
+
 `GET /control/v1/requests` (bench credential) lists every request that reached the data side, in order, whether or not a fault fired: `seq`, `target`, `operation`, `method`, `path` (no query string), `call_no`, the `fault` that fired, whether it was `forwarded` to the system behind the proxy and that system's `upstream_status`, the `outcome` (`answered`; `dropped` when the connection was cut with no answer; `refused` when the proxy itself refused, for example a path outside the route table, shown as target and operation `-`), and the `status` the caller was told. Use `?target=T` or `?target=T&operation=O` for one route. `counts` gives the number of requests per route and `log_hash` the digest of the entries, which is the same for the same plan, seed and calls (no time or duration is recorded).
 
 It holds no header, body or query string. A request body and an `Idempotency-Key` are kept only as SHA-256 digests (`request_body_sha256`, `idempotency_key_sha256`), so a test can say "the same key twice" or "the system was reached once" without the log holding either. A write that was applied and whose answer was dropped shows as `forwarded: true`, `outcome: "dropped"` (EC-T09, EC-E16). The log keeps the first 10000 entries (`RequestLogLimit`); later requests are still counted and `dropped` says how many were not kept. `DELETE /control/v1/fault-plan` and `POST /control/v1/reset` clear it (`TestRequestLog...` in `request_log_test.go`).
@@ -79,3 +81,7 @@ Tushe's test accounts are `9999SSMMMM` (REQ-ENV-005). A system that saw them cou
 ## Not done here
 
 The sample route table is not Tushe's real interface (Tushe's OpenAPI is not frozen). Live runs against the hosted sandbox belong to G0 (ENV-05, ENV-06). The reference partner listener and the hostile proxy for the relay host are the webhook relay's item.
+
+## In front of the stand-in (ENV-05, 6 Nov 2026)
+
+`config/routes.standin.json` is a second route table: the six read routes of the Noema-side stand-in (`synthetic/standin/README.md`), upstream `standin`, targets `mock-ledger`, `mock-switch`, `mock-destination` and `mock-customer`. Select it with `HOSTILITY_PROXY_ROUTES_NAME=routes.standin.json` (Compose; the default stays `routes.json`); the upstream is `STANDIN_DATA_URL` (default `http://standin:8093`, on `tushe_net`). The proxy holds no credential of its own, so the caller's runtime token and `X-Principal-Assertion` pass through unchanged. A test fails if the table and the stand-in README's route table drift apart. The core's adapter for the stand-in does not exist yet (Core Engineer 2); until it does, nothing in the core is pointed at this route.

@@ -91,6 +91,10 @@ var _ controller.Binder = (*trustStandIn)(nil)
 func (s *trustStandIn) LatestIntentHash(_ context.Context, g controller.Grant) (string, error) {
 	return g.IntentHash, nil
 }
+func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return true, nil
 }
@@ -123,13 +127,13 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	now := s.clk.Now()
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
-		PolicyVersion: policyScope + "@1", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
 		return "", err
 	}
-	sig, err := s.keys.SignWith(execKeyID, canon)
+	sig, err := s.keys.SignWith(execKeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return "", err
 	}
@@ -247,7 +251,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	ring := receiptRing{hmac: execKeys, priv: receiptPriv}
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -265,7 +269,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	def := pack.Definitions[caseOpened]
-	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: 5 * time.Second}
 	pubs := publicKeys{receiptKeyID: {Key: receiptPub, Status: receiptsig.Active}}
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})

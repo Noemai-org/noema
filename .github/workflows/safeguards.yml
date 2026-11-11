@@ -50,6 +50,15 @@ jobs:
       - name: Secret-name check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
+      - name: Leak scanner tests (SEC-03)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_leakscan.py
+      - name: Administrator credential absent from workflows (SEC-02)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/check_no_admin_in_workflows.py
+      - name: Administrator-credential check tests
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_check_no_admin_in_workflows.py
       - name: PR trace
         if: github.event_name == 'pull_request'
         env:

@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -79,6 +80,7 @@ type World struct {
 	// Authoritative state read by E3 to E7 (the test mutates these).
 	IntentHash      string
 	DecisionAllowed bool
+	ActivePolicies  map[string]string // policy_id -> the version that is ACTIVE now
 	KillSwitch      bool
 	TargetVersion   string
 	RevalChanged    []string
@@ -112,6 +114,7 @@ func NewWorld(secret []byte) *World {
 		Keys:            crypto.NewKeyRing(map[string][]byte{KeyID: secret}),
 		IntentHash:      hashOf("intent-1"),
 		DecisionAllowed: true,
+		ActivePolicies:  map[string]string{"sim.pol": "1.0"},
 		TargetVersion:   "v_1",
 		spentGrants:     map[string]bool{}, spentNonces: map[string]bool{}, voids: map[string]controller.VoidReason{},
 		idem: map[string]*idemRecord{}, receipts: map[string]controller.Receipt{}, Effects: map[string]int{}, Refs: map[string]string{},
@@ -146,6 +149,11 @@ func (w *World) PlanFor() controller.PlanStep {
 
 // IssueGrant stands in for Trust: it signs a fresh grant for the plan. n makes the grant ID and nonce unique.
 func (w *World) IssueGrant(n int, notBefore, expires time.Time) controller.SignedGrant {
+	return w.IssueGrantWithPolicy(n, notBefore, expires, "sim.pol@1.0")
+}
+
+// IssueGrantWithPolicy issues a grant that names the given policy_version.
+func (w *World) IssueGrantWithPolicy(n int, notBefore, expires time.Time, policyVersion string) controller.SignedGrant {
 	ph, err := crypto.HashOf(PlanParams())
 	if err != nil {
 		panic(err)
@@ -153,17 +161,35 @@ func (w *World) IssueGrant(n int, notBefore, expires time.Time) controller.Signe
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_%d", n), DecisionID: "dec_1", PrincipalID: PrincipalID,
 		IntentHash: w.IntentHash, CapabilityID: Capability, TargetRef: TargetRef, ParamsHash: ph, EvidenceSetHash: hashOf("evidence-1"),
 		PlanHash: hashOf("plan-1"), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "sim.case_scope:TX1", Source: "sim.src.case", VersionToken: "v_1"}},
-		PolicyVersion: "sim.pol@1.0", PackVersion: "sim@1.0.0", NotBefore: notBefore.UTC().Format(time.RFC3339), ExpiresAt: expires.UTC().Format(time.RFC3339),
+		PolicyVersion: policyVersion, PackVersion: "sim@1.0.0", NotBefore: notBefore.UTC().Format(time.RFC3339), ExpiresAt: expires.UTC().Format(time.RFC3339),
 		Nonce: fmt.Sprintf("n_%04x", n), SingleUse: true, CorrelationID: "corr_sim01", TenantID: TenantID}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
 		panic(err)
 	}
-	sig, err := w.Keys.SignWith(KeyID, canon)
+	sig, err := w.Keys.SignWith(KeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		panic(err)
 	}
 	return controller.SignedGrant{Grant: g, Sig: controller.Sig{KeyID: KeyID, Value: sig}}
+}
+
+// SignWithMessage signs g's grant again with a message built by msg from the grant's JCS bytes; a nil msg signs the bare JCS bytes. It is how a test makes
+// a signature that is not a grant signature (ruling of 8 Nov 2026 on noema#292).
+func (w *World) SignWithMessage(g controller.SignedGrant, msg func([]byte) []byte) controller.SignedGrant {
+	canon, err := crypto.CanonicalJSON(g.Grant)
+	if err != nil {
+		panic(err)
+	}
+	if msg != nil {
+		canon = msg(canon)
+	}
+	sig, err := w.Keys.SignWith(KeyID, canon)
+	if err != nil {
+		panic(err)
+	}
+	g.Sig = controller.Sig{KeyID: KeyID, Value: sig}
+	return g
 }
 
 // Resign signs g's grant again after a test changed it.
@@ -172,7 +198,7 @@ func (w *World) Resign(g controller.SignedGrant) controller.SignedGrant {
 	if err != nil {
 		panic(err)
 	}
-	sig, err := w.Keys.SignWith(KeyID, canon)
+	sig, err := w.Keys.SignWith(KeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		panic(err)
 	}
@@ -220,6 +246,20 @@ func (w *World) DecisionStillAllowed(context.Context, controller.Grant) (bool, e
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.DecisionAllowed, nil
+}
+
+// ActivePolicyVersion implements controller.Binder: policy_id@version of the grant's policy as it is ACTIVE now, or "" when it has none.
+func (w *World) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	id, _, ok := strings.Cut(g.PolicyVersion, "@")
+	if !ok {
+		return "", nil
+	}
+	if v, active := w.ActivePolicies[id]; active {
+		return id + "@" + v, nil
+	}
+	return "", nil
 }
 
 // Plan implements controller.Binder.
