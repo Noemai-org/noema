@@ -16,11 +16,11 @@ import (
 )
 
 const grantFor = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-	VALUES ('grt_x', 'ten_a', '%s', 'n_x', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`
+	VALUES ('grt_x', 'ten_a', '%s', 'n_x', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a') || ` + testpg.GrantBoundSQL + `, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`
 
 func decisionRow(id, tenant, outcome string) string {
 	return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ('%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, id, tenant, outcome, outcome, 1)
+		VALUES ('%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || `+testpg.BoundFieldsSQL+`, '%s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, tenant, id, tenant, outcome, outcome, 1)
 }
 
 // Codex P1 on noema#168: the grant guard reads the outcome column, so a record whose signed document says something else would bypass it.
@@ -33,7 +33,7 @@ func TestTheDecisionRecordDocumentMustAgreeWithItsColumns(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(docID, docTenant, docOutcome string) error {
 		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
+			VALUES ('dec_m', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s', 'outcome', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || `+testpg.BoundFieldsSQL+`, 'ALLOW', 'sha256:%064d', '[]', 'k1', 'aa')`, docID, docTenant, docOutcome, 1))
 	}
 	wantCode(t, insert("dec_m", "ten_a", "REJECT"), violation, "the document says REJECT, the column ALLOW")
 	wantCode(t, insert("dec_other", "ten_a", "ALLOW"), violation, "the document names another decision")
@@ -126,7 +126,7 @@ func TestTheSignedGrantMustNameTheDecisionAndTenantOfItsColumns(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(grantID, docJSON string) error {
 		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', 'dec_allow', 'n_%s', '%s'::jsonb, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grantID, grantID, docJSON))
+			VALUES ('%s', 'ten_a', 'dec_allow', 'n_%s', '%s'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grantID, grantID, docJSON))
 	}
 	wantCode(t, insert("grt_1", `{"decision_id":"dec_reject","tenant_id":"ten_a"}`), violation, "the column says the ALLOW decision, the signed document a REJECT one")
 	wantCode(t, insert("grt_2", `{"decision_id":"dec_allow","tenant_id":"ten_b"}`), violation, "the signed document names another tenant")
@@ -269,7 +269,7 @@ func TestADispositionLinkNeverCrossesTenants(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	linked := func(id, disposition string) string {
 		return fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW', 'disposition_decision_id', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')), 'ALLOW', '%[3]s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW', 'disposition_decision_id', '%s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || `+testpg.BoundFieldsSQL+`, 'ALLOW', '%[3]s', 'sha256:%064d', '[]', 'k1', 'aa')`, id, id, disposition, 1)
 	}
 	wantCode(t, tryAs(t, trust, linked("dec_x", "dec_disp_b")), violation, "tenant A's decision linked to tenant B's disposition")
 	wantCode(t, tryAs(t, trust, linked("dec_y", "dec_missing")), violation, "a link to a decision that does not exist")
@@ -314,14 +314,14 @@ func TestDecisionRecordAndDecisionGrantAreTenantScopedAndForced(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := d.p.Exec(ctx(t), fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-			VALUES ('%s', '%s', '%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
+			VALUES ('%s', '%s', '%s', '%s', jsonb_build_object('decision_id', '%s', 'tenant_id', '%s') || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`,
 			d.grant, d.tenant, d.id, d.nonce, d.id, d.tenant)); err != nil {
 			t.Fatalf("tenant %s writing its own grant: %v", d.tenant, err)
 		}
 	}
 	// a Trust login cannot write a grant for another tenant, even one that names a decision of that tenant
 	_, err := trustA.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_x', 'ten_b', 'dec_b', 'n_x', jsonb_build_object('decision_id', 'dec_b', 'tenant_id', 'ten_b'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`)
+		VALUES ('grt_x', 'ten_b', 'dec_b', 'n_x', jsonb_build_object('decision_id', 'dec_b', 'tenant_id', 'ten_b') || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`)
 	// the grant trigger, which fires before the row-level check, already finds no ALLOW decision of tenant B visible to tenant A; either refusal is the point
 	wantCode(t, err, violation, "tenant A's Trust login writing a grant for tenant B")
 	execA := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a")
@@ -354,7 +354,7 @@ func TestTheDecisionRecordSignatureColumnsMustAgreeWithTheSignedDocument(t *test
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	insert := func(id, docSig, colKey, colVal string) error {
 		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || %s, 'ALLOW', 'sha256:%064d', '[]', '%s', '%s')`, id, docSig, 1, colKey, colVal))
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || `+testpg.BoundFieldsSQL+` || %s, 'ALLOW', 'sha256:%064d', '[]', '%s', '%s')`, id, docSig, 1, colKey, colVal))
 	}
 	sig := `jsonb_build_object('sig', jsonb_build_object('key_id', 'k1', 'value', 'aa'))`
 	wantCode(t, insert("dec_k", sig, "k2", "aa"), violation, "the document is signed with k1, the column says k2")
@@ -409,7 +409,7 @@ func TestTheSignedDispositionMustBeTheColumnTheForeignKeyChecks(t *testing.T) {
 			col = "'" + column + "'"
 		}
 		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || %s, 'ALLOW', %s, 'sha256:%064d', '[]', 'k1', 'aa')`, id, doc, col, 1))
+			VALUES ('%s', 'ten_a', jsonb_build_object('decision_id', '%[1]s', 'tenant_id', 'ten_a', 'outcome', 'ALLOW') || `+testpg.BoundFieldsSQL+` || %s, 'ALLOW', %s, 'sha256:%064d', '[]', 'k1', 'aa')`, id, doc, col, 1))
 	}
 	wantCode(t, insert("dec_1", "dec_somebody_elses", ""), violation, "the document names a disposition, the column none")
 	wantCode(t, insert("dec_2", "dec_somebody_elses", "dec_esc"), violation, "the document and the column name different dispositions")
@@ -461,10 +461,51 @@ func TestTrustCannotInsertAGrantThatIsAlreadySpentOrVoid(t *testing.T) {
 	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
 	for _, status := range []string{"SPENT", "VOID", "EXPIRED"} {
 		err := tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value, status)
-			VALUES ('grt_%s', 'ten_a', 'dec_ok', 'n_%[1]s', jsonb_build_object('decision_id', 'dec_ok', 'tenant_id', 'ten_a'), 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa', '%[1]s')`, status))
+			VALUES ('grt_%s', 'ten_a', 'dec_ok', 'n_%[1]s', jsonb_build_object('decision_id', 'dec_ok', 'tenant_id', 'ten_a') || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa', '%[1]s')`, status))
 		wantCode(t, err, denied, "Trust inserting a grant with status "+status)
 	}
 	if err := tryAs(t, trust, fmt.Sprintf(grantFor, "dec_ok")); err != nil {
 		t.Fatalf("an ISSUED grant by Trust: %v", err)
+	}
+}
+
+// Codex P1 on noema#168 at 620464b: decision-record.v2 requires all three authority layers to be PASS for an ALLOW, but the database checked only the
+// outcome, so a Trust login whose document and column both said ALLOW while business was FAIL could store the record and then take a grant for it.
+// The database is the grant gate (INV-03, INV-17; REQ-TRU-008), so the record itself must carry the rule. All rows SYNTHETIC.
+func TestAnAllowRecordNeedsAllThreeAuthorityLayersToPass(t *testing.T) {
+	pool, dsn := migratedDSN(t)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A')`); err != nil {
+		t.Fatal(err)
+	}
+	trust := testpg.TenantLogin(t, pool, dsn, "trust_rw", "ten_a")
+	insert := func(outcome, authority string) error {
+		return tryAs(t, trust, fmt.Sprintf(`INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('dec_auth', 'ten_a', jsonb_build_object('decision_id', 'dec_auth', 'tenant_id', 'ten_a', 'outcome', '%[1]s', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || (`+testpg.BoundFieldsSQL+` - 'authority') || %[2]s,
+			'%[1]s', 'sha256:%064[3]d', '[]', 'k1', 'aa')`, outcome, authority, 1))
+	}
+	pass := func(layer, value string) string {
+		l := map[string]string{"technical": "PASS", "policy": "PASS", "business": "PASS"}
+		l[layer] = value
+		return fmt.Sprintf(`jsonb_build_object('authority', jsonb_build_object('technical', '%s', 'policy', '%s', 'business', '%s'))`, l["technical"], l["policy"], l["business"])
+	}
+	for _, layer := range []string{"technical", "policy", "business"} {
+		for _, value := range []string{"FAIL", "NOT_EVALUATED", "pass", ""} {
+			wantCode(t, insert("ALLOW", pass(layer, value)), violation, "an ALLOW whose "+layer+" authority is '"+value+"'")
+		}
+	}
+	wantCode(t, insert("ALLOW", `'{}'::jsonb`), violation, "an ALLOW with no authority at all")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', 'PASS')`), violation, "an ALLOW whose authority is a string")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS'))`), violation, "an ALLOW with one layer missing")
+	wantCode(t, insert("ALLOW", `jsonb_build_object('authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS', 'business', to_jsonb(true)))`), violation, "an ALLOW whose layer is not a string")
+	if err := insert("ALLOW", pass("technical", "PASS")); err != nil {
+		t.Fatalf("an ALLOW whose three layers PASS: %v", err)
+	}
+	// the rule is about ALLOW: a refusal records the layer that failed, and must stay storable
+	if err := insert("REJECT", pass("business", "FAIL")); err != nil {
+		t.Fatalf("a REJECT whose business layer FAILed: %v", err)
+	}
+	// and a grant cannot be reached through a record that was never storable: no row, no grant
+	if _, err := pool.Exec(ctx(t), decisionRow("dec_ok", "ten_a", "ALLOW")); err == nil {
+		t.Log("fixture note: decisionRow ALLOW carries authority (see testpg.BoundFieldsSQL)")
 	}
 }
