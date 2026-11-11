@@ -15,6 +15,7 @@ var Types = map[string]func() any{
 	"candidates-response.v1#Candidate":                        func() any { return new(CandidatesResponseV1Candidate) },
 	"candidates-response.v1#Candidate/properties/direction":   func() any { return new(CandidatesResponseV1CandidateDirection) },
 	"canonical-input.v1":                                      func() any { return new(CanonicalInputV1) },
+	"canonical-input.v2":                                      func() any { return new(CanonicalInputV2) },
 	"capability-descriptor.v1":                                func() any { return new(CapabilityDescriptorV1) },
 	"clarification-answer.v1":                                 func() any { return new(ClarificationAnswerV1) },
 	"clarification.v1":                                        func() any { return new(ClarificationV1) },
