@@ -64,9 +64,21 @@ type Receipt struct {
 	Dispatched                                                                     time.Time
 }
 
+// MapSession maps the connecting session (session_user) to the tenant, as a tenant login's mapping row does. Since migration 0018 (row-level security with FORCE,
+// ruling A6) receipt_insert writes only the tenant of the connecting login; a fixture that connects as the administrator would be an unmapped session and write
+// nothing, so it maps itself to the tenant of the receipt first. This is a fixture row of the test database, not a back door of the database.
+func MapSession(t testing.TB, pool *pgxpool.Pool, tenant string) {
+	t.Helper()
+	if _, err := pool.Exec(timeout(t), `INSERT INTO tenant_login (login_role, power, tenant_id) VALUES (session_user, 'execution', $1)
+		ON CONFLICT (login_role) DO UPDATE SET tenant_id = EXCLUDED.tenant_id`, tenant); err != nil {
+		t.Fatalf("sigfixture: map the session to %s: %v", tenant, err)
+	}
+}
+
 // InsertReceipt signs r with key and stores it through receipt_insert; the database verifies the signature like any other (there is no back door).
 func InsertReceipt(t testing.TB, pool *pgxpool.Pool, key Key, r Receipt) {
 	t.Helper()
+	MapSession(t, pool, r.Tenant)
 	var ack any
 	if r.Ack != "" {
 		ack = r.Ack

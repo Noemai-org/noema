@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "turn_id": "trn_01J9X3KQ7M",
+  "correlation_id": "corr_4c21f9",
+  "label": "SYNTHETIC",
+  "mode": "NATIVE_TOOL_CALLING",
+  "provider_id": "provider_a",
+  "model_version": "2026-09",
+  "messages": [
+    {
+      "role": "developer",
+      "content": "SYNTHETIC: you may use the tools offered."
+    },
+    {
+      "role": "user",
+      "content": "SYNTHETIC: I sent 20k to Tunde and he has not got it"
+    }
+  ],
+  "tools": [
+    {
+      "name": "fin.lookup_transaction",
+      "description": "Read one transaction by reference.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "transaction_ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "transaction_ref"
+        ]
+      }
+    }
+  ],
+  "max_output_tokens": 512,
+  "timeout_s": 30
+}
