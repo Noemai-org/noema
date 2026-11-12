@@ -207,6 +207,24 @@ def test_a_number_too_large_for_a_float_is_refused_not_raised() -> None:
     assert result.reasons == (Reason.SHAPE,) and result.intent is None
 
 
+def test_a_supersedes_with_an_enormous_version_is_refused_not_raised() -> None:
+    """Review P2 on noema#489: the contract's IntentRef pattern allows any number of digits after the `@`, and Python refuses to read an integer of more than 4,300
+    digits with a ValueError. The gate is total: that is a refused chain (SUPERSEDES), never an exception."""
+    for digits in (20, 4_300, 4_301, 100_000):
+        doc = mutate(("version",), 2) | {"supersedes": "int_01J9X3@" + "9" * digits}
+        result = check(doc)
+        assert result.reasons == (Reason.SUPERSEDES,), (digits, result.reasons)
+        assert result.intent is None
+
+
+def test_the_largest_version_the_gate_reads_is_a_safe_integer() -> None:
+    """The version of an intent is at most 2^53 - 1 (JCS, M3); a supersedes that names a version above it is a refused chain."""
+    ok = mutate(("version",), 9007199254740991) | {"supersedes": "int_01J9X3@9007199254740990"}
+    assert check(ok).ok
+    too_big = mutate(("version",), 9007199254740991) | {"supersedes": "int_01J9X3@9007199254740992"}
+    assert check(too_big).reasons == (Reason.SUPERSEDES,)
+
+
 def test_a_repeated_member_is_refused_even_when_both_values_are_valid() -> None:
     text = raw(proposal()).decode().replace('"version": 1', '"version": 1, "version": 1', 1)
     assert gate().check(text.encode(), CTX).reasons == (Reason.SHAPE,)
