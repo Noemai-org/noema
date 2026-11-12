@@ -7,6 +7,7 @@ package outcomee2e_test
 
 import (
 	"context"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func (b storeBinder) ActivePolicyVersion(ctx context.Context, g controller.Grant
 func (s *stack) publish(t *testing.T, version string) error {
 	t.Helper()
 	trust := s.pools["trust_rw"]
-	store := &policystore.Store{Appender: &chain.Appender{Clock: clock.NewManual(s.clk.Now()), IDs: ids.New(s.clk, nil)}}
+	store := &policystore.Store{Appender: &chain.Appender{Clock: clock.NewManual(s.clk.Now()), IDs: ids.New(s.clk, nil), Signers: recordsig.Local("outcome-e2e", nil, "core-trust")}}
 	tx, err := trust.Begin(bg(t))
 	if err != nil {
 		t.Fatal(err)
