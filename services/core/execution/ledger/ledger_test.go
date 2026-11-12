@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 
@@ -236,7 +237,7 @@ func TestCrashAfterSpendIsSweptToOutcomeUnknownWithoutADispatch(t *testing.T) {
 func TestAFailedRecordAppendFailsTheSpend(t *testing.T) {
 	w := newWorld(t)
 	g := w.issue(t, 1)
-	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
+	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}, Signers: w.led.Rec.Signers} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
 	_, err := w.ctl.Execute(ctx(t), tenant, g.GrantID)
 	if err == nil {
 		t.Fatal("Execute succeeded although the Record could not be written")
@@ -326,9 +327,21 @@ func TestCompleteIsFirstWriterWins(t *testing.T) {
 	out := mustExecute(t, w, g.GrantID)
 	again := *out.Receipt
 	again.ReceiptID = "rcp_01OTHERWRITER00000000000A"
+	// The second writer's receipt is genuine (signed by the same ring): it loses only because the first one is already stored.
+	var err error
+	again.Sig.KeyID, again.Sig.Value, again.SignedJCS, err = w.ring.SignReceipt(again.Document())
+	if err != nil {
+		t.Fatal(err)
+	}
 	ok, err := w.led.Complete(ctx(t), again)
 	if err != nil || ok {
 		t.Fatalf("second Complete = %v, %v; want false, nil", ok, err)
+	}
+	// The same receipt with only its ID changed keeps the first receipt's signature, which no longer matches: the database refuses it (NS001).
+	forged := *out.Receipt
+	forged.ReceiptID = "rcp_01FORGEDWRITER0000000000B"
+	if ok, err := w.led.Complete(ctx(t), forged); ok || err == nil || !strings.Contains(err.Error(), "NS001") {
+		t.Fatalf("a receipt whose ID was changed under the old signature: %v, %v; want a refusal with NS001", ok, err)
 	}
 	for q, want := range map[string]int{`SELECT count(*) FROM execution_receipt`: 1, `SELECT count(*) FROM record_event WHERE event_type = 'RECEIPT'`: 1,
 		`SELECT count(*) FROM outbox_event WHERE topic = 'outcome.verify'`: 1} {
@@ -389,16 +402,16 @@ func TestLedgerMethodsNeedADeadline(t *testing.T) {
 	}
 }
 
-// PERD 27.1, REQ-EXE-003, record-event.v2 GrantVoidReason: every void reason reaches the Record and the RecoveryRequest exactly as the
-// controller holds it, kept distinct from the others. Eight come from a real path through the controller; REJECTED_STALE_VERSION
-// has no controller path yet (a refused version becomes a receipt state, and the grant is already spent: EXE-04), so the Ledger is
-// asked to void a grant with it directly.
+// PERD 27.1, REQ-EXE-003, record-event.v3 GrantVoidReason: every void reason reaches the Record and the RecoveryRequest exactly as the
+// controller holds it, kept distinct from the others. Eight are voided before any write. REJECTED_STALE_VERSION is voided after the
+// one write, by the target's refusal of the version (REQ-EXE-004, EXE-04): the dispatch happened, the receipt says so, and the void
+// is recorded in the same transaction as the receipt.
 func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
 	type scenario struct {
-		reason controller.VoidReason
-		setup  func(w *world, g controller.Grant)
-		grant  []func(*controller.Grant)
-		direct bool
+		reason  controller.VoidReason
+		setup   func(w *world, g controller.Grant)
+		grant   []func(*controller.Grant)
+		receipt controller.ExecutionState // set when the grant is voided by its receipt, after the one dispatch
 	}
 	tamper := func(w *world, g controller.Grant) {
 		conn, err := w.admin.Acquire(ctx(t))
@@ -426,7 +439,9 @@ func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
 		}},
 		{reason: controller.VoidStateChanged, setup: func(w *world, _ controller.Grant) { w.ctl.Reval = reval{pass: false} }},
 		{reason: controller.VoidRevalidationFailed, setup: func(w *world, _ controller.Grant) { w.ctl.Reval = reval{err: errors.New("the read could not be made")} }},
-		{reason: controller.VoidTargetVersionStale, direct: true},
+		{reason: controller.VoidTargetVersionStale, receipt: controller.StateRejectedStaleVersion, setup: func(w *world, _ controller.Grant) {
+			w.target.answer = controller.TransportResult{Class: controller.TransportVersionConflict, RawCode: "409"}
+		}},
 	}
 	seen := map[string]bool{}
 	for _, c := range cases {
@@ -436,15 +451,18 @@ func TestEveryVoidReasonReachesTheRecordAsWritten(t *testing.T) {
 			if c.setup != nil {
 				c.setup(w, g)
 			}
-			if c.direct {
-				if err := w.led.Void(ctx(t), g, c.reason); err != nil {
-					t.Fatal(err)
+			out := mustExecute(t, w, g.GrantID)
+			wantDispatches := 0
+			if c.receipt != "" {
+				wantDispatches = 1
+				if out.Void != "" || out.Receipt == nil || out.Receipt.State != c.receipt {
+					t.Fatalf("outcome %+v, want a %s receipt", out, c.receipt)
 				}
-			} else if out := mustExecute(t, w, g.GrantID); out.Void != c.reason {
+			} else if out.Void != c.reason {
 				t.Fatalf("outcome %+v, want the grant void with %s", out, c.reason)
 			}
-			if w.target.count() != 0 {
-				t.Fatal("a void grant was dispatched")
+			if got := w.target.count(); got != wantDispatches {
+				t.Fatalf("%d dispatches, want %d", got, wantDispatches)
 			}
 			if got := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'GRANT_VOIDED' AND body->>'reason' = $1 AND payload->>'reason' = $1`, string(c.reason)); got != 1 {
 				t.Fatalf("GRANT_VOIDED with reason %s on the Record: %d, want 1", c.reason, got)

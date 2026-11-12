@@ -1,14 +1,12 @@
 package db_test
 
 // Ruling A113 (the Architect, 10 Nov 2026, noema#393): the migration numbers stay as assigned (the gap 0011 to 0016 is accepted) and the files merge
-// in strict ascending order: #181 (0011), #168 (0012), #229 (0013), #233 (0014), #259 (0015), #234 (0016), then #261 and the rest. Out-of-order
-// merging is not allowed. But 0017 (#265) is already on main, ahead of the lower numbers, so every database that holds 0017 is later given 0011 to 0016
-// one after the other. That is safe only if a database that already holds the higher files and is then given a lower one ends with the same catalog as
-// a database migrated in name order: the same privileges, triggers, policies, constraints, indexes AND function bodies. Migrate applies every unapplied
-// file in name order and does not look at the highest applied number, so this is a property the files must keep, and this test checks it for every file
-// numbered 0011 to 0016 that exists (the ledger's lower numbers). A lower file that CREATE OR REPLACEs a function that a higher file also replaces would
-// make an upgraded database lose the higher body: this test fails then. The test describes the upgrade of a database that holds 0017; it does not make
-// a merge path out of order (the order is the ledger's, noema#183).
+// in strict ascending order. Out-of-order merging is not allowed. But 0017 (#265) is already on main, ahead of the lower numbers, so every database that holds
+// 0017 is later given 0011 to 0016 one after the other, then 0018 and the rest. That is safe only if such a database ends with the same catalog as a database
+// migrated in name order: the same privileges, triggers, policies, constraints, indexes AND function bodies. Migrate applies every unapplied file in name
+// order and does not look at the highest applied number, so this is a property the files must keep. The test migrates a database that holds 0001 to 0010 and
+// 0017 and then every other file, and compares. A later file that CREATE OR REPLACEs a function that 0017 also touches would make that database lose a body: this
+// test fails then. It describes the upgrade of a database that holds 0017; it does not make a merge path out of order (the order is the ledger's, noema#183).
 // REQ-DATA-001, REQ-AUD-006; AGENTS.md section 7 (forward-only migrations).
 
 import (
@@ -28,27 +26,6 @@ import (
 )
 
 var migrationNumber = regexp.MustCompile(`^([0-9]{4})_`)
-
-// without is migrations.FS minus one file.
-func without(t *testing.T, name string) fs.FS {
-	t.Helper()
-	out := fstest.MapFS{}
-	entries, err := fs.ReadDir(migrations.FS, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		if e.Name() == name || !strings.HasSuffix(e.Name(), ".sql") {
-			continue
-		}
-		b, err := fs.ReadFile(migrations.FS, e.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		out[e.Name()] = &fstest.MapFile{Data: b}
-	}
-	return out
-}
 
 // catalog is a sorted, text snapshot of everything a migration can change in schema public (and noema_sig when it exists).
 func catalog(t *testing.T, pool *pgxpool.Pool) []string {
@@ -132,21 +109,49 @@ func first(s string) string {
 	return s
 }
 
-func TestALowerNumberedMigrationAppliedAfterAHigherOneGivesTheSameCatalog(t *testing.T) {
+// shippedBeforeTheTrain is the migrations a database already held when 0011 to 0016 were still to come: 0001 to 0010, and 0017 (merged ahead of them, A113).
+func shippedBeforeTheTrain(t *testing.T) fs.FS {
+	t.Helper()
+	out := fstest.MapFS{}
 	entries, err := fs.ReadDir(migrations.FS, ".")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var lower []string
+	for _, e := range entries {
+		m := migrationNumber.FindStringSubmatch(e.Name())
+		if m == nil || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		if n, _ := strconv.Atoi(m[1]); n <= 10 || n == 17 {
+			b, err := fs.ReadFile(migrations.FS, e.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[e.Name()] = &fstest.MapFile{Data: b}
+		}
+	}
+	return out
+}
+
+// A113: 0017 reached main before 0011 to 0016, which merge later in ascending order. A database that already holds 0017 and is then migrated with every other file in
+// name order must end with the catalog of a fresh database. (Earlier versions of this test took each lower file out in turn, which also asks for an order that can no
+// longer happen once 0011 and 0012 are merged: a database that holds 0016 and not 0012.)
+func TestADatabaseThatHoldsOnly0017AheadOfTheTrainEndsWithTheCatalogOfAFreshOne(t *testing.T) {
+	entries, err := fs.ReadDir(migrations.FS, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var later []string
 	for _, e := range entries {
 		if m := migrationNumber.FindStringSubmatch(e.Name()); m != nil {
-			if n, _ := strconv.Atoi(m[1]); n >= 11 && n <= 16 {
-				lower = append(lower, e.Name())
+			if n, _ := strconv.Atoi(m[1]); n >= 11 && n != 17 {
+				later = append(later, e.Name())
 			}
 		}
 	}
-	if len(lower) == 0 {
-		t.Skip("no migration numbered 0011 to 0016 on this branch")
+	sort.Strings(later)
+	if len(later) == 0 {
+		t.Skip("no migration numbered 0011 or above (other than 0017) on this branch")
 	}
 	fresh, _ := testpg.NewDatabase(t)
 	if _, err := db.Migrate(ctx(t), fresh, migrations.FS); err != nil {
@@ -156,23 +161,16 @@ func TestALowerNumberedMigrationAppliedAfterAHigherOneGivesTheSameCatalog(t *tes
 	if len(want) < 50 {
 		t.Fatalf("the catalog snapshot has %d lines: the queries are looking in the wrong place", len(want))
 	}
-	for _, name := range lower {
-		t.Run(name, func(t *testing.T) {
-			upgraded, _ := testpg.NewDatabase(t)
-			first, err := db.Migrate(ctx(t), upgraded, without(t, name))
-			if err != nil {
-				t.Fatalf("migrate without %s: %v", name, err)
-			}
-			if len(first) == 0 {
-				t.Fatal("nothing applied on the first pass")
-			}
-			second, err := db.Migrate(ctx(t), upgraded, migrations.FS)
-			if err != nil || len(second) != 1 || second[0] != name {
-				t.Fatalf("the second pass applied %v (%v), want exactly %s after the higher files", second, err, name)
-			}
-			if d := diff(catalog(t, upgraded), want); len(d) > 0 {
-				t.Fatalf("a database at main given %s afterwards differs from a fresh one (%d lines):\n%s", name, len(d), strings.Join(d, "\n"))
-			}
-		})
+	upgraded, _ := testpg.NewDatabase(t)
+	first, err := db.Migrate(ctx(t), upgraded, shippedBeforeTheTrain(t))
+	if err != nil || len(first) == 0 {
+		t.Fatalf("the database before the train: applied %v, %v", first, err)
+	}
+	second, err := db.Migrate(ctx(t), upgraded, migrations.FS)
+	if err != nil || strings.Join(second, ",") != strings.Join(later, ",") {
+		t.Fatalf("the second pass applied %v (%v), want %v in name order", second, err, later)
+	}
+	if d := diff(catalog(t, upgraded), want); len(d) > 0 {
+		t.Fatalf("a database that held 0017 ahead of %s differs from a fresh one (%d lines):\n%s", strings.Join(later, ", "), len(d), strings.Join(d, "\n"))
 	}
 }
