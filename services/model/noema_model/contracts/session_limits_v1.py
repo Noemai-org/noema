@@ -26,7 +26,7 @@ class SessionLimitsV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     schema_version: SessionLimitsV1SchemaVersion
-    pack_id: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*$')]
+    pack_id: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\Z')]
     label: SessionLimitsV1Label
     clock_skew_s: Annotated[int, Field(ge=0, le=9007199254740991)]
 

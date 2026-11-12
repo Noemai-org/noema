@@ -27,11 +27,14 @@ import sys
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 from jsonschema.validators import extend
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "tools" / "codegen"))
+from anchors import fully_anchored  # noqa: E402
 CONTRACTS = ROOT / "contracts"
 SCHEMAS = CONTRACTS / "schemas"
 FIXTURES = CONTRACTS / "fixtures"
@@ -56,7 +59,17 @@ def _is_integer(checker, instance):
     return not isinstance(instance, (bool, WireFloat)) and isinstance(instance, int)
 
 
-StrictValidator = extend(Draft202012Validator, type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_integer))
+def _pattern(validator, pattern, instance, schema):
+    """A pattern means the whole string (A138): Python's `$` also matches before a final newline, ECMA 262 and Go do not."""
+    if validator.is_type(instance, "string") and not re.search(fully_anchored(pattern), instance):
+        yield ValidationError(f"{instance!r} does not match {pattern!r}")
+
+
+StrictValidator = extend(
+    Draft202012Validator,
+    validators={"pattern": _pattern},
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _is_integer),
+)
 
 
 def _no_constant(text: str):
