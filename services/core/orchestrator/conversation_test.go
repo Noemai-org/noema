@@ -68,7 +68,7 @@ func (f *fakes) AppendChange(_ context.Context, s orchestrator.Session, c orches
 
 func happy() *fakes {
 	return &fakes{
-		admission: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_AA11"},
+		admission: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_AA11", RequestID: "req_AA11"},
 		interp:    orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: "int_AA11"},
 		evid:      orchestrator.EvidenceRef{SnapshotID: "evs_AA11"},
 		decision:  orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: true},
@@ -78,7 +78,7 @@ func happy() *fakes {
 
 var (
 	sess = orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01"}
-	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?", InputReceivedRef: "recev_AA11"}
+	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"}
 )
 
 func runner(t *testing.T, f *fakes) *orchestrator.Runner {
@@ -139,8 +139,10 @@ func TestEveryPortSeesTheSessionAndAnIncompleteSessionIsRefusedFirst(t *testing.
 
 func TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns(t *testing.T) {
 	for name, tr := range map[string]orchestrator.Turn{
-		"no investigation": {CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x", InputReceivedRef: "recev_AA11"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: "recev_AA11"},
-		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
+		"no investigation": {CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
+		"no request id":                 {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
+		"a request id that is not one":  {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA\n11"},
+		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
 	} {
 		f := happy()
 		_, err := runner(t, f).RunRead(context.Background(), sess, tr)
@@ -194,6 +196,8 @@ func TestAReferenceThatTheRecordDoesNotConfirmAsThisTurnsInputIsRefusedBeforeAny
 		"an event with no tenant":      func(f *fakes) { f.admission.TenantID = "" },
 		"an event with no principal":   func(f *fakes) { f.admission.PrincipalID = "" },
 		"an event with no correlation": func(f *fakes) { f.admission.CorrelationID = "" },
+		"another request (an older input of the same actor and conversation)": func(f *fakes) { f.admission.RequestID = "req_BB22" },
+		"an event with no request id":                                         func(f *fakes) { f.admission.RequestID = "" },
 	}
 	for name, mutate := range cases {
 		f := happy()
