@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/Noemai-org/noema/services/core/edge"
@@ -28,6 +29,8 @@ import (
 type Components struct {
 	Ports   orchestrator.Ports
 	Records reconstruct.TenantDBs
+	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
+	AccessLog *slog.Logger
 }
 
 // Env is the process's configuration source, injected so that tests do not touch the real environment. Nothing read through it has a default (AGENT-16).
@@ -51,7 +54,7 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
 			Roles:   rolesOpsAndAudit,
-			Handler: &reconstruct.Handler{DBs: c.Records, Auth: reconstruct.SessionAuthorizer{}, IDs: ids},
+			Handler: &reconstruct.Handler{DBs: c.Records, Auth: reconstruct.SessionAuthorizer{}, IDs: ids, Log: c.AccessLog},
 		})
 	}
 	return routes
@@ -62,6 +65,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 // an error and the process does not start. A Record reader without session settings is an error too: its route would be unreachable. Routes are mounted only for the
 // components that exist.
 func buildAPI(c Components, e Env, clk clock.Clock, ids session.IDs) (http.Handler, error) {
+	if c.Records != nil && c.AccessLog == nil {
+		return nil, errors.New("the Record reader is configured without an access logger: its reads would not be logged (REQ-AUD-003)")
+	}
 	routes := apiRoutes(c, ids)
 	h, err := edge.Load(e.Getenv, e.ReadFile, clk, ids, routes)
 	if err != nil {

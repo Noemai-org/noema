@@ -89,3 +89,15 @@
 ## Pre-work for the next agent
 - Exact next step: when noema#466 merges, add its handler to `apiRoutes` (roles: customer) and the Admissions/Recorder constructors to `Components`; settle the Record reader's pool configuration (see the PR's AGENT-02 note).
 
+
+## Session 2026-11-12 17:00 WAT · slice 3c part 2, fix round (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `6ad19f11`, blocking finding: `buildAPI` built the reconstruction `Handler` with no `Log`, so `access()` returned silently and no `RECORD_ACCESSED` line was written (REQ-AUD-003). Now `Components.AccessLog` is required whenever `Records` is set (startup error otherwise) and is passed to the handler.
+- Tests added (REQ-AUD-003): `TestARecordReaderWithoutAnAccessLoggerRefusesToStart`; `TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed` (one line, the token's tenant, an outcome code). Red first (did not compile: no `AccessLog`).
+- Notes: (2) README of `reconstruct` no longer says "not wired"; the route stays unreachable until a Record reader is configured (OD-P-82), and the removed `no_reconstruction_test.go` guard is stated in the PR. (3) `edge/README.md` reworded.
+- Not done, decided: note (4), the reconstruct handler echoing the path's correlation ID (header, body, access log) as the response ID. After noema#481 the route would carry two IDs and the echoed lookup key can be account-shaped. The fix changes `record/reconstruct` (P0) and needs noema#481 merged; it is a follow-up PR with a failing-first test (EL), not part of this one.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, make the reconstruct handler use `session.CorrelationFromContext` for header, envelope and access log, and name the lookup key as a separate field.
+- Do not touch: the handler's outcome codes.
