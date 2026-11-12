@@ -61,3 +61,17 @@
 - Codex P3 (sub-second `-ttl`): the issuer now requires a TTL of at least one second (test first, one mutation caught).
 - Ruling A15 (benchmark roles are the four A1 roles; `ops_agent` to `ops`, `viewer` to `customer` when acting or `audit` when read-only) answers Codex's P1 on `benchmark/runner/env.py`: the change is in the benchmark generator's cases (`benchmark/generator/lib_security.py`), not in this PR. It also changes generated case content, so it needs its owner and a suite regeneration; I have not done it.
 - Ruling A20 for slice 3b: `audit` reads only through the tenant-bound Record read functions; `ops` and `audit` have no path to a Record writer.
+
+## Session 2026-11-12 10:00 WAT · A149: the three session fields
+## Session summary
+- What changed (PR links): the EDG-01 A149 pull request on `feat/EDG-01-a149-session-fields`, from main: `session.Principal` gains `PrincipalType`, `AssertedBy` and `AuthnRef`, set by `Verify` from the verified token and from nothing else.
+- Why: ruling A149 (DEC-2026-11-12-architect-rulings-a148-a160, relayed until docs#157 merges): the orchestrator copies `principal_type`, `authn_ref` and `asserted_by` into the Intent Object from the session (INV-12).
+- Risks, and how they are contained: a field taken from the request or from a token member the verifier did not check. All three derive from claims that `Verify` has checked (`roles`, `iss`) or from the header `kid` it has matched to a configured key, `sub` and `iat`. `authn_ref` is a hash, never a token or a part of one (test).
+- Tests added (INV-12, AGENT-10, A149): `edge/session/principal_fields_test.go` (5): role to type for all four roles, issuer, hash equal to an independent computation, `kid`, `sub` and `iat` each bound and `exp` not, no token part in the reference. Five mutants (kid unbound, iat unbound, ops not mapped, issuer, length) each killed.
+- Regression cases added: none. Debt entries: none.
+- Conflicts raised: **asserted_by against `intent-object.v1`** (see the PR): the issuer `noema-poc-idp` has hyphens and the contract's `asserted_by` pattern is `^[a-z][a-z0-9_]*$`.
+
+## Pre-work for the next agent
+- Exact next step: the Architect or EL decides the `asserted_by` form (relax the contract pattern with a version bump, AGENT-15, or map `noema-poc-idp` to a contract-valid token); until then the orchestrator must not copy `AssertedBy` into an Intent Object unchecked. `principal_id` has the same kind of gap: the contract wants `usr_...` and the verifier accepts any `sub` up to 128 bytes.
+- Files to read first: `services/core/edge/session/session.go`.
+- Do not touch: the migrations.

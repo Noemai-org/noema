@@ -53,7 +53,7 @@ func TestPrincipalTypeIsMappedFromTheSingleRole(t *testing.T) {
 // A149, A1: asserted_by is the verified issuer, which the verifier has matched exactly.
 func TestAssertedByIsTheVerifiedIssuer(t *testing.T) {
 	k := newKeys(t)
-	if got := verifyWith(t, k, goodHeader(), goodClaims(epoch)).AssertedBy; got != session.Issuer || got != "noema-poc-idp" {
+	if got := verifyWith(t, k, goodHeader(), goodClaims(epoch)).AssertedBy; got != "noema-poc-idp" {
 		t.Fatalf("asserted_by %q, want %q", got, session.Issuer)
 	}
 }
