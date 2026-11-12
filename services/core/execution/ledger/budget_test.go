@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -262,4 +263,67 @@ func TestConcurrentExecutesOfOneKeyNeverDispatchMoreThanTwice(t *testing.T) {
 		t.Fatalf("%d DISPATCH_ATTEMPTED events after all grants ran, want exactly 2", n)
 	}
 	verifyChain(t, w)
+}
+
+// Security Reviewer's blocking finding on noema#472: the rule must not depend on the isolation level of the spending transaction. Under READ COMMITTED, two spends of two
+// grants of one key that run at the same time must not both pass on a count of one: while the first spend (its guard passed, its DISPATCH_ATTEMPTED appended, not yet
+// committed) is in flight, the second spend of the key is held or refused, and once the first commits the second is refused by the database. A direct insert by the
+// Execution login has the same rule as Spend (AGENT-08, A153).
+func TestTwoSpendsOfOneKeyCannotBothPassUnderReadCommitted(t *testing.T) {
+	w := newWorld(t)
+	key := map[string]any{"capability": capab, "target_ref": "TX1", "attempt": 1}
+	if err := putDispatch(t, w, w.exec, tenant, corr, key); err != nil { // one dispatch already in the Record: the key has one left
+		t.Fatal(err)
+	}
+	g1, g2 := w.issue(t, 1), w.issue(t, 2)
+	spend := `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ($1, $2, $3, $4, 1, now())`
+
+	tx1, err := w.exec.Begin(ctx(t)) // READ COMMITTED, the default: the isolation level is not what protects the key
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx1.Rollback(ctx(t)) }()
+	if _, err := tx1.Exec(ctx(t), spend, g1.GrantID, tenant, g1.Nonce, "idem-1"); err != nil {
+		t.Fatalf("the first spend of the key: %v", err)
+	}
+	if _, err := w.led.Rec.Append(ctx(t), tx1, chain.Event{TenantID: tenant, CorrelationID: corr, WrittenBy: "core-execution", Actor: "core-execution",
+		EventType: "DISPATCH_ATTEMPTED", ObjectRef: g1.GrantID, Payload: key}); err != nil {
+		t.Fatal(err)
+	}
+
+	tx2, err := w.exec.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx2.Rollback(ctx(t)) }()
+	second := make(chan error, 1)
+	go func() {
+		_, err := tx2.Exec(ctx(t), spend, g2.GrantID, tenant, g2.Nonce, "idem-2")
+		second <- err
+	}()
+	var secondErr error
+	select {
+	case secondErr = <-second: // it answered while the first was in flight: it must not have passed
+		if secondErr == nil {
+			t.Fatal("a second spend of the key passed while the first was in flight: both would commit on a count of one, and the key would dispatch three times")
+		}
+	case <-time.After(500 * time.Millisecond): // it waits for the first, as the lock makes it
+	}
+	if err := tx1.Commit(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	if secondErr == nil {
+		select {
+		case secondErr = <-second:
+		case <-time.After(20 * time.Second):
+			t.Fatal("the second spend never answered after the first committed")
+		}
+	}
+	if sqlState(secondErr) != budgetSQLState {
+		t.Fatalf("the second spend, counted after the first committed: %v (SQLSTATE %q), want %s: it counted before the first's event was in the Record", secondErr, sqlState(secondErr), budgetSQLState)
+	}
+	_ = tx2.Rollback(ctx(t))
+	if n := dispatches(t, w, corr, capab, "TX1"); n != 2 {
+		t.Fatalf("%d DISPATCH_ATTEMPTED events, want 2", n)
+	}
 }

@@ -13,7 +13,10 @@
 --
 -- Fail closed, as the Go gate does (execution/recovery): a grant whose capability, target or correlation cannot be read is refused, because it might belong to any key
 -- of its correlation; and an earlier DISPATCH_ATTEMPTED event whose key cannot be read counts against every key of its correlation.
--- Concurrency: Spend runs SERIALIZABLE, so two spends of one key that race cannot both commit on a count of one; the loser is a serialisation failure, not a dispatch.
+-- Concurrency: the rule does not depend on the isolation level of the spending transaction (Security Reviewer, noema#472). The guard takes a transaction-scoped advisory
+-- lock on the key before it counts, so a second spend of the key waits for the first to commit (or roll back) and then counts the Record with the first's event in it:
+-- under READ COMMITTED it sees two and is refused; under SERIALIZABLE (what Spend uses) it waits, and the serialisation check still refuses a commit on a stale count.
+-- The lock is released at the end of the transaction; two different keys share a lock only by a hash collision, which costs a wait and nothing else.
 --
 -- Two functions. dispatch_budget_count is SECURITY DEFINER, owned by record_append like the other Record functions, and counts for the tenant of the calling login
 -- (record_login_tenant, never an argument, DEBT-04), so a login learns only its own tenant's counts; only execution_rw may call it. The trigger function is not
@@ -68,6 +71,7 @@ BEGIN
   IF NOT FOUND OR COALESCE(v_capability, '') = '' OR COALESCE(v_target, '') = '' OR COALESCE(v_corr, '') = '' THEN
     RAISE EXCEPTION 'dispatch budget: the dispatch key of grant % cannot be read', NEW.grant_id USING ERRCODE = 'NS002';
   END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(NEW.tenant_id || pg_catalog.chr(31) || v_corr || pg_catalog.chr(31) || v_capability || pg_catalog.chr(31) || v_target, 0));
   IF public.dispatch_budget_count(v_corr, v_capability, v_target) >= c_budget THEN
     RAISE EXCEPTION 'dispatch budget spent: the key of grant % has already dispatched % times', NEW.grant_id, c_budget USING ERRCODE = 'NS002';
   END IF;
