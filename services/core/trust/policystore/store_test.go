@@ -8,6 +8,7 @@ package policystore_test
 import (
 	"context"
 	"errors"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"math/rand"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func newWorld(t *testing.T) *world {
 	return &world{admin: admin,
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA), trustB: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantB),
 		execA: testpg.TenantLogin(t, admin, dsn, "execution_rw", tenantA), outcomeA: testpg.TenantLogin(t, admin, dsn, "outcome_rw", tenantA),
-		store: &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: idg}}}
+		store: &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "policystore", nil, "core-trust")}}}
 }
 
 func (w *world) publish(t *testing.T, p *pgxpool.Pool, tenant, policyID, version string) error {
