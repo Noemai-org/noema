@@ -84,7 +84,7 @@ func errBody(code string) map[string]any {
 // If-None-Match (an append is not conditional on absence); the runtime credential; the case ID escaped in the path.
 func TestAppendEvidenceSendsOneKeyedRequestWithTheHashOfTheExactBytes(t *testing.T) {
 	var s seen
-	c := serveOnce(t, &s, 201, nil, attachment(nil))
+	c := serveOnce(t, &s, 201, nil, attachment(map[string]any{"case_id": "cas_1/../x y"}))
 	in := evidenceIn()
 	in.CaseID = "cas_1/../x y"
 	if r := c.AppendEvidence(deadline(t), in); r.Class != adapters.ClassAck2xx {
@@ -329,5 +329,63 @@ func TestRecordFindsAreScopedAndCarryCompleteness(t *testing.T) {
 	pg, err := incomplete.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"})
 	if err != nil || pg.Complete || pg.NextCursor != "c1" {
 		t.Fatalf("incomplete page %+v err %v", pg, err)
+	}
+}
+
+func asReadFailure(err error) adapters.ReadFailure {
+	if re, ok := err.(*adapters.ReadError); ok {
+		return re.Failure
+	}
+	return ""
+}
+
+// EVD-05, REQ-ENV-004: a read that is not exactly the record asked for is MALFORMED, never a record: another tenant's, another ID, a payload that
+// does not match its hash.
+func TestARecordReadThatIsNotTheRecordAskedForIsMalformed(t *testing.T) {
+	var s seen
+	for name, body := range map[string]map[string]any{
+		"another tenant's attachment":    attachment(map[string]any{"tenant_id": "ten_b"}),
+		"another attachment id":          attachment(map[string]any{"attachment_id": "att_other"}),
+		"a payload that is not its hash": attachment(map[string]any{"payload": "tampered"}),
+		"a hash that is not a hash":      attachment(map[string]any{"payload_hash": "md5:abc"}),
+	} {
+		if _, err := serveOnce(t, &s, 200, nil, body).GetEvidence(deadline(t), "ten_a", "att_1"); asReadFailure(err) != adapters.ReadMalformed {
+			t.Errorf("evidence, %s: %v", name, err)
+		}
+	}
+	for name, body := range map[string]map[string]any{
+		"another tenant's complaint": complaint(map[string]any{"tenant_id": "ten_b"}),
+		"another complaint ref":      complaint(map[string]any{"complaint_ref": "cmp_other"}),
+		"no clock":                   complaint(map[string]any{"clock_started_at": ""}),
+	} {
+		if _, err := serveOnce(t, &s, 200, nil, body).GetComplaint(deadline(t), "ten_a", "cmp_1"); asReadFailure(err) != adapters.ReadMalformed {
+			t.Errorf("complaint, %s: %v", name, err)
+		}
+	}
+}
+
+// REQ-EXE-007: a page is complete with no cursor or incomplete with one; any other combination, and a missing marker, is MALFORMED, so an
+// incomplete page can never be read as "none".
+func TestAPageWithAnInconsistentCompletenessMarkerIsMalformed(t *testing.T) {
+	var s seen
+	for name, page := range map[string]map[string]any{
+		"complete with a cursor":      {"items": []any{}, "complete": true, "next_cursor": "c1"},
+		"incomplete with no cursor":   {"items": []any{}, "complete": false, "next_cursor": ""},
+		"no completeness marker":      {"items": []any{}, "next_cursor": ""},
+		"an item of another tenant":   {"items": []any{attachment(map[string]any{"tenant_id": "ten_b"})}, "complete": true, "next_cursor": ""},
+		"an item whose hash is wrong": {"items": []any{attachment(map[string]any{"payload": "tampered"})}, "complete": true, "next_cursor": ""},
+	} {
+		if _, err := serveOnce(t, &s, 200, nil, page).FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
+			t.Errorf("evidence page, %s: %v", name, err)
+		}
+	}
+	cpage := func(items ...any) map[string]any {
+		return map[string]any{"items": items, "complete": true, "next_cursor": ""}
+	}
+	if _, err := serveOnce(t, &s, 200, nil, cpage(complaint(map[string]any{"tenant_id": "ten_b"}))).FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("complaint page with another tenant's item: %v", err)
+	}
+	if _, err := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{}, "complete": true, "next_cursor": "c"}).FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("complaint page, complete with a cursor: %v", err)
 	}
 }
