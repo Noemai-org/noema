@@ -55,6 +55,32 @@ class Linking(unittest.TestCase):
         self.assertTrue(check(FIX, "EXE-09: fix", "```\nRegression case: BEN-AMB-0016\n```\nEXE-09", TESTS))
         self.assertTrue(check(FIX, "EXE-09: fix", "> Regression case: BEN-AMB-0016\nEXE-09", TESTS))
 
+    def test_a_link_inside_any_fence_form_does_not_count(self) -> None:
+        """Codex P2 on noema#452: the closing fence must match the opening one's character and be at least as long (CommonMark), so a shorter or different fence inside a block does not end it."""
+        forms = [
+            "````\n```\nRegression case: BEN-AMB-0016\n````",          # a three-backtick line inside a four-backtick fence
+            "~~~\nRegression case: BEN-AMB-0016\n~~~",                  # tilde fence
+            "```\n~~~\nRegression case: BEN-AMB-0016\n```",            # a tilde line inside a backtick fence
+            "~~~~\n~~~\nRegression case: BEN-AMB-0016\n~~~~",          # a shorter tilde line inside a longer one
+            "   ```python\nRegression case: BEN-AMB-0016\n   ```",      # up to three spaces of indent and an info string
+            "```\nRegression case: BEN-AMB-0016",                       # never closed: the rest of the body is code
+        ]
+        for form in forms:
+            self.assertTrue(check(FIX, "EXE-09: fix", form + "\nEXE-09", TESTS), form)
+
+    def test_a_link_after_a_properly_closed_fence_counts(self) -> None:
+        for form in ("```\nexample\n```\nRegression case: BEN-AMB-0016", "````\n```\nx\n````\nRegression case: BEN-AMB-0016", "~~~\nx\n~~~\nRegression case: BEN-AMB-0016"):
+            self.assertEqual([], check(FIX, "EXE-09: fix", form, TESTS), form)
+
+    def test_a_closing_fence_with_text_after_it_does_not_close_the_block(self) -> None:
+        self.assertTrue(check(FIX, "EXE-09: fix", "```\nx\n``` still code\nRegression case: BEN-AMB-0016\n```\nEXE-09", TESTS))
+
+    def test_a_closing_fence_indented_four_spaces_does_not_close_the_block(self) -> None:
+        self.assertTrue(check(FIX, "EXE-09: fix", "```\nx\n    ```\nRegression case: BEN-AMB-0016\nEXE-09", TESTS))
+
+    def test_an_indented_four_spaces_fence_is_not_a_fence(self) -> None:
+        self.assertEqual([], check(FIX, "EXE-09: fix", "    ```\nRegression case: BEN-AMB-0016", TESTS))
+
     def test_a_malformed_case_id_fails(self) -> None:
         self.assertTrue(check(FIX, "EXE-09: fix", body("Regression case: BEN-16"), TESTS))
 

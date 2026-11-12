@@ -25,14 +25,27 @@ def is_fix_pr(head_ref: str, title: str) -> bool:
     return bool(FIX_BRANCH.match(head_ref) or FIX_TITLE.search(title))
 
 
+FENCE_OPEN = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+
+
 def _outside_code(body: str) -> str:
-    """The body without fenced code blocks and quoted lines: a link written there is an example, not a link."""
-    kept, fenced = [], False
+    """The body without fenced code blocks and quoted lines: a link written there is an example, not a link.
+
+    Fences follow CommonMark: an opening fence is three or more backticks or tildes after at most three spaces; a backtick fence's info string has no backtick. It closes at a line
+    of the same character, at least as long, with nothing after it but spaces. A fence never closed runs to the end of the body. Other fence lines inside a block are code."""
+    kept: list[str] = []
+    fence: str | None = None
     for line in body.splitlines():
-        if line.lstrip().startswith("```"):
-            fenced = not fenced
+        if fence is not None:
+            stripped = line.strip(" ")
+            if re.fullmatch(re.escape(fence[0]) + "{" + str(len(fence)) + ",}", stripped) and len(line) - len(line.lstrip(" ")) <= 3:
+                fence = None
             continue
-        if not fenced and not line.lstrip().startswith(">"):
+        opened = FENCE_OPEN.match(line)
+        if opened and not (opened["fence"][0] == "`" and "`" in opened["info"]):
+            fence = opened["fence"]
+            continue
+        if not line.lstrip().startswith(">"):
             kept.append(line)
     return "\n".join(kept)
 
