@@ -69,7 +69,7 @@ func happy() *fakes {
 
 var (
 	sess = orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01"}
-	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?"}
+	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?", InputReceivedRef: "recev_AA11"}
 )
 
 func runner(t *testing.T, f *fakes) *orchestrator.Runner {
@@ -130,14 +130,41 @@ func TestEveryPortSeesTheSessionAndAnIncompleteSessionIsRefusedFirst(t *testing.
 
 func TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns(t *testing.T) {
 	for name, tr := range map[string]orchestrator.Turn{
-		"no investigation": {CorrelationID: "corr_AA11", Text: "x"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11"},
-		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x"},
+		"no investigation": {CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x", InputReceivedRef: "recev_AA11"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: "recev_AA11"},
+		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
 	} {
 		f := happy()
 		_, err := runner(t, f).RunRead(context.Background(), sess, tr)
 		if !errors.Is(err, orchestrator.ErrBadTurn) || len(f.calls) != 0 {
 			t.Errorf("%s: err %v, calls %v; want ErrBadTurn and nothing run", name, err, f.calls)
 		}
+	}
+}
+
+// A161 (relayed, to be committed): the input gateway writes INPUT_RECEIVED; the orchestrator does not. It refuses a turn that does not carry the reference of
+// that recorded event, before it records or runs anything, because a reconstruction would otherwise begin at a move from a state with no event (PERD 28.2:
+// RECEIVED is entered by INPUT_RECEIVED; PERD 32.4: the Record comes first). The reference is a Record event ID (common.v1 RecordEventId: recev_ and 2 to 32 letters or digits).
+func TestATurnWithoutTheRecordedInputReceivedIsRefusedBeforeAnythingIsRecordedOrRun(t *testing.T) {
+	for name, ref := range map[string]string{
+		"none": "", "another prefix": "evt_AA11", "an intent id": "int_AA11", "too short": "recev_A", "too long": "recev_" + "A123456789B123456789C123456789D12",
+		"a control character": "recev_AA\n11", "a space": "recev_AA 11", "a symbol": "recev_AA-11", "a trailing newline": "recev_AA11\n",
+	} {
+		f := happy()
+		tr := turn
+		tr.InputReceivedRef = ref
+		res, err := runner(t, f).RunRead(context.Background(), sess, tr)
+		if !errors.Is(err, orchestrator.ErrNoInputReceived) {
+			t.Errorf("%s: err %v, want ErrNoInputReceived", name, err)
+		}
+		if len(f.calls) != 0 || len(f.changes) != 0 || len(res.Changes) != 0 || res.Answer != "" {
+			t.Errorf("%s: calls %v, recorded %v, result %+v; want nothing recorded or run", name, f.calls, f.changes, res)
+		}
+	}
+	f := happy()
+	tr := turn
+	tr.InputReceivedRef = "recev_" + "A123456789B123456789C123456789D1"
+	if _, err := runner(t, f).RunRead(context.Background(), sess, tr); err != nil {
+		t.Errorf("a reference of 32 characters is valid: %v", err)
 	}
 }
 
