@@ -1,0 +1,15 @@
+{
+  "unknown_mode.json": "enum",
+  "label_not_synthetic.json": "const",
+  "missing_label.json": "required",
+  "unknown_field.json": "additionalProperties",
+  "no_messages.json": "minItems",
+  "bad_role.json": "enum",
+  "turn_id_wrong_shape.json": "pattern",
+  "timeout_zero.json": "exclusiveMinimum",
+  "timeout_over_120.json": "maximum",
+  "tokens_zero.json": "minimum",
+  "tool_without_description.json": "required",
+  "tool_name_wrong_shape.json": "pattern",
+  "missing_model_version.json": "required"
+}
