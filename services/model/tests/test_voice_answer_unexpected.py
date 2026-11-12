@@ -60,3 +60,45 @@ def test_a_cancellation_is_not_swallowed() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         run(deliver_answer(Exploding(asyncio.CancelledError()), REQUEST, deadline_s=5.0))
+
+
+# ---- Codex P2 on #213: a synthesizer's own shutdown cannot hold the text fallback back ---------------------------------------------------------------
+
+
+class SlowToStop:
+    """Yields a chunk, then stalls; when it is cancelled its generator's cleanup runs for `cleanup_s`, or for ever if that is None."""
+
+    name = "fake"
+    capabilities = CAPS
+
+    def __init__(self, cleanup_s: float | None) -> None:
+        self._cleanup_s = cleanup_s
+
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        import asyncio
+
+        try:
+            yield AudioChunk(0, AudioCodec.PCM_S16LE, 16000, b"\x01\x00" * 160)
+            await asyncio.Event().wait()
+        finally:
+            if self._cleanup_s is None:
+                await asyncio.Event().wait()
+            else:
+                await asyncio.sleep(self._cleanup_s)
+
+
+@pytest.mark.parametrize("cleanup", [0.5, None])
+def test_the_text_fallback_does_not_wait_for_the_synthesizers_shutdown(cleanup: float | None) -> None:
+    import asyncio
+    import time
+
+    async def call() -> tuple[object, float]:
+        started = time.monotonic()
+        result = await asyncio.wait_for(
+            deliver_answer(SlowToStop(cleanup), REQUEST, deadline_s=0.05, cleanup_s=0.05), timeout=5.0)
+        return result, time.monotonic() - started
+
+    result, elapsed = run(call())
+    assert result.mode is DeliveryMode.TEXT_ONLY and result.text == REQUEST.text and result.audio == ()  # type: ignore[attr-defined]
+    assert result.failure is ProviderFailure.TIMEOUT  # type: ignore[attr-defined]
+    assert elapsed < 0.4, elapsed  # the deadline plus the cleanup bound, not the synthesizer's own 0.5 s or its endless wait
