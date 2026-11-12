@@ -6,6 +6,10 @@ one is given the whole utterance from its first chunk, then the live remainder, 
 If the utterance has outgrown the replay buffer, failover is impossible and the person is offered text instead: a provider
 that heard only the end of a sentence could settle a different amount.
 
+The live source is released within `cleanup_s`: a read that resists cancellation is closed over when it ends, a close that never finishes is
+abandoned, and either way the result has no utterance, offers text and sets `release_failed` (a microphone still open is never a success).
+A read that completes as its provider is cancelled stays for the next reader, so no chunk is lost (Codex on #218).
+
 Every ProviderError fails over, including a stream that ends with no final, because a partial is never a result. No provider
 is tried twice. Each failure is listed in the result so the caller can record `PROVIDER_FAILOVER`; nothing here writes the
 Record.
