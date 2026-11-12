@@ -113,7 +113,7 @@ class _AudioLease:
 _DEFERRED: set["asyncio.Future[None]"] = set()  # closes waiting for a read to end; held so they are not collected before they run
 
 
-def _close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource) -> None:
+def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource) -> None:
     """A read that outlived the bounded wait keeps the source open for now. Close it as soon as that read ends, so the source is not left open for good."""
 
     def start(_: "asyncio.Future[Any]") -> None:
@@ -189,7 +189,7 @@ async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio:
     running = await lease.revoke(bound_s)  # no read of the source may be running when it is closed
     failure: BaseException | None = None
     if running is not None:
-        _close_when_read_ends(running, audio)  # it cannot be closed while the read runs; it is closed when the read ends
+        close_when_read_ends(running, audio)  # it cannot be closed while the read runs; it is closed when the read ends
         failure = TimeoutError("an audio read did not stop in time; the source is closed when it ends")
     else:
         closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
