@@ -15,3 +15,7 @@
 **Not here.** The `Binder` reads of the intent, the decision and the plan (Trust and the registry are not built), the `Revalidator`, the dispatcher and the sweeper's age threshold. The sweeper writes receipts for every unreceipted attempt it sees; a threshold so that it does not race a dispatch still in flight is configuration (REQ-OPS-003) and is not built.
 
 **Tests.** `go test ./execution/ledger/...` from `services/core/`, against a real PostgreSQL (`internal/testpg`) with the real controller: a clean run in order, 100 concurrent executes of one grant (one dispatch), void and recovery request, kill switch flipped between E6 and E8, crash after the spend and the sweep, a failed Record append failing the spend, a retry under a new grant, key collision, first-writer-wins receipts, grant loading, deadlines.
+
+## The dispatch budget (RCV-02 slice 2, ruling A153)
+
+The database refuses the third spend of a key: migration `0023` puts a guard on the insert into `grant_spend` that counts the key's `DISPATCH_ATTEMPTED` events in the Record (the key is the grant's tenant, correlation, capability and target; the ceiling is 2, ruling A3 and A62) and raises `NS002`. `Spend` rolls back as a whole, reports `SpendResult.BudgetSpent` and writes nothing; the controller answers `Outcome.BudgetSpent`, the grant stays ISSUED, and the database refuses it again each time. An earlier dispatch event whose key cannot be read counts against every key of its correlation, and a grant whose key cannot be read is refused. Tests: `budget_test.go`.
