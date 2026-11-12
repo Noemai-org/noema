@@ -1,5 +1,5 @@
 -- 0023: the dispatch budget is enforced by the database (RCV-02 slice 2; ruling A153 of DEC-2026-11-12-architect-rulings-a148-a160; REQ-RCV-003; INV-03, AGENT-08).
--- Forward-only: never edited after merge. The number 0023 is the one A153 names; the ledger (noema#183) holds 0022 for another PR, so this file waits for it (A113).
+-- Forward-only: never edited after merge. The number 0023 is the one A153 names and the ledger of noema#183 (ruling A167) confirms; 0022 is reserved there for another migration, which does not block this one (A164): `Migrate` applies by name and accepts a gap.
 --
 -- A key is the tenant, the correlation, the capability and the target of a dispatch (ruling A3). The Record may hold at most two DISPATCH_ATTEMPTED events of a key
 -- (A3: the budget is 2; A62: the pack may lower it and never raise it above 2, so 2 is the ceiling the database holds whatever a caller or a pack says). Spending a

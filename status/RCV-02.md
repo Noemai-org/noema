@@ -37,3 +37,14 @@ Updated 2026-11-06. Plan task RCV-02: owner C1+AG; REQ-RCV-003, REQ-RCV-002; Nee
 - Open questions (Architect): the void reason and event kind above; migration number 0023 waits for 0022 (A151, noema#410) in the A113 order.
 - Files to read first: `services/core/migrations/0023_dispatch_budget.sql`, `services/core/execution/ledger/spend.go`.
 - Do not touch: `migrations/README.md` (A145).
+
+## Session 2026-11-12 16:00 WAT · RCV-02: the migration number and the void reason are settled
+### Session summary
+- What changed (PR links): noema#472: the header comment of `0023_dispatch_budget.sql` (no statement changed) and this note.
+- Why: ruling A167 (docs#159) made C1's table on noema#183 the migration ledger: 0023 stays with this PR and does not wait for 0022, which the table reserves for the evidence-set binding (A164 already said the budget does not wait). The void reason: A164 (no new event kind, no new void reason) applies, which the code already follows (a refused dispatch leaves the grant ISSUED, `BudgetSpent` is a result, not a void).
+- Risks: none; a comment-only change in an unmerged migration.
+- Tests added: none. Regression cases: none. Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: the Security Reviewer re-reads `218edc95`'s successor for the two points of its NOT READY (migration order, void reason); both are answered by A167 and A164.
+- Do not touch: the trigger and the definer function.
