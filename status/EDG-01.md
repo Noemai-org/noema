@@ -90,3 +90,9 @@
 - Exact next step: the Architect or EL decides the `asserted_by` form (relax the contract pattern with a version bump, AGENT-15, or map `noema-poc-idp` to a contract-valid token); until then the orchestrator must not copy `AssertedBy` into an Intent Object unchecked. `principal_id` has the same kind of gap: the contract wants `usr_...` and the verifier accepts any `sub` up to 128 bytes.
 - Files to read first: `services/core/edge/session/session.go`.
 - Do not touch: the migrations.
+
+## Session 2026-11-12 18:00 WAT · A163: the IdP mints usr_ IDs; the asserted_by conflict is decided
+- What changed (noema#467): `cmd/synthetic-idp issue` accepts only a `-principal` that is a `usr_` ID of the contract (`^usr_[0-9A-Za-z]{2,32}$`, anchored over the whole string), so the `sub` it mints is a valid Intent Object `principal_id` as it stands. The verifier is not changed: it still accepts any `sub` of up to 128 bytes (ruling A1 item 6).
+- Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
+- Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
+- Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
