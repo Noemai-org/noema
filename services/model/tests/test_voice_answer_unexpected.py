@@ -96,13 +96,14 @@ def test_the_text_fallback_does_not_wait_for_the_synthesizers_shutdown(cleanup: 
 
     synth = SlowToStop(cleanup)
 
-    async def call() -> tuple[object, float]:
+    async def call() -> tuple[object, float, bool]:
         started = time.monotonic()
         result = await asyncio.wait_for(deliver_answer(synth, REQUEST, deadline_s=0.05, cleanup_s=0.05), timeout=5.0)
-        return result, time.monotonic() - started
+        elapsed = time.monotonic() - started
+        return result, elapsed, synth.cleaning  # read before the loop is torn down, which would cancel the task by itself
 
-    result, elapsed = run(call())
-    assert synth.cleaning  # the synthesis was cancelled at the deadline, not left running
+    result, elapsed, cleaning = run(call())
+    assert cleaning  # the synthesis was cancelled at the deadline, not left running
     assert result.mode is DeliveryMode.TEXT_ONLY and result.text == REQUEST.text and result.audio == ()  # type: ignore[attr-defined]
     assert result.failure is ProviderFailure.TIMEOUT  # type: ignore[attr-defined]
     assert elapsed < 0.4, elapsed  # the deadline plus the cleanup bound, not the synthesizer's own 0.5 s or its endless wait
