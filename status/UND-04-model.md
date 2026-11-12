@@ -19,7 +19,13 @@ Updated 2026-11-12. Plan task UND-04 (owners C2 and C1; REQ-INT-001, REQ-INP-002
 - **Fix, test first:** tests at `f219c096` (red: the new `UNSET` marker did not exist); then the gate refuses a proposal with either member (`SHAPE`) and fills both with `UNSET` for the closed decode. Mutations: removing the refusal, and removing the marker, each turn a named test red. The `Context` docstring and the README no longer call the two members "not compared".
 
 ## Pre-work for the next agent
-- Exact next step: when noema#484 is answered, the compiler (prompt, provider call, assembly) and the route call `SchemaGate.check` and then sign.
+- Exact next step: when noema#484 is answered, the compiler (prompt, provider call, assembly) and the route call `SchemaGate.check` and return the validated proposal; the core builds the v2 object, hashes it and signs it (ruling A166).
 - Open questions (owner): noema#484 points 1 to 4 (Architect).
 - Files to read first: `services/model/noema_model/understanding/gate/README.md`, `gate.py`.
 - Do not touch: the generated models in `noema_model/contracts/`.
+
+## Session 2026-11-12 (night) · UND-04 model half · C1's re-read at 3f7d818c (A166 items 1 and 5)
+- **Findings:** the gate's docstrings, the README row for `sig`, the comment at `gate.py:172` and the comment on the `UNSIGNED` marker said the model service signs after the gate; A166 item 1 says the core hashes and signs after its gate and the model service never signs. And the README did not say which contract the model half validates against the object the core admits (v2).
+- **Fix (words and comments only, no behaviour):** the module and package docstrings, the README row and paragraph, the marker's comment and the comment at the refusal of a model `sig` now say the core builds the object, hashes it and signs it; the `Context` docstring and the README's "Contract version" paragraph say the model half validates the v1-shaped proposal with the identity members marked `UNSET` and that the core builds the `intent-object.v2` object (choice (a) of C1's finding 2; a dedicated proposal contract would be an AGENT-15 change with C1, none proposed). The refusal of a model-supplied `sig` and its reason code are unchanged.
+- **Checked:** the code of `gate.py` and `__init__.py` is identical with docstrings and comments removed (an AST comparison before and after); `pytest tests/test_intent_gate.py` 70 passed; `mypy --strict` clean. One push.
+- Debt: none. Conflicts raised: none.

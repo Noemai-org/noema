@@ -11,7 +11,7 @@ The model service's side of the schema gate (UND-04; REQ-INT-001, REQ-INT-002, R
 | Parse | one UTF-8 JSON document, no NaN or Infinity, no trailing data | `NOT_JSON` |
 | Shape | one object; no member twice; decoded by the generated strict `IntentObjectV1` (closed, no null where the contract has none, every pattern and range) | `SHAPE` |
 | Identity members | a `principal_type` or `asserted_by` in the proposal is refused (A166); the gate fills both with `UNSET` for the closed decode | `SHAPE` |
-| Signature | a `sig` in the proposal is refused: the model service signs after the gate | `SIG_SET_BY_MODEL` |
+| Signature | a `sig` in the proposal is refused: the model service never signs; the core hashes and signs after its own gate (ruling A166, item 1) | `SIG_SET_BY_MODEL` |
 | State | status is `EXTRACTED`; `schema_version` is `1.0` | `STATUS_NOT_EXTRACTED`, `SCHEMA_VERSION` |
 | Chain | version 1 supersedes nothing; version n names `intent_id@(n-1)` | `VERSION`, `SUPERSEDES` |
 | Time | `created_at` is a real instant | `CREATED_AT` |
@@ -21,12 +21,12 @@ The model service's side of the schema gate (UND-04; REQ-INT-001, REQ-INT-002, R
 | Slots | a Resource is RESOLVED if and only if it has a `resolved_ref` (INV-06); a TimeRef window is two real instants | `SLOT_INVALID` |
 | Flags | no ambiguity flag twice | `AMBIGUITY_FLAG` |
 
-The value of `sig` in a validated object is the marker `UNSIGNED` (the contract requires a `sig`; whoever signs replaces it). A reason names the rule and never quotes the object.
+The value of `sig` in a validated proposal is the marker `UNSIGNED` (the contract requires a `sig`; the core, not this service, builds the object, hashes it and signs it, and its gate refuses any `sig` but the marker). A reason names the rule and never quotes the object.
 
 **Identity members the model does not send (ruling A166, item 3).** The proposal carries no `principal_type` and no `asserted_by`: the core sets them from the session (INV-12). A proposal that has either, even with the session's value, is a `SHAPE` refusal, and nothing raises a security event on a normal compile. The contract still requires the two members, so a validated object holds the neutral marker `UNSET` (`"unset"`) in both, which the core overwrites.
 
 **Not here.** The prompt, the provider call, the assembly of the object, the signature and the HTTP route (UND-05, noema#484); the pack loader (`PackView` is a protocol; the real pack nodes are PCK-01's and `packs/fintech/intents/` is empty); the intent hash (the core's, noema#454).
 
-**Contract version.** Decodes `IntentObjectV1`. After intent-object.v2 (noema#480, ruling A163) is on `main` this moves to `IntentObjectV2` together with the core's gate.
+**Contract version, and what this gate validates.** The model half validates the proposal as a **v1-shaped document** (`IntentObjectV1`) whose two identity members carry the neutral marker `UNSET`. It is the proposal, not the object the core admits: **the core builds the `intent-object.v2` object** (noema#480, ruling A163; `asserted_by` allows the real issuer, `noema-poc-idp`), writes the identity from the session, then hashes and signs it (ruling A166, items 1 and 5). Nothing here needs rebuilding for that. A dedicated proposal contract would be a contract change (AGENT-15) with C1 as co-owner; none is proposed.
 
 **Tests.** `pytest tests/test_intent_gate.py` from `services/model/`: a 30-row rejection table, every member missing, unknown members at five depths, a 10,000-case unknown-member fuzz, totality and determinism over arbitrary bytes, pathological input, and "no reason carries text of the object". `mypy --strict` is clean.

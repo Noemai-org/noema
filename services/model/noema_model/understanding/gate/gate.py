@@ -28,8 +28,8 @@ SCHEMA_VERSION = "1.0"
 MAX_SAFE_INT = 9007199254740991
 MAX_RAW_REF = 256
 
-# The signature slot of a validated intent. The contract requires `sig`; the gate runs before the model service signs, so it holds a marker that no verifier
-# accepts as a signature. Whoever signs replaces it.
+# The signature slot of a validated proposal. The contract requires `sig`, and the model service never signs (ruling A166, item 1): the core computes the hash and the
+# signature after its own gate, with the Record emitter signer. So the slot holds a marker that no verifier accepts as a signature, and the core's gate refuses any other.
 UNSIGNED = CommonV1Sig(key_id="unsigned", value="unsigned")
 
 # The contract requires `principal_type` and `asserted_by`. Ruling A166 (item 3): the model's output carries neither, the core sets them from the session (INV-12). So the
@@ -74,7 +74,9 @@ class Reason(StrEnum):
 @dataclass(frozen=True)
 class Context:
     """What the canonical input says the proposal must be about: the session's tenant and principal, the session id and the correlation id (INV-12). The proposal
-    carries no `principal_type` and no `asserted_by` (ruling A166): the core sets them from the session, and a model that sends them is refused."""
+    carries no `principal_type` and no `asserted_by` (ruling A166): the core sets them from the session, and a model that sends them is refused. The shape this gate
+    validates is the v1-shaped proposal (`IntentObjectV1`) with those two members filled by a neutral marker; it is not the object the core admits. The core builds that
+    object (`intent-object.v2`, ruling A163), sets the identity from the session, hashes it and signs it (ruling A166, items 1 and 5)."""
 
     tenant_id: str
     correlation_id: str
@@ -169,7 +171,7 @@ class SchemaGate:
             return _refuse(Reason.SHAPE)
         reasons: set[Reason] = set()
         if "sig" in doc:
-            reasons.add(Reason.SIG_SET_BY_MODEL)  # the model service signs, after the gate; a model that signs is refused
+            reasons.add(Reason.SIG_SET_BY_MODEL)  # the model service never signs (ruling A166, item 1); a proposal that carries a `sig` is refused
         doc["sig"] = {"key_id": UNSIGNED.key_id, "value": UNSIGNED.value}
         principal = doc.get("principal")
         if isinstance(principal, dict):

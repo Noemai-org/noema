@@ -7,7 +7,7 @@ chain. It is returned as VALIDATED, or refused with a sorted, unique list of rea
 May import: noema_model.contracts, the standard library, pydantic. It reads no pack file (the caller passes a PackView), holds no key and no credential, calls no
 model and no network, and has no clock.
 
-Must never: repair, complete, re-type or infer a field (REQ-INT-002); sign (the model service signs after the gate, so a `sig` in the proposal is refused); admit an
+Must never: repair, complete, re-type or infer a field (REQ-INT-002); sign or hash (the core hashes and signs after its own gate, ruling A166 item 1; the model service never signs, so a `sig` in the proposal is refused); admit an
 identity other than the Context's (INV-12); quote the object in a reason (AGENT-13); raise on any input.
 """
 
