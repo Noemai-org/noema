@@ -22,9 +22,13 @@ def capture_command() -> list[str]:
     return ["docker", "compose", "-f", COMPOSE_FILE, "--profile", "bench", "logs", "--follow", "--no-log-prefix", "--no-color", "mock-case"]
 
 
+def supplies_log(passthrough: Sequence[str]) -> bool:
+    return any(a == "--mock-case-log" or a.startswith("--mock-case-log=") for a in passthrough)
+
+
 def with_log_argument(passthrough: Sequence[str], path: Path) -> list[str]:
     """The caller's own `--mock-case-log` wins; otherwise the captured file is passed."""
-    if any(a == "--mock-case-log" or a.startswith("--mock-case-log=") for a in passthrough):
+    if supplies_log(passthrough):
         return list(passthrough)
     return ["--mock-case-log", str(path), *passthrough]
 

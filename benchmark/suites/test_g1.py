@@ -1,9 +1,12 @@
 """BEN-05 pre-stage / BEN-29 (Codex review of noema#117): the G1 evidence run keeps every failure. A leg that reports an incomplete run or a Tier 0 gate not at zero
 (exit 1) must still fail the whole run, even when the replay diff then says IDENTICAL. Written before `g1.py` and seen failing. SYNTHETIC."""
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
-from benchmark.suites.g1 import combine, evidence_record, run_g1
+from benchmark.suites.g1 import accept_named_exclusions, combine, evidence_record, run_g1
 
 
 class Combine(unittest.TestCase):
@@ -26,6 +29,66 @@ class Combine(unittest.TestCase):
     def test_a_replay_input_error_is_kept(self) -> None:
         self.assertEqual(2, combine([0, 0], 2))
         self.assertEqual(2, combine([1, 1], 2))
+
+
+EXCLUDED = {"BEN-CLEAN-1007": {"reason": "needs INJECTION_PAYLOAD, not wired", "held_by": "Tushe", "opened": "2026-11-01"}}
+
+
+def leg_with(root: Path, *, errored: list[str] | None = None, missing: list[str] | None = None, tier0: bool = True, complete: bool | None = None) -> Path:
+    incomplete = {"missing": missing or [], "errored": errored or [], "stale_version": [], "duplicate": [], "unknown": [], "invalid_case": []}
+    card = {"complete": complete if complete is not None else not any(incomplete.values()), "incomplete": incomplete, "tier0": {"all_zero": tier0}}
+    (root / "score").mkdir(parents=True)
+    (root / "score" / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
+    return root
+
+
+class NamedExclusions(unittest.TestCase):
+    """Codex P2 on noema#117: BEN-CLEAN-1007 errors by design (INJECTION_PAYLOAD is not wired), so a leg whose only error is a registry-named exclusion is not a failed leg.
+    Any other error, and any Tier 0 gate not at zero, still fails it."""
+
+    def accepted(self, **kwargs: Any) -> int:
+        with tempfile.TemporaryDirectory() as tmp:
+            return accept_named_exclusions(leg_with(Path(tmp) / "a", **kwargs), 1, EXCLUDED)
+
+    def test_the_only_error_is_the_named_exclusion_the_leg_is_accepted(self) -> None:
+        self.assertEqual(0, self.accepted(errored=["BEN-CLEAN-1007"]))
+
+    def test_another_error_beside_the_exclusion_still_fails(self) -> None:
+        self.assertEqual(1, self.accepted(errored=["BEN-CLEAN-1007", "BEN-CLEAN-0001"]))
+
+    def test_an_error_on_a_case_that_is_not_named_fails(self) -> None:
+        self.assertEqual(1, self.accepted(errored=["BEN-CLEAN-0001"]))
+
+    def test_a_missing_result_for_the_excluded_case_is_not_the_exclusion(self) -> None:
+        self.assertEqual(1, self.accepted(missing=["BEN-CLEAN-1007"]))
+
+    def test_a_tier_zero_gate_not_at_zero_still_fails(self) -> None:
+        self.assertEqual(1, self.accepted(errored=["BEN-CLEAN-1007"], tier0=False))
+
+    def test_other_incomplete_reasons_beside_the_exclusion_still_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            leg = leg_with(Path(tmp) / "a", errored=["BEN-CLEAN-1007"])
+            card = json.loads((leg / "score" / "scorecard.json").read_text())
+            card["incomplete"]["duplicate"] = ["BEN-CLEAN-0014"]
+            (leg / "score" / "scorecard.json").write_text(json.dumps(card))
+            self.assertEqual(1, accept_named_exclusions(leg, 1, EXCLUDED))
+
+    def test_no_scorecard_or_an_unreadable_one_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(1, accept_named_exclusions(Path(tmp) / "none", 1, EXCLUDED))
+            leg = Path(tmp) / "bad"
+            (leg / "score").mkdir(parents=True)
+            (leg / "score" / "scorecard.json").write_text("{not json")
+            self.assertEqual(1, accept_named_exclusions(leg, 1, EXCLUDED))
+
+    def test_only_exit_one_is_ever_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            leg = leg_with(Path(tmp) / "a", errored=["BEN-CLEAN-1007"])
+            for code in (0, 2, 3):
+                self.assertEqual(code, accept_named_exclusions(leg, code, EXCLUDED))
+
+    def test_a_complete_scorecard_with_exit_one_is_not_rescued_by_the_registry(self) -> None:
+        self.assertEqual(1, self.accepted(complete=True, tier0=False))
 
 
 REPORT = {"verdict": "IDENTICAL", "full_coverage": False, "case_coverage": {"covered": 5, "of": 6}, "open_exclusions": [{"case_id": "BEN-CLEAN-1007"}],

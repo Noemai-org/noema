@@ -155,6 +155,66 @@ class Wiring(unittest.TestCase):
         self.assertEqual(1, len(calls))
         self.assertNotIn("--mock-case-log", calls[0])
 
+    def test_a_log_the_caller_supplies_skips_local_capture_entirely(self) -> None:
+        """Codex P2 on noema#117: an externally captured log must work without the local Compose stack, in both spellings, and the runner gets it exactly once."""
+        import contextlib
+        from benchmark.runner.test_suite import suite_dir
+        from benchmark.suites import __main__ as entry
+        for spelling in (["--mock-case-log", "/outside/mock.log"], ["--mock-case-log=/outside/mock.log"]):
+            started: list[Path] = []
+
+            @contextlib.contextmanager
+            def capture(path: Path, **_: Any) -> Iterator[Path]:
+                started.append(path)
+                raise CaptureFailed("no docker")
+                yield path
+            self.swap(entry, "mock_case_log", capture)
+            calls: list[list[str]] = []
+            self.swap(entry, "_run", lambda args, passthrough: calls.append(list(passthrough)) or 0)
+            import io
+            from contextlib import redirect_stderr, redirect_stdout
+            with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                code = entry.main(["g1", "--suite", str(suite_dir()), "--out", str(Path(tmp) / "g1"), "--run-id", "w", "--data-source", "stand-in", "--", *spelling])
+            self.assertEqual([], started, spelling)
+            self.assertEqual(2, len(calls), spelling)
+            for call in calls:
+                self.assertEqual(spelling, call, "the caller's option is passed through once, unchanged")
+            self.assertNotEqual(3, code)
+
+    def test_a_capture_that_cannot_start_leaves_no_stray_log_path_in_the_fallback_call(self) -> None:
+        import contextlib
+
+        @contextlib.contextmanager
+        def broken(path: Path, **_: Any) -> Iterator[Path]:
+            raise CaptureFailed("no docker")
+            yield path
+        _, calls, _ = self.run_g1_with(broken)
+        self.assertEqual([[]], [c for c in calls], "no log option and no leftover value")
+
+    def test_a_leg_whose_only_error_is_the_named_exclusion_is_accepted_on_both_paths(self) -> None:
+        """Codex P2 on noema#117, wired: `_g1` applies the registry to the runner's exit 1 whether the log is captured or supplied."""
+        import contextlib
+        import io
+        import json
+        from contextlib import redirect_stderr, redirect_stdout
+
+        from benchmark.runner.test_suite import suite_dir
+        from benchmark.suites import __main__ as entry
+
+        def only_the_exclusion_errors(args: Any, passthrough: list[str]) -> int:
+            (Path(args.out) / "score").mkdir(parents=True, exist_ok=True)
+            card = {"complete": False, "tier0": {"all_zero": True},
+                    "incomplete": {"missing": [], "errored": ["BEN-CLEAN-1007"], "stale_version": [], "duplicate": [], "unknown": [], "invalid_case": []}}
+            (Path(args.out) / "score" / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
+            return 1
+        for extra in ([], ["--mock-case-log", "/outside/mock.log"]):
+            self.swap(entry, "mock_case_log", contextlib.contextmanager(self.ok))
+            self.swap(entry, "_run", only_the_exclusion_errors)
+            out = io.StringIO()
+            with tempfile.TemporaryDirectory() as tmp, redirect_stdout(out), redirect_stderr(io.StringIO()):
+                entry.main(["g1", "--suite", str(suite_dir()), "--out", str(Path(tmp) / "g1"), "--run-id", "w", "--data-source", "stand-in", *(["--", *extra] if extra else [])])
+            self.assertEqual(2, out.getvalue().count("exit 1 accepted"), extra)
+
 
 class SuiteTargets(unittest.TestCase):
     """Codex P2 on noema#117: the suite targets must pass the cost directory the bench stack writes, or every case's cost is lost (REQ-NFR-007)."""

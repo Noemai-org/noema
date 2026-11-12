@@ -16,7 +16,7 @@ from typing import Any
 
 from benchmark.contracts import pretty_bytes
 from benchmark.suites.archive import archive_previous
-from benchmark.suites.capture import CaptureFailed, mock_case_log, with_log_argument
+from benchmark.suites.capture import CaptureFailed, mock_case_log, supplies_log, with_log_argument
 from benchmark.suites.select import SelectionError, load_families, load_suites, select, selection_digest
 from benchmark.suites.subset import subset_suite
 
@@ -88,7 +88,7 @@ def _run(args: argparse.Namespace, passthrough: list[str]) -> int:
 def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
     import importlib.util
 
-    from benchmark.suites.g1 import evidence_record, reset_and_up, run_g1
+    from benchmark.suites.g1 import accept_named_exclusions, evidence_record, reset_and_up, run_g1
     out = Path(args.out)
     kept = archive_previous(out)
     if kept is not None:
@@ -98,9 +98,12 @@ def _g1(args: argparse.Namespace, passthrough: list[str]) -> int:
         argv = ["run", "g1", "--suite", args.suite, "--out", str(leg_out), "--run-id", f"{args.run_id}-{leg}"]
         argv += ["--commit-sha", args.commit_sha] if args.commit_sha else []
         argv += ["--reset-done"] if args.reset else []
+        exclusions = json.loads((Path(__file__).resolve().parent.parent / "replay" / "open_exclusions.json").read_text(encoding="utf-8"))["exclusions"]
+        if supplies_log(passthrough):  # an externally captured log: no local Compose capture at all
+            return accept_named_exclusions(leg_out, main(argv + ["--"] + passthrough), exclusions)
         try:
             with mock_case_log(out / "logs" / f"{leg}-mock-case.log") as log:  # beside the leg directories: `_run` archives the leg directory, never this
-                return main(argv + ["--"] + with_log_argument(passthrough, log))
+                return accept_named_exclusions(leg_out, main(argv + ["--"] + with_log_argument(passthrough, log)), exclusions)
         except CaptureFailed as error:
             print(f"NOT RUN: leg {leg}: {error}", file=sys.stderr)
             if not (leg_out / "suite-run.json").is_file():
