@@ -262,3 +262,35 @@ func TestOneRequestHasOneCorrelationIdThroughTheWholeChain(t *testing.T) {
 		t.Fatalf("a request that passed no session check has the correlation ID %q in its context", got)
 	}
 }
+
+type brokenIDs struct{ out string }
+
+func (b brokenIDs) ID(string) (string, error) {
+	if b.out == "" {
+		return "", errors.New("synthetic id source failure")
+	}
+	return b.out, nil
+}
+
+// Reviewer P1 on noema#481: when a unique, valid correlation ID cannot be minted, the request does not continue under a shared fallback; it is refused (500
+// INTERNAL_SAFETY_BLOCK) before the role gate, the body guard and the handler, so no unrelated requests write under one ID. The fixed value appears only in that refusal.
+func TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns(t *testing.T) {
+	k := newKeys(t)
+	v, _ := verifier(t, k, epoch)
+	for name, src := range map[string]brokenIDs{"the source fails": {}, "the source returns a malformed ID": {out: "not an id"}, "the source returns an ID with a newline": {out: "corr_AB12\n"}} {
+		calls := 0
+		guard, err := session.RefuseBodyIdentity(src, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := session.Middleware(v, src)(session.RequireRole(src, session.RoleOps)(guard(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))))
+		c := goodClaims(epoch)
+		c["roles"] = []string{string(session.RoleOps)}
+		for label, authz := range map[string]string{"with a valid session": "Bearer " + mint(t, k.priv, goodHeader(), c), "with no credential": ""} {
+			rec := do(h, authz, map[string]string{"Content-Type": "application/json"})
+			if rec.Code != http.StatusInternalServerError || envelope(t, rec).Code != contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK || calls != 0 {
+				t.Errorf("%s, %s: %d %s, handler calls %d", name, label, rec.Code, rec.Body.String(), calls)
+			}
+		}
+	}
+}
