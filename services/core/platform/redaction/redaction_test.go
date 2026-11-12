@@ -378,8 +378,8 @@ func TestAnAccountNumberUsedAsAKeyOrAGroupNameIsMasked(t *testing.T) { // Codex 
 	if !strings.Contains(out, "******6789") {
 		t.Errorf("the masked key should keep its last four digits: %s", out)
 	}
-	got := redaction.New().FilterAttributes(map[string]string{"0123456789": "fine", "token": "t"})
-	if _, bad := got["0123456789"]; bad || got["******6789"] != "fine" || got["token"] != redaction.Redacted {
+	got := redaction.New().FilterAttributes(map[string]string{"0123456789": "fine", "token": "t", "token_0123456789": "t"})
+	if _, bad := got["0123456789"]; bad || got["******6789"] != "fine" || got["token"] != redaction.Redacted || got["token_******6789"] != redaction.Redacted {
 		t.Errorf("trace attribute keys: %v", got)
 	}
 	// a key that is a secret-looking name is still classified by its original name

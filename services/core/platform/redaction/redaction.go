@@ -175,10 +175,10 @@ func (r *Redactor) FilterAttributes(attrs map[string]string) map[string]string {
 	out := make(map[string]string, len(attrs))
 	for k, v := range attrs {
 		if secretKey(k) {
-			out[k] = Redacted
+			out[r.MaskAccountNumbers(k)] = Redacted
 			continue
 		}
-		out[k] = r.MaskAccountNumbers(v)
+		out[r.MaskAccountNumbers(k)] = r.MaskAccountNumbers(v)
 	}
 	return out
 }
@@ -219,11 +219,17 @@ func (h *handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &handler{r: h.r, inner: h.inner.WithGroup(name), secret: h.secret || secretKey(name)}
+	return &handler{r: h.r, inner: h.inner.WithGroup(h.r.MaskAccountNumbers(name)), secret: h.secret || secretKey(name)}
 }
 
 // redactAttr redacts one attribute. force is true inside a secret-looking group: every value under it is removed and only the shape (keys and groups) stays.
 func (r *Redactor) redactAttr(a slog.Attr, force bool) slog.Attr {
+	out := r.redactValue(a, force)
+	out.Key = r.MaskAccountNumbers(a.Key) // the key is classified by its original name above and emitted masked: an account number can be a key or a group name
+	return out
+}
+
+func (r *Redactor) redactValue(a slog.Attr, force bool) slog.Attr {
 	v := a.Value.Resolve()
 	if secretKey(a.Key) && !(force && v.Kind() == slog.KindGroup) {
 		return slog.String(a.Key, Redacted)

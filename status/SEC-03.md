@@ -48,3 +48,6 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 - Open questions (owner): whether a date alone should be exempt (Architect); whether the numeric suffixes need a name list instead (Founder).
 - Files to read first: `platform/redaction/redaction.go`, `README.md`.
 - Do not touch: the exemption list without a Founder's approval.
+
+## Session 2026-11-12 (later) · Codex P2 on 476f42e: account numbers in keys and group names
+- Test first (red, committed before the fix): `TestAnAccountNumberUsedAsAKeyOrAGroupNameIsMasked`. Fix: every emitted attribute key, group name, `WithGroup` name and trace attribute key is masked; secret-key classification still uses the original name. Four mutations of this fix run, all red (one survived until the secret-key-with-digits case was added to the test).
