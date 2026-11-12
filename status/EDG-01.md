@@ -76,3 +76,16 @@
 - Open questions (owner): the names of the six settings are mine; EL to say yes or rename. The body limit value for the deployment (EL, no default). The G1 principal list for `BENCH_PRINCIPALS` (Integration Lead, noema#441).
 - Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
 - Do not touch: the migration files.
+
+## Session 2026-11-12 · slice 3c part 2: main wires the protected API (EL)
+
+## Session summary
+- What changed: `cmd/core/compose.go` gains `Env`, `Components.Records` (the Record reader), `apiRoutes` and `buildAPI` (`edge.Load` with the route table; none of the session settings is no API, some or wrong is an error, a Record reader without session settings is an error); `compose` and `composeReadiness` take the API as an argument and name `edge chain` and `record reader` when missing; `main.go` builds the API, refuses to start on a configuration error, mounts it under `/v1/` beside the public health routes. The not-yet-wired guard test `no_reconstruction_test.go` is removed in this PR, as its header and the REC-03 note asked.
+- Why: the first running route of the G1 path: `GET /v1/reconstructions/{correlation_id}` for ops and audit, from the token's tenant, behind the verified session and the deny-by-default role gate.
+- Tests added (REQ-API-004, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16): `cmd/core/api_test.go` (no settings is no API; partial settings and a reader without session settings refuse to start; ops and audit reach the handler and the reader is asked for the token's tenant, not the query's; customer, approver, no session, a bad token and an unserved tenant are refused before the reader; an unregistered route is 404; no reader means no route; the route table lists exactly ops and audit; health stays public). Written first (`b92deb55`, did not compile). Eight mutants killed (all roles allowed was first equivalent at the output level because the handler also refuses; the route-table test kills it).
+- Not done, stated: the input gateway (`POST /v1/conversations`, C2, noema#466) and its constructor; the Interpreter, Evidence, Trust, Explainer, Recorder and Admissions constructors; and the **per-tenant Record reader pools**, which need a configuration of logins and secrets that nothing defines (platform/config is empty). With no reader, no route is mounted and `/readyz` names what is missing; the core stays not ready.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#466 merges, add its handler to `apiRoutes` (roles: customer) and the Admissions/Recorder constructors to `Components`; settle the Record reader's pool configuration (see the PR's AGENT-02 note).
+

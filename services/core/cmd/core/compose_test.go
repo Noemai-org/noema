@@ -31,11 +31,14 @@ func (okPorts) AppendChange(context.Context, orchestrator.Session, orchestrator.
 	return nil
 }
 
+// okAPI stands for the protected /v1 handler that buildAPI makes from the session settings.
+var okAPI http.Handler = http.NotFoundHandler()
+
 func full() Components {
 	p := okPorts{}
 	return Components{
-		Ports: orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p},
-		Edge:  func(next http.Handler) http.Handler { return next },
+		Ports:   orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p},
+		Records: &failingDBs{},
 	}
 }
 
@@ -56,7 +59,7 @@ func TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing(t *testing.T
 	cases := map[string]func(*Components){
 		"interpreter": func(c *Components) { c.Ports.Interpreter = nil }, "evidence": func(c *Components) { c.Ports.Evidence = nil },
 		"trust": func(c *Components) { c.Ports.Trust = nil }, "explainer": func(c *Components) { c.Ports.Explainer = nil },
-		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "edge chain": func(c *Components) { c.Edge = nil },
+		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "record reader": func(c *Components) { c.Records = nil },
 	}
 	for name, drop := range cases {
 		c := full()

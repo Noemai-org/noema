@@ -192,3 +192,23 @@ func TestHealthStaysPublicAndV1GoesThroughTheProtectedHandler(t *testing.T) {
 		t.Errorf("/v1 without a session = %d, want 401", rec.Code)
 	}
 }
+
+// The route table is the one place that says who may call what: the reconstruction route lists exactly ops and audit (REQ-AUD-003, ruling A20), so a customer or an
+// approver is refused by the edge gate before the handler runs, not only by the handler's own check.
+func TestTheRouteTableListsExactlyOpsAndAuditForTheReconstruction(t *testing.T) {
+	clk := clock.NewManual(apiEpoch)
+	routes := apiRoutes(Components{Records: &failingDBs{}}, ids.New(clk, nil))
+	if len(routes) != 1 || routes[0].Pattern != reconstruct.Route {
+		t.Fatalf("routes %+v", routes)
+	}
+	got := map[session.Role]bool{}
+	for _, r := range routes[0].Roles {
+		got[r] = true
+	}
+	if len(got) != 2 || !got[session.RoleOps] || !got[session.RoleAudit] {
+		t.Fatalf("roles %v; want exactly ops and audit", routes[0].Roles)
+	}
+	if none := apiRoutes(Components{}, ids.New(clk, nil)); len(none) != 0 {
+		t.Fatalf("a route without its component: %+v", none)
+	}
+}
