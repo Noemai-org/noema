@@ -296,12 +296,12 @@ func afterTheWrite(t *testing.T, st *stack, kp killPoint, grant string, spends i
 	if spends != 1 {
 		t.Fatalf("%s: grant_spend has %d rows, want 1 (the spend committed before the write)", kp.name, spends)
 	}
+	// Executing the spent grant again must never write. The controller revalidates (E7) before it reaches the spend, and after the write the target already holds the case for
+	// the subject, so revalidation fails and the grant is voided as STATE_CHANGED: that is the form this takes once the target has committed (CI run 43243610931 showed it).
+	// A replay is the other safe form. What is forbidden is a receipt, a race or any other void, and a second create at the target (checked below).
 	out, err := st.ctl.Execute(bg(t), tenant, grant)
-	if err != nil || out.Void != "" || out.Raced {
-		t.Fatalf("%s: executing the spent grant again: %+v, %v", kp.name, out, err)
-	}
-	if !kp.receiptAtKill && (!out.Replayed || out.Receipt != nil) {
-		t.Fatalf("%s: executing the spent grant again must be a replay with no write: %+v", kp.name, out)
+	if err != nil || out.Receipt != nil || out.Raced || !(out.Replayed || out.Void == controller.VoidStateChanged) {
+		t.Fatalf("%s: executing the spent grant again must be a replay or a STATE_CHANGED void and never a write: %+v, %v", kp.name, out, err)
 	}
 	if r, c, n := effects(t, st); r != 1 || c != 1 || n != 1 {
 		t.Fatalf("%s: after the replay the target received %d creates, committed %d and holds %d cases, want 1 of each (a second dispatch happened)", kp.name, r, c, n)
