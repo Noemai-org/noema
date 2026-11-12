@@ -7,7 +7,8 @@
   "properties": {
     "fixture_id": {
       "type": "string",
-      "pattern": "^fx_[a-z0-9_]{1,80}$"
+      "pattern": "^fx_[a-z0-9_]{1,80}$",
+      "maxLength": 128
     },
     "synthetic": {
       "type": "boolean",
@@ -56,7 +57,8 @@
         "properties": {
           "beneficiary_id": {
             "type": "string",
-            "pattern": "^ben_[0-9]{4}$"
+            "pattern": "^ben_[0-9]{4}$",
+            "maxLength": 128
           },
           "owner": {
             "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PrincipalId"
@@ -78,7 +80,8 @@
           },
           "account_last4": {
             "type": "string",
-            "pattern": "^[0-9]{4}$"
+            "pattern": "^[0-9]{4}$",
+            "maxLength": 4
           },
           "tenant_id": {
             "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
@@ -112,7 +115,8 @@
               "string",
               "null"
             ],
-            "pattern": "^ben_[0-9]{4}$"
+            "pattern": "^ben_[0-9]{4}$",
+            "maxLength": 128
           },
           "direction": {
             "type": "string",
@@ -128,7 +132,8 @@
           },
           "currency": {
             "type": "string",
-            "pattern": "^[A-Z]{3}$"
+            "pattern": "^[A-Z]{3}$",
+            "maxLength": 3
           },
           "age_minutes": {
             "description": "How long before the case starts the transaction happened.",
@@ -218,7 +223,8 @@
           },
           "owner_queue": {
             "type": "string",
-            "pattern": "^[A-Z][A-Z0-9_]*$"
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "maxLength": 128
           },
           "tenant_id": {
             "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"

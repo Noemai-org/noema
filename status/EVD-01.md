@@ -139,3 +139,16 @@ A failed read with no normalised response now carries exactly one of `RawHash` (
 - Open questions (owner): the adapter owner (IL) on the field name and the success-read hash (noema#390).
 - Files to read first: `services/core/evidence/layer/classify.go`, `services/core/execution/e2e/evidence_faults_test.go`.
 - Do not touch: `services/core/adapters/` from EVD-01.
+
+## Session 2026-11-11 11:00 UTC · EVD-01, the healthy-read story test uses the adapter's own raw hash (noema#390)
+
+## Session summary
+- What changed: `TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale` is renamed back to `TestEvidenceFromAHealthyRealReadIsKnownThenStale`. It no longer hashes the re-marshalled record: it asserts `rec.RawHash` (from IL's noema#401, the hash of the response bytes the adapter received) has the `sha256:` shape, passes it to the builder unchanged, and finds it again in `evidence_payload.raw_hash`. The adapter's own test proves the hash equals the hash of the wire bytes.
+- Why: noema#390 (Codex P2 on noema#176): the successful-read path could not be called provenance until the adapter exposed the hash.
+- Risks, and how they are contained: a test-only change. `go vet` and `gofmt` are clean locally; the Postgres-backed test could not run on this machine (per-tenant logins need passwordless local auth), so its first run is CI's and there is no red-then-green pair for it.
+- Tests added: the stored-payload assertion (INV-19, REQ-CTX-001).
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: close noema#390 when this merges.
+- Do not touch: the adapter (IL's).

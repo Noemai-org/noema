@@ -2,13 +2,13 @@ package outcomee2e_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -115,6 +115,11 @@ func hash(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 // issueCreate issues the grant for create_escalation_case: no expected version, there is no case yet.
 func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
+	return s.issueCreateAt(ctx, "1.0")
+}
+
+// issueCreateAt is issueCreate for a grant bound to policyScope@version.
+func (s *trustStandIn) issueCreateAt(ctx context.Context, version string) (string, error) {
 	s.mu.Lock()
 	s.n++
 	n := s.n
@@ -125,9 +130,14 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 		return "", err
 	}
 	now := s.clk.Now()
-	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: "dec_us06", PrincipalID: principal, IntentHash: hash(1),
+	// A grant must carry the policy version of its decision record (migration 0012), so each policy version gets its own recorded decision.
+	decisionID := "dec_us06"
+	if version != "1.0" {
+		decisionID += "v" + strings.ReplaceAll(version, ".", "")
+	}
+	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_us%04d", n), DecisionID: decisionID, PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: bridge.CapCreateEscalationCase, TargetRef: txRef, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n),
-		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		PolicyVersion: policyScope + "@" + version, PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
 		Nonce: fmt.Sprintf("nonce_us%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
@@ -136,6 +146,10 @@ func (s *trustStandIn) issueCreate(ctx context.Context) (string, error) {
 	sig, err := s.keys.SignWith(execKeyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
 		return "", err
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, tenant, testpg.DecisionDocJSON(g.DecisionID, tenant, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
+		return "", fmt.Errorf("store decision: %w", err)
 	}
 	if _, err := s.pool.Exec(ctx, `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ($1, $2, $3, $4, $5::jsonb, $6, '1', $7, $8, $9)`, g.GrantID, tenant, g.DecisionID, g.Nonce, string(canon), policyScope, g.ExpiresAt, execKeyID, sig); err != nil {
@@ -184,27 +198,6 @@ func (o outcomeSigner) Sign(b []byte) (verifier.Sig, error) {
 	return verifier.Sig{KeyID: outcomeKeyID, Value: v}, err
 }
 
-// receiptRing is the controller's key source in this test: HMAC for grants as today, and Ed25519 for receipts under
-// receiptKeyID, signing the domain tag followed by the canonical receipt (D6). It stands in for EXE-07's signer.
-type receiptRing struct {
-	hmac *crypto.KeyRing
-	priv ed25519.PrivateKey
-}
-
-func (r receiptRing) SignWith(keyID string, msg []byte) (string, error) {
-	if keyID != receiptKeyID {
-		return r.hmac.SignWith(keyID, msg)
-	}
-	return hex.EncodeToString(ed25519.Sign(r.priv, append([]byte("noema/receipt/v1\n"), msg...))), nil
-}
-
-func (r receiptRing) VerifyWith(keyID string, msg []byte, sigHex string) bool {
-	if keyID == receiptKeyID {
-		return false // nothing but Outcome's checker verifies a receipt here
-	}
-	return r.hmac.VerifyWith(keyID, msg, sigHex)
-}
-
 // publicKeys is Outcome's verify-only view of Execution's keys (a stand-in for the signing_key reader, W4).
 type publicKeys map[string]receiptsig.PublicKey
 
@@ -215,6 +208,8 @@ func (p publicKeys) Lookup(_ context.Context, id string) (receiptsig.PublicKey, 
 
 // stack is Execution and Outcome wired as production is wired, around a real mock-case and a real PostgreSQL.
 type stack struct {
+	dsn     string
+	pools   map[string]*pgxpool.Pool // the tenant's own logins by power role, as the stack made them
 	admin   *pgxpool.Pool
 	clk     *tickClock
 	ctl     *controller.Controller
@@ -245,19 +240,17 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
-	receiptPub, receiptPriv, err := ed25519.GenerateKey(rand.Reader) // a random key per run
-	if err != nil {
-		t.Fatal(err)
-	}
-	ring := receiptRing{hmac: execKeys, priv: receiptPriv}
+	ring := signingtest.Ring(t, 1) // core-execution's SYNTHETIC key, version 1: receiptKeyID
+	signingtest.Register(t, admin, ring)
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
+	signers := recordsig.All(t, admin, "outcome-e2e", map[string]chain.Signer{"core-execution": ring})
+	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: pool["trust_rw"], keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: ring, ReceiptKeyID: receiptKeyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 
 	raw, err := os.ReadFile("../../../../packs/fintech_v1.json")
@@ -269,14 +262,14 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	def := pack.Definitions[caseOpened]
-	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: 5 * time.Second}
-	pubs := publicKeys{receiptKeyID: {Key: receiptPub, Status: receiptsig.Active}}
+	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: 5 * time.Second}
+	pubs := publicKeys{receiptKeyID: {Key: ring.PublicKeys()[receiptKeyID], Status: receiptsig.Active}}
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &stack{admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
+	return &stack{dsn: dsn, pools: pool, admin: admin, clk: clk, ctl: ctl, trust: trust, cases: cases, v: v, bench: newBench(t, mc), def: def, pubs: pubs,
 		request: verifier.Request{TenantID: tenant, TransactionRef: txRef, QueryableByKey: true,
 			Bindings:   map[string]string{"subject_resource": txRef, "intent_id": intentRef},
 			Definition: verifier.Definition{OutcomeID: def.OutcomeID, SuccessPredicate: def.SuccessPredicate, SettleWindowSeconds: def.SettleWindowSecs}}}

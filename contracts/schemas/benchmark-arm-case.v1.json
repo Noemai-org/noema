@@ -10,11 +10,13 @@
     },
     "case_ref": {
       "type": "string",
-      "pattern": "^arm_[0-9a-f]{16}$"
+      "pattern": "^arm_[0-9a-f]{16}$",
+      "maxLength": 128
     },
     "received_at": {
       "type": "string",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+      "maxLength": 40
     },
     "channel": {
       "type": "string",
@@ -91,7 +93,8 @@
     },
     "fixture_ref": {
       "type": "string",
-      "pattern": "^fx_arm_[0-9a-f]{16}$"
+      "pattern": "^fx_arm_[0-9a-f]{16}$",
+      "maxLength": 128
     }
   },
   "required": [

@@ -23,7 +23,7 @@ class PolicyVersionV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     policy_id: CommonV1PackId
-    version: Annotated[str, StringConstraints(pattern='^[0-9]+\\.[0-9]+$')]
+    version: Annotated[str, StringConstraints(pattern='\\A[0-9]+\\.[0-9]+\\Z')]
     status: PolicyVersionV1Status
     effective_from: CommonV1Timestamp
     published_at: CommonV1Timestamp | None = Field(default=None)

@@ -210,7 +210,8 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[A-Z][A-Z0-9_]*$"
+        "pattern": "^[A-Z][A-Z0-9_]*$",
+        "maxLength": 128
       },
       "uniqueItems": true,
       "minItems": 1,
@@ -231,7 +232,8 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        "pattern": "^[a-z][a-z0-9_]{1,63}$",
+        "maxLength": 128
       },
       "uniqueItems": true,
       "minItems": 1,
@@ -259,7 +261,8 @@
         },
         {
           "type": "string",
-          "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$"
+          "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$",
+          "maxLength": 128
         }
       ]
     },

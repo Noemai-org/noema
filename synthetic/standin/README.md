@@ -35,16 +35,17 @@ Never a global search. Identity is the principal bound by the caller's signed as
 The adapter derives the principal from the authenticated session and sends, with the runtime token, one header:
 
 ```
-X-Principal-Assertion: v1.<base64url(principal), no padding>.<expiry, unix seconds>.<hex MAC>
-MAC = HMAC-SHA-256 keyed with the principal key, over four lines (joined by "\n", no trailing newline):
-      noema-standin-principal-v1, standin, <principal>, <expiry>
+X-Principal-Assertion: v2.<base64url(principal), no padding>.<base64url(tenant), no padding>.<expiry, unix seconds>.<hex MAC>
+MAC = HMAC-SHA-256 keyed with the principal key, over five lines (joined by "\n", no trailing newline):
+      noema-standin-principal-v2, standin, <principal>, <tenant>, <expiry>
 ```
 
-The service refuses (401) an assertion that is missing, malformed, signed with another key, bound to another audience (the audience is the literal `standin`), expired, valid for more than five minutes, or naming someone who is not a principal of the load. A caller holding only the runtime token cannot change the principal. Worked vector, to check an implementation: key `principal-principal-principal-principal-0003`, principal `usr_a`, expiry `1790847660` gives `v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce` (computed with Python `hmac`, pinned in `TestTheAssertionContractMatchesThePinnedVector`).
+The service refuses (401) an assertion that is missing, malformed, signed with another key, bound to another audience (the audience is the literal `standin`), bound to a tenant other than the one this stand-in serves (`STANDIN_TENANT_ID`, ruling A135), in the old principal-only `v1` form, expired, valid for more than five minutes, or naming someone who is not a principal of the load. A caller holding only the runtime token cannot change the principal. Worked vector, to check an implementation: key `principal-principal-principal-principal-0003`, principal `usr_a`, expiry `1790847660` gives `v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42` (tenant `ten_alpha`) (computed with Python `hmac`, pinned in `TestTheAssertionContractMatchesThePinnedVector`).
 
 ## Limits (stated, not hidden)
 
-- The assertion proves that the holder of the principal key named the principal; it does not authenticate an end user by itself. The trusted adapter must mint it from the authenticated session (INV-12), and the key must be held only by that adapter. Tushe binds a principal differently; the adapter mapping absorbs that when the interface is frozen.
+- One stand-in serves one tenant (`STANDIN_TENANT_ID`, a deployment setting, not part of the load). Every read answers with `tenant_id`, and the adapter refuses an answer for another tenant. The assertion now binds the tenant, so principal ids no longer have to be unique across tenants.
+- The assertion proves that the holder of the principal key named the principal and tenant; it does not authenticate an end user by itself. The trusted adapter must mint it from the authenticated session (INV-12), and the key must be held only by that adapter. Tushe binds a principal differently; the adapter mapping absorbs that when the interface is frozen.
 - Field names are the PERD 34.4 [REC] shapes, our reading, not Tushe's. Cases stay in mock-case.
 - State is in memory: a restart empties it and the loader loads again. Evidence records the `digest`.
 - Slice 2: Compose wiring (`deploy/compose/services/standin.yml`, profiles `ci`, `bench` and `netcheck`, never `dev` or `demo`) and the connection-test matrix rows. The hostility proxy's routes to it are in `benchmark/hostility_proxy/config/routes.standin.json` (ENV-05, 6 Nov 2026; guarded against this table by a proxy test). Still to come: a cross-language drift guard for the golden file.

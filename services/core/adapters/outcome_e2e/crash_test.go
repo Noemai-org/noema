@@ -4,8 +4,6 @@ package outcomee2e_test
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"net/url"
 	"os"
 	"os/exec"
@@ -20,6 +18,8 @@ import (
 	"github.com/Noemai-org/noema/services/core/execution/bridge"
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -43,6 +43,7 @@ const (
 	envMockTok = "NOEMA_CRASH_MOCKCASE_TOKEN_FILE"
 	envGrant   = "NOEMA_CRASH_GRANT"
 	envPoint   = "NOEMA_CRASH_POINT"
+	envLabel   = "NOEMA_CRASH_LABEL"
 	childMiss  = 3 // the child came back from Execute: the point was never reached
 )
 
@@ -103,17 +104,19 @@ func TestCrashChild(t *testing.T) {
 	clk := &tickClock{now: time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)} // SYNTHETIC
 	gen := ids.New(clk, nil)
 	execKeys := crypto.NewKeyRing(map[string][]byte{execKeyID: []byte("synthetic-test-key-not-a-secret")})
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	// The Controller needs a receipt signer (noema#229), and its Record events are signed (REC-08): this is core-execution's SYNTHETIC key, the same one the parent registered.
+	// The parent derived its receipt key from its own test name (signingtest.Ring), so the child derives the same one from the name the parent passes.
+	ring, err := signingtest.RingAt(t.TempDir(), os.Getenv(envLabel), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
+	led := &ledger.Ledger{Pool: execPool, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: recordsig.Local("outcome-e2e", map[string]chain.Signer{"core-execution": ring}, "core-trust")}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{grant: createPlan()}}
-	ctl := &controller.Controller{Clock: clk, Keys: receiptRing{hmac: execKeys, priv: priv}, ReceiptKeyID: receiptKeyID, Grants: led, Bind: trust,
+	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust,
 		Reval: bridge.CaseRevalidator{Case: cases}, Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 	ctl.Boundary = func(p controller.Point) error {
 		if p == point {
@@ -135,7 +138,7 @@ func killAt(t *testing.T, st *stack, mc mockCase, grant string, kp killPoint) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCrashChild$", "-test.count=1")
 	cmd.Env = append(os.Environ(), envChild+"=1", envDSN+"="+st.admin.Config().ConnString(), envMockURL+"="+mc.URL, envMockTok+"="+mc.TokenFile,
-		envGrant+"="+grant, envPoint+"="+kp.name)
+		envGrant+"="+grant, envPoint+"="+kp.name, envLabel+"="+t.Name())
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("%s: the child exited normally; it must die at the point:\n%s", kp.name, out)
