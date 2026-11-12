@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/inputgateway"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -79,6 +80,7 @@ type world struct {
 	clk   *clock.Manual
 	gen   *ids.Generator
 	fail  *failingIDs
+	sign  map[string]chain.Signer // one signer per emitter (REC-08): an emitter with no signer cannot append
 	edge  map[string]*pgxpool.Pool
 	read  map[string]*pgxpool.Pool
 }
@@ -92,6 +94,7 @@ func newWorld(t *testing.T) *world {
 	w := &world{t: t, admin: admin, dsn: dsn, clk: clock.NewManual(time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)), edge: map[string]*pgxpool.Pool{}, read: map[string]*pgxpool.Pool{}}
 	w.gen = ids.New(w.clk, nil)
 	w.fail = &failingIDs{inner: w.gen}
+	w.sign = recordsig.All(t, admin, "inputgateway", nil)
 	for _, id := range []string{tenantA, tenantB} {
 		if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, id); err != nil {
 			t.Fatal(err)
@@ -107,7 +110,7 @@ func (w *world) gateway(tenant string, sp *spy) *inputgateway.Gateway {
 	w.t.Helper()
 	sp.w = w
 	g, err := inputgateway.New(inputgateway.Config{
-		Recorder: &inputgateway.RecordRecorder{Pool: w.edge[tenant], Appender: &chain.Appender{Clock: w.clk, IDs: w.fail}, Timeout: 5 * time.Second},
+		Recorder: &inputgateway.RecordRecorder{Pool: w.edge[tenant], Appender: &chain.Appender{Clock: w.clk, IDs: w.fail, Signers: w.sign}, Timeout: 5 * time.Second},
 		Index:    &inputgateway.RecordIndex{Pool: w.read[tenant], Clock: w.clk, Window: 24 * time.Hour, Timeout: 5 * time.Second},
 		Start:    sp.Start,
 		IDs:      w.gen,

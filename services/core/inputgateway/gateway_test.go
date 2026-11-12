@@ -314,7 +314,7 @@ func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
 	w := newWorld(t)
 	sp := &spy{w: w}
 	good := inputgateway.Config{
-		Recorder: &inputgateway.RecordRecorder{Pool: w.edge[tenantA], Appender: &chain.Appender{Clock: w.clk, IDs: w.gen}, Timeout: time.Second},
+		Recorder: &inputgateway.RecordRecorder{Pool: w.edge[tenantA], Appender: &chain.Appender{Clock: w.clk, IDs: w.gen, Signers: w.sign}, Timeout: time.Second},
 		Index:    &inputgateway.RecordIndex{Pool: w.read[tenantA], Clock: w.clk, Window: time.Hour, Timeout: time.Second},
 		Start:    sp.Start, IDs: w.gen, MaxBody: 1024,
 	}
