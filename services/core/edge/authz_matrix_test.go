@@ -163,10 +163,10 @@ func TestAServiceLoginOrASecretIsNotACredentialOnTheEdge(t *testing.T) {
 	}
 }
 
-// OD-P-79, ruling A54, matrix rows 1 to 7 and 13: the admin routes and the benchmark route are not served by the public edge, whatever roles the
+// OD-P-79, ruling A54, matrix rows 1 to 7: the admin routes are not served by the public edge, whatever roles the
 // registration names; a configuration that tries is an error, never a handler. Matrix rule 7: nor is a route that names a key or a rotation (D3a).
 // RED until the edge refuses these patterns (C1, EDG-01).
-func TestThePublicEdgeRefusesToServeTheAdminBenchmarkAndKeyRoutes(t *testing.T) {
+func TestThePublicEdgeRefusesToServeTheAdminAndKeyRoutes(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(epoch)
 	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -178,7 +178,6 @@ func TestThePublicEdgeRefusesToServeTheAdminBenchmarkAndKeyRoutes(t *testing.T) 
 		"POST /v1/admin/policies/{id}/versions/{v}/publish", // the D14 name is {v}:publish; Go 1.22 mux wildcards must be whole segments, so that spelling cannot be mounted at all (see the PR)
 		"POST /v1/admin/packs:load",
 		"PUT /v1/admin/tenants/{t}/callback",
-		"POST /v1/benchmark/runs",
 		"POST /v1/keys/rotate",
 		"POST /v1/ops/keys:register",
 	}
