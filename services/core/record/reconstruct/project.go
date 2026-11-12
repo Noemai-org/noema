@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // The twelve sections, in the order of REQ-AUD-003 (contracts/schemas/reconstruction.v3.json).
@@ -119,6 +120,7 @@ const (
 // Limits and patterns of reconstruction.v3.json and common.v1.json. A fact outside them is an error, never served.
 const (
 	maxSafeInt      = 1<<53 - 1
+	maxServedInt    = 9999 // an integer fact has at most four digits (A154): a number cannot be masked, so a longer one is refused
 	maxFactString   = 200
 	maxFactList     = 50
 	maxClaimText    = 300
@@ -132,7 +134,11 @@ var (
 	resourceRe  = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
-	longDigits  = regexp.MustCompile(`\p{Nd}{5,}`)
+	// digitRun is a run of digits, each pair of neighbours joined by any number of spaces, dots, hyphens or zero-width characters (the Security Reviewer's rule on noema#492: a
+	// number split by a separator is still the number). A comma ends a run, so "20,000,000" (groups of three) is left alone.
+	digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}.\-\x{200B}-\x{200D}\x{2060}\x{FEFF}]*\p{Nd})*`)
+	// mintedBody is the body of an ID the core minted: 26 Crockford base32 characters, the first 0 to 7 (a ULID).
+	mintedBody = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
 	// idShapes is the contract shape of each ID fact the projection serves as written (common.v1; policy_id is a pack ID). An `_id` fact is exempt from masking
 	// only when its value has the shape of its own key; any other value, and any `_id` key not listed, is masked like every scalar (Codex P1 on noema#492, A154).
@@ -148,7 +154,6 @@ var (
 		"verdict_id":          regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
 		"watch_id":            regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
 		"recovery_request_id": regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
-		"policy_id":           packIDRe,
 	}
 )
 
@@ -161,9 +166,29 @@ const keepDigits = 4
 // as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked
 // is unchanged.
 func mask(s string) string {
-	return longDigits.ReplaceAllStringFunc(s, func(run string) string {
-		digits := []rune(run)
-		return strings.Repeat("*", len(digits)-keepDigits) + string(digits[len(digits)-keepDigits:])
+	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
+		total := 0
+		for _, r := range run {
+			if unicode.IsDigit(r) {
+				total++
+			}
+		}
+		if total <= keepDigits {
+			return run
+		}
+		keep := total - keepDigits // digits to hide; the separators stay where they are
+		var out strings.Builder
+		for _, r := range run {
+			if unicode.IsDigit(r) {
+				if keep > 0 {
+					out.WriteRune('*')
+					keep--
+					continue
+				}
+			}
+			out.WriteRune(r)
+		}
+		return out.String()
 	})
 }
 
@@ -204,7 +229,7 @@ func fact(key string, v any) (any, error) {
 	case "candidate_count":
 		return intFact(key, v, 0, maxCandidates)
 	case "attempt":
-		return intFact(key, v, 1, maxSafeInt)
+		return intFact(key, v, 1, maxServedInt)
 	case "text":
 		s, ok := v.(string)
 		if !ok || s == "" || len([]rune(s)) > maxClaimText {
@@ -230,16 +255,30 @@ func fact(key string, v any) (any, error) {
 		if len([]rune(x)) > maxFactString {
 			return nil, projErr("%s is longer than %d characters", key, maxFactString)
 		}
-		if re, ok := idShapes[key]; ok && re.MatchString(x) {
+		if re, ok := idShapes[key]; ok && re.MatchString(x) && (mintedID(x) || mask(x) == x) {
 			return x, nil // an ID cited by other facts, in the shape of its contract (PERD 32.3 prefixes); anything else is masked
 		}
 		return mask(x), nil
 	case json.Number:
-		return intFact(key, x, 0, maxSafeInt)
+		return intFact(key, x, 0, maxServedInt)
 	case []any:
-		return listFact(key, x)
+		list, err := listFact(key, x)
+		if err != nil {
+			return nil, err
+		}
+		for i, item := range list {
+			list[i] = mask(item) // a list fact is text like any scalar; the references of disclosed_refs have their own branch and are checked by pattern
+		}
+		return list, nil
 	}
 	return nil, projErr("%s is not a scalar or a list of strings", key)
+}
+
+// mintedID is true for an ID the core minted: a lower-case prefix, an underscore and the 26 Crockford characters of a ULID. Such an ID may hold a run of digits (about one in
+// fifteen does), and the reader matches on it, so it is served as written; any other ID that holds a long run of digits is masked.
+func mintedID(id string) bool {
+	_, body, ok := strings.Cut(id, "_")
+	return ok && mintedBody.MatchString(body)
 }
 
 func enumFact(key string, v any, set map[string]bool) (any, error) {
@@ -529,5 +568,5 @@ func timelineText(ev stored) string {
 	if r := []rune(text); len(r) > maxTimelineText {
 		text = string(r[:maxTimelineText])
 	}
-	return text
+	return mask(text)
 }
