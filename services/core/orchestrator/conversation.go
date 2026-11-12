@@ -12,7 +12,10 @@ import (
 // inputReceived is the Record event type the input gateway writes when it admits a turn (PERD 28.2, entry of RECEIVED).
 const inputReceived = "INPUT_RECEIVED"
 
-// recordEventID is the pattern of a Record event ID (common.v1 RecordEventId). \z, not $, so a trailing newline does not match (A138).
+// requestID is the pattern of a request ID (common.v1 RequestId) and recordEventID that of a Record event ID (common.v1 RecordEventId). \A and \z, not ^ and $, so
+// text before or a trailing newline does not match (A138).
+var requestID = regexp.MustCompile(`\Areq_[0-9A-Za-z]{2,32}\z`)
+
 var recordEventID = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
 
 // Runner walks one investigation through the PERD 28.2 table (STM-01). It never sets a state itself: every move is a Command applied by the Machine, so an arrow that is
@@ -73,19 +76,19 @@ func (r *Runner) RunRead(ctx context.Context, s Session, t Turn) (Result, error)
 	if s.TenantID == "" || s.PrincipalID == "" {
 		return Result{}, ErrNoSession
 	}
-	if t.Text == "" || !plainID(t.InvestigationID) || !plainID(t.CorrelationID) {
+	if t.Text == "" || !plainID(t.InvestigationID) || !plainID(t.CorrelationID) || !requestID.MatchString(t.RequestID) {
 		return Result{}, ErrBadTurn
 	}
 	if !recordEventID.MatchString(t.InputReceivedRef) {
 		return Result{}, ErrNoInputReceived
 	}
-	// The shape proves nothing: the Record must confirm the event, and that it is this turn's input (tenant, principal and correlation), before anything runs.
+	// The shape proves nothing: the Record must confirm the event, and that it is this turn's input (tenant, principal, correlation and request ID), before anything runs.
 	a, err := r.p.Admissions.Lookup(ctx, s, t.InputReceivedRef)
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: lookup: %w", ErrNoInputReceived, err)
 	}
-	// The session's tenant and principal and the turn's correlation are non-empty here, so an event with an empty field cannot match.
-	if a.EventType != inputReceived || a.TenantID != s.TenantID || a.PrincipalID != s.PrincipalID || a.CorrelationID != t.CorrelationID {
+	// The session's tenant and principal and the turn's correlation and request ID are non-empty here, so an event with an empty field cannot match.
+	if a.EventType != inputReceived || a.TenantID != s.TenantID || a.PrincipalID != s.PrincipalID || a.CorrelationID != t.CorrelationID || a.RequestID != t.RequestID {
 		return Result{}, ErrNoInputReceived
 	}
 	u := &run{ctx: ctx, r: r, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}

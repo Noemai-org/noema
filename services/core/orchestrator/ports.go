@@ -18,7 +18,9 @@ type Session struct{ TenantID, PrincipalID string }
 // Turn is one admitted customer turn. The input gateway has bounded and validated the text; the orchestrator takes it as given and only requires that it is present.
 // InputReceivedRef is the Record event ID of the INPUT_RECEIVED event the input gateway wrote for this turn (A161): the orchestrator never writes that event, and it
 // refuses a turn that does not name one.
-type Turn struct{ InvestigationID, CorrelationID, Text, InputReceivedRef string }
+// RequestID is the client's request ID of this turn (common.v1 RequestId); the admitted event must carry the same one, so an older input of the same actor and
+// conversation cannot be paired with different text.
+type Turn struct{ InvestigationID, CorrelationID, Text, InputReceivedRef, RequestID string }
 
 // InterpretationKind is what the model service's compiled intent amounts to after the schema gate.
 type InterpretationKind string
@@ -83,7 +85,7 @@ type Recorder interface {
 
 // Admission is what the Record holds for one event the input gateway wrote: its type and the identity it names. The port fills it from the stored event, reading as the
 // session's tenant; the runner compares every field itself.
-type Admission struct{ EventType, TenantID, PrincipalID, CorrelationID string }
+type Admission struct{ EventType, TenantID, PrincipalID, CorrelationID, RequestID string }
 
 // Admissions finds the recorded event a turn's InputReceivedRef names (A161). It reads the Record as the session's tenant (row-level security), so an event of another
 // tenant is not found. An event that does not exist is an error, not an empty Admission.

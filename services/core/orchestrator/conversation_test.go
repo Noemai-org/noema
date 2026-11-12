@@ -140,9 +140,10 @@ func TestEveryPortSeesTheSessionAndAnIncompleteSessionIsRefusedFirst(t *testing.
 func TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns(t *testing.T) {
 	for name, tr := range map[string]orchestrator.Turn{
 		"no investigation": {CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
-		"no request id":                 {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
-		"a request id that is not one":  {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA\n11"},
-		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
+		"no request id":                    {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
+		"a request id with text before it": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "xreq_AA11"},
+		"a request id that is not one":     {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA\n11"},
+		"a control character in the id":    {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
 	} {
 		f := happy()
 		_, err := runner(t, f).RunRead(context.Background(), sess, tr)
