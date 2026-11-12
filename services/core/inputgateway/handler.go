@@ -4,7 +4,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
 
+	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
@@ -64,11 +66,22 @@ func (g *Gateway) write(w http.ResponseWriter, status int, body map[string]any) 
 	_, _ = w.Write(b)
 }
 
-// fail writes the error envelope of errors.v2. It carries a code and a fixed sentence, never a part of the input.
-func (g *Gateway) fail(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message string, retryable bool) {
-	corr, err := g.ids.ID("corr")
-	if err != nil {
-		corr = "corr_unavailable"
+// noCorrelationID stands in, as in the edge's session middleware, when the response carries no usable correlation ID. It has the contract's shape.
+const noCorrelationID = "corr_NONE"
+
+var correlationShape = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+
+// requestCorrelation is the correlation ID of this request: the one the edge's session middleware already put on the response header (PERD 39.1), so that the error
+// body, the header and the logs agree. A value that is absent or not of the contract's shape is never echoed.
+func requestCorrelation(w http.ResponseWriter) string {
+	if c := w.Header().Get(session.CorrelationHeader); correlationShape.MatchString(c) {
+		return c
 	}
-	g.write(w, status, map[string]any{"error": map[string]any{"code": string(code), "message": message, "retryable": retryable, "correlation_id": corr}})
+	return noCorrelationID
+}
+
+// fail writes the error envelope of errors.v2. It carries a code and a fixed sentence, never a part of the input, and the request's own correlation ID: it mints none
+// (the investigation's correlation, which the success body reports, is another thing).
+func (g *Gateway) fail(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message string, retryable bool) {
+	g.write(w, status, map[string]any{"error": map[string]any{"code": string(code), "message": message, "retryable": retryable, "correlation_id": requestCorrelation(w)}})
 }

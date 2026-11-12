@@ -172,3 +172,11 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Exact next step: EL's `Start` seam in `compose.go` calls `investigations.Store.Start` (noema#490) and then the runner, and treats `created=false` as "already started".
 - Open questions (owner): A169 (the Record lookup binds the turn ID) is noema#465's, EL.
 - Do not touch: `inputgateway/record.go` (the events are unchanged).
+
+# Session 2026-11-12 (later still) · UND-02 core · review P2 on noema#466
+
+- **Finding:** `Handler.fail` minted a second correlation ID for the error body (and fell back to `corr_unavailable`), so the body could disagree with the request's own correlation on the response header.
+- **Fix:** the error body reuses the correlation ID the edge middleware put on the response header, falls back to the edge's own `corr_NONE` when it is absent or malformed (never echoes it), and mints nothing. The success body's `correlation_id` stays the investigation's, minted by the gateway: adopting a client-supplied header as an investigation's chain would let a client choose which chain an input joins.
+- **Tests:** `handler_correlation_test.go` (no database): four failure paths under a simulated middleware, and a missing, malformed and injected header. Red locally before the fix (the body named `corr_unavailable`), then green; three hand mutations (shape check off, empty fallback, header ignored) each red. One push for the round, with the test and the fix together (A176).
+- Debt: none. Conflicts raised: none.
+
