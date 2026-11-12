@@ -1,7 +1,7 @@
--- 0022: the admitted-intent store (ruling A151 of the Architect, 12 Nov 2026; REQ-INT-001, REQ-SEC-004, REQ-AUD-001; INV-11, INV-12, INV-17; A136).
+-- 0026: the admitted-intent store (ruling A151 of the Architect, 12 Nov 2026; REQ-INT-001, REQ-SEC-004, REQ-AUD-001; INV-11, INV-12, INV-17; A136).
 -- Forward-only: this file is never edited after merge. No CREATE ROLE here (TestNoMigrationAfter0001CreatesARole).
--- Number 0022 is the Architect's in A151. The ledger also gave 0022 to the evidence-set binding of A119 (noema#410, closed, owed to EVD-02); the Steward asked the
--- Architect which keeps it (docs#157, section 2). Whichever merges later renumbers (A34). Both belong to C2.
+-- The number is 0026 on C1's migration table (noema#183, ruling A167): 0022 stays reserved for the evidence-set binding of A119 (EVD-02, noema#410 closed unmerged),
+-- 0023 is noema#472 (A153/A164), 0024 noema#478, 0025 noema#490. Nobody renumbers except on that table.
 --
 -- What it holds: every Intent Object the second schema gate admitted (understanding.Gate, status VALIDATED, identity overwritten from the session), one row per version, with
 -- the hash the gate computed. Trust reads the intent by reference and Execution reads the latest hash of an investigation at E3 (noema#447, noema#448). Only the

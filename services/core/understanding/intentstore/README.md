@@ -8,7 +8,7 @@ The admitted-intent store (Architect ruling A151). It keeps every Intent Object 
 
 | Piece | What it does |
 |---|---|
-| `migrations/0022_admitted_intent.sql` | Table `admitted_intent` (key `tenant_id, intent_id, version`), insert-only (`reject_mutation` on update, delete and truncate), row-level security with `FORCE`, a tenant guard on insert, grants: INSERT and SELECT to `orchestrator_rw`, SELECT to `trust_rw` and `execution_rw`, nothing to anyone else. Also `GRANT EXECUTE ON FUNCTION decision_login_tenant() TO orchestrator_rw` (its policies need it). |
+| `migrations/0026_admitted_intent.sql` | Table `admitted_intent` (key `tenant_id, intent_id, version`), insert-only (`reject_mutation` on update, delete and truncate), row-level security with `FORCE`, a tenant guard on insert, grants: INSERT and SELECT to `orchestrator_rw`, SELECT to `trust_rw` and `execution_rw`, nothing to anyone else. Also `GRANT EXECUTE ON FUNCTION decision_login_tenant() TO orchestrator_rw` (its policies need it). |
 | `Store.Save(ctx, actor, Admitted) (Ref, error)` | One transaction: `INTENT_ADMITTED` (as `core-workflows`, the orchestrator login's emitter), then the row. If either fails neither stands (REQ-AUD-001, EC-E16). Payload keys: `intent_node`, `intent_id`, `version`, `intent_hash`; never the text of an input. |
 | `Reader.Get(intent_id, version)` and `Reader.Latest(correlation_id)` | Read as the reader's own tenant login. Another tenant's row is `ErrNotFound`, not an error that confirms it exists. |
 
@@ -22,7 +22,7 @@ A document that disagrees with its columns (intent id, tenant, correlation, vers
 
 - `intent_hash` is stored as given by the gate. The form of the hash (JCS refuses non-integer numbers, intents carry fractional confidences) is the open question on noema#454; the gate fails closed with `HASH_UNAVAILABLE` until it is answered. This store does not recompute it.
 - The tenant is bound twice (a `BEFORE INSERT` guard and the RLS `WITH CHECK`). Each alone is hidden by the other in a test; removing both is caught.
-- Number 0022 is the Architect's in A151. The ledger also gave 0022 to the evidence-set binding of A119 (EVD-02); whichever merges later renumbers (A34).
+- The number is 0026 on C1's migration table (noema#183, ruling A167). 0022 stays reserved for the evidence-set binding of A119 (EVD-02) if noema#410 returns.
 - No wiring in `cmd/core`: the composition root is EL's.
 
 ## Run its tests

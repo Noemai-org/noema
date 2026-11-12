@@ -50,7 +50,7 @@ var (
 )
 
 // Store saves admitted intents. Its Pool must log in as the tenant's own orchestrator login: the database, not this code, binds the row and the Record event to the
-// tenant and to that power's emitter (migrations 0004, 0022).
+// tenant and to that power's emitter (migrations 0004, 0026).
 type Store struct {
 	Pool     *pgxpool.Pool
 	Appender *chain.Appender
