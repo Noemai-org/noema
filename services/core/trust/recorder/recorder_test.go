@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -53,10 +54,11 @@ func ctx(t testing.TB) context.Context {
 	return c
 }
 
-// newAppender is the one place this package builds a chain.Appender. When noema#263 (REC-08) lands, Append requires a signing key for the emitter core-trust
-// and this is the only line to change: add Signers from recordsig.For for "core-trust" here (second human review of noema#237, C2).
-func newAppender(clk clock.Clock, idg chain.IDSource) *chain.Appender {
-	return &chain.Appender{Clock: clk, IDs: idg}
+// newAppender is the one place this package builds a chain.Appender. Since noema#263 (REC-08) Append requires a signing key for the emitter, so the fixture signer
+// for core-trust comes from internal/recordsig (SYNTHETIC key, made per test).
+func newAppender(t testing.TB, admin *pgxpool.Pool, clk clock.Clock, idg chain.IDSource) *chain.Appender {
+	t.Helper()
+	return &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")}
 }
 
 func newWorld(t *testing.T) *world {
@@ -82,7 +84,7 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
+	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
 	return &world{admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 
@@ -519,7 +521,7 @@ func TestAFailedDecisionMadeAppendFailsTheWriteAndLeavesNothing(t *testing.T) {
 	w := newWorld(t)
 	clk := clock.NewManual(epoch)
 	base := ids.New(clk, rand.New(rand.NewSource(3)))
-	w.w.Appender = newAppender(clk, &failingIDs{inner: base, prefix: "recev", nth: 1})
+	w.w.Appender = newAppender(t, w.admin, clk, &failingIDs{inner: base, prefix: "recev", nth: 1})
 	b := evaluated(t)
 	res, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true)
 	if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), "append DECISION_MADE") {
@@ -535,7 +537,7 @@ func TestAFailedGrantIssuedAppendFailsTheWriteAndLeavesNothing(t *testing.T) {
 	w := newWorld(t)
 	clk := clock.NewManual(epoch)
 	base := ids.New(clk, rand.New(rand.NewSource(3)))
-	w.w.Appender = newAppender(clk, &failingIDs{inner: base, prefix: "recev", nth: 2}) // the second append is the first GRANT_ISSUED
+	w.w.Appender = newAppender(t, w.admin, clk, &failingIDs{inner: base, prefix: "recev", nth: 2}) // the second append is the first GRANT_ISSUED
 	b := evaluated(t)
 	_, err := w.write(t, request(t, decision(t, decide.Allow, b), b, step(t)), true)
 	if !errors.Is(err, errBoom) || !strings.Contains(err.Error(), "append GRANT_ISSUED 0") {
@@ -556,7 +558,7 @@ func TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing(t *testing.T) 
 	clk := clock.NewManual(epoch)
 	dup := *w.w
 	dup.IDs = fixedIDs{inner: ids.New(clk, rand.New(rand.NewSource(4))), prefix: "dec", id: "dec_FIXEDDUP"}
-	dup.Appender = newAppender(clk, ids.New(clk, rand.New(rand.NewSource(5))))
+	dup.Appender = newAppender(t, w.admin, clk, ids.New(clk, rand.New(rand.NewSource(5))))
 	w.w = &dup
 	if _, err := w.write(t, first, true); err != nil { // the first use of the fixed decision id succeeds
 		t.Fatal(err)

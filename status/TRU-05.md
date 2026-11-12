@@ -87,3 +87,14 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Open questions (owner): C1's non-blocking notes 2 to 5 on noema#237 (row counts after refusals, a WAIT/CONFIRM/UNKNOWN record, an empty `policy_id` in the DECISION_MADE payload, idempotency of a retried `Write`): the caller or workflow layer owns idempotency (TRU-08 or EXE-06), EL to confirm which.
 - Files to read first: `services/core/trust/recorder/recorder.go`, `recorder_test.go`.
 - Do not touch: `trust/grants` signing (noema#337).
+
+## Session 2026-11-12 18:00 WAT · TRU-05 (fixture signers, merge main)
+
+## Session summary
+- What changed: merged `main` (clean; `#263` REC-08 and later are on `main`); `newAppender` in `trust/recorder/recorder_test.go` now takes the fixture signer for `core-trust` from `internal/recordsig` (SYNTHETIC key, made per test), as the second human review asked. Test file only; `recorder.go`, `doc.go` and `trust/grants/record.go` are unchanged.
+- Own diff against `main`: 5 files, +925. Patch-id of the non-test sources before and after the merge: `1d17245f8cd62f81`.
+- Tests: the existing recorder tests now run with a signed appender. The tests that append signed Record events cannot run on my machine (no `pgsodium`); CI is their first run at this head.
+
+## Pre-work for the next agent
+- Exact next step: none for this PR once reviewed; CI at the head must be read before READY.
+- Do not touch: `Write`'s order (Record-first).
