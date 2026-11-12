@@ -69,6 +69,9 @@ func (t *MaskingLimitsV1) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &a); err != nil {
 		return fmt.Errorf("contracts: MaskingLimitsV1: %w", err)
 	}
+	if a.MaxUnmaskedDigitRun != 4 {
+		return fmt.Errorf("contracts: MaskingLimitsV1.max_unmasked_digit_run: must be %s", "4")
+	}
 	_ = raw
 	*t = MaskingLimitsV1(a)
 	return nil

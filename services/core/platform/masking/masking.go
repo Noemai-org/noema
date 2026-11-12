@@ -16,11 +16,12 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
-// keptDigits is how many digits a mask keeps (AGENTS section 7: mask to the last four; PERD 31.2). It is the contract's minimum, not a policy value.
+// keptDigits is how many digits a mask keeps (AGENTS section 7: mask to the last four; PERD 31.2).
 const keptDigits = 4
 
-// maxRun is the contract's maximum for max_unmasked_digit_run.
-const maxRun = 32
+// contractValue is the one value masking-limits.v1 admits for max_unmasked_digit_run: the schema's const, which Load repeats because the generated type does not check
+// values. A154 as corrected caps every outward surface at four, so a document with a looser value is not the contract.
+const contractValue = 4
 
 // Error is the typed error of Load: the document is not exactly masking-limits.v1. Reason never carries the document.
 type Error struct {
@@ -44,7 +45,7 @@ func refuse(reason string, cause error) *Error { return &Error{Reason: reason, E
 type Limits struct{ maxUnmasked int }
 
 // Loaded reports whether the Limits came from Load.
-func (l Limits) Loaded() bool { return l.maxUnmasked >= keptDigits }
+func (l Limits) Loaded() bool { return l.maxUnmasked == contractValue }
 
 // MaxUnmaskedRun is the longest run of digits left unmasked. It is 0 for a Limits that was not loaded; check Loaded first.
 func (l Limits) MaxUnmaskedRun() int { return l.maxUnmasked }
@@ -78,8 +79,8 @@ func Load(r io.Reader) (Limits, error) {
 	if l := string(d.Label); l != "SYNTHETIC" && l != "VALIDATED" {
 		return Limits{}, refuse("label is not allowed", nil)
 	}
-	if d.MaxUnmaskedDigitRun < keptDigits || d.MaxUnmaskedDigitRun > maxRun {
-		return Limits{}, refuse("max_unmasked_digit_run is out of range", nil)
+	if d.MaxUnmaskedDigitRun != contractValue {
+		return Limits{}, refuse("max_unmasked_digit_run is not the contract's value", nil)
 	}
 	return Limits{maxUnmasked: int(d.MaxUnmaskedDigitRun)}, nil
 }

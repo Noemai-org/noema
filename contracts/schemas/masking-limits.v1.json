@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/masking-limits.v1.json",
   "title": "Masking limits",
-  "description": "The longest run of digits that may appear unmasked, for one pack, as data (Architect ruling A154 as corrected, relayed and not yet committed; PERD 31.2 check 4 and the error-scanner requirement: no digit run longer than 4). One source for the core's redactor, the explanation validator and the error-scanner test, and for the model service's redactor (AGENT-16: agents do not set thresholds, so no number lives in code). A run longer than this is masked to its last four digits, so the value is never below 4. Typed IDs, RFC 3339 timestamps and number-typed structured fields are exempt by type, not by this value (the list is the Security Reviewer's, noema#457). SYNTHETIC configuration (AGENT-25). Changing the value is a pack change reviewed by the Founders.",
+  "description": "The longest run of digits that may appear unmasked, for one pack, as data (Architect ruling A154 as corrected, relayed and not yet committed; PERD 31.2 check 4 and the error-scanner requirement: no digit run longer than 4). One source for the core's redactor, the explanation validator and the error-scanner test, and for the model service's redactor (AGENT-16: agents do not set thresholds, so no number lives in code). The ruling caps every outward surface at four, so the contract admits exactly 4: a longer run is masked to its last four digits, and no consumer can validate a looser policy. Typed IDs, RFC 3339 timestamps and number-typed structured fields are exempt by type, not by this value (the list is the Security Reviewer's, noema#457). SYNTHETIC configuration (AGENT-25). A change of value is a new major version of this contract and a Founder decision.",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -24,10 +24,9 @@
       ]
     },
     "max_unmasked_digit_run": {
-      "description": "The longest run of digits left unmasked. A longer run is masked to its last four digits, so this is at least 4.",
+      "description": "The longest run of digits left unmasked: exactly 4, the digits a mask keeps (A154 as corrected).",
       "type": "integer",
-      "minimum": 4,
-      "maximum": 32
+      "const": 4
     }
   },
   "required": [

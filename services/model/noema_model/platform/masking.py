@@ -15,8 +15,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-KEPT_DIGITS = 4  # how many digits a mask keeps: the contract's minimum, not a policy value
-_MAX_RUN = 32  # the contract's maximum
+KEPT_DIGITS = 4  # how many digits a mask keeps
+CONTRACT_VALUE = 4  # the one value masking-limits.v1 admits (its const; A154 as corrected caps every outward surface at four)
 _PACK_ID = re.compile(r"\A[a-z][a-z0-9]*\Z")
 
 
@@ -25,7 +25,7 @@ class MaskingLimitsError(ValueError):
 
 
 def _whole_number(value: object) -> bool:
-    return type(value) is int and KEPT_DIGITS <= value <= _MAX_RUN
+    return type(value) is int and value == CONTRACT_VALUE
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +34,7 @@ class MaskingLimits:
 
     def __post_init__(self) -> None:
         if not _whole_number(self.max_unmasked_run):
-            raise MaskingLimitsError("max_unmasked_digit_run is out of range")
+            raise MaskingLimitsError("max_unmasked_digit_run is not the contract's value")
 
     @property
     def min_masked_run(self) -> int:

@@ -37,8 +37,8 @@ def max_unmasked_digit_run(path: str) -> int:
     if not isinstance(doc["pack_id"], str) or not re.match(r"\A[a-z][a-z0-9]*\Z", doc["pack_id"]):
         raise ValueError("masking limits: pack_id does not match the contract")
     value = doc["max_unmasked_digit_run"]
-    if type(value) is not int or not 4 <= value <= 32:
-        raise ValueError("masking limits: max_unmasked_digit_run is out of range")
+    if type(value) is not int or value != 4:  # the contract's const (A154 as corrected)
+        raise ValueError("masking limits: max_unmasked_digit_run is not the contract's value")
     return value
 
 

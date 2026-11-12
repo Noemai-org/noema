@@ -29,3 +29,7 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 - Exact next step: after noema#457 merges, install its redactor with `masking.Limits.MinMaskedRun()`; after a decision re-freezes the harness configs, build the harness `Redactor` with `Redactor.from_limits`.
 - Do not touch: `benchmark/decisions/harness-*.json` without a decision record.
 
+
+### Update 2026-11-12 · reviewer P1 on noema#468 (the schema must not accept a looser policy)
+- `masking-limits.v1` now admits exactly 4 (`const`), not 4 to 32: A154 as corrected caps every outward surface at four, and a range let another consumer validate a looser policy. The Go and Python loaders and the scanner reader repeat the const because generated types do not check values. A different value is a new major version of the contract and a Founder decision. Tests first at `9eae9478` (red for 5, 6, 8 and 32).
+- Consequence for the mutation list: the validator or scanner "hard-coding 4" is now an equivalent mutant (the contract guarantees 4), so the tests that used a limit of 6 were removed; the refusals of 5, 6, 8, 32 and 33 replace them.

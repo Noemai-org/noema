@@ -2,5 +2,5 @@
   "schema_version": "1.0",
   "pack_id": "fin",
   "label": "SYNTHETIC",
-  "max_unmasked_digit_run": 33
+  "max_unmasked_digit_run": 5
 }

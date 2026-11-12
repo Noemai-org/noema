@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
-from pydantic import ConfigDict, Field, StringConstraints
+from typing import Annotated, Literal
+from pydantic import ConfigDict, StringConstraints
 from ._base import ContractModel
 
 class MaskingLimitsV1Label(StrEnum):
@@ -28,7 +28,7 @@ class MaskingLimitsV1(ContractModel):
     schema_version: MaskingLimitsV1SchemaVersion
     pack_id: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\Z')]
     label: MaskingLimitsV1Label
-    max_unmasked_digit_run: Annotated[int, Field(ge=4, le=32)]
+    max_unmasked_digit_run: Literal[4]
 
 
 MaskingLimitsV1.model_rebuild()
