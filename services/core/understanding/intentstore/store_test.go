@@ -219,6 +219,11 @@ func TestTheDatabaseRefusesARowThatBreaksItsOwnRules(t *testing.T) {
 		"a document with another supersedes": func() error {
 			return insert(with(v2, func(m map[string]any) { m["supersedes"] = "int_01J9X3@7" }), nil, "orchestrator_rw", tenantA)
 		},
+		"a version 2 that supersedes another version, column and document agreeing": func() error {
+			a := v2
+			a.Supersedes = "int_01J9X3@7"
+			return insert(with(a, func(m map[string]any) { m["supersedes"] = "int_01J9X3@7" }), func(m map[string]any) { m["supersedes"] = "int_01J9X3@7" }, "orchestrator_rw", tenantA)
+		},
 		"a version 1 that supersedes": func() error {
 			a := admitted(tenantA, "int_o8", 1, "corr_c8")
 			a.Supersedes = "int_o8@0"
