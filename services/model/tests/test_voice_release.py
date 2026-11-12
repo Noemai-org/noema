@@ -14,6 +14,7 @@ import pytest
 
 from noema_model.providers.speech.base import (
     AudioChunk,
+    AudioCodec,
     FinalTranscript,
     PartialTranscript,
     SpeechEvent,
@@ -232,3 +233,85 @@ def test_a_second_cancellation_does_not_cut_the_release_short() -> None:
         return source.closed  # at the moment the cancellation arrives
 
     assert run(scenario())
+
+
+# ---- Codex on #200 and #218: invalid audio closes the source; a read that resists cancellation does not leave the source open for good --------------
+
+
+def _chunk_with(codec: AudioCodec, data: bytes) -> AudioChunk:
+    return AudioChunk(0, codec, 16000, data)
+
+
+@pytest.mark.parametrize("bad", [
+    _chunk_with(AudioCodec.OPUS, b"\x00\x01"),  # not decoded PCM
+    _chunk_with(AudioCodec.PCM_S16LE, b""),  # empty
+    _chunk_with(AudioCodec.PCM_S16LE, b"\x00\x01\x02"),  # not whole 16-bit samples
+])
+def test_audio_that_fails_validation_closes_the_source_and_ends_the_gate(bad: AudioChunk) -> None:
+    source = Source([bad, *loud_then_silent()])
+    gate = until_end_of_speech(source.stream(), EndpointDetector(VAD))
+
+    async def scenario() -> bool:
+        with pytest.raises(ValueError):
+            await gate.__anext__()
+        assert source.closed  # a consumer iterating the gate directly has no other cleanup
+        with pytest.raises(StopAsyncIteration):
+            await gate.__anext__()  # and the gate is not usable after the error
+        return True
+
+    assert run(scenario())
+
+
+class ResistantSource(Source):
+    """A microphone whose read ignores cancellation for a while, and which cannot be closed while a read is running (like an async generator)."""
+
+    def __init__(self, resist_s: float) -> None:
+        super().__init__([])
+        self.resist_s = resist_s
+        self.reading = False
+
+    async def __anext__(self) -> AudioChunk:
+        self.reading = True
+        try:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.sleep(self.resist_s)  # refuses to stop at once
+            raise StopAsyncIteration
+        finally:
+            self.reading = False
+
+    async def aclose(self) -> None:
+        if self.reading:
+            raise RuntimeError("aclose(): asynchronous generator is already running")
+        self.closed = True
+
+
+def test_a_read_that_resists_cancellation_past_the_bound_still_gets_the_source_closed_when_it_ends() -> None:
+    source = ResistantSource(resist_s=0.4)
+
+    class Reader:
+        name = "reader"
+        capabilities = CAPS
+
+        async def transcribe(self, request: StreamRequest, audio: AsyncIterator[AudioChunk]) -> AsyncIterator[SpeechEvent]:
+            async for _ in audio:
+                pass
+            yield final()
+
+    async def call() -> tuple[BaseException | None, bool, bool]:
+        try:
+            await asyncio.wait_for(
+                transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.1, on_partial=lambda _: None),
+                timeout=GUARD_S)
+            error: BaseException | None = None
+        except BaseException as caught:
+            error = caught
+        closed_at_return = source.closed
+        await asyncio.sleep(0.8)  # the read ends 0.4 s after it was cancelled; the deferred close runs then
+        return error, closed_at_return, source.closed
+
+    error, closed_at_return, closed_later = run(call())
+    assert isinstance(error, ProviderError) and error.kind is ProviderFailure.TIMEOUT  # the timeout, not a RuntimeError from closing a running read
+    assert not closed_at_return  # it cannot be closed while the read runs
+    assert closed_later  # but it is closed once the read ends, not left open for good

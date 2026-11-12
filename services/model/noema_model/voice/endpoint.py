@@ -122,7 +122,12 @@ class EndpointGate:
         except BaseException:
             await self.aclose()
             raise
-        if self._detector.feed(chunk) is EndpointState.ENDED:
+        try:
+            ended = self._detector.feed(chunk) is EndpointState.ENDED
+        except BaseException:
+            await self.aclose()  # invalid audio (not PCM, empty, not whole samples) ends the gate and releases the source (Codex on #200 and #218)
+            raise
+        if ended:
             self._done = True
         return chunk
 
