@@ -24,6 +24,18 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("benchmark-heldout", out)
 
+    def test_the_idp_session_provider_needs_all_of_its_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            for partial in (["--idp-key", d], ["--idp-key", d, "--idp-binary", d], ["--idp-key", d, "--idp-binary", d, "--idp-kid", "k"],
+                            ["--idp-key", d, "--idp-binary", d, "--idp-kid", "k", "--idp-audience", "a"]):  # the last one lacks --tenant-id
+                code, out = run("--suite", str(suite_dir()), "--out", str(Path(d) / "o"), *partial)
+                self.assertEqual(code, 2, partial)
+                self.assertIn("IdP", out)
+            code, out = run("--suite", str(suite_dir()), "--out", str(Path(d) / "o"), "--idp-key", d, "--tokens-dir", d, "--idp-binary", d,
+                            "--idp-kid", "k", "--idp-audience", "a", "--tenant-id", "t")
+            self.assertEqual(code, 2)  # a token directory and the IdP are two sources for one thing
+            self.assertIn("one", out)
+
     def test_a_missing_suite_is_an_input_error(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             code, _ = run("--suite", str(Path(d) / "nope"), "--out", str(Path(d) / "o"))

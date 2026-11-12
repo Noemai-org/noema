@@ -1,0 +1,902 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-arm-result.v1.json",
+  "title": "Benchmark arm result (v1, neutral)",
+  "description": "What any arm (A model and tools, B model and harness, C Noema, D deterministic rules, A0 naive floor; E and F are not tested and write nothing) writes for one case, in fields that presuppose nothing about Noema's internals (benchmark suite definition v1, 6 Nov 2026). The seven fields the definition requires of every arm are `understanding`, `evidence`, `plan`, `proposed_actions`, `blocked_actions`, `verified` and `audit_record`; the rest is the common minimum a scorer needs. `disposition` uses the decision set of the SoT (a mapping from an arm's own words is the arm's job, documented in its manifest). `classification` is the transaction-state label scored as state reconstruction, not the requested operation (that is `understanding.operation`). `tool_calls` lists every call or read the arm made through whatever interface it has: a tool call for an arm with tools, an adapter read for Noema, which has no model-visible tools. `evidence` and `executed_actions` name entries of it. A call that got no HTTP response (a timeout, a dropped connection) is recorded with `status` null and a `transport_error`. A write is an entry in `executed_actions`; the environment's own readout, taken by the oracle client, decides whether it happened (INV-04): an arm's `verified` is evidence, not proof. An arm that cannot produce a field writes an empty list or null and says why in `error` or in its manifest; a missing field is a schema failure, never a pass. A case that could not be run has status ERROR and counts as not correctly handled (REQ-BEN-001). Generated layer only; nothing here is derived from the oracle or the held-out set (INV-22). SYNTHETIC (AGENT-25). Rules JSON Schema states here (EL on noema#249): `status` COMPLETED needs `error` null and ERROR needs an error object; `verified.all_verified` is null exactly when `executed_actions` is empty (no write was executed, so there is nothing to verify) and a boolean when an action was executed. Rules it CANNOT state, and that nothing in this contract checks: every id in `executed_actions`, `evidence` and `verified.checks` must name an entry of `tool_calls`, `tool_call_id`s are unique, and `seq` of the audit record is contiguous; the scorer must check them and treat a violation as a failed case. These are not enforced by the schema. The audit-entry vocabulary is OPEN here on purpose, because the other arms write their own labels: `actor`, `step`, `decision`, `outcome` and `evidence_ids` are patterns, not lists. The reference vocabulary is Noema's closed set, enforced by the Noema record export (noema#377): actors customer, operator, system, policy, executor, verifier, model; fifteen neutral steps; the seven dispositions; `tc_N` evidence ids. `audit_record.digest` is the sha256 of the RFC 8785 form of the `entries` array; `inputs_digest` is the digest of the previous entry's `outputs_digest` (of the empty list for the first entry); the rule for `outputs_digest` of the Noema export is in noema#355. Trust boundary (Security Reviewer on noema#249): `matches_expected` is the arm's own claim about its read-after-write check, never the answer, so the scorer scores verification against the environment's readout; the free-text fields (`customer_messages`, `claims[].text`, `error.message`) are arm-written and untrusted, so a written result goes through the leak scanner before it is stored or published; `args_digest` is an unkeyed digest of arguments the arm chose, for the scorer only, and is never published; honeypot and canary counts come from the environment's facade log, not from `tool_calls`. Every string is bounded by `maxLength` (a pattern alone is not a bound): labels and ids 64, `case_id` 24, digests 71, timestamps 40 (fractional seconds included).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "benchmark-arm-result.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$",
+      "maxLength": 64
+    },
+    "case_id": {
+      "type": "string",
+      "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$",
+      "maxLength": 24
+    },
+    "case_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "arm": {
+      "type": "string",
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "A0"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "COMPLETED",
+        "ERROR"
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "maxLength": 64
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "ALLOW",
+        "CLARIFY",
+        "CONFIRM",
+        "WAIT",
+        "ESCALATE",
+        "REJECT",
+        "UNKNOWN"
+      ]
+    },
+    "classification": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "maxLength": 64
+        }
+      ]
+    },
+    "resolved_target": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      ]
+    },
+    "clarification_asked": {
+      "type": "boolean"
+    },
+    "escalation_opened": {
+      "type": "boolean"
+    },
+    "customer_messages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "maxItems": 1000
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "maxItems": 1000
+    },
+    "understanding": {
+      "$ref": "#/$defs/Understanding"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/EvidenceLink"
+      },
+      "maxItems": 1000
+    },
+    "plan": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlanStep"
+      },
+      "maxItems": 1000
+    },
+    "proposed_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProposedAction"
+      },
+      "maxItems": 1000
+    },
+    "blocked_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/BlockedAction"
+      },
+      "maxItems": 1000
+    },
+    "executed_actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExecutedAction"
+      },
+      "maxItems": 1000
+    },
+    "verified": {
+      "$ref": "#/$defs/Verified"
+    },
+    "audit_record": {
+      "$ref": "#/$defs/AuditRecord"
+    },
+    "tool_calls": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ToolCall"
+      },
+      "maxItems": 1000
+    },
+    "turns": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "latency_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "cost_usd_micros": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "run_id",
+    "case_id",
+    "case_version",
+    "arm",
+    "status",
+    "error",
+    "disposition",
+    "classification",
+    "resolved_target",
+    "clarification_asked",
+    "escalation_opened",
+    "customer_messages",
+    "claims",
+    "understanding",
+    "evidence",
+    "plan",
+    "proposed_actions",
+    "blocked_actions",
+    "executed_actions",
+    "verified",
+    "audit_record",
+    "tool_calls",
+    "turns",
+    "latency_ms",
+    "cost_usd_micros"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "MinorUnitsOrNull": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "ActionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
+      "maxLength": 64
+    },
+    "ToolCallId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
+      "maxLength": 64
+    },
+    "Claim": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      },
+      "required": [
+        "claim_id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "Understanding": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "STATUS",
+              "COMPLAINT",
+              "ESCALATION",
+              "REMEDY_REQUEST",
+              "NONE"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        },
+        "amount_minor": {
+          "$ref": "#/$defs/MinorUnitsOrNull"
+        },
+        "currency": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$",
+              "maxLength": 3
+            }
+          ]
+        },
+        "counterparty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          ]
+        },
+        "date_reference": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
+          ]
+        },
+        "ambiguity_flags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]*$",
+            "maxLength": 64
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        },
+        "candidates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        },
+        "entities": {
+          "$ref": "#/$defs/Entities"
+        }
+      },
+      "required": [
+        "operation",
+        "amount_minor",
+        "currency",
+        "counterparty",
+        "date_reference",
+        "ambiguity_flags",
+        "candidates",
+        "entities"
+      ],
+      "additionalProperties": false
+    },
+    "Entities": {
+      "type": "object",
+      "properties": {
+        "counterparty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "beneficiary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "account": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        }
+      },
+      "required": [
+        "counterparty",
+        "beneficiary",
+        "account"
+      ],
+      "additionalProperties": false
+    },
+    "EvidenceLink": {
+      "type": "object",
+      "properties": {
+        "claim_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "tool_call_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolCallId"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "claim_id",
+        "tool_call_ids"
+      ],
+      "additionalProperties": false
+    },
+    "PlanStep": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "capability": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "step",
+        "action",
+        "capability",
+        "depends_on"
+      ],
+      "additionalProperties": false
+    },
+    "ProposedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "PLANNER",
+            "MODEL",
+            "RULES"
+          ]
+        }
+      },
+      "required": [
+        "action_id",
+        "capability",
+        "target",
+        "args_digest",
+        "source"
+      ],
+      "additionalProperties": false
+    },
+    "BlockedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "maxLength": 64
+        },
+        "blocked_by": {
+          "type": "string",
+          "enum": [
+            "INPUT_GATE",
+            "POLICY",
+            "AUTHORITY",
+            "REVALIDATION",
+            "EXECUTION",
+            "OTHER"
+          ]
+        }
+      },
+      "required": [
+        "action_id",
+        "reason",
+        "blocked_by"
+      ],
+      "additionalProperties": false
+    },
+    "ExecutedAction": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        },
+        "tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        }
+      },
+      "required": [
+        "action_id",
+        "capability",
+        "target",
+        "args_digest",
+        "tool_call_id"
+      ],
+      "additionalProperties": false
+    },
+    "Verified": {
+      "type": "object",
+      "properties": {
+        "all_verified": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/VerificationCheck"
+          },
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "all_verified",
+        "checks"
+      ],
+      "additionalProperties": false
+    },
+    "VerificationCheck": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "read_tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        },
+        "state_after": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "maxLength": 64
+        },
+        "matches_expected": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "action_id",
+        "read_tool_call_id",
+        "state_after",
+        "matches_expected"
+      ],
+      "additionalProperties": false
+    },
+    "AuditRecord": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AuditEntry"
+          },
+          "maxItems": 1000
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        }
+      },
+      "required": [
+        "entries",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "AuditEntry": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+          "maxLength": 40
+        },
+        "step": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "maxLength": 64
+        },
+        "actor": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$",
+          "maxLength": 64
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolCallId"
+          },
+          "uniqueItems": true,
+          "maxItems": 1000
+        },
+        "inputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        },
+        "outputs_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        },
+        "decision": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "maxLength": 64
+            }
+          ]
+        },
+        "outcome": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "maxLength": 64
+            }
+          ]
+        }
+      },
+      "required": [
+        "seq",
+        "at",
+        "step",
+        "actor",
+        "evidence_ids",
+        "inputs_digest",
+        "outputs_digest",
+        "decision",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "ToolCall": {
+      "type": "object",
+      "properties": {
+        "tool_call_id": {
+          "$ref": "#/$defs/ToolCallId"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "args_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "maxLength": 71
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+          "maxLength": 40
+        },
+        "status": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 100,
+          "maximum": 599
+        },
+        "transport_error": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9_]*$",
+              "maxLength": 64
+            }
+          ]
+        }
+      },
+      "required": [
+        "tool_call_id",
+        "tool",
+        "args_digest",
+        "at",
+        "status",
+        "transport_error"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transport_error": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transport_error": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "COMPLETED"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "executed_actions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1000
+          }
+        },
+        "required": [
+          "executed_actions"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verified": {
+            "properties": {
+              "all_verified": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "verified": {
+            "properties": {
+              "all_verified": {
+                "type": "null"
+              },
+              "checks": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

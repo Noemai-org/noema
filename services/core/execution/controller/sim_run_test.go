@@ -3,7 +3,10 @@ package controller_test
 import (
 	"context"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"math/rand/v2"
+	"os"
 	"sync"
 	"time"
 
@@ -12,9 +15,22 @@ import (
 
 var secret = []byte("synthetic-simulation-key-not-a-secret")
 
+// simRing is one SYNTHETIC core-execution ring for the whole simulation: thousands of controllers share it.
+var simRing = sync.OnceValue(func() *signing.Ring {
+	dir, err := os.MkdirTemp("", "noema-sim-ring-")
+	if err != nil {
+		panic(err)
+	}
+	r, err := signingtest.RingAt(dir, "simulation", 1)
+	if err != nil {
+		panic(err)
+	}
+	return r
+})
+
 // controllerFor wires a controller to the world. boundary may be nil.
 func controllerFor(w *World, boundary func(controller.Point) error) *controller.Controller {
-	return &controller.Controller{Clock: w.Clock, Keys: w.Keys, ReceiptKeyID: KeyID, Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w, Boundary: boundary}
+	return &controller.Controller{Clock: w.Clock, Keys: w.Keys, Receipts: simRing(), Grants: w, Bind: w, Reval: w, Ledger: w, Out: w, IDs: w, Boundary: boundary}
 }
 
 func deadline() (context.Context, context.CancelFunc) {
