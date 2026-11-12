@@ -99,6 +99,54 @@ class OnlyFile(unittest.TestCase):
                 only_ids(None, f)
 
 
+class EmptySelection(unittest.TestCase):
+    """Codex P2 on noema#117: an empty or blank `--only-file` returned an empty set, so the runner executed zero cases and still wrote COMPLETE and exited 0. A failed selection step
+    must never look like a successful benchmark run."""
+
+    def only(self, text: str) -> object:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text(text)
+            return only_ids(None, f)
+
+    def test_an_empty_file_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no case id"):
+            self.only("")
+
+    def test_a_file_of_blank_lines_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no case id"):
+            self.only("\n  \n\t\n")
+
+    def test_only_and_a_blank_file_together_still_select_the_only_ids(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("\n")
+            self.assertEqual({"BEN-CLEAN-0001"}, only_ids(["BEN-CLEAN-0001"], f))
+
+    def test_the_command_exits_two_and_writes_no_manifest_for_an_empty_selection(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import main
+        with tempfile.TemporaryDirectory() as tmp:
+            ids = Path(tmp) / "ids.txt"
+            ids.write_text("\n")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["--suite", str(suite_dir()), "--out", str(Path(tmp) / "out"), "--only-file", str(ids)])
+            self.assertEqual(2, code)
+            self.assertIn("no case id", out.getvalue())
+            self.assertFalse((Path(tmp) / "out" / "run-manifest.json").exists())
+
+
 class StandInWiring(unittest.TestCase):
     """Option B for G1: `--standin-url` (with the bench credential) replaces the missing fixture loader with the Noema-side stand-in's."""
 

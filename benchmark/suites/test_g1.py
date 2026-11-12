@@ -183,3 +183,32 @@ class Run(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NamedExclusionEndToEnd(unittest.TestCase):
+    """Codex P2 on noema#117: five clean cases plus the registry-named exclusion BEN-CLEAN-1007 must produce G1 evidence when replay is IDENTICAL, and nothing else may: any other error,
+    a Tier 0 gate not at zero or a replay that is not identical is still NOT EVIDENCE. This runs the whole verdict (`accept_named_exclusions`, `run_g1`, `evidence_record`)."""
+
+    def verdict(self, **leg_kwargs: object) -> dict:  # type: ignore[type-arg]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def run_leg(leg: str, leg_out: Path) -> int:
+                return accept_named_exclusions(leg_with(root / leg, **leg_kwargs), 1, EXCLUDED)  # type: ignore[arg-type]
+
+            code = run_g1(root, run_leg, lambda a, b, o: 0, None)
+            return evidence_record("stand-in", "g1-x", code, REPORT)
+
+    def test_five_clean_cases_and_the_named_exclusion_with_an_identical_replay_is_evidence(self) -> None:
+        record = self.verdict(errored=["BEN-CLEAN-1007"])
+        self.assertTrue(record["is_evidence"], record)
+        self.assertEqual(0, record["exit_code"])
+
+    def test_another_errored_case_beside_the_exclusion_is_not_evidence(self) -> None:
+        self.assertFalse(self.verdict(errored=["BEN-CLEAN-1007", "BEN-CLEAN-0001"])["is_evidence"])
+
+    def test_the_named_exclusion_with_a_tier_zero_gate_not_at_zero_is_not_evidence(self) -> None:
+        self.assertFalse(self.verdict(errored=["BEN-CLEAN-1007"], tier0=False)["is_evidence"])
+
+    def test_the_named_exclusion_missing_instead_of_errored_is_not_evidence(self) -> None:
+        self.assertFalse(self.verdict(missing=["BEN-CLEAN-1007"])["is_evidence"])

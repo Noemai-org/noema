@@ -48,6 +48,8 @@ def only_ids(only: list[str] | None, only_file: Path | None) -> set[str] | None:
     bad = sorted(i for i in ids if not CASE_ID.match(i))
     if bad:
         raise ValueError(f"not a case id: {', '.join(bad[:3])}")
+    if (only or only_file is not None) and not ids:
+        raise ValueError("the explicit case selection contains no case id (an empty or blank --only-file): refusing to run zero cases and call it complete")
     return ids if (only or only_file is not None) else None
 
 
@@ -98,6 +100,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     sessions: SessionProvider = (IdpSessionProvider(args.idp_binary, args.idp_key, kid=args.idp_kid, audience=args.idp_audience, tenant_id=args.tenant_id)
                                  if any(idp) else DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")))
+    try:
+        selected = only_ids(args.only, args.only_file)
+    except ValueError as error:
+        print(f"refused: {error}")
+        return 2
     if args.support:
         found = support_report(suite)
         print(f"{found['runnable']} of {found['total']} cases can run now ({found['blocked']} blocked; {found['without_faults_or_events']} need no fault and no event)")
@@ -122,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
                  fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
-                        only=only_ids(args.only, args.only_file))
+                        only=selected)
     counts = summary["counts"]
     if summary["status"] == "NOT_RUN":
         print(f"not run: {summary['not_run_reason']}")
