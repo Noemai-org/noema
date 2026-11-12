@@ -17,7 +17,8 @@ import checks  # noqa: E402
 
 PACK = json.loads((ROOT / "packs" / "fintech_v1.json").read_text())
 FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.json"
-FORBIDDEN = [r"\bmoney is safe\b", r"\bwill be reversed\b", r"\bin \d+ hours?\b", r"\bbank failed\b", r"\bresolved\b", r"\bfixed\b", r"\bdone\b", r"\bguarantee"]
+FORBIDDEN_FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.forbidden.json"
+FORBIDDEN = json.loads(FORBIDDEN_FILE.read_text())  # pack data (Architect decision A3); one source for this test and for the Go validator
 UNCERTAIN = {"CONTRADICTORY_STATE", "POSSIBLE_DUPLICATE", "EXECUTION_OUTCOME_UNKNOWN", "SETTLEMENT_PENDING", "INSUFFICIENT_EVIDENCE"}
 UNCERTAINTY_MARKERS = ("not yet confirmed", "cannot confirm", "not been confirmed", "could not confirm")
 
@@ -83,3 +84,24 @@ class EnNgTemplates(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ForbiddenClaimsFile(unittest.TestCase):
+    """Architect decision A3: the forbidden-claim lists are pack data next to the templates, <locale>.forbidden.json, an array of regular expressions."""
+
+    def test_the_file_is_an_array_of_distinct_non_blank_patterns_that_compile(self) -> None:
+        self.assertIsInstance(FORBIDDEN, list)
+        self.assertEqual(len(FORBIDDEN), len(set(FORBIDDEN)))
+        for pattern in FORBIDDEN:
+            self.assertIsInstance(pattern, str)
+            self.assertTrue(pattern.strip())
+            re.compile(pattern)
+
+    def test_the_file_covers_every_claim_perd_31_2_names(self) -> None:
+        said = ["Your money is safe.", "It will be reversed in 24 hours.", "The receiving bank failed.", "It is resolved.", "It is done.", "We fixed it."]
+        for text in said:
+            self.assertTrue(any(re.search(p, text) for p in FORBIDDEN), f"{text!r} is not caught by the forbidden list")
+
+    def test_the_sibling_file_is_not_a_locale_for_packcheck(self) -> None:
+        problems = [m for _, m in checks.check_templates(PACK, ROOT / "packs") if "forbidden" in m]
+        self.assertEqual([], problems)
