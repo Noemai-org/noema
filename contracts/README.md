@@ -37,6 +37,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Migration note.** v1 records have no defined signature rule and no `issued_at`/`expires_at`, so v2 is a new major and v1 is not edited. A v1 record does not validate as v2 (tests). The reverse is not true: v1's version pattern is generic, so a v2 record also passes v1's pattern; readers dispatch on `schema_version`. No v1 record exists outside fixtures; the Decision Record writer (TRU-05 Go side, not built) writes v2 only. No migration tooling: this is the synthetic POC.
 - **Fixtures and models.** `fixtures/{valid,invalid}/decision-record.v2` are the v1 fixtures with version 2.0 and the two new fields, plus invalid records that miss each bound field or carry major 1. Generated Go and Pydantic models come from `make codegen`.
 
+## Intent Object v2 (12 Nov 2026)
+
+`schemas/intent-object.v2.json` sits beside `intent-object.v1.json`, which is not edited (AGENT-15; `tools/contracts/test_intent_object_v2.py` pins its bytes). Ruling A163 (relayed in the Architect's message of 12 Nov 2026, to be committed; the record is docs#157's successor): the session's verified issuer is `noema-poc-idp` (ruling A1, exact match), which v1's `asserted_by` pattern `^[a-z][a-z0-9_]*$` refuses; widening that pattern is a contract bump, in its own small pull request. Task CON-03 (EDG-01's A149 fields).
+
+- **What v2 is.** v1 with `schema_version` major 2 and `principal.asserted_by` matching `^[a-z][a-z0-9_-]*$` (a hyphen after the first letter). Every other member is v1's.
+- **Migration note.** A looser pattern is not accepted by a v1 reader, so v2 is a new major and v1 is not edited. A document is v1 or v2, never both: a v1 document (major 1) does not validate as v2, and a v2 document with a hyphenated `asserted_by` does not validate as v1 (tests). No producer writes an Intent Object outside tests and fixtures yet (the orchestrator copies the principal from the session in noema#447's follow-up), so nothing is migrated; the writer, the validators and the readers move to v2 together when it does.
+- **Fixtures and models.** `fixtures/{valid,invalid}/intent-object.v2` are the v1 fixtures with version 2.0, plus a valid principal as the synthetic IdP mints it (`usr_` ID, `ses_` reference, `noema-poc-idp`) and invalid ones (leading hyphen, upper case, a space, contract major 1). Generated Go and Pydantic models come from `make codegen`.
+
 ## Benchmark diagnostics v2 (2 Nov 2026)
 
 `schemas/benchmark-case-result.v2.json` and `schemas/benchmark-scorecard.v2.json` sit beside their v1 files, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` pins their bytes). Task BEN-30; PERD REQ-BEN-009; decision record `DEC-2026-10-31-proof-depth-and-completeness` (D5, D6); approved by the Architect on 2 Nov 2026.
