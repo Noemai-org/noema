@@ -73,7 +73,7 @@ class EnumsV1CoreReasonCode(StrEnum):
 
 
 # EnumsV1DataSensitivity. Source: enums.v1.json#$defs/DataSensitivity
-EnumsV1DataSensitivity: TypeAlias = Annotated[str, StringConstraints(pattern='^S[0-9]_[a-z][a-z0-9_]*$')]
+EnumsV1DataSensitivity: TypeAlias = Annotated[str, StringConstraints(pattern='\\AS[0-9]_[a-z][a-z0-9_]*\\Z')]
 
 
 class EnumsV1DecisionOutcome(StrEnum):

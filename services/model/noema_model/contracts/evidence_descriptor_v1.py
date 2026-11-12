@@ -26,7 +26,7 @@ class EvidenceDescriptorV1FieldType(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     type: EvidenceDescriptorV1FieldTypeType
-    values: Annotated[list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]], Field(min_length=1)] | None = Field(default=None)
+    values: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
 
 
 class EvidenceDescriptorV1(ContractModel):
