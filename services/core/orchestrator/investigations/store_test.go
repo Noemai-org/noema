@@ -6,6 +6,7 @@ package investigations_test
 // they need the signing extension (the CI database has it; a local one may not). All data is SYNTHETIC.
 
 import (
+	"context"
 	"errors"
 	"math/rand"
 	"strings"
@@ -26,7 +27,22 @@ import (
 	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
+// fakeInputs stands for the Record's confirmation of an INPUT_RECEIVED event: it confirms every reference except those in refuse, and remembers what it was asked.
+type fakeInputs struct {
+	refuse map[string]bool
+	asked  []string
+}
+
+func (f *fakeInputs) Confirm(_ context.Context, sess orchestrator.Session, ref, correlation string) error {
+	f.asked = append(f.asked, sess.TenantID+"|"+sess.PrincipalID+"|"+ref+"|"+correlation)
+	if f.refuse[ref] {
+		return errors.New("synthetic: the Record does not confirm this input")
+	}
+	return nil
+}
+
 type storeWorld struct {
+	inputs       *fakeInputs
 	admin        *pgxpool.Pool
 	orchA, orchB *pgxpool.Pool
 	storeA       *investigations.Store
@@ -62,7 +78,8 @@ func newStoreWorld(t *testing.T) *storeWorld {
 		Signers: recordsig.For(t, admin, "investigations", nil, "core-workflows")}
 	w := &storeWorld{admin: admin, failing: fail,
 		orchA: testpg.TenantLogin(t, admin, dsn, "orchestrator_rw", tenantA), orchB: testpg.TenantLogin(t, admin, dsn, "orchestrator_rw", tenantB)}
-	w.storeA = &investigations.Store{Pool: w.orchA, Appender: app}
+	w.inputs = &fakeInputs{refuse: map[string]bool{}}
+	w.storeA = &investigations.Store{Pool: w.orchA, Appender: app, Inputs: w.inputs}
 	return w
 }
 
@@ -276,7 +293,7 @@ func TestAnotherTenantsLoginNeitherFindsNorMovesAnInvestigation(t *testing.T) {
 	if _, _, err := w.storeA.Start(ctx(t), sessA, start("inv_AA11", "recev_AA11")); err != nil {
 		t.Fatal(err)
 	}
-	storeB := &investigations.Store{Pool: w.orchB, Appender: w.storeA.Appender}
+	storeB := &investigations.Store{Pool: w.orchB, Appender: w.storeA.Appender, Inputs: w.inputs}
 	err := storeB.AppendChange(ctx(t), orchestrator.Session{TenantID: tenantB, PrincipalID: "usr_01"}, orchestrator.Change{ID: "inv_AA11", From: "RECEIVED", To: "INTERPRETING", FromVersion: 0, ToVersion: 1})
 	if err == nil {
 		t.Fatal("tenant B moved tenant A's investigation")
@@ -288,3 +305,89 @@ func TestAnotherTenantsLoginNeitherFindsNorMovesAnInvestigation(t *testing.T) {
 
 // The store is a Recorder for the runner.
 var _ orchestrator.Recorder = (*investigations.Store)(nil)
+
+// Reviewer P1 on noema#490: an investigation is made only for an input the Record confirms (an INPUT_RECEIVED of this tenant, principal and correlation, A161). The
+// confirmation is asked with the session and the request's reference and correlation, before anything is inserted; a reference it does not confirm makes no row.
+func TestStartMakesNoInvestigationForAnInputTheRecordDoesNotConfirm(t *testing.T) {
+	w := newStoreWorld(t)
+	w.inputs.refuse["recev_FA11"] = true
+	if _, _, err := w.storeA.Start(ctx(t), sessA, start("inv_AA11", "recev_FA11")); !errors.Is(err, investigations.ErrNoRecordedInput) {
+		t.Fatalf("a fabricated reference: %v; want ErrNoRecordedInput", err)
+	}
+	var n int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM investigation`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("%d rows after a refused start (%v)", n, err)
+	}
+	if _, _, err := w.storeA.Start(ctx(t), sessA, start("inv_AA11", "recev_AA11")); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.inputs.asked[len(w.inputs.asked)-1]; got != "ten_aa|usr_01|recev_AA11|corr_AA11" {
+		t.Errorf("the confirmation was asked %q; want the session's tenant and principal and the request's reference and correlation", got)
+	}
+}
+
+// Reviewer P2 on noema#490: reuse of a recorded input with another correlation is refused, not silently joined to the old investigation.
+func TestStartRefusesAReuseOfARecordedInputWithAnotherCorrelation(t *testing.T) {
+	w := newStoreWorld(t)
+	if _, _, err := w.storeA.Start(ctx(t), sessA, start("inv_AA11", "recev_AA11")); err != nil {
+		t.Fatal(err)
+	}
+	other := start("inv_AA22", "recev_AA11")
+	other.CorrelationID = "corr_ZZ99"
+	if _, _, err := w.storeA.Start(ctx(t), sessA, other); !errors.Is(err, investigations.ErrRequest) {
+		t.Fatalf("another correlation: %v; want ErrRequest", err)
+	}
+	if again, created, err := w.storeA.Start(ctx(t), sessA, start("inv_AA33", "recev_AA11")); err != nil || created || again.ID != "inv_AA11" {
+		t.Fatalf("the same correlation still finds the first: %+v created %v err %v", again, created, err)
+	}
+}
+
+// A store with no way to confirm an input is not configured: it makes nothing.
+func TestAStoreWithNoInputsPortMakesNothing(t *testing.T) {
+	w := newStoreWorld(t)
+	s := &investigations.Store{Pool: w.orchA, Appender: w.storeA.Appender}
+	if _, _, err := s.Start(ctx(t), sessA, start("inv_AA11", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
+		t.Fatalf("%v; want ErrRequest", err)
+	}
+}
+
+type fakeLookup struct {
+	r   investigations.Recorded
+	err error
+}
+
+func (f fakeLookup) Lookup(context.Context, string, string) (investigations.Recorded, error) {
+	return f.r, f.err
+}
+
+// ConfirmWith turns a Record lookup into a confirmation: the event must be an INPUT_RECEIVED of the session's tenant and principal and the request's correlation.
+func TestConfirmWithComparesTheRecordedEventWithTheSessionAndTheRequest(t *testing.T) {
+	good := investigations.Recorded{EventType: "INPUT_RECEIVED", TenantID: tenantA, PrincipalID: "usr_01", CorrelationID: "corr_AA11"}
+	ask := func(l fakeLookup) error {
+		return investigations.ConfirmWith(l).Confirm(ctx(t), sessA, "recev_AA11", "corr_AA11")
+	}
+	if err := ask(fakeLookup{r: good}); err != nil {
+		t.Fatalf("a matching event: %v", err)
+	}
+	bad := map[string]fakeLookup{"another type": {r: good}, "another tenant": {r: good}, "another principal": {r: good}, "another correlation": {r: good}, "no principal": {r: good}, "a lookup failure": {r: good, err: errors.New("down")}}
+	b := bad["another type"]
+	b.r.EventType = "INPUT_DEDUPLICATED"
+	bad["another type"] = b
+	b = bad["another tenant"]
+	b.r.TenantID = tenantB
+	bad["another tenant"] = b
+	b = bad["another principal"]
+	b.r.PrincipalID = "usr_02"
+	bad["another principal"] = b
+	b = bad["another correlation"]
+	b.r.CorrelationID = "corr_BB22"
+	bad["another correlation"] = b
+	b = bad["no principal"]
+	b.r.PrincipalID = ""
+	bad["no principal"] = b
+	for name, l := range bad {
+		if err := ask(l); !errors.Is(err, investigations.ErrNoRecordedInput) {
+			t.Errorf("%s: %v; want ErrNoRecordedInput", name, err)
+		}
+	}
+}
