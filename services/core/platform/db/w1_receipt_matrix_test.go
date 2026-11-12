@@ -16,9 +16,9 @@ import (
 
 const (
 	adapterVerify   = `SELECT to_regprocedure('noema_sig.verify(text,text,text,bytea,text)') IS NOT NULL` // ADAPTER (D11)
-	adapterRegister = `SELECT key_register($1, $2, $3)`                                         // ADAPTER (D5): identity, version, public key
-	adapterRetire   = `SELECT key_retire($1)`                                                   // ADAPTER (D5): key_id
-	adapterRevoke   = `SELECT key_revoke($1, now() - interval '1 hour')`                        // ADAPTER (D5): key_id, compromised_since
+	adapterRegister = `SELECT key_register($1, $2, $3)`                                                   // ADAPTER (D5): identity, version, public key
+	adapterRetire   = `SELECT key_retire($1)`                                                             // ADAPTER (D5): key_id
+	adapterRevoke   = `SELECT key_revoke($1, now() - interval '1 hour')`                                  // ADAPTER (D5): key_id, compromised_since
 	signedJCSColumn = "signed_jcs"                                                                        // ADAPTER (D8)
 	migratorRole    = "noema_migrator"                                                                    // D14
 )
