@@ -44,3 +44,15 @@ State: slice 1 in review (Draft, stacked on noema#163). Owner per tasks.csv: C1;
 - Open questions (owner): who builds the intent and plan sources (the Steward names the task).
 - Files to read first: `execution/ledger/binder.go`, `trust/policystore/doc.go`.
 - Do not touch: `execution/controller` E4.
+
+## Session 2026-11-12 · TRU-08 follow-up, policy_version_key no longer executable by PUBLIC (A165, noema#462)
+
+## Session summary
+- What changed: forward migration `0024_policy_version_key_not_public.sql` (`REVOKE ALL ... FROM PUBLIC`, `GRANT EXECUTE ... TO trust_rw`); `platform/db/function_privileges_test.go`. Migration 0015 is not edited.
+- Why: 0015 left `policy_version_key(text)` with its default EXECUTE for PUBLIC, the only non-trigger function in `public` without a REVOKE; it turned noema#268's `TestEvidenceVerifyHoldsExactlyTheGrantsD9Names` red (EL's condition 3 on `evidence_verify`, noema#282). `trust_rw` keeps EXECUTE because the CHECK `policy_publication_key_is_the_version` is evaluated by the inserting role.
+- Tests added (REQ-SEC-004): `TestNoNonTriggerFunctionInPublicIsExecutableByPublic` (generic, so the next function created without a REVOKE fails here, not in another PR), `TestOnlyTheTrustRoleCanExecutePolicyVersionKey`. Written first; red on `main` at `609bdc1c` naming only `policy_version_key(text)`. The publication path still works: `execution/ledger` binder tests publish as `trust_rw` and pass.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: noema#268 merges `main` and its `evidence_verify` test goes green; no change to that test.
+- Do not touch: migration 0015 (merged, forward-only).
