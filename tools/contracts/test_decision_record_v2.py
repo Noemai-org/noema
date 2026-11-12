@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate import FIXTURES, SCHEMAS as SCHEMA_DIR, load_schemas, make_registry, validator_for  # noqa: E402
+from validate import FIXTURES, ROOT, SCHEMAS as SCHEMA_DIR, load_schemas, make_registry, validator_for  # noqa: E402
 
 SCHEMAS = load_schemas()
 REGISTRY = make_registry(SCHEMAS)
@@ -45,6 +45,12 @@ class DecisionRecordV2(unittest.TestCase):
             doc = json.loads((FIXTURES / "valid" / "decision-record.v2" / name).read_text())
             self.assertTrue(doc["schema_version"].startswith("2."), name)
             self.assertEqual(check(doc, "decision-record.v2"), [], name)
+
+    def test_the_signing_vector_is_current(self):
+        """The independent vector for the signed bytes (docs/decision-record-signing.md) is regenerated from the fixture; it must not drift."""
+        import subprocess
+        out = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "decision_record_vector.py"), "--check"], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
     def test_the_signing_rule_is_stated_in_the_schema(self):
         text = json.dumps(SCHEMAS["decision-record.v2.json"])
