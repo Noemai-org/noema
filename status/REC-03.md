@@ -83,3 +83,15 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Kind from role (`ops` to `operator`, `audit` to `auditor`) is not written in the PERD (§32.1: a kind is never inferred from an identifier; this is from the role). It needs a line in a decision record (Architect or EL); until then it is mine and labelled so.
 - Subject length (128 at the edge, 64 in the handler) and the meaning of the 409 for a miswired pool: README lines added.
 - Proposed debt entry (REQ-OPS-004), for the docs repository's `debt.md` (Repo Steward or EL): a read function that returns the login's tenant to `record_read`, so `session.CheckTenant` can give a clean answer instead of a failed verification. A migration; not in this allowlist.
+
+## Session 2026-11-12 15:00 WAT · A154: digits of every script are masked
+### Session summary
+- What changed (PR links): `record/reconstruct/project.go`: the mask matches `\p{Nd}{5,}` and keeps the last four runes (it matched ASCII `[0-9]{5,}` only and counted bytes).
+- Why: A154 (relayed, to be committed via docs#157): the maximum unmasked digit run is 4 on every outward surface, in any script. `explanation` already checks `\p{Nd}`; the served reconstruction did not mask them.
+- Risks, and how they are contained: masking is idempotent and keeps the same four-rune tail, so text Explanation already masked is unchanged; references, IDs and enum values are still served as written.
+- Tests added (REQ-AUD-003, AGENT-13, A154): `TestServedFactsAreMaskedWhateverTheScriptOfTheDigits` (full-width, Arabic-Indic, Devanagari, mixed ASCII and Arabic-Indic, a five-digit run, and four-digit runs that must stay). Mutants: `[0-9]` again and `{6,}` are killed; `{4,}` is equivalent (a four-digit run is rewritten to itself).
+- Regression cases added: the test above. Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: none for this change. Other outward surfaces (logs, traces) belong to the redaction package, which is not built (`platform/redaction/doc.go` only); it must use `\p{Nd}` too.
+- Do not touch: the migrations.

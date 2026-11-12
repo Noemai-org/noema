@@ -129,19 +129,21 @@ var (
 	resourceRe  = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
-	longDigits  = regexp.MustCompile(`[0-9]{5,}`)
+	longDigits  = regexp.MustCompile(`\p{Nd}{5,}`)
 )
 
 // keepDigits is how many digits of a long run a served fact keeps (AGENTS.md section 7: mask to the last four).
 const keepDigits = 4
 
-// mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"). It applies to free text
+// mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"), whatever the script of the digits: a digit is any Unicode Nd
+// character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154). It applies to free text
 // and plain scalar facts; references, IDs and enum values are checked by their contract pattern instead and served
 // as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked
 // is unchanged.
 func mask(s string) string {
 	return longDigits.ReplaceAllStringFunc(s, func(run string) string {
-		return strings.Repeat("*", len(run)-keepDigits) + run[len(run)-keepDigits:]
+		digits := []rune(run)
+		return strings.Repeat("*", len(digits)-keepDigits) + string(digits[len(digits)-keepDigits:])
 	})
 }
 

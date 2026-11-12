@@ -663,7 +663,7 @@ func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
 	w := newWorld(t)
 	events := us01()
 	events[9].payload = map[string]any{"claims": []any{
-		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G",
+		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H 12345 I",
 			"bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
 	}}
 	w.append(t, tenant, "corr_us01", events...)
@@ -671,7 +671,7 @@ func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "A ****\uff14\uff15\uff16\uff17 B ***\u0663\u0664\u0665\u0666 C **\u0969\u096a\u096b\u096c D *****\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G"
+	want := "A ****\uff14\uff15\uff16\uff17 B ***\u0663\u0664\u0665\u0666 C **\u0969\u096a\u096b\u096c D *****\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H *2345 I"
 	if got := parse(t, raw).section("EXPLANATION")[0].Facts["text"]; got != want {
 		t.Fatalf("claim text %q, want %q", got, want)
 	}
