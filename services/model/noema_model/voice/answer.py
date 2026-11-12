@@ -39,8 +39,24 @@ def _text_only(request: SynthesisRequest, failure: ProviderFailure | None) -> De
     return Delivery(DeliveryMode.TEXT_ONLY, request.text, (), failure)
 
 
-async def _collect(synthesizer: SpeechSynthesizer, request: SynthesisRequest) -> tuple[AudioChunk, ...]:
-    chunks = [chunk async for chunk in synthesizer.synthesize(request)]
+async def _close(stream: object, bound_s: float) -> None:
+    """Close a synthesis iterator within `bound_s`. A close that raises is reported by the caller's own error path; one that never returns is abandoned."""
+    close = getattr(stream, "aclose", None)
+    if close is None:
+        return
+    try:
+        async with asyncio.timeout(bound_s):
+            await close()
+    except TimeoutError:
+        pass  # abandoned: a stalled provider shutdown must not hold the answer
+
+
+async def _collect(synthesizer: SpeechSynthesizer, request: SynthesisRequest, bound_s: float) -> tuple[AudioChunk, ...]:
+    stream = synthesizer.synthesize(request)  # retained, so it is closed on every exit path: completion, error, timeout and cancellation
+    try:
+        chunks = [chunk async for chunk in stream]
+    finally:
+        await _close(stream, bound_s)
     if not chunks or any(not chunk.data for chunk in chunks):
         raise ProviderError(ProviderFailure.MALFORMED)
     return tuple(chunks)
@@ -61,7 +77,7 @@ async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisReque
     if plan_delivery(request.locale, synthesizer.capabilities) is DeliveryMode.TEXT_ONLY:
         return _text_only(request, None)
     bound_s = deadline_s if cleanup_s is None else cleanup_s
-    task = asyncio.ensure_future(_collect(synthesizer, request))
+    task = asyncio.ensure_future(_collect(synthesizer, request, bound_s))
     task.add_done_callback(_mark_retrieved)
     try:
         await asyncio.wait({task}, timeout=deadline_s)
