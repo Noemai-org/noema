@@ -41,7 +41,6 @@ func receiptRow(t *testing.T, pool *pgxpool.Pool, r rcp, signedJCS []byte, keyID
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`, r.tenant); err != nil {
 		t.Fatal(err)
 	}
-	r.sigKey, r.sigVal = keyID, sigHex
 	body := string(signedJCS)
 	_, err := pool.Exec(ctx(t), `INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, external_ack, dispatched_at, json, `+signedJCSColumn+`, sig_key_id, sig_value, created_at)
 		VALUES ($1, $2, $3, $4, $5, 'ROUTE_CASE', $6, $7, $8, now(), $9::jsonb, convert_to($9, 'UTF8'), $10, $11, now())`,
