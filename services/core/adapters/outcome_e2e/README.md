@@ -26,8 +26,10 @@
 |---|---|---|---|
 | before the spend commits | `PointInSpendBeforeCommit` | S9.1 before the write | built (slice 1) |
 | after the spend commits, before dispatch | `PointAfterSpend` | S9.1 before the write | built (slice 1) |
-| after dispatch, before the response is classified | `PointAfterDispatch` (and `TIMEOUT_BEFORE_COMMIT` from a FaultPlan) | S9.2 after the write, before verify | slice 2 |
-| the target commits and the response is lost | FaultPlan `TIMEOUT_AFTER_COMMIT` or `DROP_RESPONSE`, killed when the truth endpoint shows the command committed | S9.2 after the write, before verify | slice 2 |
+| after dispatch, before the response is classified | `PointAfterDispatch` | S9.2 after the write, before verify | built (slice 2) |
+| the target commits and the response is lost | FaultPlan `TIMEOUT_AFTER_COMMIT` (the real mock-case fault, the 3500 ms hold against a 1000 ms dispatch timeout), killed at `PointAfterDispatch`; the command log must show `response_suppressed` | S9.2 after the write, before verify | built (slice 2) |
+| while the receipt is being completed | `PointInCompleteBeforeCommit` (the receipt transaction is open and rolls back) | S9.2 after the write, before verify | built (slice 2) |
+| after the receipt commits | `PointAfterComplete` | S9.2 after the write, before verify | built (slice 2) |
 | after verify, before the note | no hook yet (Outcome and the explanation have no boundary) | S9.3 after verify, before the note | needs a hook from Core Engineer 2 |
 
 The other nine controller boundaries are not in this list yet; the simulated matrix in `execution/controller` covers all fourteen against a simulated target.
