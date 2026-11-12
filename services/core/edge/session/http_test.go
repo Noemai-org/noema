@@ -249,7 +249,7 @@ func TestOneRequestHasOneCorrelationIdThroughTheWholeChain(t *testing.T) {
 	c["roles"] = []string{string(session.RoleOps)}
 	tok := "Bearer " + mint(t, k.priv, goodHeader(), c)
 
-	ok := do(h, tok, nil)
+	ok := do(h, tok, map[string]string{"Content-Type": "application/json"})
 	if got := ok.Header().Get("Noema-Correlation-Id"); ok.Code != http.StatusNoContent || got == "" || inHandler != got {
 		t.Fatalf("handler saw %q, header %q (status %d)", inHandler, got, ok.Code)
 	}
