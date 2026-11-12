@@ -40,8 +40,8 @@ class Golden(unittest.TestCase):
     def test_manifest_digest_is_pinned(self) -> None:
         """A change to any case changes this digest. Change it only with a generator version bump and a note on why (REQ-BEN-001)."""
         from benchmark.contracts import sha256_of
-        self.assertEqual(GENERATOR_VERSION, "1.3.2")  # 1.3.2: roles are A1's (ops_agent -> ops, viewer -> audit; ruling A37, 1.3.1) and state_reversal_pending expects WAIT (alternative ESCALATE), not ALLOW (ruling A31)
-        self.assertEqual(sha256_of(suite().manifest), "sha256:366a39d0e0e9250d9ad6526c70c70278f9a7f32f0333cd84642ab7989f29fd17")
+        self.assertEqual(GENERATOR_VERSION, "1.3.3")  # 1.3.3: amb_change_intent (BEN-AMB-0016, -0034, -1006) expects no case write, its second turn does not clarify the reference (A116, noema#346). 1.3.2: roles are A1's (ops_agent -> ops, viewer -> audit; ruling A37, 1.3.1) and state_reversal_pending expects WAIT (alternative ESCALATE), not ALLOW (ruling A31)
+        self.assertEqual(sha256_of(suite().manifest), "sha256:c6bdd3a63e4da29487100251bef33ad1dba36561a17ecaa170dc211bc57f0191")
 
 
 class ReversalPending(unittest.TestCase):
