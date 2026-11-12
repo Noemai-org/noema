@@ -90,10 +90,37 @@ func New(o Options) (*Handler, error) {
 	return &Handler{o: o}, nil
 }
 
+// refPrefix names, for each ref key an event may carry, the prefix of the contract ID it holds (common.v1: `^<prefix>_[0-9A-Za-z]{2,32}$`). A ref is exempt from masking only because it matches its own key's contract exactly (A154); a key not listed here, or a value of another shape, is a bad event.
+var refPrefix = map[string]string{
+	"investigation_id":        "inv",
+	"intent_id":               "int",
+	"candidate_set_id":        "cns",
+	"clarification_id":        "clr",
+	"decision_id":             "dec",
+	"confirmation_request_id": "cfr",
+	"confirmation_event_id":   "cfe",
+	"plan_id":                 "pln",
+	"grant_id":                "grt",
+	"receipt_id":              "rcp",
+	"verdict_id":              "ver",
+	"explanation_id":          "exp",
+	"record_event_id":         "recev",
+}
+
+// validRef reports whether value is exactly the contract ID of the type key names.
+func validRef(key, value string) bool {
+	prefix, ok := refPrefix[key]
+	if !ok {
+		return false
+	}
+	body, found := strings.CutPrefix(value, prefix+"_")
+	return found && idBodyRe.MatchString(body)
+}
+
 var (
 	conversationRe = regexp.MustCompile(`\Ainv_[0-9A-Za-z]{2,32}\z`)
 	keyRe          = regexp.MustCompile(`\A[a-z][a-z0-9_]{0,31}\z`)
-	typedIDRe      = regexp.MustCompile(`\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\z`)
+	idBodyRe       = regexp.MustCompile(`\A[0-9A-Za-z]{2,32}\z`)
 	cursorRe       = regexp.MustCompile(`\A(0|[1-9][0-9]{0,17})\z`)
 )
 
@@ -188,7 +215,7 @@ func (h *Handler) frame(e Event, last int64) (string, error) {
 		Refs    map[string]string `json:"refs"`
 	}{At: e.At.UTC().Format(time.RFC3339), Fields: map[string]string{}, Numbers: map[string]int64{}, Refs: map[string]string{}}
 	for k, v := range e.Refs {
-		if !keyRe.MatchString(k) || !typedIDRe.MatchString(v) {
+		if !keyRe.MatchString(k) || !validRef(k, v) {
 			return "", errors.New("ref")
 		}
 		data.Refs[k] = v

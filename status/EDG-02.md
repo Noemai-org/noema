@@ -14,3 +14,14 @@ Task row: proposed by the Steward in CR-2026-11-12-A170-sse-events-task-row (doc
 ## Pre-work for the next agent
 - Exact next step: after noema#486 merges, add the route to `apiRoutes` with role customer and a `Components.Events` feed; build the Feed from the per-tenant reader (OD-P-82) over the `investigation` table (noema#490) and the committed Record events; pass the platform redactor (noema#457) as `Mask`.
 - Do not touch: `edge/session`.
+
+## Session 2026-11-12 16:40 WAT · EDG-02 (fix round)
+
+## Session summary
+- What changed: Security Reviewer P1 on `d507cc13`: the ref pattern `[a-z]{2,6}_[0-9A-Za-z_]{2,64}` let `acct_0123456789` through as an unmasked "typed ID". Now each ref key has its contract prefix (`refPrefix`, from `common.v1`) and the value must be exactly `<prefix>_<[0-9A-Za-z]{2,32}>`; an unknown key is a bad event.
+- Tests added (AGENT-13, REQ-SEC-003): four bad-event cases (wrong prefix for the key, a key naming no contract ID, a separator in the body, over 32 characters), red before the fix. Three more mutants killed (no body check, loose body pattern, unknown key accepted).
+- Risks: a legitimate new ref key needs a line in `refPrefix` (fails closed until added).
+
+## Pre-work for the next agent
+- Exact next step: mount the route after noema#486 merges (see the README).
+- Do not touch: `refPrefix` without checking `common.v1`.
