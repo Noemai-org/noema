@@ -100,10 +100,10 @@ func TestEveryErrorCarriesACorrelationIDAndSafeText(t *testing.T) {
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("content type %q", rec.Header().Get("Content-Type"))
 	}
-	// an incoming correlation ID in the right shape is kept, so a call can be traced end to end
-	kept := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "corr_ABC123"})
-	if envelope(t, kept).CorrelationId != "corr_ABC123" {
-		t.Fatalf("incoming correlation ID not kept: %+v", envelope(t, kept))
+	// the chain's correlation ID is ours (noema#458, EL's decision): an incoming one is never adopted, in the right shape or not
+	ignored := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "corr_ABC123"})
+	if envelope(t, ignored).CorrelationId == "corr_ABC123" || ignored.Header().Get("Noema-Correlation-Id") == "corr_ABC123" {
+		t.Fatalf("an incoming correlation ID was adopted: %+v", envelope(t, ignored))
 	}
 	hostile := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "x\r\nSet-Cookie: a=b"})
 	if hostile.Header().Get("Set-Cookie") != "" || !strings.HasPrefix(string(envelope(t, hostile).CorrelationId), "corr_") {
@@ -204,6 +204,28 @@ func TestTheBearerSchemeNameIsCaseInsensitive(t *testing.T) {
 	for name, authz := range map[string]string{"no space": "Bearer" + tok, "two spaces": "Bearer  " + tok, "tab": "Bearer\t" + tok, "other scheme": "Basic " + tok, "empty credential": "Bearer ", "scheme only": "bearer"} {
 		if rec := do(h, authz, nil); rec.Code == http.StatusNoContent {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// noema#458 (SEC-03 finding; REQ-SEC-003, AGENT-13, SR's reproduction): a caller-supplied Noema-Correlation-Id such as corr_0123456789 has the shape of an account number
+// and used to be echoed in the response header and body, and then ride into logs and the Record with the chain. The chain ID is minted by the core; the incoming value is
+// not echoed, in the header, the body or any later part of the answer, and the answer carries a minted ID of the contract's shape.
+func TestACallerSuppliedCorrelationIdIsNeverEchoed(t *testing.T) {
+	h, _, _ := serve(t, newKeys(t))
+	shape := regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	for _, supplied := range []string{"corr_0123456789", "corr_12345", "corr_ABC123", "corr_" + strings.Repeat("9", 32), "x\r\nSet-Cookie: a=b", "corr_9999999999999999"} {
+		for name, rec := range map[string]*httptest.ResponseRecorder{
+			"no credential": do(h, "", map[string]string{"Noema-Correlation-Id": supplied}),
+			"a bad token":   do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": supplied}),
+		} {
+			got := rec.Header().Get("Noema-Correlation-Id")
+			if !shape.MatchString(got) || got == supplied || strings.Contains(rec.Body.String(), supplied) || strings.Contains(strings.Join(rec.Header().Values("Noema-Correlation-Id"), ","), supplied) {
+				t.Errorf("%s, supplied %q: header %q, body %q", name, supplied, got, rec.Body.String())
+			}
+			if envelope(t, rec).CorrelationId != contracts.CommonV1CorrelationId(got) {
+				t.Errorf("%s, supplied %q: the body's correlation id is not the header's", name, supplied)
+			}
 		}
 	}
 }
