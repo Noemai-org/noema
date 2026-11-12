@@ -368,3 +368,31 @@ func TestNewGateRefusesWhatItCannotRunWith(t *testing.T) {
 		t.Error("no pack was accepted")
 	}
 }
+
+// Ruling A163 (asserted_by pattern ^[a-z][a-z0-9_-]*$): the session's identity provider may be named with a hyphen, as the POC's own is (noema-poc-idp). Session.valid()
+// is the gate's own check of the session the caller passes, so it must allow what the contract's pattern allows and nothing more (INV-12).
+func TestTheAssertedByOfASessionFollowsTheContractsPattern(t *testing.T) {
+	g := gate(t)
+	with := func(by string) understanding.Session {
+		s := session
+		s.AssertedBy = by
+		return s
+	}
+	for _, by := range []string{"noema-poc-idp", "enterprise_idp", "idp", "a-b_c-9", "x9"} {
+		a, err := g.Admit(raw(t, nil), with(by), corr)
+		if err != nil {
+			t.Errorf("asserted_by %q: %v", by, err)
+			continue
+		}
+		if o := a.Intent.Object(); o.Principal.AssertedBy != by {
+			t.Errorf("asserted_by %q was admitted as %q", by, o.Principal.AssertedBy)
+		}
+	}
+	for name, by := range map[string]string{"empty": "", "a leading hyphen": "-idp", "a leading digit": "9idp", "a leading underscore": "_idp", "upper case": "Noema-idp",
+		"a space": "noema idp", "a dot": "noema.idp", "a slash": "noema/idp", "a newline at the end": "noema-idp\n", "a unicode hyphen": "noema\u2010idp"} {
+		_, err := g.Admit(raw(t, nil), with(by), corr)
+		if err == nil || !has(reasons(t, err), understanding.ReasonIdentityNotInOrder) {
+			t.Errorf("%s (%q): %v, want SESSION_INVALID", name, by, err)
+		}
+	}
+}
