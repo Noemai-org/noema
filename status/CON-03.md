@@ -58,3 +58,16 @@ Found mechanically (member-name overlap of every hand-written Go struct and Pyth
 ## Pre-work for the next agent
 - Exact next step: none for this change. Go does not check contract patterns at all (`tools/codegen/README.md`); a Go-side pattern validator at the core's boundaries is a separate decision for the Architect.
 - Do not touch: generated files by hand.
+
+## Session 2026-11-12 03:30 UTC · regenerate `session_limits_v1.py` after #439 (restores `codegen-diff` on `main`)
+
+## Session summary
+- What changed: one generated file, `services/model/noema_model/contracts/session_limits_v1.py`: its `pack_id` pattern is now `\A[a-z][a-z0-9]*\Z`, the form noema#439 (A138) generates. One line changed; produced by `python3 -I tools/codegen/generate.py --write`, not by hand.
+- Why: `session_limits.v1` (EDG-01) reached `main` before noema#439 did, with the old `^...$` pattern. After #439 merged, `main` no longer equals what the schemas generate, so `codegen-diff` fails on `main` (and on the merge ref of every open PR). Found while merging `main` into noema#411. My own sequencing miss: #439's body said open PRs that regenerate contracts would need `make codegen`; it did not check what was already on `main`.
+- Risks, and how they are contained: the change only tightens one pattern (a trailing newline in `pack_id` is now refused by the model; before, it was accepted: probe in the PR); no schema change, so no AGENT-15 bump.
+- Tests added: none new; `tools/codegen/test_codegen.py` and `test_contract_patterns.py` already pin the anchored form for every generated pattern.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after this merges, noema#411 merges `main` and runs `make codegen` once (its two `arm_turn` models), as every open PR that adds a contract will.
+- Do not touch: generated files by hand.
