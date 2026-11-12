@@ -351,6 +351,27 @@ func TestAChainThatDoesNotVerifyIsRefused(t *testing.T) {
 	}
 }
 
+// The card (docs#142) and the Security Reviewer's fix (b) on noema#377: a nil connection, and a connection that is not a tenant's record_read login (the superuser of the
+// test cluster, which stands for the migrator or the owner), export nothing. The superuser is the case the tenant binding of the login cannot cover by itself: it can read every
+// tenant's Record, so the export must refuse it, not export the first tenant it finds. REQ-AUD-003, INV-12, INV-22.
+func TestANilConnectionAndANonTenantLoginExportNothing(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_case01", story("ALLOW")...)
+	got, err := export.AuditRecordOf(ctx(t), nil, export.Session{TenantID: tenant}, "corr_case01")
+	if !errors.Is(err, export.ErrNoConnection) || len(got.Entries) != 0 {
+		t.Fatalf("a nil connection: got %v and %d entries, want an error and nothing", err, len(got.Entries))
+	}
+	var nilPool *pgxpool.Pool
+	got, err = export.AuditRecordOf(ctx(t), nilPool, export.Session{TenantID: tenant}, "corr_case01")
+	if !errors.Is(err, export.ErrNoConnection) || len(got.Entries) != 0 {
+		t.Fatalf("a nil pool: got %v and %d entries, want an error and nothing", err, len(got.Entries))
+	}
+	got, err = export.AuditRecordOf(ctx(t), w.admin, export.Session{TenantID: tenant}, "corr_case01")
+	if err == nil || len(got.Entries) != 0 || errors.Is(err, export.ErrIntegrity) || errors.Is(err, export.ErrNotFound) || !strings.Contains(err.Error(), "42501") {
+		t.Fatalf("the superuser connection: got %v and %d entries, want the database's refusal (42501, a login not mapped to a tenant) and nothing", err, len(got.Entries))
+	}
+}
+
 // REC-09 acceptance 4 (INV-12, REQ-SEC-004): a call for another tenant is refused. Fault: a cross-tenant call.
 func TestACallForAnotherTenantIsRefused(t *testing.T) {
 	w := newWorld(t)
