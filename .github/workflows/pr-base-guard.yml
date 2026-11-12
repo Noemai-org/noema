@@ -12,7 +12,7 @@ on:
     # edited: retargeting a PR fires "edited" with a fresh payload; a plain re-run would replay the old base.
     types: [opened, synchronize, reopened, edited]
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action == 'edited' && 'metadata' || 'code' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read

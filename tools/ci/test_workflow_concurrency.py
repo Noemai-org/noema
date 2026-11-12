@@ -9,6 +9,7 @@ from pathlib import Path
 
 WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 GROUP = "group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+EDITED_SPLIT = "-${{ github.event.action == 'edited' && 'metadata' || 'code' }}"
 CANCEL = "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
 
 
@@ -30,6 +31,17 @@ class Concurrency(unittest.TestCase):
             self.assertIn(GROUP, text, f"{path.name}: the concurrency group")
             self.assertIn(CANCEL, text, f"{path.name}: cancel-in-progress must be true only for pull_request")
         self.assertGreaterEqual(checked, 15)
+
+    def test_a_metadata_edit_never_shares_a_group_with_the_code_run(self) -> None:
+        # Codex P1 on the CI-speed PR: a title or description edit fires `edited`, which skips the real checks; if it shared the group it would cancel the full run
+        # of the current commit and nothing would replace it. Workflows that listen to `edited` give those events their own group.
+        found = 0
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            text = path.read_text()
+            if re.search(r"types:\s*\[[^\]]*edited", text):
+                found += 1
+                self.assertIn(EDITED_SPLIT, text, f"{path.name}: edited events must have their own concurrency group")
+        self.assertGreaterEqual(found, 2)
 
     def test_no_workflow_that_runs_on_push_cancels_unconditionally(self) -> None:
         for path in sorted(WORKFLOWS.glob("*.yml")):
