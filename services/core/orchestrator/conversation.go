@@ -12,9 +12,9 @@ import (
 // inputReceived is the Record event type the input gateway writes when it admits a turn (PERD 28.2, entry of RECEIVED).
 const inputReceived = "INPUT_RECEIVED"
 
-// requestID is the pattern of a request ID (common.v1 RequestId) and recordEventID that of a Record event ID (common.v1 RecordEventId). \A and \z, not ^ and $, so
+// requestID is the pattern of the client's request ID: a lower-case UUID, as canonical-input.v2 types request_id (the input gateway records the same value on INPUT_RECEIVED) and recordEventID that of a Record event ID (common.v1 RecordEventId). \A and \z, not ^ and $, so
 // text before or a trailing newline does not match (A138).
-var requestID = regexp.MustCompile(`\Areq_[0-9A-Za-z]{2,32}\z`)
+var requestID = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`)
 
 var recordEventID = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
 

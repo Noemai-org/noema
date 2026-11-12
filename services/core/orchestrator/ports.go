@@ -18,7 +18,7 @@ type Session struct{ TenantID, PrincipalID string }
 // Turn is one admitted customer turn. The input gateway has bounded and validated the text; the orchestrator takes it as given and only requires that it is present.
 // InputReceivedRef is the Record event ID of the INPUT_RECEIVED event the input gateway wrote for this turn (A161): the orchestrator never writes that event, and it
 // refuses a turn that does not name one.
-// RequestID is the client's request ID of this turn (common.v1 RequestId); the admitted event must carry the same one, so an older input of the same actor and
+// RequestID is the client's request ID of this turn (a lower-case UUID, canonical-input.v2 request_id); the admitted event must carry the same one, so an older input of the same actor and
 // conversation cannot be paired with different text.
 type Turn struct{ InvestigationID, CorrelationID, Text, InputReceivedRef, RequestID string }
 
