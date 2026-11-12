@@ -545,3 +545,35 @@ func TestTheStreamTellsProxiesNotToBuffer(t *testing.T) {
 		t.Errorf("X-Accel-Buffering = %q, want no", got)
 	}
 }
+
+// The global cap holds across principals: one stream open, a second principal is refused.
+func TestTheGlobalStreamCapHoldsAcrossPrincipals(t *testing.T) {
+	hold := make(chan struct{})
+	started := make(chan struct{}, 4)
+	wait := func(ctx context.Context, _ time.Duration) error {
+		started <- struct{}{}
+		select {
+		case <-hold:
+			return errors.New("released")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f := &fakeFeed{batches: []events.Batch{{}, {}, {}}}
+	r := newRigWith(t, f, wait, func(o *events.Options) { o.MaxStreams = 1; o.MaxStreamsPerPrincipal = 1 })
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); r.request(httptest.NewRecorder(), session.RoleCustomer) }()
+	<-started
+	c := edgetest.Good(epoch, session.RoleCustomer)
+	c.Sub = "prn_2"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer "+r.iss.Token(edgetest.Kid, c))
+	rec := httptest.NewRecorder()
+	r.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("a second principal over the global cap: %d %s", rec.Code, rec.Body.String())
+	}
+	close(hold)
+	wg.Wait()
+}

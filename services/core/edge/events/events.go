@@ -16,12 +16,14 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 )
 
 // Route is the path of PERD 39.2 in net/http pattern form.
@@ -68,26 +70,38 @@ type Feed interface {
 
 // Options is everything the handler needs. Nothing has a default (AGENT-16).
 type Options struct {
-	Feed          Feed
-	Mask          func(string) string                              // masks one free-text value (the platform redactor, A154)
-	Wait          func(ctx context.Context, d time.Duration) error // waits d or until ctx ends, returning ctx's error then
-	Poll          time.Duration                                    // between two polls of the Feed
-	MaxStream     time.Duration                                    // the longest one stream lasts
-	MaxEventBytes int                                              // the largest data of one event
+	Feed                   Feed
+	Mask                   func(string) string                              // masks one free-text value (the platform redactor, A154)
+	Wait                   func(ctx context.Context, d time.Duration) error // waits d or until ctx ends, returning ctx's error then
+	Clock                  clock.Clock                                      // the injected clock: the session's remaining life and the write deadlines (never time.Now)
+	Poll                   time.Duration                                    // between two polls of the Feed
+	MaxStream              time.Duration                                    // the longest one stream lasts (and never longer than the session's token)
+	MaxEventBytes          int                                              // the largest data of one event
+	WriteTimeout           time.Duration                                    // the deadline of each write: a slower consumer loses its stream
+	MaxStreams             int                                              // the most streams open at once
+	MaxStreamsPerPrincipal int                                              // the most streams one principal of one tenant has open
+	MaxBatch               int                                              // the most events one Feed answer may hold
 }
 
-// Handler serves Route. Mount it behind session.Middleware and session.RequireRole(customer).
-type Handler struct{ o Options }
+// Handler serves Route. Mount it behind session.Middleware and session.RequireRole(customer); it checks the role itself too.
+type Handler struct {
+	o     Options
+	mu    sync.Mutex
+	total int
+	per   map[string]int // open streams by tenant and principal
+}
 
 // New refuses an Options that is missing anything.
 func New(o Options) (*Handler, error) {
 	switch {
-	case o.Feed == nil, o.Mask == nil, o.Wait == nil:
-		return nil, errors.New("events: a feed, a masker and a wait are required")
-	case o.Poll <= 0, o.MaxStream <= 0, o.MaxEventBytes <= 0:
-		return nil, errors.New("events: the poll interval, the stream limit and the event bound must be positive")
+	case o.Feed == nil, o.Mask == nil, o.Wait == nil, o.Clock == nil:
+		return nil, errors.New("events: a feed, a masker, a wait and a clock are required")
+	case o.Poll <= 0, o.MaxStream <= 0, o.MaxEventBytes <= 0, o.WriteTimeout <= 0:
+		return nil, errors.New("events: the poll interval, the stream limit, the event bound and the write timeout must be positive")
+	case o.MaxStreams <= 0, o.MaxStreamsPerPrincipal <= 0, o.MaxStreamsPerPrincipal > o.MaxStreams, o.MaxBatch <= 0:
+		return nil, errors.New("events: the stream caps and the batch cap must be positive, the per-principal cap no larger than the global one")
 	}
-	return &Handler{o: o}, nil
+	return &Handler{o: o, per: map[string]int{}}, nil
 }
 
 // refPrefix names, for each ref key an event may carry, the prefix of the contract ID it holds (common.v1: `^<prefix>_[0-9A-Za-z]{2,32}$`). A ref is exempt from masking only because it matches its own key's contract exactly (A154); a key not listed here, or a value of another shape, is a bad event.
@@ -130,9 +144,39 @@ const (
 	keepalive        = ": keepalive\n\n"
 )
 
+// acquire takes one stream place for the principal, or reports that there is none: the caps are the limits of REQ-API-001's long-lived connections.
+func (h *Handler) acquire(key string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.total >= h.o.MaxStreams || h.per[key] >= h.o.MaxStreamsPerPrincipal {
+		return false
+	}
+	h.total++
+	h.per[key]++
+	return true
+}
+
+func (h *Handler) release(key string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.total--
+	if h.per[key]--; h.per[key] <= 0 {
+		delete(h.per, key)
+	}
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p, ok := session.FromContext(r.Context())
 	if !ok {
+		fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.")
+		return
+	}
+	if p.Role != session.RoleCustomer {
+		fail(w, http.StatusNotFound, contracts.ErrorsV2ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
+		return
+	}
+	left := p.ExpiresAt.Sub(h.o.Clock.Now())
+	if left <= 0 {
 		fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.")
 		return
 	}
@@ -154,8 +198,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), h.o.MaxStream)
+	key := p.Tenant + "|" + p.ID
+	if !h.acquire(key) {
+		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
+		return
+	}
+	defer h.release(key)
+	life := min(h.o.MaxStream, left) // a stream never outlives its token
+	ctx, cancel := context.WithTimeout(r.Context(), life)
 	defer cancel()
+	out := &sink{w: w, fl: fl, rc: http.NewResponseController(w), clk: h.o.Clock, timeout: h.o.WriteTimeout}
 	batch, err := h.o.Feed.Since(ctx, p, ref, after)
 	switch {
 	case errors.Is(err, ErrNotFound):
@@ -167,23 +219,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	last := after
 	for {
+		if len(batch.Events) > h.o.MaxBatch {
+			out.write(faultFrame)
+			return
+		}
 		for _, e := range batch.Events {
 			frame, err := h.frame(e, last)
 			if err != nil {
-				write(w, fl, faultFrame)
+				out.write(faultFrame)
 				return
 			}
-			write(w, fl, frame)
+			if out.write(frame) != nil {
+				return // a consumer that cannot keep up, or has gone, loses the stream
+			}
 			last = e.Cursor
 		}
 		if batch.Done {
 			return
 		}
-		if len(batch.Events) == 0 {
-			write(w, fl, keepalive)
+		if len(batch.Events) == 0 && out.write(keepalive) != nil {
+			return
 		}
 		if h.o.Wait(ctx, h.o.Poll) != nil {
 			return
@@ -191,7 +250,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		batch, err = h.o.Feed.Since(ctx, p, ref, last)
 		if err != nil {
 			if ctx.Err() == nil {
-				write(w, fl, unavailableFrame)
+				_ = out.write(unavailableFrame) // the stream ends either way
 			}
 			return
 		}
@@ -240,10 +299,24 @@ func (h *Handler) frame(e Event, last int64) (string, error) {
 	return fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", e.Cursor, e.Kind, raw), nil
 }
 
-func write(w http.ResponseWriter, fl http.Flusher, s string) {
-	if _, err := w.Write([]byte(s)); err == nil { // a client that has gone is not an error to report: the next poll sees its context end
-		fl.Flush()
+// sink writes frames with a deadline on each write, from the injected clock.
+type sink struct {
+	w       http.ResponseWriter
+	fl      http.Flusher
+	rc      *http.ResponseController
+	clk     clock.Clock
+	timeout time.Duration
+}
+
+func (s *sink) write(frame string) error {
+	if err := s.rc.SetWriteDeadline(s.clk.Now().Add(s.timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
 	}
+	if _, err := s.w.Write([]byte(frame)); err != nil {
+		return err
+	}
+	s.fl.Flush()
+	return nil
 }
 
 func fail(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message string) {

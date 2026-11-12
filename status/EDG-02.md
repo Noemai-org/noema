@@ -25,3 +25,14 @@ Task row: proposed by the Steward in CR-2026-11-12-A170-sse-events-task-row (doc
 ## Pre-work for the next agent
 - Exact next step: mount the route after noema#486 merges (see the README).
 - Do not touch: `refPrefix` without checking `common.v1`.
+
+## Session 2026-11-12 17:30 WAT · EDG-02 (fix round 2)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `2229520f`. (1) blocking: a stream outlived its token; now `min(MaxStream, token's remaining life)` from an injected clock, and an expired token gets 401. (2) blocking: no slow-consumer or concurrency bound; now a write deadline per write, a failed write ends the stream, a global and a per-principal stream cap (retryable 503), and a batch cap. (3) major: the handler checks the customer role itself (same 404). Note 6: `X-Accel-Buffering: no`.
+- Tests added (REQ-SEC-003, INV-12, REQ-API-001): token expiry mid-stream, an expired token, a failed write with its deadline, a batch over the cap, per-principal and global caps with the place freed on finish, the handler-side role check, the header. Red first (did not compile: no `Clock`, `WriteTimeout`, `MaxStreams`, `MaxStreamsPerPrincipal`, `MaxBatch`). Ten mutants killed (token life, role check, ignored write error, no deadline, no release, no batch cap, no per-principal cap, no global cap, no expiry refusal); the global-cap one first survived and got its own test.
+- Not done, stated in the README: note 4 (per-kind key allow-list, belongs with REC-04 and the Feed), note 5 (only a fake Feed). A rate-limit error code (429) would need an `errors.v3` code; the cap answers the retryable 503 until then.
+
+## Pre-work for the next agent
+- Exact next step: mount the route after noema#486 merges, with a real per-tenant Feed (OD-P-82) and the platform masker (noema#457); set all new Options from configuration (no defaults).
+- Do not touch: `refPrefix` without checking `common.v1`.
