@@ -17,8 +17,10 @@
 
 The keys of the numeric exemptions are chosen by code, never by a user, a model or an enterprise field, and every suffix but `_bytes` already names fields in `contracts/schemas`. The trace filter takes strings only, so the numeric exemptions never apply to it.
 
+**Bounds.** A map or slice is read member by member to a depth of 8 and at most 4096 members per attribute; anything past that, and any cycle, is `[REDACTED]` (they stop a crash or a blow-up, they are not safety thresholds). A number of a named type under an exempt key is written as a plain `int64`, `uint64` or `float64`, never by its own `MarshalJSON`.
+
 **Known limits, stated.** (1) A comma ends a run, so an amount written `20,000,000` stays readable; a card number written with commas between groups of four would also survive. (2) A typed ID or timestamp token can carry digits of its own choosing inside the shape (a timestamp has up to nine fraction digits; a typed ID up to 25 characters of which some may be digits); the shape rules above are what keep this narrow, and the leak scanner (`tools/ci/leakscan.py`) is the second wall. (3) A date alone is masked: write it as a full RFC 3339 time. (4) Not yet installed in `cmd/core`; the composition root installs `Handler` on the core's logger and the telemetry filter.
 
 **REQs.** REQ-SEC-003, REQ-OBS-002 (AGENT-13, POC-NFR-06).
 
-**Tests.** `go test ./platform/redaction/...` from `services/core/`. Twenty-one mutations of the redactor each turn the suite red (the limit, ASCII-only digits, each exemption removed, loosened or widened, the secret-key rules, nested containers, `WithGroup`, `WithAttrs`, the message, the trace filter, the time kind). `edge/session/no_echo_test.go` plants a number in a refused request (path, query, bearer token, header, body) and checks no run of five digits comes back in the response body or headers.
+**Tests.** `go test ./platform/redaction/...` from `services/core/`. Thirty mutations of the redactor each turn the suite red (the limit, ASCII-only digits, each exemption removed, loosened or widened, the secret-key rules, nested containers, `WithGroup`, `WithAttrs`, the message, the trace filter, the time kind). `edge/session/no_echo_test.go` plants a number in a refused request (path, query, bearer token, header, body) and checks no run of five digits comes back in the response body or headers.

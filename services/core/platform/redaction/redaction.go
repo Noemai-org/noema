@@ -53,6 +53,13 @@ func Exemptions() []Exemption {
 	}
 }
 
+// The traversal bounds of a value the redactor reads member by member (a map or a slice): nesting deeper than maxDepth, or a value that makes it visit more than maxNodes members, is
+// replaced by [REDACTED]. They stop a cycle, a very deep value and a shared sub-structure that a plain walk would expand without end; they are not safety thresholds.
+const (
+	maxDepth = 8
+	maxNodes = 4096
+)
+
 // numericSuffixes are the key suffixes of the structured numeric exemptions: the key is chosen by code, never by a user, a model or an enterprise field.
 var numericSuffixes = []string{"_minor", "_count", "_bytes", "_ms", "_s", "_seconds", "_minutes", "_micros"}
 
@@ -224,12 +231,21 @@ func (h *handler) WithGroup(name string) slog.Handler {
 
 // redactAttr redacts one attribute. force is true inside a secret-looking group: every value under it is removed and only the shape (keys and groups) stays.
 func (r *Redactor) redactAttr(a slog.Attr, force bool) slog.Attr {
-	out := r.redactValue(a, force)
+	budget := maxNodes
+	return r.redactNode(a, force, 0, &budget)
+}
+
+func (r *Redactor) redactNode(a slog.Attr, force bool, depth int, budget *int) slog.Attr {
+	*budget--
+	if depth > maxDepth || *budget < 0 {
+		return slog.String(r.MaskAccountNumbers(a.Key), Redacted)
+	}
+	out := r.redactValue(a, force, depth, budget)
 	out.Key = r.MaskAccountNumbers(a.Key) // the key is classified by its original name above and emitted masked: an account number can be a key or a group name
 	return out
 }
 
-func (r *Redactor) redactValue(a slog.Attr, force bool) slog.Attr {
+func (r *Redactor) redactValue(a slog.Attr, force bool, depth int, budget *int) slog.Attr {
 	v := a.Value.Resolve()
 	if secretKey(a.Key) && !(force && v.Kind() == slog.KindGroup) {
 		return slog.String(a.Key, Redacted)
@@ -238,7 +254,7 @@ func (r *Redactor) redactValue(a slog.Attr, force bool) slog.Attr {
 		group := v.Group()
 		out := make([]any, len(group))
 		for i, g := range group {
-			out[i] = r.redactAttr(g, force)
+			out[i] = r.redactNode(g, force, depth+1, budget)
 		}
 		return slog.Group(a.Key, out...)
 	}
@@ -258,12 +274,12 @@ func (r *Redactor) redactValue(a slog.Attr, force bool) slog.Attr {
 	case slog.KindTime:
 		return slog.String(a.Key, r.MaskAccountNumbers(v.Time().UTC().Format(time.RFC3339Nano)))
 	default:
-		return r.redactAny(a.Key, v.Any(), force)
+		return r.redactAny(a.Key, v.Any(), force, depth, budget)
 	}
 }
 
 // redactAny reads a value of kind Any: an error or a Stringer by its text, a map or slice of plain values member by member, a named scalar by its text, and anything else as [REDACTED].
-func (r *Redactor) redactAny(key string, x any, force bool) slog.Attr {
+func (r *Redactor) redactAny(key string, x any, force bool, depth int, budget *int) slog.Attr {
 	switch t := x.(type) {
 	case nil:
 		return slog.String(key, "<nil>")
@@ -276,32 +292,42 @@ func (r *Redactor) redactAny(key string, x any, force bool) slog.Attr {
 		for _, k := range sortedKeys(t) {
 			attrs = append(attrs, slog.String(k, t[k]))
 		}
-		return r.redactAttr(slog.Group(key, attrs...), force)
+		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case map[string]any:
 		attrs := make([]any, 0, len(t))
 		for _, k := range sortedKeys(t) {
 			attrs = append(attrs, slog.Any(k, t[k]))
 		}
-		return r.redactAttr(slog.Group(key, attrs...), force)
+		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case []string:
 		attrs := make([]any, len(t))
 		for i, s := range t {
 			attrs[i] = slog.String(fmt.Sprint(i), s)
 		}
-		return r.redactAttr(slog.Group(key, attrs...), force)
+		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case []any:
 		attrs := make([]any, len(t))
 		for i, e := range t {
 			attrs[i] = slog.Any(fmt.Sprint(i), e)
 		}
-		return r.redactAttr(slog.Group(key, attrs...), force)
+		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	}
 	switch reflect.ValueOf(x).Kind() {
 	case reflect.String, reflect.Bool:
 		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Float32, reflect.Float64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if numericKey(key) {
-			return slog.Any(key, x)
+			return slog.Int64(key, reflect.ValueOf(x).Int()) // a primitive: the type's own MarshalJSON is never forwarded
+		}
+		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if numericKey(key) {
+			return slog.Uint64(key, reflect.ValueOf(x).Uint())
+		}
+		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+	case reflect.Float32, reflect.Float64:
+		if numericKey(key) {
+			return slog.Float64(key, reflect.ValueOf(x).Float())
 		}
 		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
 	}

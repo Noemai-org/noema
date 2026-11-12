@@ -51,3 +51,8 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 
 ## Session 2026-11-12 (later) · Codex P2 on 476f42e: account numbers in keys and group names
 - Test first (red, committed before the fix): `TestAnAccountNumberUsedAsAKeyOrAGroupNameIsMasked`. Fix: every emitted attribute key, group name, `WithGroup` name and trace attribute key is masked; secret-key classification still uses the original name. Four mutations of this fix run, all red (one survived until the secret-key-with-digits case was added to the test).
+
+## Session 2026-11-12 (third) · Codex P2s on 5fa16fb: named numeric types and unbounded traversal
+- Tests first (red, committed before the fix): `TestAnExemptNumberOfANamedTypeIsWrittenAsAPlainNumberNeverByItsOwnSerialisation` (a `MarshalJSON` on an `int64` type leaked through an exempt key) and `TestACyclicOrVeryDeepOrVeryWideValueIsBoundedAndNeverCrashes` (a cyclic map crashed the process with a stack overflow). Fix: exempt numbers of named types are written as plain `int64`, `uint64` or `float64`; the traversal of maps and slices is bounded by depth 8 and 4096 members per attribute, beyond which a value is `[REDACTED]`.
+- Self-review added, to cut review cycles: a generated-value property (`TestNoGeneratedNestedValueLetsADigitRunOrASecretThrough`, planted digits in keys, values, group names and nested members), unsigned and float aliases, and the depth bound. Mutations: no bound, no node budget, no depth bound, and each of the three alias paths forwarded: all red.
+- Waiting on noema#468 (EL): one source for the limit. After it merges, `redaction.MaxUnmaskedRun` reads `platform/masking`'s `Limits` instead of a second constant, in a follow-up commit here.

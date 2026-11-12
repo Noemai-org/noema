@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/redaction"
+	"pgregory.net/rapid"
 )
 
 var longRun = regexp.MustCompile(`[0-9]{5,}`) // the PERD's limit: a run of five or more digits must never reach the output
@@ -432,7 +433,9 @@ func TestACyclicOrVeryDeepOrVeryWideValueIsBoundedAndNeverCrashes(t *testing.T) 
 	}
 	var out string
 	inTime(t, func() {
-		out = logged(t, func(l *slog.Logger) { l.Info("m", "cyc", cyc, "ring", ring, "deep", deep, "shared", shared, "acct", "0123456789") })
+		out = logged(t, func(l *slog.Logger) {
+			l.Info("m", "cyc", cyc, "ring", ring, "deep", deep, "shared", shared, "acct", "0123456789")
+		})
 	})
 	noRun(t, "log", out)
 	if !strings.Contains(out, redaction.Redacted) || strings.Contains(out, "synthetic-secret-deep") {
@@ -440,5 +443,69 @@ func TestACyclicOrVeryDeepOrVeryWideValueIsBoundedAndNeverCrashes(t *testing.T) 
 	}
 	if len(out) > 1<<20 {
 		t.Errorf("the output is unbounded: %d bytes", len(out))
+	}
+}
+
+// A property over generated nested values (REQ-SEC-003): whatever shape a map, slice, string, number or error takes, and wherever a ten-digit number is planted (a key, a value, a
+// group name, a nested member), no run of five digits reaches the output, and a value under a secret-looking key never does.
+func TestNoGeneratedNestedValueLetsADigitRunOrASecretThrough(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		digits := rapid.StringMatching(`[0-9]{5,14}`).Draw(rt, "digits")
+		var gen func(depth int) any
+		gen = func(depth int) any {
+			switch k := rapid.IntRange(0, 5).Draw(rt, "kind"); {
+			case k == 0 || depth > 3:
+				return "x " + digits + " y"
+			case k == 1:
+				return errors.New("e" + digits)
+			case k == 2:
+				m := map[string]any{}
+				for i := 0; i < rapid.IntRange(0, 3).Draw(rt, "n"); i++ {
+					key := rapid.SampledFrom([]string{"a", digits, "k" + digits, "token", "b"}).Draw(rt, "key")
+					m[key] = gen(depth + 1)
+				}
+				return m
+			case k == 3:
+				return []any{gen(depth + 1), gen(depth + 1)}
+			case k == 4:
+				return []string{digits, "z"}
+			default:
+				return map[string]string{digits: digits}
+			}
+		}
+		v := gen(0)
+		out := logged(t, func(l *slog.Logger) {
+			l.WithGroup(rapid.SampledFrom([]string{"g", digits}).Draw(rt, "group")).Info("m"+digits, rapid.SampledFrom([]string{"v", digits}).Draw(rt, "attrkey"), v)
+		})
+		if longRun.MatchString(out) {
+			rt.Fatalf("a digit run reached the output: %s", out)
+		}
+	})
+}
+
+type countAlias uint64
+
+func (countAlias) MarshalJSON() ([]byte, error) { return []byte(`"account 0123456789"`), nil }
+
+type sizeAlias float64
+
+func (sizeAlias) MarshalJSON() ([]byte, error) { return []byte(`"account 0123456789"`), nil }
+
+func TestUnsignedAndFloatAliasesAreWrittenAsPlainNumbersToo(t *testing.T) {
+	out := logged(t, func(l *slog.Logger) { l.Info("m", "attempt_count", countAlias(3), "body_bytes", sizeAlias(2.5)) })
+	noRun(t, "log", out)
+	if !strings.Contains(out, `"attempt_count":3`) || !strings.Contains(out, `"body_bytes":2.5`) {
+		t.Errorf("plain numbers expected: %s", out)
+	}
+}
+
+func TestNestingIsCutAtTheDepthBound(t *testing.T) {
+	deep := map[string]any{"leaf": "x"}
+	for i := 0; i < 50; i++ {
+		deep = map[string]any{"n": deep}
+	}
+	out := logged(t, func(l *slog.Logger) { l.Info("m", "deep", deep) })
+	if strings.Count(out, `"n":{`) > 12 || !strings.Contains(out, redaction.Redacted) {
+		t.Errorf("a 50-deep value should be cut: %s", out)
 	}
 }
