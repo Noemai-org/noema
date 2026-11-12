@@ -661,3 +661,19 @@ func TestAWriterThatCannotTakeAWriteDeadlineGetsNoStream(t *testing.T) {
 		t.Fatalf("%d %s, calls %+v", rec.Code, rec.Body.String(), f.calls)
 	}
 }
+
+// Each kind has its own vocabulary: a key one kind lists is served for that kind and refused for another.
+func TestEachKindHasItsOwnVocabulary(t *testing.T) {
+	tweak := func(o *events.Options) {
+		o.Vocabulary[events.KindProgress] = events.Vocabulary{}
+		o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": 10}}
+	}
+	e := ev(1, events.KindAnswer)
+	e.Fields = nil
+	r := newRigWith(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}, nil, tweak)
+	rec := newRec()
+	r.request(rec, session.RoleCustomer)
+	if !strings.Contains(rec.Body.String(), "id: 1\nevent: answer\n") || strings.Contains(rec.Body.String(), "STREAM_FAULT") {
+		t.Errorf("an answer carrying a number its kind lists: %q", rec.Body.String())
+	}
+}

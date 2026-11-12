@@ -36,3 +36,14 @@ Task row: proposed by the Steward in CR-2026-11-12-A170-sse-events-task-row (doc
 ## Pre-work for the next agent
 - Exact next step: mount the route after noema#486 merges, with a real per-tenant Feed (OD-P-82) and the platform masker (noema#457); set all new Options from configuration (no defaults).
 - Do not touch: `refPrefix` without checking `common.v1`.
+
+## Session 2026-11-12 23:00 WAT · EDG-02 (fix round 3)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `e87e38c2`, blocking (d): `Numbers` was never masked and its keys only had to match `keyRe`, so `{"account_number": 123456789012345678}` was written whole; `Fields` keys were unconstrained. Now a configured `Vocabulary` per event kind lists the allowed `Fields` keys and the allowed `Numbers` keys with a maximum each (0 to max, at most `MaxNumberDigits` digits); anything else is a bad event. Note 2: a writer that cannot take a write deadline gets 500 and no stream. Notes 3 and 4 and the empty-tenant check are stated in the README.
+- Tests added (REQ-SEC-003, AGENT-13): a number under an unlisted key (an account number), over its maximum, negative, under a kind that lists none; a field under an unlisted key or a kind with none; `New` refusing seven bad vocabularies; a writer with no write deadline; each kind its own vocabulary. Red first (did not compile). Mutants killed: no maximum, negative allowed, no number check, no field allow-list, no deadline probe, no digit bound (two forms), wrong kind's vocabulary (two of these first survived and got tests).
+- Risks: the vocabulary has no default, so the mounting task must set it (and `MaxNumberDigits` from the shared masking limit once noema#468 lands).
+
+## Pre-work for the next agent
+- Exact next step: mount the route after noema#486 merges, with the real Feed, the platform masker, a vocabulary per kind and all options from configuration.
+- Do not touch: `refPrefix` without checking `common.v1`.

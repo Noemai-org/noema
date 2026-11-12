@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,6 +69,13 @@ type Feed interface {
 	Since(ctx context.Context, p session.Principal, conversationRef string, after int64) (Batch, error)
 }
 
+// Vocabulary is what one kind of event may carry in its free-text and numeric members. A key that is not listed is a bad event; a number must be between 0 and the
+// maximum listed for its key. It is configuration with no default (AGENT-16): the contents of an event are a policy of whoever mounts the route, not of this package.
+type Vocabulary struct {
+	Fields  []string         // the keys of free text, which is masked
+	Numbers map[string]int64 // the keys of numbers, each with its largest allowed value
+}
+
 // Options is everything the handler needs. Nothing has a default (AGENT-16).
 type Options struct {
 	Feed                   Feed
@@ -81,6 +89,8 @@ type Options struct {
 	MaxStreams             int                                              // the most streams open at once
 	MaxStreamsPerPrincipal int                                              // the most streams one principal of one tenant has open
 	MaxBatch               int                                              // the most events one Feed answer may hold
+	Vocabulary             map[Kind]Vocabulary                              // for every kind, the keys its events may carry in Fields and Numbers
+	MaxNumberDigits        int                                              // the most decimal digits any allowed number may have (the masking limit of A154): no number can be an unmasked account-length run
 }
 
 // Handler serves Route. Mount it behind session.Middleware and session.RequireRole(customer); it checks the role itself too.
@@ -100,6 +110,9 @@ func New(o Options) (*Handler, error) {
 		return nil, errors.New("events: the poll interval, the stream limit, the event bound and the write timeout must be positive")
 	case o.MaxStreams <= 0, o.MaxStreamsPerPrincipal <= 0, o.MaxStreamsPerPrincipal > o.MaxStreams, o.MaxBatch <= 0:
 		return nil, errors.New("events: the stream caps and the batch cap must be positive, the per-principal cap no larger than the global one")
+	}
+	if err := checkVocabulary(o); err != nil {
+		return nil, err
 	}
 	return &Handler{o: o, per: map[string]int{}}, nil
 }
@@ -143,6 +156,32 @@ const (
 	unavailableFrame = "event: error\ndata: {\"code\":\"STREAM_UNAVAILABLE\"}\n\n"
 	keepalive        = ": keepalive\n\n"
 )
+
+var allKinds = []Kind{KindProgress, KindClarification, KindConfirmation, KindAnswer, KindError}
+
+// checkVocabulary refuses a vocabulary that is missing a kind, names an unknown one, has a key out of form or lets a number exceed MaxNumberDigits digits.
+func checkVocabulary(o Options) error {
+	if o.MaxNumberDigits <= 0 || len(o.Vocabulary) != len(allKinds) {
+		return errors.New("events: a vocabulary for every kind and a positive digit bound for numbers are required")
+	}
+	for _, k := range allKinds {
+		v, ok := o.Vocabulary[k]
+		if !ok {
+			return errors.New("events: the vocabulary lacks a kind")
+		}
+		for _, f := range v.Fields {
+			if !keyRe.MatchString(f) {
+				return errors.New("events: a field key is out of form")
+			}
+		}
+		for n, max := range v.Numbers {
+			if !keyRe.MatchString(n) || max < 0 || len(strconv.FormatInt(max, 10)) > o.MaxNumberDigits {
+				return errors.New("events: a number key or its maximum is not allowed")
+			}
+		}
+	}
+	return nil
+}
 
 // acquire takes one stream place for the principal, or reports that there is none: the caps are the limits of REQ-API-001's long-lived connections.
 func (h *Handler) acquire(key string) bool {
@@ -198,6 +237,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
 		return
 	}
+	out := &sink{w: w, fl: fl, rc: http.NewResponseController(w), clk: h.o.Clock, timeout: h.o.WriteTimeout}
+	if out.deadline() != nil { // a writer that cannot take a write deadline cannot be protected from a slow consumer: no stream
+		fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
+		return
+	}
 	key := p.Tenant + "|" + p.ID
 	if !h.acquire(key) {
 		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
@@ -207,7 +251,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	life := min(h.o.MaxStream, left) // a stream never outlives its token
 	ctx, cancel := context.WithTimeout(r.Context(), life)
 	defer cancel()
-	out := &sink{w: w, fl: fl, rc: http.NewResponseController(w), clk: h.o.Clock, timeout: h.o.WriteTimeout}
 	batch, err := h.o.Feed.Since(ctx, p, ref, after)
 	switch {
 	case errors.Is(err, ErrNotFound):
@@ -279,15 +322,17 @@ func (h *Handler) frame(e Event, last int64) (string, error) {
 		}
 		data.Refs[k] = v
 	}
+	voc := h.o.Vocabulary[e.Kind]
 	for k, v := range e.Numbers {
-		if !keyRe.MatchString(k) {
+		max, ok := voc.Numbers[k]
+		if !ok || v < 0 || v > max {
 			return "", errors.New("number")
 		}
 		data.Numbers[k] = v
 	}
 	for k, v := range e.Fields {
 		m := h.o.Mask(v)
-		if !keyRe.MatchString(k) || !utf8.ValidString(m) || strings.IndexFunc(m, unicode.IsControl) >= 0 {
+		if !slices.Contains(voc.Fields, k) || !utf8.ValidString(m) || strings.IndexFunc(m, unicode.IsControl) >= 0 {
 			return "", errors.New("field")
 		}
 		data.Fields[k] = m
@@ -308,8 +353,13 @@ type sink struct {
 	timeout time.Duration
 }
 
+// deadline sets the write deadline from the injected clock; a writer that cannot take one is an error (fail closed).
+func (s *sink) deadline() error {
+	return s.rc.SetWriteDeadline(s.clk.Now().Add(s.timeout))
+}
+
 func (s *sink) write(frame string) error {
-	if err := s.rc.SetWriteDeadline(s.clk.Now().Add(s.timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := s.deadline(); err != nil {
 		return err
 	}
 	if _, err := s.w.Write([]byte(frame)); err != nil {
