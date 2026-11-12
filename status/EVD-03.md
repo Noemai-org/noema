@@ -46,3 +46,15 @@ Updated 2026-11-07. Plan task EVD-03 (owner C2; REQ-CTX-004). Slice 1 (the hash)
 ## Pre-work for the next agent
 - Exact next step: after noema#263 lands, merge `main`; `init.sh`, `test_init.sh` and `testpg.go` conflict with #181 (C1's note) and #181's duplicate-secret list must cover `evidence_verify_password`.
 - Do not touch: the sealer's order (Append, then INSERT).
+
+## Session 2026-11-12 · EVD-03 slice 2 · A145 (no pull request edits `migrations/README.md`)
+
+## Session summary
+- What changed: the 0020 section is removed from `services/core/migrations/README.md` (the file is back to `main`'s) and its object table moved to `services/core/evidence/snapshot/README.md`. No code, SQL or test changed. A145 (committed in `DEC-2026-11-11-architect-rulings-a129-a147`, docs#156) ends the practice of each migration pull request adding a row there; the ledger lives on noema#183. Earlier sections of this file that mention "the migrations README" describe the state at their date.
+- Why: A145. Also now committed and cited by this PR: A136 (row security with FORCE in the table's own migration) and A141 (merge in dependency order only, which supersedes A113's strict ascending order; A113's acceptance of the number gap stands). I find no parent of this PR in A141's list.
+- Risks, and how they are contained: documentation only; the PR's code diff is unchanged.
+- Tests added: none. Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after Codex reads the delta, nothing in this PR; the Trust call site (TRU) calls `Seal`.
+- Do not touch: `services/core/migrations/README.md`.

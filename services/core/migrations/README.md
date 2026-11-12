@@ -62,15 +62,3 @@ Per-power roles (NOLOGIN): `trust_rw`, `execution_rw`, `outcome_rw`, `record_app
 
 
 `0017_kill_switch_set_only.sql` (REC-05, Founder decision D5 of 7 Nov 2026; number 0017 by the merge order of 8 Nov 2026): a `BEFORE UPDATE OF kill_switch` trigger on `tenant` (`ENABLE ALWAYS`) refuses a true to false change by every login that is not a superuser, whatever its role and whatever it has been granted (review F1 on noema#265). The verifier sets the switch, only a person clears it; EXE-06 adds the control plane's ops login to the rule in its own migration (ruling A71). A superuser can still clear: it is the operator's own credential, no service login is a superuser (tested), and that only a person holds it is an operating rule. The Go verifier is unchanged.
-
-`0020_context_snapshot.sql` (EVD-03 slice 2; number assigned by the Repo Steward on the merge ledger, noema#183; renumbered from 0019 by that ledger: 0017 noema#265 (merged), 0018 noema#261, 0019 noema#263, 0020 this file; strict ascending merge order, A113): `context_snapshot` (context-snapshot.v1) and the grants of the `evidence_verify` login (D9).
-
-| Object | Rule |
-|---|---|
-| `evidence_set_hash_of(ids, hashes)` | the golden-vector construction in SQL (sorted by the UTF-8 bytes of the id, `LP(id) LP(hash)`, SHA-256); errors on an empty or repeated id, a bad hash, arrays of unequal length; `EXECUTE` for `trust_rw` alone |
-| `context_snapshot` | insert-only (triggers); at least one evidence id; the empty-set hash is never stored; written by the tenant's own Trust login (`trust_rw` holds SELECT and INSERT), forced row-level security on `tenant_id = evidence_login_tenant()` |
-| `context_snapshot_guard()` | `SECURITY DEFINER` insert trigger: the login is a Trust login of `NEW.tenant_id` (`session_user`), the ids are non-NULL, sorted and unique, every id names an evidence item of that tenant, and the stored hash equals the hash the database computes from those items' payload hashes |
-| `evidence_item_definer_read` policy | `FOR SELECT TO CURRENT_USER USING (tenant_id = evidence_login_tenant())`: the guard is `SECURITY DEFINER` and `evidence_item` forces row-level security, which binds the owner; without a policy for the owner a non-superuser migration login (Compose) sees no evidence and refuses every snapshot. `TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner` pins the class and `test_init.sh` seals one snapshot as the non-superuser migrator |
-| `evidence_verify` (created in `init.sh`, not here) | a LOGIN role in no group; `USAGE` on the schema, `SELECT` on `context_snapshot` and `evidence_item` only, and one `FOR SELECT ... USING (true)` policy on each table; no payload table, no Record, no function |
-
-Tests: `go test ./evidence/snapshot/` (the catalog test pins the exact grants of `evidence_verify`, and `deploy/compose/postgres/test_init.sh` proves what it can and cannot do on the Compose bootstrap).

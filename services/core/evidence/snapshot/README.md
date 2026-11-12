@@ -14,4 +14,14 @@
 
 **Not built.** The job's schedule and the operator alert (OPS), the event for a failed recompute, and the Trust call site (TRU) that supplies the reconciliation. `Input.Classification` is the reconciliation's classification string as given; the set of classifications is not defined here.
 
+**Database objects of migration 0020** (EVD-03 slice 2; the number is the Repo Steward's, on the ledger at noema#183; this table lives here because no pull request edits `migrations/README.md`, A145).
+
+| Object | Rule |
+|---|---|
+| `evidence_set_hash_of(ids, hashes)` | the golden-vector construction in SQL (sorted by the UTF-8 bytes of the id, `LP(id) LP(hash)`, SHA-256); errors on an empty or repeated id, a bad hash, arrays of unequal length; `EXECUTE` for `trust_rw` alone |
+| `context_snapshot` | insert-only (triggers); at least one evidence id; the empty-set hash is never stored; written by the tenant's own Trust login (`trust_rw` holds SELECT and INSERT), forced row-level security on `tenant_id = evidence_login_tenant()` (A6, A136) |
+| `context_snapshot_guard()` | `SECURITY DEFINER` insert trigger: the login is a Trust login of `NEW.tenant_id` (`session_user`), the ids are non-NULL, sorted and unique, every id names an evidence item of that tenant, and the stored hash equals the hash the database computes from those items' payload hashes |
+| `evidence_item_definer_read` policy | `FOR SELECT TO CURRENT_USER USING (tenant_id = evidence_login_tenant())`: the guard is `SECURITY DEFINER` and `evidence_item` forces row-level security, which binds the owner; without a policy for the owner a non-superuser migration login (Compose) sees no evidence and refuses every snapshot. `TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner` pins the class and `test_init.sh` seals one snapshot as the non-superuser migrator |
+| `evidence_verify` (created in `init.sh`, not here) | a LOGIN role in no group; `USAGE` on the schema, `SELECT` on `context_snapshot` and `evidence_item` only, and one `FOR SELECT ... USING (true)` policy on each table; no payload table, no Record, no function |
+
 **Tests.** `go test ./evidence/snapshot/` from `services/core/`. `db_test.go` pins the table, the guard and the exact grants of `evidence_verify`; `seal_test.go` the sealer and the recompute. Written first; the mutation checks are in `status/EVD-03.md`.
