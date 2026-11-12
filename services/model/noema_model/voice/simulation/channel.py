@@ -29,12 +29,13 @@ def low_quality_mic(pcm: bytes, rate: int, *, cutoff_hz: int, bits: int, clip_le
     rc = 1.0 / (2 * math.pi * cutoff_hz)
     alpha = dt / (rc + dt)
     step = 2 ** (_MAX_BITS - bits)
+    low, high = -(2 ** (bits - 1)), 2 ** (bits - 1) - 1
     out: list[int] = []
     level = 0.0
     for sample in samples:
         level += alpha * (sample - level)
         clipped = max(-clip_level, min(clip_level, level))
-        out.append(max(-_INT16_MAX, min(_INT16_MAX, round(clipped / step) * step)))
+        out.append(max(low, min(high, round(clipped / step))) * step)  # the code stays inside the signed range of `bits` bits (Codex P2 on #200)
     return pcm_bytes(out)
 
 
