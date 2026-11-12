@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 3a2a8fd90c20c8bd1a9bd3ab68783001eea2fcf6. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 601bbc39935e1ede87e904cd2436eca4818e942e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -10,7 +10,7 @@ This file adds no product rules. It adds the working practice for applying the [
 
 - **Noema:** models understand; Noema makes understanding safe to act on, makes the action happen correctly, and proves the outcome (SoT §0.1, item 4).
 - **What we are building now:** the POC, one narrow, hostile workflow. Noema is not its POC (SoT §0.1, item 1).
-- **Dates:** build from Mon 19 Oct to Fri 13 Nov 2026 (re-baselined by DEC-2026-10-16 E3). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
+- **Dates:** build from Mon 19 Oct to Sat 12 Dec 2026, with the demo on Sat 12 Dec at 14:00 (re-baselined by DEC-2026-11-03-demo-date-and-no-scope-cut). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
 - **The three documents, in order:** the SoT, then the PERD, then the plan. Code comes last.
 - **The one rule:** when in doubt, take the safer reading, write the ambiguity down, and ask (AGENT-20). Never invent.
 
@@ -72,7 +72,7 @@ Run this at the start of every session.
      - no Phase B result counts before G0 passes, and G0 passes only when both halves, G0-T and G0-N, pass (plan §3, DEC-2026-10-16 E4);
      - if G1 failed, week 2 starts with the slice and ambiguity work waits (plan §3.1);
      - no comparison arm starts before G3 passes (SoT §38.5, plan §3.1);
-     - after the code freeze (Wed 11 Nov 12:00 WAT), only the fixes plan §11 allows merge.
+     - after the code freeze (Wed 9 Dec 12:00 WAT), only the fixes plan §11 allows merge.
    - The work-in-progress limit holds: at most 4 open PRs per driving founder, at most 2 of them P0; see the current plan §5.
 
    If any check fails, stop and report.

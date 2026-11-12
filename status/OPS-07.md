@@ -137,3 +137,37 @@ Session C (21 Oct 17:06Z) and Session D (22 Oct 11:16Z) sent "Needs session A" l
 - Open questions (owner): none.
 - Files to read first: `tools/vendor/repoint_docs.py`.
 - Do not touch: the vendored copies by hand.
+
+# Session 2026-11-10 10:30 WAT · OPS-07
+
+## Session summary
+- What changed (PR links): the five vendored copies re-pointed to the docs commit of docs#148 (rulings A113 to A122): `AGENTS.md` and `CLAUDE.md` (code freeze Wed 9 Dec 12:00 WAT, A120), `contracts/perd-32-2-event-types.md` (PERD v1.22 §32.2, A114).
+- Why: REQ-OPS-005 (copies are re-pointed in the same change set); the docs original wins.
+- Risks, and how they are contained: the pin was the docs#148 head; docs#148 merged on 10 Nov and the copies are re-pointed to docs `main` at `90513de`. docs#153 (build-window wording in AGENTS.md) is still open, so re-run the script once more after it merges.
+- Tests added (REQ, INV, US or EC IDs): none; `repoint_docs.py --check` is clean at the pinned commit.
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after docs#148 merges, `python3 tools/vendor/repoint_docs.py --docs <docs main>` and push.
+- Open questions (owner): none.
+- Files to read first: docs/decisions/DEC-2026-11-10-architect-sync-a113-a122.md
+- Do not touch: the vendored copies by hand.
+
+# Session 2026-11-11 10:00 WAT · OPS-07
+
+## Session summary
+- What changed (PR links): the vendored copies of `AGENTS.md` and `CLAUDE.md` re-pointed to docs `main` at `601bbc3` (docs#153: build window Sat 12 Dec, demo Sat 12 Dec 14:00).
+- Why: REQ-OPS-005; `docs-drift` fails on `main` until the copies match docs `main`.
+- Risks, and how they are contained: wording only; no code, contract or migration change. `repoint_docs.py --check` is clean at `601bbc3`.
+- Tests added (REQ, INV, US or EC IDs): none.
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none, unless another docs change touches a vendored file.
+- Open questions (owner): none.
+- Files to read first: tools/vendor/repoint_docs.py.
+- Do not touch: the vendored copies by hand.

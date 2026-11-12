@@ -1,4 +1,4 @@
--- 0002_grant_spent_void.sql
+-- 0014_grant_spent_void.sql (noema#94, renumbered from 0002 under D3 and again under D12 of 7 Nov 2026, after 0013, the receipt signature migration of EXE-08 slice B)
 --
 -- PERD v1.18 section 38.2, REQ-EXE-004, INV-27, US-19 (DEC-2026-10-28-spent-grant-void): a decision_grant moves
 -- ISSUED -> SPENT, VOID or EXPIRED, and SPENT -> VOID only for a confirmed REJECTED_STALE_VERSION refusal.
@@ -18,30 +18,28 @@
 --       the shape of transport_result but no value set; that is a limitation of this check, not of the contract;
 --   (f) there is no external acknowledgement: the member is present and null in the signed document, and null or empty in
 --       the row;
---   (g) the signature member of the document equals the row's signature columns (key and value), the key is not empty and
---       the value is 64 lower-case hex characters: the shape of an HMAC-SHA-256 as crypto.Sign writes it and crypto.Verify
---       accepts it. Equal copies and a valid shape are not a verification of the HMAC; the database cannot verify it. The
---       Controller verifies the receipt's HMAC before it hands the receipt to the Ledger (EXE-04), and a receipt whose
---       signature does not verify is never written.
+--   (g) the receipt row exists. Its signature was verified inside the database by 0013 (Ed25519 over the exact bytes in
+--       signed_jcs, key from signing_key, not revoked) before the row could be stored, and receipt_insert is the only insert
+--       path (DEBT-01, DEC-2026-11-01-receipt-and-record-signing). A receipt row that this function can read is therefore a
+--       verified one; this migration does not re-check the signature's shape, because a shape check is not a verification.
 -- raw_status (the class, then the raw status code, e.g. VERSION_CONFLICT_409_412:409:VERSION_MISMATCH) is a diagnostic and
 -- decides nothing, but it must agree with the signed transport_result: its part before the first colon is the same class.
 -- A contradiction makes the receipt ambiguous, and an ambiguous receipt does not void a grant.
--- The database holds no key (PERD 41.1: the grant key is held by the core from the secrets manager), so it checks the shape
--- of the signature and not the HMAC. In the core, Controller.completeReceipt verifies the receipt's HMAC with
--- KeyRing.VerifyWith before Ledger.Complete writes it, for the receipt of a dispatch and for the recovery sweeper's receipt;
--- a failed verification writes no receipt and the attempt stays DISPATCHING. The SoT names Outcome as a further checker of the
--- receipt's signature (SoT 13.1, the "Checks" row of the constitution table); Outcome is not built. Only execution_rw can
--- insert a receipt.
+-- The signature is verified by 0013 on insert, so this guard needs no signature condition of its own. It must run after 0013:
+-- applied before it, the guard would trust rows no one had verified (this is why #94's 0002 was renumbered).
 -- A refused conditional write applies nothing (INV-27), so a confirmed refusal is the evidence that no write was applied.
 -- That guarantee comes from mock-case's OpenAPI contract (route response 409 VERSION_MISMATCH, "nothing applied"), not from a
 -- real target's contract: Tushe defines no case API. It must be re-verified against any real target before production use.
 -- Outcome's own read follows from the outbox event written in the same transaction; it is not a precondition.
 --
+-- The function is pinned to search_path = pg_catalog, pg_temp and names its tables by schema: a session that may create a temporary table could otherwise
+-- shadow execution_receipt with a forged refusal and void a spent grant with no signature check (SR on noema#233; test: grant_void_searchpath_test.go).
+--
 -- Everything else in decision_grant_guard is as in 0001: no DELETE, only the status may change, and a status other than
 -- ISSUED is final except for the one transition above. The triggers are not touched; the function behind the row trigger
 -- is replaced. Forward-only: 0001 is not edited.
 
-CREATE OR REPLACE FUNCTION decision_grant_guard() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION decision_grant_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
     RAISE EXCEPTION 'DELETE on decision_grant is not allowed' USING ERRCODE = 'integrity_constraint_violation';
@@ -53,11 +51,11 @@ BEGIN
   END IF;
   IF OLD.status <> 'ISSUED' AND NEW.status <> OLD.status THEN
     IF OLD.status = 'SPENT' AND NEW.status = 'VOID'
-       AND (SELECT count(*) FROM execution_receipt WHERE grant_id = OLD.grant_id) = 1
+       AND (SELECT count(*) FROM public.execution_receipt WHERE grant_id = OLD.grant_id) = 1
        AND EXISTS (
          SELECT 1
-           FROM execution_receipt r
-           JOIN grant_spend gs ON gs.grant_id = r.grant_id
+           FROM public.execution_receipt r
+           JOIN public.grant_spend gs ON gs.grant_id = r.grant_id
           WHERE r.grant_id = OLD.grant_id
             AND gs.tenant_id = OLD.tenant_id
             AND r.tenant_id = OLD.tenant_id
@@ -72,10 +70,6 @@ BEGIN
             AND r.json->>'execution_state' = 'REJECTED_STALE_VERSION'
             AND r.json->>'transport_result' = 'VERSION_CONFLICT_409_412'
             AND jsonb_typeof(r.json->'external_ack') = 'null'
-            AND r.json->'sig'->>'key_id' = r.sig_key_id
-            AND r.json->'sig'->>'value' = r.sig_value
-            AND r.sig_key_id <> ''
-            AND r.sig_value ~ '^[0-9a-f]{64}$'
             AND split_part(r.raw_status, ':', 1) = 'VERSION_CONFLICT_409_412'
        ) THEN
       RETURN NEW;

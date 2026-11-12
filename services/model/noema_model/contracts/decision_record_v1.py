@@ -48,8 +48,8 @@ class DecisionRecordV1(ContractModel):
     reason_codes: list[DecisionRecordV1ReasonCodesItem]
     authority: DecisionRecordV1Authority
     evidence_snapshot_id: CommonV1SnapshotId
-    policy_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
-    pack_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
+    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
+    pack_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
     evidence_freshness: list[DecisionRecordV1EvidenceFreshnessItem]
     clarification: ClarificationV1 | None = Field(default=None)
     reevaluate_at: CommonV1Timestamp | None = Field(default=None)

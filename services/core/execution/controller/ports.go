@@ -19,7 +19,13 @@ type GrantSource interface {
 // through VerifyGrantSignature.
 type KeyVerifier interface {
 	VerifyWith(keyID string, msg []byte, sigHex string) bool
-	SignWith(keyID string, msg []byte) (string, error)
+}
+
+// ReceiptSigner signs an Execution Receipt document (without sig) with Ed25519 under the newest ACTIVE key of core-execution and returns the key
+// ID, the 128-hex signature and the exact bytes signed, which the Ledger stores (DEC-2026-11-01 D6, D8). The private key is never in PostgreSQL.
+// execution/signing.Ring satisfies it through SignReceipt. Grants stay HMAC and are verified through KeyVerifier.
+type ReceiptSigner interface {
+	SignReceipt(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error)
 }
 
 // Binder reads the authoritative state that E3 to E6 compare with. It has no side effects.
@@ -90,6 +96,10 @@ type Event struct {
 	Kind    string // SECURITY_EVENT only
 	GrantID string
 	Detail  string
+	// PolicyVersion is the policy version the grant was issued under (S11): a policy change is told apart from other changes only by it.
+	PolicyVersion string
+	// Payload, when set, is the event's payload; otherwise a Detail (and a PolicyVersion) becomes the payload.
+	Payload map[string]any
 }
 
 // Ledger is the one place that writes Postgres. Spend and Complete are single transactions; the Record
@@ -118,7 +128,8 @@ type Pending struct {
 	TenantID       string
 	CorrelationID  string
 	IdempotencyKey string
-	LogicalAction  string
+	CapabilityID   string    // the grant's capability, a pack ID: what the swept receipt names (execution-receipt.v1 logical_action)
+	SpentAt        time.Time // when the attempt was spent: the swept receipt's dispatched_at (S9)
 	Attempt        int64
 }
 

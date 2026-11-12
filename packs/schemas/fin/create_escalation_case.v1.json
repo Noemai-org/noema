@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/create_escalation_case.v1.json",
+  "title": "fin.cap.create_escalation_case",
+  "description": "Open one escalation case for an investigated transaction. Tenant, principal, epoch and created_by_intent are filled by Noema, never by the caller. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "transaction_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The transaction the person refers to (the fin.transaction resolved in the intent slot subject_resource)."
+    },
+    "reason_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Why the case is opened (a code, not free text)."
+    },
+    "owner_queue": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Optional queue; the stand-in's default applies when absent. Routing is allowlisted by the pack."
+    },
+    "priority": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Optional priority; the stand-in's default applies when absent."
+    }
+  },
+  "required": [
+    "transaction_ref",
+    "reason_code"
+  ],
+  "additionalProperties": false
+}

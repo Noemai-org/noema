@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 )
 
 // PERD v1.18 section 38.2, REQ-EXE-004, INV-27, US-19 (DEC-2026-10-28-spent-grant-void): the grant lifecycle is
@@ -17,8 +21,12 @@ import (
 // idempotency_key, execution_state, transport_result, external_ack, sig), cross-checked against the row's own columns and
 // against grant_spend. raw_status is a diagnostic and may only agree with the signed transport_result.
 
-// validSig has the shape of an HMAC-SHA-256 as the core writes it: 64 lower-case hex characters (crypto.Sign).
-var validSig = strings.Repeat("ab", 32)
+// Migration 0014 (noema#94, renumbered from 0002) runs after 0013, which verifies every receipt's Ed25519 signature inside the database
+// before the row exists (DEBT-01). So the guard no longer looks at the signature, and a signature check here would be a shape check, which
+// is not a verification. The permitted transition is therefore tested with genuinely signed receipts, stored through receipt_insert (the only
+// path). The refused cases plant rows the signed path would itself refuse (a document that contradicts its row, a receipt of another attempt);
+// they do it with the verification trigger switched off by the owner, to show that the guard still refuses on its own conditions: defence in
+// depth, not the production path. The forged-receipt bypass on the held #94 code is TestAForgedReceiptCannotVoidASpentGrantOnTheHeldGuard.
 
 const (
 	conflictClass = "VERSION_CONFLICT_409_412"
@@ -35,12 +43,23 @@ var (
 	jsonNull = json.RawMessage("null")
 )
 
+// seedMapped is seed plus a tenant mapping for the session the tests run in. Since noema#168 row security hides a grant from a session with no tenant
+// mapping, so SET ROLE from the administrator would update no row and meet no guard; mapping the session user to ten_a (the seeded tenant) puts the raw
+// statements below in front of the real trigger again, as the tenant's own login would be. The mapping is a fixture row of this test database.
+func seedMapped(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	seed(t, pool)
+	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant_login (login_role, power, tenant_id) VALUES (session_user, 'execution', 'ten_a') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatalf("map the session to ten_a: %v", err)
+	}
+}
+
 // spentGrant makes a grant SPENT, as E8 does: one grant_spend row (attempt 1), then the status change.
 func spentGrant(t *testing.T, pool *pgxpool.Pool, grant, nonce string) {
 	t.Helper()
 	if grant != "grt_1" {
 		if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-			VALUES ($1, 'ten_a', 'dec_1', $2, '{}', 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grant, nonce); err != nil {
+			VALUES ($1, 'ten_a', 'dec_1', $2, '{"decision_id":"dec_1","tenant_id":"ten_a"}'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`, grant, nonce); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -55,27 +74,26 @@ func spentGrant(t *testing.T, pool *pgxpool.Pool, grant, nonce string) {
 // rcp is one execution_receipt row: its columns, and overrides of its signed document. The document follows the columns
 // as the Ledger writes it (controller.Receipt.Document), so an override is a forgery or a mismatch.
 type rcp struct {
-	grant          string
-	attempt        int
-	state          string // execution_state column
-	raw            string // raw_status column
-	ack            string // external_ack column; "" is stored as the empty string, as the Ledger stores it
-	tenant         string
-	key            string
-	sigKey, sigVal string
-	doc            map[string]any // overrides of the signed document; absent removes a member
+	grant   string
+	attempt int
+	state   string // execution_state column
+	raw     string // raw_status column
+	ack     string // external_ack column; "" is stored as the empty string, as the Ledger stores it
+	tenant  string
+	key     string
+	doc     map[string]any // overrides of the signed document; absent removes a member
 }
 
 // refusal is a well-formed, confirmed refusal for a grant.
 func refusal(grant string) rcp {
-	return rcp{grant: grant, attempt: 1, state: "REJECTED_STALE_VERSION", raw: conflictRaw, tenant: "ten_a", key: "idk_v1_" + grant, sigKey: "k1", sigVal: validSig}
+	return rcp{grant: grant, attempt: 1, state: "REJECTED_STALE_VERSION", raw: conflictRaw, tenant: "ten_a", key: "idk_v1_" + grant}
 }
 
 func (r rcp) document() map[string]any {
 	class, _, _ := strings.Cut(r.raw, ":")
 	doc := map[string]any{"schema_version": "1.0", "tenant_id": r.tenant, "correlation_id": "corr_1", "receipt_id": fmt.Sprintf("rcp_%s_%d", r.grant, r.attempt),
 		"grant_id": r.grant, "idempotency_key": r.key, "logical_action": "ROUTE_CASE", "attempt": r.attempt, "dispatched_at": "2026-10-28T09:00:00Z",
-		"transport_result": class, "execution_state": r.state, "external_ack": jsonNull, "sig": map[string]any{"key_id": r.sigKey, "value": r.sigVal}}
+		"transport_result": class, "execution_state": r.state, "external_ack": jsonNull}
 	if r.ack != "" {
 		doc["external_ack"] = r.ack
 	}
@@ -89,6 +107,17 @@ func (r rcp) document() map[string]any {
 	return doc
 }
 
+// voidWorld is a migrated database with the verification trigger of 0013 switched off, for the cases that plant a row the signed path would refuse.
+func voidWorld(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool := migrated(t)
+	if _, err := pool.Exec(ctx(t), `ALTER TABLE execution_receipt DISABLE TRIGGER execution_receipt_verify`); err != nil {
+		t.Fatal(err)
+	}
+	return pool
+}
+
+// insertReceipt plants a row directly (voidWorld only); see the header.
 func insertReceipt(t *testing.T, pool *pgxpool.Pool, r rcp) {
 	t.Helper()
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'T') ON CONFLICT DO NOTHING`, r.tenant); err != nil {
@@ -98,15 +127,15 @@ func insertReceipt(t *testing.T, pool *pgxpool.Pool, r rcp) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx(t), `INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, external_ack, dispatched_at, json, sig_key_id, sig_value, created_at)
-		VALUES ($1, $2, $3, $4, $5, 'ROUTE_CASE', $6, $7, $8, now(), $9::jsonb, $10, $11, now())`,
-		fmt.Sprintf("rcp_%s_%d", r.grant, r.attempt), r.tenant, r.grant, r.attempt, r.key, r.state, r.raw, r.ack, string(body), r.sigKey, r.sigVal); err != nil {
+	if _, err := pool.Exec(ctx(t), `INSERT INTO execution_receipt (receipt_id, tenant_id, grant_id, attempt, idempotency_key, logical_action, execution_state, raw_status, external_ack, dispatched_at, json, sig_key_id, sig_value, signed_jcs, created_at)
+		VALUES ($1, $2, $3, $4, $5, 'ROUTE_CASE', $6, $7, $8, now(), $9::jsonb, 'k1', 'aa', '\x00'::bytea, now())`,
+		fmt.Sprintf("rcp_%s_%d", r.grant, r.attempt), r.tenant, r.grant, r.attempt, r.key, r.state, r.raw, r.ack, string(body)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// receipt inserts a well-formed receipt of the given state, raw status and acknowledgement for a grant's first attempt.
-func receipt(t *testing.T, pool *pgxpool.Pool, grant string, attempt int, state, raw, ack string) {
+// plantReceipt inserts a well-formed receipt of the given state, raw status and acknowledgement for a grant's first attempt.
+func plantReceipt(t *testing.T, pool *pgxpool.Pool, grant string, attempt int, state, raw, ack string) {
 	t.Helper()
 	r := refusal(grant)
 	r.attempt, r.state, r.raw, r.ack = attempt, state, raw, ack
@@ -124,17 +153,23 @@ func status(t *testing.T, pool *pgxpool.Pool, grant string) string {
 
 // The permitted transition: SPENT -> VOID with the grant's only receipt a confirmed REJECTED_STALE_VERSION refusal.
 func TestASpentGrantBecomesVoidOnAConfirmedStaleVersionRefusal(t *testing.T) {
-	cases := map[string]rcp{
-		"the refusal the real mock-case gives (409 VERSION_MISMATCH)": refusal("grt_1"),
+	cases := map[string]string{
+		"the refusal the real mock-case gives (409 VERSION_MISMATCH)": conflictRaw,
 		// raw_status is a diagnostic: the decision is the signed transport_result, so a class with no code is as good.
-		"the class alone as the raw status": func() rcp { r := refusal("grt_1"); r.raw = conflictClass; return r }(),
+		"the class alone as the raw status": conflictClass,
 	}
-	for name, r := range cases {
+	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
-			pool := migrated(t)
-			seed(t, pool)
+			pool := migrated(t) // 0013 verification on: the receipt is genuinely signed and stored through receipt_insert
+			seedMapped(t, pool)
 			spentGrant(t, pool, "grt_1", "n1")
-			insertReceipt(t, pool, r)
+			key := sigfixture.NewKey("grant-void", 1)
+			sigfixture.Register(t, pool, key)
+			if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_a', 'A') ON CONFLICT DO NOTHING`); err != nil {
+				t.Fatal(err)
+			}
+			sigfixture.InsertReceipt(t, pool, key, sigfixture.Receipt{ID: "rcp_grt_1_1", Tenant: "ten_a", Grant: "grt_1", IdempotencyKey: "idk_v1_grt_1", LogicalAction: "ROUTE_CASE",
+				State: "REJECTED_STALE_VERSION", Raw: raw, Attempt: 1, Dispatched: time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)})
 			if err := try(t, pool, "execution_rw", voidGrant1); err != nil {
 				t.Fatalf("execution_rw voids a grant after a confirmed refusal: %v", err)
 			}
@@ -146,6 +181,21 @@ func TestASpentGrantBecomesVoidOnAConfirmedStaleVersionRefusal(t *testing.T) {
 				t.Fatalf("status %q, want VOID", got)
 			}
 		})
+	}
+}
+
+// A genuinely signed receipt that is not a confirmed refusal is stored, and does not void the grant.
+func TestAGenuinelySignedAcknowledgementDoesNotVoidASpentGrant(t *testing.T) {
+	pool := migrated(t)
+	seedMapped(t, pool)
+	spentGrant(t, pool, "grt_1", "n1")
+	key := sigfixture.NewKey("grant-void", 1)
+	sigfixture.Register(t, pool, key)
+	sigfixture.InsertReceipt(t, pool, key, sigfixture.Receipt{ID: "rcp_grt_1_1", Tenant: "ten_a", Grant: "grt_1", IdempotencyKey: "idk_v1_grt_1", LogicalAction: "ROUTE_CASE",
+		State: "ACKNOWLEDGED", Raw: "ACK_2XX:201", Ack: "CASE-1", Attempt: 1, Dispatched: time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)})
+	wantCode(t, try(t, pool, "execution_rw", voidGrant1), violation, "SPENT -> VOID with an acknowledged receipt")
+	if got := status(t, pool, "grt_1"); got != "SPENT" {
+		t.Fatalf("status %q, want SPENT", got)
 	}
 }
 
@@ -167,17 +217,12 @@ func doc(name string, member string, value any) refusedCase {
 	return one(name, func(r *rcp) { r.doc = map[string]any{member: value} })
 }
 
-// one signature on both sides: the document's sig member and the row's columns carry the same key and value
-func sigShape(name, key, value string) refusedCase {
-	return one(name, func(r *rcp) { r.sigKey, r.sigVal = key, value })
-}
-
 func runRefused(t *testing.T, cases []refusedCase) {
 	t.Helper()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			pool := migrated(t)
-			seed(t, pool)
+			pool := voidWorld(t)
+			seedMapped(t, pool)
 			spentGrant(t, pool, "grt_1", "n1")
 			c.set(t, pool)
 			wantCode(t, try(t, pool, "execution_rw", voidGrant1), violation, "SPENT -> VOID")
@@ -192,7 +237,7 @@ func runRefused(t *testing.T, cases []refusedCase) {
 // No receipt, or a receipt of any other state, never voids a spent grant.
 func TestASpentGrantStaysSpentWithoutAConfirmedStaleVersionRefusal(t *testing.T) {
 	other := func(state, raw, ack string) refusedCase {
-		return refusedCase{"a " + state + " receipt (" + raw + ")", func(t *testing.T, p *pgxpool.Pool) { receipt(t, p, "grt_1", 1, state, raw, ack) }}
+		return refusedCase{"a " + state + " receipt (" + raw + ")", func(t *testing.T, p *pgxpool.Pool) { plantReceipt(t, p, "grt_1", 1, state, raw, ack) }}
 	}
 	runRefused(t, []refusedCase{
 		{"no receipt", func(*testing.T, *pgxpool.Pool) {}},
@@ -217,23 +262,6 @@ func TestAForgedReceiptDoesNotVoidASpentGrant(t *testing.T) {
 		doc("the signed document carries an acknowledgement while the column is empty", "external_ack", "CASE-1"),
 		one("the column carries an acknowledgement while the signed document has none", func(r *rcp) { r.ack = "CASE-1"; r.doc = map[string]any{"external_ack": jsonNull} }),
 		doc("the signed transport result is not the conflict while the columns say it is", "transport_result", "ACK_2XX"),
-		one("the signature key in the document differs from the row's", func(r *rcp) { r.doc = map[string]any{"sig": map[string]any{"key_id": "k2", "value": validSig}} }),
-		one("the signature value in the document differs from the row's", func(r *rcp) {
-			r.doc = map[string]any{"sig": map[string]any{"key_id": "k1", "value": strings.Repeat("cd", 32)}}
-		}),
-		doc("the signed document has no signature", "sig", absent),
-		// PERD v1.18 REQ-EXE-004, EXE-04: the signature must at least have the shape of an HMAC-SHA-256 (64 lower-case hex
-		// characters, which is what crypto.Verify accepts), on both sides; shape is not verification.
-		sigShape("an empty key and an empty value on both sides", "", ""),
-		sigShape("an empty value on both sides", "k1", ""),
-		sigShape("an empty key on both sides", "", validSig),
-		sigShape("a value that is not hex (64 characters)", "k1", strings.Repeat("zz", 32)),
-		sigShape("a hex value of 63 characters", "k1", validSig[:63]),
-		sigShape("a hex value of 65 characters", "k1", validSig+"a"),
-		sigShape("a short hex value", "k1", "aa"),
-		sigShape("upper-case hex", "k1", strings.ToUpper(validSig)),
-		sigShape("hex with a leading space", "k1", " "+validSig[:63]),
-		sigShape("hex with a trailing newline", "k1", validSig[:63]+"\n"),
 		doc("the signed document has no external_ack member", "external_ack", absent),
 		doc("the signed external_ack is an empty string", "external_ack", ""),
 		doc("the signed document is not about a receipt state at all", "execution_state", absent),
@@ -277,10 +305,10 @@ func TestMoreThanOneReceiptDoesNotVoidASpentGrant(t *testing.T) {
 		}},
 		{"a refusal and an acknowledged receipt", func(t *testing.T, p *pgxpool.Pool) {
 			insertReceipt(t, p, refusal("grt_1"))
-			receipt(t, p, "grt_1", 2, "ACKNOWLEDGED", "ACK_2XX:201", "CASE-1")
+			plantReceipt(t, p, "grt_1", 2, "ACKNOWLEDGED", "ACK_2XX:201", "CASE-1")
 		}},
 		{"an acknowledged receipt and a refusal", func(t *testing.T, p *pgxpool.Pool) {
-			receipt(t, p, "grt_1", 1, "ACKNOWLEDGED", "ACK_2XX:201", "CASE-1")
+			plantReceipt(t, p, "grt_1", 1, "ACKNOWLEDGED", "ACK_2XX:201", "CASE-1")
 			second := refusal("grt_1")
 			second.attempt = 2
 			insertReceipt(t, p, second)
@@ -331,12 +359,12 @@ func TestEveryOtherTransitionOutOfAFinalStatusIsStillRefused(t *testing.T) {
 	setup := map[string]func(t *testing.T, pool *pgxpool.Pool){
 		"SPENT with a confirmed refusal": func(t *testing.T, p *pgxpool.Pool) {
 			spentGrant(t, p, "grt_1", "n1")
-			receipt(t, p, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
+			plantReceipt(t, p, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
 		},
 		"SPENT without a receipt": func(t *testing.T, p *pgxpool.Pool) { spentGrant(t, p, "grt_1", "n1") },
 		"VOID after a confirmed refusal": func(t *testing.T, p *pgxpool.Pool) {
 			spentGrant(t, p, "grt_1", "n1")
-			receipt(t, p, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
+			plantReceipt(t, p, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
 			if _, err := p.Exec(ctx(t), voidGrant1); err != nil {
 				t.Fatal(err)
 			}
@@ -362,8 +390,8 @@ func TestEveryOtherTransitionOutOfAFinalStatusIsStillRefused(t *testing.T) {
 	for from, set := range setup {
 		for _, to := range targets[from] {
 			t.Run(from+" to "+to, func(t *testing.T) {
-				pool := migrated(t)
-				seed(t, pool)
+				pool := voidWorld(t)
+				seedMapped(t, pool)
 				set(t, pool)
 				before := status(t, pool, "grt_1")
 				wantCode(t, try(t, pool, "postgres", fmt.Sprintf(`UPDATE decision_grant SET status = '%s' WHERE grant_id = 'grt_1'`, to)), violation, from+" to "+to)
@@ -379,8 +407,8 @@ func TestEveryOtherTransitionOutOfAFinalStatusIsStillRefused(t *testing.T) {
 func TestAnIssuedGrantStillMovesToEachFinalStatus(t *testing.T) {
 	for _, to := range []string{"SPENT", "VOID", "EXPIRED"} {
 		t.Run(to, func(t *testing.T) {
-			pool := migrated(t)
-			seed(t, pool)
+			pool := voidWorld(t)
+			seedMapped(t, pool)
 			if err := try(t, pool, "execution_rw", fmt.Sprintf(`UPDATE decision_grant SET status = '%s' WHERE grant_id = 'grt_1'`, to)); err != nil {
 				t.Fatalf("ISSUED -> %s: %v", to, err)
 			}
@@ -390,10 +418,10 @@ func TestAnIssuedGrantStillMovesToEachFinalStatus(t *testing.T) {
 
 // The permitted transition changes the status and nothing else, and only execution_rw may make it.
 func TestTheVoidOfASpentGrantChangesOnlyItsStatusAndOnlyExecutionMakesIt(t *testing.T) {
-	pool := migrated(t)
-	seed(t, pool)
+	pool := voidWorld(t)
+	seedMapped(t, pool)
 	spentGrant(t, pool, "grt_1", "n1")
-	receipt(t, pool, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
+	plantReceipt(t, pool, "grt_1", 1, "REJECTED_STALE_VERSION", conflictRaw, "")
 	wantCode(t, try(t, pool, "postgres", `UPDATE decision_grant SET status = 'VOID', json = '{"a":1}' WHERE grant_id = 'grt_1'`), violation, "status and json together")
 	wantCode(t, try(t, pool, "postgres", `UPDATE decision_grant SET status = 'VOID', nonce = 'other' WHERE grant_id = 'grt_1'`), violation, "status and nonce together")
 	wantCode(t, try(t, pool, "execution_rw", `UPDATE decision_grant SET status = 'VOID', json = '{}' WHERE grant_id = 'grt_1'`), denied, "execution_rw status and json together")
@@ -408,8 +436,8 @@ func TestTheVoidOfASpentGrantChangesOnlyItsStatusAndOnlyExecutionMakesIt(t *test
 
 // The spend is of the grant's tenant: a spend recorded under another tenant never confirms a refusal.
 func TestARefusalNextToASpendOfAnotherTenantDoesNotVoidASpentGrant(t *testing.T) {
-	pool := migrated(t)
-	seed(t, pool)
+	pool := voidWorld(t)
+	seedMapped(t, pool)
 	if _, err := pool.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`); err != nil {
 		t.Fatal(err)
 	}

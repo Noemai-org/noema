@@ -21,13 +21,13 @@ class CandidatesResponseV1Candidate(ContractModel):
     """One masked, candidate-shaped record: only the fields resolution features need (REQ-CTX-006). The field list equals the candidates-api-shape lint's allowed names; a test compares the two. Source: candidates-response.v1.json#$defs/Candidate"""
 
     model_config = ConfigDict(extra="forbid")
-    candidate_id: Annotated[str, StringConstraints(pattern='^cand_[0-9A-Za-z]{2,32}$')]
+    candidate_id: Annotated[str, StringConstraints(pattern='\\Acand_[0-9A-Za-z]{2,32}\\Z')]
     resource_ref: CommonV1ResourceRef
     amount_minor: MoneyV1MinorAmount
     currency: MoneyV1CurrencyCode
     occurred_at: CommonV1Timestamp
-    counterparty_display: Annotated[str, StringConstraints(pattern='^(?![^\\n]*[0-9]{5})[^\\n]*$', min_length=1, max_length=64)]
-    account_last4: Annotated[str, StringConstraints(pattern='^[0-9]{4}$')]
+    counterparty_display: Annotated[str, StringConstraints(pattern='\\A(?![^\\n]*[0-9]{5})[^\\n]*\\Z', min_length=1, max_length=64)]
+    account_last4: Annotated[str, StringConstraints(pattern='\\A[0-9]{4}\\Z')]
     direction: CandidatesResponseV1CandidateDirection
     beneficiary_alias_match: bool | None = Field(default=None)
 

@@ -8,79 +8,79 @@ from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
 
 # CommonV1CandidateSetId. Source: common.v1.json#$defs/CandidateSetId
-CommonV1CandidateSetId: TypeAlias = Annotated[str, StringConstraints(pattern='^cns_[0-9A-Za-z]{2,32}$')]
+CommonV1CandidateSetId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Acns_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ClarificationId. Source: common.v1.json#$defs/ClarificationId
-CommonV1ClarificationId: TypeAlias = Annotated[str, StringConstraints(pattern='^clr_[0-9A-Za-z]{2,32}$')]
+CommonV1ClarificationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aclr_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ConfirmationEventId. Source: common.v1.json#$defs/ConfirmationEventId
-CommonV1ConfirmationEventId: TypeAlias = Annotated[str, StringConstraints(pattern='^cfe_[0-9A-Za-z]{2,32}$')]
+CommonV1ConfirmationEventId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Acfe_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ConfirmationRequestId. Source: common.v1.json#$defs/ConfirmationRequestId
-CommonV1ConfirmationRequestId: TypeAlias = Annotated[str, StringConstraints(pattern='^cfr_[0-9A-Za-z]{2,32}$')]
+CommonV1ConfirmationRequestId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Acfr_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1CorrelationId. Source: common.v1.json#$defs/CorrelationId
-CommonV1CorrelationId: TypeAlias = Annotated[str, StringConstraints(pattern='^corr_[0-9A-Za-z]{2,32}$')]
+CommonV1CorrelationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Acorr_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1DecisionId. Source: common.v1.json#$defs/DecisionId
-CommonV1DecisionId: TypeAlias = Annotated[str, StringConstraints(pattern='^dec_[0-9A-Za-z]{2,32}$')]
+CommonV1DecisionId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Adec_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1EvidenceId. Source: common.v1.json#$defs/EvidenceId
-CommonV1EvidenceId: TypeAlias = Annotated[str, StringConstraints(pattern='^evr_[0-9A-Za-z]{2,32}$')]
+CommonV1EvidenceId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aevr_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ExplanationId. Source: common.v1.json#$defs/ExplanationId
-CommonV1ExplanationId: TypeAlias = Annotated[str, StringConstraints(pattern='^exp_[0-9A-Za-z]{2,32}$')]
+CommonV1ExplanationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aexp_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1GrantId. Source: common.v1.json#$defs/GrantId
-CommonV1GrantId: TypeAlias = Annotated[str, StringConstraints(pattern='^grt_[0-9A-Za-z]{2,32}$')]
+CommonV1GrantId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Agrt_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1Hash. Source: common.v1.json#$defs/Hash
-CommonV1Hash: TypeAlias = Annotated[str, StringConstraints(pattern='^sha256:[0-9a-f]{64}$')]
+CommonV1Hash: TypeAlias = Annotated[str, StringConstraints(pattern='\\Asha256:[0-9a-f]{64}\\Z')]
 
 
 # CommonV1Id. Source: common.v1.json#$defs/Id
-CommonV1Id: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z]{2,6}_[0-9A-Za-z]{2,32}$')]
+CommonV1Id: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1IdempotencyKeyId. Source: common.v1.json#$defs/IdempotencyKeyId
-CommonV1IdempotencyKeyId: TypeAlias = Annotated[str, StringConstraints(pattern='^idk_[0-9A-Za-z]{2,32}$')]
+CommonV1IdempotencyKeyId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aidk_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1IntentId. Source: common.v1.json#$defs/IntentId
-CommonV1IntentId: TypeAlias = Annotated[str, StringConstraints(pattern='^int_[0-9A-Za-z]{2,32}$')]
+CommonV1IntentId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aint_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1IntentRef. Source: common.v1.json#$defs/IntentRef
-CommonV1IntentRef: TypeAlias = Annotated[str, StringConstraints(pattern='^int_[0-9A-Za-z]{2,32}@[0-9]+$')]
+CommonV1IntentRef: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aint_[0-9A-Za-z]{2,32}@[0-9]+\\Z')]
 
 
 # CommonV1InvestigationId. Source: common.v1.json#$defs/InvestigationId
-CommonV1InvestigationId: TypeAlias = Annotated[str, StringConstraints(pattern='^inv_[0-9A-Za-z]{2,32}$')]
+CommonV1InvestigationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Ainv_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1MemoryId. Source: common.v1.json#$defs/MemoryId
-CommonV1MemoryId: TypeAlias = Annotated[str, StringConstraints(pattern='^mem_[0-9A-Za-z]{2,32}$')]
+CommonV1MemoryId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Amem_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1OutcomeEventId. Source: common.v1.json#$defs/OutcomeEventId
-CommonV1OutcomeEventId: TypeAlias = Annotated[str, StringConstraints(pattern='^evt_[0-9A-Za-z]{2,32}$')]
+CommonV1OutcomeEventId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aevt_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1PackId. Source: common.v1.json#$defs/PackId
-CommonV1PackId: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$')]
+CommonV1PackId: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
 
 
 # CommonV1PlanId. Source: common.v1.json#$defs/PlanId
-CommonV1PlanId: TypeAlias = Annotated[str, StringConstraints(pattern='^pln_[0-9A-Za-z]{2,32}$')]
+CommonV1PlanId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Apln_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1PositiveInt. Source: common.v1.json#$defs/PositiveInt
@@ -92,7 +92,7 @@ CommonV1Predicate: TypeAlias = Annotated[str, StringConstraints(min_length=1)]
 
 
 # CommonV1PrincipalId. Source: common.v1.json#$defs/PrincipalId
-CommonV1PrincipalId: TypeAlias = Annotated[str, StringConstraints(pattern='^usr_[0-9A-Za-z]{2,32}$')]
+CommonV1PrincipalId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Ausr_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1Ratio. Source: common.v1.json#$defs/Ratio
@@ -100,39 +100,39 @@ CommonV1Ratio: TypeAlias = Annotated[int | float, Field(ge=0, le=1)]
 
 
 # CommonV1ReceiptId. Source: common.v1.json#$defs/ReceiptId
-CommonV1ReceiptId: TypeAlias = Annotated[str, StringConstraints(pattern='^rcp_[0-9A-Za-z]{2,32}$')]
+CommonV1ReceiptId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Arcp_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ReconciliationId. Source: common.v1.json#$defs/ReconciliationId
-CommonV1ReconciliationId: TypeAlias = Annotated[str, StringConstraints(pattern='^rec_[0-9A-Za-z]{2,32}$')]
+CommonV1ReconciliationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Arec_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1RecordEventId. Source: common.v1.json#$defs/RecordEventId
-CommonV1RecordEventId: TypeAlias = Annotated[str, StringConstraints(pattern='^recev_[0-9A-Za-z]{2,32}$')]
+CommonV1RecordEventId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Arecev_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1RecoveryRequestId. Source: common.v1.json#$defs/RecoveryRequestId
-CommonV1RecoveryRequestId: TypeAlias = Annotated[str, StringConstraints(pattern='^rrq_[0-9A-Za-z]{2,32}$')]
+CommonV1RecoveryRequestId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Arrq_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1RequestId. Source: common.v1.json#$defs/RequestId
-CommonV1RequestId: TypeAlias = Annotated[str, StringConstraints(pattern='^req_[0-9A-Za-z]{2,32}$')]
+CommonV1RequestId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Areq_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1ResourceRef. Source: common.v1.json#$defs/ResourceRef
-CommonV1ResourceRef: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$')]
+CommonV1ResourceRef: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}\\Z')]
 
 
 # CommonV1SchemaVersion. Source: common.v1.json#$defs/SchemaVersion
-CommonV1SchemaVersion: TypeAlias = Annotated[str, StringConstraints(pattern='^[0-9]+\\.[0-9]+$')]
+CommonV1SchemaVersion: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9]+\\.[0-9]+\\Z')]
 
 
 # CommonV1Semver. Source: common.v1.json#$defs/Semver
-CommonV1Semver: TypeAlias = Annotated[str, StringConstraints(pattern='^[0-9]+\\.[0-9]+\\.[0-9]+$')]
+CommonV1Semver: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9]+\\.[0-9]+\\.[0-9]+\\Z')]
 
 
 # CommonV1SessionId. Source: common.v1.json#$defs/SessionId
-CommonV1SessionId: TypeAlias = Annotated[str, StringConstraints(pattern='^ses_[0-9A-Za-z]{2,32}$')]
+CommonV1SessionId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Ases_[0-9A-Za-z]{2,32}\\Z')]
 
 
 class CommonV1Sig(ContractModel):
@@ -144,31 +144,31 @@ class CommonV1Sig(ContractModel):
 
 
 # CommonV1SlotName. Source: common.v1.json#$defs/SlotName
-CommonV1SlotName: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*$')]
+CommonV1SlotName: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
 
 
 # CommonV1SnapshotId. Source: common.v1.json#$defs/SnapshotId
-CommonV1SnapshotId: TypeAlias = Annotated[str, StringConstraints(pattern='^evs_[0-9A-Za-z]{2,32}$')]
+CommonV1SnapshotId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aevs_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1TenantId. Source: common.v1.json#$defs/TenantId
-CommonV1TenantId: TypeAlias = Annotated[str, StringConstraints(pattern='^ten_[0-9A-Za-z]{2,32}$')]
+CommonV1TenantId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aten_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1Timestamp. Source: common.v1.json#$defs/Timestamp
-CommonV1Timestamp: TypeAlias = Annotated[str, StringConstraints(pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$')]
+CommonV1Timestamp: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z\\Z')]
 
 
 # CommonV1VerdictId. Source: common.v1.json#$defs/VerdictId
-CommonV1VerdictId: TypeAlias = Annotated[str, StringConstraints(pattern='^ver_[0-9A-Za-z]{2,32}$')]
+CommonV1VerdictId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aver_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1Vertical. Source: common.v1.json#$defs/Vertical
-CommonV1Vertical: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*$')]
+CommonV1Vertical: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\Z')]
 
 
 # CommonV1WatchId. Source: common.v1.json#$defs/WatchId
-CommonV1WatchId: TypeAlias = Annotated[str, StringConstraints(pattern='^wat_[0-9A-Za-z]{2,32}$')]
+CommonV1WatchId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Awat_[0-9A-Za-z]{2,32}\\Z')]
 
 
 # CommonV1. Source: common.v1.json

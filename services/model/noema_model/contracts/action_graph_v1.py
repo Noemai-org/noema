@@ -53,7 +53,7 @@ class ActionGraphV1NodesItem(ContractModel):
     postconditions: list[CommonV1Predicate]
     on_unknown: ActionGraphV1RecoveryAction
     on_failure: ActionGraphV1RecoveryAction
-    recovery_ref: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] | None
+    recovery_ref: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None
     escalation_ref: ActionGraphV1NodesItemEscalationRef | None
 
 
