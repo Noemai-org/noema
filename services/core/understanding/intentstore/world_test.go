@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -59,6 +60,7 @@ type world struct {
 	dsn   string
 	clk   *clock.Manual
 	fail  *failingIDs
+	sign  map[string]chain.Signer  // one signer per emitter (REC-08): an emitter with no signer cannot append
 	pools map[string]*pgxpool.Pool // "<group>/<tenant>"
 }
 
@@ -70,6 +72,7 @@ func newWorld(t *testing.T) *world {
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC))
 	w := &world{t: t, admin: admin, dsn: dsn, clk: clk, fail: &failingIDs{inner: ids.New(clk, nil)}, pools: map[string]*pgxpool.Pool{}}
+	w.sign = recordsig.All(t, admin, "intentstore", nil)
 	for _, id := range []string{tenantA, tenantB} {
 		if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, id); err != nil {
 			t.Fatal(err)
@@ -90,7 +93,7 @@ func (w *world) as(group, tenant string) *pgxpool.Pool {
 
 func (w *world) store(tenant string) *intentstore.Store {
 	w.t.Helper()
-	return &intentstore.Store{Pool: w.as("orchestrator_rw", tenant), Appender: &chain.Appender{Clock: w.clk, IDs: w.fail}, Timeout: 5 * time.Second}
+	return &intentstore.Store{Pool: w.as("orchestrator_rw", tenant), Appender: &chain.Appender{Clock: w.clk, IDs: w.fail, Signers: w.sign}, Timeout: 5 * time.Second}
 }
 
 func (w *world) reader(group, tenant string) *intentstore.Reader {
