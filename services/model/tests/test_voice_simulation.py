@@ -14,7 +14,7 @@ import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec, Locale
 from noema_model.voice.simulation.channel import NetworkProfile, low_quality_mic, simulate_network
-from noema_model.voice.simulation.noise import NoiseProfile, mix_at_snr, mix_parts_at_snr, rms, synth_noise
+from noema_model.voice.simulation.noise import NoiseProfile, mix_at_snr, mix_parts_at_snr, pcm_bytes, pcm_samples, rms, synth_noise
 from noema_model.voice.simulation.report import (
     NativeReview,
     ScenarioResult,
@@ -195,3 +195,17 @@ def test_the_report_json_is_stable_and_carries_no_audio_or_transcripts() -> None
     assert parsed["locale"] == "pcm" and parsed["seed"] == 20261106
     assert parsed["synthetic"] is True
     assert set(parsed["results"][0]) == {"scenario", "utterances", "key_slots_correct", "clarified", "acted_on_low_confidence"}
+
+
+# ---- Codex P2 on #200: the quantiser stays inside the requested bit depth -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bits", [1, 2, 6, 8, 16])
+def test_the_quantised_levels_never_exceed_the_requested_bit_depth(bits: int) -> None:
+    """A full-range ramp through a microphone of `bits` bits has at most 2**bits distinct levels, each a multiple of the step, inside the signed range of that depth."""
+    ramp = pcm_bytes([int(-32767 + i * 65534 / 3999) for i in range(4000)])
+    out = pcm_samples(low_quality_mic(ramp, 16000, cutoff_hz=7000, bits=bits, clip_level=32767))
+    step = 2 ** (16 - bits)
+    assert len(set(out)) <= 2**bits, (bits, len(set(out)))
+    assert all(sample % step == 0 for sample in out)
+    assert min(out) >= -(2 ** (bits - 1)) * step and max(out) <= (2 ** (bits - 1) - 1) * step
