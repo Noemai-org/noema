@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
@@ -82,6 +83,7 @@ func newSigWorld(t *testing.T) *sigWorld {
 	pool, dsn := migratedDSN(t)
 	w := &sigWorld{pool: pool, dsn: dsn, keys: map[string]ed25519.PrivateKey{}}
 	spend(t, pool, "ten_a", "grt_1", "n1", "idk_v1_a", 1)
+	sigfixture.MapSession(t, pool, "ten_a") // the session is the tenant's own for row security (migration 0018)
 	return w
 }
 
