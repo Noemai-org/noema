@@ -218,7 +218,7 @@ def test_a_withdrawn_flag_that_is_not_a_bool_fails_closed(withdrawn: object) -> 
 
 @pytest.mark.parametrize("flag", [None, 0, 1, "no", "yes", []])
 def test_an_unusable_flag_that_is_not_a_bool_is_a_problem(flag: object) -> None:
-    assert "unusable_by_bystander must be true or false" in check_session(session(unusable_by_bystander=flag), REGISTER)  # type: ignore[arg-type]
+    assert "unusable_by_bystander must be true or false" in check_session(session(unusable_by_bystander=flag), REGISTER)
 
 
 @pytest.mark.parametrize("other", ["ann-1 ", " ann-1", "ANN-1", "Ann-1", "ann-1\t"])
@@ -228,7 +228,7 @@ def test_the_same_person_written_another_way_is_not_a_second_annotator(other: st
 
 def test_annotator_b_blank_is_refused_on_its_own() -> None:
     assert "two distinct annotators are required" in check_session(session(annotator_b=""), REGISTER)
-    assert "two distinct annotators are required" in check_session(session(annotator_b=None), REGISTER)  # type: ignore[arg-type]
+    assert "two distinct annotators are required" in check_session(session(annotator_b=None), REGISTER)
 
 
 @pytest.mark.parametrize("slot", ["amount", "counterparty", "time"])
@@ -241,7 +241,7 @@ def test_a_disagreement_on_any_one_slot_needs_a_resolution(slot: str) -> None:
 
 @pytest.mark.parametrize("value", [10000, None, ["10000"], b"10000"])
 def test_a_slot_value_that_is_not_text_is_refused(value: object) -> None:
-    assert "annotator A reading malformed" in check_session(session(reading_a={**READING, "amount": value}), REGISTER)  # type: ignore[dict-item]
+    assert "annotator A reading malformed" in check_session(session(reading_a={**READING, "amount": value}), REGISTER)
 
 
 def test_every_bad_session_is_listed_not_only_the_first() -> None:
