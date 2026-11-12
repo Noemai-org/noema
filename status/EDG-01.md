@@ -89,3 +89,6 @@
 ## Pre-work for the next agent
 - Exact next step: `compose.go` mounts routes behind this chain; log lines and Record events for a request take the ID from `session.CorrelationFromContext`.
 
+### Update 2026-11-12 · reviewer P1 on noema#481 (no shared fallback correlation ID)
+- `correlationID` now returns whether a unique valid ID exists; the session check, the role gate and the body guard each refuse (500 INTERNAL_SAFETY_BLOCK, the fixed `corr_NONE` only in that refusal) when none can be minted, so no request continues, writes or logs under a shared ID. Test first: `TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns` (the source fails, returns a malformed ID, returns one with a newline; with and without a credential). Mutant (the refusal replaced by continuing, in all three layers) killed.
+
