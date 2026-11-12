@@ -1,0 +1,10 @@
+/* Noema neutral palette and single type scale. */
+:root {
+  --noema-color-surface: #ffffff;
+  --noema-color-text: #17212b;
+  --noema-color-action: #174d74;
+  --noema-color-warning: #7a3e00;
+  --noema-type-body: 1rem;
+  --noema-type-label: 0.875rem;
+  --noema-type-heading: 1.25rem;
+}
