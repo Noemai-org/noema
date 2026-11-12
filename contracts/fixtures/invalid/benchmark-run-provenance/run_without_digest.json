@@ -8,5 +8,11 @@
       "run_id": "run_1"
     }
   ],
-  "context_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  "context_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "pinned": {
+    "kind": "llm",
+    "provider": "openai",
+    "model_id": "decision-model-a",
+    "version": "2026-11-01"
+  }
 }

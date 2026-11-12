@@ -137,7 +137,7 @@ def run(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "scorecard.json").write_bytes(pretty_bytes(card))
-    (out / "provenance.json").write_bytes(pretty_bytes(provenance(card, results, repeats, context_digest(cases, oracles, load_strict(Path(args.pack))))))
+    (out / "provenance.json").write_bytes(pretty_bytes(provenance(card, results, repeats, context_digest(cases, oracles, load_strict(Path(args.pack))), _declared_identity(args))))
     (out / "report.md").write_text(report, encoding="utf-8")
     bad = [g["gate"] for g in card["tier0"]["gates"] if g["count"]]
     print("Tier 0: " + ("all 11 gates at zero" if not bad else f"NOT at zero: {', '.join(bad)}"))
@@ -145,6 +145,20 @@ def run(args: argparse.Namespace) -> int:
           f"{card['tier1']['correct_terminal_handling']['k']} of {card['tier1']['correct_terminal_handling']['n']}")
     print(f"Wrote {out / 'scorecard.json'} and {out / 'report.md'}")
     return 0 if card["complete"] and card["tier0"]["all_zero"] else 1
+
+
+PINNED_FLAGS = ("kind", "provider", "model_id", "version")
+
+
+def _declared_identity(args: argparse.Namespace) -> dict[str, str] | None:
+    """The identity of the model whose results are scored, all four parts or none (Codex P1 on noema#199): a half-declared identity is an input error, never a guess."""
+    given = {name: getattr(args, f"pinned_{name}") for name in PINNED_FLAGS}
+    if all(value is None for value in given.values()):
+        return None
+    missing = [f"--pinned-{name.replace('_', '-')}" for name, value in given.items() if value is None]
+    if missing:
+        raise InputError(f"a declared pinned identity needs all four parts (kind, provider, model id, version); missing {', '.join(missing)}")
+    return {name: str(value) for name, value in given.items()}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -158,6 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.add_argument(flag, required=True)
     parser.add_argument("--replay-results")
     parser.add_argument("--repeat-results", action="append", help="the results of another run of the same cases, repeatable; pass^k needs exactly four of these beside --results")
+    parser.add_argument("--pinned-kind", choices=["llm", "speech"], help="the kind of the model whose results these are; declare all four --pinned-* flags or none")
+    parser.add_argument("--pinned-provider")
+    parser.add_argument("--pinned-model-id")
+    parser.add_argument("--pinned-version")
     parser.add_argument("--structural-evidence", help="JSON file: gate name to a count from static scans and negative tests")
     args = parser.parse_args(argv)
     try:

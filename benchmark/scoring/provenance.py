@@ -29,11 +29,12 @@ def context_digest(cases: Sequence[Mapping[str, Any]], oracles: Sequence[Mapping
     return sha256_of({"cases": ordered(cases), "oracles": ordered(oracles), "pack": pack})
 
 
-def provenance(card: Mapping[str, Any], results: Sequence[Mapping[str, Any]], repeat_runs: Sequence[Sequence[Mapping[str, Any]]], context_sha256: str) -> Json:
+def provenance(card: Mapping[str, Any], results: Sequence[Mapping[str, Any]], repeat_runs: Sequence[Sequence[Mapping[str, Any]]], context_sha256: str, pinned: Mapping[str, str] | None = None) -> Json:
+    """`pinned` is the identity of the model whose results were scored, as declared to the scoring run (or None): a qualification refuses pass^k evidence declared for another model."""
     runs: list[Json] | None = None
     if repeat_runs:
         runs = [{"run_id": card["run_id"], "results_sha256": results_digest(results)}]
         for one in repeat_runs:
             ids = run_ids(one)
             runs.append({"run_id": ids[0] if len(ids) == 1 else "|".join(ids), "results_sha256": results_digest(one)})
-    return {"schema": SCHEMA, "run_id": card["run_id"], "results_sha256": results_digest(results), "scorecard_sha256": sha256_of(card), "context_sha256": context_sha256, "pass_k_runs": runs}
+    return {"schema": SCHEMA, "run_id": card["run_id"], "results_sha256": results_digest(results), "scorecard_sha256": sha256_of(card), "context_sha256": context_sha256, "pinned": None if pinned is None else dict(pinned), "pass_k_runs": runs}

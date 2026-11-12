@@ -145,7 +145,7 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     if source["available"] is True and len(repeat_cards) != PASS_K - 1:
         raise ValueError(f"pass^k over {PASS_K} runs needs the scorecards of the {PASS_K - 1} other runs (repeat_cards), not {len(repeat_cards)}: Tier 0 is checked in every run")
     if source["available"] is True:
-        _bind_runs(card, repeat_cards, provenance, repeat_provenance)
+        _bind_runs(card, repeat_cards, provenance, repeat_provenance, {"kind": kind, "provider": provider, "model_id": model_id, "version": version})
     if source["available"] is True and isinstance(source.get("rate"), Mapping) and type(source["rate"].get("n")) is int and source["rate"]["n"] > card["n_cases"]:
         raise ValueError(f"the scorecard's pass^k denominator {source['rate']['n']} is more than its n_cases {card['n_cases']}: it is a subset of the scored cases and cannot exceed them")
     run_ids = [card["run_id"], *(c["run_id"] for c in repeat_cards)]
@@ -178,7 +178,8 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     }
 
 
-def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]], provenance: Mapping[str, Any] | None, repeat_provenance: Sequence[Mapping[str, Any]]) -> None:
+def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]], provenance: Mapping[str, Any] | None, repeat_provenance: Sequence[Mapping[str, Any]],
+               identity: Mapping[str, str]) -> None:
     """The repeat scorecards are the runs pass^k rests on (Codex P1 on noema#199): the primary's provenance lists the five runs with their result digests, each repeat has its own
     provenance, and every scorecard is the one its provenance was written beside. Four unrelated clean scorecards fail here, so their safety flags are never read."""
     if provenance is None:
@@ -187,6 +188,13 @@ def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]
         problems = _contracts().errors("benchmark-run-provenance", one)
         if problems:
             raise ValueError(f"a provenance file is invalid: {problems[0]}")
+    for one in (provenance, *repeat_provenance):
+        declared = one["pinned"]
+        if declared is None:
+            raise ValueError(f"run {one['run_id']!r} was scored without a declared model identity (--pinned-* flags): its pass^k and safety evidence cannot be bound to {identity['provider']}/{identity['model_id']}@{identity['version']}")
+        for field in ("kind", "provider", "model_id", "version"):
+            if declared[field] != identity[field]:
+                raise ValueError(f"run {one['run_id']!r} was scored for {field} {declared[field]!r}, not {identity[field]!r}: another model's evidence cannot qualify this one")
     if provenance["run_id"] != card["run_id"] or provenance["scorecard_sha256"] != sha256_of(card):
         raise ValueError("the primary provenance is not for the primary scorecard (run_id or scorecard_sha256 differs): the scorecard was edited or is another run's")
     listed = provenance["pass_k_runs"]

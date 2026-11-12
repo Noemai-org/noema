@@ -101,3 +101,36 @@ class Context(unittest.TestCase):
             case["expected"]["escalation_expected"] = not case["expected"]["escalation_expected"]
             first.write_text(json.dumps(case))
             self.assertNotEqual(scored(a, "out")["prov"]["context_sha256"], scored(b, "out")["prov"]["context_sha256"])  # type: ignore[index]
+
+
+PINNED_FLAGS = ["--pinned-kind", "llm", "--pinned-provider", "openai", "--pinned-model-id", "decision-model-a", "--pinned-version", "2026-11-01"]
+PINNED = {"kind": "llm", "provider": "openai", "model_id": "decision-model-a", "version": "2026-11-01"}
+
+
+class Identity(unittest.TestCase):
+    """Codex P1 on noema#199: scorecards and provenance named no model, so model A's five-run evidence plus model B's passing canary could qualify B. Scoring now writes the identity of
+    the model whose results it read (declared by the operator, so a contradiction is caught; it is not authentication, see DEBT-17)."""
+
+    def test_the_declared_identity_is_written_into_the_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            prov = scored(root, "out", *PINNED_FLAGS)["prov"]
+            self.assertEqual(PINNED, prov["pinned"])  # type: ignore[index]
+            self.assertEqual([], CONTRACTS.errors("benchmark-run-provenance", prov))
+
+    def test_no_declared_identity_is_written_as_null_not_guessed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            prov = scored(root, "out")["prov"]
+            self.assertIsNone(prov["pinned"])  # type: ignore[index]
+            self.assertEqual([], CONTRACTS.errors("benchmark-run-provenance", prov))
+
+    def test_a_partly_declared_identity_is_an_input_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            code, text = run_cli(root, root / "out", "--pinned-provider", "openai")
+            self.assertEqual(2, code)
+            self.assertIn("pinned", text)

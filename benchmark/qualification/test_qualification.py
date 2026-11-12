@@ -47,11 +47,14 @@ def results_sha(run_id: str) -> str:
     return "sha256:" + hashlib.sha256(run_id.encode()).hexdigest()
 
 
-def provenance_for(card: Json, repeats: list[Json]) -> tuple[Json, list[Json]]:
+DECLARED: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": PINNED["version"]}
+
+
+def provenance_for(card: Json, repeats: list[Json], pinned: Json | None = None) -> tuple[Json, list[Json]]:
     """The provenance files scoring writes for the primary run and the four repeats: the primary lists all five runs, each file names its own scorecard's digest."""
     runs = [{"run_id": c["run_id"], "results_sha256": results_sha(c["run_id"])} for c in (card, *repeats)]
     def one(c: Json, listed: list[Json] | None) -> Json:
-        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": CONTEXT, "pass_k_runs": listed}
+        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": CONTEXT, "pinned": pinned if pinned is not None else dict(DECLARED), "pass_k_runs": listed}
     return one(card, runs), [one(c, None) for c in repeats]
 
 
@@ -83,7 +86,7 @@ def record(card: Json | None = None, drift: Json | None = None, **changes: Any) 
     card = card or scorecard()
     args.setdefault("repeat_cards", repeat_cards(card))
     if "provenance" not in args and len(args["repeat_cards"]) == 4:
-        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"])
+        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"], pinned={name: args[name] for name in ("kind", "provider", "model_id", "version")})
     return build_record(card, drift or run(), **args)
 
 
@@ -613,6 +616,35 @@ class RepeatBinding(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "context_sha256"):
             self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
 
+    def test_five_runs_of_another_model_cannot_qualify_this_one(self) -> None:
+        """Codex P1 on noema#199: model A's scorecards with model B's passing canary."""
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats, pinned={**DECLARED, "model_id": "another-model"})
+        with self.assertRaisesRegex(ValueError, "model_id"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_any_one_repeat_of_another_version_provider_or_kind_is_refused(self) -> None:
+        for field, other in (("version", "2020-01-01"), ("provider", "someone-else"), ("kind", "speech")):
+            card = first_card()
+            repeats = repeat_cards(card)
+            prov, repeat_prov = provenance_for(card, repeats)
+            repeat_prov[2]["pinned"] = {**DECLARED, field: other}
+            with self.assertRaisesRegex(ValueError, field):
+                self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_a_run_scored_without_a_declared_identity_is_refused_for_pass_k(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        prov["pinned"] = None
+        with self.assertRaisesRegex(ValueError, "declared"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+        prov, repeat_prov = provenance_for(card, repeats)
+        repeat_prov[0]["pinned"] = None
+        with self.assertRaisesRegex(ValueError, "declared"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
     def test_the_listed_runs_must_be_exactly_five_distinct(self) -> None:
         card = first_card()
         repeats = repeat_cards(card)
@@ -792,11 +824,11 @@ class Cli(unittest.TestCase):
             code = main(list(argv))
         return code, out.getvalue()
 
-    def files(self, root: Path, card: Json | None = None, repeats: list[Json] | None = None) -> list[str]:
+    def files(self, root: Path, card: Json | None = None, repeats: list[Json] | None = None, version: str = VERSION) -> list[str]:
         card = card or scorecard()
         repeats = repeats if repeats is not None else repeat_cards(card)
         (root / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
-        prov, repeat_prov = provenance_for(card, repeats) if len(repeats) == 4 else (None, [])
+        prov, repeat_prov = provenance_for(card, repeats, pinned={"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": version}) if len(repeats) == 4 else (None, [])
         if prov is not None:
             (root / "provenance.json").write_text(json.dumps(prov), encoding="utf-8")
         for i, one in enumerate(repeats):
@@ -839,7 +871,7 @@ class Cli(unittest.TestCase):
     def test_without_a_baseline_record_or_a_floor_the_first_qualification_is_not_qualified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            args = self.files(root, first_card())
+            args = self.files(root, first_card(), version=PINNED["version"])
             (root / "run.json").write_text(json.dumps(first_drift()), encoding="utf-8")  # a first qualification compares the version with itself
             args[args.index("--version") + 1] = PINNED["version"]
             i = args.index("--baseline-record")

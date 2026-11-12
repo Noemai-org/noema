@@ -321,6 +321,30 @@ class BaselineIdentity(unittest.TestCase):
         self.assertEqual([], [p for p in validate_run_record(run()) if "baseline.pinned" in p])
 
 
+class DuplicateCaseIds(unittest.TestCase):
+    """Codex P2 on noema#199: four copies of one passing row kept n_cases and the PASS result, so three subset cases had no drift evidence and the run still qualified."""
+
+    def test_a_run_made_of_copies_of_one_row_is_refused(self) -> None:
+        record = run()
+        record["cases"] = [copy.deepcopy(record["cases"][0]) for _ in record["cases"]]
+        problems = validate_run_record(record)
+        self.assertTrue(any("case_id" in p and "twice" in p for p in problems), problems)
+
+    def test_one_repeated_case_id_among_otherwise_distinct_rows_is_refused(self) -> None:
+        record = run()
+        record["cases"][1]["case_id"] = record["cases"][0]["case_id"]
+        self.assertTrue(any("case_id" in p and "twice" in p for p in validate_run_record(record)))
+
+    def test_distinct_case_ids_are_accepted(self) -> None:
+        self.assertEqual([], validate_run_record(run()))
+
+    def test_a_missing_or_blank_case_id_is_refused(self) -> None:
+        for bad in (None, "", 7):
+            record = run()
+            record["cases"][0]["case_id"] = bad
+            self.assertTrue(any("case_id" in p for p in validate_run_record(record)), bad)
+
+
 class Validating(unittest.TestCase):
     def test_a_result_the_cases_do_not_support_is_invalid(self) -> None:
         rec = run()

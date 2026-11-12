@@ -33,6 +33,48 @@
     },
     "context_sha256": {
       "$ref": "#/$defs/Sha256"
+    },
+    "pinned": {
+      "description": "The identity of the model or speech version whose results this run scored, DECLARED by whoever ran the scoring (--pinned-* flags); null when none was declared. A qualification refuses pass^k evidence whose declared identity is not the one being qualified, so one model's five-run evidence cannot qualify another model (Codex P1 on noema#199). It is a declaration that a contradiction can expose, not authentication: records and provenance are unsigned (DEBT-17).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "llm",
+                "speech"
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "model_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "kind",
+            "provider",
+            "model_id",
+            "version"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   },
   "required": [
@@ -41,7 +83,8 @@
     "results_sha256",
     "scorecard_sha256",
     "context_sha256",
-    "pass_k_runs"
+    "pass_k_runs",
+    "pinned"
   ],
   "additionalProperties": false,
   "$defs": {

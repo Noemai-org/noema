@@ -6,5 +6,9 @@
   "run_without_digest.json": "required",
   "run_id_too_long.json": "maxLength",
   "too_many_runs.json": "maxItems",
-  "missing_context_sha.json": "required"
+  "missing_context_sha.json": "required",
+  "missing_pinned.json": "required",
+  "pinned_without_a_version.json": "oneOf",
+  "pinned_kind_not_llm_or_speech.json": "oneOf",
+  "pinned_with_an_extra_field.json": "oneOf"
 }

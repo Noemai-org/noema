@@ -184,6 +184,9 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
     cases = record["cases"] if isinstance(record["cases"], list) else []
     if record["n_cases"] != len(cases):
         out.append(f"n_cases is {record['n_cases']!r} but there are {len(cases)} cases")
+    ids = [c.get("case_id") for c in cases if isinstance(c, Mapping)]
+    out += [f"case_id {i!r} is missing or not a non-empty string" for i in ids if not isinstance(i, str) or not i]
+    out += [f"case_id {i!r} appears twice: a duplicated row stands in for a subset case that was never tested" for i in sorted({x for x in ids if isinstance(x, str) and ids.count(x) > 1})]
     statuses = []
     for case in cases:
         status, case_id = case.get("status"), case.get("case_id")

@@ -54,7 +54,7 @@ written).
 python -m benchmark.scoring ... --results RUN1 --repeat-results RUN2 --repeat-results RUN3 --repeat-results RUN4 --repeat-results RUN5
 ```
 
-Each `--repeat-results` is another run of the same cases with its own run ID; one run counted twice, or a result set mixing run IDs, is refused (exit 2). Real pass^k values need five live model runs; those are not approved. Everything here is tested on SYNTHETIC results only, and the commit of the code under test is not checked by the scorer (the run manifests carry it).
+Declare which model the results are of with `--pinned-kind`, `--pinned-provider`, `--pinned-model-id` and `--pinned-version` (all four or none; a part alone is exit 2). `provenance.json` carries it as `pinned`, or `null` when none was declared; a qualification refuses pass^k evidence with no declared identity or another model's (noema#199, Codex P1). It is a declaration, not authentication: results and provenance are unsigned (DEBT-17). Each `--repeat-results` is another run of the same cases with its own run ID; one run counted twice, or a result set mixing run IDs, is refused (exit 2). Real pass^k values need five live model runs; those are not approved. Everything here is tested on SYNTHETIC results only, and the commit of the code under test is not checked by the scorer (the run manifests carry it).
 
 ## Tests
 
