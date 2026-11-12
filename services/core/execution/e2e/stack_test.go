@@ -7,6 +7,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,6 +65,8 @@ type trustStandIn struct {
 	led   *ledger.Ledger
 	plans map[string]controller.PlanStep
 	n     int
+
+	policyChanged atomic.Bool
 }
 
 var (
@@ -81,7 +84,7 @@ func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant
 }
 
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
-	return true, nil
+	return !s.policyChanged.Load(), nil // S11: a policy publish after issue makes the decision's policy version no longer active
 }
 func (s *trustStandIn) Plan(_ context.Context, g controller.Grant) (controller.PlanStep, error) {
 	s.mu.Lock()
