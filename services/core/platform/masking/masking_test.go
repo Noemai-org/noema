@@ -49,7 +49,6 @@ func TestTheValueIsTheDocumentsAndNothingElse(t *testing.T) {
 	}
 }
 
-
 // Fail closed: every deviation from the contract is a *masking.Error, and no default is returned with it.
 func TestAnyDeviationFromTheContractIsRefused(t *testing.T) {
 	cases := map[string]string{

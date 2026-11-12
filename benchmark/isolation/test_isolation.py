@@ -108,6 +108,20 @@ class DigitRunLimitTest(unittest.TestCase):
             self.assertIsNone(pattern.search("acct_123456"))
             self.assertIsNotNone(pattern.search("acct_1234567"))
 
+    def test_judge_reads_the_file_it_is_pointed_at(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "masking_limits.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 6}, f)
+            original = ci.MASKING_LIMITS_FILE
+            ci.MASKING_LIMITS_FILE = path
+            try:
+                self.assertTrue(ci.judge(403, json.dumps({"error": "acct_123456"}))[0])
+                self.assertFalse(ci.judge(403, json.dumps({"error": "acct_1234567"}))[0])
+            finally:
+                ci.MASKING_LIMITS_FILE = original
+
     def test_a_file_that_is_not_the_contract_is_refused(self) -> None:
         import tempfile
         bad = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 33, 4.5, True, "4", None)]

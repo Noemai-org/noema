@@ -16,11 +16,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
 
 const (
 	hashPrefix   = "sha256:"
-	maxDigitRun  = 4 // PERD 31.2 check 4: no unmasked digit run longer than 4
 	templatePath = "%s.json"
 )
 
@@ -29,8 +29,18 @@ var ErrNoTemplate = errors.New("explanation: no template")
 
 type entry struct{ text, version string }
 
-// Templates are the loaded pack templates: locale, then "<outcome_id>/<classification>".
-type Templates struct{ byLocale map[string]map[string]entry }
+// Templates are the loaded pack templates: locale, then "<outcome_id>/<classification>". They also carry the pack's masking limit, the longest unmasked digit run, which
+// Validate reads for check 4 (SEC-03); the number lives in the pack's masking-limits.v1 document and nowhere in code.
+type Templates struct {
+	byLocale map[string]map[string]entry
+	masking  masking.Limits
+}
+
+// WithMaskingLimits returns the templates with the pack's masking limit. Without it, Validate blocks every text: it never uses a number of its own.
+func (t Templates) WithMaskingLimits(l masking.Limits) Templates {
+	t.masking = l
+	return t
+}
 
 // LoadTemplates reads <dir>/<locale>.json for each locale. A missing file, a file that is not a JSON object of strings, or an empty text is an error.
 func LoadTemplates(dir string, locales []string) (Templates, error) {
@@ -189,7 +199,7 @@ func (t Templates) vocabulary(locale string) map[string]bool {
 
 // Validate runs the four checks of PERD 31.2 and the forbidden-claim patterns (pack data, passed in). It returns every problem; none means the text may be shown.
 // 1. every sentence is covered by a claim bound to a fact of the input or to the rendered template; 2. every figure, time or masked identifier in the text appears in
-// the facts; 3. no forbidden pattern matches; 4. no unmasked digit run longer than 4.
+// the facts; 3. no forbidden pattern matches; 4. no unmasked digit run longer than the pack's masking limit (4 in the fintech pack, PERD 31.2).
 func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden []string) []string {
 	var out []string
 	known := map[string]bool{}
@@ -286,9 +296,12 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 			out = append(out, fmt.Sprintf("check 3: matches the forbidden pattern %q", p))
 		}
 	}
+	if !t.masking.Loaded() {
+		return append(out, "check 4: the masking limit is not loaded")
+	}
 	for _, run := range digitRun.FindAllString(r.Text, -1) {
-		if utf8.RuneCountInString(run) > maxDigitRun {
-			out = append(out, fmt.Sprintf("check 4: an unmasked digit run of %d", len(run)))
+		if n := utf8.RuneCountInString(run); n > t.masking.MaxUnmaskedRun() {
+			out = append(out, fmt.Sprintf("check 4: an unmasked digit run of %d", n))
 		}
 	}
 	return out

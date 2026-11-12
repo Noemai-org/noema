@@ -17,6 +17,8 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from noema_model.platform.masking import MaskingLimits
+
 _RUN = re.compile(r"\d(?:[ \-]?\d)*")
 _SECRET_KEY = re.compile(r"(api[_-]?key|authorization|auth|token|secret|password|passwd|credential|bearer)", re.I)
 REDACTED = "[REDACTED]"
@@ -28,6 +30,11 @@ class Redactor:
         if min_digits <= KEPT_DIGITS:
             raise ValueError("min_digits must exceed the number of digits kept")
         self._min_digits = min_digits
+
+    @classmethod
+    def from_limits(cls, limits: MaskingLimits) -> "Redactor":
+        """A redactor that masks the first run longer than the pack's masking-limits.v1 value (the one source the core reads too)."""
+        return cls(limits.min_masked_run)
 
     def mask_account_numbers(self, text: str) -> str:
         """Replace every account-number candidate with asterisks plus its last four digits."""
