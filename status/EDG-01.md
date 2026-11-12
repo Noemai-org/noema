@@ -61,3 +61,18 @@
 - Codex P3 (sub-second `-ttl`): the issuer now requires a TTL of at least one second (test first, one mutation caught).
 - Ruling A15 (benchmark roles are the four A1 roles; `ops_agent` to `ops`, `viewer` to `customer` when acting or `audit` when read-only) answers Codex's P1 on `benchmark/runner/env.py`: the change is in the benchmark generator's cases (`benchmark/generator/lib_security.py`), not in this PR. It also changes generated case content, so it needs its owner and a suite regeneration; I have not done it.
 - Ruling A20 for slice 3b: `audit` reads only through the tenant-bound Record read functions; `ops` and `audit` have no path to a Record writer.
+
+## Session 2026-11-11 09:00 WAT · slice 3b: the edge composition and the core wiring
+## Session summary
+- What changed (PR links): the EDG-01 slice 3b pull request on `feat/EDG-01-edge-wiring` (opened from main: the slice 3a and 3b parents, noema#156 and noema#198, are merged): `edge.Protected` (session, role gate, body guard, deny by default), `edge/edgetest` (SYNTHETIC tokens for tests), `edge.Load` (six settings, all or none, fail closed; the composition root `cmd/core/compose.go` is EL's, so this PR does not edit `cmd/core`), `make bench-tokens` (`deploy/compose/bench_tokens.sh` and its test; principals and token lifetime are arguments).
+- Why: REQ-API-004 needs every public call behind a verified session in the running core, not only in the package. The order is session, role, body: an unauthenticated caller gets 401 and a wrong-role caller 404 whatever the body says.
+- Risks, and how they are contained: no `/v1` route is registered yet, so the composition is proved with test routes. The six settings have no defaults; with some set `Load` returns an error and the root must not start. The test that cmd/core does not import `record/reconstruct` stays: the reconstruction route is wired by REC-03 with its role list.
+- Tests added (REQ-API-004, REQ-API-002, REQ-SEC-001, INV-12, INV-21, AGENT-16): `edge/edge_test.go` (10), `edge/load_test.go` (7). Mutation check of the new code: guard before role, no catch-all, no session check, no body guard, skew in code, lifetime above the ceiling, tenants, audience, kid, body limit and partial configuration accepted were each caught by a test; audience, kid and body limit survived once and the tests now use values that differ from the helper's.
+- Regression cases added: none. Debt entries: `deploy/compose/test_bench_tokens.sh` is not run by CI (no workflow runs the compose scripts' tests, `test_secrets_local.sh` included); a workflow change needs a Founder.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL plugs `edge.Load` into `cmd/core/compose.go` (slice 3c); the first handler that touches the database (REC-03's reconstruction route) passes its `Route`, lists `ops` and `audit` (ruling A20) and calls `session.CheckTenant(principal, loginTenant)` with its test.
+- Open questions (owner): the names of the six settings are mine; EL to say yes or rename. The body limit value for the deployment (EL, no default). The G1 principal list for `BENCH_PRINCIPALS` (Integration Lead, noema#441).
+- Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
+- Do not touch: the migration files.
