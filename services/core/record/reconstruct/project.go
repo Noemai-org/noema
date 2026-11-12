@@ -38,6 +38,8 @@ const (
 // Event types with special projection. The rest are plain table rows.
 const (
 	evReceipt     = "RECEIPT"
+	evDispatch    = "DISPATCH_ATTEMPTED"
+	evVerdict     = "VERDICT"
 	evExplanation = "EXPLANATION_RENDERED"
 	evClarify     = "CLARIFICATION_REQUESTED"
 	evGrantIssued = "GRANT_ISSUED"
@@ -47,7 +49,7 @@ const (
 
 // projection says where an event type goes and which payload keys it may contribute as facts. A key missing from the
 // payload is left out; a key not listed is never served. Event types not in the table (INTENT_PROPOSED, which is model
-// output, DISPATCH_ATTEMPTED, lifecycle, control-plane, security and provider events) appear in the timeline only.
+// output, lifecycle, control-plane, security and provider events) appear in the timeline only.
 // The payload shapes are fixed by REC-04; until then this table is the one place that names them.
 type projection struct {
 	section  string
@@ -58,7 +60,7 @@ type projection struct {
 
 var (
 	observedKeys   = []string{"classification", "fact_status", "source"}
-	authorityKeys  = []string{"grant_id", "plan_id", "confirmation_id", "capability_id", "attempt", "reason"}
+	authorityKeys  = []string{"grant_id", "plan_id", "confirmation_id", "capability_id", "attempt", "reason", "policy_version"}
 	downstreamKeys = []string{"capability_id", "fact_status", "source", "watch_id", "recovery_request_id", "delivery_status"}
 )
 
@@ -90,6 +92,7 @@ var projections = map[string]projection{
 	"REVALIDATION_PASSED":          {secAuthority, basisRule, authorityKeys, nil},
 	"REVALIDATION_FAILED":          {secAuthority, basisRule, authorityKeys, nil},
 	"DECISION_MADE":                {secDecision, basisRule, []string{"decision_outcome", "reason_codes", "decision_id"}, []string{"decision_outcome"}},
+	evDispatch:                     {secAction, basisRule, []string{"attempt"}, []string{"capability_id", "execution_state", "grant_state"}},
 	evReceipt:                      {secAction, basisRule, []string{"execution_state", "attempt", "receipt_id"}, []string{"capability_id", "execution_state", "grant_state"}},
 	"VERIFICATION_READ":            {secDownstream, basisEvidence, downstreamKeys, nil},
 	"WATCH_CREATED":                {secDownstream, basisRule, downstreamKeys, nil},
@@ -341,11 +344,36 @@ func project(events []stored) ([]item, error) {
 				out = append(out, mk(f))
 			}
 			continue
+		case evDispatch:
+			if receiptFollows(events, i) {
+				continue // the receipt of this attempt is its ACTION item
+			}
+			capability := capabilityOf(events, i)
+			extra := map[string]any{"capability_id": capability, "execution_state": "DISPATCHED", "grant_state": grantState(events, i)}
+			f, err := facts(p, ev.payload, extra)
+			if err != nil {
+				return nil, fmt.Errorf("dispatch %s: %w", ev.id, err)
+			}
+			out = append(out, mk(f))
+			continue
 		case evReceipt:
-			extra := map[string]any{"capability_id": ev.payload["logical_action"], "grant_state": grantState(events, i)}
+			capability := capabilityOf(events, i)
+			extra := map[string]any{"capability_id": capability, "grant_state": grantState(events, i)}
 			f, err := facts(p, ev.payload, extra)
 			if err != nil {
 				return nil, fmt.Errorf("receipt %s: %w", ev.id, err)
+			}
+			out = append(out, mk(f))
+			continue
+		case evVerdict:
+			payload := ev.payload
+			if doc, ok := ev.payload["verdict"].(map[string]any); ok {
+				// Outcome's event carries the signed verdict document; its verdict and id are the facts. The capability is the one of the receipt it verified.
+				payload = map[string]any{"verdict": doc["verdict"], "verdict_id": doc["verdict_id"], "capability_id": capabilityOfReceipt(events, doc["receipt_id"])}
+			}
+			f, err := facts(p, payload, nil)
+			if err != nil {
+				return nil, fmt.Errorf("verdict %s: %w", ev.id, err)
 			}
 			out = append(out, mk(f))
 			continue
@@ -366,6 +394,57 @@ func project(events []stored) ([]item, error) {
 	return out, nil
 }
 
+// capabilityOf is the pack capability an action was dispatched under. The dispatch records it as "capability" (ruling A117: the execution-limits budget key; the
+// reconstruction outputs it as capability_id); logical_action is the grant's
+// capability, a pack ID, since the fix of G1 (noema#243), and is only the fallback for a Record written before the dispatch carried the capability. The event at i is a
+// dispatch or a receipt of one attempt of one grant.
+func capabilityOf(events []stored, i int) any {
+	ev := events[i]
+	grant, _ := ev.payload["grant_id"].(string)
+	if grant == "" {
+		grant = ev.objectRef
+	}
+	attempt, _ := ev.payload["attempt"].(json.Number)
+	for j := range events {
+		d := events[j]
+		if d.eventType != evDispatch || d.objectRef != grant {
+			continue
+		}
+		if a, _ := d.payload["attempt"].(json.Number); a == attempt {
+			if c, ok := d.payload["capability"]; ok {
+				return c
+			}
+		}
+	}
+	return ev.payload["logical_action"]
+}
+
+// capabilityOfReceipt is the capability of the receipt with the given receipt_id, or nil when the Record holds no such receipt.
+func capabilityOfReceipt(events []stored, receiptID any) any {
+	for i, ev := range events {
+		if ev.eventType == evReceipt && ev.payload["receipt_id"] == receiptID {
+			return capabilityOf(events, i)
+		}
+	}
+	return nil
+}
+
+// receiptFollows reports whether the dispatch at i has a RECEIPT of the same grant and attempt after it.
+func receiptFollows(events []stored, i int) bool {
+	d := events[i]
+	attempt, _ := d.payload["attempt"].(json.Number)
+	for j := i + 1; j < len(events); j++ {
+		r := events[j]
+		if r.eventType != evReceipt || r.objectRef != d.objectRef {
+			continue
+		}
+		if a, _ := r.payload["attempt"].(json.Number); a == attempt {
+			return true
+		}
+	}
+	return false
+}
+
 // grantState derives the grant's state at the moment of the spend behind the receipt at index i, from the Record alone
 // (reconstruction.v3.json, ACTION grant_state): VALID only when the grant was issued in this correlation, spent once,
 // for this attempt, before it expired, for this capability, and not voided first. Any other value on a dispatch is a
@@ -373,6 +452,9 @@ func project(events []stored) ([]item, error) {
 func grantState(events []stored, i int) string {
 	rc := events[i]
 	grantID, _ := rc.payload["grant_id"].(string)
+	if grantID == "" {
+		grantID = rc.objectRef // a dispatch names its grant by its object_ref
+	}
 	attempt, _ := rc.payload["attempt"].(json.Number)
 	var issued *stored
 	spends, spendIdx := 0, -1
@@ -413,7 +495,7 @@ func grantState(events []stored, i int) string {
 			return grantExpired
 		}
 	}
-	if c, ok := issued.payload["capability_id"].(string); ok && c != rc.payload["logical_action"] {
+	if c, ok := issued.payload["capability_id"].(string); ok && c != capabilityOf(events, i) {
 		return grantUnmatched
 	}
 	return grantValid
