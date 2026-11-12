@@ -6,7 +6,9 @@ package main
 // component another task configures: with none, the route is not mounted and the readiness check says so. Keys and tokens are SYNTHETIC, made per test (AGENT-25).
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -42,6 +44,8 @@ func (f *failingDBs) For(tenant string) (reconstruct.TxBeginner, error) {
 	f.asked = append(f.asked, tenant)
 	return nil, errors.New("no pool in this test")
 }
+
+func discardLog() *slog.Logger { return slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)) }
 
 func sessionEnv(t *testing.T, iss *edgetest.Issuer) envMap {
 	t.Helper()
@@ -101,7 +105,7 @@ func TestPartialSettingsOrARecordReaderWithoutASessionRefuseToStart(t *testing.T
 	if h, err := api(t, e, Components{}); err == nil || h != nil {
 		t.Errorf("partial settings: handler %v, error %v", h, err)
 	}
-	if h, err := api(t, envMap{}, Components{Records: &failingDBs{}}); err == nil || h != nil {
+	if h, err := api(t, envMap{}, Components{Records: &failingDBs{}, AccessLog: discardLog()}); err == nil || h != nil {
 		t.Errorf("a Record reader with no session settings: handler %v, error %v", h, err)
 	}
 }
@@ -111,7 +115,7 @@ func TestPartialSettingsOrARecordReaderWithoutASessionRefuseToStart(t *testing.T
 func TestTheReconstructionRouteIsMountedForOpsAndAuditBehindTheSessionAndTheRoleGate(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	dbs := &failingDBs{}
-	h, err := api(t, sessionEnv(t, iss), Components{Records: dbs})
+	h, err := api(t, sessionEnv(t, iss), Components{Records: dbs, AccessLog: discardLog()})
 	if err != nil || h == nil {
 		t.Fatalf("handler %v, error %v", h, err)
 	}
@@ -177,7 +181,7 @@ func TestWithoutARecordReaderTheRouteIsNotMountedAndReadinessSaysSo(t *testing.T
 // The health routes stay public and outside /v1; /v1 is served only through the protected handler.
 func TestHealthStaysPublicAndV1GoesThroughTheProtectedHandler(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
-	h, err := api(t, sessionEnv(t, iss), Components{Records: &failingDBs{}})
+	h, err := api(t, sessionEnv(t, iss), Components{Records: &failingDBs{}, AccessLog: discardLog()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +201,7 @@ func TestHealthStaysPublicAndV1GoesThroughTheProtectedHandler(t *testing.T) {
 // approver is refused by the edge gate before the handler runs, not only by the handler's own check.
 func TestTheRouteTableListsExactlyOpsAndAuditForTheReconstruction(t *testing.T) {
 	clk := clock.NewManual(apiEpoch)
-	routes := apiRoutes(Components{Records: &failingDBs{}}, ids.New(clk, nil))
+	routes := apiRoutes(Components{Records: &failingDBs{}, AccessLog: discardLog()}, ids.New(clk, nil))
 	if len(routes) != 1 || routes[0].Pattern != reconstruct.Route {
 		t.Fatalf("routes %+v", routes)
 	}
@@ -210,5 +214,36 @@ func TestTheRouteTableListsExactlyOpsAndAuditForTheReconstruction(t *testing.T) 
 	}
 	if none := apiRoutes(Components{}, ids.New(clk, nil)); len(none) != 0 {
 		t.Fatalf("a route without its component: %+v", none)
+	}
+}
+
+// REQ-AUD-003: a Record read must be logged. A Record reader without an access logger is a startup error, never a route that serves silently.
+func TestARecordReaderWithoutAnAccessLoggerRefusesToStart(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	if h, err := api(t, sessionEnv(t, iss), Components{Records: &failingDBs{}}); err == nil || h != nil {
+		t.Errorf("a Record reader with no access logger: handler %v, error %v", h, err)
+	}
+}
+
+// REQ-AUD-003: the call that reaches the reconstruction handler writes one RECORD_ACCESSED line carrying the token's tenant and principal and an outcome code, and nothing of
+// the Record. (The SERVED outcome is asserted with a real Record in the reconstruct package's own tests.)
+func TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	var buf bytes.Buffer
+	h, err := api(t, sessionEnv(t, iss), Components{Records: &failingDBs{}, AccessLog: slog.New(slog.NewJSONHandler(&buf, nil))})
+	if err != nil || h == nil {
+		t.Fatalf("handler %v, error %v", h, err)
+	}
+	if rec := call(h, "/v1/reconstructions/corr_ABC123", bearer(iss, session.RoleAudit, "tnt_other")); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("answer %d %s", rec.Code, rec.Body.String())
+	}
+	line := buf.String()
+	for _, want := range []string{`"msg":"RECORD_ACCESSED"`, `"tenant_id":"tnt_other"`, `"outcome":"INTERNAL_SAFETY_BLOCK"`} {
+		if !strings.Contains(line, want) {
+			t.Errorf("access log %q lacks %s", line, want)
+		}
+	}
+	if n := strings.Count(line, "RECORD_ACCESSED"); n != 1 {
+		t.Errorf("%d RECORD_ACCESSED lines, want 1", n)
 	}
 }
