@@ -10,6 +10,10 @@ Updated 2026-11-12. Plan task UND-04 (owners C2 and C1; REQ-INT-001, REQ-INP-002
 - **Known limit:** the generated model does not model `propertyNames` or the `supersedes` conditional; the gate carries those rules (`SLOT_NAME`, `SUPERSEDES`).
 - **Conflicts raised:** none. **Debt for the Steward:** none beyond the open points in noema#484.
 
+## Review P2 (12 Nov, noema#489)
+- **Finding:** `_chain` read the digits after `@` in `supersedes` with `int()`; a version of more than 4,300 digits passes the contract's `IntentRef` pattern and makes Python raise `ValueError`, so the gate was not total.
+- **Fix, test first:** `3 tests` at `ef4f02d0` (red: the reviewer's exact `ValueError`); then the gate's own pattern reads at most 16 digits (2^53 - 1 has 16), so a longer version is a refused chain (`SUPERSEDES`), never an exception. Mutation: restoring the unbounded pattern turns the new test red. The largest case is kept under the 64 KiB bound (a larger body is refused earlier as `SIZE`).
+
 ## Pre-work for the next agent
 - Exact next step: when noema#484 is answered, the compiler (prompt, provider call, assembly) and the route call `SchemaGate.check` and then sign.
 - Open questions (owner): noema#484 points 1 to 4 (Architect).

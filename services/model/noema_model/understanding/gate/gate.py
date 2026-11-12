@@ -37,7 +37,7 @@ _CORRELATION = re.compile(r"corr_[0-9A-Za-z]{2,32}")
 _PRINCIPAL = re.compile(r"usr_[0-9A-Za-z]{2,32}")
 _SESSION = re.compile(r"ses_[0-9A-Za-z]{2,32}")
 _SLOT_NAME = re.compile(r"[a-z][a-z0-9_]*")
-_INTENT_REF = re.compile(r"(int_[0-9A-Za-z]{2,32})@([0-9]+)")
+_INTENT_REF = re.compile(r"(int_[0-9A-Za-z]{2,32})@([0-9]{1,16})")  # 16 digits hold 2^53 - 1; a longer version is not a version (and int() refuses over 4,300 digits)
 
 
 class Reason(StrEnum):
