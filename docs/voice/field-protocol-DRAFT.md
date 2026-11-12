@@ -1,8 +1,8 @@
 # Field-session protocol and dry-run checklist (VOI-08) · DRAFT
 
-Date: 2026-11-08 · Owner: the Voice Engineer role is the protocol owner (OQ-08; Founder decision F6 of 8 Nov 2026) · Status: **DRAFT, not signed, not in force**
+Date: 2026-11-08, updated 2026-11-12 · Owner: the Voice Engineer role is the protocol owner (OQ-08; Founder decision F6 of 8 Nov 2026) · Status: **DRAFT, not signed, not in force**
 
-Serves REQ-VOI-005, REQ-VOI-007, REQ-VOI-004; PERD §45.4 (the protocol of record). This file adds no requirement and changes no number in §45.4. It turns §45.4 into a checklist and lists what is missing. VOI-08 needs PRE-05 (devices and SIMs received), which is not Done, so nothing here is "ready".
+Serves REQ-VOI-005, REQ-VOI-007, REQ-VOI-004; PERD §45.4 (the protocol of record). This file adds no requirement and changes no number in §45.4. It turns §45.4 into a checklist and lists what is missing. VOI-08 needs PRE-05. The plan version proposed in docs#157 (not merged when this was written) marks PRE-05 Done, but PRE-05's own done_when is "order placed", while VOI-08's text needs devices and SIMs *received*. Receipt is not evidenced anywhere I can read, so no line below is ticked and nothing here is "ready".
 
 ## 1. What is fixed by PERD §45.4 (copied, not changed)
 
@@ -77,3 +77,29 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 | 5 | Devices and SIMs (PRE-05) | The Founder orders now (F6) | Open |
 | 6 | VOI-05 signed; consent text reviewed | Counsel first, then the Founder signs | Open |
 | 7 | At least one qualified speech provider (DEBT-14, expiry 2026-11-30) | API documents first, then one pinned synthetic-audio sample per provider (F4) | Open |
+
+## 6. Dry-run checklist status (2026-11-12)
+
+Nothing is ticked: a line is ticked only with evidence, and none of this evidence exists in the repository. The last column is what would tick it and who holds it.
+
+| Line of section 2 | Ticked | Evidence needed | Holder |
+|---|---|---|---|
+| Tecno Spark received; model, OS, build recorded | no | delivery confirmation and the recorded model, OS and build | Founders (F6) |
+| Airtel 3G SIM active, 4G disabled | no | screenshot of the network settings, no SIM number | Founders, protocol owner |
+| Overlay build identified by commit, PCM16 16 kHz | no | the commit of the partner-app build (A19) | partner-app owner |
+| Baseline network reading at the site | no | the reading and the tool's name and version | protocol owner, at the site |
+| Logging host, NTP offset at start and end of each batch | no | host named; offsets logged | Platform with the protocol owner |
+| Both timestamps stamped server-side | no | a trace showing both events stamped by the server | VOI-16 owner |
+| Stages timed separately (VOI-16) | no | the VOI-16 timing output on a sample | VOI-16 owner |
+| dB-meter app chosen and logged | no | app name and version, first reading | protocol owner |
+| Sites chosen and permitted | no | site list, permissions | Founders (proposal 1) |
+| Script annotated with key slots | no | the script, synthetic names and amounts only | protocol owner with testers |
+| Speaker list balanced, at least half Pidgin | no | list of opaque speaker refs | Founders (F3) |
+| Native-speaker testers identified | no | five names or refs | Founders |
+| VOI-05 plan signed, consent text reviewed | no | counsel's approval and the Founder's signature (noema#201, noema#294) | counsel, Founder |
+| Consent captured per speaker | no | register passing `voice/study.py` (noema#451) | protocol owner |
+| Restricted store and retention timer | no | the bucket listing passing `voice/retention.py` (noema#485) with the recorded durations | Founders |
+| Simulation report per locale ready (VOI-17) | no | `ready_for_field` for each of the five locales, native review approved | VOI-17, testers |
+| Dry run of 10 sessions (VOI-11), notes with fixes | no | the dry-run notes | protocol owner (VOI-11) |
+
+VOI-08's done_when ("dry-run checklist complete") is therefore **not met**. This file stays DRAFT until the Founders confirm proposals 1 to 4 of section 5 and sign.
