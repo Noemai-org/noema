@@ -87,6 +87,7 @@ type SpendResult struct {
 	Spent          bool
 	Replay         bool  // the grant ID or its nonce was already spent
 	WritesDisabled bool  // the kill switch was read inside the transaction and was on
+	BudgetSpent    bool  // the database refused the dispatch event: the key's budget is used up (ruling A153); nothing was written
 	Attempt        int64 // the attempt number of this dispatch for the key
 }
 

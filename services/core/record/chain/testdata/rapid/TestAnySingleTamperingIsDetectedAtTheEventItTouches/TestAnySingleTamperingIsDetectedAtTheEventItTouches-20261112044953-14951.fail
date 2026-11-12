@@ -1,0 +1,51 @@
+# 2026/11/12 04:49:53.837593 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw events: 2
+# 2026/11/12 04:49:53.837601 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw advance_ms: 0
+# 2026/11/12 04:49:53.837607 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw type: "DISPATCH_ATTEMPTED"
+# 2026/11/12 04:49:53.837610 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw written_by: "admin"
+# 2026/11/12 04:49:53.837611 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw person: false
+# 2026/11/12 04:49:53.837615 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw corr: "00"
+# 2026/11/12 04:49:53.837619 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw object: "aa_00"
+# 2026/11/12 04:49:53.837619 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] [rapid] draw has_payload: false
+# 2026/11/12 04:49:53.843962 [TestAnySingleTamperingIsDetectedAtTheEventItTouches] an event valid by construction was refused: record: insert: ERROR: dispatch budget: a DISPATCH_ATTEMPTED event needs an object payload with its capability and target_ref (SQLSTATE NS002)
+# 
+v0.4.8#948171591834028655
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x11
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

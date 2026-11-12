@@ -1,0 +1,47 @@
+# 2026/11/12 04:50:01.479014 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw events: 2
+# 2026/11/12 04:50:01.479026 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw type: "DISPATCH_ATTEMPTED"
+# 2026/11/12 04:50:01.479030 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw written_by: "admin"
+# 2026/11/12 04:50:01.479031 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw person: false
+# 2026/11/12 04:50:01.479034 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw corr: "00"
+# 2026/11/12 04:50:01.479038 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw object: "aa_00"
+# 2026/11/12 04:50:01.479038 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] [rapid] draw has_payload: false
+# 2026/11/12 04:50:01.485498 [TestTruncatingTheTailIsNotDetectedByTheChainAlone] record: insert: ERROR: dispatch budget: a DISPATCH_ATTEMPTED event needs an object payload with its capability and target_ref (SQLSTATE NS002)
+# 
+v0.4.8#9476993441594305073
+0x0
+0x0
+0x0
+0xc05c654ab866b
+0x11
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
