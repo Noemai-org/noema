@@ -70,7 +70,18 @@ type rig struct {
 	waits *int
 }
 
+// baseOptions are valid options; a test changes the one it is about.
+func baseOptions(feed events.Feed, wait func(context.Context, time.Duration) error) events.Options {
+	return events.Options{Feed: feed, Mask: digitsMasker, Wait: wait, Clock: clock.NewManual(epoch), Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 2048,
+		WriteTimeout: 5 * time.Second, MaxStreams: 8, MaxStreamsPerPrincipal: 2, MaxBatch: 32}
+}
+
 func newRig(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Duration) error) rig {
+	t.Helper()
+	return newRigWith(t, feed, wait, nil)
+}
+
+func newRigWith(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Duration) error, tweak func(*events.Options)) rig {
 	t.Helper()
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(epoch)
@@ -84,7 +95,11 @@ func newRig(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Durati
 	if wait == nil {
 		wait = func(context.Context, time.Duration) error { *waits++; return nil }
 	}
-	h, err := events.New(events.Options{Feed: feed, Mask: digitsMasker, Wait: wait, Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 2048})
+	o := baseOptions(feed, wait)
+	if tweak != nil {
+		tweak(&o)
+	}
+	h, err := events.New(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +316,7 @@ func TestTheStreamKeepsAliveStopsWhenTheClientLeavesAndCarriesItsDeadline(t *tes
 }
 
 func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
-	ok := events.Options{Feed: &fakeFeed{}, Mask: digitsMasker, Wait: func(context.Context, time.Duration) error { return nil }, Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 1024}
+	ok := baseOptions(&fakeFeed{}, func(context.Context, time.Duration) error { return nil })
 	if _, err := events.New(ok); err != nil {
 		t.Fatal(err)
 	}
@@ -309,6 +324,9 @@ func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
 		"no feed": func(o *events.Options) { o.Feed = nil }, "no masker": func(o *events.Options) { o.Mask = nil }, "no wait": func(o *events.Options) { o.Wait = nil },
 		"no poll": func(o *events.Options) { o.Poll = 0 }, "a negative poll": func(o *events.Options) { o.Poll = -time.Second },
 		"no stream limit": func(o *events.Options) { o.MaxStream = 0 }, "no event bound": func(o *events.Options) { o.MaxEventBytes = 0 },
+		"no clock": func(o *events.Options) { o.Clock = nil }, "no write deadline": func(o *events.Options) { o.WriteTimeout = 0 }, "no global stream cap": func(o *events.Options) { o.MaxStreams = 0 },
+		"no per-principal cap": func(o *events.Options) { o.MaxStreamsPerPrincipal = 0 }, "no batch cap": func(o *events.Options) { o.MaxBatch = 0 },
+		"a per-principal cap above the global one": func(o *events.Options) { o.MaxStreamsPerPrincipal = o.MaxStreams + 1 },
 	}
 	for name, mut := range cases {
 		o := ok
@@ -338,7 +356,7 @@ type noFlush struct{ http.ResponseWriter }
 func TestAWriterThatCannotFlushIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	f := &fakeFeed{}
 	r := newRig(t, f, nil)
-	h, _ := events.New(events.Options{Feed: f, Mask: digitsMasker, Wait: func(context.Context, time.Duration) error { return nil }, Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 1024})
+	h, _ := events.New(baseOptions(f, func(context.Context, time.Duration) error { return nil }))
 	c := edgetest.Good(epoch, session.RoleCustomer)
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.SetPathValue("conversation_ref", "inv_AA11")
@@ -356,4 +374,174 @@ func TestAWriterThatCannotFlushIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 
 func mapKey(iss *edgetest.Issuer) map[string]*ecdsa.PublicKey {
 	return map[string]*ecdsa.PublicKey{edgetest.Kid: iss.Public()}
+}
+
+// ---- the reviewer's findings on 2229520f (REQ-SEC-003, INV-12, REQ-API-002) ----
+
+// failWriter is a response writer whose Write fails after n successful writes, and which records the write deadlines the handler sets (http.ResponseController).
+type failWriter struct {
+	*httptest.ResponseRecorder
+	okWrites  int
+	writes    int
+	deadlines []time.Time
+}
+
+func (f *failWriter) Write(b []byte) (int, error) {
+	f.writes++
+	if f.writes > f.okWrites {
+		return 0, errors.New("synthetic: the client is gone or too slow")
+	}
+	return f.ResponseRecorder.Write(b)
+}
+func (f *failWriter) SetWriteDeadline(t time.Time) error {
+	f.deadlines = append(f.deadlines, t)
+	return nil
+}
+
+func (r rig) request(w http.ResponseWriter, role session.Role) {
+	c := edgetest.Good(epoch, role)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer "+r.iss.Token(edgetest.Kid, c))
+	r.h.ServeHTTP(w, req)
+}
+
+// A closed or expired session ends the stream: it lasts no longer than the token does, even when MaxStream is longer.
+func TestAStreamEndsWhenTheSessionsTokenExpires(t *testing.T) {
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress)}}}}
+	wait := func(ctx context.Context, _ time.Duration) error { <-ctx.Done(); return ctx.Err() }
+	// the handler's clock is 100 ms before the token's expiry (epoch + 5 min); the stream limit is an hour
+	r := newRigWith(t, f, wait, func(o *events.Options) {
+		o.Clock = clock.NewManual(epoch.Add(5*time.Minute - 100*time.Millisecond))
+		o.MaxStream = time.Hour
+	})
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { rec := httptest.NewRecorder(); r.request(rec, session.RoleCustomer); done <- rec }()
+	select {
+	case rec := <-done:
+		if !strings.Contains(rec.Body.String(), "id: 1\n") || rec.Code != http.StatusOK {
+			t.Errorf("%d %q", rec.Code, rec.Body.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the stream outlived the token")
+	}
+}
+
+// A token that is already at or past its expiry by the handler's clock is refused before anything streams.
+func TestATokenAlreadyExpiredByTheHandlersClockGetsNoStream(t *testing.T) {
+	f := &fakeFeed{}
+	r := newRigWith(t, f, nil, func(o *events.Options) { o.Clock = clock.NewManual(epoch.Add(5 * time.Minute)) })
+	rec := httptest.NewRecorder()
+	r.request(rec, session.RoleCustomer)
+	if rec.Code != http.StatusUnauthorized || len(f.calls) != 0 {
+		t.Fatalf("%d %s, calls %+v", rec.Code, rec.Body.String(), f.calls)
+	}
+}
+
+// A write that fails ends the stream at once (a slow or gone consumer), and every write has a deadline from the injected clock.
+func TestAFailedWriteEndsTheStreamAndEveryWriteHasADeadline(t *testing.T) {
+	f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindProgress), ev(2, events.KindProgress)}}, {Events: []events.Event{ev(3, events.KindProgress)}}}}
+	r := newRig(t, f, nil)
+	w := &failWriter{ResponseRecorder: httptest.NewRecorder(), okWrites: 1}
+	r.request(w, session.RoleCustomer)
+	if w.writes != 2 {
+		t.Errorf("%d writes attempted; want 2 (the second failed and ended the stream)", w.writes)
+	}
+	if len(f.calls) != 1 {
+		t.Errorf("the feed was asked %d times after a failed write; want 1", len(f.calls))
+	}
+	if len(w.deadlines) == 0 {
+		t.Fatal("no write deadline was set")
+	}
+	for _, d := range w.deadlines {
+		if !d.Equal(epoch.Add(5 * time.Second)) {
+			t.Errorf("write deadline %v; want the clock's now plus the write timeout (%v)", d, epoch.Add(5*time.Second))
+		}
+	}
+}
+
+// A batch larger than the cap is a bad batch: the stream ends with the safe fault and none of it is written.
+func TestABatchOverTheCapEndsTheStreamAndNothingOfItIsWritten(t *testing.T) {
+	var evs []events.Event
+	for i := int64(1); i <= 4; i++ {
+		evs = append(evs, ev(i, events.KindProgress))
+	}
+	f := &fakeFeed{batches: []events.Batch{{Events: evs}}}
+	r := newRigWith(t, f, nil, func(o *events.Options) { o.MaxBatch = 3 })
+	rec := httptest.NewRecorder()
+	r.request(rec, session.RoleCustomer)
+	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "STREAM_FAULT") {
+		t.Errorf("%q", rec.Body.String())
+	}
+}
+
+// Streams are bounded per principal and overall; a refused stream is the retryable 503, and a finished stream gives its place back.
+func TestStreamsAreBoundedPerPrincipalAndOverallAndAFinishedStreamFreesItsPlace(t *testing.T) {
+	hold := make(chan struct{})
+	started := make(chan struct{}, 8)
+	wait := func(ctx context.Context, _ time.Duration) error {
+		started <- struct{}{}
+		select {
+		case <-hold:
+			return errors.New("released")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	f := &fakeFeed{batches: []events.Batch{{}, {}, {}, {}, {}, {}}}
+	r := newRigWith(t, f, wait, func(o *events.Options) { o.MaxStreams = 2; o.MaxStreamsPerPrincipal = 1 })
+	var wg sync.WaitGroup
+	open := func() {
+		wg.Add(1)
+		go func() { defer wg.Done(); r.request(httptest.NewRecorder(), session.RoleCustomer) }()
+		<-started
+	}
+	open() // prn_1 holds its one place
+	rec := httptest.NewRecorder()
+	r.request(rec, session.RoleCustomer)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") {
+		t.Errorf("a second stream of the same principal: %d %s", rec.Code, rec.Body.String())
+	}
+	close(hold)
+	wg.Wait()
+	rec = httptest.NewRecorder()
+	r.request(rec, session.RoleCustomer)
+	if rec.Code != http.StatusOK {
+		t.Errorf("after the first stream ended: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The handler itself refuses a session that is not a customer's, the same 404, whatever the mount does (defence in depth for the role gate).
+func TestTheHandlerItselfRefusesANonCustomerWithTheSame404(t *testing.T) {
+	f := &fakeFeed{}
+	o := baseOptions(f, func(context.Context, time.Duration) error { return nil })
+	h, err := events.New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(epoch)
+	v, _ := session.NewVerifier(session.Config{Keys: mapKey(iss), Audience: edgetest.Audience, Tenants: []string{edgetest.Tenant}, MaxLifetime: session.CeilingLifetime, Skew: time.Minute, Clock: clk})
+	mux := http.NewServeMux()
+	mux.Handle(events.Route, session.Middleware(v, ids.New(clk, nil))(h)) // no RequireRole
+	for _, role := range []session.Role{session.RoleOps, session.RoleAudit, session.RoleApprover} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+iss.Token(edgetest.Kid, edgetest.Good(epoch, role)))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "NOT_FOUND_OR_NOT_AUTHORIZED") {
+			t.Errorf("%s: %d %s", role, rec.Code, rec.Body.String())
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Errorf("a non-customer reached the feed: %+v", f.calls)
+	}
+}
+
+func TestTheStreamTellsProxiesNotToBuffer(t *testing.T) {
+	r := newRig(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindAnswer)}, Done: true}}}, nil)
+	rec := httptest.NewRecorder()
+	r.request(rec, session.RoleCustomer)
+	if got := rec.Header().Get("X-Accel-Buffering"); got != "no" {
+		t.Errorf("X-Accel-Buffering = %q, want no", got)
+	}
 }
