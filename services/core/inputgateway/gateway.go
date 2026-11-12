@@ -102,7 +102,7 @@ type Index interface {
 type Config struct {
 	Recorder Recorder
 	Index    Index
-	Start    func(ctx context.Context, t Turn) error // the orchestrator seam; called only after INPUT_RECEIVED is in the Record
+	Start    func(ctx context.Context, t Turn) error // the orchestrator seam; called only after the input is in the Record, on every delivery of it (A168), so it must be idempotent per Turn.Input
 	IDs      chain.IDSource
 	MaxBody  int64
 }
@@ -140,7 +140,8 @@ func validIdentity(id Identity) bool {
 }
 
 // Accept handles one input. Order: identity, body, the lookup of an earlier input, then one append (INPUT_RECEIVED, INPUT_DEDUPLICATED or the security event),
-// and only after INPUT_RECEIVED is in the Record, the turn goes to the orchestrator. Every failure before the append leaves the Record as it was.
+// and only after the input is in the Record, the turn goes to the orchestrator: on the first delivery and, by ruling A168, on every retry of the same body (a retry
+// of a stranded input must not be answered as accepted while nothing runs). Every failure before the append leaves the Record as it was.
 func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, error) {
 	if !validIdentity(id) {
 		return Result{}, ErrNoIdentity
@@ -165,6 +166,14 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 			if err := g.rec.Deduplicated(ctx, id, prior.CorrelationID, in.requestID, prior.Ref); err != nil {
 				return Result{}, fmt.Errorf("%w: %v", ErrRecord, err)
 			}
+			unlock()
+			locked = false
+			// A168 (Codex P1 on noema#466): a retry of a recorded input is not an acknowledgement that a turn runs. The first Start may have failed after INPUT_RECEIVED
+			// was stored, and nothing else would ever start it. So the retry calls Start again for the same recorded input; Start is idempotent per recorded input (the
+			// investigation store of noema#490), so a turn that did start is found, not run twice. If this Start fails too, the client is told so.
+			if err := g.start(ctx, turnOf(id, prior.CorrelationID, in, raw, prior.Ref)); err != nil {
+				return Result{}, fmt.Errorf("%w: %v", ErrStart, err)
+			}
 			return Result{CorrelationID: prior.CorrelationID, Input: prior.Ref, Deduplicated: true}, nil
 		}
 		if err := g.rec.Reused(ctx, id, prior.CorrelationID, in.requestID, in.hash, prior.Ref); err != nil {
@@ -182,12 +191,16 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 	}
 	unlock() // a redelivery from here on finds the event in the Record; the turn can take as long as it takes
 	locked = false
-	turn := Turn{Identity: id, CorrelationID: corr, RequestID: in.requestID, Channel: in.channel, Locale: in.locale, ConversationRef: in.conversationRef, Text: in.text,
-		Body: append([]byte(nil), raw...), Input: ref}
-	if err := g.start(ctx, turn); err != nil {
+	if err := g.start(ctx, turnOf(id, corr, in, raw, ref)); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrStart, err)
 	}
 	return Result{CorrelationID: corr, Input: ref}, nil
+}
+
+// turnOf is the turn of a recorded input: the same for the first delivery and for every retry (the retry's body has the same hash, so the same content).
+func turnOf(id Identity, corr string, in input, raw []byte, ref Ref) Turn {
+	return Turn{Identity: id, CorrelationID: corr, RequestID: in.requestID, Channel: in.channel, Locale: in.locale, ConversationRef: in.conversationRef, Text: in.text,
+		Body: append([]byte(nil), raw...), Input: ref}
 }
 
 // input is a body that passed the closed-shape check.

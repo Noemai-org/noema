@@ -158,3 +158,17 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Files to read first: `services/core/inputgateway/README.md`, `gateway.go`.
 - Do not touch: the event payload keys (`channel`, `locale`, `request_id`): the reconstruction reads them by name.
 
+# Session 2026-11-12 (later) · UND-02 core · rulings A168 and the REC-08 merge
+
+## Session summary
+- What changed: (1) `main` merged in and the test world signs its Record events (`recordsig.All`; REC-08 reached `main` after this branch was cut). (2) Ruling A168 (docs#159, the Codex P1 on this PR): on a retry of a recorded input the gateway appends `INPUT_DEDUPLICATED` and then calls `Start` again for the same recorded input; a failing `Start` is `ErrStart` (503), not an acknowledgement. `Start` is now called on every delivery and must be idempotent per `Turn.Input` (noema#490's `Store.Start` is). `gateway.go`: the dedup branch and `turnOf`; `README.md`; four tests.
+- Failing first: tests-only commit `3328ec6a` (the retry did not call `Start`).
+- Tests added (REQ-INP-003, REQ-AUD-001, EC-E16): `TestARetryAfterAFailedStartCallsStartAgainAndReturnsTheOriginalResult`, `TestARetryWhoseStartFailsAgainIsRefusedAndRecorded`, `TestARetryThatCannotBeRecordedNeverReachesStart`; the dedup and concurrent-redelivery tests now assert two and eight identical turns.
+- Not run locally: the gateway tests run against PostgreSQL with pgsodium, which this machine lacks; CI's `core` is the evidence, so no hand mutation of this change was run (the red-first run is the proof that the retry did not call `Start` before).
+- Debt: item 4 (a recorded input whose `Start` failed is not resumed) is closed for the gateway by A168; the part inside the orchestrator (a run that started and failed) stays EL's.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's `Start` seam in `compose.go` calls `investigations.Store.Start` (noema#490) and then the runner, and treats `created=false` as "already started".
+- Open questions (owner): A169 (the Record lookup binds the turn ID) is noema#465's, EL.
+- Do not touch: `inputgateway/record.go` (the events are unchanged).
