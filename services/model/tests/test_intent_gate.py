@@ -14,7 +14,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from noema_model.contracts.intent_object_v1 import IntentObjectV1
-from noema_model.understanding.gate import UNSIGNED, Context, GateResult, Node, Reason, SchemaGate
+from noema_model.understanding.gate import UNSET, UNSIGNED, Context, GateResult, Node, Reason, SchemaGate
 
 CTX = Context(tenant_id="ten_a1", correlation_id="corr_c1", principal_id="usr_88213", authn_ref="ses_7a1b")
 NODE = "test.intent.investigate"
@@ -42,7 +42,7 @@ def proposal() -> dict[str, Any]:
     return {
         "schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": None, "tenant_id": "ten_a1", "correlation_id": "corr_c1",
         "created_at": "2026-11-12T10:00:00Z",
-        "principal": {"principal_id": "usr_88213", "principal_type": "end_user", "authn_ref": "ses_7a1b", "asserted_by": "enterprise_idp"},
+        "principal": {"principal_id": "usr_88213", "authn_ref": "ses_7a1b"},  # ruling A166: the model sends no principal_type and no asserted_by; the core sets them
         "source": {"mode": "MODE_1", "channel": "text", "locale_detected": ["en-NG"], "asr_confidence": None, "raw_ref": "inp_abc123"},
         "pack": {"pack_id": "test", "pack_version": "1.0.0"}, "intent_node": NODE,
         "slots": {
@@ -76,6 +76,8 @@ def test_a_correct_proposal_is_validated_and_nothing_else_changes() -> None:
     expected = proposal()
     expected["status"] = "VALIDATED"
     expected["sig"] = {"key_id": UNSIGNED.key_id, "value": UNSIGNED.value}
+    expected["principal"]["principal_type"] = UNSET  # placeholders the contract requires; the core overwrites them from the session (A166)
+    expected["principal"]["asserted_by"] = UNSET
     assert result.intent.to_json_obj() == json.loads(json.dumps(expected))
 
 
@@ -223,6 +225,25 @@ def test_the_largest_version_the_gate_reads_is_a_safe_integer() -> None:
     assert check(ok).ok
     too_big = mutate(("version",), 9007199254740991) | {"supersedes": "int_01J9X3@9007199254740992"}
     assert check(too_big).reasons == (Reason.SUPERSEDES,)
+
+
+def test_a_model_that_sends_principal_type_or_asserted_by_is_refused_as_a_shape_error() -> None:
+    """Ruling A166 item 3: the model's output does not contain principal_type or asserted_by; the core sets them from the session (INV-12). If the model sends them,
+    even a value that equals the session's, the gate refuses it as a shape error. No security event is raised on a normal compile."""
+    for member, value in (("principal_type", "end_user"), ("asserted_by", "noema-poc-idp"), ("asserted_by", "enterprise_idp"), ("principal_type", UNSET), ("asserted_by", UNSET)):
+        doc = proposal()
+        doc["principal"][member] = value
+        result = check(doc)
+        assert result.reasons == (Reason.SHAPE,) and result.intent is None, (member, value, result.reasons)
+    doc = proposal()
+    doc["principal"].update({"principal_type": "end_user", "asserted_by": "noema-poc-idp"})
+    assert check(doc).reasons == (Reason.SHAPE,)
+
+
+def test_a_proposal_without_them_is_valid_and_carries_the_neutral_markers() -> None:
+    result = check(proposal())
+    assert result.ok and result.intent is not None
+    assert result.intent.principal.principal_type == UNSET and result.intent.principal.asserted_by == UNSET
 
 
 def test_a_repeated_member_is_refused_even_when_both_values_are_valid() -> None:
