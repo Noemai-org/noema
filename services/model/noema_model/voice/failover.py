@@ -14,10 +14,11 @@ Record.
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from noema_model.providers.speech.base import AudioChunk, SpeechProvider, StreamRequest
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
-from noema_model.voice.pipeline import FinalUtterance, transcribe_utterance
+from noema_model.voice.pipeline import FinalUtterance, close_when_read_ends, transcribe_utterance
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +33,7 @@ class FailoverResult:
     steps: tuple[FailoverStep, ...]  # one per provider that was tried and failed, in order
     offer_text: bool
     replay_overflow: bool  # True when a provider was left untried because the utterance no longer fit the buffer
+    release_failed: bool = False  # True when the live source could not be released in time; then there is no utterance, only the offer of text
 
 
 class _ReplayBuffer:
@@ -68,22 +70,42 @@ class _ReplayBuffer:
     async def _next(self) -> AudioChunk:
         """The next live chunk. The read runs as its own task and is shielded, so a provider's deadline cancels only its wait,
         never the read: cancelling a read inside an async generator would end the generator, and the next provider would
-        hear a truncated utterance as a complete one (Codex P2 on #218)."""
+        hear a truncated utterance as a complete one (Codex P2 on #218). The read is forgotten only once its result has been
+        handed on: a provider cancelled in the very turn the read completed leaves it for the next reader, so no chunk is lost."""
         if self._pending is None:
             self._pending = asyncio.ensure_future(self._source.__anext__())
         pending = self._pending
         try:
-            return await asyncio.shield(pending)
-        finally:
-            if pending.done():
-                self._pending = None
+            item = await asyncio.shield(pending)
+        except asyncio.CancelledError:
+            raise  # the read, finished or not, stays for the next reader
+        except BaseException:
+            self._pending = None  # the read ended with its end or its error, which this reader receives
+            raise
+        self._pending = None
+        return item
 
-    async def close(self) -> None:
+    async def close(self, bound_s: float) -> bool:
+        """Release the live source within the bounds. Returns True when it could not be released in time: a read that resists cancellation is closed over
+        when it ends (the source cannot be closed while it runs), and a close that does not finish is abandoned (Codex P1 on #218)."""
         pending, self._pending = self._pending, None
-        if pending is not None:
+        if pending is not None and not pending.done():
             pending.cancel()
-            await asyncio.gather(pending, return_exceptions=True)
-        await self._source.aclose()
+            await asyncio.wait({pending}, timeout=bound_s)
+            if not pending.done():
+                close_when_read_ends(pending, self._source)
+                return True
+        closing = asyncio.ensure_future(self._source.aclose())
+        closing.add_done_callback(_mark_retrieved)
+        await asyncio.wait({closing}, timeout=bound_s)
+        if not closing.done():
+            return True
+        return not closing.cancelled() and closing.exception() is not None
+
+
+def _mark_retrieved(task: "asyncio.Future[Any]") -> None:
+    if not task.cancelled():
+        task.exception()
 
 
 async def transcribe_with_failover(
@@ -94,26 +116,48 @@ async def transcribe_with_failover(
     deadline_s: float,
     on_partial: Callable[[str], None],
     max_buffered_chunks: int,
+    cleanup_s: float | None = None,
 ) -> FailoverResult:
-    """Try `providers` in order until one settles a final transcript. `deadline_s` bounds each provider separately."""
+    """Try `providers` in order until one settles a final transcript. `deadline_s` bounds each provider separately and `cleanup_s` (default: `deadline_s`)
+    bounds each cleanup, including the release of the live source. If the source cannot be released in time the result has no utterance and offers text:
+    a microphone that is still open is never a success (INV-07, AGENT-13)."""
     if not providers:
         raise ValueError("no speech providers configured")
     if max_buffered_chunks < 1:
         raise ValueError("the replay buffer must hold at least one chunk")
+    bound_s = deadline_s if cleanup_s is None else cleanup_s
     buffer = _ReplayBuffer(audio, max_buffered_chunks)
     steps: list[FailoverStep] = []
+    result: FailoverResult | None = None
+    cancelled = False
     try:
         for attempt, provider in enumerate(providers):
             if attempt > 0 and buffer.overflowed:
-                return FailoverResult(None, tuple(steps), True, True)
+                result = FailoverResult(None, tuple(steps), True, True)
+                break
             try:
                 utterance = await transcribe_utterance(
-                    provider, request, buffer.stream(), deadline_s=deadline_s, on_partial=on_partial
+                    provider, request, buffer.stream(), deadline_s=deadline_s, on_partial=on_partial, cleanup_s=bound_s
                 )
             except ProviderError as error:
                 steps.append(FailoverStep(provider.name, error.kind))
                 continue
-            return FailoverResult(utterance, tuple(steps), False, False)
-        return FailoverResult(None, tuple(steps), True, False)
+            result = FailoverResult(utterance, tuple(steps), False, False)
+            break
+        else:
+            result = FailoverResult(None, tuple(steps), True, False)
     finally:
-        await buffer.close()
+        # Reached on a return and on an error alike; the caller's cancellation does not skip it. Bounded, so it never holds the call.
+        release = asyncio.ensure_future(buffer.close(bound_s))
+        while not release.done():
+            try:
+                await asyncio.shield(release)
+            except asyncio.CancelledError:
+                cancelled = True  # keep waiting: the release is bounded and must not be skipped; the cancellation is re-raised below
+        failed = release.result()
+        if cancelled:
+            raise asyncio.CancelledError
+    assert result is not None
+    if failed:
+        return FailoverResult(None, result.steps, True, result.replay_overflow, release_failed=True)
+    return result
