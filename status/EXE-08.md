@@ -20,6 +20,11 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
 
+## Update 2026-11-07 (Founder decision D12)
+- The row-security migration is `0017_row_security.sql` (was the provisional 0015). Its parent noema#168 becomes 0012 (the owner of that PR renames its file). If the merge order changes, the later PR renumbers.
+
+## Update 2026-11-08 (merge order set by the Founders)
+- The row-security migration is `0018_row_security.sql` and the kill-switch migration (identical to noema#265's) is `0017_kill_switch_set_only.sql`; #168 is 0012. Numbers follow the merge order (A34); a later merge order renumbers again.
 # Session 2026-11-06 16:30 WAT · EXE-08 (A6 slice 1: Record function hardening, noema#234)
 
 ## Session summary
@@ -102,3 +107,9 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Tests: red first, locally: `TestAGenuinelySignedAcknowledgementDoesNotVoidASpentGrant`, `TestASpentGrantStaysSpentWithoutAConfirmedStaleVersionRefusal` and the other void/forged-receipt cases ("got nil, want an error with code 23*": the guard was not reached); green after: `go test -count=1 ./platform/db/ ./outcome/... ./adapters/outcome_e2e/ ./execution/... ./evidence/...`.
 - Debt entries: none. Conflicts raised: none.
 - Upgrade-path test (noema#181's `migration_order_test.go`), same session: with #181 and #168 on `main` the per-file form of the test asked for an order that cannot happen (a database that holds 0016 and not 0012: it failed on #234 and #261, where 0016 and 0018 touch `outcome_record_verdict`, which 0012 also altered). It now migrates a database that holds 0001 to 0010 and 0017 (the state before the train, A113) and then every other file in name order, and compares the catalog with a fresh one. The same change, with identical content, is in #233, #234, #261 and #263, so they merge cleanly. A scratch `ALTER FUNCTION` in 0017 on a function that 0016 replaces makes it fail.
+
+## Session 2026-11-11 · EXE-08 (noema#261): the cross-tenant receipt_insert test, and the receipt fixtures after #229 reached main
+- What changed (PR links): noema#261, test-only (migration 0018 unchanged): `platform/db/rls_tables_test.go` adds `TestATenantAExecutionLoginCannotStoreAGenuineReceiptOfTenantB` (the Security Reviewer's condition, settled on noema#229): tenant A's execution login calls `receipt_insert` with a genuine, validly signed receipt of tenant B and B's own `grant_spend`; the call is refused, no row exists, and tenant B's own login stores the same receipt (control). `internal/sigfixture` gains `MapSession` and `InsertReceipt` uses it, and `sig_test.go` and `schema_test.go` map the session to ten_a, because since 0018 `receipt_insert` writes only the tenant of the connecting login and the fixtures connected as the unmapped administrator ("the receipt does not match the recorded spend": 4 tests of `platform/db`, 8 of `outcome/store`).
+- Why: the Security Reviewer's one test owed here, and #229's fixtures meeting this PR's row security.
+- Tests: the fixtures were red first, locally, on the merge of `main`; the new test passes on 0018 and **fails on a mutant** of 0018 whose policies are `USING (true) WITH CHECK (true)` ("tenant A's execution login stored a genuine receipt of tenant B"). It is refused at the first place row security bites: the signature trigger reads tenant B's `grant_spend` as the definer, which FORCE subjects to the policy, so A's login does not see the spend (NS001); the `execution_receipt` policy's WITH CHECK (42501) is the second line. `go test -count=1 ./...` in `services/core`: 38 packages ok.
+- Debt entries: none. Conflicts raised: none.

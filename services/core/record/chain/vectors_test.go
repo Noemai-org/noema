@@ -142,7 +142,7 @@ func TestGoldenVectorsThroughTheAppenderAndVerify(t *testing.T) {
 				}
 				sc.times, sc.ids = append(sc.times, at), append(sc.ids, e.Spec.EventID)
 			}
-			w.app = &chain.Appender{Clock: sc, IDs: sc}
+			w.app = &chain.Appender{Clock: sc, IDs: sc, Signers: w.app.Signers}
 			for i, e := range v.Events {
 				st := w.append(t, e.Spec.event(v.TenantID, v.CorrelationID))
 				if st.Seq != e.Expected.Seq || st.PrevHash != e.Expected.PrevHash || st.Hash != e.Expected.Hash || st.EventID != e.Spec.EventID {
