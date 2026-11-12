@@ -277,10 +277,13 @@ func TestTheStreamKeepsAliveStopsWhenTheClientLeavesAndCarriesItsDeadline(t *tes
 	if strings.Count(body, ": keepalive\n\n") != 2 || !strings.Contains(body, "id: 1\nevent: progress\n") || waits != 3 {
 		t.Fatalf("waits %d, body %q", waits, body)
 	}
+	first, ok := f.ctxs[0].Deadline()
+	if !ok {
+		t.Fatal("the feed context has no stream deadline")
+	}
 	for i, c := range f.ctxs {
-		d, ok := c.Deadline()
-		if !ok || d.Sub(time.Now()) > time.Minute+time.Second {
-			t.Errorf("poll %d: the feed context has no stream deadline within a minute (%v, %v)", i, d, ok)
+		if d, ok := c.Deadline(); !ok || !d.Equal(first) {
+			t.Errorf("poll %d: the feed context's deadline is %v (%v), want the one stream deadline %v", i, d, ok, first)
 		}
 	}
 }
