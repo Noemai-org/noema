@@ -230,6 +230,12 @@ func TestAnEventTheFeedGotWrongEndsTheStreamWithAnErrorEventAndIsNeverWritten(t 
 	e = ev(1, events.KindProgress)
 	e.Fields = map[string]string{"text": strings.Repeat("a", 4096)}
 	bad["an event over the byte bound"] = e
+	e = ev(1, events.KindProgress)
+	e.Fields = map[string]string{}
+	for i := 0; i < 17; i++ {
+		e.Fields["k"+strings.Repeat("a", i)] = "x"
+	}
+	bad["more members than the bound"] = e
 	for name, b := range bad {
 		f := &fakeFeed{batches: []events.Batch{{Events: []events.Event{b}, Done: true}}}
 		body := newRig(t, f, nil).get(path, edgetest.Tenant, session.RoleCustomer, nil).Body.String()
