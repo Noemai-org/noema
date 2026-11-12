@@ -9,7 +9,7 @@
   "principal": {
     "principal_id": "usr_synth012",
     "principal_type": "customer",
-    "authn_ref": "ses_0123456789abcdef0123456789abcdef",
+    "authn_ref": "ses_synthetic0idp0session0fixture",
     "asserted_by": "noema-poc-idp"
   },
   "source": {
