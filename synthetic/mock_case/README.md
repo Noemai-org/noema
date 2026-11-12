@@ -109,3 +109,15 @@ Configuration is in `internal/config` (`MOCK_CASE_*`); secrets are `*_FILE` path
 ## Not done here
 
 The core's case client (`services/core/adapters/synthetic_tushe/`) is session A's. The fault-plan schema, the hostility proxy and the webhook relay are separate items of this session's list.
+
+## Per-tenant runtime credentials (Architect ruling R4, 8 Nov 2026; RESIST X6)
+
+By default there is one runtime credential for every tenant, and `tenant_id` is only a request parameter. For cross-tenant tests, set `MOCK_CASE_TENANT_TOKEN_FILES` to a comma-separated list `tenant=path` (for example `ten_a=/run/secrets/ten_a,ten_b=/run/secrets/ten_b`; paths, never values). Then:
+
+- each tenant has its own credential, and the credential names the tenant;
+- a **read** that names another tenant is served as a read of a tenant with no data (`ten_scope_absent`), so it looks exactly like a read of something that does not exist (404 for one case, an empty complete page for a find);
+- a **write** that names another tenant is `403 TENANT_MISMATCH` and creates nothing; a request that names no tenant is left to the handler's own 400;
+- the single `MOCK_CASE_RUNTIME_TOKEN_FILE` credential **opens nothing** (it would be a credential for every tenant); it stays required so the legacy mode is one variable away;
+- every credential must be at least 32 bytes and differ from every other; `ten_scope_absent` is never issued one.
+
+Without the variable nothing changes. Code: `internal/scope` (the middleware, tested without a database), `internal/auth` (`NewScoped`, `Tenant`), `internal/config`; the database-backed tests are `internal/api/tenant_scope_test.go`.

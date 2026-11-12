@@ -80,8 +80,8 @@ class CapabilityDescriptorV1(ContractModel):
     preconditions: list[CommonV1Predicate] | None = Field(default=None)
     authority: CapabilityDescriptorV1Authority | None = Field(default=None)
     policy_templates: list[CommonV1PackId] | None = Field(default=None)
-    risk_class: Annotated[str, StringConstraints(pattern='^(R[0-9]_[a-z_]+|PROHIBITED)$')]
-    side_effect_class: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] | None = Field(default=None)
+    risk_class: Annotated[str, StringConstraints(pattern='\\A(R[0-9]_[a-z_]+|PROHIBITED)\\Z')]
+    side_effect_class: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None = Field(default=None)
     blast_radius: Annotated[str, StringConstraints(min_length=1)] | None = Field(default=None)
     idempotency: CapabilityDescriptorV1Idempotency | None = Field(default=None)
     retry_safety: EnumsV1RetrySafety | None = Field(default=None)
@@ -91,9 +91,9 @@ class CapabilityDescriptorV1(ContractModel):
     expected_outcome: CommonV1PackId | None = Field(default=None)
     verification: CapabilityDescriptorV1Verification | None = Field(default=None)
     retry: CapabilityDescriptorV1Retry | None = Field(default=None)
-    recovery: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]] | None = Field(default=None)
+    recovery: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]] | None = Field(default=None)
     compensation: Annotated[str, StringConstraints(min_length=1)] | None = Field(default=None)
-    audit: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]] | None = Field(default=None)
+    audit: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]] | None = Field(default=None)
     limits: CapabilityDescriptorV1Limits | None = Field(default=None)
     prohibited: bool
 

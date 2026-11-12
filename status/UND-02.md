@@ -124,3 +124,19 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Open questions: none.
 - Files to read first: `services/model/noema_model/understanding/gateway/README.md`.
 - Do not touch: the generated contract models.
+
+# Session 2026-11-10 · UND-02 / VOI-02 · canonical-input.v2 (noema#398)
+
+## Session summary
+- What changed: `contracts/schemas/canonical-input.v2.json` (v1 with `voice.audio_ref` as `string | null`, required key, pattern `^raw_[0-9A-Za-z]{2,32}$`), its valid and invalid fixtures, the INVENTORY row with the AGENT-15 migration note, regenerated Go and Pydantic models, and the Input Gateway moved to v2: it accepts `null`, still requires the key and the other five voice keys, and refuses any non-null `audio_ref` with `AUDIO_REF_NOT_ALLOWED` until a consent-backed retention path exists.
+- Why: CR-2026-11-08-VOI-canonical-input-audio-ref (docs#137, merged; A52); relay issue noema#398 (Voice is blocked on it).
+- Risks, and how they are contained: v1 is untouched; the Gateway is the only producer today and now emits v2; a consumer that dumps a voice input with `exclude_none` loses the required `audio_ref` key (documented in the Gateway README, pinned by a test). The edge's tenant- and session-bound consent check for a non-null reference is core's edge and is NOT built here (stated).
+- Tests added (REQ-INP-001, REQ-VOI-004, AGENT-13): 3 valid and 16 invalid v2 fixtures (red first, commit 4b7fd6e); Gateway tests for null accepted, any non-null refused (red first, commit 74fb985).
+- Regression cases added: the fixtures and tests above.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: Voice's builder emits `audio_ref: null` (noema#193); core's edge refuses non-null v1 and v2 references and checks the tenant- and session-bound `AUDIO_RETAINED{consent_ref}` event when a retention path exists.
+- Open questions (owner): PERD cell "null when the audio was discarded" rides the next PERD version (Steward).
+- Files to read first: `contracts/schemas/canonical-input.v2.json`, `services/model/noema_model/understanding/gateway/gateway.py`.
+- Do not touch: `canonical-input.v1.json`.

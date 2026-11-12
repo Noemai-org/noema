@@ -198,6 +198,7 @@ func (c *CaseClient) GetCase(ctx context.Context, tenantID, caseID string) (adap
 	if !ok {
 		return adapters.CaseRecord{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 	}
+	rec.RawHash = hashOf(raw)
 	return rec, nil
 }
 
@@ -235,7 +236,7 @@ func (c *CaseClient) FindCases(ctx context.Context, q adapters.CaseQuery) (adapt
 	if err := strictJSON(hdr, raw, &w); err != nil || w.Complete == nil || (!*w.Complete && w.NextCursor == "") || (*w.Complete && w.NextCursor != "") {
 		return adapters.CasePage{}, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(status), RawHash: hashOf(raw)}
 	}
-	page := adapters.CasePage{Complete: *w.Complete, NextCursor: w.NextCursor}
+	page := adapters.CasePage{Complete: *w.Complete, NextCursor: w.NextCursor, RawHash: hashOf(raw)}
 	for _, it := range w.Items {
 		rec, ok := it.record()
 		if !ok {

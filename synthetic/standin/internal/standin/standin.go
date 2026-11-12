@@ -32,7 +32,7 @@ const (
 	// audience binds an assertion to this service; maxAssertionLifetime keeps one short-lived (INV-12).
 	audience             = "standin"
 	maxAssertionLifetime = 5 * time.Minute
-	assertionMACLabel    = "noema-standin-principal-v1"
+	assertionMACLabel    = "noema-standin-principal-v2"
 )
 
 // Options holds the two credentials and the identity key. They are read from files by the caller and must all differ: the key that loads never reads,
@@ -42,8 +42,10 @@ type Options struct {
 	BenchToken   string
 	RuntimeToken string
 	PrincipalKey string
-	Now          func() time.Time
-	ClockStart   time.Time
+	// TenantID is the one tenant this stand-in serves (A135). An assertion for any other tenant is refused, and every read names it.
+	TenantID   string
+	Now        func() time.Time
+	ClockStart time.Time
 }
 
 type principal struct {
@@ -95,6 +97,18 @@ type Server struct {
 	cur *loaded
 }
 
+func validTenant(t string) bool {
+	if t == "" || len(t) > 64 {
+		return false
+	}
+	for _, c := range t {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 // New checks the options and returns an empty stand-in.
 func New(o Options) (*Server, error) {
 	if len(o.BenchToken) < minTokenLen || len(o.RuntimeToken) < minTokenLen || len(o.PrincipalKey) < minTokenLen {
@@ -102,6 +116,9 @@ func New(o Options) (*Server, error) {
 	}
 	if o.BenchToken == o.RuntimeToken || o.BenchToken == o.PrincipalKey || o.RuntimeToken == o.PrincipalKey {
 		return nil, errors.New("the bench credential, the runtime credential and the principal key must all differ")
+	}
+	if !validTenant(o.TenantID) {
+		return nil, errors.New("TenantID is required: 1 to 64 lowercase letters, digits, underscores or hyphens")
 	}
 	s := &Server{}
 	switch {
@@ -298,34 +315,39 @@ type scopedHandler func(w http.ResponseWriter, r *http.Request, c *loaded, who s
 // principalOf checks the caller's identity assertion and returns the principal it binds. The assertion is minted by the trusted adapter from the
 // authenticated session (INV-12):
 //
-//	X-Principal-Assertion: v1.<base64url(principal)>.<expiry, unix seconds>.<hex HMAC-SHA-256>
-//	MAC = HMAC-SHA-256 keyed with the principal key over four lines: noema-standin-principal-v1, standin, the principal, the expiry
+//	X-Principal-Assertion: v2.<base64url(principal)>.<base64url(tenant)>.<expiry, unix seconds>.<hex HMAC-SHA-256>
+//	MAC = HMAC-SHA-256 keyed with the principal key over five lines: noema-standin-principal-v2, standin, the principal, the tenant, the expiry
 //
-// It is refused if it is missing, malformed, signed with another key or for another audience, expired, or valid for longer than five minutes.
+// It is refused if it is missing, malformed, the old principal-only form, names another tenant than the one this stand-in serves (A135), is signed
+// with another key or for another audience, expired, or valid for longer than five minutes.
 // The runtime credential alone identifies no one, and a bare X-Principal header is ignored.
 func (s *Server) principalOf(r *http.Request) (string, bool) {
 	parts := strings.Split(r.Header.Get("X-Principal-Assertion"), ".")
-	if len(parts) != 4 || parts[0] != "v1" {
+	if len(parts) != 5 || parts[0] != "v2" {
 		return "", false
 	}
 	who, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil || len(who) == 0 {
 		return "", false
 	}
-	exp, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil || strconv.FormatInt(exp, 10) != parts[2] {
+	ten, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || string(ten) != s.opt.TenantID {
+		return "", false
+	}
+	exp, err := strconv.ParseInt(parts[3], 10, 64)
+	if err != nil || strconv.FormatInt(exp, 10) != parts[3] {
 		return "", false
 	}
 	now := s.opt.Now()
 	if now.Unix() >= exp || time.Unix(exp, 0).Sub(now) > maxAssertionLifetime {
 		return "", false
 	}
-	got, err := hex.DecodeString(parts[3])
+	got, err := hex.DecodeString(parts[4])
 	if err != nil {
 		return "", false
 	}
 	m := hmac.New(sha256.New, []byte(s.opt.PrincipalKey))
-	_, _ = fmt.Fprintf(m, "%s\n%s\n%s\n%d", assertionMACLabel, audience, who, exp)
+	_, _ = fmt.Fprintf(m, "%s\n%s\n%s\n%s\n%d", assertionMACLabel, audience, who, ten, exp)
 	if !hmac.Equal(got, m.Sum(nil)) {
 		return "", false
 	}
@@ -353,11 +375,11 @@ func notFound(w http.ResponseWriter) { fail(w, http.StatusNotFound, "NOT_FOUND",
 
 func (s *Server) principal(w http.ResponseWriter, _ *http.Request, c *loaded, who string) {
 	p := c.p.Principals[who]
-	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "principal_id": who, "display_name": p.DisplayName, "roles": p.Roles, "accounts": p.Accounts, "beneficiaries": p.Beneficiaries})
+	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "tenant_id": s.opt.TenantID, "principal_id": who, "display_name": p.DisplayName, "roles": p.Roles, "accounts": p.Accounts, "beneficiaries": p.Beneficiaries})
 }
 
 func (s *Server) beneficiaries(w http.ResponseWriter, _ *http.Request, c *loaded, who string) {
-	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "beneficiaries": c.p.Principals[who].Beneficiaries})
+	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "tenant_id": s.opt.TenantID, "beneficiaries": c.p.Principals[who].Beneficiaries})
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request, c *loaded, who string) {
@@ -414,7 +436,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request, c *loaded, who s
 		}
 		return items[i].TransactionRef < items[j].TransactionRef
 	})
-	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "items": items, "complete": c.p.CandidateListsComplete})
+	jsonOut(w, 200, map[string]any{"data_source": Label, "synthetic": true, "tenant_id": s.opt.TenantID, "items": items, "complete": c.p.CandidateListsComplete})
 }
 
 func (s *Server) perRef(pick func(*loaded) map[string]map[string]any) scopedHandler {
@@ -428,7 +450,7 @@ func (s *Server) perRef(pick func(*loaded) map[string]map[string]any) scopedHand
 		for k, v := range pick(c)[ref] {
 			out[k] = v
 		}
-		out["data_source"], out["synthetic"] = Label, true
+		out["data_source"], out["synthetic"], out["tenant_id"] = Label, true, s.opt.TenantID
 		jsonOut(w, 200, out)
 	}
 }
