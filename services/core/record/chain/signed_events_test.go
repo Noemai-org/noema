@@ -160,6 +160,10 @@ func TestAForgedEventIsRefusedBySignatureCheck(t *testing.T) {
 				return id, hex.EncodeToString(ed25519.Sign(w.keys[id], append([]byte(recordEventTag), b...)))
 			}, nil
 		},
+		"a genuine signature over a document that carries a sig member (the signature would sign itself)": func(w *signedWorld) (func(map[string]any, []byte) (string, string), func(map[string]any)) {
+			id := w.register(t, "core-execution", 1)
+			return w.signWith(id), func(body map[string]any) { body["sig"] = map[string]any{"key_id": id, "value": "00"} }
+		},
 	}
 	for name, mk := range cases {
 		t.Run(name, func(t *testing.T) {
