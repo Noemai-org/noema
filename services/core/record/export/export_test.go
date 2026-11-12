@@ -22,6 +22,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -80,7 +81,7 @@ func newWorld(t *testing.T) *world {
 		w.readers[id] = testpg.TenantLogin(t, admin, dsn, "record_read", id)
 	}
 	w.clk = clock.NewManual(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC))
-	w.app = &chain.Appender{Clock: w.clk, IDs: ids.New(w.clk, zeros{})}
+	w.app = &chain.Appender{Clock: w.clk, IDs: ids.New(w.clk, zeros{}), Signers: recordsig.All(t, admin, "export", nil)}
 	return w
 }
 
@@ -155,7 +156,7 @@ func story(decision string) []ev {
 	return []ev{
 		{writtenBy: "core-edge", actor: customer, eventType: "SESSION_VALIDATED", objectRef: "ses_synth0001", payload: map[string]any{"channel": "TEXT"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"request_id": "req_synth0001", "text_note": "LEAK-CANARY-7731 customer words"}},
-		{writtenBy: "model-service", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.open_case"}},
+		{writtenBy: "core-edge", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.open_case"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"candidate_count": 1}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},

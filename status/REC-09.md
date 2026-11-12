@@ -36,3 +36,14 @@ Updated 2026-11-08. Plan task REC-09 (ruling A109, docs#142): owner C1, reviewer
 - Why: the Benchmark Owner's answer of 10 Nov on noema#355 (accepted my four numbered points; item 3, the fail-closed evidence reference, was withdrawn: no Record payload carries a per-event evidence reference, so the export fails closed on an unmapped event type, an illegal disposition, an unreadable verdict, a broken chain and a tenant mismatch, as it already does).
 - Tests: failing first at `b959f8b` (tests only; `core` red: [run](https://github.com/Noemai-org/noema/actions/runs/42757746409/job/129635969245)): `TestAReviewerReconstructsTheDecisionsFromTheExportAlone` (VERIFY entries list `tc_3`, EXPLAIN lists `tc_1..tc_3`), `TestAPersonsConfirmationReadsAsTheOperatorForAnApproverAndTheSystemForOthers`; `TestTheWorkedExampleOfNoema355HasTheSameDigest` now pins the Benchmark Owner's recomputed A115 digests (three outputs, three inputs, the record digest `sha256:280b9ff9...c325f`) and builds the entries with the A115 formula.
 - Debt entries: none. Conflicts raised: none.
+
+## Session 2026-11-12 15:30 WAT · REC-09: noema#249 is on main; the test world signs its Record events
+### Session summary
+- What changed (PR links): noema#377: merged `main` (noema#249 and the signed Record events of DEBT-03 are on it). The export's test world now builds its `chain.Appender` with the version-1 signers of `internal/recordsig` (`recordsig.All`), and the story's `INTENT_PROPOSED` is written by `core-edge`, because `model-service` holds no signing key under OD-P-73's default and cannot append. No library code changed: the neutral actor of `INTENT_PROPOSED` is a function of the event type (`model`), which `TestAReviewerReconstructsTheDecisionsFromTheExportAlone` still asserts.
+- Why: after the merge all 22 tests of the package failed at the first append (`no signing key for the emitter`); this is the test fixture catching up with main, not a behaviour change of the export.
+- Tests: `go test ./record/export/` passes (8.9 s) on the merged tree.
+- Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: the Security Reviewer's exposure check (condition 3 of A109), then EL's review.
+- Do not touch: anything outside `record/export/**` and this file.
