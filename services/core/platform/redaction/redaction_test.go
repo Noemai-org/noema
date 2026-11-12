@@ -366,3 +366,24 @@ func TestExemptionDurationField(t *testing.T) {
 	noRun(t, "string field", logged(t, func(l *slog.Logger) { l.Info("m", "elapsed", tenDigits, "timeout_ms", tenDigits) }))
 	testedExemptions["duration_field"] = true
 }
+
+func TestAnAccountNumberUsedAsAKeyOrAGroupNameIsMasked(t *testing.T) { // Codex P2 on 476f42e: keys and group names
+	out := logged(t, func(l *slog.Logger) {
+		l.Info("m", "payload", map[string]string{"0123456789": "ok"}, "anyMap", map[string]any{"9876543210": map[string]any{"0123-4567-89": "x"}},
+			"0123456789", "v", slog.Group("0123456789", slog.String("a", "b")), "list", []string{"x"})
+		l.WithGroup("0123456789").Info("m", "k", "v")
+		l.With("0123456789", "v").WithGroup("outer").Info("m", "0123456789", "v")
+	})
+	noRun(t, "log", out)
+	if !strings.Contains(out, "******6789") {
+		t.Errorf("the masked key should keep its last four digits: %s", out)
+	}
+	got := redaction.New().FilterAttributes(map[string]string{"0123456789": "fine", "token": "t"})
+	if _, bad := got["0123456789"]; bad || got["******6789"] != "fine" || got["token"] != redaction.Redacted {
+		t.Errorf("trace attribute keys: %v", got)
+	}
+	// a key that is a secret-looking name is still classified by its original name
+	if out := logged(t, func(l *slog.Logger) { l.Info("m", "token", "synthetic-secret-k") }); strings.Contains(out, "synthetic-secret-k") {
+		t.Errorf("secret key classification lost: %s", out)
+	}
+}
