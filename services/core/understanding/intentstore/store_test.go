@@ -375,6 +375,13 @@ func TestTheStoreRefusesAnIncompleteSaveAndAppendsNothing(t *testing.T) {
 		"no hash":                     func(a *intentstore.Admitted, ac *string) { a.IntentHash = "" },
 		"no document":                 func(a *intentstore.Admitted, ac *string) { a.JSON = nil },
 		"a document that is not JSON": func(a *intentstore.Admitted, ac *string) { a.JSON = []byte("{") },
+		// Review P1 on noema#471: the hash, the document and the row must describe one another (verify_test.go proves each member without a database).
+		"a hash of another document": func(a *intentstore.Admitted, ac *string) { a.IntentHash = "sha256:" + strings.Repeat("0", 64) },
+		"a document that is not the canonical form": func(a *intentstore.Admitted, ac *string) {
+			a.JSON = []byte(strings.Replace(string(a.JSON), `"version":1`, `"version": 1`, 1))
+		},
+		"a row for another correlation": func(a *intentstore.Admitted, ac *string) { a.CorrelationID = "corr_other" },
+		"a row for another node":        func(a *intentstore.Admitted, ac *string) { a.IntentNode = "other.node" },
 	}
 	for name, mutate := range bad {
 		a, ac := good, actor

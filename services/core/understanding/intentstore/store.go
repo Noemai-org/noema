@@ -2,7 +2,6 @@ package intentstore
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -70,8 +69,9 @@ func (s *Store) Save(ctx context.Context, actor string, a Admitted) (Ref, error)
 		return Ref{}, errors.New(prefix + "the tenant id is not valid")
 	case !intentRe.MatchString(a.IntentID) || a.Version < 1 || !hashRe.MatchString(a.IntentHash) || !corrRe.MatchString(a.CorrelationID) || a.IntentNode == "":
 		return Ref{}, errors.New(prefix + "the admitted intent is incomplete")
-	case !json.Valid(a.JSON) || len(a.JSON) == 0:
-		return Ref{}, errors.New(prefix + "the admitted document is not JSON")
+	}
+	if err := verify(a); err != nil {
+		return Ref{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.Timeout)
 	defer cancel()
