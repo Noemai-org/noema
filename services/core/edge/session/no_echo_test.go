@@ -11,7 +11,10 @@ import (
 	"testing"
 )
 
-var digitRun = regexp.MustCompile(`[0-9]{8,}`)
+var digitRun = regexp.MustCompile(`[0-9]{5,}`)
+
+// typedID is the one exemption that can appear in a response: the correlation ID the core minted (A154: typed IDs <prefix>_<ULID> are exempt; a random ULID can hold a run of five digits).
+var typedID = regexp.MustCompile(`[a-z]{2,6}_[0-7][0-9A-HJKMNP-TV-Z]{25}`)
 
 func TestAnAccountNumberInARefusedRequestIsNotEchoedInTheResponse(t *testing.T) {
 	const acct = "0123456789"
@@ -47,7 +50,7 @@ func TestAnAccountNumberInARefusedRequestIsNotEchoedInTheResponse(t *testing.T) 
 			for name, vals := range rec.Header() {
 				out += " " + name + ":" + strings.Join(vals, ",")
 			}
-			if strings.Contains(out, acct) || digitRun.MatchString(out) {
+			if strings.Contains(out, acct) || digitRun.MatchString(typedID.ReplaceAllString(out, "ID")) {
 				t.Errorf("the number reached the response (status %d): %s", rec.Code, out)
 			}
 			if rec.Code < http.StatusBadRequest && *calls == before {

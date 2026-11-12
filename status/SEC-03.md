@@ -31,3 +31,20 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 ## Pre-work for the next agent
 - Exact next step: install `Handler` in `cmd/core` once the threshold has a source; SEC-07 wires the scanner to real log and API output.
 - Do not touch: the redaction rules without a decision record (AGENT-16).
+
+# Session 2026-11-12 · SEC-03 slice 2 follow-up: ruling A154 and the two Codex P2s on c9cfce9
+
+## Session summary
+- What changed (PR links): noema#457 only. The threshold parameter is gone; the rule is the PERD's (no digit run over four on an outward surface). Typed exemptions in `redaction.Exemptions()` (typed ID, RFC 3339 timestamp, `_minor`, `_count`, `_bytes`, duration), each with tests and each shown not to skip a ten-digit string field. Codex P2 1 (nested secret fields): maps, slices and structs are read member by member or replaced by `[REDACTED]`. Codex P2 2 (`WithGroup`): a secret-looking group name removes everything under it, also through `With`.
+- Why: Architect order of 12 Nov (A154 corrected: the PERD wins).
+- Risks, and how they are contained: the exemptions are the only way a long run survives; they are by type, in one list, with a test that fails when the list and the tests differ. Residual: a typed ID or a timestamp token can hold digits inside its own shape (README, known limits).
+- Tests added (REQ-SEC-003, REQ-OBS-002, AGENT-13): `platform/redaction/redaction_test.go` (21 tests); `edge/session/no_echo_test.go` now checks runs of five.
+- Regression cases added: the two Codex findings are `TestASecretInsideAMapAStructOrASliceIsNeverPrinted` and `TestASecretLookingGroupOpenedWithWithGroupRemovesWhatIsLoggedUnderIt`, committed red in 3c58e356 before the fix.
+- Debt entries: none. Conflicts raised: none.
+- Mutations: 21 run (limit, Unicode digits, each exemption removed or loosened, number exemption always or never, string field skipped under an exempt key, duration, secret keys, `WithGroup`, `WithAttrs`, nested containers, message, trace filter, time kind). One survived at first (timestamp parse check) and has a test now.
+
+## Pre-work for the next agent
+- Exact next step: a Founder approves the exemption list (AGENT-16); the composition root (EL) installs `Handler` on the core logger and `FilterAttributes` on the trace exporter; the correlation-ID echo of noema#458 still breaks the A154 rule on `main` and waits for EL.
+- Open questions (owner): whether a date alone should be exempt (Architect); whether the numeric suffixes need a name list instead (Founder).
+- Files to read first: `platform/redaction/redaction.go`, `README.md`.
+- Do not touch: the exemption list without a Founder's approval.

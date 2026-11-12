@@ -67,7 +67,7 @@ func TestEveryRunOverFourDigitsIsMaskedToItsLastFour(t *testing.T) {
 		"20,000,000":   "20,000,000", // a comma ends a run: groups of three
 		"x12345y":      "x*2345y",
 		"a 1234 b":     "a 1234 b",
-		"12 34 5":      "**2345", // single spaces join: five digits
+		"12 34 5":      "*2345", // single spaces join: five digits
 	}
 	for in, want := range cases {
 		if got := r.MaskAccountNumbers(in); got != want {
@@ -220,7 +220,7 @@ var testedExemptions = map[string]bool{}
 
 func TestEveryExemptionHasItsOwnTests(t *testing.T) {
 	var listed []string
-	for _, e := range redaction.Exemptions {
+	for _, e := range redaction.Exemptions() {
 		listed = append(listed, e.Name)
 		if !testedExemptions[e.Name] && !ranInThisProcess(e.Name) {
 			t.Errorf("exemption %q has no tests", e.Name)
@@ -301,6 +301,7 @@ func TestExemptionRFC3339Timestamp(t *testing.T) {
 		"2026111210":                      "******1210",
 		"2026-11-12":                      "****1112",
 		"2026-13-45T99:99:99Z":            "",
+		"2026-13-45T10:00:00.123456789Z":  "", // month 13 is not a time: not exempt, so the fraction is masked
 		"2026-11-12T10:00:00.1234567890Z": "", // ten fraction digits is not RFC 3339 with nanoseconds
 		"9" + stamp:                       "",
 		stamp + "9":                       "",
