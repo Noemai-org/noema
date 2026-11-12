@@ -3,10 +3,14 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"unicode"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
+
+// recordEventID is the pattern of a Record event ID (common.v1 RecordEventId). \z, not $, so a trailing newline does not match (A138).
+var recordEventID = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
 
 // Runner walks one investigation through the PERD 28.2 table (STM-01). It never sets a state itself: every move is a Command applied by the Machine, so an arrow that is
 // not in the table is refused. Each applied move is appended to the Record before the run goes on (PERD 32.4, EC-E16); if the append fails the run stops, and nothing
@@ -61,13 +65,16 @@ func (u *run) result(answer string) Result {
 
 // RunRead runs the read-only path of US-01: RECEIVED, INTERPRETING, EVALUATING, EXPLAINING, COMPLETED. Any other interpretation or decision outcome takes its table
 // arrow and the run ends there (a clarification, a confirmation, a wait, a rejection, an escalation and an unknown are other runs' work). An ALLOW that is not a read
-// stops the run in EVALUATING with ErrNotARead: it executes nothing. The session must be the authenticated caller's (INV-12).
+// stops the run in EVALUATING with ErrNotARead: it executes nothing. The session must be the authenticated caller's (INV-12). The turn must name the recorded INPUT_RECEIVED event the input gateway wrote (A161); without it the run is refused before anything is recorded or run.
 func (r *Runner) RunRead(ctx context.Context, s Session, t Turn) (Result, error) {
 	if s.TenantID == "" || s.PrincipalID == "" {
 		return Result{}, ErrNoSession
 	}
 	if t.Text == "" || !plainID(t.InvestigationID) || !plainID(t.CorrelationID) {
 		return Result{}, ErrBadTurn
+	}
+	if !recordEventID.MatchString(t.InputReceivedRef) {
+		return Result{}, ErrNoInputReceived
 	}
 	u := &run{ctx: ctx, r: r, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}
 	if err := u.move("INTERPRETING"); err != nil {

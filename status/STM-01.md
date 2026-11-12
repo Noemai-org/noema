@@ -40,8 +40,17 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 
 ## Review notes from C2 on the composition PR (2026-11-11, EL)
 1. **Session fields (REQ-INP-002).** `orchestrator.Session{TenantID, PrincipalID}` is smaller than the four identity fields the input gate takes (`principal_id`, `principal_type`, `authn_ref`, `asserted_by`). Neither the edge's `session.Principal` nor the token carries the other three. This is not decided here: it needs an owner (EDG-01 for the token and principal, UND-04 for the gate). Until then the Interpreter adapter cannot be built from this `Session`. Open on noema#454 (owner: Architect or Steward).
-2. **Creation of the investigation** is not recorded by `RunRead`, which starts at RECEIVED and records four moves. Whether the input gateway's `INPUT_RECEIVED` is that event is undecided (owner: Architect). Until it is, a reconstruction would begin at a move from a state with no event.
+2. **Creation of the investigation.** INPUT_RECEIVED is written by the input gateway (A161); the orchestrator refuses a turn without its reference. (Closed 12 Nov: `RunRead` now fails closed on a missing or malformed `InputReceivedRef`.)
 3. **A second `RunRead` with the same `InvestigationID`** restarts at version 0. The Record-backed recorder (slice 2) must refuse a stale expected version (unique key on investigation and version) so the same moves cannot be appended twice.
 4. **A port failure or `ErrNotARead`** leaves the investigation in its last state with no failure move, by design. The persistence slice needs a way to resume or close such a run.
 5. **Typed nil.** `missing` compares interface values to nil, so a typed nil pointer in an interface passes. Check when the C1, C2 and IL constructors are plugged in.
 6. **Intent store.** No merged code or task row builds the store of an admitted intent with its `intent_hash` (`Interpretation.IntentRef`, #448's `IntentSource`). Open on noema#454.
+
+## Session 2026-11-12 · INPUT_RECEIVED reference (A161, relayed, to be committed)
+## Session summary
+- What changed: `Turn.InputReceivedRef`, `ErrNoInputReceived`, and the check in `RunRead` (a Record event ID, `\Arecev_[0-9A-Za-z]{2,32}\z`); the check runs before anything is recorded or run. INPUT_RECEIVED is written by the input gateway (A161); the orchestrator refuses a turn without its reference.
+- Why: without a recorded INPUT_RECEIVED a reconstruction would begin at a move from a state with no event (PERD 28.2 entry of RECEIVED; PERD 32.4).
+- Tests added (REQ-STM-001, PERD 32.4): `TestATurnWithoutTheRecordedInputReceivedIsRefusedBeforeAnythingIsRecordedOrRun` (ten bad references, one boundary). Written first; it did not compile at `0d39b076`. Seven mutants killed: no check, empty allowed, upper bound 40, any prefix, check after the first record, start unanchored (this one survived until the "text before the prefix" case was added). `$` instead of `\z` is equivalent in Go (no multiline flag), so the trailing-newline case guards the form, not that mutant.
+- Debt: the orchestrator trusts that the reference names a real event; checking it against the Record belongs to the Record-backed recorder (slice 2).
+## Pre-work for the next agent
+- Exact next step: the input gateway (C2, UND-02) writes INPUT_RECEIVED and passes its event ID as `Turn.InputReceivedRef`.

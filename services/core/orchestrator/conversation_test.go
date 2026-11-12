@@ -147,7 +147,7 @@ func TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns(t *testing.T) {
 func TestATurnWithoutTheRecordedInputReceivedIsRefusedBeforeAnythingIsRecordedOrRun(t *testing.T) {
 	for name, ref := range map[string]string{
 		"none": "", "another prefix": "evt_AA11", "an intent id": "int_AA11", "too short": "recev_A", "too long": "recev_" + "A123456789B123456789C123456789D12",
-		"a control character": "recev_AA\n11", "a space": "recev_AA 11", "a symbol": "recev_AA-11", "a trailing newline": "recev_AA11\n",
+		"text before the prefix": "xrecev_AA11", "a control character": "recev_AA\n11", "a space": "recev_AA 11", "a symbol": "recev_AA-11", "a trailing newline": "recev_AA11\n",
 	} {
 		f := happy()
 		tr := turn

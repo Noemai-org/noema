@@ -16,7 +16,9 @@ import (
 type Session struct{ TenantID, PrincipalID string }
 
 // Turn is one admitted customer turn. The input gateway has bounded and validated the text; the orchestrator takes it as given and only requires that it is present.
-type Turn struct{ InvestigationID, CorrelationID, Text string }
+// InputReceivedRef is the Record event ID of the INPUT_RECEIVED event the input gateway wrote for this turn (A161): the orchestrator never writes that event, and it
+// refuses a turn that does not name one.
+type Turn struct{ InvestigationID, CorrelationID, Text, InputReceivedRef string }
 
 // InterpretationKind is what the model service's compiled intent amounts to after the schema gate.
 type InterpretationKind string
@@ -96,6 +98,8 @@ var (
 	ErrNoSession = errors.New("orchestrator: the session has no tenant or no principal")
 	// ErrBadTurn is returned for a turn without an investigation ID, a correlation ID or text, or with a control character in an ID.
 	ErrBadTurn = errors.New("orchestrator: the turn is not valid")
+	// ErrNoInputReceived is returned for a turn whose InputReceivedRef is not the ID of a recorded INPUT_RECEIVED event (A161): nothing is recorded or run.
+	ErrNoInputReceived = errors.New("orchestrator: the turn does not name its recorded INPUT_RECEIVED event")
 	// ErrRecordFailed wraps a failed append of a state change: the run stopped before it, and nothing after it ran (the Record comes first).
 	ErrRecordFailed = errors.New("orchestrator: the Record append failed")
 	// ErrBadPortAnswer is returned for an answer outside what the port may give (an unknown kind or outcome); it is refused, never guessed.
