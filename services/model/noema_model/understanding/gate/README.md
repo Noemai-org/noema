@@ -10,6 +10,7 @@ The model service's side of the schema gate (UND-04; REQ-INT-001, REQ-INT-002, R
 | Size | not empty, not over the configured bound | `SIZE` |
 | Parse | one UTF-8 JSON document, no NaN or Infinity, no trailing data | `NOT_JSON` |
 | Shape | one object; no member twice; decoded by the generated strict `IntentObjectV1` (closed, no null where the contract has none, every pattern and range) | `SHAPE` |
+| Identity members | a `principal_type` or `asserted_by` in the proposal is refused (A166); the gate fills both with `UNSET` for the closed decode | `SHAPE` |
 | Signature | a `sig` in the proposal is refused: the model service signs after the gate | `SIG_SET_BY_MODEL` |
 | State | status is `EXTRACTED`; `schema_version` is `1.0` | `STATUS_NOT_EXTRACTED`, `SCHEMA_VERSION` |
 | Chain | version 1 supersedes nothing; version n names `intent_id@(n-1)` | `VERSION`, `SUPERSEDES` |
@@ -22,7 +23,7 @@ The model service's side of the schema gate (UND-04; REQ-INT-001, REQ-INT-002, R
 
 The value of `sig` in a validated object is the marker `UNSIGNED` (the contract requires a `sig`; whoever signs replaces it). A reason names the rule and never quotes the object.
 
-**Not compared.** `principal_type` and `asserted_by`: the canonical input does not carry them, so the model cannot know them. The core overwrites them. How the compiler fills them, and whether the core counts a difference as an override attempt, is point 3 of noema#484.
+**Identity members the model does not send (ruling A166, item 3).** The proposal carries no `principal_type` and no `asserted_by`: the core sets them from the session (INV-12). A proposal that has either, even with the session's value, is a `SHAPE` refusal, and nothing raises a security event on a normal compile. The contract still requires the two members, so a validated object holds the neutral marker `UNSET` (`"unset"`) in both, which the core overwrites.
 
 **Not here.** The prompt, the provider call, the assembly of the object, the signature and the HTTP route (UND-05, noema#484); the pack loader (`PackView` is a protocol; the real pack nodes are PCK-01's and `packs/fintech/intents/` is empty); the intent hash (the core's, noema#454).
 

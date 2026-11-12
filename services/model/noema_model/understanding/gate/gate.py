@@ -32,6 +32,10 @@ MAX_RAW_REF = 256
 # accepts as a signature. Whoever signs replaces it.
 UNSIGNED = CommonV1Sig(key_id="unsigned", value="unsigned")
 
+# The contract requires `principal_type` and `asserted_by`. Ruling A166 (item 3): the model's output carries neither, the core sets them from the session (INV-12). So the
+# gate refuses a proposal that has either, and fills the two members with this neutral marker so that the closed shape can be decoded; the core overwrites them.
+UNSET = "unset"
+
 _TENANT = re.compile(r"ten_[0-9A-Za-z]{2,32}")
 _CORRELATION = re.compile(r"corr_[0-9A-Za-z]{2,32}")
 _PRINCIPAL = re.compile(r"usr_[0-9A-Za-z]{2,32}")
@@ -69,8 +73,8 @@ class Reason(StrEnum):
 
 @dataclass(frozen=True)
 class Context:
-    """What the canonical input says the proposal must be about: the session's tenant and principal, the session id and the correlation id (INV-12). The model
-    service cannot know `principal_type` or `asserted_by`, so they are not compared (the open point of noema#484)."""
+    """What the canonical input says the proposal must be about: the session's tenant and principal, the session id and the correlation id (INV-12). The proposal
+    carries no `principal_type` and no `asserted_by` (ruling A166): the core sets them from the session, and a model that sends them is refused."""
 
     tenant_id: str
     correlation_id: str
@@ -167,6 +171,11 @@ class SchemaGate:
         if "sig" in doc:
             reasons.add(Reason.SIG_SET_BY_MODEL)  # the model service signs, after the gate; a model that signs is refused
         doc["sig"] = {"key_id": UNSIGNED.key_id, "value": UNSIGNED.value}
+        principal = doc.get("principal")
+        if isinstance(principal, dict):
+            if "principal_type" in principal or "asserted_by" in principal:
+                return _refuse(Reason.SHAPE)  # A166: only the core sets them, from the session; a model that sends them is a shape error
+            doc["principal"] = {**principal, "principal_type": UNSET, "asserted_by": UNSET}
         try:
             obj = IntentObjectV1.from_json(json.dumps(doc, allow_nan=False))
         except (ValidationError, ValueError, RecursionError):

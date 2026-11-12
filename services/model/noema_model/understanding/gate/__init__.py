@@ -11,6 +11,6 @@ Must never: repair, complete, re-type or infer a field (REQ-INT-002); sign (the 
 identity other than the Context's (INV-12); quote the object in a reason (AGENT-13); raise on any input.
 """
 
-from noema_model.understanding.gate.gate import UNSIGNED, Context, GateResult, Node, PackView, Reason, SchemaGate
+from noema_model.understanding.gate.gate import UNSET, UNSIGNED, Context, GateResult, Node, PackView, Reason, SchemaGate
 
-__all__ = ["UNSIGNED", "Context", "GateResult", "Node", "PackView", "Reason", "SchemaGate"]
+__all__ = ["UNSET", "UNSIGNED", "Context", "GateResult", "Node", "PackView", "Reason", "SchemaGate"]
