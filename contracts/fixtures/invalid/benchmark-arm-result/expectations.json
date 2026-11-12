@@ -1,9 +1,13 @@
 {
+  "all_verified_true_without_an_executed_action.json": "type",
   "arm_that_is_not_run.json": "enum",
   "audit_entry_without_an_actor.json": "required",
   "bad_digest.json": "pattern",
+  "completed_status_with_an_error.json": "type",
   "disposition_not_in_the_decision_set.json": "enum",
+  "error_status_with_a_null_error.json": "type",
   "evidence_link_without_a_tool_call.json": "minItems",
+  "executed_action_with_a_null_all_verified.json": "type",
   "executed_action_without_a_tool_call.json": "required",
   "missing_audit_record.json": "required",
   "missing_proposed_actions.json": "required",

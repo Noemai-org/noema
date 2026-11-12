@@ -11,6 +11,7 @@ from . import (
     candidates_request_v1,
     candidates_response_v1,
     canonical_input_v1,
+    canonical_input_v2,
     capability_descriptor_v1,
     clarification_answer_v1,
     clarification_v1,
@@ -21,6 +22,7 @@ from . import (
     context_snapshot_v1,
     decision_grant_v1,
     decision_record_v1,
+    decision_record_v2,
     enums_v1,
     errors_v1,
     errors_v2,
@@ -56,6 +58,7 @@ from . import (
     record_event_v2,
     record_event_v3,
     recovery_request_v1,
+    session_limits_v1,
     trust_profile_v1,
 )
 
@@ -70,6 +73,7 @@ TYPES: dict[str, Any] = {
     "candidates-response.v1#Candidate": candidates_response_v1.CandidatesResponseV1Candidate,
     "candidates-response.v1#Candidate/properties/direction": candidates_response_v1.CandidatesResponseV1CandidateDirection,
     "canonical-input.v1": canonical_input_v1.CanonicalInputV1,
+    "canonical-input.v2": canonical_input_v2.CanonicalInputV2,
     "capability-descriptor.v1": capability_descriptor_v1.CapabilityDescriptorV1,
     "clarification-answer.v1": clarification_answer_v1.ClarificationAnswerV1,
     "clarification.v1": clarification_v1.ClarificationV1,
@@ -120,6 +124,7 @@ TYPES: dict[str, Any] = {
     "context-snapshot.v1": context_snapshot_v1.ContextSnapshotV1,
     "decision-grant.v1": decision_grant_v1.DecisionGrantV1,
     "decision-record.v1": decision_record_v1.DecisionRecordV1,
+    "decision-record.v2": decision_record_v2.DecisionRecordV2,
     "enums.v1": enums_v1.EnumsV1,
     "enums.v1#ApproverRequirement": enums_v1.EnumsV1ApproverRequirement,
     "enums.v1#ApproverRequirement/oneOf/0": enums_v1.EnumsV1ApproverRequirementOption1,
@@ -247,5 +252,6 @@ TYPES: dict[str, Any] = {
     "record-event.v3#RecordEventType": record_event_v3.RecordEventV3RecordEventType,
     "record-event.v3#SecurityKind": record_event_v3.RecordEventV3SecurityKind,
     "recovery-request.v1": recovery_request_v1.RecoveryRequestV1,
+    "session-limits.v1": session_limits_v1.SessionLimitsV1,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }

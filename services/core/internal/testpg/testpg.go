@@ -9,6 +9,7 @@ package testpg
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -97,6 +98,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	if _, err := pool.Exec(ctx, "GRANT CREATE ON SCHEMA public TO record_append"); err != nil {
 		t.Fatalf("testpg: grant CREATE to record_append: %v", err)
 	}
+	bootstrapSigning(t, pool, name)
 	t.Cleanup(func() {
 		pool.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -109,6 +111,53 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 		_, _ = a.Exec(c, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
 	return pool, dsn
+}
+
+// bootstrapSigning is the one-time superuser step of DEC-2026-11-01 D10a, as deploy/compose/postgres/init.sh does it before any migration:
+// pgsodium is created without shared_preload_libraries, its event triggers are disabled and the setting they read is off, nothing in its
+// schema is executable by PUBLIC, and only noema_migrator may call the verifier it needs. A cluster without the extension (a developer's
+// machine) is left as it is: the receipt trigger then fails closed (D13) and every test that needs a receipt says so; the CI job builds
+// the extension in (ruling A16). It never skips a test.
+func bootstrapSigning(t testing.TB, pool *pgxpool.Pool, dbName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var available bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pgsodium')`).Scan(&available); err != nil {
+		t.Fatalf("testpg: look for pgsodium: %v", err)
+	}
+	if !available {
+		return
+	}
+	// CREATE EXTENSION creates cluster-wide roles, so two sessions that run it together on a server that has never had the extension collide on pg_authid.
+	// An advisory lock belongs to one database, so the lock is taken on the server's maintenance database, the one ensureRoles uses, and serialises
+	// the bootstrap across every test database and every test binary on the server. It is held on its own connection until the bootstrap ends.
+	lock, err := pgx.Connect(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("testpg: connect to lock the pgsodium bootstrap: %v", err)
+	}
+	defer func() { _ = lock.Close(context.Background()) }()
+	if _, err := lock.Exec(ctx, `SELECT pg_advisory_lock(7770001)`); err != nil {
+		t.Fatalf("testpg: lock the pgsodium bootstrap: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE EXTENSION IF NOT EXISTS pgsodium`,
+		`DO $$ DECLARE r record; BEGIN
+		   FOR r IN SELECT e.evtname FROM pg_event_trigger e JOIN pg_depend d ON d.objid = e.oid AND d.deptype = 'e'
+		            JOIN pg_extension x ON x.oid = d.refobjid AND x.extname = 'pgsodium' LOOP
+		     EXECUTE format('ALTER EVENT TRIGGER %I DISABLE', r.evtname);
+		   END LOOP;
+		 END $$`,
+		`ALTER DATABASE ` + pgx.Identifier{dbName}.Sanitize() + ` SET pgsodium.enable_event_trigger = 'off'`,
+		`REVOKE ALL ON SCHEMA pgsodium FROM PUBLIC`,
+		`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA pgsodium FROM PUBLIC`,
+		`GRANT USAGE ON SCHEMA pgsodium TO noema_migrator`,
+		`GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO noema_migrator`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("testpg: bootstrap pgsodium: %v\n%s", err, stmt)
+		}
+	}
 }
 
 // clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
@@ -301,4 +350,37 @@ func freePort() (int, error) {
 	}
 	defer func() { _ = l.Close() }() // the port number is all that is needed; the listener only reserved it
 	return l.Addr().(*net.TCPAddr).Port, nil
+}
+
+// Synthetic values for a Decision Record that carries its bound fields (ruling of 8 Nov 2026 on noema#329: a record without them is invalid, and a grant
+// must agree with its record). They are SYNTHETIC; tests that insert a record or a grant directly append BoundFieldsSQL to the document.
+const (
+	FixtureIntentHash    = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	FixturePolicyVersion = "pol_1@1"
+	FixtureIssuedAt      = "2026-11-07T09:00:00.000Z"
+	FixtureRecordExpires = "2099-01-01T00:00:00.000Z"
+	// BoundFieldsSQL is a jsonb expression holding the fields of a Decision Record that the database requires (intent_id, correlation_id, policy_version,
+	// intent_hash, issued_at, expires_at, and the three authority layers at PASS, which an ALLOW needs). Append it to a document with ||.
+	BoundFieldsSQL = `jsonb_build_object('intent_id', 'int_synth01', 'correlation_id', 'corr_synth01', 'policy_version', '` + FixturePolicyVersion +
+		`', 'intent_hash', '` + FixtureIntentHash + `', 'issued_at', '` + FixtureIssuedAt + `', 'expires_at', '` + FixtureRecordExpires + `',
+		'authority', jsonb_build_object('technical', 'PASS', 'policy', 'PASS', 'business', 'PASS'))`
+	// GrantBoundSQL is the same for a grant document: it agrees with BoundFieldsSQL and expires before it.
+	GrantBoundSQL = `jsonb_build_object('intent_hash', '` + FixtureIntentHash + `', 'policy_version', '` + FixturePolicyVersion + `', 'expires_at', '2026-11-07T10:00:00.000Z')`
+)
+
+// DecisionDocJSON returns a bound-complete, SYNTHETIC Decision Record document for a decision that a stored grant refers to. The grant's own intent hash,
+// policy version and correlation ID are carried so that the grant agrees with its record (ruling of 8 Nov 2026 on noema#329); the record lives longer than any
+// grant a test issues.
+func DecisionDocJSON(decisionID, tenant, intentHash, policyVersion, correlation string) string {
+	doc := map[string]any{
+		"decision_id": decisionID, "tenant_id": tenant, "outcome": "ALLOW", "sig": map[string]string{"key_id": "k1", "value": "aa"},
+		"intent_id": "int_synth01", "correlation_id": correlation, "policy_version": policyVersion, "intent_hash": intentHash,
+		"issued_at": FixtureIssuedAt, "expires_at": FixtureRecordExpires,
+		"authority": map[string]string{"technical": "PASS", "policy": "PASS", "business": "PASS"},
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		panic("testpg: " + err.Error()) // a map of strings cannot fail to marshal
+	}
+	return string(raw)
 }

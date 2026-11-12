@@ -48,7 +48,7 @@
     ]
   },
   "verified": {
-    "all_verified": false,
+    "all_verified": null,
     "checks": []
   }
 }
