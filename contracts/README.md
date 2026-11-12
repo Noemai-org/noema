@@ -29,6 +29,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Generated files.** `python3 -I tools/record_chain_ref_v3.py --write` writes the v3 fixtures and the `record_event_chain_vectors_v3` family; `--check` (also run by `tools/contracts/test_record_event_v3.py`) fails on any difference. v2 is still written by `tools/record_chain_ref.py`, and its output did not change. The `payload_hash_vectors` family comes from `tools/payload_hash_independent.js` (Node), not from the generator.
 - **Tooling.** `tools/jcs_ref.py` is the Python RFC 8785 for the generators: it sorts members by UTF-16 code unit and refuses any number that is not an integer within 2^53-1.
 
+## Decision Record v2 (6 Nov 2026)
+
+`schemas/decision-record.v2.json` sits beside `decision-record.v1.json`, which is not edited (AGENT-15; `tools/contracts/test_decision_record_v2.py` pins its bytes). Rulings A5 and A13 of 6 Nov 2026 (record: docs#117, still Proposed, so noema#168 says "do not merge before docs#117"). Task TRU-05.
+
+- **What v2 is.** v1 with `schema_version` major 2, two new required fields, `issued_at` and `expires_at` (simulated clock), and a defined `sig` (A13): HMAC-SHA-256 with the grant keys over the domain label `noema/decision-record/v2`, one `0x00` byte, and the RFC 8785 (JCS) form of the record without `sig.value`. `sig.key_id` stays in the signed bytes, so a signature cannot be re-attributed to another key. The bound fields are `intent_id`, `correlation_id`, `policy_version` (`policy_id@version`), `issued_at`, `expires_at` and `key_id`; a record missing any is invalid. v1 already carried `intent_id`, `correlation_id` and `policy_version`; A5's "adds" is read as "requires in v2".
+- **Migration note.** v1 records have no defined signature rule and no `issued_at`/`expires_at`, so v2 is a new major and v1 is not edited. A v1 record does not validate as v2 (tests). The reverse is not true: v1's version pattern is generic, so a v2 record also passes v1's pattern; readers dispatch on `schema_version`. No v1 record exists outside fixtures; the Decision Record writer (TRU-05 Go side, not built) writes v2 only. No migration tooling: this is the synthetic POC.
+- **Fixtures and models.** `fixtures/{valid,invalid}/decision-record.v2` are the v1 fixtures with version 2.0 and the two new fields, plus invalid records that miss each bound field or carry major 1. Generated Go and Pydantic models come from `make codegen`.
+
 ## Benchmark diagnostics v2 (2 Nov 2026)
 
 `schemas/benchmark-case-result.v2.json` and `schemas/benchmark-scorecard.v2.json` sit beside their v1 files, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` pins their bytes). Task BEN-30; PERD REQ-BEN-009; decision record `DEC-2026-10-31-proof-depth-and-completeness` (D5, D6); approved by the Architect on 2 Nov 2026.
@@ -44,6 +52,10 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **What it names.** A create that is conditional on absence was refused because the target already holds a case for the same subject and epoch, made under another idempotency key (mock-case: `412 PRECONDITION_FAILED`). It is not `IDEMPOTENCY_CONFLICT` (the same key, another payload), not `REJECTED_STALE_VERSION` (a version token that moved) and not the same key sent twice (that is an acknowledgement, REQ-EXE-007).
 - **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
 - **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
+
+## Neutral arm result (7 Nov 2026)
+
+`schemas/benchmark-arm-result.v1.json` is new (BEN-16, benchmark suite definition v1). It edits no existing schema. Migration note: none, since it is a new contract at major 1; see `INVENTORY.md`. It carries the seven fields every arm must produce and no Noema internals. Fixtures: `fixtures/{valid,invalid}/benchmark-arm-result`.
 
 ## Action Graph v2 (1 Nov 2026)
 

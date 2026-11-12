@@ -100,6 +100,9 @@ func LoadConfig(getenv func(string) string, readFile func(string) ([]byte, error
 	if c.Options.PrincipalKey, err = secret(getenv, readFile, "STANDIN_PRINCIPAL_KEY_FILE"); err != nil {
 		return nil, err
 	}
+	if c.Options.TenantID = getenv("STANDIN_TENANT_ID"); !validTenant(c.Options.TenantID) {
+		return nil, fmt.Errorf("STANDIN_TENANT_ID is required: 1 to 64 lowercase letters, digits, underscores or hyphens (got %q)", c.Options.TenantID)
+	}
 	if v := getenv("STANDIN_CLOCK_START"); v != "" {
 		start, err := time.Parse(time.RFC3339, v)
 		if err != nil {
