@@ -70,10 +70,23 @@ type rig struct {
 	waits *int
 }
 
+// deadlineRec is a test response writer that supports write deadlines, as a real server's writer does; the handler refuses a writer that does not.
+type deadlineRec struct{ *httptest.ResponseRecorder }
+
+func (deadlineRec) SetWriteDeadline(time.Time) error { return nil }
+
+func newRec() *deadlineRec { return &deadlineRec{httptest.NewRecorder()} }
+
+// vocab is the test vocabulary: what each kind of event may carry in Fields and Numbers (and the largest each number may be).
+func vocab() map[events.Kind]events.Vocabulary {
+	v := events.Vocabulary{Fields: []string{"state", "text"}, Numbers: map[string]int64{"version": 1000}}
+	return map[events.Kind]events.Vocabulary{events.KindProgress: v, events.KindClarification: v, events.KindConfirmation: v, events.KindAnswer: v, events.KindError: v}
+}
+
 // baseOptions are valid options; a test changes the one it is about.
 func baseOptions(feed events.Feed, wait func(context.Context, time.Duration) error) events.Options {
 	return events.Options{Feed: feed, Mask: digitsMasker, Wait: wait, Clock: clock.NewManual(epoch), Poll: time.Second, MaxStream: time.Minute, MaxEventBytes: 2048,
-		WriteTimeout: 5 * time.Second, MaxStreams: 8, MaxStreamsPerPrincipal: 2, MaxBatch: 32}
+		WriteTimeout: 5 * time.Second, MaxStreams: 8, MaxStreamsPerPrincipal: 2, MaxBatch: 32, Vocabulary: vocab(), MaxNumberDigits: 4}
 }
 
 func newRig(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Duration) error) rig {
@@ -108,7 +121,7 @@ func newRigWith(t *testing.T, feed *fakeFeed, wait func(context.Context, time.Du
 	return rig{iss: iss, feed: feed, h: mux, waits: waits}
 }
 
-func (r rig) get(path, tenant string, role session.Role, hdr map[string]string) *httptest.ResponseRecorder {
+func (r rig) get(path, tenant string, role session.Role, hdr map[string]string) *deadlineRec {
 	c := edgetest.Good(epoch, role)
 	c.Tenant = tenant
 	req := httptest.NewRequest(http.MethodGet, path, nil)
@@ -116,7 +129,7 @@ func (r rig) get(path, tenant string, role session.Role, hdr map[string]string) 
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.h.ServeHTTP(rec, req)
 	return rec
 }
@@ -184,7 +197,7 @@ func TestAConversationThatIsNotTheCallersLooksLikeOneThatDoesNotExist(t *testing
 	a := r.get(path, edgetest.Tenant, session.RoleCustomer, nil)
 	b := r.get("/v1/conversations/inv_ZZ99/events", edgetest.Tenant, session.RoleCustomer, nil)
 	c := r.get("/v1/conversations/not-an-id/events", edgetest.Tenant, session.RoleCustomer, nil)
-	for name, rec := range map[string]*httptest.ResponseRecorder{"foreign": a, "missing": b, "malformed": c} {
+	for name, rec := range map[string]*deadlineRec{"foreign": a, "missing": b, "malformed": c} {
 		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "NOT_FOUND_OR_NOT_AUTHORIZED") {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
 		}
@@ -298,7 +311,7 @@ func TestTheStreamKeepsAliveStopsWhenTheClientLeavesAndCarriesItsDeadline(t *tes
 	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 	c := edgetest.Good(epoch, session.RoleCustomer)
 	req.Header.Set("Authorization", "Bearer "+r.iss.Token(edgetest.Kid, c))
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.h.ServeHTTP(rec, req)
 	body := rec.Body.String()
 	if strings.Count(body, ": keepalive\n\n") != 2 || !strings.Contains(body, "id: 1\nevent: progress\n") || waits != 3 {
@@ -361,7 +374,7 @@ func TestAWriterThatCannotFlushIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.SetPathValue("conversation_ref", "inv_AA11")
 	req.Header.Set("Authorization", "Bearer "+r.iss.Token(edgetest.Kid, c))
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	// the handler alone, with a principal in the context but a writer that cannot flush
 	clk := clock.NewManual(epoch)
 	v, _ := session.NewVerifier(session.Config{Keys: mapKey(r.iss), Audience: edgetest.Audience, Tenants: []string{edgetest.Tenant}, MaxLifetime: session.CeilingLifetime, Skew: time.Minute, Clock: clk})
@@ -414,8 +427,8 @@ func TestAStreamEndsWhenTheSessionsTokenExpires(t *testing.T) {
 		o.Clock = clock.NewManual(epoch.Add(5*time.Minute - 100*time.Millisecond))
 		o.MaxStream = time.Hour
 	})
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { rec := httptest.NewRecorder(); r.request(rec, session.RoleCustomer); done <- rec }()
+	done := make(chan *deadlineRec, 1)
+	go func() { rec := newRec(); r.request(rec, session.RoleCustomer); done <- rec }()
 	select {
 	case rec := <-done:
 		if !strings.Contains(rec.Body.String(), "id: 1\n") || rec.Code != http.StatusOK {
@@ -430,7 +443,7 @@ func TestAStreamEndsWhenTheSessionsTokenExpires(t *testing.T) {
 func TestATokenAlreadyExpiredByTheHandlersClockGetsNoStream(t *testing.T) {
 	f := &fakeFeed{}
 	r := newRigWith(t, f, nil, func(o *events.Options) { o.Clock = clock.NewManual(epoch.Add(5 * time.Minute)) })
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.request(rec, session.RoleCustomer)
 	if rec.Code != http.StatusUnauthorized || len(f.calls) != 0 {
 		t.Fatalf("%d %s, calls %+v", rec.Code, rec.Body.String(), f.calls)
@@ -467,7 +480,7 @@ func TestABatchOverTheCapEndsTheStreamAndNothingOfItIsWritten(t *testing.T) {
 	}
 	f := &fakeFeed{batches: []events.Batch{{Events: evs}}}
 	r := newRigWith(t, f, nil, func(o *events.Options) { o.MaxBatch = 3 })
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.request(rec, session.RoleCustomer)
 	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "STREAM_FAULT") {
 		t.Errorf("%q", rec.Body.String())
@@ -492,18 +505,18 @@ func TestStreamsAreBoundedPerPrincipalAndOverallAndAFinishedStreamFreesItsPlace(
 	var wg sync.WaitGroup
 	open := func() {
 		wg.Add(1)
-		go func() { defer wg.Done(); r.request(httptest.NewRecorder(), session.RoleCustomer) }()
+		go func() { defer wg.Done(); r.request(newRec(), session.RoleCustomer) }()
 		<-started
 	}
 	open() // prn_1 holds its one place
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.request(rec, session.RoleCustomer)
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "DEPENDENCY_UNAVAILABLE") {
 		t.Errorf("a second stream of the same principal: %d %s", rec.Code, rec.Body.String())
 	}
 	close(hold)
 	wg.Wait()
-	rec = httptest.NewRecorder()
+	rec = newRec()
 	r.request(rec, session.RoleCustomer)
 	if rec.Code != http.StatusOK {
 		t.Errorf("after the first stream ended: %d %s", rec.Code, rec.Body.String())
@@ -526,7 +539,7 @@ func TestTheHandlerItselfRefusesANonCustomerWithTheSame404(t *testing.T) {
 	for _, role := range []session.Role{session.RoleOps, session.RoleAudit, session.RoleApprover} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("Authorization", "Bearer "+iss.Token(edgetest.Kid, edgetest.Good(epoch, role)))
-		rec := httptest.NewRecorder()
+		rec := newRec()
 		mux.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "NOT_FOUND_OR_NOT_AUTHORIZED") {
 			t.Errorf("%s: %d %s", role, rec.Code, rec.Body.String())
@@ -539,7 +552,7 @@ func TestTheHandlerItselfRefusesANonCustomerWithTheSame404(t *testing.T) {
 
 func TestTheStreamTellsProxiesNotToBuffer(t *testing.T) {
 	r := newRig(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{ev(1, events.KindAnswer)}, Done: true}}}, nil)
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.request(rec, session.RoleCustomer)
 	if got := rec.Header().Get("X-Accel-Buffering"); got != "no" {
 		t.Errorf("X-Accel-Buffering = %q, want no", got)
@@ -563,17 +576,88 @@ func TestTheGlobalStreamCapHoldsAcrossPrincipals(t *testing.T) {
 	r := newRigWith(t, f, wait, func(o *events.Options) { o.MaxStreams = 1; o.MaxStreamsPerPrincipal = 1 })
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() { defer wg.Done(); r.request(httptest.NewRecorder(), session.RoleCustomer) }()
+	go func() { defer wg.Done(); r.request(newRec(), session.RoleCustomer) }()
 	<-started
 	c := edgetest.Good(epoch, session.RoleCustomer)
 	c.Sub = "prn_2"
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("Authorization", "Bearer "+r.iss.Token(edgetest.Kid, c))
-	rec := httptest.NewRecorder()
+	rec := newRec()
 	r.h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("a second principal over the global cap: %d %s", rec.Code, rec.Body.String())
 	}
 	close(hold)
 	wg.Wait()
+}
+
+// ---- the reviewer's blocking finding (d) on e87e38c2: Numbers and Fields carry only what the configured vocabulary lists (REQ-SEC-003, AGENT-13) ----
+
+func badEvent(t *testing.T, name string, mutate func(*events.Event), tweak func(*events.Options)) {
+	t.Helper()
+	e := ev(1, events.KindProgress)
+	mutate(&e)
+	r := newRigWith(t, &fakeFeed{batches: []events.Batch{{Events: []events.Event{e}, Done: true}}}, nil, tweak)
+	rec := newRec()
+	r.request(rec, session.RoleCustomer)
+	if strings.Contains(rec.Body.String(), "id: ") || !strings.Contains(rec.Body.String(), "STREAM_FAULT") {
+		t.Errorf("%s: %q", name, rec.Body.String())
+	}
+}
+
+func TestANumberKeyOutsideTheVocabularyOrAValueOutsideItsRangeIsABadEvent(t *testing.T) {
+	badEvent(t, "an account number under an unlisted key", func(e *events.Event) { e.Numbers = map[string]int64{"account_number": 123456789012345678} }, nil)
+	badEvent(t, "a listed key over its maximum", func(e *events.Event) { e.Numbers = map[string]int64{"version": 1001} }, nil)
+	badEvent(t, "a negative number", func(e *events.Event) { e.Numbers = map[string]int64{"version": -1} }, nil)
+	badEvent(t, "a number under a kind that lists none", func(e *events.Event) { e.Numbers = map[string]int64{"version": 1} }, func(o *events.Options) {
+		o.Vocabulary[events.KindProgress] = events.Vocabulary{Fields: []string{"state"}}
+	})
+}
+
+func TestAFieldKeyOutsideTheVocabularyIsABadEvent(t *testing.T) {
+	badEvent(t, "a field under an unlisted key", func(e *events.Event) { e.Fields = map[string]string{"account_holder": "A. Person"} }, nil)
+	badEvent(t, "a field under a kind that lists none", func(e *events.Event) { e.Fields = map[string]string{"state": "X"} }, func(o *events.Options) {
+		o.Vocabulary[events.KindProgress] = events.Vocabulary{}
+	})
+}
+
+func TestNewRefusesAVocabularyItCannotRunWith(t *testing.T) {
+	ok := func() events.Options {
+		return baseOptions(&fakeFeed{}, func(context.Context, time.Duration) error { return nil })
+	}
+	cases := map[string]func(*events.Options){
+		"no vocabulary":   func(o *events.Options) { o.Vocabulary = nil },
+		"a kind missing":  func(o *events.Options) { delete(o.Vocabulary, events.KindError) },
+		"an unknown kind": func(o *events.Options) { o.Vocabulary[events.Kind("other")] = events.Vocabulary{} },
+		"a field key out of form": func(o *events.Options) {
+			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Fields: []string{"Account Number"}}
+		},
+		"a number key out of form": func(o *events.Options) {
+			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"Bad Key": 1}}
+		},
+		"a number maximum below zero": func(o *events.Options) {
+			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": -1}}
+		},
+		"a number maximum with more digits than the masking limit allows": func(o *events.Options) {
+			o.Vocabulary[events.KindAnswer] = events.Vocabulary{Numbers: map[string]int64{"version": 100000}}
+		},
+	}
+	for name, mut := range cases {
+		o := ok()
+		mut(&o)
+		if h, err := events.New(o); err == nil || h != nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// A writer that cannot take a write deadline gets no stream (fail closed): nothing is written and the feed is not asked.
+func TestAWriterThatCannotTakeAWriteDeadlineGetsNoStream(t *testing.T) {
+	f := &fakeFeed{}
+	r := newRig(t, f, nil)
+	rec := httptest.NewRecorder() // a ResponseRecorder has no SetWriteDeadline
+	r.request(rec, session.RoleCustomer)
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") || len(f.calls) != 0 {
+		t.Fatalf("%d %s, calls %+v", rec.Code, rec.Body.String(), f.calls)
+	}
 }
