@@ -73,6 +73,7 @@ class SlowToStop:
 
     def __init__(self, cleanup_s: float | None) -> None:
         self._cleanup_s = cleanup_s
+        self.cleaning = False
 
     async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
         import asyncio
@@ -81,6 +82,7 @@ class SlowToStop:
             yield AudioChunk(0, AudioCodec.PCM_S16LE, 16000, b"\x01\x00" * 160)
             await asyncio.Event().wait()
         finally:
+            self.cleaning = True
             if self._cleanup_s is None:
                 await asyncio.Event().wait()
             else:
@@ -92,13 +94,15 @@ def test_the_text_fallback_does_not_wait_for_the_synthesizers_shutdown(cleanup: 
     import asyncio
     import time
 
+    synth = SlowToStop(cleanup)
+
     async def call() -> tuple[object, float]:
         started = time.monotonic()
-        result = await asyncio.wait_for(
-            deliver_answer(SlowToStop(cleanup), REQUEST, deadline_s=0.05, cleanup_s=0.05), timeout=5.0)
+        result = await asyncio.wait_for(deliver_answer(synth, REQUEST, deadline_s=0.05, cleanup_s=0.05), timeout=5.0)
         return result, time.monotonic() - started
 
     result, elapsed = run(call())
+    assert synth.cleaning  # the synthesis was cancelled at the deadline, not left running
     assert result.mode is DeliveryMode.TEXT_ONLY and result.text == REQUEST.text and result.audio == ()  # type: ignore[attr-defined]
     assert result.failure is ProviderFailure.TIMEOUT  # type: ignore[attr-defined]
     assert elapsed < 0.4, elapsed  # the deadline plus the cleanup bound, not the synthesizer's own 0.5 s or its endless wait

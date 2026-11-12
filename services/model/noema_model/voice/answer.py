@@ -9,6 +9,7 @@ the caller records it. A partly synthesised answer is never returned as audio.
 import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
 from noema_model.providers.speech.base import AudioChunk, Locale, ProviderCapabilities, Support
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
@@ -45,19 +46,37 @@ async def _collect(synthesizer: SpeechSynthesizer, request: SynthesisRequest) ->
     return tuple(chunks)
 
 
-async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisRequest, *, deadline_s: float) -> Delivery:
-    """The answer text, with audio when the locale is covered and the synthesizer works within `deadline_s`."""
+def _mark_retrieved(task: "asyncio.Future[Any]") -> None:
+    """A synthesizer task that is abandoned must not log an unretrieved exception when it finally ends."""
+    if not task.cancelled():
+        task.exception()
+
+
+async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisRequest, *, deadline_s: float, cleanup_s: float | None = None) -> Delivery:
+    """The answer text, with audio when the locale is covered and the synthesizer works within `deadline_s`.
+
+    The synthesis runs as a task of its own. At the deadline it is cancelled and given `cleanup_s` (default: `deadline_s`) to stop; one that does not is
+    abandoned, so the text fallback never waits for a synthesizer's own shutdown (Codex P2 on #213).
+    """
     if plan_delivery(request.locale, synthesizer.capabilities) is DeliveryMode.TEXT_ONLY:
         return _text_only(request, None)
+    bound_s = deadline_s if cleanup_s is None else cleanup_s
+    task = asyncio.ensure_future(_collect(synthesizer, request))
+    task.add_done_callback(_mark_retrieved)
     try:
-        async with asyncio.timeout(deadline_s):
-            audio = await _collect(synthesizer, request)
-    except TimeoutError:
-        return _text_only(request, ProviderFailure.TIMEOUT)
+        await asyncio.wait({task}, timeout=deadline_s)
+        if not task.done():
+            task.cancel()
+            await asyncio.wait({task}, timeout=bound_s)  # bounded: a synthesizer that will not stop is abandoned
+            return _text_only(request, ProviderFailure.TIMEOUT)
+        audio = task.result()
     except ProviderError as error:
         return _text_only(request, error.kind)
     except Exception as error:  # noqa: BLE001 - an adapter bug must not take the answer's text with it (PERD §35.3)
         # Reported, not swallowed: the class name (never the message, which may hold the answer) is returned for the caller to
         # record. CancelledError is a BaseException and passes through.
         return Delivery(DeliveryMode.TEXT_ONLY, request.text, (), ProviderFailure.UNAVAILABLE, type(error).__name__)
+    finally:
+        if not task.done():
+            task.cancel()  # the caller was cancelled: stop the synthesis; it is not waited for
     return Delivery(DeliveryMode.SPEAK, request.text, audio, None)
