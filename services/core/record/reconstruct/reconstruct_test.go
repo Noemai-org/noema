@@ -683,7 +683,7 @@ func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
 func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
 	w := newWorld(t)
 	events := us01()
-	events[1].payload["request_id"] = "0123456789"              // no prefix: a number, not a request ID
+	events[1].payload["request_id"] = "see req_ab 0123456789"   // no prefix: a number, not a request ID
 	events[8].payload["decision_id"] = "acct_0123456789"        // a prefix of another kind
 	events[3].payload["intent_id"] = "int_AB123456CD"           // the shape of the key, with a digit run: kept
 	events[7].payload["policy_id"] = "fin.pol.limit_0123456789" // a pack ID shape with a digit run: kept (pack IDs are data, not numbers)
