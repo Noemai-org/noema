@@ -387,3 +387,58 @@ func TestAnAccountNumberUsedAsAKeyOrAGroupNameIsMasked(t *testing.T) { // Codex 
 		t.Errorf("secret key classification lost: %s", out)
 	}
 }
+
+type moneyAlias int64
+
+func (moneyAlias) MarshalJSON() ([]byte, error) { return []byte(`"account 0123456789"`), nil }
+
+func TestAnExemptNumberOfANamedTypeIsWrittenAsAPlainNumberNeverByItsOwnSerialisation(t *testing.T) { // Codex P2 on 5fa16fb
+	out := logged(t, func(l *slog.Logger) {
+		l.Info("m", "amount_minor", moneyAlias(1234), "attempt_count", moneyAlias(7), "other", moneyAlias(5))
+	})
+	noRun(t, "log", out)
+	if !strings.Contains(out, `"amount_minor":1234`) || !strings.Contains(out, `"attempt_count":7`) {
+		t.Errorf("the exempt numbers should be kept as plain numbers: %s", out)
+	}
+}
+
+func inTime(t *testing.T, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); fn() }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the redactor did not finish: an unbounded traversal")
+	}
+}
+
+func TestACyclicOrVeryDeepOrVeryWideValueIsBoundedAndNeverCrashes(t *testing.T) { // Codex P2 on 5fa16fb
+	cyc := map[string]any{}
+	cyc["self"] = cyc
+	ring := []any{nil}
+	ring[0] = ring
+	deep := map[string]any{"password": "synthetic-secret-deep"}
+	for i := 0; i < 200; i++ {
+		deep = map[string]any{"n": deep}
+	}
+	shared := any(map[string]any{"leaf": "x"})
+	for i := 0; i < 30; i++ { // a DAG: each level names the one below it ten times, 10^30 paths in a naive walk
+		m := map[string]any{}
+		for j := 0; j < 10; j++ {
+			m[fmt.Sprint(j)] = shared
+		}
+		shared = m
+	}
+	var out string
+	inTime(t, func() {
+		out = logged(t, func(l *slog.Logger) { l.Info("m", "cyc", cyc, "ring", ring, "deep", deep, "shared", shared, "acct", "0123456789") })
+	})
+	noRun(t, "log", out)
+	if !strings.Contains(out, redaction.Redacted) || strings.Contains(out, "synthetic-secret-deep") {
+		t.Errorf("a value past the bound should be [REDACTED]: %s", out)
+	}
+	if len(out) > 1<<20 {
+		t.Errorf("the output is unbounded: %d bytes", len(out))
+	}
+}
