@@ -10,7 +10,9 @@
 
 **The Explainer.** `NewExplainer(Config{Templates, Forbidden, Facts, Recorder, Timeout})` and `Explain(ctx, Subject, decisionID)`: reads the facts through a `FactsSource` (the orchestrator builds the real one, A155; the tests use a fake), renders and validates, then appends `EXPLANATION_RENDERED` or `EXPLANATION_BLOCKED` through a `Recorder` and only then returns the text (EC-E16). A blocked event carries rule codes (`NO_TEMPLATE`, `SLOT_UNRESOLVED`, `UNCOVERED_SENTENCE`, `UNSUPPORTED_NAME`, `UNSUPPORTED_FIGURE`, `UNFILLED_PLACEHOLDER`, `FORBIDDEN_CLAIM`, `UNMASKED_DIGITS`, `BAD_CLAIM`, `AMBIGUOUS_FACTS`) and never text. A facts source that fails is an error and records nothing. `Subject` has the fields of `orchestrator.Session`, so the composition root converts one into the other; this package does not import the orchestrator. Refused at construction: no templates, facts source, recorder or timeout, and a template locale without a usable forbidden-claim list.
 
-**Not here.** A Record-backed `Recorder` (the next slice: it appends as the edge emitter, and the payload shape is REC-04's, so it is not guessed here); the real `FactsSource`; the adapter to the orchestrator's port (EL's compose.go); the model renderer and the HTTP route (model service, REQ-EXP-001); other locales (EXP-04); a forbidden-pattern list as pack data (not yet in the pack: `Validate` takes the patterns as an argument and the PR notes this).
+**The Record-backed `Recorder`** is `recorder/` (slice 5; see its README): it appends `EXPLANATION_RENDERED` or `EXPLANATION_BLOCKED` as `core-edge` in the shape the reconstruction reads.
+
+**Not here.** The real `FactsSource`; the adapter to the orchestrator's port (EL's compose.go); the model renderer and the HTTP route (model service, REQ-EXP-001); other locales (EXP-04); a forbidden-pattern list as pack data (not yet in the pack: `Validate` takes the patterns as an argument and the PR notes this).
 
 **Tests.** `go test ./explanation` from `services/core/`.
 

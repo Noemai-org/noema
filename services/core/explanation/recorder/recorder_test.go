@@ -16,6 +16,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/explanation/recorder"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -66,6 +67,7 @@ type world struct {
 	admin *pgxpool.Pool
 	clk   *clock.Manual
 	fail  *failingIDs
+	sign  map[string]chain.Signer // one signer per emitter (REC-08): an emitter with no signer cannot append
 	edge  map[string]*pgxpool.Pool
 	read  map[string]*pgxpool.Pool
 }
@@ -78,6 +80,7 @@ func newWorld(t *testing.T) *world {
 	}
 	w := &world{t: t, admin: admin, clk: clock.NewManual(time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)), edge: map[string]*pgxpool.Pool{}, read: map[string]*pgxpool.Pool{}}
 	w.fail = &failingIDs{inner: ids.New(w.clk, nil)}
+	w.sign = recordsig.All(t, admin, "explrecorder", nil)
 	for _, id := range []string{tenantA, tenantB} {
 		if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, id); err != nil {
 			t.Fatal(err)
@@ -89,7 +92,7 @@ func newWorld(t *testing.T) *world {
 }
 
 func (w *world) recorder(tenant string) *recorder.Recorder {
-	return &recorder.Recorder{Pool: w.edge[tenant], Appender: &chain.Appender{Clock: w.clk, IDs: w.fail}, Timeout: 5 * time.Second}
+	return &recorder.Recorder{Pool: w.edge[tenant], Appender: &chain.Appender{Clock: w.clk, IDs: w.fail, Signers: w.sign}, Timeout: 5 * time.Second}
 }
 
 type stored struct {

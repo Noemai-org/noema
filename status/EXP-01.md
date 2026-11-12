@@ -74,3 +74,16 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Open questions (owner): the payload shape of `EXPLANATION_RENDERED` for template-bound claims (REC-04).
 - Files to read first: `services/core/explanation/README.md`, `explainer.go`.
 - Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (C2) · slice 5: the Record-backed Recorder (ruling A155)
+- **What changed:** `services/core/explanation/recorder/` (`Recorder`, `doc.go`, `README.md`, `recorder.go`), tests `recorder_test.go` (against PostgreSQL) and `build_test.go` (no database), the README of `explanation/`.
+- **Failing first:** the tests-only commit `8662462e` (the package did not exist). The PR was opened on that head so its CI run is the red evidence. That commit built an unsigned `chain.Appender`; `main` requires a signer per emitter since REC-08 (`record/chain` refuses to append otherwise), so the implementation commit adds `recordsig.All` to the test world.
+- **Local limit, stated:** this machine has no pgsodium, so a database append cannot succeed here and `recorder_test.go` ran in CI only. The rule layer (`build_test.go`) ran locally, with 31 hand-run mutations of `recorder.go`, each red; three first did not compile (an unused variable or import) and were redone in a compile-safe form.
+- **Found while doing it:** my open PRs noema#466 (input gateway) and noema#471 (admitted-intent store) were cut before REC-08 reached `main` and build an unsigned Appender in their tests. They will fail on `core` once they meet current `main`; both need `main` merged in and `recordsig.All` in their test worlds (done in follow-up pushes, noted on each PR).
+- **Debt for the Steward to register:** none new. **Conflicts raised:** none.
+
+### Pre-work for the next agent
+- Exact next step: EL wires `Recorder` (the tenant's core-edge login), the real `FactsSource` and the adapter in `compose.go`; the pack templates with slots need one Founder approval.
+- Open questions (owner): the marker for a template-only claim's `bound_fact_status` (Architect or REC-04).
+- Files to read first: `services/core/explanation/recorder/README.md`, `recorder.go`.
+- Do not touch: the pack templates (Founder approval).
