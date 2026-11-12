@@ -22,7 +22,7 @@ import (
 // route table is config/routes.standin.json. The stand-in is a read store with six read routes; the proxy forwards exactly
 // those, passes the caller's credentials through untouched (it holds none), and applies its own faults to them.
 
-const standinPrincipalAssertion = "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce" // the README's worked vector, SYNTHETIC
+const standinPrincipalAssertion = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42" // the README's worked vector, SYNTHETIC
 
 // fakeStandin answers the stand-in's six read routes and records the headers it received.
 type fakeStandin struct {
