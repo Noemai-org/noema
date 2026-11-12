@@ -17,6 +17,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/record/chain"
+	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 )
 
 func body(requestID, text string) []byte {
@@ -409,3 +410,91 @@ func TestTheHandlerAnswersWithTheContractsStatusesAndNeverTakesIdentityFromTheRe
 		t.Errorf("GET: %d, want 405", rr.Code)
 	}
 }
+
+// project.go leaves a payload key that is missing out of the reconstruction, so an input with no locale_hint is recorded without a locale key, not with an empty one.
+func TestAnInputWithoutALocaleHintIsRecordedWithoutALocaleKey(t *testing.T) {
+	w := newWorld(t)
+	g := w.gateway(tenantA, &spy{})
+	doc := []byte(`{"request_id":"` + reqID + `","channel":"voice","text":"where is my money","voice":{"is_final":true}}`)
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), doc); err != nil {
+		t.Fatal(err)
+	}
+	evs := w.events("INPUT_RECEIVED")
+	if len(evs) != 1 {
+		t.Fatalf("%d INPUT_RECEIVED events", len(evs))
+	}
+	if _, has := evs[0].Payload["locale"]; has || evs[0].Payload["channel"] != "voice" {
+		t.Errorf("payload %v: want channel voice and no locale key", evs[0].Payload)
+	}
+}
+
+// A161 item 1, "exactly as project.go reads them": a reconstruction built from the Record serves the recorded input in its REQUEST section with channel, locale and
+// request_id, cites the INPUT_RECEIVED event, shows the later INPUT_DEDUPLICATED in the timeline, and serves neither the input hash nor the text.
+func TestTheReconstructionServesTheRecordedInputAsItsRequestSection(t *testing.T) {
+	w := newWorld(t)
+	g := w.gateway(tenantA, &spy{})
+	first, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money")); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := reconstruct.Build(ctx(t), w.read[tenantA], tenantA, first.CorrelationID)
+	if err != nil {
+		t.Fatalf("the Record the gateway wrote does not reconstruct: %v", err)
+	}
+	var out struct {
+		Chain struct {
+			Verified bool `json:"verified"`
+		} `json:"chain"`
+		Sections []struct {
+			Kind  string `json:"kind"`
+			Items []struct {
+				RecordEventID string         `json:"record_event_id"`
+				Basis         string         `json:"basis"`
+				Facts         map[string]any `json:"facts"`
+			} `json:"items"`
+		} `json:"sections"`
+		Timeline []struct {
+			RecordEventID string `json:"record_event_id"`
+			EventType     string `json:"event_type"`
+		} `json:"timeline"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Chain.Verified {
+		t.Error("the chain did not verify")
+	}
+	found := false
+	for _, s := range out.Sections {
+		if s.Kind != "REQUEST" {
+			continue
+		}
+		for _, it := range s.Items {
+			if it.RecordEventID != first.Input.EventID {
+				continue
+			}
+			found = true
+			if it.Basis != "PRINCIPAL_ACTION" || keysOf(it.Facts) != "channel,locale,request_id" {
+				t.Errorf("REQUEST item: basis %q facts %v, want PRINCIPAL_ACTION with channel, locale and request_id", it.Basis, it.Facts)
+			}
+			if s := string(mustJSON(it.Facts)); !strings.Contains(s, reqID) || !strings.Contains(s, "en-NG") || strings.Contains(s, "where is my money") || strings.Contains(s, "sha256:") {
+				t.Errorf("REQUEST facts %s", s)
+			}
+		}
+	}
+	if !found {
+		t.Error("the REQUEST section does not cite the INPUT_RECEIVED event")
+	}
+	types := map[string]bool{}
+	for _, e := range out.Timeline {
+		types[e.EventType] = true
+	}
+	if !types["INPUT_RECEIVED"] || !types["INPUT_DEDUPLICATED"] {
+		t.Errorf("timeline event types %v", types)
+	}
+}
+
+func keysOf(m map[string]any) string { return strings.Join(keys(m), ",") }

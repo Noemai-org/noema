@@ -140,3 +140,21 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Open questions (owner): PERD cell "null when the audio was discarded" rides the next PERD version (Steward).
 - Files to read first: `contracts/schemas/canonical-input.v2.json`, `services/model/noema_model/understanding/gateway/gateway.py`.
 - Do not touch: `canonical-input.v1.json`.
+
+# Session 2026-11-12 · UND-02 (core half) · the input gateway writes INPUT_RECEIVED (ruling A161)
+
+## Session summary
+- What changed (PR links): noema#466, `services/core/inputgateway/` (new): `Gateway.Accept` and `Handler`, `RecordRecorder` (core-edge), `RecordIndex` (record_read). Constructors for EL to wire into `compose.go`; nothing is wired by me.
+- Why: ruling A161 (Architect, answering noema#454): the input gateway writes INPUT_RECEIVED as core-edge before anything proceeds; a repeated request id with the same body appends INPUT_DEDUPLICATED and returns the original result; another body is 409 plus SECURITY_EVENT REQUEST_ID_REUSED; the orchestrator gets the recorded event reference with the turn. REQ-INP-001, REQ-INP-002, REQ-INP-003, REQ-AUD-001; INV-11, INV-12.
+- Risks, and how they are contained: the lookup and the append are two steps, so concurrent duplicates are serialised by a lock in the process (tested with eight at once; holds for one core process); a failed append of any of the three events refuses the input and starts nothing (tested for each). The text of an input never enters a Record event, an error or the HTTP error envelope (tested).
+- Tests added (REQ-INP-001/2/3, REQ-AUD-001, EC-E16, INV-12): `inputgateway/gateway_test.go`, ten behaviours on the real Record plus one that builds a reconstruction from it and reads the REQUEST section. Failing first: tests-only commit `b9e3aa12` (the package had no source, so it did not compile).
+- Mutations run by hand, each killed by a named test: append error ignored (M1), dedup dropped (M2), 409 dropped (M3), security event dropped (M4), INPUT_DEDUPLICATED dropped (M5) or its error ignored (M6), turn started before the append (M7), event reference not handed over (M8), lookup ignoring the principal (M9) or the window (M10), no per-key lock (M11), text in the payload (M12), empty locale key written (M13), repeated members allowed (M14), unknown members allowed (M15), channel and request_id keys renamed (M16, M17). Two needed new tests (M10 was a bad mutation first; M13 survived until the no-locale test existed).
+- Debt entries (for the Steward to register, REQ-OPS-004): (1) `RecordIndex` reads the tenant's chain per request, owner C2, expires when a keyed lookup function exists (a migration); (2) the per-request lock is per process, owner C2, expires before a second core process; (3) dedupe scope is the principal, not the session, owner EL with C1 (the session id is not in the Record); (4) a recorded input whose `Start` failed is not resumed, owner EL (STM-01 persistence).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `Config` in `compose.go` (see the README), with the identity mapping of noema#454 item 3.
+- Open questions (owner): whether `Start` should run asynchronously (EL).
+- Files to read first: `services/core/inputgateway/README.md`, `gateway.go`.
+- Do not touch: the event payload keys (`channel`, `locale`, `request_id`): the reconstruction reads them by name.
+
