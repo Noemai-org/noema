@@ -109,10 +109,10 @@ class RecordEventV1RecordEvent(ContractModel):
     event_id: CommonV1RecordEventId
     prev_hash: CommonV1Hash
     hash: CommonV1Hash
-    written_by: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    written_by: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     event_type: RecordEventV1RecordEventType
     kind: RecordEventV1SecurityKind | None = Field(default=None)
-    object_ref: Annotated[str, StringConstraints(pattern='^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$')]
+    object_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\\Z')]
     at: CommonV1Timestamp
     reason: str | None = Field(default=None)
 

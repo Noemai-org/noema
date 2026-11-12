@@ -20,6 +20,22 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
 
+# Session 2026-11-06 16:30 WAT · EXE-08 (A6 slice 1: Record function hardening, noema#234)
+
+## Session summary
+- What changed: migration 0016 replaces the five record_append functions with a pinned `pg_catalog, pg_temp` search_path and schema-qualified names. Failing tests first (commit 7b675e0): the catalog test, and an exploit test in which a ten_a writer login with a temporary `tenant_login` table created a chain head for ten_b.
+- Why: ruling A6. The exploit is real on main: such a login could write and read another tenant's Record chain.
+- Risks: CREATE OR REPLACE needs the migrating role to own or be a member of record_append (as 0003 to 0006 already needed). Number 0016 (D12) may need D3 renumbering.
+- Tests added: REQ-SEC-004, INV-12.
+- Conflicts raised: none.
+- Not yet done in A6: RLS + FORCE on grant_spend, idempotency_record, execution_receipt, recovery_request, outbox_event, record_event, record_chain_head (it needs the tenant mapping function of noema#168 and a design for the verifier role, which reads all tenants on purpose); the A20 list of paths for SR.
+
+## Pre-work for the next agent
+- Exact next step: RLS slice stacked on noema#168 (uses `decision_login_tenant()`); write the A20 paths list.
+- Do not touch: noema#168's migration 0011.
+
+## Update 2026-11-07 (Founder decision D12)
+- The Record-function hardening migration is `0016_record_function_hardening.sql` (was the provisional 0014). If the merge order changes, the later PR renumbers.
 ## Session 2026-11-06 · EXE-08 slice B: database-side verification of receipts (DEBT-01, Option B)
 ### Session summary
 - What changed (PR links): the slice B pull request on `feat/EXE-08-sig-db`, STACKED on noema#214 (the CI job, ruling A16). Do not merge before docs#117 (rulings A2 and A16).
@@ -67,6 +83,12 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
 - `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.
 
+## Session 2026-11-11 · EXE-08 (noema#234): after #181 and #168 reached main
+- What changed (PR links): noema#234, test-only: `platform/db/rls_paths_test.go` (#168's list of Record and Outcome definers without `pg_temp` pinned is now empty, because 0016 pins them all: it was a list that "can only shrink"); `outcome/store/world_test.go` (each seeded grant has its own decision record, `dec_<grant>`, because #168's grant guard refuses a grant for a decision of another tenant); `platform/db/migration_order_test.go` (the upgrade-path test now migrates a database that holds 0001 to 0010 and 0017, the state before the train, with every other file afterwards; the earlier form took each lower file out in turn, which asked for an order that cannot happen once 0011 and 0012 are merged: a database that holds 0016 and not 0012). `migrations/README.md` is main's file (A145).
+- Why: with #181 and #168 on `main`, three tests of the merged tree failed on this branch.
+- Tests: red first, locally, after merging `main`: `TestTheListOfDefinersWithoutPgTempPinnedOnlyShrinks` (7 entries "now pins pg_temp last"), `TestAnOutcomeLoginCannotRecordAVerdictForAnotherTenant` (seed refused), `TestALowerNumberedMigrationApplied...` (0012 case); green after. The new upgrade-path test fails when 0017 alters an object that a later-applied file replaces (checked with a scratch ALTER FUNCTION in 0017).
+- Debt entries: none. Conflicts raised: none.
+- Mutation check of 0016 (A131 row 3c), same session: four mutants. A function loses its pin (`record_login_tenant` to `pg_catalog, public`) fails `TestTheTriggerFunctionsThatReadNoRelationPinTheirSearchPath`; the schema qualification of `tenant_login` removed fails `TestATemporaryTenantLoginTableDoesNotRedirectARecordCall` and three more; the tenant check of `outcome_record_verdict` removed fails `TestAnOutcomeLoginCannotRecordAVerdictForAnotherTenant`. **The grant of EXECUTE on `record_login_tenant` to `noema_migrator` removed was caught by no test** (in the test cluster the administrator owns `outcome_record_verdict`, so its privileges hid the gap; in production the migration role owns it), so `TestTheMigrationRoleCanExecuteRecordLoginTenantAndPublicCannot` is added; it fails on that mutant. Test-only; the migration is unchanged.
 ## Session 2026-11-11 · EXE-08 slice B (noema#229): after #168 merged, test-seed fix
 - What changed (PR links): noema#229: two test files, no production code. `platform/db/sig_test.go` seeds a `decision_record` before each grant and gives the grant's document the decision, the tenant and the bound fields (as `schema_test.go` does), because the grant guard of 0012 (#168) refuses a grant without them; the "void without a receipt" check runs through the tenant's own execution login, because row security hides a grant from an unmapped session. `adapters/outcome_e2e/crash_test.go` (#252, on `main`) builds the Controller with the Ed25519 receipt signer (`Receipts: signingtest.Ring`) instead of the removed `Keys: receiptRing` and `ReceiptKeyID`.
 - Why: with #168 on `main`, 14 receipt tests failed (the seeds) and `outcome_e2e` no longer compiled (`crash_test.go` used the pre-#229 Controller fields).
