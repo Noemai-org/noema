@@ -30,8 +30,8 @@ class ArmTurnResultV1ToolCallsItem(ContractModel):
     """ArmTurnResultV1ToolCallsItem Source: arm-turn-result.v1.json#/properties/tool_calls/items"""
 
     model_config = ConfigDict(extra="forbid")
-    call_id: Annotated[str, StringConstraints(pattern='^call_[0-9A-Za-z]{1,32}$')]
-    name: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_.]{1,63}$')]
+    call_id: Annotated[str, StringConstraints(pattern='\\Acall_[0-9A-Za-z]{1,32}\\Z')]
+    name: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_.]{1,63}\\Z')]
     arguments: dict[str, Any]
 
 
@@ -49,13 +49,13 @@ class ArmTurnResultV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion
-    turn_id: Annotated[str, StringConstraints(pattern='^trn_[0-9A-Za-z]{2,32}$')]
+    turn_id: Annotated[str, StringConstraints(pattern='\\Atrn_[0-9A-Za-z]{2,32}\\Z')]
     correlation_id: CommonV1CorrelationId
     label: Literal['SYNTHETIC']
     mode: ArmTurnResultV1Mode
     diagnostic: bool
     status: ArmTurnResultV1Status
-    provider_id: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]{1,31}$')]
+    provider_id: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]{1,31}\\Z')]
     model_version_: Annotated[str, StringConstraints(min_length=1, max_length=64)] = Field(alias='model_version')
     tool_calls: Annotated[list[ArmTurnResultV1ToolCallsItem], Field(max_length=16)]
     text: Annotated[str, StringConstraints(max_length=8000)] | None
