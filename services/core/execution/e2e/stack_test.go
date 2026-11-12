@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -192,6 +193,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	signingtest.Register(t, admin, ring)
+	led.Rec.Signers = recordsig.All(t, admin, "e2e", map[string]chain.Signer{"core-execution": ring})
 	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,

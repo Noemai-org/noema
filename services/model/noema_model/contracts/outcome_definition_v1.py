@@ -30,8 +30,8 @@ class OutcomeDefinitionV1(ContractModel):
     outcome_id: CommonV1PackId
     intent_nodes: list[CommonV1PackId]
     success_predicate: CommonV1Predicate
-    intermediate_states: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]]
-    terminal_states: Annotated[list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]], Field(min_length=1)]
+    intermediate_states: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]]
+    terminal_states: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)]
     settle_window_seconds: Annotated[int, Field(ge=0, le=9007199254740991)]
     verification_sources: Annotated[list[OutcomeDefinitionV1VerificationSourcesItem], Field(min_length=1)]
     compensation: Annotated[str, StringConstraints(min_length=1)]
