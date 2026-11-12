@@ -202,10 +202,19 @@ func TestTheFactsCallIsBoundedByTheConfiguredTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	_, err = e.Explain(context.Background(), subject, "dec_01J9X3")
-	if err == nil || time.Since(start) > 2*time.Second || len(rec.events) != 0 {
-		t.Fatalf("err %v after %v with %d events", err, time.Since(start), len(rec.events))
+	type answer struct{ err error }
+	done := make(chan answer, 1)
+	go func() {
+		_, err := e.Explain(context.Background(), subject, "dec_01J9X3")
+		done <- answer{err}
+	}()
+	select {
+	case a := <-done:
+		if a.err == nil || len(rec.events) != 0 {
+			t.Fatalf("err %v with %d events", a.err, len(rec.events))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the facts call was not bounded by the configured timeout")
 	}
 }
 
@@ -266,5 +275,16 @@ func TestNoBlockedEventOrErrorQuotesTheText(t *testing.T) {
 		if strings.Contains(s, "guarantee") || strings.Contains(s, "5,000") {
 			t.Errorf("rule %q quotes the text", s)
 		}
+	}
+}
+
+// The event needs the investigation's correlation id: facts without one are an error, not a block, and nothing is recorded.
+func TestFactsWithoutACorrelationIdAreAnErrorAndNothingIsRecorded(t *testing.T) {
+	f := slotFacts()
+	f.CorrelationId = ""
+	rec := &fakeRecorder{}
+	got, err := newExplainer(t, slotTemplates(t, "Your transfer has settled."), &fakeFacts{f: f}, rec).Explain(context.Background(), subject, "dec_01J9X3")
+	if err == nil || got.Text != "" || got.Blocked || len(rec.events) != 0 {
+		t.Fatalf("%+v, %v, %d events", got, err, len(rec.events))
 	}
 }

@@ -130,6 +130,12 @@ func TestTheValidatorRecomputesTheFilledTemplateFromTheFacts(t *testing.T) {
 	if problems := explanation.Validate(tpl, altered, f, nil); len(problems) == 0 {
 		t.Error("a text with a value that is not the fact's passed")
 	}
+	reordered := good
+	reordered.Text = "Your transfer has settled of NGN 5,000."
+	reordered.Claims = []explanation.Claim{{Span: reordered.Text, TemplateID: reordered.TemplateID}}
+	if problems := explanation.Validate(tpl, reordered, f, nil); len(problems) == 0 {
+		t.Error("a text made of the right words and figures but not the template filled from the facts passed")
+	}
 	if problems := explanation.Validate(tpl, good, withFacts(fact("f1", "payment.amount", known, "NGN 6,000")), nil); len(problems) == 0 {
 		t.Error("a text filled from other facts than the ones validated against passed")
 	}
@@ -149,8 +155,8 @@ func TestABraceInARenderedTextIsBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Text += " {fact:account}"
-	r.Claims = append(r.Claims, explanation.Claim{Span: " {fact:account}", FactIDs: []string{"f1"}})
+	r.Text += " {"
+	r.Claims = append(r.Claims, explanation.Claim{Span: " {", FactIDs: []string{"f1"}})
 	if problems := explanation.Validate(tpl, r, f, nil); len(problems) == 0 {
 		t.Error("a text with an unfilled placeholder passed")
 	}
