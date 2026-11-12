@@ -84,7 +84,7 @@ class IntentObjectV2(unittest.TestCase):
         stray = sorted(p for p in changed if not p.startswith(allowed_prefixes))
         self.assertEqual(stray, [], f"v2 changes more than ruling A163 allows: {stray}")
         self.assertIn("/properties/principal/properties/asserted_by/pattern", changed)
-        self.assertIn("/properties/schema_version", changed)
+        self.assertTrue(any(c.startswith("/properties/schema_version") for c in changed), "schema_version must differ (major 2)")
 
     def test_the_issuer_the_edge_verifies_is_a_legal_asserted_by_in_v2_and_not_in_v1(self):
         doc = sot_example()
