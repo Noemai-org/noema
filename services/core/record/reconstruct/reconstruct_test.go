@@ -694,7 +694,7 @@ func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
 	}
 	b := parse(t, raw)
 	for _, c := range []struct{ section, key, want string }{
-		{"REQUEST", "request_id", "******6789"},
+		{"REQUEST", "request_id", "see req_ab ******6789"},
 		{"DECISION", "decision_id", "acct_******6789"},
 		{"REQUEST", "intent_id", "int_AB123456CD"},
 		{"POLICY", "policy_id", "fin.pol.limit_0123456789"},

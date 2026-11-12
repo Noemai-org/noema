@@ -133,6 +133,23 @@ var (
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
 	longDigits  = regexp.MustCompile(`\p{Nd}{5,}`)
+
+	// idShapes is the contract shape of each ID fact the projection serves as written (common.v1; policy_id is a pack ID). An `_id` fact is exempt from masking
+	// only when its value has the shape of its own key; any other value, and any `_id` key not listed, is masked like every scalar (Codex P1 on noema#492, A154).
+	idShapes = map[string]*regexp.Regexp{
+		"request_id":          regexp.MustCompile(`^req_[0-9A-Za-z]{2,32}$`),
+		"intent_id":           regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`),
+		"clarification_id":    regexp.MustCompile(`^clr_[0-9A-Za-z]{2,32}$`),
+		"confirmation_id":     regexp.MustCompile(`^cf[re]_[0-9A-Za-z]{2,32}$`),
+		"decision_id":         regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`),
+		"plan_id":             regexp.MustCompile(`^pln_[0-9A-Za-z]{2,32}$`),
+		"grant_id":            regexp.MustCompile(`^grt_[0-9A-Za-z]{2,32}$`),
+		"receipt_id":          regexp.MustCompile(`^rcp_[0-9A-Za-z]{2,32}$`),
+		"verdict_id":          regexp.MustCompile(`^ver_[0-9A-Za-z]{2,32}$`),
+		"watch_id":            regexp.MustCompile(`^wat_[0-9A-Za-z]{2,32}$`),
+		"recovery_request_id": regexp.MustCompile(`^rrq_[0-9A-Za-z]{2,32}$`),
+		"policy_id":           packIDRe,
+	}
 )
 
 // keepDigits is how many digits of a long run a served fact keeps (AGENTS.md section 7: mask to the last four).
@@ -213,8 +230,8 @@ func fact(key string, v any) (any, error) {
 		if len([]rune(x)) > maxFactString {
 			return nil, projErr("%s is longer than %d characters", key, maxFactString)
 		}
-		if strings.HasSuffix(key, "_id") {
-			return x, nil // an ID cited by other facts; never a personal number (PERD 32.3 prefixes)
+		if re, ok := idShapes[key]; ok && re.MatchString(x) {
+			return x, nil // an ID cited by other facts, in the shape of its contract (PERD 32.3 prefixes); anything else is masked
 		}
 		return mask(x), nil
 	case json.Number:

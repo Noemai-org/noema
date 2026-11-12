@@ -95,3 +95,8 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 ### Pre-work for the next agent
 - Exact next step: none for this change. Other outward surfaces (logs, traces) belong to the redaction package, which is not built (`platform/redaction/doc.go` only); it must use `\p{Nd}` too.
 - Do not touch: the migrations.
+
+### Addendum 2026-11-12 16:30 WAT · A154: the `_id` exemption needs the key's shape (Codex P1 on noema#492)
+- What changed: `project.go`: an `_id` fact is exempt from masking only when it matches the contract shape of its key (`idShapes`); other values and unlisted `_id` keys are masked. Before, any key ending in `_id` was served as written.
+- Tests: `TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey` (red first at the test-only commit): a number in `request_id` or a wrong-prefix `decision_id` is masked; a contract-shaped ID with a digit run (`int_AB123456CD`) and a pack ID are kept. Mutants: blanket suffix again, `decision_id` accepting any prefix, an unanchored `request_id`, a `policy_id` shape that never matches: each caught.
+- Residual, stated: a shape-valid ID can hold a long digit run (about 6 percent of real ULIDs hold a run of five), so digit runs cannot be refused inside IDs; the Record's own writers mint IDs, so a hostile ID would have to come from a writer. The `events` array is the hashed Record and is served as stored (README); masking at the write path is the redactor's (SEC-03).
