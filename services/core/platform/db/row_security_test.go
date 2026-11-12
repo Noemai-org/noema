@@ -94,13 +94,21 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 	w := newRowWorld(t)
 	exp := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	trust := testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", "ten_a")
-	if _, err := trust.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_x', 'ten_b', 'dec_x', 'nonce_x', '{}'::jsonb, 'pol', '1', $1, 'k1', 'sig')`, exp); err == nil {
+	// The grant guard (noema#168) needs an ALLOW record of the grant's own tenant, so the only thing left to refuse the cross-tenant insert is row
+	// security, not a missing record (a refusal for the wrong reason would prove nothing). Both records are made by the admin.
+	for _, rec := range [][2]string{{"dec_x", "ten_b"}, {"dec_own", "ten_a"}} {
+		if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ($1, $2, jsonb_build_object('decision_id', $1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || `+testpg.BoundFieldsSQL+`, 'ALLOW', '`+testpg.FixtureIntentHash+`', '[]', 'k1', 'aa')`, rec[0], rec[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const insertGrant = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
+		VALUES ($1, $2, $3, 'nonce_'||$1::text, jsonb_build_object('decision_id', $3::text, 'tenant_id', $2::text) || `+testpg.GrantBoundSQL+`, 'pol_1', '1', $4, 'k1', 'sig')`
+	if _, err := trust.Exec(ctx(t), insertGrant, "grt_x", "ten_b", "dec_x", exp); err == nil {
 		t.Error("trust_rw as ten_a inserted a decision_grant for ten_b")
 	}
-	// Positive control: the same statements for the login's OWN tenant succeed, so a refusal below can only be about the tenant.
-	if _, err := trust.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ('grt_own', 'ten_a', 'dec_own', 'nonce_own', '{}'::jsonb, 'pol', '1', $1, 'k1', 'sig')`, exp); err != nil {
+	// Positive control: the same statement for the login's OWN tenant succeeds, so a refusal above can only be about the tenant.
+	if _, err := trust.Exec(ctx(t), insertGrant, "grt_own", "ten_a", "dec_own", exp); err != nil {
 		t.Fatalf("control: trust_rw as ten_a cannot insert its own tenant's decision_grant: %v", err)
 	}
 	pools := map[string]*pgxpool.Pool{
