@@ -98,33 +98,14 @@ class DigitRunLimitTest(unittest.TestCase):
         self.assertEqual(ci.judge(403, json.dumps({"error": "acct_1234"}))[0], True)
         self.assertEqual(ci.judge(403, json.dumps({"error": "acct_12345"}))[0], False)
 
-    def test_a_different_value_in_the_file_changes_the_scanner(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "masking_limits.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 6}, f)
-            pattern = ci.digit_run_pattern(ci.max_unmasked_digit_run(path))
-            self.assertIsNone(pattern.search("acct_123456"))
-            self.assertIsNotNone(pattern.search("acct_1234567"))
-
-    def test_judge_reads_the_file_it_is_pointed_at(self) -> None:
-        import tempfile
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "masking_limits.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 6}, f)
-            original = ci.MASKING_LIMITS_FILE
-            ci.MASKING_LIMITS_FILE = path
-            try:
-                self.assertTrue(ci.judge(403, json.dumps({"error": "acct_123456"}))[0])
-                self.assertFalse(ci.judge(403, json.dumps({"error": "acct_1234567"}))[0])
-            finally:
-                ci.MASKING_LIMITS_FILE = original
+    def test_the_pattern_matches_a_run_longer_than_the_value_it_is_given(self) -> None:
+        pattern = ci.digit_run_pattern(4)
+        self.assertIsNone(pattern.search("acct_1234"))
+        self.assertIsNotNone(pattern.search("acct_12345"))
 
     def test_a_file_that_is_not_the_contract_is_refused(self) -> None:
         import tempfile
-        bad: List[Any] = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 33, 4.5, True, "4", None)]
+        bad: List[Any] = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 5, 6, 8, 33, 4.5, True, "4", None)]
         bad += [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC"}, {"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 4, "x": 1}, []]
         with tempfile.TemporaryDirectory() as d:
             for i, doc in enumerate(bad):

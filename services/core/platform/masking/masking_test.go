@@ -39,12 +39,15 @@ func TestThePacksLimitIsFourAndAFiveDigitRunIsTheFirstThatIsMasked(t *testing.T)
 	}
 }
 
-// The value comes from the document and from nowhere else: other valid values come back as they were written.
-func TestTheValueIsTheDocumentsAndNothingElse(t *testing.T) {
-	for _, v := range []int{4, 5, 6, 32} {
-		l, err := masking.Load(strings.NewReader(doc(strconv.Itoa(v))))
-		if err != nil || l.MaxUnmaskedRun() != v || l.MinMaskedRun() != v+1 {
-			t.Errorf("value %d: got %d/%d, %v", v, l.MaxUnmaskedRun(), l.MinMaskedRun(), err)
+// A154 as corrected: the value is exactly 4, in the contract itself, so no consumer can validate a looser policy.
+func TestOnlyFourIsAValidValue(t *testing.T) {
+	l, err := masking.Load(strings.NewReader(doc("4")))
+	if err != nil || l.MaxUnmaskedRun() != 4 || l.MinMaskedRun() != 5 {
+		t.Fatalf("got %d/%d, %v", l.MaxUnmaskedRun(), l.MinMaskedRun(), err)
+	}
+	for _, v := range []int{-1, 0, 3, 5, 6, 8, 32, 33} {
+		if _, err := masking.Load(strings.NewReader(doc(strconv.Itoa(v)))); err == nil {
+			t.Errorf("value %d was accepted", v)
 		}
 	}
 }
@@ -54,6 +57,8 @@ func TestAnyDeviationFromTheContractIsRefused(t *testing.T) {
 	cases := map[string]string{
 		"below the digits a mask keeps": doc("3"),
 		"above the contract maximum":    doc("33"),
+		"looser than the ruling":        doc("5"),
+		"the harness floor":             doc("8"),
 		"zero":                          doc("0"),
 		"negative":                      doc("-4"),
 		"fractional":                    doc("4.5"),

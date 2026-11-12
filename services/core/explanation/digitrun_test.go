@@ -8,17 +8,7 @@ import (
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/explanation"
-	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
-
-func limit(t *testing.T, v string) masking.Limits {
-	t.Helper()
-	l, err := masking.Load(strings.NewReader(`{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC","max_unmasked_digit_run":` + v + `}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return l
-}
 
 func check4(t *testing.T, tpl explanation.Templates, text string) []string {
 	t.Helper()
@@ -42,17 +32,6 @@ func TestThePacksLimitBlocksTheFirstRunLongerThanItsValue(t *testing.T) {
 		if len(check4(t, tpl, text)) == 0 {
 			t.Errorf("%s: a run of 5 was not blocked", name)
 		}
-	}
-}
-
-// The value is read, not remembered: with a limit of 6 the same five-digit run passes and a seven-digit run is blocked.
-func TestTheValidatorReadsTheLimitItWasGiven(t *testing.T) {
-	tpl := load(t).WithMaskingLimits(limit(t, "6"))
-	if got := check4(t, tpl, "Reference 12345 and 123456."); len(got) != 0 {
-		t.Errorf("runs of 5 and 6 are allowed under a limit of 6: %v", got)
-	}
-	if len(check4(t, tpl, "Reference 1234567.")) == 0 {
-		t.Error("a run of 7 passed under a limit of 6")
 	}
 }
 

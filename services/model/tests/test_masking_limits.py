@@ -30,19 +30,10 @@ def test_the_packs_limit_is_four_and_a_five_digit_run_is_the_first_masked() -> N
     assert redactor.mask_account_numbers("acct 0123456789") == "acct ******6789"
 
 
-@pytest.mark.parametrize("value", [4, 5, 6, 32])
-def test_the_value_is_the_documents_and_the_redactor_masks_the_run_after_it(value: int) -> None:
-    limits = load_limits(doc(max_unmasked_digit_run=value))
-    assert (limits.max_unmasked_run, limits.min_masked_run) == (value, value + 1)
-    redactor = Redactor.from_limits(limits)
-    assert redactor.mask_account_numbers("7" * value) == "7" * value
-    assert redactor.mask_account_numbers("7" * (value + 1)) == "*" * (value + 1 - 4) + "7777"
-
-
 @pytest.mark.parametrize(
     "text",
     [
-        doc(max_unmasked_digit_run=3), doc(max_unmasked_digit_run=33), doc(max_unmasked_digit_run=0), doc(max_unmasked_digit_run=-4),
+        doc(max_unmasked_digit_run=3), doc(max_unmasked_digit_run=5), doc(max_unmasked_digit_run=8), doc(max_unmasked_digit_run=32), doc(max_unmasked_digit_run=33), doc(max_unmasked_digit_run=0), doc(max_unmasked_digit_run=-4),
         doc(max_unmasked_digit_run=4.5), doc(max_unmasked_digit_run="4"), doc(max_unmasked_digit_run=True), doc(max_unmasked_digit_run=None),
         doc(schema_version="2.0"), doc(label="REAL"), doc(pack_id="fin\n"), doc(pack_id="FIN"), doc(min_masked_run=5),
         json.dumps({"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC"}),
@@ -55,6 +46,6 @@ def test_any_deviation_from_the_contract_is_refused(text: str) -> None:
 
 
 def test_a_limit_object_cannot_be_made_with_a_bad_value() -> None:
-    for bad in (3, 33, 4.5, True, None, "4"):
+    for bad in (3, 5, 8, 32, 33, 4.5, True, None, "4"):
         with pytest.raises(MaskingLimitsError):
             MaskingLimits(max_unmasked_run=bad)  # type: ignore[arg-type]
