@@ -28,11 +28,19 @@ type fakes struct {
 	explEr   error
 	failAt   int // the nth AppendChange fails (1-based); 0 means never
 
+	admission orchestrator.Admission // what the Record holds for the turn's INPUT_RECEIVED reference
+	admitEr   error
+	lookedUp  string // the reference the runner asked about
+
 	calls   []string
 	changes []orchestrator.Change
 	session orchestrator.Session // the session every port was called with
 }
 
+func (f *fakes) Lookup(_ context.Context, s orchestrator.Session, ref string) (orchestrator.Admission, error) {
+	f.calls, f.session, f.lookedUp = append(f.calls, "admission"), s, ref
+	return f.admission, f.admitEr
+}
 func (f *fakes) Interpret(_ context.Context, s orchestrator.Session, _ orchestrator.Turn) (orchestrator.Interpretation, error) {
 	f.calls, f.session = append(f.calls, "interpret"), s
 	return f.interp, f.interpEr
@@ -60,10 +68,11 @@ func (f *fakes) AppendChange(_ context.Context, s orchestrator.Session, c orches
 
 func happy() *fakes {
 	return &fakes{
-		interp:   orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: "int_AA11"},
-		evid:     orchestrator.EvidenceRef{SnapshotID: "evs_AA11"},
-		decision: orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: true},
-		expl:     orchestrator.Explanation{Text: "Your payment is pending at the destination."},
+		admission: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_AA11"},
+		interp:    orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: "int_AA11"},
+		evid:      orchestrator.EvidenceRef{SnapshotID: "evs_AA11"},
+		decision:  orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: true},
+		expl:      orchestrator.Explanation{Text: "Your payment is pending at the destination."},
 	}
 }
 
@@ -78,7 +87,7 @@ func runner(t *testing.T, f *fakes) *orchestrator.Runner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f})
+	r, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +116,7 @@ func TestAReadWalksTheTableAndRecordsEveryMoveBeforeTheNextStep(t *testing.T) {
 		t.Errorf("answer %q", res.Answer)
 	}
 	// Record first: each move is recorded before the port work that follows it.
-	order := []string{"record:INTERPRETING", "interpret", "record:EVALUATING", "evidence", "decide", "record:EXPLAINING", "explain", "record:COMPLETED"}
+	order := []string{"admission", "record:INTERPRETING", "interpret", "record:EVALUATING", "evidence", "decide", "record:EXPLAINING", "explain", "record:COMPLETED"}
 	if !reflect.DeepEqual(f.calls, order) {
 		t.Errorf("calls %v, want %v", f.calls, order)
 	}
@@ -165,6 +174,48 @@ func TestATurnWithoutTheRecordedInputReceivedIsRefusedBeforeAnythingIsRecordedOr
 	tr.InputReceivedRef = "recev_" + "A123456789B123456789C123456789D1"
 	if _, err := runner(t, f).RunRead(context.Background(), sess, tr); err != nil {
 		t.Errorf("a reference of 32 characters is valid: %v", err)
+	}
+}
+
+// A161 and the reviewer's P1 on noema#465: a reference that merely looks like an event ID proves nothing. The runner asks the Record (through the Admissions port, which
+// reads as the session's tenant) for the event the reference names and runs only if that event is an INPUT_RECEIVED of this tenant, this principal and this correlation.
+// A fabricated reference, one from another tenant, principal or correlation, another event type, an event with an empty field and a failed lookup are all refused before
+// anything is recorded or run: the only call is the lookup.
+func TestAReferenceThatTheRecordDoesNotConfirmAsThisTurnsInputIsRefusedBeforeAnythingIsRecordedOrRun(t *testing.T) {
+	good := happy().admission
+	cases := map[string]func(*fakes){
+		"no such event":                func(f *fakes) { f.admission, f.admitEr = orchestrator.Admission{}, errors.New("not found") },
+		"a lookup that failed":         func(f *fakes) { f.admission, f.admitEr = good, errors.New("record unavailable") },
+		"another tenant's event":       func(f *fakes) { f.admission.TenantID = "ten_bb" },
+		"another principal's event":    func(f *fakes) { f.admission.PrincipalID = "usr_02" },
+		"another correlation":          func(f *fakes) { f.admission.CorrelationID = "corr_BB22" },
+		"another event type":           func(f *fakes) { f.admission.EventType = "INTENT_PROPOSED" },
+		"an event with no type":        func(f *fakes) { f.admission.EventType = "" },
+		"an event with no tenant":      func(f *fakes) { f.admission.TenantID = "" },
+		"an event with no principal":   func(f *fakes) { f.admission.PrincipalID = "" },
+		"an event with no correlation": func(f *fakes) { f.admission.CorrelationID = "" },
+	}
+	for name, mutate := range cases {
+		f := happy()
+		mutate(f)
+		res, err := runner(t, f).RunRead(context.Background(), sess, turn)
+		if !errors.Is(err, orchestrator.ErrNoInputReceived) {
+			t.Errorf("%s: err %v, want ErrNoInputReceived", name, err)
+		}
+		if !reflect.DeepEqual(f.calls, []string{"admission"}) || len(f.changes) != 0 || len(res.Changes) != 0 || res.Answer != "" {
+			t.Errorf("%s: calls %v, recorded %v, result %+v; want only the lookup", name, f.calls, f.changes, res)
+		}
+	}
+}
+
+// The lookup is made with the session's tenant and the turn's reference, and a confirmed event lets the run go on.
+func TestTheLookupGetsTheSessionAndTheTurnsReference(t *testing.T) {
+	f := happy()
+	if _, err := runner(t, f).RunRead(context.Background(), sess, turn); err != nil {
+		t.Fatal(err)
+	}
+	if f.lookedUp != turn.InputReceivedRef || f.session != sess {
+		t.Errorf("looked up %q as %+v; want %q as %+v", f.lookedUp, f.session, turn.InputReceivedRef, sess)
 	}
 }
 
@@ -284,11 +335,11 @@ func TestARunnerThatIsNotFullyWiredDoesNotBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := happy()
-	full := orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f}
+	full := orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f}
 	for name, p := range map[string]orchestrator.Ports{
-		"no interpreter": {Evidence: f, Trust: f, Explainer: f, Recorder: f}, "no evidence": {Interpreter: f, Trust: f, Explainer: f, Recorder: f},
-		"no trust": {Interpreter: f, Evidence: f, Explainer: f, Recorder: f}, "no explainer": {Interpreter: f, Evidence: f, Trust: f, Recorder: f},
-		"no recorder": {Interpreter: f, Evidence: f, Trust: f, Explainer: f},
+		"no interpreter": {Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f}, "no evidence": {Interpreter: f, Trust: f, Explainer: f, Recorder: f, Admissions: f},
+		"no trust": {Interpreter: f, Evidence: f, Explainer: f, Recorder: f, Admissions: f}, "no explainer": {Interpreter: f, Evidence: f, Trust: f, Recorder: f, Admissions: f},
+		"no recorder": {Interpreter: f, Evidence: f, Trust: f, Explainer: f, Admissions: f}, "no admissions": {Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f},
 	} {
 		if _, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, p); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("%s: %v; want ErrNotWired", name, err)

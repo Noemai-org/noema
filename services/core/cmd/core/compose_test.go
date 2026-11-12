@@ -27,6 +27,9 @@ func (okPorts) Decide(context.Context, orchestrator.Session, string, orchestrato
 func (okPorts) Explain(context.Context, orchestrator.Session, string) (orchestrator.Explanation, error) {
 	return orchestrator.Explanation{}, nil
 }
+func (okPorts) Lookup(context.Context, orchestrator.Session, string) (orchestrator.Admission, error) {
+	return orchestrator.Admission{}, nil
+}
 func (okPorts) AppendChange(context.Context, orchestrator.Session, orchestrator.Change) error {
 	return nil
 }
@@ -34,7 +37,7 @@ func (okPorts) AppendChange(context.Context, orchestrator.Session, orchestrator.
 func full() Components {
 	p := okPorts{}
 	return Components{
-		Ports: orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p},
+		Ports: orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p, Admissions: p},
 		Edge:  func(next http.Handler) http.Handler { return next },
 	}
 }
@@ -56,7 +59,7 @@ func TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing(t *testing.T
 	cases := map[string]func(*Components){
 		"interpreter": func(c *Components) { c.Ports.Interpreter = nil }, "evidence": func(c *Components) { c.Ports.Evidence = nil },
 		"trust": func(c *Components) { c.Ports.Trust = nil }, "explainer": func(c *Components) { c.Ports.Explainer = nil },
-		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "edge chain": func(c *Components) { c.Edge = nil },
+		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "admissions": func(c *Components) { c.Ports.Admissions = nil }, "edge chain": func(c *Components) { c.Edge = nil },
 	}
 	for name, drop := range cases {
 		c := full()
