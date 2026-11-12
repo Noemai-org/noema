@@ -40,8 +40,13 @@ func newRowWorld(t *testing.T) *rowWorld {
 	exp := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	for _, tn := range []string{"a", "b"} {
 		ten := "ten_" + tn
+		// The grant guard (noema#168) needs an ALLOW record of the same tenant first, and a grant that agrees with it (intent hash, policy version, window).
+		if _, err := admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value)
+			VALUES ('dec_'||$1::text, $2, jsonb_build_object('decision_id', 'dec_'||$1::text, 'tenant_id', $2::text, 'outcome', 'ALLOW', 'sig', jsonb_build_object('key_id', 'k1', 'value', 'aa')) || `+testpg.BoundFieldsSQL+`, 'ALLOW', '`+testpg.FixtureIntentHash+`', '[]', 'k1', 'aa')`, tn, ten); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := admin.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-			VALUES ($1, $2, 'dec_'||$3::text, 'nonce_'||$3::text, '{}'::jsonb, 'pol', '1', $4, 'k1', 'sig')`, "grt_"+tn, ten, tn, exp); err != nil {
+			VALUES ($1, $2, 'dec_'||$3::text, 'nonce_'||$3::text, jsonb_build_object('decision_id', 'dec_'||$3::text, 'tenant_id', $2::text) || `+testpg.GrantBoundSQL+`, 'pol_1', '1', $4, 'k1', 'sig')`, "grt_"+tn, ten, tn, exp); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := admin.Exec(ctx(t), `INSERT INTO outbox_event (outbox_id, tenant_id, topic, payload, created_at) VALUES ($1, $2, 'topic', '{}'::jsonb, $3)`,
