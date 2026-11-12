@@ -9,6 +9,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
+// inputReceived is the Record event type the input gateway writes when it admits a turn (PERD 28.2, entry of RECEIVED).
+const inputReceived = "INPUT_RECEIVED"
+
 // recordEventID is the pattern of a Record event ID (common.v1 RecordEventId). \z, not $, so a trailing newline does not match (A138).
 var recordEventID = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
 
@@ -25,7 +28,7 @@ func NewRunner(m *Machine, p Ports) (*Runner, error) {
 	switch {
 	case m == nil || m.Table == nil:
 		return nil, fmt.Errorf("%w: no machine or table", ErrNotWired)
-	case p.Interpreter == nil || p.Evidence == nil || p.Trust == nil || p.Explainer == nil || p.Recorder == nil:
+	case p.Interpreter == nil || p.Evidence == nil || p.Trust == nil || p.Explainer == nil || p.Recorder == nil || p.Admissions == nil:
 		return nil, fmt.Errorf("%w: a port is missing", ErrNotWired)
 	}
 	return &Runner{m: m, p: p}, nil
@@ -74,6 +77,15 @@ func (r *Runner) RunRead(ctx context.Context, s Session, t Turn) (Result, error)
 		return Result{}, ErrBadTurn
 	}
 	if !recordEventID.MatchString(t.InputReceivedRef) {
+		return Result{}, ErrNoInputReceived
+	}
+	// The shape proves nothing: the Record must confirm the event, and that it is this turn's input (tenant, principal and correlation), before anything runs.
+	a, err := r.p.Admissions.Lookup(ctx, s, t.InputReceivedRef)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: lookup: %w", ErrNoInputReceived, err)
+	}
+	// The session's tenant and principal and the turn's correlation are non-empty here, so an event with an empty field cannot match.
+	if a.EventType != inputReceived || a.TenantID != s.TenantID || a.PrincipalID != s.PrincipalID || a.CorrelationID != t.CorrelationID {
 		return Result{}, ErrNoInputReceived
 	}
 	u := &run{ctx: ctx, r: r, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}

@@ -81,6 +81,16 @@ type Recorder interface {
 	AppendChange(ctx context.Context, s Session, c Change) error
 }
 
+// Admission is what the Record holds for one event the input gateway wrote: its type and the identity it names. The port fills it from the stored event, reading as the
+// session's tenant; the runner compares every field itself.
+type Admission struct{ EventType, TenantID, PrincipalID, CorrelationID string }
+
+// Admissions finds the recorded event a turn's InputReceivedRef names (A161). It reads the Record as the session's tenant (row-level security), so an event of another
+// tenant is not found. An event that does not exist is an error, not an empty Admission.
+type Admissions interface {
+	Lookup(ctx context.Context, s Session, ref string) (Admission, error)
+}
+
 // Ports is every service the runner needs. NewRunner refuses a Ports with any of them missing.
 type Ports struct {
 	Interpreter Interpreter
@@ -88,6 +98,7 @@ type Ports struct {
 	Trust       Trust
 	Explainer   Explainer
 	Recorder    Recorder
+	Admissions  Admissions
 }
 
 // Errors of the runner. Callers compare with errors.Is.
@@ -98,7 +109,8 @@ var (
 	ErrNoSession = errors.New("orchestrator: the session has no tenant or no principal")
 	// ErrBadTurn is returned for a turn without an investigation ID, a correlation ID or text, or with a control character in an ID.
 	ErrBadTurn = errors.New("orchestrator: the turn is not valid")
-	// ErrNoInputReceived is returned for a turn whose InputReceivedRef is not the ID of a recorded INPUT_RECEIVED event (A161): nothing is recorded or run.
+	// ErrNoInputReceived is returned for a turn whose InputReceivedRef is not the ID of a recorded INPUT_RECEIVED event of this tenant, principal and correlation (A161):
+	// nothing is recorded or run.
 	ErrNoInputReceived = errors.New("orchestrator: the turn does not name its recorded INPUT_RECEIVED event")
 	// ErrRecordFailed wraps a failed append of a state change: the run stopped before it, and nothing after it ran (the Record comes first).
 	ErrRecordFailed = errors.New("orchestrator: the Record append failed")

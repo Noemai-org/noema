@@ -17,6 +17,7 @@ import (
 //   - Ports.Trust: the Trust gate and the Decision Record writer (TRU-05, noema#237);
 //   - Ports.Explainer: the template explanation renderer (EXP-01);
 //   - Ports.Recorder: the Record-backed recorder of state changes (STM-01 slice 2);
+//   - Ports.Admissions: the Record read that confirms a turn's INPUT_RECEIVED event (A161; a read as the session's tenant, STM-01 slice 2);
 //   - Edge: the session middleware, the body guard and the role gate, in that order (EDG-01 slice 3b, noema#445).
 type Components struct {
 	Ports orchestrator.Ports
@@ -41,6 +42,8 @@ func missing(c Components) string {
 		return "explainer"
 	case c.Ports.Recorder == nil:
 		return "recorder"
+	case c.Ports.Admissions == nil:
+		return "admissions"
 	case c.Edge == nil:
 		return "edge chain"
 	}
