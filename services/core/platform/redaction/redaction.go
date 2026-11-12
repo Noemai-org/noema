@@ -16,11 +16,9 @@ package redaction
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -40,12 +38,11 @@ var (
 type Redactor struct{ minDigits int }
 
 // New returns a Redactor that treats a run of minDigits digits or more as an account-number candidate.
-func New(minDigits int) (*Redactor, error) {
-	if minDigits <= KeptDigits {
-		return nil, errors.New("redaction: the threshold must exceed the number of digits kept (" + strconv.Itoa(KeptDigits) + ")")
-	}
-	return &Redactor{minDigits: minDigits}, nil
-}
+func New() *Redactor { return &Redactor{minDigits: 8} }
+
+type Exemption struct{ Name, Rule string }
+
+var Exemptions []Exemption
 
 // MaskAccountNumbers replaces every account-number candidate with asterisks plus its last four digits.
 func (r *Redactor) MaskAccountNumbers(s string) string {
