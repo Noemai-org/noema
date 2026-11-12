@@ -40,14 +40,14 @@ func full() Components {
 }
 
 func TestAFullyWiredSliceComposesAndIsReady(t *testing.T) {
-	app, err := compose(full())
+	app, err := compose(full(), okAPI)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if app.Runner == nil {
 		t.Fatal("no runner")
 	}
-	if ok, reason := composeReadiness(full())(); !ok || reason != "" {
+	if ok, reason := composeReadiness(full(), okAPI)(); !ok || reason != "" {
 		t.Errorf("ready %v, reason %q; want ready", ok, reason)
 	}
 }
@@ -61,12 +61,22 @@ func TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing(t *testing.T
 	for name, drop := range cases {
 		c := full()
 		drop(&c)
-		if app, err := compose(c); err == nil || app != nil {
+		if app, err := compose(c, okAPI); err == nil || app != nil {
 			t.Errorf("%s missing: composed (%v)", name, err)
 		}
-		ok, reason := composeReadiness(c)()
+		ok, reason := composeReadiness(c, okAPI)()
 		if ok || !strings.Contains(reason, name) {
 			t.Errorf("%s missing: ready %v, reason %q; want not ready and the name in the reason", name, ok, reason)
 		}
+	}
+}
+
+// A composition without the protected /v1 handler (no session settings) is refused, and readiness names the edge chain.
+func TestNoProtectedAPIMeansNoComposition(t *testing.T) {
+	if app, err := compose(full(), nil); err == nil || app != nil {
+		t.Fatalf("composed without an API: %v", err)
+	}
+	if ok, reason := composeReadiness(full(), nil)(); ok || !strings.Contains(reason, "edge chain") {
+		t.Fatalf("ready %v, reason %q", ok, reason)
 	}
 }
