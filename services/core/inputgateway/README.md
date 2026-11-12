@@ -31,4 +31,4 @@
 - If `Start` fails after `INPUT_RECEIVED` is recorded, the client gets 503, and a retry is answered as a duplicate while no turn runs. Resuming a recorded input that never started is the persistence slice of the orchestrator (STM-01).
 - The text rules (NFC, trim, 2,000 characters, `is_final`) are the model service's gateway, not here.
 
-**Tests.** `go test -race ./inputgateway/` from `services/core/`; they need PostgreSQL (the shared test server) and run against the real Record with a `core-edge` emitter login and a `record_read` login. Fifteen mutations of the gateway and recorder were run by hand and each is killed by a named test (see `status/UND-02.md`).
+**Tests.** `go test -race ./inputgateway/` from `services/core/`; they need PostgreSQL (the shared test server) and run against the real Record with a `core-edge` emitter login and a `record_read` login. Nineteen mutations of the gateway and recorder were run by hand and each is killed by a named test (see `status/UND-02.md`).

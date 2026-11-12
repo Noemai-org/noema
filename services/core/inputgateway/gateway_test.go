@@ -282,9 +282,6 @@ func TestWhatTheGatewayRefusesWritesNothingAndStartsNothing(t *testing.T) {
 		if !errors.Is(err, inputgateway.ErrInvalidInput) || res != (inputgateway.Result{}) {
 			t.Errorf("%s: result %+v err %v, want ErrInvalidInput", name, res, err)
 		}
-		if strings.Contains(errString(err), "hi") && name == "an unknown member" {
-			t.Errorf("%s: the error quotes the body: %v", name, err)
-		}
 	}
 	for name, id := range map[string]inputgateway.Identity{
 		"no tenant":                {PrincipalID: "usr_88213", PrincipalKind: "customer", SessionID: "ses_7a1b"},
@@ -303,13 +300,6 @@ func TestWhatTheGatewayRefusesWritesNothingAndStartsNothing(t *testing.T) {
 	if len(w.events()) != 0 || len(sp.turns) != 0 {
 		t.Errorf("events %d, turns %d: a refused input left something behind", len(w.events()), len(sp.turns))
 	}
-}
-
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 func mustJSON(v any) []byte {
@@ -498,3 +488,43 @@ func TestTheReconstructionServesTheRecordedInputAsItsRequestSection(t *testing.T
 }
 
 func keysOf(m map[string]any) string { return strings.Join(keys(m), ",") }
+
+// AGENT-13: the text of an input is never in an error, in the HTTP error envelope or in an answer, whatever the refusal.
+func TestNoErrorOrResponseQuotesTheTextOfAnInput(t *testing.T) {
+	const marker = "MARKER-7731-PRIVATE-TEXT"
+	w := newWorld(t)
+	sp := &spy{}
+	g := w.gateway(tenantA, sp)
+	h := g.Handler(func(*http.Request) (inputgateway.Identity, bool) { return identity(tenantA, "usr_88213"), true })
+	first := body(reqID, marker)
+	for name, doc := range map[string][]byte{
+		"an unknown member":  []byte(`{"request_id":"` + reqID + `","channel":"text","text":"` + marker + `","extra":1}`),
+		"a bad channel":      []byte(`{"request_id":"` + reqID + `","channel":"` + marker + `","text":"` + marker + `"}`),
+		"a bad request id":   []byte(`{"request_id":"` + marker + `","channel":"text","text":"` + marker + `"}`),
+		"a bad locale":       []byte(`{"request_id":"` + reqID + `","channel":"text","text":"` + marker + `","locale_hint":"` + marker + `"}`),
+		"a first good input": first,
+		"a redelivery":       first,
+		"a reused id":        body(reqID, marker+" again"),
+	} {
+		if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), doc); err != nil && strings.Contains(err.Error(), marker) {
+			t.Errorf("%s: the error quotes the text: %v", name, err)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/v1/conversations", bytes.NewReader(doc))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		if strings.Contains(rec.Body.String(), marker) {
+			t.Errorf("%s: the HTTP answer quotes the text: %s", name, rec.Body.String())
+		}
+	}
+	w.fail.set(true)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/conversations", bytes.NewReader(body("1c9a4d2f-63b5-4e8f-8b72-4d1a6e3f8c2a", marker))))
+	if strings.Contains(rec.Body.String(), marker) {
+		t.Errorf("Record down: the HTTP answer quotes the text: %s", rec.Body.String())
+	}
+	for _, e := range w.events() {
+		if strings.Contains(string(mustJSON(e.Payload)), marker) || strings.Contains(string(mustJSON(e.Body)), marker) {
+			t.Errorf("event %s %s quotes the text", e.EventType, e.EventID)
+		}
+	}
+}
