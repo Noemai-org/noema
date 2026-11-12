@@ -127,8 +127,13 @@ func TestTheSameRequestIdAndBodyIsDeduplicatedAndReturnsTheOriginalResult(t *tes
 	if dd[0].WrittenBy != "core-edge" || dd[0].Actor != "customer:usr_88213" || dd[0].Payload["request_id"] != reqID || dd[0].Payload["original_event_id"] != first.Input.EventID {
 		t.Errorf("INPUT_DEDUPLICATED %+v", dd[0])
 	}
-	if len(sp.turns) != 1 {
-		t.Errorf("the orchestrator was handed %d turns, want 1", len(sp.turns))
+	// A168: a retry calls Start again with the same turn (the same recorded input and correlation); Start is idempotent per recorded input, so this is safe, and it is
+	// what un-strands a turn whose first Start failed.
+	if len(sp.turns) != 2 || sp.turns[1].Input != sp.turns[0].Input || sp.turns[1].CorrelationID != sp.turns[0].CorrelationID || sp.turns[1].RequestID != reqID {
+		t.Errorf("the orchestrator was handed %d turns, want 2 for the same recorded input: %+v", len(sp.turns), sp.turns)
+	}
+	if sp.received[1] != 1 {
+		t.Errorf("INPUT_RECEIVED events in the Record when the retry's turn arrived: %d, want 1", sp.received[1])
 	}
 }
 
@@ -249,8 +254,87 @@ func TestConcurrentRedeliveriesProduceOneInputReceived(t *testing.T) {
 			dups++
 		}
 	}
-	if n := len(w.events("INPUT_RECEIVED")); n != 1 || dups != 7 || len(sp.turns) != 1 {
-		t.Errorf("INPUT_RECEIVED %d, deduplicated answers %d, turns %d; want 1, 7, 1", n, dups, len(sp.turns))
+	if n := len(w.events("INPUT_RECEIVED")); n != 1 || dups != 7 {
+		t.Errorf("INPUT_RECEIVED %d, deduplicated answers %d; want 1, 7", n, dups)
+	}
+	// A168: every delivery hands Start the same recorded input (Start is idempotent per recorded input); the Record holds one input.
+	if len(sp.turns) != 8 {
+		t.Fatalf("turns %d, want 8 (the first delivery and seven retries)", len(sp.turns))
+	}
+	for i, turn := range sp.turns {
+		if turn.Input != results[0].Input || turn.CorrelationID != results[0].CorrelationID {
+			t.Errorf("turn %d is for another input: %+v", i, turn)
+		}
+	}
+}
+
+// A168 (Codex P1 on noema#466): an input whose first Start failed is recorded, so a retry finds it. The retry must call Start again and not answer "accepted" while no
+// turn runs.
+func TestARetryAfterAFailedStartCallsStartAgainAndReturnsTheOriginalResult(t *testing.T) {
+	w := newWorld(t)
+	sp := &spy{err: errors.New("synthetic: the orchestrator is down")}
+	g := w.gateway(tenantA, sp)
+	_, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money"))
+	if !errors.Is(err, inputgateway.ErrStart) {
+		t.Fatalf("first: %v, want ErrStart", err)
+	}
+	if n := len(w.events("INPUT_RECEIVED")); n != 1 {
+		t.Fatalf("%d INPUT_RECEIVED events after a failed Start, want 1 (the input is durable)", n)
+	}
+	sp.set(nil)
+	res, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money"))
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	e := w.events("INPUT_RECEIVED")[0]
+	if !res.Deduplicated || res.Input.EventID != e.EventID || res.CorrelationID != e.Corr {
+		t.Errorf("retry result %+v, want the original %s on %s", res, e.EventID, e.Corr)
+	}
+	if len(sp.turns) != 2 || sp.turns[1].Input.EventID != e.EventID || sp.turns[1].CorrelationID != e.Corr {
+		t.Fatalf("turns %+v: the retry did not call Start for the recorded input", sp.turns)
+	}
+	if n := len(w.events("INPUT_RECEIVED")); n != 1 {
+		t.Errorf("%d INPUT_RECEIVED events after the retry, want 1", n)
+	}
+	if n := len(w.events("INPUT_DEDUPLICATED")); n != 1 {
+		t.Errorf("%d INPUT_DEDUPLICATED events, want 1", n)
+	}
+}
+
+// A168: a retry whose Start fails again is not answered as accepted; it says the turn could not be started, and the retry itself is in the Record.
+func TestARetryWhoseStartFailsAgainIsRefusedAndRecorded(t *testing.T) {
+	w := newWorld(t)
+	sp := &spy{err: errors.New("synthetic: the orchestrator is down")}
+	g := w.gateway(tenantA, sp)
+	for i := 0; i < 3; i++ {
+		res, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money"))
+		if !errors.Is(err, inputgateway.ErrStart) || res != (inputgateway.Result{}) {
+			t.Fatalf("attempt %d: %+v, %v; want ErrStart and no result", i, res, err)
+		}
+	}
+	if n, d := len(w.events("INPUT_RECEIVED")), len(w.events("INPUT_DEDUPLICATED")); n != 1 || d != 2 || len(sp.turns) != 3 {
+		t.Errorf("INPUT_RECEIVED %d, INPUT_DEDUPLICATED %d, Start calls %d; want 1, 2, 3", n, d, len(sp.turns))
+	}
+}
+
+// A168 does not weaken A161: a request id reused with another body is refused and never reaches Start, and a retry whose deduplication event cannot be appended is
+// refused before Start.
+func TestARetryThatCannotBeRecordedNeverReachesStart(t *testing.T) {
+	w := newWorld(t)
+	sp := &spy{}
+	g := w.gateway(tenantA, sp)
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money")); err != nil {
+		t.Fatal(err)
+	}
+	w.fail.set(true)
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money")); !errors.Is(err, inputgateway.ErrRecord) {
+		t.Errorf("retry with the Record down: %v, want ErrRecord", err)
+	}
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "another question")); !errors.Is(err, inputgateway.ErrRequestIDReused) {
+		t.Errorf("another body: %v, want ErrRequestIDReused", err)
+	}
+	if len(sp.turns) != 1 {
+		t.Errorf("Start was called %d times, want 1 (only the first delivery)", len(sp.turns))
 	}
 }
 

@@ -65,6 +65,8 @@ type spy struct {
 	err      error
 }
 
+func (s *spy) set(err error) { s.mu.Lock(); s.err = err; s.mu.Unlock() }
+
 func (s *spy) Start(c context.Context, turn inputgateway.Turn) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
