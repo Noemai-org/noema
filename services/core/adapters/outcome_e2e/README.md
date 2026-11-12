@@ -28,7 +28,8 @@
 | after the spend commits, before dispatch | `PointAfterSpend` | S9.1 before the write | built (slice 1) |
 | after dispatch, before the response is classified | `PointAfterDispatch` | S9.2 after the write, before verify | built (slice 2) |
 | the target commits and the response is lost | FaultPlan `TIMEOUT_AFTER_COMMIT` (the real mock-case fault, the 3500 ms hold against a 1000 ms dispatch timeout), killed at `PointAfterDispatch`; the command log must show `response_suppressed` | S9.2 after the write, before verify | built (slice 2) |
-| while the receipt is being completed | `PointInCompleteBeforeCommit` (the receipt transaction is open and rolls back) | S9.2 after the write, before verify | built (slice 2) |
+| after the receipt is built, before its transaction starts | `PointInCompleteBeforeCommit` (the controller has the signed receipt; `Ledger.Complete` has not opened its transaction, so nothing of the receipt is written) | S9.2 after the write, before verify | built (slice 2) |
+| inside the receipt transaction, after its writes and before commit (the rollback of a half-written receipt, idempotency record and Record event) | needs a boundary inside `Ledger.Complete`, which does not exist | S9.2 after the write, before verify | NOT built: asked of the ledger owner in a WAITING issue; not claimed |
 | after the receipt commits | `PointAfterComplete` | S9.2 after the write, before verify | built (slice 2) |
 | after verify, before the note | no hook yet (Outcome and the explanation have no boundary) | S9.3 after verify, before the note | needs a hook from Core Engineer 2 |
 
