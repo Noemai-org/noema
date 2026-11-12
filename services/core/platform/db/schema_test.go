@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/sigfixture"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
@@ -159,6 +160,7 @@ func TestImmutabilityTriggersRejectUpdateDeleteAndTruncate(t *testing.T) {
 	}
 	// The receipt is a genuine, signed one (EXE-08 slice B): the table accepts nothing else.
 	w := &sigWorld{pool: pool, keys: map[string]ed25519.PrivateKey{}}
+	sigfixture.MapSession(t, pool, "ten_a") // the session is the tenant's own for row security (migration 0018)
 	k1 := w.register(t, "core-execution", 1)
 	r := goodReceipt()
 	r.idk, r.state, r.raw, r.ack = "idk_v1_x", "OUTCOME_UNKNOWN", "TIMEOUT", ""
@@ -216,8 +218,9 @@ func TestDecisionGrantOnlyItsStatusMovesAndFinalIsFinal(t *testing.T) {
 
 // Single use is a unique constraint on the grant ID and on the nonce, never workflow history (INV-30, REQ-EXE-001).
 func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
-	pool := migrated(t)
+	pool, dsn := migratedDSN(t)
 	seed(t, pool)
+	exec := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_a") // the tenant's own login: row-level security (migration 0018) needs a mapped login
 	if _, err := pool.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
 		VALUES ('grt_2', 'ten_a', 'dec_1', 'n1', '{"decision_id":"dec_1","tenant_id":"ten_a"}'::jsonb || `+testpg.GrantBoundSQL+`, 'pol_1', '1', now() + interval '1 hour', 'k1', 'aa')`); err != nil {
 		t.Fatal(err)
@@ -225,8 +228,10 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 	if _, err := pool.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n1', 'idk_v1_x', 1, now())`); err != nil {
 		t.Fatal(err)
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n9', 'idk_v1_x', 1, now())`), violation, "second spend of one grant")
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_2', 'ten_a', 'n1', 'idk_v1_x', 1, now())`), violation, "second spend with one nonce")
+	_, err := exec.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_1', 'ten_a', 'n9', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "second spend of one grant")
+	_, err = exec.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_2', 'ten_a', 'n1', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "second spend with one nonce")
 	// The nonce is unique across tenants, not only within one (PERD 38.2: nonce UNIQUE).
 	for _, q := range []string{
 		`INSERT INTO tenant (tenant_id, name) VALUES ('ten_b', 'B')`,
@@ -239,7 +244,9 @@ func TestGrantSpendIsUniqueOnGrantAndNonce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	wantCode(t, try(t, pool, "execution_rw", `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_3', 'ten_b', 'n1', 'idk_v1_x', 1, now())`), violation, "the same nonce under another tenant")
+	execB := testpg.TenantLogin(t, pool, dsn, "execution_rw", "ten_b") // ten_b's own login, so the refusal is the unique nonce and not the tenant's row security
+	_, err = execB.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ('grt_3', 'ten_b', 'n1', 'idk_v1_x', 1, now())`)
+	wantCode(t, err, violation, "the same nonce under another tenant")
 }
 
 // The idempotency record keeps its key, action and parameters, and its attempt only moves forward (REQ-EXE-002).
