@@ -4,6 +4,7 @@ package inputgateway_test
 // core-edge emitter login that appends and the tenant's record_read login that looks a request up. All data is SYNTHETIC.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -117,12 +118,16 @@ func (w *world) gateway(tenant string, sp *spy) *inputgateway.Gateway {
 		Start:    sp.Start,
 		IDs:      w.gen,
 		MaxBody:  64 << 10,
+		HashKey:  hashKey(),
 	})
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	return g
 }
+
+// hashKey is the core's key for the hash the Record keeps of an input (SYNTHETIC; a real one is file-mounted, PLT-05).
+func hashKey() []byte { return bytes.Repeat([]byte{0x42}, 32) }
 
 func identity(tenant, principal string) inputgateway.Identity {
 	return inputgateway.Identity{TenantID: tenant, PrincipalID: principal, PrincipalKind: "customer", SessionID: "ses_7a1b"}

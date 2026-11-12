@@ -68,7 +68,7 @@ func errorBody(t *testing.T, rec *httptest.ResponseRecorder) (code, corr string)
 
 func handlerOf(t *testing.T, resolved bool) http.Handler {
 	t.Helper()
-	g, err := inputgateway.New(inputgateway.Config{Recorder: neverRecorder{}, Index: neverIndex{}, IDs: brokenIDs{}, MaxBody: 64,
+	g, err := inputgateway.New(inputgateway.Config{Recorder: neverRecorder{}, Index: neverIndex{}, IDs: brokenIDs{}, MaxBody: 64, HashKey: hashKey(),
 		Start: func(context.Context, inputgateway.Turn) error { return errors.New("not reached") }})
 	if err != nil {
 		t.Fatal(err)

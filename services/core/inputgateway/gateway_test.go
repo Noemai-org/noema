@@ -56,7 +56,8 @@ func TestAValidInputIsRecordedAsInputReceivedByCoreEdgeBeforeTheTurnStarts(t *te
 	if e.Payload["channel"] != "text" || e.Payload["locale"] != "en-NG" || e.Payload["request_id"] != reqID {
 		t.Errorf("payload %v", e.Payload)
 	}
-	if h, _ := e.Payload["input_hash"].(string); !strings.HasPrefix(h, "sha256:") || len(h) != 71 {
+	// Review of noema#466 (REQ-SEC-003): the Record keeps an HMAC under the tenant's key, not a plain hash of the body, which a reader could confirm a guess against.
+	if h, _ := e.Payload["input_hash"].(string); !strings.HasPrefix(h, "hmac-sha256:") || len(h) != len("hmac-sha256:")+64 {
 		t.Errorf("input_hash %q", h)
 	}
 	if strings.Contains(string(mustJSON(e.Payload)), "where is my money") {
@@ -169,11 +170,15 @@ func TestTheSameRequestIdWithAnotherBodyIsRefusedAndRaisesASecurityEvent(t *test
 	if len(w.events("INPUT_DEDUPLICATED")) != 0 || len(sp.turns) != 1 {
 		t.Errorf("deduplicated %d, turns %d: a reused request id must not be treated as a retry", len(w.events("INPUT_DEDUPLICATED")), len(sp.turns))
 	}
-	// Still the same 409 when the security event cannot be appended: nothing proceeds either way.
+	// Record first (review of noema#466, note 3): when the security event cannot be appended the answer is the Record's failure (503), not the 409 that says the
+	// reuse was recorded. Nothing proceeds either way.
 	w.fail.set(true)
 	_, err = g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "a third text"))
-	if !errors.Is(err, inputgateway.ErrRequestIDReused) || !errors.Is(err, inputgateway.ErrRecord) || len(sp.turns) != 1 {
-		t.Errorf("with the Record down: err %v, turns %d", err, len(sp.turns))
+	if !errors.Is(err, inputgateway.ErrRecord) || errors.Is(err, inputgateway.ErrRequestIDReused) || len(sp.turns) != 1 {
+		t.Errorf("with the Record down: err %v, turns %d, want ErrRecord and not ErrRequestIDReused", err, len(sp.turns))
+	}
+	if n := len(w.events("SECURITY_EVENT")); n != 1 {
+		t.Errorf("%d SECURITY_EVENT events after a reuse the Record refused, want the one from before", n)
 	}
 }
 
@@ -400,7 +405,7 @@ func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
 	good := inputgateway.Config{
 		Recorder: &inputgateway.RecordRecorder{Pool: w.edge[tenantA], Appender: &chain.Appender{Clock: w.clk, IDs: w.gen, Signers: w.sign}, Timeout: time.Second},
 		Index:    &inputgateway.RecordIndex{Pool: w.read[tenantA], Clock: w.clk, Window: time.Hour, Timeout: time.Second},
-		Start:    sp.Start, IDs: w.gen, MaxBody: 1024,
+		Start:    sp.Start, IDs: w.gen, MaxBody: 1024, HashKey: hashKey(),
 	}
 	if _, err := inputgateway.New(good); err != nil {
 		t.Fatalf("the base config: %v", err)
@@ -411,6 +416,8 @@ func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
 		"no start":      func(c *inputgateway.Config) { c.Start = nil },
 		"no id source":  func(c *inputgateway.Config) { c.IDs = nil },
 		"no body bound": func(c *inputgateway.Config) { c.MaxBody = 0 },
+		"no hash key":   func(c *inputgateway.Config) { c.HashKey = nil },
+		"a short key":   func(c *inputgateway.Config) { c.HashKey = c.HashKey[:31] },
 	} {
 		c := good
 		mutate(&c)
@@ -610,5 +617,44 @@ func TestNoErrorOrResponseQuotesTheTextOfAnInput(t *testing.T) {
 		if strings.Contains(string(mustJSON(e.Payload)), marker) || strings.Contains(string(mustJSON(e.Body)), marker) {
 			t.Errorf("event %s %s quotes the text", e.EventType, e.EventID)
 		}
+	}
+}
+
+// Review of noema#466 (CR-2026-11-08, A1): voice is parsed. A non-null audio_ref is refused with INPUT_INVALID, records nothing and starts nothing, whatever the
+// Record holds; a null one is accepted and the turn's body has no audio_ref. The refusal reads nothing, so another tenant's reference and an invented one get one answer.
+func TestAVoiceInputWithARetainedAudioReferenceIsRefusedAndOneWithoutIsHandedOnWithoutIt(t *testing.T) {
+	w := newWorld(t)
+	sp := &spy{}
+	g := w.gateway(tenantA, sp)
+	h := g.Handler(func(*http.Request) (inputgateway.Identity, bool) { return identity(tenantA, "usr_88213"), true })
+	voice := func(ref string) []byte {
+		return []byte(`{"request_id":"` + reqID + `","channel":"voice","text":"where is my money","voice":{"provider_id":"stt_a","is_final":true,"audio_ref":` + ref + `}}`)
+	}
+	var answers []string
+	for _, ref := range []string{`"raw_01J9X3"`, `"raw_NOTHERTENANT"`, `"rec_01J9X3"`, `""`} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/conversations", bytes.NewReader(voice(ref))))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("audio_ref %s: status %d, want 400", ref, rec.Code)
+		}
+		answers = append(answers, rec.Body.String())
+	}
+	for _, a := range answers[1:] {
+		if a != answers[0] {
+			t.Errorf("answers differ: %q and %q", answers[0], a)
+		}
+	}
+	if len(w.events()) != 0 || len(sp.turns) != 0 {
+		t.Fatalf("events %d, turns %d after refused voice inputs", len(w.events()), len(sp.turns))
+	}
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), voice(`null`)); err != nil {
+		t.Fatalf("a null audio_ref: %v", err)
+	}
+	if len(sp.turns) != 1 || bytes.Contains(sp.turns[0].Body, []byte("audio_ref")) || !bytes.Contains(sp.turns[0].Body, []byte(`"provider_id":"stt_a"`)) {
+		t.Fatalf("the turn's body %s: want the voice members without audio_ref", sp.turns[0].Body)
+	}
+	// A redelivery that drops the null is the same body: deduplicated, not reused.
+	if res, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), []byte(`{"request_id":"`+reqID+`","channel":"voice","text":"where is my money","voice":{"is_final":true,"provider_id":"stt_a"}}`)); err != nil || !res.Deduplicated {
+		t.Errorf("a redelivery without the null: %+v %v", res, err)
 	}
 }

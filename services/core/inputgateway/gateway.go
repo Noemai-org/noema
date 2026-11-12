@@ -3,6 +3,7 @@ package inputgateway
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,7 +18,10 @@ import (
 	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
-const prefix = "input gateway: "
+const (
+	prefix     = "input gateway: "
+	minHashKey = 32
+)
 
 // The errors of Accept. Callers compare with errors.Is. None of them carries the text of an input.
 var (
@@ -105,6 +109,10 @@ type Config struct {
 	Start    func(ctx context.Context, t Turn) error // the orchestrator seam; called only after the input is in the Record, on every delivery of it (A168), so it must be idempotent per Turn.Input
 	IDs      chain.IDSource
 	MaxBody  int64
+	// HashKey is the core's secret for the hash the Record keeps of an input (REQ-SEC-003: no derivative of raw text a reader of the Record could confirm a guess
+	// against). At least 32 bytes, from configuration (file-mounted, PLT-05), never defaulted. Each tenant's hash key is derived from it. Rotating it makes a
+	// retry of an older input look new (the window is 24 hours), so a rotation waits for a quiet moment.
+	HashKey []byte
 }
 
 // Gateway is the input gateway of the core.
@@ -114,6 +122,7 @@ type Gateway struct {
 	start   func(ctx context.Context, t Turn) error
 	ids     chain.IDSource
 	maxBody int64
+	key     []byte
 	locks   keyedLock
 }
 
@@ -122,7 +131,10 @@ func New(c Config) (*Gateway, error) {
 	if c.Recorder == nil || c.Index == nil || c.Start == nil || c.IDs == nil || c.MaxBody <= 0 {
 		return nil, errors.New(prefix + "a recorder, an index, the orchestrator seam, an ID source and a positive body bound are all required")
 	}
-	return &Gateway{rec: c.Recorder, idx: c.Index, start: c.Start, ids: c.IDs, maxBody: c.MaxBody}, nil
+	if len(c.HashKey) < minHashKey {
+		return nil, errors.New(prefix + "a hash key of at least 32 bytes is required")
+	}
+	return &Gateway{rec: c.Recorder, idx: c.Index, start: c.Start, ids: c.IDs, maxBody: c.MaxBody, key: append([]byte(nil), c.HashKey...)}, nil
 }
 
 var (
@@ -147,6 +159,9 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 		return Result{}, ErrNoIdentity
 	}
 	in, err := parseBody(raw, g.maxBody)
+	if err == nil {
+		in.hash = inputHash(g.key, id.TenantID, in.canon)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -171,13 +186,15 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 			// A168 (Codex P1 on noema#466): a retry of a recorded input is not an acknowledgement that a turn runs. The first Start may have failed after INPUT_RECEIVED
 			// was stored, and nothing else would ever start it. So the retry calls Start again for the same recorded input; Start is idempotent per recorded input (the
 			// investigation store of noema#490), so a turn that did start is found, not run twice. If this Start fails too, the client is told so.
-			if err := g.start(ctx, turnOf(id, prior.CorrelationID, in, raw, prior.Ref)); err != nil {
+			if err := g.start(ctx, turnOf(id, prior.CorrelationID, in, prior.Ref)); err != nil {
 				return Result{}, fmt.Errorf("%w: %v", ErrStart, err)
 			}
 			return Result{CorrelationID: prior.CorrelationID, Input: prior.Ref, Deduplicated: true}, nil
 		}
+		// Record first: the 409 tells the client that the reuse was recorded, so it is sent only once the SECURITY_EVENT is in the Record. If that append fails the
+		// answer is the Record's failure (503), never the 409 (review of noema#466, note 3).
 		if err := g.rec.Reused(ctx, id, prior.CorrelationID, in.requestID, in.hash, prior.Ref); err != nil {
-			return Result{}, errors.Join(ErrRequestIDReused, fmt.Errorf("%w: the security event was not appended: %v", ErrRecord, err))
+			return Result{}, fmt.Errorf("%w: the security event was not appended: %v", ErrRecord, err)
 		}
 		return Result{}, ErrRequestIDReused
 	}
@@ -191,27 +208,32 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 	}
 	unlock() // a redelivery from here on finds the event in the Record; the turn can take as long as it takes
 	locked = false
-	if err := g.start(ctx, turnOf(id, corr, in, raw, ref)); err != nil {
+	if err := g.start(ctx, turnOf(id, corr, in, ref)); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrStart, err)
 	}
 	return Result{CorrelationID: corr, Input: ref}, nil
 }
 
-// turnOf is the turn of a recorded input: the same for the first delivery and for every retry (the retry's body has the same hash, so the same content).
-func turnOf(id Identity, corr string, in input, raw []byte, ref Ref) Turn {
+// turnOf is the turn of a recorded input: the same for the first delivery and for every retry (the retry's body has the same hash, so the same content). Its Body is
+// the canonical body without voice.audio_ref: no reference to retained audio is handed on (CR-2026-11-08-VOI-canonical-input-audio-ref, A1).
+func turnOf(id Identity, corr string, in input, ref Ref) Turn {
 	return Turn{Identity: id, CorrelationID: corr, RequestID: in.requestID, Channel: in.channel, Locale: in.locale, ConversationRef: in.conversationRef, Text: in.text,
-		Body: append([]byte(nil), raw...), Input: ref}
+		Body: append([]byte(nil), in.canon...), Input: ref}
 }
 
-// input is a body that passed the closed-shape check.
+// input is a body that passed the closed-shape check. canon is its canonical form (members sorted, no insignificant whitespace, numbers as written) without
+// voice.audio_ref; hash is the keyed hash of canon that the Record keeps (set by Accept, which knows the tenant).
 type input struct {
 	requestID, channel, locale, conversationRef, text, hash string
+	canon                                                   []byte
 }
 
 var allowed = map[string]bool{"request_id": true, "channel": true, "text": true, "locale_hint": true, "voice": true, "conversation_ref": true}
 
 // parseBody reads exactly one JSON object with only the members a client may send (REQ-INP-001), none repeated and none null, and hashes its canonical form
-// (members sorted, whitespace dropped, numbers as written) so that a redelivery with other whitespace or member order is the same body. An error never quotes the body.
+// (members sorted, whitespace dropped, numbers as written) so that a redelivery with other whitespace or member order is the same body. A voice member is read: its
+// audio_ref must be null or absent, because no retention path exists (CR-2026-11-08-VOI-canonical-input-audio-ref, A1), and it is dropped from what is hashed and
+// handed on. An error never quotes the body.
 func parseBody(raw []byte, max int64) (input, error) {
 	bad := func(why string) (input, error) { return input{}, fmt.Errorf("%w: %s", ErrInvalidInput, why) }
 	if int64(len(raw)) > max {
@@ -258,14 +280,18 @@ func parseBody(raw []byte, max int64) (input, error) {
 	if strings.TrimSpace(in.text) == "" {
 		return bad("text is empty")
 	}
-	if v, ok := members["voice"]; ok && !bytes.HasPrefix(bytes.TrimSpace(v), []byte("{")) {
-		return bad("voice is not an object")
+	if v, ok := members["voice"]; ok {
+		clean, err := withoutAudioRef(v)
+		if err != nil {
+			return bad(err.Error())
+		}
+		members["voice"] = clean
 	}
-	h, err := canonicalHash(members)
+	canon, err := canonicalBody(members)
 	if err != nil {
-		return bad("the body cannot be hashed")
+		return bad("the body cannot be made canonical")
 	}
-	in.hash = h
+	in.canon = canon
 	return in, nil
 }
 
@@ -307,24 +333,70 @@ func members(raw []byte) (map[string]json.RawMessage, error) {
 	return out, nil
 }
 
-// canonicalHash is "sha256:" of the members with sorted names, nested objects sorted too, no insignificant whitespace, numbers as written.
-func canonicalHash(members map[string]json.RawMessage) (string, error) {
+// withoutAudioRef reads the voice object (one object, no repeated member) and returns it without audio_ref. A non-null audio_ref is refused with one fixed
+// sentence whatever it holds: the check reads nothing else, so a reference that exists in another tenant's Record and one that exists nowhere get the same answer.
+func withoutAudioRef(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, errors.New("voice is not an object")
+	}
+	out := map[string]json.RawMessage{}
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return nil, errors.New("voice is not valid JSON")
+		}
+		key, _ := k.(string)
+		if _, dup := out[key]; dup {
+			return nil, errors.New("voice repeats a member")
+		}
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return nil, errors.New("voice is not valid JSON")
+		}
+		out[key] = v
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, errors.New("voice is not valid JSON")
+	}
+	if ref, ok := out["audio_ref"]; ok {
+		if !bytes.Equal(bytes.TrimSpace(ref), []byte("null")) {
+			return nil, errors.New("voice.audio_ref is not null: no audio is retained")
+		}
+		delete(out, "audio_ref")
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil, errors.New("voice cannot be made canonical")
+	}
+	return b, nil
+}
+
+// canonicalBody is the members with sorted names, nested objects sorted too, no insignificant whitespace, numbers as written.
+func canonicalBody(members map[string]json.RawMessage) ([]byte, error) {
 	doc := make(map[string]any, len(members))
 	for k, v := range members {
 		dec := json.NewDecoder(bytes.NewReader(v))
 		dec.UseNumber()
 		var x any
 		if err := dec.Decode(&x); err != nil {
-			return "", err
+			return nil, err
 		}
 		doc[k] = x
 	}
-	b, err := json.Marshal(doc) // encoding/json writes map keys in sorted order at every level
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(b)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return json.Marshal(doc) // encoding/json writes map keys in sorted order at every level
+}
+
+// inputHash is what the Record keeps in place of the body (REQ-SEC-003): "hmac-sha256:" and the HMAC-SHA-256 of the canonical body under a key derived from the core's
+// key and the tenant. It tells a redelivery from a reuse, and nobody who reads the Record can confirm a guess at the text against it, or tell one tenant's input from
+// another's.
+func inputHash(key []byte, tenantID string, canon []byte) string {
+	d := hmac.New(sha256.New, key)
+	d.Write([]byte("noema/input-hash/v1|" + tenantID))
+	m := hmac.New(sha256.New, d.Sum(nil))
+	m.Write(canon)
+	return "hmac-sha256:" + hex.EncodeToString(m.Sum(nil))
 }
 
 // keyedLock serialises the work of one key and holds nothing for a key nobody waits on.
