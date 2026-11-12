@@ -677,6 +677,43 @@ func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
 	}
 }
 
+// Codex P1 on noema#492 (A154): an `_id` fact was served as written whatever its value, so a payload that put an account-number-shaped value in `request_id` or
+// `decision_id` was served whole. An ID is exempt from masking only when it is the contract shape of that key (its prefix and a 2 to 32 character body); any other
+// value is masked like every scalar. A contract-shaped ID that holds a long digit run (a real ULID can) is still served as written, because other facts cite it.
+func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[1].payload["request_id"] = "0123456789"              // no prefix: a number, not a request ID
+	events[8].payload["decision_id"] = "acct_0123456789"        // a prefix of another kind
+	events[3].payload["intent_id"] = "int_AB123456CD"           // the shape of the key, with a digit run: kept
+	events[7].payload["policy_id"] = "fin.pol.limit_0123456789" // a pack ID shape with a digit run: kept (pack IDs are data, not numbers)
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	for _, c := range []struct{ section, key, want string }{
+		{"REQUEST", "request_id", "******6789"},
+		{"DECISION", "decision_id", "acct_******6789"},
+		{"REQUEST", "intent_id", "int_AB123456CD"},
+		{"POLICY", "policy_id", "fin.pol.limit_0123456789"},
+	} {
+		found := false
+		for _, it := range b.section(c.section) {
+			if got, ok := it.Facts[c.key]; ok {
+				found = true
+				if got != c.want {
+					t.Errorf("%s.%s = %q, want %q", c.section, c.key, got, c.want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s has no %s fact", c.section, c.key)
+		}
+	}
+}
+
 // REQ-AUD-003 Security ("Masked"), AGENTS.md section 7 (mask to the last four digits): a run of five or more digits in
 // a served free-text or scalar fact keeps only its last four. References and IDs, which the contract patterns check
 // and which the reader matches on, are not facts of this kind and are served as written.
