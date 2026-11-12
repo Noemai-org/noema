@@ -59,3 +59,7 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 ## Pre-work for the next agent
 - Exact next step: after noema#465 merges, add `Investigations` to `orchestrator.Ports`, have `RunRead` call `Start` and refuse to run an investigation whose version is above 0 (`ErrAlreadyStarted`), and plug the store into `compose.go` as `Recorder` and `Investigations`.
 
+### Update 2026-11-12 · reviewer P1 and P2 on noema#490
+- P1 (an investigation for an input the Record does not confirm): `Store.Inputs` (required) is asked before the insert; `ConfirmWith(Lookuper)` compares the recorded event with the session and the request (type INPUT_RECEIVED, tenant, principal, correlation); a lookup failure is a refusal. P2 (reuse with another correlation): `Start` reads the stored correlation on the conflict path and refuses a mismatch. Tests first; seven mutants killed (confirmation skipped, the correlation compare, each of the four comparisons in `ConfirmWith`, a lookup failure passing).
+- Pre-work: the composition root adapts `record/admission.Reader` (noema#497, `Found`) to `Lookuper` and passes `ConfirmWith(...)` as `Inputs`.
+

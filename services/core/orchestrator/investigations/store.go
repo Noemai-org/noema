@@ -27,8 +27,42 @@ const (
 	eventType       = "INVESTIGATION_STATE_CHANGED"
 )
 
-// ErrRequest marks a request that cannot be honoured; nothing was written.
-var ErrRequest = errors.New(errPrefix + "the request is not valid")
+var (
+	// ErrRequest marks a request that cannot be honoured; nothing was written.
+	ErrRequest = errors.New(errPrefix + "the request is not valid")
+	// ErrNoRecordedInput marks an input the Record does not confirm as an INPUT_RECEIVED of this tenant, principal and correlation: no investigation is made for it.
+	ErrNoRecordedInput = errors.New(errPrefix + "the Record does not confirm this input")
+)
+
+// Inputs confirms, against the Record, that the INPUT_RECEIVED event a Start names exists and belongs to this session and correlation (A161, A169). A nil return is the
+// confirmation; any error means the input is not confirmed.
+type Inputs interface {
+	Confirm(ctx context.Context, sess orchestrator.Session, ref, correlationID string) error
+}
+
+// Recorded is what the Record holds for one event, as a Lookuper returns it.
+type Recorded struct{ EventType, TenantID, PrincipalID, CorrelationID string }
+
+// Lookuper reads one event of a tenant's Record by ID (record/admission.Reader, through a thin adapter in the composition root).
+type Lookuper interface {
+	Lookup(ctx context.Context, tenantID, eventID string) (Recorded, error)
+}
+
+// ConfirmWith turns a Lookuper into Inputs: the event must exist and be an INPUT_RECEIVED of the session's tenant and principal and the request's correlation.
+func ConfirmWith(l Lookuper) Inputs { return lookupInputs{l} }
+
+type lookupInputs struct{ l Lookuper }
+
+func (c lookupInputs) Confirm(ctx context.Context, sess orchestrator.Session, ref, correlationID string) error {
+	r, err := c.l.Lookup(ctx, sess.TenantID, ref)
+	if err != nil {
+		return fmt.Errorf("%w: lookup: %w", ErrNoRecordedInput, err)
+	}
+	if r.EventType != "INPUT_RECEIVED" || r.TenantID != sess.TenantID || r.PrincipalID == "" || r.PrincipalID != sess.PrincipalID || r.CorrelationID != correlationID {
+		return ErrNoRecordedInput
+	}
+	return nil
+}
 
 var (
 	tenantRe        = regexp.MustCompile(`\Aten_[0-9A-Za-z]{2,32}\z`)
@@ -47,6 +81,7 @@ type Pool interface {
 type Store struct {
 	Pool     Pool
 	Appender *chain.Appender
+	Inputs   Inputs // required: Start makes an investigation only for an input the Record confirms
 }
 
 // StartRequest names a new investigation for one recorded INPUT_RECEIVED (A161).
@@ -64,7 +99,7 @@ func needDeadline(ctx context.Context) error {
 }
 
 func (s *Store) ready() error {
-	if s == nil || s.Pool == nil || s.Appender == nil {
+	if s == nil || s.Pool == nil || s.Appender == nil || s.Inputs == nil {
 		return fmt.Errorf("%w: the store is not configured", ErrRequest)
 	}
 	return nil
@@ -92,23 +127,32 @@ func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartReq
 	if !investigationRe.MatchString(r.InvestigationID) || !correlationRe.MatchString(r.CorrelationID) || !recordedRe.MatchString(r.InputReceivedRef) {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%w: an investigation, correlation or recorded-input reference is outside its pattern", ErrRequest)
 	}
+	if err := s.Inputs.Confirm(ctx, sess, r.InputReceivedRef, r.CorrelationID); err != nil {
+		if errors.Is(err, ErrNoRecordedInput) {
+			return orchestrator.Investigation{}, false, err
+		}
+		return orchestrator.Investigation{}, false, fmt.Errorf("%w: %w", ErrNoRecordedInput, err)
+	}
 	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%sbegin: %w", errPrefix, err)
 	}
 	defer rollback(ctx, tx)
 	var inv orchestrator.Investigation
-	var state string
+	var state, corr string
 	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version)
 		VALUES ($1, $2, $3, $4, 'RECEIVED', 0) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
-		RETURNING investigation_id, state, state_version`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID).Scan(&inv.ID, &state, &inv.Version)
+		RETURNING investigation_id, state, state_version, correlation_id`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID).Scan(&inv.ID, &state, &inv.Version, &corr)
 	created := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
-			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version)
+		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
+			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version, &corr)
 	}
 	if err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%sstart: %w", errPrefix, err)
+	}
+	if corr != r.CorrelationID {
+		return orchestrator.Investigation{}, false, fmt.Errorf("%w: the recorded input already belongs to another correlation", ErrRequest)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%scommit: %w", errPrefix, err)
