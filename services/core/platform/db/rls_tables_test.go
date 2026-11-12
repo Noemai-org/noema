@@ -88,7 +88,7 @@ func TestTheVerifierReadsEveryTenantsChainHeadAndWritesNothing(t *testing.T) {
 // The Security Reviewer's condition on noema#229 (settled with C1 on that PR): receipt_insert takes p_tenant_id as an argument, and a SECURITY DEFINER function runs as its
 // owner, so what refuses a tenant that is not the login's is row-level security with FORCE on execution_receipt (this migration). An execution login of tenant A calls
 // receipt_insert with a genuine, validly signed receipt of tenant B and tenant B's own grant_spend: every check of the signature trigger passes, so only the policy can
-// refuse it. The call is refused (42501, row-level security), no execution_receipt row exists, and the same receipt is stored by tenant B's own login (the control: the
+// refuse it. The call is refused (NS001, because tenant B's spend is hidden from the definer's read, or 42501, the execution_receipt policy's WITH CHECK; the assertion accepts either), no execution_receipt row exists, and the same receipt is stored by tenant B's own login (the control: the
 // refusal is the tenant, not the receipt). Mutation: policies that are USING (true) WITH CHECK (true) on grant_spend and execution_receipt let tenant A store it and fail this test.
 func TestATenantAExecutionLoginCannotStoreAGenuineReceiptOfTenantB(t *testing.T) {
 	w := newSigWorld(t) // ten_a, grt_1 and its spend; the session is mapped to ten_a
