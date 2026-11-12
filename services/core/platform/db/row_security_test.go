@@ -103,7 +103,7 @@ func TestRowSecurityLoginCannotWriteAnotherTenantsRow(t *testing.T) {
 		}
 	}
 	const insertGrant = `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)
-		VALUES ($1, $2, $3, 'nonce_'||$1::text, jsonb_build_object('decision_id', $3::text, 'tenant_id', $2::text) || `+testpg.GrantBoundSQL+`, 'pol_1', '1', $4, 'k1', 'sig')`
+		VALUES ($1, $2, $3, 'nonce_'||$1::text, jsonb_build_object('decision_id', $3::text, 'tenant_id', $2::text) || ` + testpg.GrantBoundSQL + `, 'pol_1', '1', $4, 'k1', 'sig')`
 	if _, err := trust.Exec(ctx(t), insertGrant, "grt_x", "ten_b", "dec_x", exp); err == nil {
 		t.Error("trust_rw as ten_a inserted a decision_grant for ten_b")
 	}
