@@ -15,6 +15,6 @@
 **Open (see the PR's CONFLICT block).**
 - The intent hash cannot cover a fractional number: `platform/crypto.CanonicalJSON` refuses one and the Intent Object carries fractional `confidence` and `asr_confidence`. The gate therefore refuses such an object with `HASH_UNAVAILABLE` (the safer reading) until the form of the hash is decided.
 - No JSON Schema validator exists in Go (AGENT-14), so the gate is the generated closed-shape decode plus the explicit rules above. It does not model the patterns of the schema that the rules above do not restate; `tools/contracts` validates the same fixtures in Python.
-- `Session` takes `authn_ref`, `principal_type` and `asserted_by` as arguments. The edge's `session.Principal` does not carry them yet; whoever wires the edge maps them.
+- `Session` takes `authn_ref`, `principal_type` and `asserted_by` as arguments. The edge's `session.Principal` does not carry them yet; whoever wires the edge maps them. `asserted_by` follows the contract's pattern since ruling A163 (`^[a-z][a-z0-9_-]*$`, so the POC's `noema-poc-idp` is valid); `principal_type` stays lower snake case. An `AssertedBy` off the pattern is `SESSION_INVALID`.
 
 **Tests.** `go test -race ./understanding/...` from `services/core/`. The 10,000-case unknown-field run uses a fixed seed. Mutation checks done by hand: no overwrite, no correlation check, no outcome-subset check and no Mode 2 refusal each fail the suite.
