@@ -113,7 +113,6 @@ REJECTIONS: dict[str, tuple[dict[str, Any], Reason]] = {
     "another correlation": (mutate(("correlation_id",), "corr_zz"), Reason.CORRELATION_MISMATCH),
     "Mode 2": (mutate(("source", "mode"), "MODE_2"), Reason.MODE_NOT_ENABLED),
     "an oversize raw_ref": (mutate(("source", "raw_ref"), "x" * 257), Reason.SOURCE),
-    "an ASR confidence above 1": (mutate(("source", "asr_confidence"), 1.5), Reason.SOURCE),
     "another pack": (mutate(("pack", "pack_id"), "other"), Reason.PACK_MISMATCH),
     "another pack version": (mutate(("pack", "pack_version"), "1.0.1"), Reason.PACK_MISMATCH),
     "a signature set by the model": (mutate(("sig",), {"key_id": "k", "value": "v"}), Reason.SIG_SET_BY_MODEL),
@@ -161,6 +160,14 @@ def test_an_unknown_member_at_any_depth_is_a_shape_refusal(path: tuple[str, ...]
     assert reasons(doc) == {Reason.SHAPE}
 
 
+def test_a_ratio_outside_zero_and_one_is_a_shape_refusal() -> None:
+    """The generated contract model bounds every Ratio, so the closed shape refuses it before any rule (the Go gate checks it by rule, its decode having no bounds)."""
+    assert reasons(mutate(("source", "asr_confidence"), 1.5)) == {Reason.SHAPE}
+    assert reasons(mutate(("slots", "subject_resource", "confidence"), -0.1)) == {Reason.SHAPE}
+    assert reasons(mutate(("source", "asr_confidence"), 0.0)) == set()
+    assert reasons(mutate(("slots", "subject_resource", "confidence"), 1)) == set()
+
+
 def test_a_null_where_the_contract_has_none_is_a_shape_refusal() -> None:
     assert reasons(mutate(("intent_node",), None)) == {Reason.SHAPE}
     assert reasons(mutate(("principal", "principal_id"), None)) == {Reason.SHAPE}
@@ -174,6 +181,30 @@ def test_what_is_not_one_json_object_is_refused_before_any_rule() -> None:
         result = g.check(body, CTX)
         assert result.reasons == (expected,), f"{body!r}: {result.reasons}"
         assert result.intent is None
+
+
+def test_pathological_input_is_refused_not_raised() -> None:
+    """Total on any bytes: deep nesting, a bad UTF-8 sequence and an integer too long to read are NOT_JSON, and nothing raises."""
+    g = gate(max_bytes=10_000_000)
+    for body in (b"[" * 200_000, b'{"a":' * 100_000, b"\xff\xfe\x00", b'{"a": ' + b"9" * 5000 + b"}"):
+        result = g.check(body, CTX)
+        assert result.reasons == (Reason.NOT_JSON,), (body[:20], result.reasons)
+        assert result.intent is None
+
+
+def test_a_bad_utf8_byte_inside_a_valid_document_is_refused_and_never_replaced() -> None:
+    """A lenient decode would turn the byte into U+FFFD and admit a text the model never wrote: that is a repair (REQ-INT-002)."""
+    body = raw(proposal()).replace(b'"Ada"', b'"A\xffda"', 1)
+    assert b"\xff" in body
+    result = gate().check(body, CTX)
+    assert result.reasons == (Reason.NOT_JSON,) and result.intent is None
+
+
+def test_a_number_too_large_for_a_float_is_refused_not_raised() -> None:
+    body = raw(proposal()).replace(b'"confidence": 0.9', b'"confidence": 1e400', 1)
+    assert b"1e400" in body
+    result = gate().check(body, CTX)
+    assert result.reasons == (Reason.SHAPE,) and result.intent is None
 
 
 def test_a_repeated_member_is_refused_even_when_both_values_are_valid() -> None:
@@ -224,7 +255,7 @@ def test_no_reason_carries_text_of_the_object() -> None:
 @given(
     where=st.sampled_from([(), ("principal",), ("source",), ("pack",), ("slots", "subject_resource"), ("slots", "amount"), ("slots", "when"), ("slots", "counterparty"),
                            ("slots", "requested_remedy")]),
-    name=st.text(min_size=1, max_size=12).filter(lambda s: s not in proposal() and s not in {"smuggled"}),
+    name=st.text(min_size=1, max_size=12).filter(lambda s: s not in proposal() and s != "sig"),  # `sig` is a contract member: a model-set one has its own reason (SIG_SET_BY_MODEL)
     value=st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=8)),
 )
 def test_fuzz_an_unknown_member_anywhere_is_always_refused(where: tuple[str, ...], name: str, value: Any) -> None:
