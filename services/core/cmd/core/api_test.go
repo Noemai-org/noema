@@ -226,7 +226,7 @@ func TestARecordReaderWithoutAnAccessLoggerRefusesToStart(t *testing.T) {
 }
 
 // REQ-AUD-003: the call that reaches the reconstruction handler writes one RECORD_ACCESSED line carrying the token's tenant and principal and an outcome code, and nothing of
-// the Record. (The SERVED outcome is asserted with a real Record in the reconstruct package's own tests.)
+// the Record. (The SERVED outcome and the refusals are asserted with a real Record in `record/reconstruct`, `TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome`.)
 func TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	var buf bytes.Buffer

@@ -101,3 +101,12 @@
 ## Pre-work for the next agent
 - Exact next step: after noema#481 merges, make the reconstruct handler use `session.CorrelationFromContext` for header, envelope and access log, and name the lookup key as a separate field.
 - Do not touch: the handler's outcome codes.
+
+## Session 2026-11-12 23:15 WAT · slice 3c part 2, fix round 2 (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `d9f70642`, blocking: the test that a served and each refused call emit `RECORD_ACCESSED` covered one refused outcome only, and `api_test.go` claimed the SERVED outcome was asserted in the reconstruct package, which it was not (my claim was wrong). Added `TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome` in `record/reconstruct` against a real Record: SERVED, a missing correlation, a refused kind of caller and another tenant's caller each write exactly one line with tenant, principal and outcome and no Record content. Corrected the comment.
+- Tests: the new test needs `pgsodium` (the Record append), so it ran in CI only; a mutant (removing the SERVED `access` call) was not run locally for the same reason.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, the reconstruct handler's path-echoed correlation ID (follow-up PR, failing test first); the first reader PR needs the cross-tenant test for `TenantDBs`.
