@@ -124,7 +124,7 @@ class DigitRunLimitTest(unittest.TestCase):
 
     def test_a_file_that_is_not_the_contract_is_refused(self) -> None:
         import tempfile
-        bad = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 33, 4.5, True, "4", None)]
+        bad: List[Any] = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 33, 4.5, True, "4", None)]
         bad += [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC"}, {"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 4, "x": 1}, []]
         with tempfile.TemporaryDirectory() as d:
             for i, doc in enumerate(bad):
