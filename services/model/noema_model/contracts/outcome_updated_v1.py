@@ -20,7 +20,7 @@ class OutcomeUpdatedV1(ContractModel):
     intent_id: CommonV1IntentId
     verdict_id: CommonV1VerdictId
     verdict: EnumsV1Verdict
-    summary: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', min_length=1, max_length=500)]
+    summary: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=500)]
     occurred_at: CommonV1Timestamp
     sig: CommonV1Sig
 

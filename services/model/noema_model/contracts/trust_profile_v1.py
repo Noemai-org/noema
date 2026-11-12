@@ -21,7 +21,7 @@ class TrustProfileV1(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     profile_id: CommonV1PackId
-    risk_class: Annotated[str, StringConstraints(pattern='^(R[0-9]_[a-z_]+|PROHIBITED)$')]
+    risk_class: Annotated[str, StringConstraints(pattern='\\A(R[0-9]_[a-z_]+|PROHIBITED)\\Z')]
     authority: TrustProfileV1Authority
     policy_templates: list[CommonV1PackId]
     clocks: list[CommonV1PackId]

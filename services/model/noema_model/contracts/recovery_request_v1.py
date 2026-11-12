@@ -17,7 +17,7 @@ class RecoveryRequestV1(ContractModel):
     correlation_id: CommonV1CorrelationId
     recovery_request_id: CommonV1RecoveryRequestId
     verdict_id: CommonV1VerdictId | None = Field(default=None)
-    reason: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    reason: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     evidence_refs: list[CommonV1EvidenceId]
     attempt_count: Annotated[int, Field(ge=0, le=9007199254740991)]
     created_at: CommonV1Timestamp

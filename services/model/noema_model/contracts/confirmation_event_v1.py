@@ -20,7 +20,7 @@ class ConfirmationEventV1(ContractModel):
     confirmation_request_id: CommonV1ConfirmationRequestId
     approver_principal_id: CommonV1PrincipalId
     response: EnumsV1ConfirmationResponse
-    channel: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*$')]
+    channel: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
     at: CommonV1Timestamp
 
 
