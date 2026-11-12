@@ -39,7 +39,11 @@ class Shards(unittest.TestCase):
         pkgs = [PREFIX + p for p in weights]
         shards = [go_shards.shard(pkgs, 3, i, weights) for i in range(3)]
         loads = [sum(weights.get(p, 2) for p in s) for s in shards]
-        self.assertLessEqual(max(loads), sum(loads) / 3 * 4 / 3, loads)
+        # a shard cannot finish before its heaviest package, so the bound is the larger of that and a third of the total plus a third
+        self.assertLessEqual(max(loads), max(sum(loads) / 3 * 4 / 3, max(weights.values())), loads)
+        db = [i for i, sh in enumerate(shards) if PREFIX + "platform/db" in sh]
+        self.assertEqual(len(db), 1)
+        self.assertLessEqual(loads[db[0]], max(weights.values()) + 30, "the heaviest package should share its shard with little else")
 
     def test_the_command_line_prints_one_shards_packages(self) -> None:
         out = subprocess.run([sys.executable, "-I", str(HERE / "go_shards.py"), "--shards", "2", "--index", "1", "--weights", str(HERE / "go_shard_weights.json")],

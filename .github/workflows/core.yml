@@ -3,7 +3,7 @@
 #
 # CI speed (noema): the tests run in three shards, balanced by the measured seconds of each package (tools/ci/go_shards.py and go_shard_weights.json); the database image
 # (pgsodium) builds in parallel with the compilation of the test binaries instead of before it; and superseded pull-request runs are cancelled (concurrency below).
-# Every package is in exactly one shard (tested), and shard 0 checks the union against `go list ./...` on every run, so the split can never skip a package.
+# Every package is in exactly one shard (tested), and the `static` job checks the union against `go list ./...` on every run, so the split can never skip a package.
 name: core
 on:
   pull_request:
@@ -65,16 +65,6 @@ jobs:
           pkgs="$(go list ./... | python3 -I ../../tools/ci/go_shards.py --shards "$SHARDS" --index "$SHARD" --weights ../../tools/ci/go_shard_weights.json)"
           echo "$pkgs" | tr ' ' '\n' > /tmp/shard-packages.txt
           echo "shard $SHARD of $SHARDS: $(wc -l < /tmp/shard-packages.txt) packages"
-          if [ "$SHARD" = "0" ]; then
-            # coverage: the union of the shards is exactly `go list ./...`
-            for i in $(seq 0 $((SHARDS - 1))); do
-              go list ./... | python3 -I ../../tools/ci/go_shards.py --shards "$SHARDS" --index "$i" --weights ../../tools/ci/go_shard_weights.json | tr ' ' '\n'
-            done | sort > /tmp/union.txt
-            go list ./... | sort > /tmp/all.txt
-            diff /tmp/all.txt /tmp/union.txt
-            test -z "$(gofmt -l .)"
-            go vet ./...
-          fi
           # Compile only: `-exec true` never runs the test binaries (several packages have a TestMain that needs the database, which is not up yet).
           go test -race -count=1 -exec true $pkgs
           wait "$pg_build" || { cat /tmp/pg-build.log; exit 1; }
@@ -90,17 +80,38 @@ jobs:
           echo "test database: PostgreSQL $server"
           test "$server" = "$EXPECTED_POSTGRES"
           go test -race $(cat /tmp/shard-packages.txt)
-      - name: Build (shard 0 only)
-        if: matrix.shard == 0
+  # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.
+  static:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      SHARDS: "3"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
+      - name: Shard coverage, formatting, vet, build
         working-directory: services/core
-        run: go build ./...
-      - name: Build the core image (shard 0 only)
-        if: matrix.shard == 0
+        run: |
+          set -eu
+          # coverage: the union of the test shards is exactly `go list ./...`, so the split can never skip a package
+          for i in $(seq 0 $((SHARDS - 1))); do
+            go list ./... | python3 -I ../../tools/ci/go_shards.py --shards "$SHARDS" --index "$i" --weights ../../tools/ci/go_shard_weights.json | tr ' ' '\n'
+          done | sort > /tmp/union.txt
+          go list ./... | sort > /tmp/all.txt
+          diff /tmp/all.txt /tmp/union.txt
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go build ./...
+      - name: Build the core image
         run: docker build -t noema-core:ci services/core
 
   # The one check named `core`: it passes when nothing in services/core changed, or when every shard passed. A shard that fails, is cancelled or is skipped by mistake fails it.
   core:
-    needs: [changed, tests]
+    needs: [changed, tests, static]
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -108,8 +119,10 @@ jobs:
           RUN: ${{ needs.changed.outputs.run }}
           CHANGED: ${{ needs.changed.result }}
           TESTS: ${{ needs.tests.result }}
+          STATIC: ${{ needs.static.result }}
         run: |
           if [ "$CHANGED" != "success" ]; then echo "::error::the change detection did not succeed ($CHANGED)"; exit 1; fi
           if [ "$RUN" != "true" ]; then echo "no services/core change; nothing to build"; exit 0; fi
           if [ "$TESTS" != "success" ]; then echo "::error::the core test shards ended as $TESTS"; exit 1; fi
-          echo "all core test shards passed"
+          if [ "$STATIC" != "success" ]; then echo "::error::the core static checks ended as $STATIC"; exit 1; fi
+          echo "all core test shards and static checks passed"

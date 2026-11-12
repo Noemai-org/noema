@@ -1,23 +1,27 @@
 {
-  "comment": "Seconds one package's tests took in the CI run of noema#221 (go test -race, 12:46 UTC, 11 Nov 2026), used only to balance the core test shards. A package that is not listed counts 2 seconds. A stale weight changes the balance, never the coverage: every package is always in exactly one shard.",
+  "comment": "Seconds one package's tests took in the CI run of noema#482 (go test -race inside a three-way shard, 12 Nov 2026), used only to balance the core test shards. platform/db alone took 107 s and bounds any shard that holds it; the others are the figures of the same run, except record/chain, execution/e2e and record/verify, which keep the figures of the noema#221 run of 11 Nov (they were not in the logs read). A package that is not listed counts 2 seconds. A stale weight changes the balance, never the coverage: every package is always in exactly one shard.",
   "seconds": {
     "record/chain": 49,
-    "platform/db": 40,
-    "execution/controller": 23,
-    "record/reconstruct": 23,
+    "platform/db": 107,
+    "execution/controller": 37,
+    "record/reconstruct": 32,
     "execution/e2e": 18,
-    "evidence/layer": 21,
-    "trust/grants": 19,
-    "outcome/store": 15,
+    "evidence/layer": 27,
+    "trust/grants": 16,
+    "outcome/store": 25,
     "adapters/outcome_e2e": 10,
     "record/verify": 10,
-    "execution/ledger": 9,
-    "outcome/verifier": 8,
+    "execution/ledger": 39,
+    "outcome/verifier": 10,
     "trust/policy": 5,
     "trust/decide": 4,
     "adapters/synthetic_tushe": 2,
     "cmd/core": 2,
     "orchestrator": 1,
-    "workflows": 1
+    "workflows": 1,
+    "internal/testpg": 5,
+    "explanation": 5,
+    "edge/session": 3,
+    "execution/registry": 4
   }
 }
