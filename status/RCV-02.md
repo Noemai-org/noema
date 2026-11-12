@@ -48,3 +48,8 @@ Updated 2026-11-06. Plan task RCV-02: owner C1+AG; REQ-RCV-003, REQ-RCV-002; Nee
 ### Pre-work for the next agent
 - Exact next step: the Security Reviewer re-reads `218edc95`'s successor for the two points of its NOT READY (migration order, void reason); both are answered by A167 and A164.
 - Do not touch: the trigger and the definer function.
+
+### Addendum 2026-11-12 17:00 WAT · RCV-02: 0023 hands the definer function to record_append the way 0019 does
+- What changed: `0023_dispatch_budget.sql`: `GRANT CREATE ON SCHEMA public TO record_append` before and `REVOKE CREATE ... FROM record_append` after `ALTER FUNCTION dispatch_budget_count ... OWNER TO record_append`.
+- Why: the new `compose-scripts` check (DEBT-16, noema#257, on `main` today) runs `deploy/compose/postgres/test_init.sh` on PostgreSQL 17.11 with a migrator that is not a superuser, and failed at `0023_dispatch_budget.sql:48: permission denied for schema public`. `ALTER ... OWNER TO` needs CREATE on the schema for the new owner (PostgreSQL 15 and later). Every Go test of mine ran with the superuser migrator, so none could see it. Reproduced locally with PostgreSQL 16 (`PG_BIN=... sh deploy/compose/postgres/test_init.sh`, same error), fixed, and the script now passes.
+- Lesson for the next migration author: run `deploy/compose/postgres/test_init.sh` before you push a migration that changes an owner; the superuser test databases do not prove a migrator's privileges.

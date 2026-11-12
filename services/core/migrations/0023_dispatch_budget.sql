@@ -45,7 +45,10 @@ BEGIN
           OR (e.payload ->> 'capability' = p_capability AND e.payload ->> 'target_ref' = p_target_ref));
   RETURN v_count;
 END $$;
+-- The new owner needs CREATE on the schema for ALTER ... OWNER TO when the migrator is not a superuser (PostgreSQL 15 and later); the grant is held for this statement only (as 0019 does).
+GRANT CREATE ON SCHEMA public TO record_append;
 ALTER FUNCTION public.dispatch_budget_count(text, text, text) OWNER TO record_append;
+REVOKE CREATE ON SCHEMA public FROM record_append;
 REVOKE ALL ON FUNCTION public.dispatch_budget_count(text, text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.dispatch_budget_count(text, text, text) TO execution_rw;
 
