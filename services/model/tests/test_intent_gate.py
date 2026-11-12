@@ -1,0 +1,247 @@
+"""UND-04, the model service's side of the schema gate: REQ-INT-001 (every proposal crosses the gate), REQ-INT-002 (a failure is a rejection, never a repair),
+REQ-INP-002 and INV-12 (identity is the session's, never the model's), INV-02 (model output is untrusted data).
+
+All data is SYNTHETIC (a pack named `test`). Written before the gate: these fail with an import error until noema_model.understanding.gate exists.
+The gate takes the compiler's proposal (status EXTRACTED, no `sig`) and returns it as VALIDATED, or the closed list of reasons it was refused. It signs nothing.
+"""
+
+import copy
+import json
+from typing import Any
+
+import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+
+from noema_model.contracts.intent_object_v1 import IntentObjectV1
+from noema_model.understanding.gate import UNSIGNED, Context, GateResult, Node, Reason, SchemaGate
+
+CTX = Context(tenant_id="ten_a1", correlation_id="corr_c1", principal_id="usr_88213", authn_ref="ses_7a1b")
+NODE = "test.intent.investigate"
+OUTCOME = "test.outcome.case_opened"
+
+
+class Pack:
+    def ref(self) -> tuple[str, str]:
+        return ("test", "1.0.0")
+
+    def node(self, node_id: str) -> Node | None:
+        if node_id != NODE:
+            return None
+        return Node(
+            slots={"subject_resource": "Resource", "amount": "Quantity", "when": "TimeRef", "counterparty": "Party", "requested_remedy": "Reference"},
+            outcomes=frozenset({OUTCOME, "test.outcome.complaint_logged"}),
+        )
+
+
+def gate(max_bytes: int = 65536) -> SchemaGate:
+    return SchemaGate(max_bytes=max_bytes, pack=Pack())
+
+
+def proposal() -> dict[str, Any]:
+    return {
+        "schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": None, "tenant_id": "ten_a1", "correlation_id": "corr_c1",
+        "created_at": "2026-11-12T10:00:00Z",
+        "principal": {"principal_id": "usr_88213", "principal_type": "end_user", "authn_ref": "ses_7a1b", "asserted_by": "enterprise_idp"},
+        "source": {"mode": "MODE_1", "channel": "text", "locale_detected": ["en-NG"], "asr_confidence": None, "raw_ref": "inp_abc123"},
+        "pack": {"pack_id": "test", "pack_version": "1.0.0"}, "intent_node": NODE,
+        "slots": {
+            "subject_resource": {"type": "Resource", "status": "RESOLVED", "resolved_ref": "test.transaction:TX88213", "confidence": 0.9},
+            "amount": {"type": "Quantity", "value": 2000000, "unit": "NGN", "surface_form": "20k"},
+            "when": {"type": "TimeRef", "surface_form": "yesterday", "window": ["2026-11-11T00:00:00Z", "2026-11-11T23:59:59Z"]},
+            "counterparty": {"type": "Party", "surface_form": "Ada"},
+            "requested_remedy": {"type": "Reference", "value": "test.capability.log_complaint"},
+        },
+        "ambiguity_flags": [], "desired_outcome_refs": [OUTCOME], "status": "EXTRACTED",
+    }
+
+
+def raw(doc: dict[str, Any]) -> bytes:
+    return json.dumps(doc).encode()
+
+
+def check(doc: dict[str, Any], ctx: Context = CTX) -> GateResult:
+    return gate().check(raw(doc), ctx)
+
+
+def reasons(doc: dict[str, Any], ctx: Context = CTX) -> set[Reason]:
+    return set(check(doc, ctx).reasons)
+
+
+def test_a_correct_proposal_is_validated_and_nothing_else_changes() -> None:
+    result = check(proposal())
+    assert result.ok and result.reasons == () and result.intent is not None
+    assert result.intent.status.value == "VALIDATED"
+    assert result.intent.sig == UNSIGNED, "the gate signs nothing: the signature is added after the gate by the model service"
+    expected = proposal()
+    expected["status"] = "VALIDATED"
+    expected["sig"] = {"key_id": UNSIGNED.key_id, "value": UNSIGNED.value}
+    assert result.intent.to_json_obj() == json.loads(json.dumps(expected))
+
+
+def mutate(path: tuple[str | int, ...], value: Any) -> dict[str, Any]:
+    doc = proposal()
+    node: Any = doc
+    for step in path[:-1]:
+        node = node[step]
+    node[path[-1]] = value
+    return doc
+
+
+def without(path: tuple[str, ...]) -> dict[str, Any]:
+    doc = proposal()
+    node: Any = doc
+    for step in path[:-1]:
+        node = node[step]
+    del node[path[-1]]
+    return doc
+
+
+# The table: one rule each. A rejection names reasons, never the object's text.
+REJECTIONS: dict[str, tuple[dict[str, Any], Reason]] = {
+    "already VALIDATED (the gate sets that, the model does not)": (mutate(("status",), "VALIDATED"), Reason.STATUS_NOT_EXTRACTED),
+    "REJECTED_AT_GATE from the model": (mutate(("status",), "REJECTED_AT_GATE"), Reason.STATUS_NOT_EXTRACTED),
+    "schema version 2.0": (mutate(("schema_version",), "2.0"), Reason.SCHEMA_VERSION),
+    "version 1 that supersedes": (mutate(("supersedes",), "int_01J9X3@0"), Reason.SUPERSEDES),
+    "version 2 without supersedes": (mutate(("version",), 2), Reason.SUPERSEDES),
+    "version 2 superseding another intent": (mutate(("version",), 2) | {"supersedes": "int_other@1"}, Reason.SUPERSEDES),
+    "version 3 superseding version 1": (mutate(("version",), 3) | {"supersedes": "int_01J9X3@1"}, Reason.SUPERSEDES),
+    "created_at that is not a calendar date": (mutate(("created_at",), "2026-13-45T10:00:00Z"), Reason.CREATED_AT),
+    "another tenant": (mutate(("tenant_id",), "ten_b2"), Reason.IDENTITY_MISMATCH),
+    "another principal": (mutate(("principal", "principal_id"), "usr_99999"), Reason.IDENTITY_MISMATCH),
+    "another session": (mutate(("principal", "authn_ref"), "ses_other"), Reason.IDENTITY_MISMATCH),
+    "another correlation": (mutate(("correlation_id",), "corr_zz"), Reason.CORRELATION_MISMATCH),
+    "Mode 2": (mutate(("source", "mode"), "MODE_2"), Reason.MODE_NOT_ENABLED),
+    "an oversize raw_ref": (mutate(("source", "raw_ref"), "x" * 257), Reason.SOURCE),
+    "an ASR confidence above 1": (mutate(("source", "asr_confidence"), 1.5), Reason.SOURCE),
+    "another pack": (mutate(("pack", "pack_id"), "other"), Reason.PACK_MISMATCH),
+    "another pack version": (mutate(("pack", "pack_version"), "1.0.1"), Reason.PACK_MISMATCH),
+    "a signature set by the model": (mutate(("sig",), {"key_id": "k", "value": "v"}), Reason.SIG_SET_BY_MODEL),
+    "a repeated ambiguity flag": (mutate(("ambiguity_flags",), ["COUNTERPARTY_MULTIPLE_MATCH", "COUNTERPARTY_MULTIPLE_MATCH"]), Reason.AMBIGUITY_FLAG),
+    "a node the pack does not define": (mutate(("intent_node",), "test.intent.other"), Reason.UNKNOWN_NODE),
+    "a slot name the pack does not define": (mutate(("slots", "mystery"), {"type": "Party", "surface_form": "x"}), Reason.UNKNOWN_SLOT),
+    "an upper-case slot name": (mutate(("slots", "Counterparty"), {"type": "Party", "surface_form": "x"}), Reason.SLOT_NAME),
+    "a slot of another type than the node says": (mutate(("slots", "counterparty"), {"type": "Reference", "value": "x"}), Reason.SLOT_TYPE),
+    "a RESOLVED resource without a resolved_ref": (mutate(("slots", "subject_resource"), {"type": "Resource", "status": "RESOLVED"}), Reason.SLOT_INVALID),
+    "a resolved_ref on an UNRESOLVED resource": (
+        mutate(("slots", "subject_resource"), {"type": "Resource", "status": "UNRESOLVED", "resolved_ref": "test.transaction:TX1"}), Reason.SLOT_INVALID),
+    "a window of three instants": (
+        mutate(("slots", "when", "window"), ["2026-11-11T00:00:00Z", "2026-11-11T12:00:00Z", "2026-11-11T23:59:59Z"]), Reason.SLOT_INVALID),
+    "a window instant that is not a date": (mutate(("slots", "when", "window"), ["2026-11-31T00:00:00Z", "2026-11-11T23:59:59Z"]), Reason.SLOT_INVALID),
+    "an outcome the node does not define": (mutate(("desired_outcome_refs",), ["test.outcome.other"]), Reason.OUTCOME_NOT_IN_NODE),
+    "a repeated outcome": (mutate(("desired_outcome_refs",), [OUTCOME, OUTCOME]), Reason.OUTCOME_NOT_IN_NODE),
+}
+
+
+@pytest.mark.parametrize("name", sorted(REJECTIONS))
+def test_each_rule_refuses_and_names_its_reason(name: str) -> None:
+    doc, reason = REJECTIONS[name]
+    result = check(doc)
+    assert not result.ok and result.intent is None, f"{name}: admitted"
+    assert reason in result.reasons, f"{name}: {result.reasons}"
+    assert list(result.reasons) == sorted(set(result.reasons), key=lambda r: r.value), "reasons are sorted and unique"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [("schema_version",), ("intent_id",), ("version",), ("supersedes",), ("tenant_id",), ("correlation_id",), ("created_at",), ("principal",), ("source",), ("pack",),
+     ("intent_node",), ("slots",), ("ambiguity_flags",), ("desired_outcome_refs",), ("status",), ("principal", "principal_id"), ("source", "raw_ref"), ("pack", "pack_id")],
+)
+def test_a_missing_member_is_a_shape_refusal(path: tuple[str, ...]) -> None:
+    assert reasons(without(path)) == {Reason.SHAPE}
+
+
+@pytest.mark.parametrize("path", [("principal",), ("source",), ("pack",), ("slots", "counterparty"), ("slots", "amount")])
+def test_an_unknown_member_at_any_depth_is_a_shape_refusal(path: tuple[str, ...]) -> None:
+    doc = proposal()
+    node: Any = doc
+    for step in path:
+        node = node[step]
+    node["smuggled"] = "x"
+    assert reasons(doc) == {Reason.SHAPE}
+
+
+def test_a_null_where_the_contract_has_none_is_a_shape_refusal() -> None:
+    assert reasons(mutate(("intent_node",), None)) == {Reason.SHAPE}
+    assert reasons(mutate(("principal", "principal_id"), None)) == {Reason.SHAPE}
+
+
+def test_what_is_not_one_json_object_is_refused_before_any_rule() -> None:
+    g = gate()
+    for body, expected in ((b"", Reason.SIZE), (b" ", Reason.NOT_JSON), (b"{", Reason.NOT_JSON), (b"[]", Reason.SHAPE), (b"null", Reason.SHAPE), (b'"x"', Reason.SHAPE),
+                           (raw(proposal()) + b" {}", Reason.NOT_JSON), (raw(proposal()) + b"x", Reason.NOT_JSON), (b'{"a": NaN}', Reason.NOT_JSON),
+                           (b'{"a": Infinity}', Reason.NOT_JSON), (b'{"a": 1, "a": 2}', Reason.SHAPE)):
+        result = g.check(body, CTX)
+        assert result.reasons == (expected,), f"{body!r}: {result.reasons}"
+        assert result.intent is None
+
+
+def test_a_repeated_member_is_refused_even_when_both_values_are_valid() -> None:
+    text = raw(proposal()).decode().replace('"version": 1', '"version": 1, "version": 1', 1)
+    assert gate().check(text.encode(), CTX).reasons == (Reason.SHAPE,)
+
+
+def test_the_size_bound_is_the_configured_one() -> None:
+    body = raw(proposal())
+    assert gate(max_bytes=len(body)).check(body, CTX).ok
+    assert gate(max_bytes=len(body) - 1).check(body, CTX).reasons == (Reason.SIZE,)
+    with pytest.raises(ValueError):
+        SchemaGate(max_bytes=0, pack=Pack())
+
+
+def test_a_context_that_is_not_in_order_is_refused_and_not_blamed_on_the_model() -> None:
+    for bad in (Context("", "corr_c1", "usr_88213", "ses_7a1b"), Context("ten_a1", "bad", "usr_88213", "ses_7a1b"), Context("ten_a1", "corr_c1", "x", "ses_7a1b"),
+                Context("ten_a1", "corr_c1", "usr_88213", "")):
+        assert check(proposal(), bad).reasons == (Reason.CONTEXT_INVALID,)
+
+
+def test_the_gate_never_repairs_and_never_mutates_its_input() -> None:
+    doc = proposal()
+    doc["ambiguity_flags"] = ["lowercase_flag"]
+    before = copy.deepcopy(doc)
+    result = check(doc)
+    assert not result.ok and result.intent is None
+    assert doc == before
+    assert reasons(doc) == {Reason.SHAPE}, "a flag the contract's pattern refuses is a refusal, never normalised"
+
+
+def test_the_signature_slot_of_a_validated_intent_is_the_unsigned_marker_and_never_the_models() -> None:
+    result = check(proposal())
+    assert result.intent is not None
+    assert (result.intent.sig.key_id, result.intent.sig.value) == ("unsigned", "unsigned")
+    assert isinstance(result.intent, IntentObjectV1)
+
+
+def test_no_reason_carries_text_of_the_object() -> None:
+    doc = proposal()
+    doc["slots"]["counterparty"]["surface_form"] = "SECRET-NAME"
+    doc["intent_node"] = "test.intent.SECRET"
+    for result in (check(doc), check(mutate(("slots", "mystery"), {"type": "Party", "surface_form": "SECRET-NAME"}))):
+        assert "SECRET" not in repr(result)
+
+
+@settings(max_examples=10_000, derandomize=True, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(
+    where=st.sampled_from([(), ("principal",), ("source",), ("pack",), ("slots", "subject_resource"), ("slots", "amount"), ("slots", "when"), ("slots", "counterparty"),
+                           ("slots", "requested_remedy")]),
+    name=st.text(min_size=1, max_size=12).filter(lambda s: s not in proposal() and s not in {"smuggled"}),
+    value=st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=8)),
+)
+def test_fuzz_an_unknown_member_anywhere_is_always_refused(where: tuple[str, ...], name: str, value: Any) -> None:
+    doc = proposal()
+    node: Any = doc
+    for step in where:
+        node = node[step]
+    if name in node:
+        return
+    node[name] = value
+    result = check(doc)
+    assert not result.ok and result.reasons == (Reason.SHAPE,)
+
+
+@settings(max_examples=2_000, derandomize=True, deadline=None)
+@given(st.binary(max_size=300))
+def test_the_gate_is_total_and_deterministic_on_any_bytes(body: bytes) -> None:
+    first = gate().check(body, CTX)
+    assert first == gate().check(body, CTX)
+    assert (first.ok and first.intent is not None and first.reasons == ()) or (not first.ok and first.intent is None and len(first.reasons) >= 1)
