@@ -7,5 +7,6 @@
     {
       "run_id": "run_1"
     }
-  ]
+  ],
+  "context_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 }

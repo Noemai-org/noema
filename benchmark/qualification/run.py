@@ -167,6 +167,10 @@ def validate_run_record(record: Mapping[str, Any]) -> list[str]:
     pin = record["pinned"] if isinstance(record["pinned"], Mapping) else {}
     if pin.get("kind") not in KINDS or not pin.get("provider") or not pin.get("model_id"):
         out.append("pinned needs a kind (llm or speech), a provider and a model_id")
+    base = record["baseline"].get("pinned") if isinstance(record["baseline"], Mapping) else None
+    if isinstance(base, Mapping):
+        out += [f"baseline.pinned.{name} {base.get(name)!r} is not pinned.{name} {pin.get(name)!r}: the baseline is the same {name} (`compare` enforces it); only the version may differ"
+                for name in ("kind", "provider", "model_id") if base.get(name) != pin.get(name)]
     if not is_pinned(pin.get("version")):
         out.append(f"pinned.version {pin.get('version')!r} is not pinned")
     if not isinstance(record["commit_sha"], str) or not _SHA.fullmatch(record["commit_sha"]):

@@ -307,6 +307,20 @@ class UnansweredCases(unittest.TestCase):
         self.assertTrue(any("UNAVAILABLE" in p for p in validate_run_record(rec)), validate_run_record(rec))
 
 
+class BaselineIdentity(unittest.TestCase):
+    """Codex P2 on noema#199 (3246f93): `baseline.pinned` must be the same kind, provider and model as `pinned`, as `compare` enforces; only the version may differ."""
+
+    def test_a_baseline_for_another_provider_model_or_kind_is_invalid(self) -> None:
+        for field, value in (("provider", "another-provider"), ("model_id", "another-model"), ("kind", "speech" if PINNED["kind"] == "llm" else "llm")):
+            rec = run()
+            rec["baseline"]["pinned"][field] = value
+            got = validate_run_record(rec)
+            self.assertTrue(any("baseline.pinned" in p and field in p for p in got), (field, got))
+
+    def test_a_baseline_that_differs_only_in_version_is_valid(self) -> None:
+        self.assertEqual([], [p for p in validate_run_record(run()) if "baseline.pinned" in p])
+
+
 class Validating(unittest.TestCase):
     def test_a_result_the_cases_do_not_support_is_invalid(self) -> None:
         rec = run()

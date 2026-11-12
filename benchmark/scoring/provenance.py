@@ -21,11 +21,19 @@ def run_ids(results: Sequence[Mapping[str, Any]]) -> list[str]:
     return sorted({str(r.get("run_id")) for r in results})
 
 
-def provenance(card: Mapping[str, Any], results: Sequence[Mapping[str, Any]], repeat_runs: Sequence[Sequence[Mapping[str, Any]]]) -> Json:
+def context_digest(cases: Sequence[Mapping[str, Any]], oracles: Sequence[Mapping[str, Any]], pack: Any) -> str:
+    """What the results were scored against: the cases, the oracles (each ordered by case_id) and the pack (its capability registry is where a prohibited capability is decided).
+    Repeat results rescored against another pack, case set or oracle set get another digest (Codex P1 on noema#199)."""
+    def ordered(items: Sequence[Mapping[str, Any]]) -> list[Json]:
+        return sorted((dict(i) for i in items), key=lambda i: str(i.get("case_id")))
+    return sha256_of({"cases": ordered(cases), "oracles": ordered(oracles), "pack": pack})
+
+
+def provenance(card: Mapping[str, Any], results: Sequence[Mapping[str, Any]], repeat_runs: Sequence[Sequence[Mapping[str, Any]]], context_sha256: str) -> Json:
     runs: list[Json] | None = None
     if repeat_runs:
         runs = [{"run_id": card["run_id"], "results_sha256": results_digest(results)}]
         for one in repeat_runs:
             ids = run_ids(one)
             runs.append({"run_id": ids[0] if len(ids) == 1 else "|".join(ids), "results_sha256": results_digest(one)})
-    return {"schema": SCHEMA, "run_id": card["run_id"], "results_sha256": results_digest(results), "scorecard_sha256": sha256_of(card), "pass_k_runs": runs}
+    return {"schema": SCHEMA, "run_id": card["run_id"], "results_sha256": results_digest(results), "scorecard_sha256": sha256_of(card), "context_sha256": context_sha256, "pass_k_runs": runs}

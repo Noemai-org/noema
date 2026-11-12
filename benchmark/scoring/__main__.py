@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.contracts import Contracts, StrictJsonError, load_strict, loads_strict, pretty_bytes
-from benchmark.scoring.provenance import provenance
+from benchmark.scoring.provenance import context_digest, provenance
 from benchmark.scoring.registry import registry_from_pack
 from benchmark.scoring.report import ReportError, render_markdown
 from benchmark.scoring.scorecard import score
@@ -137,7 +137,7 @@ def run(args: argparse.Namespace) -> int:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "scorecard.json").write_bytes(pretty_bytes(card))
-    (out / "provenance.json").write_bytes(pretty_bytes(provenance(card, results, repeats)))
+    (out / "provenance.json").write_bytes(pretty_bytes(provenance(card, results, repeats, context_digest(cases, oracles, load_strict(Path(args.pack))))))
     (out / "report.md").write_text(report, encoding="utf-8")
     bad = [g["gate"] for g in card["tier0"]["gates"] if g["count"]]
     print("Tier 0: " + ("all 11 gates at zero" if not bad else f"NOT at zero: {', '.join(bad)}"))

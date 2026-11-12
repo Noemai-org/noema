@@ -50,3 +50,54 @@ class Provenance(unittest.TestCase):
             write_tree(b, mutate=lambda results: results[0].update(latency_ms=(results[0]["latency_ms"] or 0) + 7))
             first, second = scored(a, "out")["prov"], scored(b, "out")["prov"]
             self.assertNotEqual(first["results_sha256"], second["results_sha256"])  # type: ignore[index]
+
+
+class Context(unittest.TestCase):
+    """Codex P1 on noema#199 (3246f93): the same results scored against another pack, case set or oracle set are not the same scoring."""
+
+    def test_the_context_digest_is_the_same_for_the_same_cases_oracles_and_pack(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            write_tree(a)
+            write_tree(b)
+            self.assertEqual(scored(a, "out")["prov"]["context_sha256"], scored(b, "out")["prov"]["context_sha256"])  # type: ignore[index]
+
+    def test_a_different_pack_registry_changes_the_context_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            write_tree(a)
+            write_tree(b)
+            pack = json.loads((b / "pack.json").read_text())
+            pack["capabilities"][0]["prohibited"] = not pack["capabilities"][0]["prohibited"]
+            (b / "pack.json").write_text(json.dumps(pack))
+            self.assertNotEqual(scored(a, "out")["prov"]["context_sha256"], scored(b, "out")["prov"]["context_sha256"])  # type: ignore[index]
+
+    def test_a_different_oracle_changes_the_context_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            write_tree(a)
+            write_tree(b)
+            first = sorted((b / "oracles").glob("*.json"))[0]
+            oracle = json.loads(first.read_text())
+            oracle["high_risk_ambiguous"] = not oracle["high_risk_ambiguous"]
+            first.write_text(json.dumps(oracle))
+            self.assertNotEqual(scored(a, "out")["prov"]["context_sha256"], scored(b, "out")["prov"]["context_sha256"])  # type: ignore[index]
+
+    def test_a_different_case_changes_the_context_digest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a", Path(tmp) / "b"
+            a.mkdir()
+            b.mkdir()
+            write_tree(a)
+            write_tree(b)
+            first = sorted((b / "cases").glob("*.json"))[0]
+            case = json.loads(first.read_text())
+            case["expected"]["escalation_expected"] = not case["expected"]["escalation_expected"]
+            first.write_text(json.dumps(case))
+            self.assertNotEqual(scored(a, "out")["prov"]["context_sha256"], scored(b, "out")["prov"]["context_sha256"])  # type: ignore[index]

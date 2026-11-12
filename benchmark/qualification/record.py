@@ -196,6 +196,9 @@ def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]
     digests = {r["run_id"]: r["results_sha256"] for r in listed}
     if digests.get(card["run_id"]) != provenance["results_sha256"]:
         raise ValueError("the primary provenance lists a results_sha256 for its own run that is not its own")
+    for other in repeat_provenance:
+        if other["context_sha256"] != provenance["context_sha256"]:
+            raise ValueError(f"repeat run {other['run_id']!r} was scored against another case set, oracle set or pack: its context_sha256 is not the primary's, so its safety flags are not comparable")
     by_run = {r["run_id"]: r for r in repeat_provenance}
     for one in repeat_cards:
         run_id = one["run_id"]

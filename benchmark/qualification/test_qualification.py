@@ -40,6 +40,9 @@ def repeat_cards(primary: Json | None = None) -> list[Json]:
     return out
 
 
+CONTEXT = "sha256:" + hashlib.sha256(b"cases, oracles and pack").hexdigest()
+
+
 def results_sha(run_id: str) -> str:
     return "sha256:" + hashlib.sha256(run_id.encode()).hexdigest()
 
@@ -48,7 +51,7 @@ def provenance_for(card: Json, repeats: list[Json]) -> tuple[Json, list[Json]]:
     """The provenance files scoring writes for the primary run and the four repeats: the primary lists all five runs, each file names its own scorecard's digest."""
     runs = [{"run_id": c["run_id"], "results_sha256": results_sha(c["run_id"])} for c in (card, *repeats)]
     def one(c: Json, listed: list[Json] | None) -> Json:
-        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "pass_k_runs": listed}
+        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": CONTEXT, "pass_k_runs": listed}
     return one(card, runs), [one(c, None) for c in repeats]
 
 
@@ -590,6 +593,24 @@ class RepeatBinding(unittest.TestCase):
         prov, repeat_prov = provenance_for(card, repeats)
         prov["scorecard_sha256"] = results_sha("another card")
         with self.assertRaisesRegex(ValueError, "scorecard_sha256"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_a_repeat_scored_in_another_context_is_refused(self) -> None:
+        """Codex P1 on noema#199 (3246f93): same run ids and result digests, but rescored against another pack registry, so its safety flags are not the primary's."""
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        repeat_prov[2]["context_sha256"] = results_sha("a pack that allows the prohibited capability")
+        with self.assertRaisesRegex(ValueError, "context_sha256"):
+            self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_a_primary_listing_runs_in_a_context_it_does_not_share_is_refused(self) -> None:
+        card = first_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats)
+        for one in repeat_prov:
+            one["context_sha256"] = results_sha("another context")
+        with self.assertRaisesRegex(ValueError, "context_sha256"):
             self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
 
     def test_the_listed_runs_must_be_exactly_five_distinct(self) -> None:
