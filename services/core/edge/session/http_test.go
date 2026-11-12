@@ -229,3 +229,36 @@ func TestACallerSuppliedCorrelationIdIsNeverEchoed(t *testing.T) {
 		}
 	}
 }
+
+// One request has one correlation ID: the session check mints it, and the role gate, the body guard, the handler and the answer all use that one (noema#458: since the
+// incoming value is no longer adopted, each layer minting its own would give a body error an ID that is not the header's and break tracing).
+func TestOneRequestHasOneCorrelationIdThroughTheWholeChain(t *testing.T) {
+	k := newKeys(t)
+	v, clk := verifier(t, k, epoch)
+	idm := ids.New(clk, nil)
+	guard, err := session.RefuseBodyIdentity(idm, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inHandler string
+	h := session.Middleware(v, idm)(session.RequireRole(idm, session.RoleOps)(guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inHandler = session.CorrelationFromContext(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))))
+	c := goodClaims(epoch)
+	c["roles"] = []string{string(session.RoleOps)}
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), c)
+
+	ok := do(h, tok, nil)
+	if got := ok.Header().Get("Noema-Correlation-Id"); ok.Code != http.StatusNoContent || got == "" || inHandler != got {
+		t.Fatalf("handler saw %q, header %q (status %d)", inHandler, got, ok.Code)
+	}
+	c["roles"] = []string{string(session.RoleCustomer)}
+	denied := do(h, "Bearer "+mint(t, k.priv, goodHeader(), c), nil)
+	if got := denied.Header().Get("Noema-Correlation-Id"); denied.Code != http.StatusNotFound || got == "" || string(envelope(t, denied).CorrelationId) != got {
+		t.Fatalf("role refusal: header %q, body %q", got, denied.Body.String())
+	}
+	if got := session.CorrelationFromContext(httptest.NewRequest(http.MethodGet, "/", nil).Context()); got != "" {
+		t.Fatalf("a request that passed no session check has the correlation ID %q in its context", got)
+	}
+}
