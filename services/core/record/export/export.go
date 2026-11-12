@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strconv"
 	"time"
@@ -25,6 +26,7 @@ const rollbackTimeout = 5 * time.Second
 // Errors the export returns. Each is a refusal: nothing is exported with it.
 var (
 	ErrNoSession      = errors.New("export: no session tenant")
+	ErrNoConnection   = errors.New("export: no connection to the Record")
 	ErrNotFound       = errors.New("export: no Record event for this correlation")
 	ErrIntegrity      = errors.New("export: the Record chain did not verify")
 	ErrTenantMismatch = errors.New("export: the Record handle belongs to another tenant than the session")
@@ -94,6 +96,9 @@ func AuditRecordOf(ctx context.Context, db TxBeginner, s Session, correlationID 
 	if s.TenantID == "" {
 		return AuditRecord{}, ErrNoSession
 	}
+	if noConnection(db) {
+		return AuditRecord{}, ErrNoConnection
+	}
 	if _, ok := ctx.Deadline(); !ok {
 		return AuditRecord{}, errors.New("export: the context needs a deadline")
 	}
@@ -128,6 +133,15 @@ func AuditRecordOf(ctx context.Context, db TxBeginner, s Session, correlationID 
 		return AuditRecord{}, err
 	}
 	return AuditRecord{Entries: entries, Digest: digest}, nil
+}
+
+// noConnection is true for a nil interface and for a typed nil pointer (a nil *pgxpool.Pool), either of which would panic at the first call.
+func noConnection(db TxBeginner) bool {
+	if db == nil {
+		return true
+	}
+	v := reflect.ValueOf(db)
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 func readChain(ctx context.Context, db TxBeginner) ([]chain.Row, error) {

@@ -47,3 +47,15 @@ Updated 2026-11-08. Plan task REC-09 (ruling A109, docs#142): owner C1, reviewer
 ### Pre-work for the next agent
 - Exact next step: the Security Reviewer's exposure check (condition 3 of A109), then EL's review.
 - Do not touch: anything outside `record/export/**` and this file.
+
+## Session 2026-11-12 17:30 WAT · REC-09: the Security Reviewer's exposure read and fix (b)
+### Session summary
+- What changed (PR links): noema#377: `AuditRecordOf` returns `ErrNoConnection` for a nil interface and for a typed nil pool (it panicked at the first call); `TestANilConnectionAndANonTenantLoginExportNothing` also pins that the cluster's superuser (standing for the migrator or the owner) exports nothing: the database refuses a login that is not mapped to a tenant (SQLSTATE 42501), so the export needs no further code for it.
+- Why: the Security Reviewer's exposure check at `fee7ef1` (READY, may leave Draft) with two numbered fixes before merge; this is (b), the card's "refuses a nil or superuser connection".
+- Tests: failing first at the test-only commit (compile error: `ErrNoConnection` did not exist; before the constant, the nil call panicked). Mutant: dropping the typed-nil check is caught by the nil-pool case.
+- Not done: (a), the domain label on the whole-export digest. The Benchmark Owner's worked example of noema#355 pins `sha256(JCS(entries))`; adding `noema/audit-export/v1` + 0x00 changes every pinned digest of theirs, so it needs their answer (or a recorded deviation in the card). Asked in one issue.
+- Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: (a), once the Benchmark Owner answers; then Codex and the second human review (Record package).
+- Do not touch: anything outside `record/export/**` and this file.
