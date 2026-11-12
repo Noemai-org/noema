@@ -657,6 +657,26 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 	}
 }
 
+// A154 (relayed, to be committed): the maximum unmasked digit run is 4 on every outward surface, in whatever script the digits are written. Full-width,
+// Arabic-Indic and Devanagari digits, and a run that mixes scripts, are digits (Unicode Nd) like ASCII ones; a four-digit run in any script is left alone.
+func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[9].payload = map[string]any{"claims": []any{
+		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G",
+			"bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
+	}}
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "A ****\uff14\uff15\uff16\uff17 B ***\u0663\u0664\u0665\u0666 C **\u0969\u096a\u096b\u096c D *****\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G"
+	if got := parse(t, raw).section("EXPLANATION")[0].Facts["text"]; got != want {
+		t.Fatalf("claim text %q, want %q", got, want)
+	}
+}
+
 // REQ-AUD-003 Security ("Masked"), AGENTS.md section 7 (mask to the last four digits): a run of five or more digits in
 // a served free-text or scalar fact keeps only its last four. References and IDs, which the contract patterns check
 // and which the reader matches on, are not facts of this kind and are served as written.
