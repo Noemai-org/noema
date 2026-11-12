@@ -237,7 +237,7 @@ func TestCrashAfterSpendIsSweptToOutcomeUnknownWithoutADispatch(t *testing.T) {
 func TestAFailedRecordAppendFailsTheSpend(t *testing.T) {
 	w := newWorld(t)
 	g := w.issue(t, 1)
-	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
+	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}, Signers: w.led.Rec.Signers} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
 	_, err := w.ctl.Execute(ctx(t), tenant, g.GrantID)
 	if err == nil {
 		t.Fatal("Execute succeeded although the Record could not be written")

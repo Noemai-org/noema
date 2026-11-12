@@ -20,6 +20,28 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Files to read first: `docs/decisions/DEC-2026-11-01-receipt-and-record-signing.md` §5, §6, §10.
 - Do not touch: noema#94, noema#90 (held until W4 is on `main`).
 
+## Update 2026-11-07 (Founder decision D12)
+- The row-security migration is `0017_row_security.sql` (was the provisional 0015). Its parent noema#168 becomes 0012 (the owner of that PR renames its file). If the merge order changes, the later PR renumbers.
+
+## Update 2026-11-08 (merge order set by the Founders)
+- The row-security migration is `0018_row_security.sql` and the kill-switch migration (identical to noema#265's) is `0017_kill_switch_set_only.sql`; #168 is 0012. Numbers follow the merge order (A34); a later merge order renumbers again.
+# Session 2026-11-06 16:30 WAT · EXE-08 (A6 slice 1: Record function hardening, noema#234)
+
+## Session summary
+- What changed: migration 0016 replaces the five record_append functions with a pinned `pg_catalog, pg_temp` search_path and schema-qualified names. Failing tests first (commit 7b675e0): the catalog test, and an exploit test in which a ten_a writer login with a temporary `tenant_login` table created a chain head for ten_b.
+- Why: ruling A6. The exploit is real on main: such a login could write and read another tenant's Record chain.
+- Risks: CREATE OR REPLACE needs the migrating role to own or be a member of record_append (as 0003 to 0006 already needed). Number 0016 (D12) may need D3 renumbering.
+- Tests added: REQ-SEC-004, INV-12.
+- Conflicts raised: none.
+- Not yet done in A6: RLS + FORCE on grant_spend, idempotency_record, execution_receipt, recovery_request, outbox_event, record_event, record_chain_head (it needs the tenant mapping function of noema#168 and a design for the verifier role, which reads all tenants on purpose); the A20 list of paths for SR.
+
+## Pre-work for the next agent
+- Exact next step: RLS slice stacked on noema#168 (uses `decision_login_tenant()`); write the A20 paths list.
+- Do not touch: noema#168's migration 0011.
+
+## Update 2026-11-07 (Founder decision D12)
+- The Record-function hardening migration is `0016_record_function_hardening.sql` (was the provisional 0014). If the merge order changes, the later PR renumbers.
+
 # Session 2026-11-07 10:00 WAT · EXE-08 (audit-record gaps, noema#243)
 
 ## Session summary
@@ -85,6 +107,12 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 ## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
 - `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.
 
+## Session 2026-11-11 · EXE-08 (noema#234): after #181 and #168 reached main
+- What changed (PR links): noema#234, test-only: `platform/db/rls_paths_test.go` (#168's list of Record and Outcome definers without `pg_temp` pinned is now empty, because 0016 pins them all: it was a list that "can only shrink"); `outcome/store/world_test.go` (each seeded grant has its own decision record, `dec_<grant>`, because #168's grant guard refuses a grant for a decision of another tenant); `platform/db/migration_order_test.go` (the upgrade-path test now migrates a database that holds 0001 to 0010 and 0017, the state before the train, with every other file afterwards; the earlier form took each lower file out in turn, which asked for an order that cannot happen once 0011 and 0012 are merged: a database that holds 0016 and not 0012). `migrations/README.md` is main's file (A145).
+- Why: with #181 and #168 on `main`, three tests of the merged tree failed on this branch.
+- Tests: red first, locally, after merging `main`: `TestTheListOfDefinersWithoutPgTempPinnedOnlyShrinks` (7 entries "now pins pg_temp last"), `TestAnOutcomeLoginCannotRecordAVerdictForAnotherTenant` (seed refused), `TestALowerNumberedMigrationApplied...` (0012 case); green after. The new upgrade-path test fails when 0017 alters an object that a later-applied file replaces (checked with a scratch ALTER FUNCTION in 0017).
+- Debt entries: none. Conflicts raised: none.
+- Mutation check of 0016 (A131 row 3c), same session: four mutants. A function loses its pin (`record_login_tenant` to `pg_catalog, public`) fails `TestTheTriggerFunctionsThatReadNoRelationPinTheirSearchPath`; the schema qualification of `tenant_login` removed fails `TestATemporaryTenantLoginTableDoesNotRedirectARecordCall` and three more; the tenant check of `outcome_record_verdict` removed fails `TestAnOutcomeLoginCannotRecordAVerdictForAnotherTenant`. **The grant of EXECUTE on `record_login_tenant` to `noema_migrator` removed was caught by no test** (in the test cluster the administrator owns `outcome_record_verdict`, so its privileges hid the gap; in production the migration role owns it), so `TestTheMigrationRoleCanExecuteRecordLoginTenantAndPublicCannot` is added; it fails on that mutant. Test-only; the migration is unchanged.
 ## Session 2026-11-11 · EXE-08 slice B (noema#229): after #168 merged, test-seed fix
 - What changed (PR links): noema#229: two test files, no production code. `platform/db/sig_test.go` seeds a `decision_record` before each grant and gives the grant's document the decision, the tenant and the bound fields (as `schema_test.go` does), because the grant guard of 0012 (#168) refuses a grant without them; the "void without a receipt" check runs through the tenant's own execution login, because row security hides a grant from an unmapped session. `adapters/outcome_e2e/crash_test.go` (#252, on `main`) builds the Controller with the Ed25519 receipt signer (`Receipts: signingtest.Ring`) instead of the removed `Keys: receiptRing` and `ReceiptKeyID`.
 - Why: with #168 on `main`, 14 receipt tests failed (the seeds) and `outcome_e2e` no longer compiled (`crash_test.go` used the pre-#229 Controller fields).
@@ -98,6 +126,12 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Tests: red first, locally: `TestAGenuinelySignedAcknowledgementDoesNotVoidASpentGrant`, `TestASpentGrantStaysSpentWithoutAConfirmedStaleVersionRefusal` and the other void/forged-receipt cases ("got nil, want an error with code 23*": the guard was not reached); green after: `go test -count=1 ./platform/db/ ./outcome/... ./adapters/outcome_e2e/ ./execution/... ./evidence/...`.
 - Debt entries: none. Conflicts raised: none.
 - Upgrade-path test (noema#181's `migration_order_test.go`), same session: with #181 and #168 on `main` the per-file form of the test asked for an order that cannot happen (a database that holds 0016 and not 0012: it failed on #234 and #261, where 0016 and 0018 touch `outcome_record_verdict`, which 0012 also altered). It now migrates a database that holds 0001 to 0010 and 0017 (the state before the train, A113) and then every other file in name order, and compares the catalog with a fresh one. The same change, with identical content, is in #233, #234, #261 and #263, so they merge cleanly. A scratch `ALTER FUNCTION` in 0017 on a function that 0016 replaces makes it fail.
+
+## Session 2026-11-11 · EXE-08 (noema#261): the cross-tenant receipt_insert test, and the receipt fixtures after #229 reached main
+- What changed (PR links): noema#261, test-only (migration 0018 unchanged): `platform/db/rls_tables_test.go` adds `TestATenantAExecutionLoginCannotStoreAGenuineReceiptOfTenantB` (the Security Reviewer's condition, settled on noema#229): tenant A's execution login calls `receipt_insert` with a genuine, validly signed receipt of tenant B and B's own `grant_spend`; the call is refused, no row exists, and tenant B's own login stores the same receipt (control). `internal/sigfixture` gains `MapSession` and `InsertReceipt` uses it, and `sig_test.go` and `schema_test.go` map the session to ten_a, because since 0018 `receipt_insert` writes only the tenant of the connecting login and the fixtures connected as the unmapped administrator ("the receipt does not match the recorded spend": 4 tests of `platform/db`, 8 of `outcome/store`).
+- Why: the Security Reviewer's one test owed here, and #229's fixtures meeting this PR's row security.
+- Tests: the fixtures were red first, locally, on the merge of `main`; the new test passes on 0018 and **fails on a mutant** of 0018 whose policies are `USING (true) WITH CHECK (true)` ("tenant A's execution login stored a genuine receipt of tenant B"). It is refused at the first place row security bites: the signature trigger reads tenant B's `grant_spend` as the definer, which FORCE subjects to the policy, so A's login does not see the spend (NS001); the `execution_receipt` policy's WITH CHECK (42501) is the second line. `go test -count=1 ./...` in `services/core`: 38 packages ok.
+- Debt entries: none. Conflicts raised: none.
 
 ## Session 2026-11-11 · EXE-08 audit-record gaps (noema#243): after #233 reached main
 - What changed (PR links): noema#243: `main` merged (one merge commit); four conflict hunks resolved, no behaviour change: `controller/ports.go` keeps both `Event.PolicyVersion` (S11) and `Event.Payload`; `ledger/ledger.go` `Append` builds the payload from `Payload` first, then from `Detail` and `PolicyVersion`; `ledger/complete.go` `Void` calls `addRecoveryRequest` (main's refactor) and the helper adds `policy_version` to the GRANT_VOIDED payload through a new `voidChange.policyVersion`, which only `Void` sets (the receipt-confirmed void of #233 does not).

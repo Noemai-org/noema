@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +86,7 @@ func newWorld(t *testing.T) *world {
 		readers[id] = testpg.TenantLogin(t, admin, dsn, "record_read", id)
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC))
-	return &world{admin: admin, writers: writers, readers: readers, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{})}}
+	return &world{admin: admin, writers: writers, readers: readers, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{}), Signers: recordsig.All(t, admin, "reconstruct", nil)}}
 }
 
 // dbs is the TenantDBs of the world's per-tenant read logins.
@@ -171,7 +172,7 @@ func us01() []ev {
 	return []ev{
 		{writtenBy: "core-edge", actor: customer, eventType: "SESSION_VALIDATED", objectRef: "ses_synth0001", payload: map[string]any{"channel": "TEXT", "locale": "en"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"channel": "TEXT", "request_id": "req_synth0001"}},
-		{writtenBy: "model-service", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "note": "model text is never a fact"}},
+		{writtenBy: "core-edge", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "note": "model text is never a fact"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"resolved_target": target, "candidate_count": 1, "margin": "0.41"}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},
