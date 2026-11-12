@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -98,32 +99,116 @@ func TestInvalidTables(t *testing.T) {
 }
 
 // INV-12 (noema ENV-05): the stand-in adapter sends only the signed identity assertion, never a bare principal header, so the request log must attribute from the
-// assertion. The proxy does not hold the key and does not verify the MAC (the stand-in does); this is diagnostic attribution, not authentication.
-func TestAnAssertionAttributeReadsThePrincipalOfAV2Assertion(t *testing.T) {
+// assertion. The proxy does not hold the key and does not verify the MAC or the other fields (the stand-in does): only the principal field is read, any caller can label
+// a request with any printable principal, and a plan that matches on principal_id can therefore be steered by a forged assertion. Diagnostic labelling, not authentication.
+func assertionTable(t *testing.T) *Table {
+	t.Helper()
 	tab, err := Parse([]byte(`{"schema_version":"1.0","synthetic":true,"routes":[{"method":"GET","path":"/standin/v1/principal","upstream":"standin","target":"mock-customer","operation":"get_principal","attrs":{"principal_id":"assertion:X-Principal-Assertion"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	const v2 = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42"
+	return tab
+}
+
+func principalOf(t *testing.T, tab *Table, headers ...string) string {
+	t.Helper()
+	r := httptest.NewRequest("GET", "/standin/v1/principal", nil)
+	for _, h := range headers {
+		r.Header.Add("X-Principal-Assertion", h)
+	}
+	rt := tab.Match(r)
+	if rt == nil {
+		t.Fatal("no route")
+	}
+	return rt.Extract(r)["principal_id"]
+}
+
+func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+
+// v2 builds a five-part assertion around the given principal bytes; the tenant, expiry and MAC are placeholders because the proxy reads none of them.
+func v2(principal string) string { return "v2." + b64(principal) + "." + b64("ten_alpha") + ".1.00" }
+
+func TestAnAssertionAttributeReadsThePrincipalOfAV2Assertion(t *testing.T) {
+	tab := assertionTable(t)
+	const real = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42"
+	if got := principalOf(t, tab, real); got != "usr_a" {
+		t.Fatalf("the README's pinned v2 vector: %q", got)
+	}
+	if got := principalOf(t, tab); got != "" {
+		t.Fatalf("no header: %q", got)
+	}
+}
+
+// Each bound below was mutated in assertionPrincipal and made a case here go red (recorded in the PR): the version, the part count, the 128-byte cap, both ends of the
+// printable range, and strict base64url.
+func TestAnAssertionPrincipalBounds(t *testing.T) {
+	tab := assertionTable(t)
+	p128, p129 := strings.Repeat("a", 128), strings.Repeat("a", 129)
 	for name, c := range map[string]struct{ header, want string }{
-		"a v2 assertion":            {v2, "usr_a"},
-		"no header":                 {"", ""},
-		"the old v1 form":           {"v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce", ""},
-		"not base64":                {"v2.!!!.dGVuX2FscGhh.1.00", ""},
-		"too few parts":             {"v2.dXNyX2E", ""},
-		"an empty principal":        {"v2..dGVuX2FscGhh.1.00", ""},
-		"a non-printable principal": {"v2.AQID.dGVuX2FscGhh.1.00", ""},
+		"128 bytes is the longest accepted":             {v2(p128), p128},
+		"129 bytes gives nothing":                       {v2(p129), ""},
+		"0x20 (space) is below the printable range":     {v2("a b"), ""},
+		"0x21 is the lowest accepted byte":              {v2("!"), "!"},
+		"0x7e is the highest accepted byte":             {v2("~"), "~"},
+		"0x7f (DEL) is above the printable range":       {v2("a\x7f"), ""},
+		"a byte of 0x80 or more":                        {v2("a\x80"), ""},
+		"0x01 to 0x03 control bytes":                    {v2("\x01\x02\x03"), ""},
+		"an empty principal":                            {"v2.." + b64("ten_alpha") + ".1.00", ""},
+		"five parts starting v1":                        {"v1." + b64("usr_a") + "." + b64("ten_alpha") + ".1.00", ""},
+		"five parts starting v3":                        {"v3." + b64("usr_a") + "." + b64("ten_alpha") + ".1.00", ""},
+		"five parts starting V2 (case matters)":         {"V2." + b64("usr_a") + "." + b64("ten_alpha") + ".1.00", ""},
+		"the old four-part v1 form":                     {"v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce", ""},
+		"too few parts":                                 {"v2.dXNyX2E", ""},
+		"six parts":                                     {v2("usr_a") + ".extra", ""},
+		"non-canonical trailing bits (dXNyX2F)":         {"v2.dXNyX2F." + b64("ten_alpha") + ".1.00", ""},
+		"an embedded newline":                           {"v2.dXNy\nX2E." + b64("ten_alpha") + ".1.00", ""},
+		"an embedded carriage return":                   {"v2.dXNy\rX2E." + b64("ten_alpha") + ".1.00", ""},
+		"padding":                                       {"v2.dXNyX2E=." + b64("ten_alpha") + ".1.00", ""},
+		"standard-alphabet characters (+ and /)":        {"v2.+/+/." + b64("ten_alpha") + ".1.00", ""},
+		"not base64 at all":                             {"v2.!!!." + b64("ten_alpha") + ".1.00", ""},
+		"only the principal field is read (documented)": {"v2." + b64("usr_a") + "...", "usr_a"},
 	} {
-		r := httptest.NewRequest("GET", "/standin/v1/principal", nil)
-		if c.header != "" {
-			r.Header.Set("X-Principal-Assertion", c.header)
-		}
-		rt := tab.Match(r)
-		if rt == nil {
-			t.Fatalf("%s: no route", name)
-		}
-		if got := rt.Extract(r)["principal_id"]; got != c.want {
+		if got := principalOf(t, tab, c.header); got != c.want {
 			t.Errorf("%s: principal_id %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+func TestTwoAssertionHeadersGiveNothing(t *testing.T) { // the first of two is not the one the stand-in verifies; fail closed
+	tab := assertionTable(t)
+	if got := principalOf(t, tab, v2("usr_a"), v2("usr_b")); got != "" {
+		t.Fatalf("two headers: %q", got)
+	}
+}
+
+func TestTheStandinRouteTableAttributesFromTheAssertionNotABareHeader(t *testing.T) { // reverting the table to header:X-Principal must fail
+	b, err := os.ReadFile("../../config/routes.standin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, rt := range tab.routes {
+		if src, ok := rt.Attrs["principal_id"]; ok {
+			n++
+			if src != "assertion:X-Principal-Assertion" {
+				t.Errorf("%s %s: principal_id source %q", rt.Method, rt.Path, src)
+			}
+		}
+	}
+	if n == 0 {
+		t.Fatal("no route of the stand-in table has a principal_id attribute")
+	}
+	r := httptest.NewRequest("GET", "/standin/v1/principal", nil)
+	r.Header.Set("X-Principal", "usr_bare")
+	if got := tab.Match(r).Extract(r)["principal_id"]; got != "" {
+		t.Fatalf("a bare X-Principal header must not label the request (INV-12): %q", got)
+	}
+	r.Header.Set("X-Principal-Assertion", v2("usr_a"))
+	if got := tab.Match(r).Extract(r)["principal_id"]; got != "usr_a" {
+		t.Fatalf("the assertion labels the request: %q", got)
 	}
 }

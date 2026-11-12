@@ -41,7 +41,7 @@ type Route struct {
 	Upstream  string            `json:"upstream"`
 	Target    string            `json:"target"`
 	Operation string            `json:"operation"`
-	Attrs     map[string]string `json:"attrs,omitempty"` // attribute -> path:<var> | query:<name> | header:<Name> | assertion:<Name> (the principal of a signed v2 identity assertion in that header)
+	Attrs     map[string]string `json:"attrs,omitempty"` // attribute -> path:<var> | query:<name> | header:<Name> | assertion:<Name> (the principal field of a v2 identity assertion in that header; unverified, a log label)
 	EventFeed *EventFeed        `json:"event_feed,omitempty"`
 	Page      *Page             `json:"page,omitempty"`
 }
@@ -224,22 +224,33 @@ func (r *Route) Extract(req *http.Request) map[string]string {
 		case "header":
 			out[name] = req.Header.Get(key)
 		case "assertion":
-			out[name] = assertionPrincipal(req.Header.Get(key))
+			out[name] = assertionPrincipal(req.Header.Values(key))
 		}
 	}
 	return out
 }
 
 // assertionPrincipal reads the principal out of a v2 identity assertion, v2.<base64url(principal)>.<base64url(tenant)>.<expiry>.<MAC> (synthetic/standin README).
-// The proxy holds no key and does not verify the MAC: the stand-in does, so this only labels the request log (the adapter never sends a bare principal header,
-// INV-12). Anything that is not a well-formed v2 assertion with a printable principal of at most 128 bytes gives "".
-func assertionPrincipal(header string) string {
-	parts := strings.Split(header, ".")
+// It checks ONLY the shape of the first two fields: the tenant, the expiry and the MAC are not read. The proxy holds no key, so it cannot verify anything: the stand-in
+// does. Any caller can therefore label a request with any printable principal, and a FaultPlan that matches on principal_id can be steered by a forged assertion.
+// This labels the request log (the adapter never sends a bare principal header, INV-12); it is not authentication. Gives "" for anything that is not exactly one header
+// of exactly five dot-separated parts starting with "v2", whose second part is canonical unpadded base64url (alphabet only, no newline, no trailing bits) of 1 to 128
+// bytes in the printable range 0x21 to 0x7e.
+func assertionPrincipal(values []string) string {
+	if len(values) != 1 { // none, or two: the first is not necessarily the one the stand-in verifies
+		return ""
+	}
+	parts := strings.Split(values[0], ".")
 	if len(parts) != 5 || parts[0] != "v2" {
 		return ""
 	}
-	b, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || len(b) == 0 || len(b) > 128 {
+	for _, c := range []byte(parts[1]) { // base64's decoder skips \r and \n, and Strict does not cover that: allow the URL alphabet only
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return ""
+		}
+	}
+	b, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	if err != nil || len(b) > 128 {
 		return ""
 	}
 	for _, c := range b {
@@ -247,5 +258,5 @@ func assertionPrincipal(header string) string {
 			return ""
 		}
 	}
-	return string(b)
+	return string(b) // an empty part decodes to "" and is returned as ""
 }
