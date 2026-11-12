@@ -1,3 +1,5 @@
 # Fingerprints of findings that are not secrets. Each line needs a reason above it; review additions like a change to .gitleaks.toml.
 # 35be13a (noema#222, SEC-03): the AWS documentation's public example secret access key, used as a leak-scanner test input. It was assembled at run time from 2e87c15 on; the earlier commit stays in the range.
 35be13af4c6af1f0c4cc171adfbefc83174637aa:tools/ci/test_leakscan.py:generic-api-key:334
+# cf7a180 (noema#488, CON intent-object v2): a synthetic session reference in a contract fixture (`ses_` plus hex), which generic-api-key mistook for a key. It is replaced by a word-like value in the next commit; the earlier commit stays in the range.
+cf7a180645796a9e684736443cee616d955be250:contracts/fixtures/valid/intent-object.v2/session_principal_of_the_synthetic_idp.json:generic-api-key:12
