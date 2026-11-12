@@ -170,7 +170,11 @@ class Wiring(unittest.TestCase):
                 yield path
             self.swap(entry, "mock_case_log", capture)
             calls: list[list[str]] = []
-            self.swap(entry, "_run", lambda args, passthrough: calls.append(list(passthrough)) or 0)
+
+            def record_call(args: Any, passthrough: list[str], calls: list[list[str]] = calls) -> int:
+                calls.append(list(passthrough))
+                return 0
+            self.swap(entry, "_run", record_call)
             import io
             from contextlib import redirect_stderr, redirect_stdout
             with tempfile.TemporaryDirectory() as tmp, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
