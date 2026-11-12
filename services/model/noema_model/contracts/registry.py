@@ -8,6 +8,8 @@ from typing import Any
 from . import (
     action_graph_v1,
     action_graph_v2,
+    arm_turn_result_v1,
+    arm_turn_v1,
     candidates_request_v1,
     candidates_response_v1,
     canonical_input_v1,
@@ -68,6 +70,8 @@ TYPES: dict[str, Any] = {
     "action-graph.v1#RecoveryAction": action_graph_v1.ActionGraphV1RecoveryAction,
     "action-graph.v2": action_graph_v2.ActionGraphV2,
     "action-graph.v2#RecoveryAction": action_graph_v2.ActionGraphV2RecoveryAction,
+    "arm-turn-result.v1": arm_turn_result_v1.ArmTurnResultV1,
+    "arm-turn.v1": arm_turn_v1.ArmTurnV1,
     "candidates-request.v1": candidates_request_v1.CandidatesRequestV1,
     "candidates-request.v1#AmountRange": candidates_request_v1.CandidatesRequestV1AmountRange,
     "candidates-response.v1": candidates_response_v1.CandidatesResponseV1,
