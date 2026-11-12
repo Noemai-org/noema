@@ -35,17 +35,20 @@ const (
 // fixedNow is the service's clock in the tests: 2026-10-01T09:40:00Z, SYNTHETIC.
 var fixedNow = time.Unix(1790847600, 0)
 
+// tenant is the one tenant this stand-in serves (A135); the loader's fixture is single-tenant.
+const tenant = "ten_alpha"
+
 // mint is the adapter's side of the identity contract, written here independently of the service (README, "Identity"):
-// v1.<base64url(principal)>.<expiry unix seconds>.<hex MAC>, where the MAC is HMAC-SHA-256 keyed with the principal key over the four lines
-// noema-standin-principal-v1, <aud>, <principal>, <expiry> (README, "Identity").
-func mint(key, aud, principal string, exp int64) string {
+// v2.<base64url(principal)>.<base64url(tenant)>.<expiry unix seconds>.<hex MAC>, where the MAC is HMAC-SHA-256 keyed with the principal key over the
+// five lines noema-standin-principal-v2, <aud>, <principal>, <tenant>, <expiry> (README, "Identity").
+func mint(key, aud, principal, ten string, exp int64) string {
 	m := hmac.New(sha256.New, []byte(key))
-	_, _ = fmt.Fprintf(m, "noema-standin-principal-v1\n%s\n%s\n%d", aud, principal, exp)
-	return fmt.Sprintf("v1.%s.%d.%s", base64.RawURLEncoding.EncodeToString([]byte(principal)), exp, hex.EncodeToString(m.Sum(nil)))
+	_, _ = fmt.Fprintf(m, "noema-standin-principal-v2\n%s\n%s\n%s\n%d", aud, principal, ten, exp)
+	return fmt.Sprintf("v2.%s.%s.%d.%s", base64.RawURLEncoding.EncodeToString([]byte(principal)), base64.RawURLEncoding.EncodeToString([]byte(ten)), exp, hex.EncodeToString(m.Sum(nil)))
 }
 
 func assertion(principal string) string {
-	return mint(principalKey, "standin", principal, fixedNow.Unix()+60)
+	return mint(principalKey, "standin", principal, tenant, fixedNow.Unix()+60)
 }
 
 type rig struct {
@@ -61,7 +64,7 @@ func newRig(t testing.TB) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, Now: func() time.Time { return fixedNow }})
+	s, err := standin.New(standin.Options{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, TenantID: tenant, Now: func() time.Time { return fixedNow }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +391,8 @@ func TestDeletingTheLoadLeavesNothingServed(t *testing.T) {
 func TestOptionsNeedBothCredentialsAndKeepThemApart(t *testing.T) { // REQ-ENV-002
 	for _, o := range []standin.Options{{BenchToken: benchToken}, {RuntimeToken: runtimeToken}, {BenchToken: "short", RuntimeToken: runtimeToken}, {BenchToken: benchToken, RuntimeToken: benchToken},
 		{BenchToken: benchToken, RuntimeToken: runtimeToken}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: "short"},
-		{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: runtimeToken}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: benchToken}} {
+		{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: runtimeToken}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: benchToken},
+		{BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey}, {BenchToken: benchToken, RuntimeToken: runtimeToken, PrincipalKey: principalKey, TenantID: "Bad Tenant"}} {
 		if _, err := standin.New(o); err == nil {
 			t.Fatalf("options %+v must be refused", o)
 		}
@@ -426,19 +430,19 @@ func TestACallerCannotChangeThePrincipalWhileKeepingTheSameCredential(t *testing
 		t.Fatalf("a valid assertion must be served, got %d %s", res.status, res.body)
 	}
 	parts := strings.Split(good, ".")
-	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString([]byte("usr_b")), parts[2], parts[3]}, ".")
+	swapped := strings.Join([]string{parts[0], base64.RawURLEncoding.EncodeToString([]byte("usr_b")), parts[2], parts[3], parts[4]}, ".")
 	for name, a := range map[string]string{
 		"principal swapped, MAC kept": swapped,
-		"expiry extended, MAC kept":   strings.Join([]string{parts[0], parts[1], "1790999999", parts[3]}, "."),
+		"expiry extended, MAC kept":   strings.Join([]string{parts[0], parts[1], parts[2], "1790999999", parts[4]}, "."),
 		"no assertion":                "",
 		"malformed":                   "usr_a",
-		"wrong version":               strings.Replace(good, "v1.", "v2.", 1),
-		"MAC not hex":                 strings.Join([]string{parts[0], parts[1], parts[2], "zz"}, "."),
-		"wrong key":                   mint("another-key-another-key-another-key-0009", "standin", "usr_a", fixedNow.Unix()+60),
-		"wrong audience":              mint(principalKey, "mock-case", "usr_a", fixedNow.Unix()+60),
-		"expired":                     mint(principalKey, "standin", "usr_a", fixedNow.Unix()-1),
-		"lifetime too long":           mint(principalKey, "standin", "usr_a", fixedNow.Unix()+3600),
-		"valid but not in the load":   mint(principalKey, "standin", "usr_nobody", fixedNow.Unix()+60),
+		"wrong version":               strings.Replace(good, "v2.", "v1.", 1),
+		"MAC not hex":                 strings.Join([]string{parts[0], parts[1], parts[2], parts[3], "zz"}, "."),
+		"wrong key":                   mint("another-key-another-key-another-key-0009", "standin", "usr_a", tenant, fixedNow.Unix()+60),
+		"wrong audience":              mint(principalKey, "mock-case", "usr_a", tenant, fixedNow.Unix()+60),
+		"expired":                     mint(principalKey, "standin", "usr_a", tenant, fixedNow.Unix()-1),
+		"lifetime too long":           mint(principalKey, "standin", "usr_a", tenant, fixedNow.Unix()+3600),
+		"valid but not in the load":   mint(principalKey, "standin", "usr_nobody", tenant, fixedNow.Unix()+60),
 	} {
 		if res := r.withAssertion(a, path, nil); res.status != 401 {
 			t.Fatalf("%s: want 401, got %d %s", name, res.status, res.body)
@@ -455,8 +459,8 @@ func TestACallerCannotChangeThePrincipalWhileKeepingTheSameCredential(t *testing
 }
 
 func TestTheAssertionContractMatchesThePinnedVector(t *testing.T) { // the adapter implements this from the README; a second implementation (Python hmac) produced the vector
-	const want = "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce"
-	if got := mint(principalKey, "standin", "usr_a", 1790847660); got != want {
+	const want = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42"
+	if got := mint(principalKey, "standin", "usr_a", tenant, 1790847660); got != want {
 		t.Fatalf("test minter drifted from the vector: %s", got)
 	}
 	r := newRig(t)
@@ -481,8 +485,39 @@ func TestAnAssertionIsRefusedAtTheInstantItExpires(t *testing.T) { // INV-12: an
 		"exactly five minutes":   {now + 300, 200},
 		"five minutes and one":   {now + 301, 401},
 	} {
-		if res := r.withAssertion(mint(principalKey, "standin", "usr_a", c.exp), path, nil); res.status != c.want {
+		if res := r.withAssertion(mint(principalKey, "standin", "usr_a", tenant, c.exp), path, nil); res.status != c.want {
 			t.Fatalf("%s: want %d, got %d", name, c.want, res.status)
+		}
+	}
+}
+
+// A135, INV-12: the assertion binds the tenant as well as the principal, and the stand-in serves one tenant.
+func TestAnAssertionForAnotherTenantOrWithoutOneIsRefused(t *testing.T) {
+	r := newRig(t)
+	r.loadGolden()
+	exp := fixedNow.Unix() + 60
+	v1 := "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce"
+	for name, a := range map[string]string{
+		"validly signed for another tenant": mint(principalKey, "standin", "usr_a", "ten_beta", exp),
+		"an empty tenant":                   mint(principalKey, "standin", "usr_a", "", exp),
+		"the old principal-only form":       v1,
+	} {
+		if res := r.withAssertion(a, "/standin/v1/principal", nil); res.status != 401 {
+			t.Errorf("%s: got %d, want 401 (%s)", name, res.status, res.body)
+		}
+	}
+	if res := r.read("usr_a", "/standin/v1/principal"); res.status != 200 {
+		t.Fatalf("the right tenant must read: %d %s", res.status, res.body)
+	}
+}
+
+func TestEveryReadNamesTheTenantItServes(t *testing.T) {
+	r := newRig(t)
+	r.loadGolden()
+	for _, path := range []string{"/standin/v1/principal", "/standin/v1/beneficiaries", "/standin/v1/transactions"} {
+		res := r.read("usr_a", path)
+		if res.status != 200 || decode(t, res.body)["tenant_id"] != tenant {
+			t.Errorf("%s: %d, want 200 carrying tenant_id %q: %s", path, res.status, tenant, res.body)
 		}
 	}
 }

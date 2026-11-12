@@ -16,6 +16,10 @@
  "candidates-response/free_text_field.json": "additionalProperties",
  "candidates-response/full_account_number_field.json": "additionalProperties",
  "candidates-response/missing_candidate_id.json": "required",
+ "canonical-input.v2/missing_principal_ref.json": "required",
+ "canonical-input.v2/unknown_field.json": "additionalProperties",
+ "canonical-input.v2/unknown_mode.json": "enum",
+ "canonical-input.v2/voice_without_audio_ref.json": "required",
  "canonical-input/missing_principal_ref.json": "required",
  "canonical-input/unknown_field.json": "additionalProperties",
  "canonical-input/unknown_mode.json": "enum",
@@ -229,5 +233,6 @@
  "record-event/unknown_event_type.json": "enum",
  "record-event/unknown_security_kind.json": "enum",
  "recovery-request/addressed_to_execution.json": "additionalProperties",
+ "session-limits/fractional_skew.json": "type",
  "trust-profile/missing_prohibitions.json": "required"
 }
