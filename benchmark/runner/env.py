@@ -1,4 +1,7 @@
 """What a run needs from outside, as small interfaces, so a missing piece is a named gap and not a silent skip."""
+import os
+import re
+import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +62,56 @@ class DirSessionProvider:
         if not path.is_file():
             raise EnvironmentUnavailable("session provider", f"no session token for {principal_id}")
         return read_secret(path)
+
+
+_PRINCIPAL = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:@-]*$")
+_ROLE = re.compile(r"^[a-z_]+$")
+
+
+class IdpSessionProvider:
+    """Session tokens from the synthetic IdP (`services/core/cmd/synthetic-idp`, REQ-SEC-001). A token lives 15 minutes, so it is issued on demand
+    and reused until `refresh_margin_s` before it expires; one token per principal and role set. The issuer runs with an empty environment and
+    its output is never put in an error (a token is a secret). A principal or role that could be read as a flag is refused, not passed on."""
+
+    component = "session provider"
+
+    def __init__(self, binary: Path, key_file: Path, *, kid: str, audience: str, tenant_id: str, ttl_s: int = 600, refresh_margin_s: int = 60,
+                 timeout_s: float = 10.0, now: Callable[[], float] = time.monotonic) -> None:
+        self.binary, self.key_file = Path(binary), Path(key_file)
+        self.kid, self.audience, self.tenant_id = kid, audience, tenant_id
+        self.ttl_s, self.refresh_margin_s, self.timeout_s, self._now = ttl_s, refresh_margin_s, timeout_s, now
+        self._cache: dict[tuple[str, tuple[str, ...]], tuple[str, float]] = {}
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        if not self.binary.is_file():
+            return f"the synthetic IdP issuer {self.binary} does not exist"
+        if not self.key_file.is_file():
+            return f"the IdP key file {self.key_file} does not exist"
+        return None
+
+    def token_for(self, principal_id: str, roles: list[str]) -> str:
+        if not _PRINCIPAL.match(principal_id) or not roles or not all(_ROLE.match(r) for r in roles):
+            raise EnvironmentUnavailable(self.component, "a principal or role is not in the form the issuer accepts")
+        key = (principal_id, tuple(sorted(set(roles))))
+        cached = self._cache.get(key)
+        if cached and self._now() < cached[1] - self.refresh_margin_s:
+            return cached[0]
+        if (reason := self.unavailable_reason) is not None:
+            raise EnvironmentUnavailable(self.component, reason)
+        argv = [str(self.binary), "issue", f"-key={self.key_file}", f"-kid={self.kid}", f"-aud={self.audience}", f"-tenant={self.tenant_id}",
+                f"-principal={principal_id}", *[f"-role={r}" for r in key[1]], f"-ttl={self.ttl_s}s"]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=self.timeout_s, env={"PATH": os.defpath}, check=False)
+        except subprocess.TimeoutExpired:
+            raise EnvironmentUnavailable(self.component, f"the issuer timed out after {self.timeout_s} s") from None
+        except OSError as error:
+            raise EnvironmentUnavailable(self.component, f"the issuer could not run: {error.__class__.__name__}") from None
+        token = done.stdout.strip()
+        if done.returncode != 0 or not token:
+            raise EnvironmentUnavailable(self.component, f"the issuer failed (exit {done.returncode}) for {principal_id}")
+        self._cache[key] = (token, self._now() + self.ttl_s)
+        return token
 
 
 @dataclass

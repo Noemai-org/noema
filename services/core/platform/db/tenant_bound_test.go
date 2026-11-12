@@ -14,15 +14,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/platform/db"
+	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
 type tenantWorld struct {
-	admin  *pgxpool.Pool
-	dsn    string
-	suffix string // login roles are cluster-wide, so each test database gets its own names
+	admin   *pgxpool.Pool
+	dsn     string
+	suffix  string                  // login roles are cluster-wide, so each test database gets its own names
+	signers map[string]chain.Signer // a SYNTHETIC key for every signing identity (REC-08)
 }
 
 // name is the login role for a power and a tenant in this world.
@@ -40,7 +44,7 @@ func newTenantWorld(t *testing.T) *tenantWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &tenantWorld{admin: admin, dsn: dsn, suffix: strings.TrimPrefix(u.Path, "/")}
+	w := &tenantWorld{admin: admin, dsn: dsn, suffix: strings.TrimPrefix(u.Path, "/"), signers: recordsig.All(t, admin, "db", nil)}
 	roles := map[string]string{ // login role -> group role
 		w.name("execution_rw", "ten_a"): "execution_rw", w.name("execution_rw", "ten_b"): "execution_rw", w.name("execution_rw", "unmapped"): "execution_rw",
 		w.name("record_read", "ten_a"): "record_read", w.name("record_read", "ten_b"): "record_read",
@@ -85,7 +89,30 @@ func (w *tenantWorld) login(t *testing.T, role string) *pgxpool.Pool {
 	return pool
 }
 
-const insertT = `SELECT record_insert_t($1, $2, $3, $4, 'core-execution', 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', $5, '3.0', 'core-execution', jsonb_build_object('tenant_id', $6::text), NULL)`
+// signedInsert calls record_insert_t inside tx with a body that names bodyTenant and, when the emitter holds a key in this world, that emitter's SYNTHETIC
+// signature over the exact bytes of the body (REC-08). An emitter with no key sends no signature: the checks of the function that come before the trigger
+// (the emitter bound to the login, the tenant of the login, the head) refuse it first, which is what those tests assert.
+func (w *tenantWorld) signedInsert(t *testing.T, tx pgx.Tx, id string, seq int64, prev, hash, emitter, bodyTenant string, at time.Time) error {
+	t.Helper()
+	body := map[string]any{"schema_version": "3.0", "tenant_id": bodyTenant, "correlation_id": "corr_1", "event_id": id, "seq": seq, "prev_hash": prev, "written_by": emitter,
+		"actor": emitter, "event_type": "GRANT_SPENT", "object_ref": "grt_1", "payload_hash": "sha256:p", "at": at.UTC().Format("2006-01-02T15:04:05.000Z")}
+	canon, err := crypto.CanonicalJSON(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keyID, sig *string
+	var signed []byte
+	if sgn, ok := w.signers[emitter]; ok {
+		k, v, jcs, err := sgn.SignRecordEvent(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyID, sig, signed = &k, &v, jcs
+	}
+	_, err = tx.Exec(ctx(t), `SELECT record_insert_t($1, $2, $3, $4, $5, 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', $6, '3.0', $5, $7::jsonb, NULL, $8, $9, $10)`,
+		id, seq, prev, hash, emitter, at, string(canon), keyID, sig, signed)
+	return err
+}
 
 // appendAs appends one event through the login's own tenant-bound functions and returns the new head hash.
 func (w *tenantWorld) appendAs(t *testing.T, pool *pgxpool.Pool, tenant, id string, seqWant int64, hash string) {
@@ -103,7 +130,7 @@ func (w *tenantWorld) appendAs(t *testing.T, pool *pgxpool.Pool, tenant, id stri
 	if seq+1 != seqWant {
 		t.Fatalf("head seq %d, want %d", seq, seqWant-1)
 	}
-	if _, err := tx.Exec(ctx(t), insertT, id, seqWant, head, hash, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), tenant); err != nil {
+	if err := w.signedInsert(t, tx, id, seqWant, head, hash, "core-execution", tenant, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 	if err := tx.Commit(ctx(t)); err != nil {
@@ -261,7 +288,7 @@ func TestAnEventNamingAnotherTenantIsRefused(t *testing.T) {
 	if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
 		t.Fatal(err)
 	}
-	_, err = tx.Exec(ctx(t), insertT, "recev_x1", seq+1, head, hashOf("9"), time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC), "ten_b")
+	err = w.signedInsert(t, tx, "recev_x1", seq+1, head, hashOf("9"), "core-execution", "ten_b", time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC))
 	wantCode(t, err, denied, "an event naming ten_b written by ten_a's login")
 }
 
@@ -284,8 +311,7 @@ func TestRecordInsertRefusesAnEmitterThatIsNotTheLoginsPower(t *testing.T) {
 			if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
 				t.Fatal(err)
 			}
-			_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_x', $1, $2, $3, $4, 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', now(), '3.0', $4, jsonb_build_object('tenant_id', 'ten_a'), NULL)`,
-				seq+1, head, hashOf("9"), emitter)
+			err = w.signedInsert(t, tx, "recev_x", seq+1, head, hashOf("9"), emitter, "ten_a", time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC))
 			wantCode(t, err, denied, "execution login writing as "+emitter)
 		})
 	}
@@ -314,9 +340,7 @@ func TestAnEmitterThatIsNotAPowerIsWrittenOnlyByItsOwnBoundLogin(t *testing.T) {
 		if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
 			t.Fatal(err)
 		}
-		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_y', $1, $2, $3, $4, 'GRANT_SPENT', 'grt_1', 'sha256:p', 'corr_1', now(), '3.0', $4, jsonb_build_object('tenant_id', 'ten_c'), NULL)`,
-			seq+1, head, hashOf("8"), emitter)
-		return err
+		return w.signedInsert(t, tx, "recev_y", seq+1, head, hashOf("8"), emitter, "ten_c", time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC))
 	}
 	if err := one(edge, "core-edge"); err != nil {
 		t.Fatalf("the login bound to core-edge could not write as core-edge: %v", err)

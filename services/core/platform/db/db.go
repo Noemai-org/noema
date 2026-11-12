@@ -120,6 +120,9 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, fsys fs.FS) (result []stri
 			retErr = errors.Join(retErr, err)
 		}
 	}()
+	if err := refuseEnabledExtensionEventTrigger(ctx, conn); err != nil {
+		return nil, err
+	}
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migration (
 		name text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return nil, fmt.Errorf("%screate schema_migration: %w", errPrefix, err)
@@ -188,4 +191,22 @@ func applyOne(ctx context.Context, conn *pgxpool.Conn, name, body, checksum stri
 		return fmt.Errorf("%scommit %s: %w", errPrefix, name, err)
 	}
 	return nil
+}
+
+// refuseEnabledExtensionEventTrigger is the guard of DEC-2026-11-01 D10a. pgsodium's event trigger reads a setting that exists only when the
+// library is preloaded, so while it is enabled every DDL command can fail, and an extension upgrade or re-install can re-enable it. The bootstrap
+// disables it once; Migrate checks before it runs anything, and refuses (fail closed) if any event trigger the extension owns is not disabled.
+func refuseEnabledExtensionEventTrigger(ctx context.Context, conn *pgxpool.Conn) error {
+	var name string
+	err := conn.QueryRow(ctx, `SELECT e.evtname FROM pg_event_trigger e
+		JOIN pg_depend d ON d.objid = e.oid AND d.deptype = 'e'
+		JOIN pg_extension x ON x.oid = d.refobjid AND x.extname = 'pgsodium'
+		WHERE e.evtenabled <> 'D' ORDER BY e.evtname LIMIT 1`).Scan(&name)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("%scheck the event triggers of pgsodium: %w", errPrefix, err)
+	}
+	return fmt.Errorf("%srefusing to migrate: the event trigger %s of the extension pgsodium is enabled; disable it (deploy/compose/postgres/init.sh, D10a)", errPrefix, name)
 }

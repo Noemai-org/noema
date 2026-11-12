@@ -3,6 +3,9 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -135,6 +138,7 @@ type world struct {
 	bind   *binder
 	ctl    *controller.Controller
 	ids    *ids.Generator
+	ring   *signing.Ring
 }
 
 func newWorld(t *testing.T) *world {
@@ -156,7 +160,11 @@ func newWorld(t *testing.T) *world {
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
 	target := &fakeTarget{admin: admin, answer: controller.TransportResult{Class: controller.TransportAck2xx, ExternalAck: "CASE-1", RawCode: "201"}}
 	w := &world{admin: admin, exec: exec, clk: clk, keys: keys, led: led, target: target, bind: b, ids: gen}
-	w.ctl = &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
+	ring := signingtest.Ring(t, 1)
+	signingtest.Register(t, admin, ring)
+	w.ring = ring
+	led.Rec.Signers = recordsig.All(t, admin, "ledger", map[string]chain.Signer{"core-execution": ring})
+	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }
 
@@ -180,8 +188,12 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := w.keys.SignWith(keyID, canon)
+	sig, err := w.keys.SignWith(keyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID, testpg.DecisionDocJSON(g.DecisionID, g.TenantID, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)

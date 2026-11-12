@@ -132,7 +132,7 @@ func TestAPolicyChangeDuringExecutionLeavesThePolicyVersionInTheRecord(t *testin
 	if err := json.Unmarshal(raw, &p); err != nil {
 		t.Fatal(err)
 	}
-	want := policyScope + "@1.0"
+	want := policyScope + "@1.0" // the grant contract's policy_version shape since TRU-13 (policyShape)
 	if p["policy_version"] != want {
 		t.Errorf("GRANT_VOIDED payload %v: policy_version = %v, want %q", p, p["policy_version"], want)
 	}
@@ -144,5 +144,33 @@ func TestAPolicyChangeDuringExecutionLeavesThePolicyVersionInTheRecord(t *testin
 	}
 	if !served {
 		t.Error("the AUTHORITY section does not serve the policy version of the voided grant")
+	}
+}
+
+// S11 and the receipt contract (execution-receipt.v1: logical_action is a pack ID, not a label of the plan; definition of done 3c, A131: both changes were unguarded):
+// in a real write, REVALIDATION_PASSED carries the policy version the grant was issued under, and the RECEIPT event's logical_action is the capability ID of the grant.
+func TestARealWriteRecordsThePolicyVersionOnRevalidationAndTheCapabilityAsTheReceiptsLogicalAction(t *testing.T) {
+	st := newStack(t, startMockCase(t))
+	grant, err := st.trust.IssueCreate(bg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runEscalate(t, st, grant)
+	payloadOf := func(eventType string) map[string]any {
+		var raw []byte
+		if err := st.admin.QueryRow(bg(t), `SELECT payload FROM record_event WHERE event_type = $1 AND object_ref = $2 ORDER BY seq LIMIT 1`, eventType, grant).Scan(&raw); err != nil {
+			t.Fatalf("%s: %v", eventType, err)
+		}
+		var p map[string]any
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	if p := payloadOf("REVALIDATION_PASSED"); p["policy_version"] != policyScope+"@1.0" {
+		t.Errorf("REVALIDATION_PASSED payload %v: policy_version = %v, want %q", p, p["policy_version"], policyScope+"@1.0")
+	}
+	if p := payloadOf("RECEIPT"); p["logical_action"] != bridge.CapCreateEscalationCase {
+		t.Errorf("RECEIPT payload: logical_action = %v, want the capability %q (a pack ID, not a label)", p["logical_action"], bridge.CapCreateEscalationCase)
 	}
 }

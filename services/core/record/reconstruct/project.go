@@ -392,7 +392,8 @@ func project(events []stored) ([]item, error) {
 	return out, nil
 }
 
-// capabilityOf is the pack capability an action was dispatched under. The dispatch records it (capability_id); logical_action is the grant's
+// capabilityOf is the pack capability an action was dispatched under. The dispatch records it as "capability" (ruling A117: the execution-limits budget key; the
+// reconstruction outputs it as capability_id); logical_action is the grant's
 // capability, a pack ID, since the fix of G1 (noema#243), and is only the fallback for a Record written before the dispatch carried the capability. The event at i is a
 // dispatch or a receipt of one attempt of one grant.
 func capabilityOf(events []stored, i int) any {
@@ -408,7 +409,7 @@ func capabilityOf(events []stored, i int) any {
 			continue
 		}
 		if a, _ := d.payload["attempt"].(json.Number); a == attempt {
-			if c, ok := d.payload["capability_id"]; ok {
+			if c, ok := d.payload["capability"]; ok {
 				return c
 			}
 		}

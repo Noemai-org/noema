@@ -24,8 +24,11 @@ const (
 	pgUniqueViolation      = "23505"
 	pgSerializationFailure = "40001"
 	pgDeadlockDetected     = "40P01"
+	pgSignatureNotVerified = "NS001" // DEC-2026-11-01 D12: the database refused a signature
 
 	statusIssued = "ISSUED"
+	statusSpent  = "SPENT"
+	statusVoid   = "VOID"
 )
 
 // IDSource makes the prefixed ULIDs of PERD 32.3.
@@ -172,7 +175,10 @@ func (l *Ledger) Append(ctx context.Context, tenantID string, events ...controll
 				return err
 			}
 			var payload any
-			if e.Detail != "" || e.PolicyVersion != "" {
+			switch {
+			case e.Payload != nil:
+				payload = e.Payload
+			case e.Detail != "" || e.PolicyVersion != "":
 				p := map[string]any{}
 				if e.Detail != "" {
 					p["detail"] = e.Detail

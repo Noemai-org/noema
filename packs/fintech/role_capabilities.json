@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "fin",
+  "label": "SYNTHETIC",
+  "derived_from": "packs/fintech_v1.json capabilities[].authority.roles_allowed, without capabilities marked prohibited; regenerate with tools/derive_role_capabilities.py --write",
+  "roles": {
+    "approver": [],
+    "audit": [],
+    "customer": [
+      "fin.cap.create_escalation_case",
+      "fin.cap.evaluate_sla_status",
+      "fin.cap.log_complaint_reference",
+      "fin.cap.lookup_account",
+      "fin.cap.lookup_beneficiary",
+      "fin.cap.lookup_transaction",
+      "fin.cap.lookup_transaction_history",
+      "fin.cap.query_settlement_status",
+      "fin.cap.query_switch_status",
+      "fin.cap.reconcile_transaction_state",
+      "fin.cap.record_investigation_evidence",
+      "fin.cap.route_to_internal_owner"
+    ],
+    "ops": [
+      "fin.cap.create_escalation_case",
+      "fin.cap.evaluate_sla_status",
+      "fin.cap.log_complaint_reference",
+      "fin.cap.lookup_account",
+      "fin.cap.lookup_beneficiary",
+      "fin.cap.lookup_transaction",
+      "fin.cap.lookup_transaction_history",
+      "fin.cap.query_settlement_status",
+      "fin.cap.query_switch_status",
+      "fin.cap.reconcile_transaction_state",
+      "fin.cap.record_investigation_evidence",
+      "fin.cap.route_to_internal_owner"
+    ]
+  },
+  "prohibited": [
+    "fin.cap.adjust_balance",
+    "fin.cap.close_or_resolve_case",
+    "fin.cap.downgrade_case_priority",
+    "fin.cap.edit_or_delete_evidence",
+    "fin.cap.initiate_refund",
+    "fin.cap.modify_sla_or_regulatory_clock",
+    "fin.cap.reverse_transaction",
+    "fin.cap.transfer_funds"
+  ]
+}

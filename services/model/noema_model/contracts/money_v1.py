@@ -27,7 +27,7 @@ class MoneyV1Money(ContractModel):
 
 
 # MoneyV1PackUnit. Source: money.v1.json#$defs/PackUnit
-MoneyV1PackUnit: TypeAlias = Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*\\.unit\\.[a-z][a-z0-9_]*$')]
+MoneyV1PackUnit: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.unit\\.[a-z][a-z0-9_]*\\Z')]
 
 
 # MoneyV1QuantityUnit: any string; the alternatives differ in pattern, which the schema validator holds. Source: money.v1.json#$defs/Quantity/properties/unit
