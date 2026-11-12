@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/log_complaint_reference.v1.json",
+  "title": "fin.cap.log_complaint_reference",
+  "description": "Log the formal complaint reference for a case. The subject and epoch come from the case, not the caller. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The case the complaint reference belongs to (descriptor case.id)."
+    }
+  },
+  "required": [
+    "case_id"
+  ],
+  "additionalProperties": false
+}

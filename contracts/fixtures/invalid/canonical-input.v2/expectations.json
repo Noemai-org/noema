@@ -1,0 +1,18 @@
+{
+  "confidence_over_one.json": "maximum",
+  "empty_text.json": "minLength",
+  "missing_principal_ref.json": "required",
+  "request_id_not_uuid.json": "pattern",
+  "text_over_2000_chars.json": "maxLength",
+  "text_with_voice_block.json": "not",
+  "unknown_field.json": "additionalProperties",
+  "unknown_mode.json": "enum",
+  "voice_without_voice_block.json": "required",
+  "voice_without_audio_ref.json": "required",
+  "voice_audio_ref_base64.json": "pattern",
+  "voice_audio_ref_over_32.json": "pattern",
+  "voice_audio_ref_rec_prefix.json": "pattern",
+  "voice_audio_ref_other_prefix.json": "pattern",
+  "voice_audio_ref_embedded_underscore.json": "pattern",
+  "voice_audio_ref_empty.json": "pattern"
+}

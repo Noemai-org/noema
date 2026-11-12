@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
 	"sync"
 	"testing"
 	"time"
@@ -185,7 +186,13 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: keys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	// One SYNTHETIC key for every stack of the package, so that two runs of the same decision sign the same bytes (the proposer-swap test compares them).
+	ring, err := signingtest.RingAt(t.TempDir(), "e2e", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingtest.Register(t, admin, ring)
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}
