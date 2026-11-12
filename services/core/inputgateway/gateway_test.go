@@ -335,8 +335,13 @@ func TestARetryThatCannotBeRecordedNeverReachesStart(t *testing.T) {
 	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "where is my money")); !errors.Is(err, inputgateway.ErrRecord) {
 		t.Errorf("retry with the Record down: %v, want ErrRecord", err)
 	}
+	// With the Record down the reuse cannot be recorded, so the answer is the Record's failure, not the 409 (review of noema#466, note 3); with it up it is the 409.
+	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "another question")); !errors.Is(err, inputgateway.ErrRecord) || errors.Is(err, inputgateway.ErrRequestIDReused) {
+		t.Errorf("another body, Record down: %v, want ErrRecord and not ErrRequestIDReused", err)
+	}
+	w.fail.set(false)
 	if _, err := g.Accept(ctx(t), identity(tenantA, "usr_88213"), body(reqID, "another question")); !errors.Is(err, inputgateway.ErrRequestIDReused) {
-		t.Errorf("another body: %v, want ErrRequestIDReused", err)
+		t.Errorf("another body, Record up: %v, want ErrRequestIDReused", err)
 	}
 	if len(sp.turns) != 1 {
 		t.Errorf("Start was called %d times, want 1 (only the first delivery)", len(sp.turns))
