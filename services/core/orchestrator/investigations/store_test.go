@@ -30,10 +30,13 @@ import (
 // fakeInputs stands for the Record's confirmation of an INPUT_RECEIVED event: it confirms every reference except those in refuse, and remembers what it was asked.
 type fakeInputs struct {
 	refuse map[string]bool
+	mu     sync.Mutex
 	asked  []string
 }
 
 func (f *fakeInputs) Confirm(_ context.Context, sess orchestrator.Session, ref, correlation string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.asked = append(f.asked, sess.TenantID+"|"+sess.PrincipalID+"|"+ref+"|"+correlation)
 	if f.refuse[ref] {
 		return errors.New("synthetic: the Record does not confirm this input")
