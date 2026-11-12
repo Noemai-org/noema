@@ -8,6 +8,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
 
 // EXP-01 slice 3 (rulings A8, A18; REQ-EXP-002, INV-13, AGENT-17; PERD 31.2). SYNTHETIC facts. The renderer here is the deterministic fallback: no model, no network.
@@ -27,7 +28,22 @@ func load(t *testing.T) explanation.Templates {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tpl
+	return tpl.WithMaskingLimits(packMaskingLimits(t))
+}
+
+// packMaskingLimits is the pack's own masking-limits.v1 document (the single source of the longest unmasked digit run).
+func packMaskingLimits(t *testing.T) masking.Limits {
+	t.Helper()
+	f, err := os.Open("../../../packs/fintech/limits/masking_limits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	l, err := masking.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
 }
 
 // REQ-EXP-002: a fallback exists for every outcome and classification the pack can produce, and each one passes the validator by itself.

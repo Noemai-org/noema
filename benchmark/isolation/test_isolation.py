@@ -59,6 +59,7 @@ class Isolation(unittest.TestCase):
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"message": "account 0123456789 belongs to A. Name"}))), n)
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "forbidden", "detail": "balance 5000"}))), n)
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "acct_0123456789"}))), n)       # digit run
+        self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "acct_12345"}))), n)           # a run of 5: longer than 4 (PERD 4428)
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "a b c d"}))), n)               # free text
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "x" * 80}))), n)               # long value
         self.assertEqual(self.run_against(lambda m, p: (403, json.dumps({"error": "forbidden", "status": 200}))), n)
@@ -87,3 +88,34 @@ class Isolation(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DigitRunLimitTest(unittest.TestCase):
+    """SEC-03, PERD line 4428: the error scanner refuses a digit run longer than the pack's masking-limits.v1 value, read from the one file the core reads."""
+
+    def test_the_packs_limit_is_four_and_the_scanner_reads_it(self) -> None:
+        self.assertEqual(ci.max_unmasked_digit_run(ci.MASKING_LIMITS_FILE), 4)
+        self.assertEqual(ci.judge(403, json.dumps({"error": "acct_1234"}))[0], True)
+        self.assertEqual(ci.judge(403, json.dumps({"error": "acct_12345"}))[0], False)
+
+    def test_a_different_value_in_the_file_changes_the_scanner(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "masking_limits.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 6}, f)
+            pattern = ci.digit_run_pattern(ci.max_unmasked_digit_run(path))
+            self.assertIsNone(pattern.search("acct_123456"))
+            self.assertIsNotNone(pattern.search("acct_1234567"))
+
+    def test_a_file_that_is_not_the_contract_is_refused(self) -> None:
+        import tempfile
+        bad = [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": v} for v in (3, 33, 4.5, True, "4", None)]
+        bad += [{"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC"}, {"schema_version": "1.0", "pack_id": "fin", "label": "SYNTHETIC", "max_unmasked_digit_run": 4, "x": 1}, []]
+        with tempfile.TemporaryDirectory() as d:
+            for i, doc in enumerate(bad):
+                path = os.path.join(d, "m%d.json" % i)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(doc, f)
+                with self.assertRaises(ValueError, msg=repr(doc)):
+                    ci.max_unmasked_digit_run(path)
