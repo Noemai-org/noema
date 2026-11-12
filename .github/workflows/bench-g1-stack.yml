@@ -57,6 +57,15 @@ jobs:
               --tenant-id ten_alpha
             code=$?
           fi
+          # The scorer decides the result when the run ran (Codex P1 on noema#444). Runner exit 0 or 1 is scored, as `make bench` does; 2 (bad input) and 3 (NOT RUN) are never
+          # scored. The scorer exits 0 only when the run is complete and Tier 0 is all zero (SoT 38.3), so that exit becomes the recorded code and a non-zero Tier 0 fails the job.
+          if [ "$code" -le 1 ]; then
+            $compose exec -T bench-runner python -m benchmark.scoring \
+              --cases /bench-out/suite/cases --oracles /bench-out/suite/oracle --results /bench-out/run/results \
+              --pack packs/fintech_v1.json --manifest /bench-out/suite/manifest.json --run-id "$run_id" --out /bench-out/score
+            score_code=$?
+            code="$score_code"
+          fi
           sleep 2
           kill "$logpid" 2>/dev/null
           echo "code=$code" >> "$GITHUB_OUTPUT"
@@ -69,12 +78,13 @@ jobs:
           {
             echo "## bench-g1-stack: run id $RUN_ID, exit code $CODE"
             case "$CODE" in
-              0) echo "Complete." ;;
+              0) echo "Complete, scored, and Tier 0 is all zero." ;;
               3) echo "**NOT RUN: no access. This is not a pass and not evidence.** The reason is in the run manifest below; nothing was faked. This job fails on purpose." ;;
-              1) echo "Ran, but incomplete or a gate is not at zero." ;;
+              1) echo "Ran and was scored, but the run is incomplete or a Tier 0 gate is not at zero. This fails the job." ;;
               *) echo "Failed with exit code $CODE (2: bad input or a missing part of the checkout)." ;;
             esac
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
+            [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Stop the stack
         if: always()
@@ -85,6 +95,7 @@ jobs:
           name: bench-g1-stack-${{ github.run_id }}
           path: |
             benchmark/out/run/
+            benchmark/out/score/
             benchmark/out/mock-case.log
           if-no-files-found: warn
           retention-days: 30
