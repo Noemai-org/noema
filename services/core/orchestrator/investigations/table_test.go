@@ -26,6 +26,8 @@ func TestMain(m *testing.M) { testpg.Main(m) }
 
 const tenantA, tenantB = "ten_aa", "ten_bb"
 
+var testEpoch = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+
 func ctx(t testing.TB) context.Context {
 	t.Helper()
 	c, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -66,8 +68,8 @@ func (w *sqlWorld) insert(t *testing.T, p *pgxpool.Pool, tenant, inv, ref, state
 func TestTheStatesTheTableAdmitsAreExactlyTheMachinesStates(t *testing.T) {
 	w := newSQLWorld(t)
 	var def string
-	if err := w.admin.QueryRow(ctx(t), `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c WHERE c.conrelid = 'public.investigation'::regclass AND c.contype = 'c'
-		AND pg_get_constraintdef(c.oid) LIKE '%state = ANY%' OR pg_get_constraintdef(c.oid) LIKE '%state%IN%'`).Scan(&def); err != nil {
+	if err := w.admin.QueryRow(ctx(t), `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c
+		WHERE c.conrelid = 'public.investigation'::regclass AND c.contype = 'c' AND pg_get_constraintdef(c.oid) LIKE '%RECEIVED%'`).Scan(&def); err != nil {
 		t.Fatalf("no CHECK on state: %v", err)
 	}
 	got := regexp.MustCompile(`'([A-Z_]+)'`).FindAllStringSubmatch(def, -1)
@@ -150,10 +152,10 @@ func TestARowMovesByExactlyOneVersionAndNothingElseChanges(t *testing.T) {
 		t.Errorf("a stale expected version: %d rows, %v; want none", n, err)
 	}
 	for name, stmt := range map[string]string{
-		"the recorded input": `UPDATE investigation SET input_received_ref = 'recev_ZZ99' WHERE investigation_id = 'inv_AA11'`,
-		"the correlation":    `UPDATE investigation SET correlation_id = 'corr_ZZ99' WHERE investigation_id = 'inv_AA11'`,
-		"the investigation":  `UPDATE investigation SET investigation_id = 'inv_ZZ99' WHERE investigation_id = 'inv_AA11'`,
-		"the tenant":         `UPDATE investigation SET tenant_id = 'ten_bb' WHERE investigation_id = 'inv_AA11'`,
+		"the recorded input": `UPDATE investigation SET input_received_ref = 'recev_ZZ99', state_version = state_version + 1 WHERE investigation_id = 'inv_AA11'`,
+		"the correlation":    `UPDATE investigation SET correlation_id = 'corr_ZZ99', state_version = state_version + 1 WHERE investigation_id = 'inv_AA11'`,
+		"the investigation":  `UPDATE investigation SET investigation_id = 'inv_ZZ99', state_version = state_version + 1 WHERE investigation_id = 'inv_AA11'`,
+		"the tenant":         `UPDATE investigation SET tenant_id = 'ten_bb', state_version = state_version + 1 WHERE investigation_id = 'inv_AA11'`,
 	} {
 		if _, err := w.orchA.Exec(ctx(t), stmt); err == nil {
 			t.Errorf("a login changed %s", name)
