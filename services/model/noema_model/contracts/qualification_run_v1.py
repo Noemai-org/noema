@@ -17,7 +17,7 @@ class QualificationRunV1CaseStatus(StrEnum):
 
 
 # QualificationRunV1CommitSha. Source: qualification-run.v1.json#$defs/CommitSha
-QualificationRunV1CommitSha: TypeAlias = Annotated[str, StringConstraints(pattern='^[0-9a-f]{40}$')]
+QualificationRunV1CommitSha: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9a-f]{40}\\Z')]
 
 
 class QualificationRunV1DifferingSlot(ContractModel):
@@ -30,7 +30,7 @@ class QualificationRunV1DifferingSlot(ContractModel):
 
 
 # QualificationRunV1IsoDate. Source: qualification-run.v1.json#$defs/IsoDate
-QualificationRunV1IsoDate: TypeAlias = Annotated[str, StringConstraints(pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}$')]
+QualificationRunV1IsoDate: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9]{4}-[0-9]{2}-[0-9]{2}\\Z')]
 
 
 class QualificationRunV1PinnedKind(StrEnum):
@@ -41,7 +41,7 @@ class QualificationRunV1PinnedKind(StrEnum):
 
 
 # QualificationRunV1Sha256. Source: qualification-run.v1.json#$defs/Sha256
-QualificationRunV1Sha256: TypeAlias = Annotated[str, StringConstraints(pattern='^sha256:[0-9a-f]{64}$')]
+QualificationRunV1Sha256: TypeAlias = Annotated[str, StringConstraints(pattern='\\Asha256:[0-9a-f]{64}\\Z')]
 
 
 class QualificationRunV1Result(StrEnum):

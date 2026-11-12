@@ -78,6 +78,9 @@ type CaseRecord struct {
 	ReasonCode      string // the case reason (PERD 27.2), not a Trust reason code
 	CreatedByIntent string
 	Epoch           int64
+	// RawHash is "sha256:" and the hex SHA-256 of the response bytes GetCase received (Evidence Layer provenance of a healthy read, INV-19). Empty on a record
+	// that is part of a page (the page carries the hash of its bytes) and on a write result.
+	RawHash string
 }
 
 // CreateCaseInput is one keyed create. Every field except OwnerQueue and Priority is required.
@@ -120,6 +123,8 @@ type CasePage struct {
 	Items      []CaseRecord
 	Complete   bool
 	NextCursor string
+	// RawHash is "sha256:" and the hex SHA-256 of the response bytes FindCases received.
+	RawHash string
 }
 
 // ReadFailure is why a read produced no usable answer. UNKNOWN and UNAVAILABLE are real answers

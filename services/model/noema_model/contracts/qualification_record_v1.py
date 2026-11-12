@@ -30,7 +30,7 @@ class QualificationRecordV1Rate(ContractModel):
 
 
 # QualificationRecordV1Sha256. Source: qualification-record.v1.json#$defs/Sha256
-QualificationRecordV1Sha256: TypeAlias = Annotated[str, StringConstraints(pattern='^sha256:[0-9a-f]{64}$')]
+QualificationRecordV1Sha256: TypeAlias = Annotated[str, StringConstraints(pattern='\\Asha256:[0-9a-f]{64}\\Z')]
 
 
 class QualificationRecordV1Kind(StrEnum):
@@ -108,7 +108,7 @@ class QualificationRecordV1(ContractModel):
     drift: QualificationRecordV1Drift
     bar: QualificationRecordV1Bar
     decision_record: Annotated[str, StringConstraints(min_length=1)]
-    qualified_on: Annotated[str, StringConstraints(pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}$')]
+    qualified_on: Annotated[str, StringConstraints(pattern='\\A[0-9]{4}-[0-9]{2}-[0-9]{2}\\Z')]
     verdict: QualificationRecordV1Verdict
     reasons: list[Annotated[str, StringConstraints(min_length=1)]]
     runs: Annotated[list[QualificationRecordV1Run], Field(min_length=1, max_length=5)]

@@ -1,0 +1,424 @@
+"""BEN-31, REQ-BEN-010 (DEC-2026-10-31 D28): publication rules as a check. Every external number traces to a run ID in the evidence bundle and carries n, method, bound and
+confidence interval; the full distribution is shown; outcomes are judged against the final state of the systems. Written before `check.py` and seen failing.
+SYNTHETIC scorecards from the real scorer. Generated layer only (INV-22, REQ-AGT-004)."""
+import copy
+import io
+import json
+import tempfile
+import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from typing import Any
+
+from benchmark.contracts import pretty_bytes
+from benchmark.publication.__main__ import main
+from benchmark.publication.check import build_claim, check
+from benchmark.scoring.test_report import card_for, fixture
+
+Json = dict[str, Any]
+RUN = "run_report"
+
+
+def scorecard() -> Json:
+    cases, oracles, results, _ = fixture()
+    return card_for(cases, oracles, results)
+
+
+def distributions(card: Json) -> list[Json]:
+    return [{"run_id": card["run_id"], "slice": s, "rows": {k: {"n": v["n"], "k": v["correct"]["k"]} for k, v in card[s].items()}} for s in ("by_family", "by_category")]
+
+
+def at_floor(card: Json, n: int = 300) -> Json:
+    """The same scorecard with every Tier 0 gate measured on n cases and no failure (ruling A40 floor), so only the floor tests use the small fixture."""
+    for gate in card["tier0"]["gates"]:
+        gate["rate"].update(k=0, n=n, rate=0.0, wilson95=[0.0, round(3.841459 / (n + 3.841459), 6)], rule_of_three_upper=round(3 / n, 6))
+    return card
+
+
+def publication(card: Json | None = None, **claim_changes: Any) -> tuple[Json, Json]:
+    card = card if card is not None else at_floor(scorecard())
+    tier0 = build_claim(card, "C0", "/tier0/gates/0/rate", "Unsafe consequential actions, Tier 0")
+    claim = build_claim(card, "C1", "/tier1/correct_terminal_handling", "Correct terminal handling on the generated suite")
+    claim.update(claim_changes)
+    return ({"publication_id": "pub-test", "claims": [tier0, claim], "distributions": distributions(card)}, {card["run_id"]: card})
+
+
+def problems(pub: Json, cards: Json) -> list[str]:
+    return check(pub, cards)
+
+
+class Valid(unittest.TestCase):
+    def test_a_publication_built_from_a_scorecard_passes(self) -> None:
+        pub, cards = publication()
+        self.assertEqual([], problems(pub, cards))
+
+    def test_a_built_claim_carries_every_required_field(self) -> None:
+        claim = publication()[0]["claims"][1]
+        for field in ("id", "text", "run_id", "scorecard_ref", "k", "n", "rate", "ci95", "method", "population", "outcome_basis", "tier0_all_zero"):
+            self.assertIn(field, claim)
+        self.assertEqual("ORACLE_FINAL_STATE", claim["outcome_basis"])
+        self.assertEqual("Wilson 95% interval", claim["method"])
+
+
+class Broken(unittest.TestCase):
+    def one(self, mutate: Any) -> list[str]:
+        pub, cards = publication()
+        mutate(pub, cards)
+        return problems(pub, cards)
+
+    def test_a_missing_field_is_named(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].pop("method"))
+        self.assertTrue(any("C1" in x and "method" in x for x in got), got)
+
+    def test_a_run_id_with_no_scorecard_in_the_bundle_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(run_id="run_nope"))
+        self.assertTrue(any("run_nope" in x for x in got), got)
+
+    def test_a_number_that_does_not_match_the_scorecard_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(k=p["claims"][1]["k"] - 1))
+        self.assertTrue(any("C1" in x and "does not match" in x for x in got), got)
+
+    def test_an_interval_that_does_not_match_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(ci95=[0.0, 1.0]))
+        self.assertTrue(any("ci95" in x for x in got), got)
+
+    def test_a_pointer_that_is_not_a_rate_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(scorecard_ref="/tier1/by_disposition"))
+        self.assertTrue(any("not a rate" in x for x in got), got)
+
+    def test_a_method_other_than_the_scorers_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(method="normal approximation"))
+        self.assertTrue(any("method" in x for x in got), got)
+
+    def test_a_number_in_the_text_that_no_field_backs_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(text="Noema handles 99.9% of cases correctly"))
+        self.assertTrue(any("99.9" in x for x in got), got)
+
+    def test_a_signed_ranged_or_suffixed_number_in_the_text_is_refused(self) -> None:
+        # Codex on 212ec81: `-99%` evaded the check because the number pattern refused a number that follows a minus sign. The same pattern let a range, a unit suffix and a negative
+        # 95% interval through.
+        for text, token in (
+            ("Noema reduces errors by -99% of cases", "-99"),
+            ("Noema reduces errors by −99% of cases", "−99"),
+            ("Noema is +99% better", "+99"),
+            ("Noema handles 5-99% of cases", "5-99"),
+            ("Noema is in the 99th percentile", "99"),
+            ("Noema is 1.5x faster", "1.5"),
+            ("Noema is -95% wrong", "-95"),
+            ("Noema handled 1e9 cases", "1e9"),
+            ("Noema handled 1.5e3 cases", "1.5e3"),
+            ("Noema is wrong in 2E-4 of cases", "2E-4"),
+            ("Noema handled 1e+9 cases", "1e+9"),
+        ):
+            got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
+            self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
+
+    def test_an_exponent_number_is_refused_even_when_its_mantissa_is_an_allowed_number(self) -> None:
+        # Codex on bd40967: with 1 among the claim's own k and n, `1e9`, `1E+9` and `1e-9` must still be refused whole.
+        for text, token in (("Noema handled 1e9 cases", "1e9"), ("Noema handled 1E+9 cases", "1E+9"), ("Noema is wrong in 1e-9 of cases", "1e-9")):
+            def mutate(p: Json, c: Json, t: str = text) -> None:
+                p["claims"][1].update(k=1, n=1, text=t)
+            got = self.one(mutate)
+            self.assertTrue(any("C1" in x and token in x and "text" in x for x in got), (text, got))
+
+    def test_identifiers_and_the_stated_interval_in_the_text_are_still_accepted(self) -> None:
+        pub, cards = publication()
+        pub["claims"][1]["text"] = "Family B4 of US-01 under the 95% interval, Tier 0, is handled; pass^k with k = 5 is reported separately"
+        self.assertEqual([], problems(pub, cards))
+
+    def test_numbers_in_the_text_that_the_claim_backs_are_accepted(self) -> None:
+        pub, cards = publication()
+        claim = pub["claims"][1]
+        claim["text"] = f"{claim['k']} of {claim['n']} cases ({claim['rate'] * 100:.2f}%) were handled correctly"
+        self.assertEqual([], problems(pub, cards))
+
+    def test_a_zero_failure_claim_needs_its_rule_of_three_bound(self) -> None:
+        pub, cards = publication()
+        ref = "/tier0/gates/0/rate"
+        claim = build_claim(cards[RUN], "C2", ref, "Unsafe consequential actions")
+        pub["claims"].append(claim)
+        self.assertEqual([], problems(pub, cards))
+        del claim["bound"]
+        self.assertTrue(any("C2" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_a_publication_with_no_tier_zero_claim_for_a_run_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"].pop(0))
+        self.assertTrue(any("Tier 0" in x and RUN in x for x in got), got)
+
+    def test_a_tier_one_claim_listed_before_the_tier_zero_claim_of_its_run_is_refused(self) -> None:
+        # Codex review of noema#124 (R4, DEC-2026-10-31 D28, SoT 38.8): Tier 0 is published first, beside every other number.
+        def mutate(p: Json, c: Json) -> None:
+            p["claims"].reverse()
+        got = self.one(mutate)
+        self.assertTrue(any("C1" in x and "before" in x and "Tier 0" in x for x in got), got)
+
+    def test_tier_zero_claims_may_come_first_in_any_number_and_other_runs_are_ordered_on_their_own(self) -> None:
+        pub, cards = publication()
+        second = copy.deepcopy(cards[RUN])
+        second["run_id"] = "run_two"
+        cards["run_two"] = second
+        pub["claims"] += [build_claim(second, "D0", "/tier0/gates/0/rate", "Unsafe consequential actions, Tier 0"), build_claim(second, "D1", "/tier1/correct_terminal_handling", "Correct handling")]
+        pub["distributions"] += distributions(second)
+        self.assertEqual([], problems(pub, cards))
+        pub["claims"] = [pub["claims"][0], pub["claims"][1], pub["claims"][3], pub["claims"][2]]  # the second run's Tier 1 claim D1 now precedes its Tier 0 claim D0
+        self.assertTrue(any("run_two" in x and "before" in x for x in problems(pub, cards)))
+
+    def test_an_incomplete_run_is_refused(self) -> None:
+        def mutate(p: Json, c: Json) -> None:
+            c[RUN]["complete"] = False
+        self.assertTrue(any("complete" in x for x in self.one(mutate)))
+
+    def test_a_non_release_run_must_say_so_in_its_population(self) -> None:
+        pub, cards = publication()
+        self.assertFalse(cards[RUN]["release_result"])
+        pub["claims"][1]["population"] = "the generated suite"
+        self.assertTrue(any("not a release result" in x for x in problems(pub, cards)))
+
+    def test_a_population_that_is_not_the_scorecards_is_refused_even_when_rate_and_denominator_pass(self) -> None:
+        # Codex on 53fcaf6: k, n, rate and interval all equal the scorecard's and the scorecard reference is intact, but the claim labels the rate as a different population.
+        pub, cards = publication()
+        true_population = pub["claims"][1]["population"]
+        for false_population in (
+            true_population.replace(str(cards[RUN]["n_cases"]), str(cards[RUN]["n_cases"] + 1000), 1),  # a different case count
+            true_population.replace(cards[RUN]["run_id"], "run_other"),  # another run's label
+            true_population.split(" (")[0] + "; not a release result",  # layers dropped, disclaimer kept
+            "the generated suite; not a release result",  # prose, disclaimer kept
+        ):
+            self.assertNotEqual(true_population, false_population)
+            pub["claims"][1]["population"] = false_population
+            got = problems(pub, cards)
+            self.assertTrue(any("C1" in x and "population" in x and "scorecard" in x for x in got), (false_population, got))
+        pub["claims"][1]["population"] = true_population
+        self.assertEqual([], problems(pub, cards))
+
+    def test_two_distribution_records_for_the_same_run_and_slice_are_refused(self) -> None:
+        # Codex on 072f035: the later record used to overwrite the earlier one, so a valid subset could hide a conflicting record that stays in the published artifact.
+        for order in (1, -1):
+            pub, cards = publication()
+            first = pub["distributions"][0]
+            conflicting = {**first, "rows": {k: {"n": v["n"] + 1, "k": v["k"]} for k, v in first["rows"].items()}}
+            pub["distributions"] = [*pub["distributions"], *([conflicting] if order == 1 else [])]
+            if order == -1:
+                pub["distributions"] = [conflicting, *pub["distributions"]]
+            got = problems(pub, cards)
+            self.assertTrue(any(RUN in x and first["slice"] in x and "more than one" in x for x in got), (order, got))
+        pub, cards = publication()
+        pub["distributions"].append(copy.deepcopy(pub["distributions"][0]))  # an identical duplicate is still a duplicate
+        self.assertTrue(any("more than one" in x for x in problems(pub, cards)))
+
+    def test_a_bound_the_scorecard_does_not_have_is_refused(self) -> None:
+        # Codex on 13ca998: with `rule_of_three_upper` null the supplied `bound` was never checked, and the invented bound was then allowed in the text as well.
+        pub, cards = publication()
+        self.assertNotIn("bound", pub["claims"][1])
+        pub["claims"][1]["bound"] = 0.000001
+        got = problems(pub, cards)
+        self.assertTrue(any("C1" in x and "bound" in x for x in got), got)
+        pub["claims"][1]["text"] = "Correct terminal handling on the generated suite, with an upper bound of 0.000001"
+        self.assertTrue(any("C1" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_a_wrong_bound_where_the_scorecard_has_one_is_still_refused(self) -> None:
+        pub, cards = publication()
+        zero = pub["claims"][0]
+        self.assertIn("bound", zero)
+        zero["bound"] = zero["bound"] / 2
+        self.assertTrue(any("C0" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_ninety_five_percent_is_exempt_only_as_a_confidence_level(self) -> None:
+        # Codex on 13ca998: every unsigned `95%` was stripped, so "95% of cases were handled correctly" passed with no number backing it.
+        for text in ("95% of cases were handled correctly", "About 95% were handled correctly", "Handled correctly in 95 % of cases"):
+            got = self.one(lambda p, c, t=text: p["claims"][1].update(text=t))
+            self.assertTrue(any("C1" in x and "95" in x for x in got), (text, got))
+        for text in ("Correct terminal handling, with the Wilson 95% interval", "Correct terminal handling at the 95% confidence level", "Correct terminal handling (95% CI)",
+                     "Correct terminal handling, 95% Wilson interval"):
+            pub, cards = publication()
+            pub["claims"][1]["text"] = text
+            self.assertEqual([], problems(pub, cards), text)
+
+    def test_a_distribution_for_a_run_no_claim_cites_is_refused(self) -> None:
+        # Codex on 13ca998: a distribution for `run_nonexistent` with arbitrary numbers passed because only the runs named by claims were visited.
+        pub, cards = publication()
+        pub["distributions"].append({"run_id": "run_nonexistent", "slice": "by_family", "rows": {"B1": {"n": 999, "k": 999}}})
+        got = problems(pub, cards)
+        self.assertTrue(any("run_nonexistent" in x and "no claim" in x for x in got), got)
+
+    def test_a_distribution_without_a_run_or_a_slice_is_refused(self) -> None:
+        for missing in ("run_id", "slice"):
+            pub, cards = publication()
+            broken = copy.deepcopy(pub["distributions"][0])
+            del broken[missing]
+            pub["distributions"].append(broken)
+            self.assertTrue(any("distribution" in x and missing in x for x in problems(pub, cards)), missing)
+
+    def test_a_missing_family_in_the_distribution_is_named_as_cherry_picking(self) -> None:
+        def mutate(p: Json, c: Json) -> None:
+            del p["distributions"][0]["rows"]["B4"]
+        got = self.one(mutate)
+        self.assertTrue(any("B4" in x and "full distribution" in x for x in got), got)
+
+    def test_a_distribution_value_that_does_not_match_is_refused(self) -> None:
+        def mutate(p: Json, c: Json) -> None:
+            p["distributions"][1]["rows"]["AMBIGUITY"]["k"] += 1
+        self.assertTrue(any("AMBIGUITY" in x for x in self.one(mutate)))
+
+    def test_a_publication_without_distributions_for_a_cited_run_is_refused(self) -> None:
+        got = self.one(lambda p, c: p.update(distributions=[]))
+        self.assertTrue(any("by_family" in x for x in got), got)
+
+    def test_pass_k_that_is_unavailable_cannot_be_published(self) -> None:
+        pub, cards = publication()
+        cards[RUN]["tier1"]["diagnostics"]["pass_k"] = {"k_required": 5, "runs_supplied": 1, "available": False, "reason": "1 run", "rate": None, "failing_cases": []}
+        pub["claims"].append({**pub["claims"][1], "id": "C3", "scorecard_ref": "/tier1/diagnostics/pass_k/rate"})
+        self.assertTrue(any("C3" in x and "pass^k" in x for x in problems(pub, cards)))
+
+    def test_duplicate_claim_ids_are_refused(self) -> None:
+        pub, cards = publication()
+        pub["claims"].append(copy.deepcopy(pub["claims"][1]))
+        self.assertTrue(any("duplicate" in x for x in problems(pub, cards)))
+
+    def test_outcomes_must_be_judged_against_the_final_state(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(outcome_basis="MODEL_SAID"))
+        self.assertTrue(any("outcome_basis" in x for x in got), got)
+
+    def test_a_tier_zero_status_that_is_not_the_scorecards_is_refused(self) -> None:
+        got = self.one(lambda p, c: p["claims"][1].update(tier0_all_zero=False))
+        self.assertTrue(any("tier0_all_zero" in x for x in got), got)
+
+    def test_words_the_release_rules_forbid_are_refused_in_a_claim_text(self) -> None:
+        # docs/poc/execution/release/claims.md section 3: "Words we do not use".
+        for word in ("tamper-proof", "immutable", "compliant", "certified", "guaranteed", "zero risk", "proven in production", "Tamper-Proof"):
+            got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}"))
+            self.assertTrue(any(word.lower() in x.lower() and "claims.md" in x for x in got), (word, got))
+
+    def test_a_forbidden_word_is_refused_however_it_is_spelt(self) -> None:
+        # SR on 45119d5 and 049622b: case, separator, hyphen look-alikes, spaces and invisible characters do not hide a word.
+        spellings = ("tamperproof", "TamperProof", "tamper-proof", "tamper\u2011proof", "tamper\u2010proof", "tamper\u2013proof", "tamper\u2212proof", "tamper_proof", "tamper  proof",
+                     "tamper\u00a0proof", "tam\u200bper-proof", "tamper\u00adproof", "zero-risk", "zero\u2011risk", "zerorisk", "ZERO   RISK", "zero\u00a0risk",
+                     "proven-in-production", "proven\u2011in\u2011production", "provenin production", "ｃｏｍｐｌｉａｎｔ", "im\u200dmutable", "guaranteed\u200b", "certified")
+        for word in spellings:
+            got = self.one(lambda p, c, w=word: p["claims"][1].update(text=f"The Record is {w}."))
+            self.assertTrue(any("claims.md" in x for x in got), (word, got))
+
+    def test_other_forms_of_a_forbidden_word_are_refused_as_well(self) -> None:
+        # SR's ruling on noema#124 (F1, option a): the terms are matched as STEMS after a letter boundary, so any ending is the same claim as the listed word. Voice's table (V1) is in it.
+        forms = ("Immutably", "immutability", "immutable", "guarantees", "a guarantee of safety", "no guarantee", "unforgeable", "compliance-ready", "compliance with the rules", "compliant", "certification",
+                 "certifications", "certifies", "ｉｍｍｕｔａｂｌｙ", "unforge\u200bable", "guar\u200dantees", "Zero-Risk", "tamperproofing", "proven in production")
+        for form in forms:
+            got = self.one(lambda p, c, w=form: p["claims"][1].update(text=f"The Record offers {w}."))
+            self.assertTrue(any("claims.md" in x for x in got), (form, got))
+
+    def test_allowed_words_stay_allowed_because_a_stem_needs_a_letter_boundary_before_it(self) -> None:
+        pub, cards = publication()
+        for text in ("The Record is tamper-evident.", "Writers are authenticated.", "Uncertified parties are refused.", "It is uncertain.", "That is certain.", "A tamper-evident chain."):
+            pub["claims"][1]["text"] = text
+            self.assertEqual([], [x for x in problems(pub, cards) if "claims.md" in x], text)
+
+    def test_a_distribution_record_that_is_not_an_object_is_a_listed_problem_not_a_crash(self) -> None:
+        # Voice N1 on noema#124.
+        for bad in ("by_family", 7, None, ["x"]):
+            pub, cards = publication()
+            pub["distributions"].append(bad)
+            got = problems(pub, cards)
+            self.assertTrue(any("not an object" in x for x in got), (bad, got))
+
+    def test_a_scorecard_missing_a_member_the_check_needs_is_a_listed_problem_not_a_crash(self) -> None:
+        # Voice N2 on noema#124: a bundle scorecard without `complete` or `release_result` raised KeyError and exited 1, the code of "problems found".
+        for member in ("complete", "release_result", "tier0", "n_cases", "layers", "run_id"):
+            pub, cards = publication()
+            for card in cards.values():
+                del card[member]
+            got = problems(pub, cards)
+            self.assertTrue(any("scorecard" in x and member in x for x in got), (member, got))
+
+    def test_tamper_evident_is_allowed(self) -> None:
+        pub, cards = publication()
+        pub["claims"][1]["text"] = "The Record is tamper-evident"
+        self.assertEqual([], problems(pub, cards))
+
+    def test_a_headline_safety_claim_below_300_cases_is_refused(self) -> None:
+        # Ruling A40 (METRICS-v1 section 4): no headline safety claim is made from fewer than 300 cases. The Tier 0 claims are the headline safety claims.
+        for n in (6, 299):
+            pub, cards = publication(card=at_floor(scorecard(), n))
+            got = problems(pub, cards)
+            self.assertTrue(any("A40" in x and "C0" in x and str(n) in x for x in got), (n, got))
+
+    def test_a_headline_safety_claim_at_300_cases_is_accepted(self) -> None:
+        pub, cards = publication(card=at_floor(scorecard(), 300))
+        self.assertEqual([], problems(pub, cards))
+
+    def test_the_floor_is_on_the_scorecards_n_not_on_a_number_the_claim_states(self) -> None:
+        pub, cards = publication(card=at_floor(scorecard(), 6))
+        pub["claims"][0]["n"] = 300
+        got = problems(pub, cards)
+        self.assertTrue(any("A40" in x for x in got) and any("does not match" in x for x in got), got)
+
+    def test_a_tier_one_claim_is_not_a_headline_safety_claim(self) -> None:
+        card = at_floor(scorecard())
+        pub, cards = publication(card=card)
+        self.assertGreaterEqual(card["tier1"]["correct_terminal_handling"]["n"], 1)
+        self.assertEqual([], [x for x in problems(pub, cards) if "A40" in x and "C1" in x])
+
+    def test_the_input_is_not_changed(self) -> None:
+        pub, cards = publication()
+        before = (copy.deepcopy(pub), copy.deepcopy(cards))
+        problems(pub, cards)
+        self.assertEqual(before, (pub, cards))
+
+
+class Cli(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def write(self, pub: Json, cards: Json) -> tuple[Path, Path]:
+        bundle = self.root / "bundle"
+        bundle.mkdir(exist_ok=True)
+        for run_id, card in cards.items():
+            (bundle / f"{run_id}.json").write_bytes(pretty_bytes(card))
+        path = self.root / "pub.json"
+        path.write_bytes(pretty_bytes(pub))
+        return path, bundle
+
+    def run_main(self, *argv: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_clean_publication_exits_0(self) -> None:
+        path, bundle = self.write(*publication())
+        code, out, _ = self.run_main("check", str(path), "--scorecards", str(bundle))
+        self.assertEqual(0, code)
+        self.assertIn("2 claims", out)
+
+    def test_a_broken_publication_exits_1_and_lists_every_problem(self) -> None:
+        pub, cards = publication()
+        pub["claims"][1]["k"] += 1
+        pub["claims"][1]["method"] = "guess"
+        path, bundle = self.write(pub, cards)
+        code, out, _ = self.run_main("check", str(path), "--scorecards", str(bundle))
+        self.assertEqual(1, code)
+        self.assertGreaterEqual(out.count("C1"), 2)
+
+    def test_an_unreadable_input_exits_2(self) -> None:
+        code, _, err = self.run_main("check", str(self.root / "missing.json"), "--scorecards", str(self.root))
+        self.assertEqual(2, code)
+        self.assertIn("missing.json", err)
+
+    def test_an_argument_naming_the_held_out_set_is_refused(self) -> None:
+        code, _, err = self.run_main("check", "x.json", "--scorecards", "/a/benchmark-heldout")
+        self.assertEqual(2, code)
+        self.assertIn("benchmark-heldout", err)
+
+    def test_claim_prints_a_claim_that_passes_the_check(self) -> None:
+        pub, cards = publication()
+        _, bundle = self.write(pub, cards)
+        code, out, _ = self.run_main("claim", "--scorecard", str(bundle / f"{RUN}.json"), "--id", "C9", "--ref", "/tier1/correct_terminal_handling", "--text", "Correct terminal handling")
+        self.assertEqual(0, code)
+        claim = json.loads(out)
+        pub["claims"].append(claim)
+        self.assertEqual([], problems(pub, cards))
+
+
+if __name__ == "__main__":
+    unittest.main()
