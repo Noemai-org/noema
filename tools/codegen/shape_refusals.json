@@ -245,5 +245,6 @@
  "record-event/unknown_event_type.json": "enum",
  "record-event/unknown_security_kind.json": "enum",
  "recovery-request/addressed_to_execution.json": "additionalProperties",
+ "session-limits/fractional_skew.json": "type",
  "trust-profile/missing_prohibitions.json": "required"
 }

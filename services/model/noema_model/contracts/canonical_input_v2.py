@@ -26,7 +26,7 @@ class CanonicalInputV2Voice(ContractModel):
     utterance_confidence: CommonV1Ratio
     token_confidences: list[CommonV1Ratio]
     is_final: bool
-    audio_ref: Annotated[str, StringConstraints(pattern='^raw_[0-9A-Za-z]{2,32}$')] | None
+    audio_ref: Annotated[str, StringConstraints(pattern='\\Araw_[0-9A-Za-z]{2,32}\\Z')] | None
 
 
 class CanonicalInputV2(ContractModel):
@@ -34,7 +34,7 @@ class CanonicalInputV2(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion
-    request_id: Annotated[str, StringConstraints(pattern='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')]
+    request_id: Annotated[str, StringConstraints(pattern='\\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\Z')]
     correlation_id: CommonV1CorrelationId
     tenant_id: CommonV1TenantId
     session_id: CommonV1SessionId
@@ -42,7 +42,7 @@ class CanonicalInputV2(ContractModel):
     channel: CanonicalInputV2Channel
     mode: EnumsV1Mode
     text: Annotated[str, StringConstraints(min_length=1, max_length=2000)]
-    locale_hint: Annotated[str, StringConstraints(pattern='^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$')] | None = Field(default=None)
+    locale_hint: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\\Z')] | None = Field(default=None)
     voice: CanonicalInputV2Voice | None = Field(default=None)
     conversation_ref: CommonV1InvestigationId | None = Field(default=None)
     received_at: CommonV1Timestamp

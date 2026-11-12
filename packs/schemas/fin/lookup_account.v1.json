@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://packs.noema.invalid/fintech/schemas/fin/lookup_account.v1.json",
+  "title": "fin.cap.lookup_account",
+  "description": "Look up the account; the owner is the session principal, not a parameter. Pack data (noema#362): only the fields a caller supplies; additionalProperties false. SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "account_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "The account to look up (descriptor account.id). Ownership is checked from the session, never passed here."
+    }
+  },
+  "required": [
+    "account_ref"
+  ],
+  "additionalProperties": false
+}
