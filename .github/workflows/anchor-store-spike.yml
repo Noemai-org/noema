@@ -8,7 +8,7 @@ on:
     paths: ['deploy/spike/anchor-store/**', '.github/workflows/anchor-store-spike.yml']
   workflow_dispatch:
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
