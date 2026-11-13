@@ -63,7 +63,7 @@ def verify(run: Json, frozen: Json, root: Path, generated_corpus_hash: str) -> l
     if _sha256_file(root / config) != want_config:
         problems.append(f"{config} differs from the record")
         return problems
-    if pin.get("harness_config_sha256") != want_config:
+    if pin.get("harness_config_sha256") not in (want_config, *superseded_hashes(frozen, config)):
         problems.append("the run's harness-configuration hash differs from the record's")
     if (pin.get("prompt_template") or {}).get("digest") != frozen["prompt_template"]["digest"]:
         problems.append("the run's prompt-template digest differs from the record's")
@@ -135,6 +135,24 @@ def _usd(micros: int) -> str:
     return f"${micros / 1_000_000:.6f}"
 
 
+def superseded_hashes(frozen: Json, config: str) -> dict[str, Json]:
+    """The configuration hashes this record superseded for one config file (the 13 Nov 2026 masking re-freeze, A162), with what each carried. A run made under one still verifies, by that hash."""
+    return {entry["sha256"]: entry for entry in (frozen.get("superseded_harness_configs") or {}).get(config, [])}
+
+
+def floor_label(run: Json, frozen: Json) -> list[str]:
+    """One bullet when the run was made under a superseded configuration: its calls used the masking floor that configuration carried, and are labelled so (A162; the record's section 2)."""
+    pin = run["pin"]
+    files = dict(MODELS)
+    config = f"benchmark/decisions/{files[pin['label']]}"
+    old = superseded_hashes(frozen, config).get(pin["harness_config_sha256"])
+    if old is None:
+        return []
+    return [f"- **Made under masking floor {old['masking_floor_during_use']}, and labelled so.** Harness configuration `{old['sha256']}` is superseded by the re-freeze of 13 Nov 2026 "
+            f"(ruling A162, `{old['superseded_by']}`): its `masking.account_run_min_digits: {old['masking_floor_during_use']}` was removed and the floor became 4. "
+            "This run's calls were made under `account_run_min_digits: " + str(old['masking_floor_during_use']) + "`; the result is not re-scored, not reinterpreted and not mixed with results under the new floor."]
+
+
 def build_report(run: Json, diagnostics: Json, run_path: str, diag_path: str, run_bytes: bytes, diag_bytes: bytes) -> str:
     frozen = frozen_block()
     problems = verify(run, frozen, ROOT, corpus_hash())
@@ -162,7 +180,7 @@ def build_report(run: Json, diagnostics: Json, run_path: str, diag_path: str, ru
         f"- Scoring-code hash `{frozen['scoring_code']['scoring_code_hash']}`: matches this checkout and the run's pin.",
         f"- Model pin: `{pin['model_id']}` (reported `{pin['reported_model_id']}`), harness configuration `{pin['harness_config_sha256']}`, prompt template "
         f"digest `{pin['prompt_template']['digest']}`, retry policy `{json.dumps(pin['retry_policy'], sort_keys=True)}`, reasoning effort `{pin['reasoning_effort']}`, "
-        "rate card as in the configuration: all match the record.", "",
+        "rate card as in the configuration: all match the record.", *floor_label(run, frozen), "",
         "## Counts", "",
         f"- Calls in the frozen corpus: {expected_calls}. Results in the file: {len(run['results'])}. Outcomes: {dict(sorted(outcomes.items()))}.",
         f"- Answered: {outcomes.get('ANSWERED', 0)}. Calls without a valid response (REJECTED or ERROR): {outcomes.get('REJECTED', 0) + outcomes.get('ERROR', 0)}.",
