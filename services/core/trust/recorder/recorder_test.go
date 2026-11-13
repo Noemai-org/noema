@@ -560,11 +560,15 @@ func TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing(t *testing.T) 
 	dup.IDs = fixedIDs{inner: ids.New(clk, rand.New(rand.NewSource(4))), prefix: "dec", id: "dec_FIXEDDUP"}
 	dup.Appender = newAppender(t, w.admin, clk, ids.New(clk, rand.New(rand.NewSource(5))))
 	w.w = &dup
-	if _, err := w.write(t, first, true); err != nil { // the first use of the fixed decision id succeeds
+	// A186: a request for an input that is already stored returns the stored decision and never reaches the insert, so the two uses of the fixed decision ID
+	// are for two inputs (two intent hashes); the second collides on the primary key.
+	other, another := first, first
+	other.IntentHash, another.IntentHash = h(5), h(6)
+	if _, err := w.write(t, other, true); err != nil { // the first use of the fixed decision id succeeds
 		t.Fatal(err)
 	}
 	before := w.count(t, `SELECT count(*) FROM decision_record`)
-	_, err := w.write(t, first, true) // the second use collides on the primary key
+	_, err := w.write(t, another, true) // the second use collides on the primary key
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) || pg.Code != "23505" || !strings.Contains(err.Error(), "insert decision record") {
 		t.Fatalf("got %v, want the unique violation of the decision_record insert", err)
