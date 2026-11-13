@@ -145,3 +145,16 @@
 - Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
 - Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
 - Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
+
+# Session 2026-11-13 17:30 WAT · EDG-01 slice 3c, part 3 · the Record reader's per-tenant pools (EL)
+
+## Session summary
+- What changed (PR: the pull request of branch `feat/EDG-01-record-reader-dsn-files`, which replaces noema#532: its tests-only commit held a credential-shaped test literal that the secret scanner flagged, and published history is never rewritten): `cmd/core/recordpools.go` (`buildRecordReader`, `recordPools.For`, `EnvRecordReadDSNDir`), `Env.ReadDir`, `main.go` builds the reader from `NOEMA_RECORD_READ_DSN_DIR` and closes it at shutdown, with the process logger as the access log (`RECORD_ACCESSED` lines).
+- Why: ruling A170 and its Founder-approved interim default for OD-P-82 (relayed, not yet committed): a file-mounted read-only DSN per tenant. Without it the reconstruction route of noema#486 can never be mounted in a deployment.
+- Risks, and how they are contained: a DSN holds a password: no message names a DSN or any part of it (the parse error is dropped, a test checks the text); no fallback to another tenant's pool; a bad directory stops the process; pools connect lazily, so no start-up network dependency.
+- Tests added (REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-13): `cmd/core/recordpools_test.go` (4 tests, ten refused shapes); five mutants killed (fall back to any pool, accept any file name, echo the parse error, no trim, empty directory accepted).
+- Not done, stated: the SSE and investigation routes (no feed, no handler yet); the Compose side (`deploy/compose`, a protected path; IL and a Founder); a ping in `/readyz` for the pools.
+
+## Pre-work for the next agent
+- Exact next step: mount the investigation route (after noema#521) and the SSE route (needs a `Feed` over the investigation table and the Record) in `apiRoutes`, each behind its component.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.
