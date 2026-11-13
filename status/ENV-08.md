@@ -134,3 +134,18 @@ Moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-stat
 - Purpose: "Session B: the founder chooses option 1, two linked tests, with a drift guard. 1. The decision half in trust/decide runs the real Admit and FailAtGate on both proposers' Intent Objects and writes the decisions file. It also fails if the regenerated file differs from the committed one. 2. The execution half in execution/e2e reads the committed decisions file and runs the real EscalateCase on mock-case for each proposer. It compares outcomes and Record events. 3. Both halves keep their mutation controls. 4. Do not merge the drafted chained test at services/core/integration/proposer_swap/. Remove it from the branch. 5. Make no lint change and no core change. Report the head SHA, the file list and the check run links. Do not merge. Log every message in status/ENV-08.md."
 - Receiver used it for: the two linked tests of this PR; the drafted chained test was never committed.
 - Evidence: this PR.
+
+# Session 2026-11-13 · ENV-08 · atomic conditional complaint create (A185, noema#522)
+
+## Session summary
+- What changed: `POST /v1/cases/{id}/complaints` with `If-None-Match: *` creates only if the case has no complaint, atomically (per-case advisory lock taken by every complaint create, a unique partial index `complaints_conditional_case_uq` in migration `0004` as the backstop). A rival is `412 PRECONDITION_FAILED` (the repository's convention for the case create; C1 guessed 409 on #522) naming `existing_complaint_ref`, with no reference spent. A repeat of the winner's key is its replay. Without the header the create is unchanged. OpenAPI and README updated.
+- Why: ruling A185 (interim, relayed; docs#169): `log_complaint_reference` is a CONDITIONAL_WRITE whose precondition execution can only look at, not enforce; mock-case is our component, so it enforces it.
+- Risks, and how they are contained: a conditional create also refuses when an unconditional complaint exists (checked under the lock); an unconditional create is not limited. The lock key is per tenant and case. The backstop firing is treated as a retry. The tests need PostgreSQL: CI is their first run.
+- Tests added (REQ-EXE-004, REQ-ENV-008, INV-03): `internal/api/conditional_complaint_test.go` (8), red first in CI (noema#537, the rival got 201 and 32 of 32 concurrent creates won), green with the implementation.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C1 restores the `log_complaint_reference` mapping, carries the condition (`If-None-Match: *`) through `adapters.LogComplaintInput`, and turns `TestConcurrentComplaintsOfOneCaseCreateNone` into "exactly one" (noema#522). The core case adapter (`synthetic_tushe/case_client.go`, mine) must send the header for that operation: a follow-up of mine after this merges, and a re-recording of `mock_case_recordings.json` with a new `create_complaint_precondition_failed_412` scenario.
+- Open questions (owner): the same conditional create for Tushe in the delta (Founders, with Tushe), not built here.
+- Do not touch: the unconditional path (other clients rely on it).
+

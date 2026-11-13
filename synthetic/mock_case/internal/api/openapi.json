@@ -619,7 +619,7 @@
     "/v1/cases/{case_id}/complaints": {
       "post": {
         "operationId": "createComplaint",
-        "summary": "Log a complaint reference against a case, with an idempotency key",
+        "summary": "Log a complaint reference against a case, with an idempotency key; conditional on the case having none when If-None-Match: * is sent",
         "parameters": [
           {
             "name": "case_id",
@@ -638,9 +638,31 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "Optional. If sent it must be * : the create is then conditional on this case having no complaint reference, which the target enforces atomically (a case is the subject and epoch). Without it the create is unconditional, as before.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "*"
+              ]
+            }
           }
         ],
         "responses": {
+          "412": {
+            "description": "PRECONDITION_FAILED: only with If-None-Match: *. A complaint reference already exists for this case (a different key was used); nothing was written and no reference was spent. details names existing_complaint_ref.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "201": {
             "description": "Created",
             "content": {
