@@ -33,3 +33,16 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 ### Update 2026-11-12 · reviewer P1 on noema#468 (the schema must not accept a looser policy)
 - `masking-limits.v1` now admits exactly 4 (`const`), not 4 to 32: A154 as corrected caps every outward surface at four, and a range let another consumer validate a looser policy. The Go and Python loaders and the scanner reader repeat the const because generated types do not check values. A different value is a new major version of the contract and a Founder decision. Tests first at `9eae9478` (red for 5, 6, 8 and 32).
 - Consequence for the mutation list: the validator or scanner "hard-coding 4" is now an equivalent mutant (the contract guarantees 4), so the tests that used a limit of 6 were removed; the refusals of 5, 6, 8, 32 and 33 replace them.
+
+## Session 2026-11-13 18:00 WAT · SEC-03 · the harness half (A162, option A; EL)
+
+## Session summary
+- What changed (noema#468; order confirmed by the Founders: my code half first, then BO's re-freeze noema#538, then a follow-up that refuses the old member): the model service's harness masks at the pack's `masking-limits.v1` value, not at a number in its configuration. `Harness(..., masking=MaskingLimits)` is a required keyword (no default); `assemble_harness` reads the required setting `NOEMA_MODEL_MASKING_LIMITS_FILE` (a missing, unreadable or wrong document leaves no harness and a reason that carries no value); `load_harness_config` accepts a config with or without the old `masking` member and ignores it; `HarnessConfig.account_run_min_digits` is gone; the bake-off's `build_real_decider` takes the limits path (`live_run.py` passes `packs/fintech/limits/masking_limits.json`).
+- Why: A154 as corrected (nothing longer than 4 digits leaves unmasked) and A162 (option A). Before this, 5 to 8 digit runs reached a provider unmasked on the harness path.
+- Tests added (REQ-SEC-003, AGENT-13, AGENT-16): `tests/test_harness_masking_source.py` (a config with and without the member loads and is equal; a 5-digit run is masked whatever the member says; a 4-digit run is left alone; the Harness cannot be built without the limits; the service builds with the shared file; a missing, unreadable or wrong limits file leaves no harness). 22 existing call sites pass the limits (`tests/support.py: MASKING`); the frozen configs are not edited (their hashes are BO's re-freeze).
+- One existing test changed on purpose: `test_a_bad_config_is_refused` no longer lists "the masking value is missing", because that member is not required any more (the new tests cover its replacement).
+- Not done, stated: the Compose mount of the limits file (no harness configuration is mounted by Compose yet, so nothing in `deploy/compose` needs it today; a protected path); the follow-up that refuses the old member (after noema#538 merges).
+
+## Pre-work for the next agent
+- Exact next step: after noema#538 merges, a small PR makes `load_harness_config` refuse a `masking` member, with the test that an old config is refused.
+- Do not touch: `benchmark/decisions/harness-*.json` (frozen; BO's record).
