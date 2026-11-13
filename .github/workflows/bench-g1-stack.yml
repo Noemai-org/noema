@@ -41,12 +41,17 @@ jobs:
           mkdir -p benchmark/out
           # The runner reads this file during the run (it marks its size before each case and counts refusals after), so it is a live stream, not a copy taken at the end.
           : > benchmark/out/mock-case.log
-          $compose logs -f --no-log-prefix --since 0s mock-case >> benchmark/out/mock-case.log 2>/dev/null &
+          # The collector's own errors go to its own file, not to /dev/null, and it is checked below: a collector that never started or died leaves a readable file, and the
+          # refusal counters would report zero accesses (Codex P1 on noema#444).
+          $compose logs -f --no-log-prefix --since 0s mock-case >> benchmark/out/mock-case.log 2> benchmark/out/mock-case-collector.err &
           logpid=$!
+          sleep 2
+          collector_dead=0
+          kill -0 "$logpid" 2>/dev/null || collector_dead=1
           $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
           gen=$?
           code=2
-          if [ "$gen" -eq 0 ]; then
+          if [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
             $compose exec -T bench-runner python -m benchmark.runner \
               --suite /bench-out/suite --out /bench-out/run --run-id "$run_id" --commit-sha "$COMMIT" \
               --api-url http://core:8080 \
@@ -57,6 +62,10 @@ jobs:
               --tenant-id ten_alpha
             code=$?
           fi
+          # A collector that exited during the run invalidates it: the counters would read an empty or stale file as zero accesses. NOT RUN, never scored.
+          kill -0 "$logpid" 2>/dev/null || collector_dead=1
+          if [ "$collector_dead" -eq 1 ]; then echo "::error::the mock-case log collector is not running; the refusal counters are not evidence"; fi
+          [ "$collector_dead" -eq 1 ] && code=3
           # The scorer decides the result when the run ran (Codex P1 on noema#444). Runner exit 0 or 1 is scored, as `make bench` does; 2 (bad input) and 3 (NOT RUN) are never
           # scored. The scorer exits 0 only when the run is complete and Tier 0 is all zero (SoT 38.3), so that exit becomes the recorded code and a non-zero Tier 0 fails the job.
           if [ "$code" -le 1 ]; then
@@ -97,6 +106,7 @@ jobs:
             benchmark/out/run/
             benchmark/out/score/
             benchmark/out/mock-case.log
+            benchmark/out/mock-case-collector.err
           if-no-files-found: warn
           retention-days: 30
       - name: Result (only a run that ran, complete, passes)
