@@ -7,7 +7,7 @@ Updated 2026-11-13. A184 (the Founder's instruction of 13 Nov, relayed; to be co
 - `record/payloadguard`: the rule (pure, no database). `chain.Append` calls it on the canonical payload before anything is signed or written; a refusal writes nothing and names the JSON path and the run length, never the value.
 - `internal/testpg`: every test database is scanned for the same rule, and for an `object_ref` built from a payload string, when its test ends (`ScanRecord`, run before the database is dropped). `AllowUnguardedRecord` exempts one database for a test that writes a long run on purpose.
 - `internal/recordsig.AppendUnguarded`: appends like `chain.Append` minus the guard, for the one test that proves the reconstruction masks a long run (`TestServedFactsAreMaskedToTheLastFourDigits`) and for the scan's own tests.
-- `inputgateway`: the input's events are named by the correlation ID the core minted, not by `req_` plus the client's request ID (the scan found it in 17 gateway tests). One commit of its own, for the Core Engineer 2's independent read.
+- `inputgateway`: the input's events are named by the correlation ID the core minted, not by `req_` plus the client's request ID (the scan found it in 15 gateway tests). One commit of its own, for the Core Engineer 2's independent read.
 - The exemptions beyond A184's three are narrow, bound to a path and a shape, and listed in the PR's CONFLICT block for the Architect.
 
 ## Session 2026-11-13 · REC-01 append guard
