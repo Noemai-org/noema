@@ -98,3 +98,20 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 ## Pre-work for the next agent
 - Exact next step: none for this PR once reviewed; CI at the head must be read before READY.
 - Do not touch: `Write`'s order (Record-first).
+
+## Session 2026-11-13 17:00 WAT · TRU-05 follow-up (A172, A186): one decision per full input tuple
+
+## Session summary
+- What changed (PR: the pull request of branch `feat/TRU-05-decision-input-tuple`; it replaces noema#527, closed because a secret-scanner false positive sat in one of its commits and history is never rewritten): migration `0027_decision_input_key.sql` (unique index `decision_record_input_key` over the tenant, the intent ID, the intent hash, the context snapshot and the policy version); `trust/recorder`: `Writer.Write` takes an advisory transaction lock on the tuple, reads the stored decision, and returns it with its grants and writes nothing; a stored decision that the new evaluation contradicts is `ErrDecisionConflict`.
+- Why: ruling A172 (the follow-up of noema#237, Tier 1, failing test first, C1 reviews) and ruling A186 (Founder-approved interim, relayed, not yet committed): the same full input tuple gets the stored decision; a new snapshot makes a new decision. A retried or resumed run reads the decision instead of deciding again, and a second grant cannot be issued for one input (INV-03, INV-21, INV-25).
+- Key mapped to the real columns: `tenant_id` and `intent_hash` are columns; `intent_id`, `evidence_snapshot_id` and `policy_version` are members of the signed document. A document with no snapshot (only direct test fixtures) is NULL in the index and not keyed.
+- Risks, and how they are contained: a duplicate tuple already in a database makes the migration fail (nothing is deleted; a person looks); a hit that disagrees (outcome, disposition, rule versions, grants' step, capability, target, params hash, plan hash) is refused, not returned.
+- Tests added (REQ-TRU-007, REQ-TRU-008, INV-21, INV-25): `platform/db/decision_input_key_test.go` (2), `trust/recorder/input_key_test.go` (5). `TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing` now collides the decision ID with two inputs (two intent hashes) because an identical request now returns the stored decision.
+- Regression cases added: none beyond the above. Debt entries: none. Conflicts raised: none.
+- Not done, stated: no production caller of `Writer.Write` exists yet; the `orchestrator.Trust` adapter that calls it is a later PR. A WAIT decision re-evaluated with an unchanged snapshot returns the stored WAIT (A186 as written): a re-evaluation must build a new snapshot (open point 1 on noema#527).
+
+## Pre-work for the next agent
+- Exact next step: the `orchestrator.Trust` adapter (evaluate, then `Write` in one transaction) once C1's Trust service assembles T1 to T15; resume of a stranded run (OD-P-85, A168) reads the stored decision through `Write`.
+- Open questions (owner): whether a WAIT re-evaluation of an unchanged snapshot should be a new decision (Architect: it would put the clock reading in the key).
+- Files to read first: `trust/recorder/inputkey.go`, `migrations/0027_decision_input_key.sql`.
+- Do not touch: `Write`'s order (Record first on a miss; nothing appended on a hit).
