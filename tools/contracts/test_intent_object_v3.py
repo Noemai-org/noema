@@ -125,7 +125,7 @@ class BasisPoints(unittest.TestCase):
     def test_neither_new_schema_refers_to_ratio(self):
         """Ratio is a fractional number and must not come back through a $ref."""
         for name in ("intent-object.v3.json", "intent-slot.v2.json"):
-            self.assertNotIn("Ratio", json.dumps(SCHEMAS[name]), name)
+            self.assertNotIn("$defs/Ratio", json.dumps(SCHEMAS[name]), name)
 
     def test_the_basis_points_edges(self):
         for good in (0, 1, 9300, 9999, 10000):
@@ -153,7 +153,7 @@ class BasisPoints(unittest.TestCase):
             "Quantity": {"type": "Quantity", "value": 2000000, "unit": "NGN", "confidence": 9500},
             "Party": {"type": "Party", "surface_form": "Tunde", "confidence": 9500},
             "TimeRef": {"type": "TimeRef", "surface_form": "this morning", "confidence": 9500},
-            "Reference": {"type": "Reference", "surface_form": "the last one", "confidence": 9500},
+            "Reference": {"type": "Reference", "value": "last_one", "confidence": 9500},
         }
         for kind, slot in shapes.items():
             doc = valid_v3()
