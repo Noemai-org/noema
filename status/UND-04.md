@@ -32,3 +32,14 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - Open questions (owner): hash form (Architect); UND-02 core scope (Architect).
 - Files to read first: `services/core/understanding/README.md`, `gate.go`.
 - Do not touch: `platform/crypto` (not on this allowlist).
+
+# Session 2026-11-12 (evening) · UND-04 core · Session.valid() and A163
+
+- **What changed:** `Session.valid()` checked `AssertedBy` with the lower-snake pattern, which refuses a hyphen, so a session asserted by the POC's own identity provider (`noema-poc-idp`) was `SESSION_INVALID` and nothing was admitted. It now uses the contract's `asserted_by` pattern of ruling A163, `^[a-z][a-z0-9_-]*$` (`assertedByRe` in `gate.go`); `principal_type` keeps the lower-snake pattern. README sentence added.
+- **Failing first:** `TestTheAssertedByOfASessionFollowsTheContractsPattern` in its own commit, red locally on `noema-poc-idp` and `a-b_c-9` (SESSION_INVALID); green after the fix. Five accepted forms and ten refused (empty, leading hyphen, digit or underscore, upper case, space, dot, slash, trailing newline, a Unicode hyphen). Mutations by hand, each red: the old pattern back; no `$` anchor; a leading digit allowed; a dot allowed; the check removed.
+- **Stated dependency, not changed here:** the gate still decodes `intent-object.v1`, whose `asserted_by` pattern has no hyphen (the Go types do not model patterns, so nothing in Go refuses it). The admitted object therefore carries a value that the v1 schema would refuse until `intent-object.v2` (noema#480) merges and the gate moves to it. Moving the gate to v2 is a separate change after #480, with the generated models; the same applies to the model service's schema check.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the compile route and core `Interpreter` under A166 (core signs and hashes after the gate), after this merges.
+- Files to read first: `services/core/understanding/gate.go`, `identity.go`.
