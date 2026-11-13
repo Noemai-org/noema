@@ -79,7 +79,7 @@ def test_a_read_that_never_ends_is_abandoned_after_the_hold_and_the_source_and_i
         source = NeverEnding()
         refs = weakref.ref(source), weakref.ref(source.buffer)
         with pytest.raises(ProviderError):
-            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, on_partial=lambda _: None)
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
         del source
         await asyncio.sleep(0.3)  # past the hold, which is one more cleanup bound
         gc.collect()
@@ -98,7 +98,7 @@ def test_repeated_calls_with_never_ending_reads_do_not_accumulate_references() -
             source = NeverEnding()
             refs.append(weakref.ref(source))
             with pytest.raises(ProviderError):
-                await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.02, cleanup_s=0.02, on_partial=lambda _: None)
+                await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.02, cleanup_s=0.02, hold_s=0.05, on_partial=lambda _: None)
             del source
         await asyncio.sleep(0.2)
         gc.collect()

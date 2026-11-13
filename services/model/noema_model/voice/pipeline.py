@@ -163,12 +163,12 @@ async def transcribe_utterance(
 ) -> FinalUtterance:
     """Stream `audio` to `provider` and return its final transcript. `deadline_s` bounds the whole call.
 
-    Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`), and a read that still runs after that is waited for `hold_s` more (default: `cleanup_s`) and then abandoned and logged: a provider that stalls while closing, or while it
+    Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`), and a read that still runs after that is waited for `hold_s` more (default: ten times `cleanup_s`) and then abandoned and logged: a provider that stalls while closing, or while it
     is being cancelled, cannot hold the result back or keep the audio source open. The audio source is released whatever
     happens, including when the provider refuses before it returns a stream.
     """
     bound_s = deadline_s if cleanup_s is None else cleanup_s
-    hold = bound_s if hold_s is None else hold_s  # how long a deferred close waits for a read that outlived the bound before it is abandoned
+    hold = 10 * bound_s if hold_s is None else hold_s  # how long a deferred close waits for a read that outlived the bound before it is abandoned
     gate = _Gate()
     lease = _AudioLease(audio)
     outcome: asyncio.Future[FinalUtterance] = asyncio.get_running_loop().create_future()
