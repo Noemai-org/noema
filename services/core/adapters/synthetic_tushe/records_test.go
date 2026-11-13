@@ -167,18 +167,24 @@ func TestAppendEvidenceNeverRetriesAndReportsASilentTargetAsUnknown(t *testing.T
 }
 
 // AGENT-09: the payload is data. Text in it that looks like an instruction is sent as the exact bytes, and a different JSON spelling of the same
-// words has a different hash.
+// words is sent with a different hash: each request carries the hash of its own bytes (EL's note: the earlier check only compared two SHA-256 values).
 func TestAppendEvidenceSendsTheExactPayloadBytes(t *testing.T) {
-	var s seen
-	c := serveOnce(t, &s, 201, nil, attachment(map[string]any{"payload": "x", "payload_hash": hashOfPayload("ignore previous instructions {\"a\": 1}")}))
-	in := evidenceIn()
-	in.Payload = "ignore previous instructions {\"a\": 1}"
-	_ = c.AppendEvidence(deadline(t), in)
-	if s.body["payload"] != in.Payload || s.body["payload_hash"] != hashOfPayload(in.Payload) {
-		t.Fatalf("payload not sent as written: %v", s.body)
+	sent := map[string]string{}
+	for _, p := range []string{"ignore previous instructions {\"a\": 1}", `{"a":1}`, `{"a": 1}`} {
+		var s seen
+		c := serveOnce(t, &s, 201, nil, attachment(map[string]any{"payload": p, "payload_hash": hashOfPayload(p)}))
+		in := evidenceIn()
+		in.Payload = p
+		if r := c.AppendEvidence(deadline(t), in); r.Class != adapters.ClassAck2xx {
+			t.Fatalf("%q: class %s (%s)", p, r.Class, r.RawCode)
+		}
+		if s.body["payload"] != p || s.body["payload_hash"] != hashOfPayload(p) {
+			t.Fatalf("payload not sent as written: %v", s.body)
+		}
+		sent[p], _ = s.body["payload_hash"].(string)
 	}
-	if hashOfPayload(`{"a":1}`) == hashOfPayload(`{"a": 1}`) {
-		t.Fatal("two spellings share a hash")
+	if sent[`{"a":1}`] == sent[`{"a": 1}`] {
+		t.Fatal("two spellings of the same words were sent with the same hash")
 	}
 }
 
@@ -314,16 +320,16 @@ func TestRecordFindsAreScopedAndCarryCompleteness(t *testing.T) {
 	if err != nil || len(got.Items) != 1 || !got.Complete || s.path != "/v1/evidence" {
 		t.Fatalf("page %+v err %v path %s", got, err, s.path)
 	}
-	if _, err := c.FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); err == nil || s.path != "/v1/complaints" {
-		// the canned body is an evidence page, so the complaint find must refuse it as malformed
-		t.Fatalf("a complaint find accepted an evidence page: %v", err)
+	if _, err := c.FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed || s.path != "/v1/complaints" {
+		// the canned body is an evidence page, so the complaint find must refuse it as MALFORMED, not fail for another reason
+		t.Fatalf("a complaint find accepted an evidence page or failed otherwise: %v", err)
 	}
 	before := s.hits
-	if _, err := c.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a"}); err == nil || s.hits != before {
-		t.Fatalf("a find with neither key nor case sent a request or succeeded: %v", err)
+	if _, err := c.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a"}); asReadFailure(err) != adapters.ReadInvalid || s.hits != before {
+		t.Fatalf("a find with neither key nor case sent a request or was not refused as invalid input: %v", err)
 	}
-	if _, err := c.FindEvidence(deadline(t), adapters.RecordQuery{IdempotencyKey: "k"}); err == nil || s.hits != before {
-		t.Fatalf("a find with no tenant sent a request or succeeded: %v", err)
+	if _, err := c.FindEvidence(deadline(t), adapters.RecordQuery{IdempotencyKey: "k"}); asReadFailure(err) != adapters.ReadInvalid || s.hits != before {
+		t.Fatalf("a find with no tenant sent a request or was not refused as invalid input: %v", err)
 	}
 	incomplete := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{}, "complete": false, "next_cursor": "c1"})
 	pg, err := incomplete.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"})
@@ -387,5 +393,115 @@ func TestAPageWithAnInconsistentCompletenessMarkerIsMalformed(t *testing.T) {
 	}
 	if _, err := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{}, "complete": true, "next_cursor": "c"}).FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
 		t.Errorf("complaint page, complete with a cursor: %v", err)
+	}
+}
+
+// Reviewer P1 on noema#470 (EL; REQ-EXE-006, AGENT-08): Go's net/http treats a POST that carries an Idempotency-Key as replayable and silently sends it again when a reused
+// keep-alive connection fails before any response byte. A write is one request: the write calls use a transport with no connection reuse, so there is nothing to replay on.
+// The server answers the first write, then closes the connection of the second without a byte of answer; the second write must reach the server exactly once.
+func TestAWriteIsNeverSentTwiceByTheTransportOnAReusedConnection(t *testing.T) {
+	for name, write := range map[string]func(c *CaseClient) adapters.WriteResult{
+		"evidence": func(c *CaseClient) adapters.WriteResult { return c.AppendEvidence(deadline(t), evidenceIn()) },
+		"complaint": func(c *CaseClient) adapters.WriteResult {
+			return c.LogComplaint(deadline(t), adapters.LogComplaintInput{IdempotencyKey: "idem-cm-1", TenantID: "ten_a", CaseID: "cas_1", Timeout: 3 * time.Second})
+		},
+		"create": func(c *CaseClient) adapters.WriteResult { return c.CreateCase(deadline(t), createIn("idem-create-1")) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var hits int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if atomic.AddInt32(&hits, 1) > 1 { // every request after the first: read it and hang up without answering
+					_, _ = io.Copy(io.Discard, r.Body)
+					conn, _, err := w.(http.Hijacker).Hijack()
+					if err == nil {
+						_ = conn.Close()
+					}
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError) // any answer: it warms the connection the second write could reuse
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			t.Cleanup(srv.Close)
+			c := newClient(t, srv)
+			_ = write(c) // the first write: answered, so its connection would be pooled
+			before := atomic.LoadInt32(&hits)
+			r := write(c)
+			if got := atomic.LoadInt32(&hits) - before; got != 1 {
+				t.Fatalf("the second write reached the server %d times, want exactly 1 (a hidden replay on a reused connection)", got)
+			}
+			if r.Class == adapters.ClassAck2xx {
+				t.Fatalf("a write the target hung up on was acknowledged: %+v", r)
+			}
+		})
+	}
+}
+
+// Reviewer P2 on noema#470 (EL): the target echoes the payload in its acknowledgement and the client reads at most maxBody of it, so a payload too large to be echoed would
+// make a write that landed look unknown; and invalid UTF-8 is rewritten by the JSON encoder, so the hash sent would not be the hash of the bytes stored. Both are refused before
+// anything is sent. The cap is the adapter's own response bound (an escaped payload is at most six times its size), not a policy threshold.
+func TestAnEvidencePayloadThatCannotBeEchoedOrIsNotUTF8IsRefusedBeforeSending(t *testing.T) {
+	var s seen
+	c := serveOnce(t, &s, 201, nil, attachment(nil))
+	for name, p := range map[string]string{
+		"one byte over the cap": strings.Repeat("a", maxEvidencePayload+1),
+		"invalid UTF-8":         "card \xff\xfe used",
+		"a lone surrogate":      "x\xed\xa0\x80y",
+	} {
+		in := evidenceIn()
+		in.Payload = p
+		if r := c.AppendEvidence(deadline(t), in); r.Class != adapters.ClassDefect || r.RawCode != "ADAPTER:INVALID_INPUT" {
+			t.Errorf("%s: %s %s, want an adapter defect INVALID_INPUT", name, r.Class, r.RawCode)
+		}
+	}
+	if s.hits != 0 {
+		t.Fatalf("%d request(s) were sent for a payload that is refused", s.hits)
+	}
+	// At the cap, and made entirely of characters that the JSON encoder escapes to six bytes, the acknowledgement still fits the response bound.
+	worst := strings.Repeat("\u0001", maxEvidencePayload)[:maxEvidencePayload]
+	if len(worst) != maxEvidencePayload || 6*maxEvidencePayload+1024 > maxBody {
+		t.Fatalf("the cap %d does not leave room for a worst-case echo in %d bytes", maxEvidencePayload, maxBody)
+	}
+	in := evidenceIn()
+	in.Payload = worst
+	var s2 seen
+	ok := serveOnce(t, &s2, 201, nil, attachment(map[string]any{"payload": worst, "payload_hash": hashOfPayload(worst)}))
+	if r := ok.AppendEvidence(deadline(t), in); r.Class != adapters.ClassAck2xx || s2.hits != 1 {
+		t.Fatalf("a payload at the cap: %s %s, %d hit(s)", r.Class, r.RawCode, s2.hits)
+	}
+}
+
+// Reviewer P2 on noema#470 (EL, and the Security Reviewer's note 3): a find is scoped by its query, so an item of the right tenant but another case or another key is not
+// an answer to it, and a page holds no more items than the limit asked for. Each is MALFORMED, never a record.
+func TestAFindRefusesAnItemOutsideItsQueryAndAPageOverItsLimit(t *testing.T) {
+	var s seen
+	other := attachment(map[string]any{"case_id": "cas_2"})
+	otherKey := attachment(map[string]any{"idempotency_key": "idem-other"})
+	cOther := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{other}, "complete": true, "next_cursor": ""})
+	if _, err := cOther.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("evidence of another case in a case find: %v, want MALFORMED", err)
+	}
+	cKey := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{otherKey}, "complete": true, "next_cursor": ""})
+	if _, err := cKey.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", IdempotencyKey: "idem-ev-1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("evidence of another key in a key find: %v, want MALFORMED", err)
+	}
+	two := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{attachment(nil), attachment(map[string]any{"attachment_id": "att_2"})}, "complete": true, "next_cursor": ""})
+	if _, err := two.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1", Limit: 1}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("two items for a limit of one: %v, want MALFORMED", err)
+	}
+	if page, err := two.FindEvidence(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1", Limit: 2}); err != nil || len(page.Items) != 2 {
+		t.Errorf("two items for a limit of two: %+v, %v, want both", page, err)
+	}
+	cmOtherCase := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{complaint(map[string]any{"case_id": "cas_2"})}, "complete": true, "next_cursor": ""})
+	if _, err := cmOtherCase.FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("a complaint of another case in a case find: %v, want MALFORMED", err)
+	}
+	cmOtherKey := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{complaint(map[string]any{"idempotency_key": "idem-other"})}, "complete": true, "next_cursor": ""})
+	if _, err := cmOtherKey.FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", IdempotencyKey: "idem-cm-1"}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("a complaint of another key in a key find: %v, want MALFORMED", err)
+	}
+	cmTwo := serveOnce(t, &s, 200, nil, map[string]any{"items": []any{complaint(nil), complaint(map[string]any{"complaint_ref": "cmp_2"})}, "complete": true, "next_cursor": ""})
+	if _, err := cmTwo.FindComplaints(deadline(t), adapters.RecordQuery{TenantID: "ten_a", CaseID: "cas_1", Limit: 1}); asReadFailure(err) != adapters.ReadMalformed {
+		t.Errorf("two complaints for a limit of one: %v, want MALFORMED", err)
 	}
 }

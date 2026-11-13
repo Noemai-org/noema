@@ -170,7 +170,8 @@ type Case interface {
 	FindCases(ctx context.Context, q CaseQuery) (CasePage, error)
 }
 
-// EvidenceRecord is the normalised fin.evidence_attachment payload (PERD 34.4). PayloadHash is the target's SHA-256 of the exact bytes of Payload.
+// EvidenceRecord is the normalised fin.evidence_attachment payload (PERD 34.4). PayloadHash is the target's SHA-256 of the exact bytes of Payload. Payload is caller text, stored and echoed
+// back as written: the caller keeps account data and personal identifiers out of it (a reference or a digest, not a number; AGENT-13), and whoever logs or records it masks it.
 type EvidenceRecord struct {
 	AttachmentID   string
 	CaseID         string
