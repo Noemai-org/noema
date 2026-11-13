@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test \"test/*.test.mjs\""
+    "test": "npm run build && node --test \"test/*.test.mjs\" && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

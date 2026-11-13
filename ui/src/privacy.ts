@@ -4,6 +4,9 @@ export function scanVisibleText(text: string): string[] {
   if (/\d{5,}/u.test(text)) findings.push("digit-run");
   if (/\bmodel confidence\b/iu.test(text)) findings.push("model-confidence");
   if (/\btraceback\s*\(most recent call last\)/iu.test(text)) findings.push("stack-trace");
+  if (/\bpolicy threshold\b/iu.test(text)) findings.push("policy-threshold");
+  if (/\braw evidence payload\b/iu.test(text)) findings.push("raw-evidence");
+  if (/\binternal reason code\b/iu.test(text)) findings.push("internal-reason-code");
   return findings;
 }
 

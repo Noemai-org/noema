@@ -10,4 +10,7 @@ test("REQ-UI-001: refuses a visible digit run longer than four", () => {
 test("REQ-UI-001: detects never-shown internal material", () => {
   assert.notDeepEqual(scanVisibleText("Model confidence: 0.9"), []);
   assert.notDeepEqual(scanVisibleText("Traceback (most recent call last)"), []);
+  assert.notDeepEqual(scanVisibleText("Policy threshold: 0.8"), []);
+  assert.notDeepEqual(scanVisibleText("Raw evidence payload"), []);
+  assert.notDeepEqual(scanVisibleText("Internal reason code"), []);
 });
