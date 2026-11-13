@@ -184,6 +184,17 @@ func otherCase() []ev {
 	}
 }
 
+// labelledDigestOf is the whole-export digest written out in the test, so that it is not the code under test checking itself: the label, a zero byte, the canonical JSON.
+func labelledDigestOf(t *testing.T, v any) string {
+	t.Helper()
+	b, err := crypto.CanonicalJSON(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(append(append([]byte("noema/audit-export/v1"), 0), b...))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func sha256Of(t *testing.T, v any) string {
 	t.Helper()
 	b, err := crypto.CanonicalJSON(v)
@@ -288,8 +299,8 @@ func TestAReviewerReconstructsTheDecisionsFromTheExportAlone(t *testing.T) {
 	if err != nil || d != got.Digest {
 		t.Errorf("digest %q, recomputed %q (%v)", got.Digest, d, err)
 	}
-	if want := sha256Of(t, got.Entries); got.Digest != want {
-		t.Errorf("digest %s is not the canonical-JSON digest of the entries %s", got.Digest, want)
+	if want := labelledDigestOf(t, got.Entries); got.Digest != want {
+		t.Errorf("digest %s is not the labelled canonical-JSON digest of the entries %s", got.Digest, want)
 	}
 }
 
@@ -656,7 +667,10 @@ func TestTheWorkedExampleOfNoema355HasTheSameDigest(t *testing.T) {
 		}
 	}
 	got, err := export.Digest(entries)
-	const want = "sha256:280b9ff9ea96d75fc5d55e0b64ee65494243437649bdd9b9789894d4247c325f"
+	// The whole-export digest carries the domain label "noema/audit-export/v1" and a zero byte before the JCS of the entries (the Benchmark Owner's decision on noema#503, option 1; the
+	// card, docs#142): sha256("noema/audit-export/v1" || 0x00 || JCS(entries)). Without the label, the same entries digest to sha256:280b9ff9...c325f; the figure below was computed
+	// twice, here and by a short independent script over the same JCS bytes.
+	const want = "sha256:985879f0faff0025362a48c6bb0a40486c0e0d6ccda4b9d5931549a0f4f82d58"
 	if err != nil || got != want {
 		t.Fatalf("digest %q (%v), want %s", got, err, want)
 	}
@@ -722,5 +736,22 @@ func TestAGuessedSetOfLowEntropyPayloadsMatchesNoExportedValue(t *testing.T) {
 	}
 	if tried != 4*len(guesses) {
 		t.Fatalf("tried %d candidates", tried)
+	}
+}
+
+// The label separates domains (noema#503): the digest of an export is not the plain SHA-256 of its entries' JCS, and an empty export has a digest of its own, which is the
+// label, a zero byte and "[]".
+func TestTheWholeDigestCarriesItsDomainLabel(t *testing.T) {
+	got, err := export.Digest(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(append([]byte("noema/audit-export/v1\x00"), []byte("[]")...))
+	if want := "sha256:" + hex.EncodeToString(sum[:]); got != want {
+		t.Fatalf("empty export digest %s, want %s", got, want)
+	}
+	plain := sha256.Sum256([]byte("[]"))
+	if got == "sha256:"+hex.EncodeToString(plain[:]) {
+		t.Fatal("the digest of an export is the plain SHA-256 of its entries: no domain label")
 	}
 }

@@ -59,3 +59,14 @@ Updated 2026-11-08. Plan task REC-09 (ruling A109, docs#142): owner C1, reviewer
 ### Pre-work for the next agent
 - Exact next step: (a), once the Benchmark Owner answers; then Codex and the second human review (Record package).
 - Do not touch: anything outside `record/export/**` and this file.
+
+## Session 2026-11-13 · REC-09: the domain label on the whole-export digest (Benchmark Owner, noema#503; Security Reviewer fix a)
+### Session summary
+- What changed (PR links): noema#377: `export.Digest` is `sha256("noema/audit-export/v1" || 0x00 || JCS(entries))`. The Benchmark Owner chose option 1 on noema#503 and recomputed his own example; the worked-example test of noema#355 pins the new figure for the A115 entries, `sha256:985879f0...2d58`, which I computed twice (the code, and a short independent script over the same JCS bytes; the script also reproduces the old `sha256:280b9ff9...c325f` for the unlabelled formula, which checks the script).
+- Why: the Security Reviewer's fix (a) on the exposure read, and the card (docs#142).
+- Tests, failing first (run locally before the change: the digest was `sha256:280b9ff9...` against the pinned `985879f0...`): `TestTheWorkedExampleOfNoema355HasTheSameDigest`, `TestTheWholeDigestCarriesItsDomainLabel` (an empty export has its own labelled digest and is not the plain SHA-256 of `[]`), and the reviewer test now recomputes the labelled digest in the test itself. Mutants, each caught: no zero byte, no label.
+- Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: Codex and the second human review (Record package); the scorer needs no change (the Benchmark Owner said so).
+- Do not touch: anything outside `record/export/**` and this file.

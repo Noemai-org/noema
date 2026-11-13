@@ -77,12 +77,24 @@ func sha256Of(v any) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-// Digest is the digest of the whole: the digest of the canonical JSON of the entries array alone.
+// digestLabel is the domain label of the whole-export digest (the Benchmark Owner's decision on noema#503, option 1; the card, docs#142, the Security Reviewer's finding 4; the
+// pattern of A53 for grants): a digest of this structure cannot be replayed or confused as the digest of another structure (a per-entry digest, a Record hash).
+const digestLabel = "noema/audit-export/v1"
+
+// Digest is the digest of the whole: sha256 of the label, a zero byte and the canonical JSON of the entries array alone ("sha256:" and 64 lower-case hex digits).
 func Digest(entries []Entry) (string, error) {
 	if entries == nil {
 		entries = []Entry{}
 	}
-	return sha256Of(entries)
+	b, err := crypto.CanonicalJSON(entries)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	h.Write([]byte(digestLabel))
+	h.Write([]byte{0})
+	h.Write(b)
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // JSON is the canonical JSON of the audit_record: the same bytes for the same Record.

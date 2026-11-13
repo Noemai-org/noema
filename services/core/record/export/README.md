@@ -26,7 +26,7 @@ Implements: REQ-AUD-003, REQ-BEN-001, REQ-BEN-009. SoT: INV-11 (a chain that doe
 - `evidence_ids` are `tc_1`, `tc_2` ... by `EVIDENCE_READ` and `VERIFICATION_READ` events in one chain-order sequence (Benchmark Owner, noema#355, 10 Nov). `READ_EVIDENCE` and `DECIDE` list the evidence reads so far; `VERIFY` steps list the verification reads at or before them; `EXPLAIN` lists every id read so far; other steps list `[]`.
 - Actor: `approver` reads as `operator` (a person acting on a case); `auditor`, `regulator` and `admin` read as `system`.
 - `decision` only on `DECISION_MADE` (`payload.decision_outcome`, one of the seven dispositions); `outcome` only on `VERDICT` (the verdict enum, nested under `verdict` as Outcome writes it, or flat). Anything else is `ErrUnprojectable`.
-- The digest of the whole is the digest of the canonical JSON (RFC 8785) of the `entries` array alone. The worked example of noema#355 reproduces: `sha256:baae831e...7cb9`.
+- The digest of the whole is `sha256("noema/audit-export/v1" || 0x00 || JCS(entries))`, JCS being the canonical JSON (RFC 8785) of the `entries` array alone, with a domain label so that it cannot be confused with another digest (the Benchmark Owner's decision on noema#503, option 1; the card, docs#142). The worked example of noema#355 with the A115 digests reproduces: `sha256:985879f0...2d58` (unlabelled, the same entries give `sha256:280b9ff9...c325f`).
 - No payload text and nothing the redactor masks leaves: only digests, ids, step names, labels and times.
 
 ## Constraints
