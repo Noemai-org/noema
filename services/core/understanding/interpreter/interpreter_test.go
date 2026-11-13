@@ -285,6 +285,32 @@ func TestAnInputThatIsNotCompleteIsRefusedBeforeTheModelServiceIsCalled(t *testi
 	}
 }
 
+// Codex P2 on noema#519: the session is validated in full, by the gate's own rule, BEFORE the model service is called. A session that is present but off its shapes (a
+// principal type with a space, a tenant without its prefix, an authn reference of another kind, an asserted_by with capitals) is the caller's bug, and the caller's user
+// input must not reach the model service for it. REQ-INP-002, INV-12; ErrInput before any call.
+func TestAMalformedSessionIsRefusedBeforeTheModelServiceIsCalled(t *testing.T) {
+	for name, mutate := range map[string]func(s *understanding.Session){
+		"a principal type with a space":            func(s *understanding.Session) { s.PrincipalType = "End User" },
+		"a principal type in capitals":             func(s *understanding.Session) { s.PrincipalType = "END_USER" },
+		"a principal id without its prefix":        func(s *understanding.Session) { s.PrincipalID = "88213" },
+		"a principal id that is too short":         func(s *understanding.Session) { s.PrincipalID = "usr_" },
+		"a tenant without its prefix":              func(s *understanding.Session) { s.TenantID = "demo" },
+		"an authn reference of another kind":       func(s *understanding.Session) { s.AuthnRef = "tok_7a1b" },
+		"an asserted_by with capitals":             func(s *understanding.Session) { s.AssertedBy = "Noema IdP" },
+		"an asserted_by that starts with a hyphen": func(s *understanding.Session) { s.AssertedBy = "-noema" },
+	} {
+		w := newWorld(t, proposal(nil))
+		in := input()
+		mutate(&in.Session)
+		if _, err := w.in.Interpret(context.Background(), in); !errors.Is(err, interpreter.ErrInput) {
+			t.Errorf("%s: err %v, want ErrInput", name, err)
+		}
+		if len(w.calls.order) != 0 {
+			t.Errorf("%s: %v was called before the session was refused: the model service saw the input of a caller that should have been refused", name, w.calls.order)
+		}
+	}
+}
+
 func TestNewRefusesWhatItCannotRunWith(t *testing.T) {
 	w := newWorld(t, nil)
 	good := interpreter.Config{Compiler: w.comp, Gate: mustGate(t), Recorder: w.rec, Saver: w.save}

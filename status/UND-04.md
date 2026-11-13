@@ -67,3 +67,16 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 ## Pre-work for the next agent
 - Exact next step: EL builds `interpreter.Config` in `compose.go` (see the README); the model-service route follows the compiler.
 - Files to read first: `services/core/understanding/interpreter/README.md`, `interpreter.go`.
+
+# Session 2026-11-13 (evening) · UND-04 core · Codex P2 on noema#519: the session is validated in full before the model service is called
+
+## Session summary
+- What changed (PR links): noema#519, one push after Codex's NOT READY at `40509e70`: `understanding/gate.go` exports the gate's own session rule as `Session.Valid()`; `interpreter.validate` uses it instead of checking only that each session field is non-empty.
+- Why: Codex found that a session that was present but malformed (`PrincipalType = "End User"`) reached `Compiler.Compile` first and was refused only later by `Gate.Admit`, so a caller that should already have been refused had its user's input sent to the model service. The documented contract is ErrInput before any call.
+- Tests added (REQ-INP-002, INV-12): `TestAMalformedSessionIsRefusedBeforeTheModelServiceIsCalled` (eight malformed fields; ErrInput and the compiler spy untouched; red first on the previous code, six of the eight cases red, the two principal-id cases were already caught by the actor-suffix check) and `TestTheSessionRuleOfTheCallersIsTheGatesOwn` (`Valid()` is false exactly when `Gate.Admit` refuses the same session as SESSION_INVALID, so the two cannot drift). Mutant: `Valid()` always true is killed by both.
+- Regression cases added: the two tests above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter is wired in `compose.go` by EL; it must pass the session the edge built, which the gate and the Interpreter now judge by one rule.
+- Do not touch: the gate's session regexes without changing `Valid()` and its test together.
+

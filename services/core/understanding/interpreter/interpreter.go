@@ -110,7 +110,7 @@ var (
 
 func validate(in Input) error {
 	s := in.Session
-	if s.TenantID == "" || s.PrincipalID == "" || s.AuthnRef == "" || s.PrincipalType == "" || s.AssertedBy == "" {
+	if !s.Valid() { // the gate's own rule for the whole session, before the model service sees anything (Codex P2 on noema#519)
 		return ErrInput
 	}
 	if !actorRe.MatchString(in.Actor) || !strings.HasSuffix(in.Actor, ":"+s.PrincipalID) || !corrRe.MatchString(in.CorrelationID) {
