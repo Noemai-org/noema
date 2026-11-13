@@ -7,7 +7,6 @@ package routes
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +40,7 @@ type Route struct {
 	Upstream  string            `json:"upstream"`
 	Target    string            `json:"target"`
 	Operation string            `json:"operation"`
-	Attrs     map[string]string `json:"attrs,omitempty"` // attribute -> path:<var> | query:<name> | header:<Name> | assertion:<Name> (the principal field of a v2 identity assertion in that header; unverified, a log label)
+	Attrs     map[string]string `json:"attrs,omitempty"` // attribute -> path:<var> | query:<name> | header:<Name>
 	EventFeed *EventFeed        `json:"event_feed,omitempty"`
 	Page      *Page             `json:"page,omitempty"`
 }
@@ -63,7 +62,7 @@ type file struct {
 var (
 	nameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 	upRE   = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
-	attrRE = regexp.MustCompile(`^(path:[a-z][a-z0-9_]*|query:[A-Za-z][A-Za-z0-9_.-]*|header:[A-Za-z][A-Za-z0-9-]*|assertion:[A-Za-z][A-Za-z0-9-]*)$`)
+	attrRE = regexp.MustCompile(`^(path:[a-z][a-z0-9_]*|query:[A-Za-z][A-Za-z0-9_.-]*|header:[A-Za-z][A-Za-z0-9-]*)$`)
 	// The targets of PERD §34.1 that a request can address; mock-case is served by mock-case itself, not proxied.
 	targets = map[string]bool{"mock-ledger": true, "mock-switch": true, "mock-destination": true, "mock-customer": true, "mock-policy": true}
 )
@@ -132,7 +131,7 @@ func (t *Table) add(r Route, seen map[string]bool) error {
 			return fmt.Errorf("attribute name %q is not allowed", name)
 		}
 		if !attrRE.MatchString(src) {
-			return fmt.Errorf("attribute %s: source %q is not path:<var>, query:<name>, header:<Name> or assertion:<Name>", name, src)
+			return fmt.Errorf("attribute %s: source %q is not path:<var>, query:<name> or header:<Name>", name, src)
 		}
 		if strings.HasPrefix(src, "path:") && !strings.Contains(r.Path, "{"+strings.TrimPrefix(src, "path:")+"}") {
 			return fmt.Errorf("attribute %s: the path has no {%s}", name, strings.TrimPrefix(src, "path:"))
@@ -223,40 +222,7 @@ func (r *Route) Extract(req *http.Request) map[string]string {
 			out[name] = req.URL.Query().Get(key)
 		case "header":
 			out[name] = req.Header.Get(key)
-		case "assertion":
-			out[name] = assertionPrincipal(req.Header.Values(key))
 		}
 	}
 	return out
-}
-
-// assertionPrincipal reads the principal out of a v2 identity assertion, v2.<base64url(principal)>.<base64url(tenant)>.<expiry>.<MAC> (synthetic/standin README).
-// It checks ONLY the shape of the first two fields: the tenant, the expiry and the MAC are not read. The proxy holds no key, so it cannot verify anything: the stand-in
-// does. Any caller can therefore label a request with any printable principal, and a FaultPlan that matches on principal_id can be steered by a forged assertion.
-// This labels the request log (the adapter never sends a bare principal header, INV-12); it is not authentication. Gives "" for anything that is not exactly one header
-// of exactly five dot-separated parts starting with "v2", whose second part is canonical unpadded base64url (alphabet only, no newline, no trailing bits) of 1 to 128
-// bytes in the printable range 0x21 to 0x7e.
-func assertionPrincipal(values []string) string {
-	if len(values) != 1 { // none, or two: the first is not necessarily the one the stand-in verifies
-		return ""
-	}
-	parts := strings.Split(values[0], ".")
-	if len(parts) != 5 || parts[0] != "v2" {
-		return ""
-	}
-	for _, c := range []byte(parts[1]) { // base64's decoder skips \r and \n, and Strict does not cover that: allow the URL alphabet only
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
-			return ""
-		}
-	}
-	b, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
-	if err != nil || len(b) > 128 {
-		return ""
-	}
-	for _, c := range b {
-		if c < 0x21 || c > 0x7e {
-			return ""
-		}
-	}
-	return string(b) // an empty part decodes to "" and is returned as ""
 }
