@@ -121,6 +121,14 @@ def check(cfg, profile):
                 bad.append(f"{profile}: {name} mounts the Docker socket")
             if vol.get("source") in BENCH_CREDENTIAL_VOLUMES and name not in ORACLE_SIDE and name not in SIDECARS:
                 bad.append(f"{profile}: {name} mounts the bench credential volume {vol['source']} (oracle side only)")
+            if name == "model":
+                target, source = str(vol.get("target", "")), str(vol.get("source", ""))
+                # The model gets the benchmark COST directory and nothing else of the output directory: the runner writes the generated suite and its oracle documents beside it
+                # (INV-22; Codex P1 on noema#444). So no model mount may be, contain or sit under /bench-out except /bench-out/cost, whose host source is the cost directory itself.
+                if target == "/bench-out" or target.startswith("/bench-out/") and target != "/bench-out/cost" or "/bench-out".startswith(target.rstrip("/") + "/") or target == "/":
+                    bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
+                if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
+                    bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -179,6 +187,11 @@ def self_test(configs):
         "the bench runner mounts docker.sock": ("bench", lambda c: c["services"]["bench-runner"].update({"volumes": [{"source": "/var/run/docker.sock"}]})),
         "the core mounts the stand-in bench credential": ("bench", lambda c: c["services"]["core"].setdefault("volumes", []).append({"source": "standin_bench_credential", "target": "/x"})),
         "the model mounts the mock-case bench credential": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"source": "mock_case_bench_credential", "target": "/x"})),
+        "the model mounts the whole bench output directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out", "target": "/bench-out"})),
+        "the model mounts the generated suite": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite", "target": "/bench-out/suite"})),
+        "the model mounts the oracle directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite/oracle", "target": "/bench-out/suite/oracle"})),
+        "the model mounts the filesystem root": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/", "target": "/"})),
+        "the model's cost mount is the whole output directory": ("bench", lambda c: [v.update({"source": "/tmp/noema-bench-out"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/bench-out/cost"]),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
