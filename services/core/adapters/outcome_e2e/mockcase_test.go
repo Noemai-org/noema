@@ -123,7 +123,7 @@ func parseListening(line string) (caseAddr, benchAddr string, ok bool, err error
 // boundAddrs waits for the process to report the addresses it bound. If the process exits first it fails at once with its log (not after a timeout).
 func boundAddrs(t testing.TB, logs *syncBuffer, exited <-chan struct{}) (caseAddr, benchAddr string) {
 	t.Helper()
-	deadline := time.Now().Add(time.Minute)
+	deadline := time.After(time.Minute)
 	for {
 		for _, line := range strings.Split(logs.String(), "\n") {
 			c, b, ok, err := parseListening(strings.TrimSpace(line))
@@ -137,12 +137,10 @@ func boundAddrs(t testing.TB, logs *syncBuffer, exited <-chan struct{}) (caseAdd
 		select {
 		case <-exited:
 			t.Fatalf("mock-case stopped before it reported its addresses; log:\n%s", logs.String())
-		default:
-		}
-		if time.Now().After(deadline) {
+		case <-deadline:
 			t.Fatalf("mock-case did not report its addresses within a minute; log:\n%s", logs.String())
+		case <-time.After(20 * time.Millisecond):
 		}
-		time.Sleep(20 * time.Millisecond)
 	}
 }
 
