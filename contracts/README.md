@@ -54,6 +54,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v1 or v2, never both (tests). The runner, the scorer, its report and CLI move together. `benchmark/replay` (noema#102) validates v1 results and moves to v2 in whichever pull request merges second.
 - **Fixtures.** `fixtures/{valid,invalid}/benchmark-case-result.v2` and `benchmark-scorecard.v2`: every v1 fixture with the new members, plus new valid and invalid cases. No generated models exist yet (CON-03).
 
+## Benchmark scorecard v3 (13 Nov 2026)
+
+`schemas/benchmark-scorecard.v3.json` sits beside v1 and v2, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` and `test_benchmark_v3.py` pin their bytes). Ruling A190 (interim, Founder-approved); task BEN-30; PERD REQ-BEN-004.
+
+- **What v3 is.** v2 plus one required member on every rate, `exact_upper95`: the exact (Clopper-Pearson) one-sided 95% upper bound on the true rate of the counted failure (`1 - 0.05^(1/n)` at zero failures, which SoT section 38.8 approximates by `3/n`). Rounded up to six places; null when n is 0 or the rate is not a rate of failures. It is reported, not a gate: no threshold is added or changed (AGENT-16), and `rule_of_three_upper` stays.
+- **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v2 or v3, never both (tests). The scorer and its tests move together (`benchmark/scoring/rates.py` wraps the frozen `stats.make_rate`, which is not edited because the 27 Oct 2026 freeze hashes it).
+- **Fixtures.** `fixtures/{valid,invalid}/benchmark-scorecard.v3`: every v2 fixture with the member added, plus four invalid ones (missing, above one, negative, not a number). No generated models: `benchmark-*` contracts are excluded from codegen.
+
 ## Error catalogue v2 (27 Oct 2026)
 
 `schemas/errors.v2.json` sits beside `errors.v1.json`, which is not edited (a test pins its bytes). It is v1 plus one code, `DUPLICATE_CREATE` (non-retryable, 35 codes: 5 retryable, 30 non-retryable). Decision record: `DEC-2026-10-27-record-event-v2` (D6) in `Noemai-org/docs`.

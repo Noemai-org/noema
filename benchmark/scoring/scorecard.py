@@ -12,7 +12,8 @@ from typing import Any, Iterable, Sequence
 from benchmark.scoring import diagnostics as diag
 from benchmark.scoring.judge import GATES, Judgement, judge
 from benchmark.scoring.registry import Registry
-from benchmark.scoring.stats import make_rate, percentile
+from benchmark.scoring.rates import make_rate
+from benchmark.scoring.stats import percentile
 
 Json = dict[str, Any]
 

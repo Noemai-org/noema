@@ -31,3 +31,19 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 ### 2026-11-04 · Codex review of noema#112 (noemai-systems, on a033ba6), answered
 - Finding (Major): `turns.sent` was incremented only after `start`/`message` returned, so a timeout after the request left undercounted the customer turns of an ERROR result.
 - Done: the turn is counted when the request is sent, before any response (Codex option 1: turns mean requests issued). Test first, seen failing: a `start` that times out gives `turns == 1`, a follow-up that times out gives `turns == 2`. The `turns` description in `benchmark-case-result.v2` and the runner and scoring READMEs say so. A connection that was never established (core down) also counts the attempt; the metric is "issued", not "confirmed received" (option 2 would need the API wrapper to report transmission; not needed for REQ-BEN-009).
+
+# Session 2026-11-13 · BEN-30 · scorecard v3 (ruling A190)
+
+## Session summary
+- What changed: `benchmark-scorecard.v3.json` (v2 plus the required `exact_upper95` on every rate: the exact one-sided 95% upper bound on a failure rate, Clopper-Pearson, `1 - 0.05^(1/n)` at zero failures, rounded up to six places, null on a rate that is not a failure rate or has no cases); `benchmark/scoring/rates.py` wraps the frozen `stats.make_rate`; the scorer, its diagnostics and the report use it; v3 fixtures; INVENTORY and contracts README migration notes.
+- Why: A190 (interim, Founder-approved, relayed): approve `exact_upper95` in scorecard v3, AGENT-15 steps, thresholds unchanged.
+- Risks, and how they are contained: a new major for a strict reader of v2 (a required member is added). The v1 and v2 files are not edited and their bytes are pinned; a document is v2 or v3, never both. `stats.py` is hashed by the 27 Oct 2026 freeze, so it is not edited. No threshold, gate or margin is touched. `benchmark/publication` reads rate blocks by member name and keeps working; it does not check the new member. The qualification record copies only `k`, `n` and `rate`, so it is unaffected.
+- Tests added (REQ-BEN-004): `test_rates.py` (12), `tools/contracts/test_benchmark_v3.py` (7), emission tests in `test_scorecard.py`, report tests in `test_report.py`; seven mutations of the new code, each caught.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none (A190 is relayed, not yet committed; docs#169 records it; the entry is cited as relayed).
+
+## Pre-work for the next agent
+- Exact next step: if the Architect wants a published claim to carry the bound, `benchmark/publication/check.py` reads `exact_upper95` (a separate change; its rules are not changed here).
+- Open questions (owner): none.
+- Files to read first: `contracts/schemas/benchmark-scorecard.v3.json`, `benchmark/scoring/rates.py`.
+- Do not touch: `benchmark/scoring/stats.py` (frozen by hash in `benchmark/decisions/2026-10-27-model-selection.md`).
+
