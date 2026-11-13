@@ -475,17 +475,18 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 // The check is textual (a function body with FROM or JOIN and a forced table's name), which is the closest a catalog gets to "reads".
 func TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner(t *testing.T) {
 	w := newWorld(t)
-	// The effective owner is the role that owns the function in Compose. A function that no migration gives an explicit owner belongs to the role that ran the migrations:
-	// in Compose that is noema_migrator (not a superuser, so bound by FORCE), in this test cluster it is the superuser, which bypasses row security and would hide the
-	// trap. So an owner that is a superuser or has BYPASSRLS stands for noema_migrator here; an owner that is any other role is checked as it is.
+	// The owner a function has in Compose. A function that no migration gives an explicit owner belongs to the role that ran the migrations: in Compose that is
+	// noema_migrator (not a superuser, so bound by FORCE), in this test cluster it is the superuser, which bypasses row security and would hide the trap. So a policy covers
+	// a function when it names the function's own owner, as before, or when the owner bypasses row security here and the policy names noema_migrator, the owner the function
+	// has in Compose. An explicit owner that is any other role is checked as it was.
 	rows, err := w.admin.Query(ctx(t), `SELECT p.proname, pg_get_userbyid(p.proowner), c.relname
 		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 		JOIN pg_roles o ON o.oid = p.proowner
-		CROSS JOIN LATERAL (SELECT CASE WHEN o.rolsuper OR o.rolbypassrls THEN (SELECT oid FROM pg_roles WHERE rolname = 'noema_migrator') ELSE p.proowner END AS effective) e
+		CROSS JOIN LATERAL (SELECT (o.rolsuper OR o.rolbypassrls) AS bypass, (SELECT oid FROM pg_roles WHERE rolname = 'noema_migrator') AS migrator) e
 		JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r' AND c.relforcerowsecurity
 		WHERE n.nspname = 'public' AND p.prosecdef AND p.prosrc ~* ('(from|join)\s+(public\.)?' || c.relname || '\M')
 		AND NOT EXISTS (SELECT 1 FROM pg_policy pol WHERE pol.polrelid = c.oid AND pol.polcmd IN ('r', '*')
-		                AND (pol.polroles = '{0}'::oid[] OR e.effective = ANY (pol.polroles)))
+		                AND (pol.polroles = '{0}'::oid[] OR p.proowner = ANY (pol.polroles) OR (e.bypass AND e.migrator = ANY (pol.polroles))))
 		ORDER BY 1, 3`)
 	if err != nil {
 		t.Fatal(err)
