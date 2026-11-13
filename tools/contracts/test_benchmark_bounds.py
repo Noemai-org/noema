@@ -39,10 +39,25 @@ def fixture(name):
     return json.loads((ROOT / "contracts" / "fixtures" / "valid" / "benchmark-arm-result" / name).read_text())
 
 
+# The case-contract v2 files of noema#260 (BEN-16): the same rule. The members `benchmark-oracle.v2` inherits unchanged from v1 are excluded: v2 changes none of them and the v1 file is pinned.
+V2_SCHEMAS = ("benchmark-case.v2.json", "benchmark-oracle.v2.json", "benchmark-arm-case.v1.json", "benchmark-fixture.v2.json")
+
+
+def load_schema(name):
+    return json.loads((ROOT / "contracts" / "schemas" / name).read_text())
+
+
 class Bounds(unittest.TestCase):
     def test_every_array_and_free_string_is_bounded_and_a_pattern_does_not_count(self):
         for name in SCHEMAS:
-            schema = json.loads((ROOT / "contracts" / "schemas" / name).read_text())
+            self.assertEqual([], list(unbounded(load_schema(name))), name)
+
+    def test_the_case_contract_v2_files_are_bounded_by_the_same_rule(self):
+        for name in V2_SCHEMAS:
+            schema = load_schema(name)
+            if name == "benchmark-oracle.v2.json":
+                inherited = set(load_schema("benchmark-oracle.v1.json")["properties"])
+                schema = {**schema, "properties": {k: v for k, v in schema["properties"].items() if k not in inherited}}
             self.assertEqual([], list(unbounded(schema)), name)
 
 

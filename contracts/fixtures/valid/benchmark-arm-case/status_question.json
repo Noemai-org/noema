@@ -1,0 +1,33 @@
+{
+  "case_ref": "arm_0123456789abcdef",
+  "channel": "text",
+  "fixture_ref": "fx_arm_0123456789abcdef",
+  "permitted_capabilities": [
+    "fin.cap.create_escalation_case",
+    "fin.cap.evaluate_sla_status",
+    "fin.cap.log_complaint_reference",
+    "fin.cap.lookup_account",
+    "fin.cap.lookup_beneficiary",
+    "fin.cap.lookup_transaction",
+    "fin.cap.lookup_transaction_history",
+    "fin.cap.query_settlement_status",
+    "fin.cap.query_switch_status",
+    "fin.cap.reconcile_transaction_state",
+    "fin.cap.record_investigation_evidence",
+    "fin.cap.route_to_internal_owner"
+  ],
+  "principal": {
+    "principal_id": "usr_synth_014",
+    "roles": [
+      "customer"
+    ]
+  },
+  "received_at": "2026-11-07T09:00:00Z",
+  "schema": "benchmark-arm-case.v1",
+  "utterances": [
+    {
+      "text": "Wetin happen to the 20k wey I send Tunde this morning?",
+      "turn": 1
+    }
+  ]
+}
