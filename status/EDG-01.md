@@ -77,6 +77,40 @@
 - Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
 - Do not touch: the migration files.
 
+## Session 2026-11-12 · slice 3c part 2: main wires the protected API (EL)
+
+## Session summary
+- What changed: `cmd/core/compose.go` gains `Env`, `Components.Records` (the Record reader), `apiRoutes` and `buildAPI` (`edge.Load` with the route table; none of the session settings is no API, some or wrong is an error, a Record reader without session settings is an error); `compose` and `composeReadiness` take the API as an argument and name `edge chain` and `record reader` when missing; `main.go` builds the API, refuses to start on a configuration error, mounts it under `/v1/` beside the public health routes. The not-yet-wired guard test `no_reconstruction_test.go` is removed in this PR, as its header and the REC-03 note asked.
+- Why: the first running route of the G1 path: `GET /v1/reconstructions/{correlation_id}` for ops and audit, from the token's tenant, behind the verified session and the deny-by-default role gate.
+- Tests added (REQ-API-004, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16): `cmd/core/api_test.go` (no settings is no API; partial settings and a reader without session settings refuse to start; ops and audit reach the handler and the reader is asked for the token's tenant, not the query's; customer, approver, no session, a bad token and an unserved tenant are refused before the reader; an unregistered route is 404; no reader means no route; the route table lists exactly ops and audit; health stays public). Written first (`b92deb55`, did not compile). Eight mutants killed (all roles allowed was first equivalent at the output level because the handler also refuses; the route-table test kills it).
+- Not done, stated: the input gateway (`POST /v1/conversations`, C2, noema#466) and its constructor; the Interpreter, Evidence, Trust, Explainer, Recorder and Admissions constructors; and the **per-tenant Record reader pools**, which need a configuration of logins and secrets that nothing defines (platform/config is empty). With no reader, no route is mounted and `/readyz` names what is missing; the core stays not ready.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#466 merges, add its handler to `apiRoutes` (roles: customer) and the Admissions/Recorder constructors to `Components`; settle the Record reader's pool configuration (see the PR's AGENT-02 note).
+
+
+## Session 2026-11-12 17:00 WAT · slice 3c part 2, fix round (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `6ad19f11`, blocking finding: `buildAPI` built the reconstruction `Handler` with no `Log`, so `access()` returned silently and no `RECORD_ACCESSED` line was written (REQ-AUD-003). Now `Components.AccessLog` is required whenever `Records` is set (startup error otherwise) and is passed to the handler.
+- Tests added (REQ-AUD-003): `TestARecordReaderWithoutAnAccessLoggerRefusesToStart`; `TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed` (one line, the token's tenant, an outcome code). Red first (did not compile: no `AccessLog`).
+- Notes: (2) README of `reconstruct` no longer says "not wired"; the route stays unreachable until a Record reader is configured (OD-P-82), and the removed `no_reconstruction_test.go` guard is stated in the PR. (3) `edge/README.md` reworded.
+- Not done, decided: note (4), the reconstruct handler echoing the path's correlation ID (header, body, access log) as the response ID. After noema#481 the route would carry two IDs and the echoed lookup key can be account-shaped. The fix changes `record/reconstruct` (P0) and needs noema#481 merged; it is a follow-up PR with a failing-first test (EL), not part of this one.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, make the reconstruct handler use `session.CorrelationFromContext` for header, envelope and access log, and name the lookup key as a separate field.
+- Do not touch: the handler's outcome codes.
+
+## Session 2026-11-12 23:15 WAT · slice 3c part 2, fix round 2 (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `d9f70642`, blocking: the test that a served and each refused call emit `RECORD_ACCESSED` covered one refused outcome only, and `api_test.go` claimed the SERVED outcome was asserted in the reconstruct package, which it was not (my claim was wrong). Added `TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome` in `record/reconstruct` against a real Record: SERVED, a missing correlation, a refused kind of caller and another tenant's caller each write exactly one line with tenant, principal and outcome and no Record content. Corrected the comment.
+- Tests: the new test needs `pgsodium` (the Record append), so it ran in CI only; a mutant (removing the SERVED `access` call) was not run locally for the same reason.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, the reconstruct handler's path-echoed correlation ID (follow-up PR, failing test first); the first reader PR needs the cross-tenant test for `TenantDBs`.
+
 ## Session 2026-11-12 · correlation ID (EL; noema#458, the Security Reviewer's SEC-03 finding)
 
 ## Session summary
