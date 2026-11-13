@@ -23,6 +23,7 @@ import (
 //   - Ports.Trust: the Trust gate and the Decision Record writer (TRU-05, noema#237);
 //   - Ports.Explainer: the template explanation renderer (EXP-01);
 //   - Ports.Recorder: the Record-backed recorder of state changes (STM-01 slice 2);
+//   - Ports.Admissions: the Record read that confirms a turn's INPUT_RECEIVED event (A161; a read as the session's tenant, STM-01 slice 2);
 //   - Records: the Record reader, one pool per tenant, each connecting as that tenant's record_read login (REC-03, DEBT-04); the reconstruction route is mounted only
 //     with it;
 //   - the protected /v1 handler is not a field: buildAPI makes it from the session settings of the environment (EDG-01 slice 3b, edge.Load) and compose takes it as an argument.
@@ -92,6 +93,8 @@ func missing(c Components, api http.Handler) string {
 		return "explainer"
 	case c.Ports.Recorder == nil:
 		return "recorder"
+	case c.Ports.Admissions == nil:
+		return "admissions"
 	case api == nil:
 		return "edge chain"
 	case c.Records == nil:
