@@ -10,7 +10,7 @@
 | `record.go` | `RecordRecorder` appends the three events through `chain.Appender` on the tenant's **core-edge emitter login**, one transaction per event. `RecordIndex` finds an earlier input by reading the tenant's chain through `record_read_chain_t` as the tenant's `record_read` login |
 | `handler.go` | `Gateway.Handler(resolve)` serves `POST /v1/conversations`: 202 for a new input, 200 for a retry, 400 `INPUT_INVALID`, 401, 409 `REQUEST_ID_REUSED`, 413, 503 `DEPENDENCY_UNAVAILABLE`, in the errors.v2 envelope. `resolve` returns the session identity; nothing about identity is read from the query, the headers or the body |
 
-**The events.** All three are written by `core-edge`, with actor `<kind>:<principal>` and the tenant of the login (the database refuses another), object reference `req_` plus the request id's hex digits:
+**The events.** All three are written by `core-edge`, with actor `<kind>:<principal>` and the tenant of the login (the database refuses another), object reference a **core-minted** ID, `req_` and a ULID, made by the gateway before the append (A184); it is never derived from the request id or anything else a client sent, and a deduplication and a reuse name the **original** input's object reference, read from the Record:
 
 | Event | Payload | Correlation |
 |---|---|---|
