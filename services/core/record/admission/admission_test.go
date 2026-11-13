@@ -52,6 +52,7 @@ func (p pools) For(tenant string) (reconstruct.TxBeginner, error) {
 }
 
 type world struct {
+	admin  *pgxpool.Pool
 	app    *chain.Appender
 	edgeA  *pgxpool.Pool
 	edgeB  *pgxpool.Pool
@@ -70,7 +71,7 @@ func newWorld(t *testing.T) *world {
 		}
 	}
 	clk := clock.NewManual(epoch)
-	w := &world{app: &chain.Appender{Clock: clk, IDs: ids.New(clk, rand.New(rand.NewSource(3))), Signers: recordsig.For(t, admin, "admission", nil, "core-edge")},
+	w := &world{admin: admin, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, rand.New(rand.NewSource(3))), Signers: recordsig.For(t, admin, "admission", nil, "core-edge")},
 		edgeA: testpg.EmitterLogin(t, admin, dsn, tenantA, "core-edge"), edgeB: testpg.EmitterLogin(t, admin, dsn, tenantB, "core-edge")}
 	readers := pools{tenantA: testpg.TenantLogin(t, admin, dsn, "record_read", tenantA), tenantB: testpg.TenantLogin(t, admin, dsn, "record_read", tenantB)}
 	w.reader = &admission.Reader{DBs: readers}
@@ -155,5 +156,40 @@ func TestItRefusesWhatItCannotHonour(t *testing.T) {
 	}
 	if _, err := (&admission.Reader{}).Lookup(ctx(t), tenantA, "recev_AA11"); !errors.Is(err, admission.ErrRequest) {
 		t.Errorf("an unconfigured reader: %v; want ErrRequest", err)
+	}
+}
+
+// tamper changes one stored row the way a hostile writer with superuser rights would (triggers off), so the chain no longer verifies.
+func (w *world) tamper(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	conn, err := w.admin.Acquire(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx(t), `SET session_replication_role = replica`); err != nil {
+		t.Fatal(err)
+	}
+	tag, err := conn.Exec(ctx(t), sql, args...)
+	if err != nil || tag.RowsAffected() != 1 {
+		t.Fatalf("tamper %q: %v (%d rows)", sql, err, tag.RowsAffected())
+	}
+}
+
+// REQ-AUD-001, INV-12 (the one security claim of this package): a chain that does not verify serves no row of itself, not even an event that was not touched. The control is the
+// untouched chain, which is served. Deleting the VerifyRows call turns this test red.
+func TestAChainThatDoesNotVerifyServesNothing(t *testing.T) {
+	w := newWorld(t)
+	first := w.append(t, w.edgeA, tenantA, input("corr_AA11", "customer:usr_01", map[string]any{"channel": "text", "request_id": reqID}))
+	second := w.append(t, w.edgeA, tenantA, input("corr_AA22", "customer:usr_01", map[string]any{"channel": "text", "request_id": reqID}))
+	if _, err := w.reader.Lookup(ctx(t), tenantA, first); err != nil {
+		t.Fatalf("control: the untouched chain is served: %v", err)
+	}
+	w.tamper(t, `UPDATE record_event SET payload = '{"channel":"voice","request_id":"tampered"}' WHERE event_id = $1`, second)
+	for name, id := range map[string]string{"the tampered event": second, "an untouched event of the same chain": first} {
+		got, err := w.reader.Lookup(ctx(t), tenantA, id)
+		if !errors.Is(err, admission.ErrIntegrity) || got != (admission.Found{}) {
+			t.Errorf("%s: got %+v (%v); want ErrIntegrity and nothing found", name, got, err)
+		}
 	}
 }
