@@ -77,6 +77,21 @@
 - Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
 - Do not touch: the migration files.
 
+## Session 2026-11-12 · correlation ID (EL; noema#458, the Security Reviewer's SEC-03 finding)
+
+## Session summary
+- What changed: `session.Middleware` mints the correlation ID and puts it in the request context; `correlationID` (used by the role gate and the body guard) reads it from there and never from the request header; `session.CorrelationFromContext` is new. The existing test that required an incoming ID to be kept now requires it to be ignored.
+- Why: option (a) of the finding: the chain ID is ours, so a caller-supplied `corr_0123456789` (the shape of an account number) is not echoed in the response header or body and does not ride into logs and the Record. Option (b) would need a keyed check nothing else needs; option (c) leaves the response and the Record.
+- Tests added (REQ-SEC-003, AGENT-13, REQ-API-002): `TestACallerSuppliedCorrelationIdIsNeverEchoed` (six supplied values, two refusal paths, header, body and every header value), `TestOneRequestHasOneCorrelationIdThroughTheWholeChain` (the handler, the header, a role refusal and the body agree). Written first; both red on `main` (the first with SR's reproduction, the second did not compile). Mutants killed: no ID put in the context, the context value ignored, the incoming header adopted.
+- Not changed, stated: the reconstruction route sets `Noema-Correlation-Id` to the requested correlation from its path (the resource asked for, checked against the Record, not a header the caller sent).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: `compose.go` mounts routes behind this chain; log lines and Record events for a request take the ID from `session.CorrelationFromContext`.
+
+### Update 2026-11-12 · reviewer P1 on noema#481 (no shared fallback correlation ID)
+- `correlationID` now returns whether a unique valid ID exists; the session check, the role gate and the body guard each refuse (500 INTERNAL_SAFETY_BLOCK, the fixed `corr_NONE` only in that refusal) when none can be minted, so no request continues, writes or logs under a shared ID. Test first: `TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns` (the source fails, returns a malformed ID, returns one with a newline; with and without a credential). Mutant (the refusal replaced by continuing, in all three layers) killed.
+
 ## Session 2026-11-12 10:00 WAT · A149: the three session fields
 ## Session summary
 - What changed (PR links): the EDG-01 A149 pull request on `feat/EDG-01-a149-session-fields`, from main: `session.Principal` gains `PrincipalType`, `AssertedBy` and `AuthnRef`, set by `Verify` from the verified token and from nothing else.

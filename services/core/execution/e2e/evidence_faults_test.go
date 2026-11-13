@@ -3,12 +3,11 @@ package e2e_test
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -171,12 +170,10 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 }
 
 // EVD-01 slice 3, G1 story: an observation built from a healthy read of a real case is KNOWN with its payload hash on the Record, and the same observation judged
-// after its freshness window is STALE, never KNOWN (INV-23). The case is created and read through the real adapter and the real mock-case, but the raw hash in the
-// observation is a SYNTHETIC input: the adapter returns the decoded record, not the wire bytes, so this test proves the builder's freshness and Record behaviour and
-// does NOT prove that a stored raw hash identifies bytes the adapter received on a successful read. The failed-read path does (TestEvidenceFromARealFaultedReadIsNeverKnown
-// asserts the adapter's own RawHash against the event); the successful-read path waits for the adapter to expose the response-byte hash (Codex P2 on noema#176,
-// status/EVD-01.md, noema WAITING issue to the adapter owner).
-func TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale(t *testing.T) {
+// after its freshness window is STALE, never KNOWN (INV-23). The case is created and read through the real adapter and the real mock-case, and the raw hash in
+// the observation is the adapter's own RawHash of the response bytes it received (noema#401; the adapter's test proves the hash equals the hash of the wire bytes),
+// passed through unchanged and found again in the stored evidence payload (INV-19). The failed-read path is TestEvidenceFromARealFaultedReadIsNeverKnown.
+func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	mc := startMockCase(t)
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
@@ -211,19 +208,16 @@ func TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale(t *tes
 	if layer.ClassifyError(err) != layer.ReadOK {
 		t.Fatalf("a healthy read was classed %s (%v)", layer.ClassifyError(err), err)
 	}
-	// SYNTHETIC raw hash: the case adapter returns the decoded record, not the wire bytes, so the hash of the re-marshalled record stands in for the body. It does not
-	// identify bytes anyone received. Until the adapter exposes the response-byte hash of a successful read, nothing claims this path as provenance.
-	decoded, err := json.Marshal(rec)
-	if err != nil {
-		t.Fatal(err)
+	// The raw hash is the adapter's: GetCase returns the hash of the response bytes it received (noema#401, INV-19), and it is passed through unchanged.
+	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(rec.RawHash) {
+		t.Fatalf("the healthy read carries RawHash %q, want sha256: and 64 lower-case hex digits", rec.RawHash)
 	}
-	rawSum := sha256.Sum256(decoded)
 	obs := func(recordID string) layer.Observation {
 		return layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: recordID, ReadBy: "TRUST",
 			EffectiveAt: readAt, AuthorityClass: "AUTHORITATIVE_FOR:case_status", ResourceScope: "res_synthetic", PrincipalScope: "prn_synthetic",
 			Sensitivity: "S2_internal", Synthetic: true, Read: layer.Read{Class: layer.ReadOK, Determinate: true, ReadAt: readAt},
 			Src:     layer.Source{Authority: layer.AuthAuthoritative, SourceLimit: 300 * time.Second},
-			RawHash: "sha256:" + hex.EncodeToString(rawSum[:]),
+			RawHash: rec.RawHash,
 			Payload: map[string]any{"case_id": rec.CaseID, "status": rec.Status, "owner_queue": rec.OwnerQueue, "version_token": rec.VersionToken}}
 	}
 	known, err := builder.Record(bg, obs("known"))
@@ -243,6 +237,10 @@ func TestBuilderOnlyAHealthyRealReadWithASyntheticRawHashIsKnownThenStale(t *tes
 			c.item.EvidenceID, string(c.item.Status), c.item.PayloadHash, rec.CaseID).Scan(&n); err != nil || n != 1 {
 			t.Fatalf("EVIDENCE_READ for %s (%s): %d matching events (%v), want 1 carrying the hash and not the case", c.item.EvidenceID, c.item.Status, n, err)
 		}
+	}
+	var stored int // INV-19: the raw hash stored with the payload is the adapter's, not one computed here
+	if err := admin.QueryRow(bg, `SELECT count(*) FROM evidence_payload WHERE tenant_id = $1 AND raw_hash = $2`, tenant, rec.RawHash).Scan(&stored); err != nil || stored < 1 {
+		t.Fatalf("evidence_payload rows holding the adapter's RawHash %s: %d (%v), want at least 1", rec.RawHash, stored, err)
 	}
 	var labelled int // AGENT-25: both reads of the synthetic mock-case are labelled synthetic on the Record
 	if err := admin.QueryRow(bg, `SELECT count(*) FROM record_event WHERE event_type = 'EVIDENCE_READ' AND payload->>'synthetic' = 'true'`).Scan(&labelled); err != nil || labelled != 2 {

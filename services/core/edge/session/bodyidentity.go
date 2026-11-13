@@ -36,7 +36,11 @@ func RefuseBodyIdentity(ids IDs, maxBytes int64) (func(http.Handler) http.Handle
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			corr := correlationID(r, ids)
+			corr, ok := correlationID(r, ids)
+			if !ok {
+				refuseNoCorrelation(w)
+				return
+			}
 			w.Header().Set(CorrelationHeader, corr)
 			if r.Body == nil || r.Body == http.NoBody {
 				next.ServeHTTP(w, r)

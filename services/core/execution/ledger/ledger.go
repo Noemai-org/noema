@@ -178,8 +178,15 @@ func (l *Ledger) Append(ctx context.Context, tenantID string, events ...controll
 			switch {
 			case e.Payload != nil:
 				payload = e.Payload
-			case e.Detail != "":
-				payload = map[string]any{"detail": e.Detail}
+			case e.Detail != "" || e.PolicyVersion != "":
+				p := map[string]any{}
+				if e.Detail != "" {
+					p["detail"] = e.Detail
+				}
+				if e.PolicyVersion != "" {
+					p["policy_version"] = e.PolicyVersion
+				}
+				payload = p
 			}
 			if err := l.record(ctx, tx, tenantID, corr, e.GrantID, e.Type, e.Kind, "", payload); err != nil {
 				return err

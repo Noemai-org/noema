@@ -20,3 +20,5 @@ A path or method no route registers is denied by default: 401 without a session,
 **Not done here.** `session.CheckTenant` (the token's tenant must equal the tenant of the database login, ruling A1 items 5 and 7) is called where a handler reaches the database, because the login tenant comes from the database mapping; the first route that does carries the call and its test.
 
 **Tests.** `go test ./edge/...` from `services/core/`; `make bench-tokens-test` for the token script. `edgetest` makes SYNTHETIC tokens for tests and is imported by no production package.
+
+**Correlation ID (noema#458).** The edge mints one correlation ID per request; the session check puts it in the request context (`session.CorrelationFromContext`) and every later layer, the answer and the Record's chain use that one. A caller's `Noema-Correlation-Id` is never adopted or echoed, because a value such as `corr_0123456789` has the shape of an account number (REQ-SEC-003, AGENT-13).

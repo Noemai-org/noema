@@ -41,6 +41,25 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 
 ## Update 2026-11-07 (Founder decision D12)
 - The Record-function hardening migration is `0016_record_function_hardening.sql` (was the provisional 0014). If the merge order changes, the later PR renumbers.
+
+# Session 2026-11-07 10:00 WAT · EXE-08 (audit-record gaps, noema#243)
+
+## Session summary
+- What changed: three gaps in what the stored Record carries, each shown by a failing test first (commit on this branch, red `core` run linked in the PR): receipt `logical_action` is now the capability (reconstruction of a real write works); the swept receipt keeps the attempt time; `GRANT_VOIDED` and the revalidation events carry the grant's `policy_version`, served by the AUTHORITY projection. Audit table in `docs/security/record-provenance-audit.md`.
+- Risks: the signed receipt document changes (`logical_action` value); no receipt exists outside tests, so no migration. Contract `execution-receipt.v1` already says PackId, so the contract is not changed.
+- Tests added: REQ-AUD-003, REQ-EXE-006, INV-10, INV-11, EC-E09.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the new active policy version on a void needs Trust to write `POLICY_PUBLISHED` (TRU-08); WHO needs Edge events.
+
+## Session 2026-11-06 (later) · ruling A24: the Ledger's rollback is bounded
+- `execution/ledger` rolled back with `context.WithoutCancel(ctx)` and no bound, so a server that did not answer would hold the step forever. It now uses `context.WithTimeout(context.WithoutCancel(ctx), RollbackTimeout)` (`rollbackBounded`), and a Ledger with no `RollbackTimeout` refuses to start a transaction (no default; the value comes from configuration). Tests first: a hung rollback is abandoned after its bound and was tried although the caller's context was cancelled; an answered rollback returns at once; a Ledger without a bound refuses. Mutations caught: no timeout; the caller's cancellation inherited. The other rollbacks in `record/reconstruct`, `record/verify` and `platform/db` already carry a bound; `outcome/store` is noema#202.
+
+## Session 2026-11-10 · EXE-08 / noema#243: one name for the dispatch capability (ruling A117)
+- What changed: `execution/ledger/spend.go` no longer writes `capability_id` in `DISPATCH_ATTEMPTED`; the event keeps `capability` and `target_ref` (the execution-limits budget key). `record/reconstruct/project.go` reads `capability` and outputs it as `capability_id` in the reconstruction. No contract change, no debt entry (the reconstruction's output key is unchanged).
+- Why: on 9 Nov I resolved a merge of `main` by writing both `capability` and `capability_id` and flagged it; the Architect ruled A117 on 10 Nov.
+- Tests: failing first at `1b44c41` (`TestDispatchAttemptedNamesTheCapabilityOnlyAsCapability`; the two reconstruct dispatch tests with a payload that has only `capability`), green after.
 ## Session 2026-11-06 · EXE-08 slice B: database-side verification of receipts (DEBT-01, Option B)
 ### Session summary
 - What changed (PR links): the slice B pull request on `feat/EXE-08-sig-db`, STACKED on noema#214 (the CI job, ruling A16). Do not merge before docs#117 (rulings A2 and A16).
@@ -113,3 +132,10 @@ Updated 2026-11-05. Plan task EXE-08: owner C1; REQ-AUD-006, REQ-EXE-004; Needs 
 - Why: the Security Reviewer's one test owed here, and #229's fixtures meeting this PR's row security.
 - Tests: the fixtures were red first, locally, on the merge of `main`; the new test passes on 0018 and **fails on a mutant** of 0018 whose policies are `USING (true) WITH CHECK (true)` ("tenant A's execution login stored a genuine receipt of tenant B"). It is refused at the first place row security bites: the signature trigger reads tenant B's `grant_spend` as the definer, which FORCE subjects to the policy, so A's login does not see the spend (NS001); the `execution_receipt` policy's WITH CHECK (42501) is the second line. `go test -count=1 ./...` in `services/core`: 38 packages ok.
 - Debt entries: none. Conflicts raised: none.
+
+## Session 2026-11-11 · EXE-08 audit-record gaps (noema#243): after #233 reached main
+- What changed (PR links): noema#243: `main` merged (one merge commit); four conflict hunks resolved, no behaviour change: `controller/ports.go` keeps both `Event.PolicyVersion` (S11) and `Event.Payload`; `ledger/ledger.go` `Append` builds the payload from `Payload` first, then from `Detail` and `PolicyVersion`; `ledger/complete.go` `Void` calls `addRecoveryRequest` (main's refactor) and the helper adds `policy_version` to the GRANT_VOIDED payload through a new `voidChange.policyVersion`, which only `Void` sets (the receipt-confirmed void of #233 does not).
+- Why: #233 refactored the void path into `addRecoveryRequest` and added `Event.Payload`; this PR (A117, S11) adds the policy version to the same payloads.
+- Tests: `go test -count=1 ./execution/... ./record/... ./outcome/... ./adapters/outcome_e2e/ ./platform/db/` all ok, including this PR's own tests of the GRANT_VOIDED and policy-change payloads.
+- Debt entries: none. Conflicts raised: none.
+- Mutation check of this PR (A131 row 3c), same session: five mutants. `policy_version` dropped from the void payload fails `TestAPolicyChangeDuringExecutionLeavesThePolicyVersionInTheRecord`; the reconstruction dropping the dispatch item fails `TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability`. **Three were caught by no test** (the controller no longer passing the policy version on the revalidation events, the ledger's `Append` dropping it, and the receipt's `logical_action` back to a label), so `TestRevalidationEventsCarryTheGrantsPolicyVersionAndTheReceiptNamesTheCapability` (`execution/controller`) and `TestARealWriteRecordsThePolicyVersionOnRevalidationAndTheCapabilityAsTheReceiptsLogicalAction` (`execution/e2e`) are added; each of the three now fails a test. Test-only; no production line changed.
