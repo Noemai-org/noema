@@ -322,12 +322,12 @@ func TestWhatTheReconstructionCouldNotServeIsNotWritten(t *testing.T) {
 		"an empty text":                          rendered(""),
 		"a text with a digit run of 5":           rendered("Your transfer of 12345 has settled."),
 		"a rendered event without a template":    {Rendered: true, CorrelationID: corr, Text: "Your transfer has settled."},
-		"a rendered event with a rule":           {Rendered: true, CorrelationID: corr, Text: "Your transfer has settled.", TemplateID: "en-NG/x/y", TemplateVersion: "sha256:" + strings.Repeat("a", 64), Rules: []string{"X"}},
+		"a rendered event with a rule":           {Rendered: true, CorrelationID: corr, Text: "Your transfer has settled.", TemplateID: "en-NG/pay.status/SETTLED", TemplateVersion: "sha256:" + strings.Repeat("a", 64), Rules: []string{"X"}},
 		"a rendered event with a bad fact id":    rendered("Your transfer has settled.", "f 1"),
 		"a blocked event without a rule":         blocked(),
 		"a blocked event with a lower-case rule": blocked("forbidden_claim"),
 		"a blocked event with text":              {CorrelationID: corr, Rules: []string{"X"}, Text: "Your transfer has settled."},
-		"an event without a correlation id":      {Rendered: true, Text: "Your transfer has settled.", TemplateID: "en-NG/x/y", TemplateVersion: "sha256:" + strings.Repeat("a", 64)},
+		"an event without a correlation id":      {Rendered: true, Text: "Your transfer has settled.", TemplateID: "en-NG/pay.status/SETTLED", TemplateVersion: "sha256:" + strings.Repeat("a", 64)},
 		"an event with a bad correlation id":     {CorrelationID: "corr 1", Rules: []string{"X"}},
 	}
 	for name, ev := range cases {

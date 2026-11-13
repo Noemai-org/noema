@@ -101,3 +101,9 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Open questions (owner): the marker for a template-only claim's `bound_fact_status` (Architect or REC-04).
 - Files to read first: `services/core/explanation/recorder/README.md`, `recorder.go`.
 - Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (night) · EXP-01 · the notes of the reviews of noema#493 (merged)
+- **What changed:** `blockedPayload` stores the rule codes sorted and without repeats and `rule` is the first (EL's P2 1; the README already said sorted); the Record-backed test `TestWhatTheReconstructionCouldNotServeIsNotWritten` now uses a template id that passes the shape rule, so its "rendered event with a rule" and "event without a correlation id" cases are refused for the rule they name (EL's P2 3; checked against `build`: "carries no rule" and "the correlation id is not well formed"); `explanation/recorder_callers_test.go` fails if any code in the core other than the Explainer calls `AppendExplanation` (Security Reviewer, note 1); README sentences for the shared object reference and the unrecorded `PrincipalID` (C1, EL P3).
+- **Failing first:** `TestTheBlockedEventStoresItsRulesSortedAndWithoutRepeats` was red locally (the stored rules were in the caller's order). Mutation by hand: a call added in another package is red; the Explainer's own call is found.
+- **Not changed, stated in the README for the reviewers (decisions, not fixes):** the digit rule across separators (a decision about ruling A154; the single source is noema#468's `platform/masking`, to which the recorder's second copy of the threshold moves when it merges, EL's P2 2), a count cap on `FactIDs` and `Rules`, and how `reconstruct` reads two events for one correlation.
+- Debt: the second copy of the digit threshold (`maxDigitRun` in the recorder), until noema#468 merges. Conflicts raised: none.
