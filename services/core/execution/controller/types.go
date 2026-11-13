@@ -152,6 +152,9 @@ type Outcome struct {
 	Replayed bool       // the grant was already spent; nothing was done (E8 conflict)
 	Receipt  *Receipt   // E11 ran: the receipt that was written
 	Raced    bool       // another writer already wrote this attempt's receipt (first writer wins)
+	// BudgetSpent: the database refused the spend because the key's dispatch budget is used up (ruling A153). Nothing was written, the grant is not spent
+	// and nothing was dispatched; the caller escalates, and no new dispatch of the key is authorised (REQ-RCV-003).
+	BudgetSpent bool
 }
 
 // Point is a step boundary of the protocol. A crash can be injected at every one (D7).

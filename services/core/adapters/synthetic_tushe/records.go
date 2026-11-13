@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
 )
@@ -66,6 +67,11 @@ func (w wireComplaint) record() (adapters.ComplaintRecord, bool) {
 // way, and it accepts an acknowledgement only for this tenant, case, key and hash.
 func (c *CaseClient) AppendEvidence(ctx context.Context, in adapters.AppendEvidenceInput) adapters.WriteResult {
 	if in.IdempotencyKey == "" || in.TenantID == "" || in.CaseID == "" || in.Payload == "" || in.Timeout <= 0 {
+		return defect("INVALID_INPUT")
+	}
+	// A payload too large to be echoed in the acknowledgement would make a write that landed look unknown, and one that is not valid UTF-8 is rewritten by the JSON encoder, so the
+	// hash sent would not be the hash of the bytes stored: both are refused before anything is sent.
+	if len(in.Payload) > maxEvidencePayload || !utf8.ValidString(in.Payload) {
 		return defect("INVALID_INPUT")
 	}
 	hash := hashOf([]byte(in.Payload))
@@ -213,6 +219,14 @@ func recordValues(q adapters.RecordQuery) (url.Values, bool) {
 	return v, true
 }
 
+// inQuery is true when a record answers the query: the case or the key it asked for (a query names exactly one of them), never another's.
+func inQuery(q adapters.RecordQuery, caseID, key string) bool {
+	if q.CaseID != "" {
+		return caseID == q.CaseID
+	}
+	return key == q.IdempotencyKey
+}
+
 // pageOK checks the completeness marker: complete has no cursor, incomplete has one.
 func pageOK(complete *bool, next string) bool {
 	return complete != nil && (*complete == (next == ""))
@@ -236,9 +250,12 @@ func (c *CaseClient) FindEvidence(ctx context.Context, q adapters.RecordQuery) (
 		return adapters.EvidencePage{}, malformed(status, raw)
 	}
 	page := adapters.EvidencePage{Complete: *w.Complete, NextCursor: w.NextCursor, RawHash: hashOf(raw)}
+	if q.Limit > 0 && len(w.Items) > q.Limit {
+		return adapters.EvidencePage{}, malformed(status, raw)
+	}
 	for _, it := range w.Items {
 		rec, ok := it.record()
-		if !ok || rec.TenantID != q.TenantID || hashOf([]byte(rec.Payload)) != rec.PayloadHash {
+		if !ok || rec.TenantID != q.TenantID || !inQuery(q, rec.CaseID, rec.IdempotencyKey) || hashOf([]byte(rec.Payload)) != rec.PayloadHash {
 			return adapters.EvidencePage{}, malformed(status, raw)
 		}
 		page.Items = append(page.Items, rec)
@@ -264,9 +281,12 @@ func (c *CaseClient) FindComplaints(ctx context.Context, q adapters.RecordQuery)
 		return adapters.ComplaintPage{}, malformed(status, raw)
 	}
 	page := adapters.ComplaintPage{Complete: *w.Complete, NextCursor: w.NextCursor, RawHash: hashOf(raw)}
+	if q.Limit > 0 && len(w.Items) > q.Limit {
+		return adapters.ComplaintPage{}, malformed(status, raw)
+	}
 	for _, it := range w.Items {
 		rec, ok := it.record()
-		if !ok || rec.TenantID != q.TenantID {
+		if !ok || rec.TenantID != q.TenantID || !inQuery(q, rec.CaseID, rec.IdempotencyKey) {
 			return adapters.ComplaintPage{}, malformed(status, raw)
 		}
 		page.Items = append(page.Items, rec)
