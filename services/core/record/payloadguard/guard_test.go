@@ -1,0 +1,228 @@
+package payloadguard_test
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
+)
+
+// A184, A154, REQ-AUD-003, REQ-SEC-003: the guard's rule, as a pure function of the payload JSON.
+
+func check(t *testing.T, js string) error {
+	t.Helper()
+	return payloadguard.Check([]byte(js))
+}
+
+func TestARunOfFiveDigitsInAStringIsRefusedAndARunOfFourIsNot(t *testing.T) {
+	for js, wantErr := range map[string]bool{
+		`{"a":"1234"}`:                                   false,
+		`{"a":"12345"}`:                                  true,
+		`{"a":"year 2026"}`:                              false,
+		`{"a":"a1234b5678c"}`:                            false, // two runs of four, separated by letters
+		`{"a":"0123456789"}`:                             true,
+		`{"a":"4111 1111 1111 1111"}`:                    true, // spaces join
+		`{"a":"4111-1111"}`:                              true,
+		`{"a":"4111.1111"}`:                              true,
+		`{"a":"4111/1111"}`:                              true,
+		`{"a":"4111_1111"}`:                              false, // an underscore ends a run: a code is not a number
+		`{"a":"409:412:409"}`:                            false,
+		`{"a":"20,000,000"}`:                             false, // a comma ends a run
+		`{"a":"٤١١١١"}`:                                  true,  // Arabic-Indic digits
+		`{"a":"４１１１１"}`:                                  true,  // full-width digits
+		`{"a":"4111​1111"}`:                              true,  // a zero-width space joins
+		`{"a":"4111­1111"}`:                              true,  // a soft hyphen joins
+		`{"a":"4111–1111"}`:                              true,  // an en dash joins
+		`{"a":["x",{"b":"12345"}]}`:                      true,
+		`{"a":12345,"b":123456789012,"c":true,"d":null}`: false, // numbers, booleans and null are not strings
+		`[]`: false, `{}`: false, `"abcd"`: false, `"12345"`: true, // a payload may be any JSON value
+	} {
+		err := check(t, js)
+		if (err != nil) != wantErr {
+			t.Errorf("%s: err %v, want an error: %v", js, err, wantErr)
+		}
+		if err != nil && !errors.Is(err, payloadguard.ErrDigitRun) {
+			t.Errorf("%s: the error does not wrap ErrDigitRun: %v", js, err)
+		}
+	}
+}
+
+func TestTheExemptionsAreWholeStringsOnly(t *testing.T) {
+	hex64 := strings.Repeat("0123456789abcdef", 4)
+	ok := []string{
+		`"grt_01234567890123456789012345"`, `"corr_synth0001"`, `"int_0123456789@12"`, `"recev_0123456789ABCDEF"`,
+		`"sha256:` + hex64 + `"`, `"hmac-sha256:` + hex64 + `"`, `"idk_v1_` + hex64 + `"`, `"n_0123456789abcdef0123456789abcdef"`,
+		`"2026-11-13T10:12:00Z"`, `"2026-11-13T10:12:00.123456789Z"`, `"2026-11-13T10:12:00+01:00"`,
+		`"12345678-1234-1234-1234-123456789012"`, `"3f2a9c1e-7b4d-4e8a-9c3b-1d2e3f4a5b6c"`, // the client's request ID, a lower-case UUID
+	}
+	for _, v := range ok {
+		if err := check(t, `{"v":`+v+`}`); err != nil {
+			t.Errorf("%s was refused: %v", v, err)
+		}
+	}
+	bad := []string{
+		`"grt_4111111111111111!"`,                           // not the shape of the ID
+		`"xgrt_01234567890123456789012345"`,                 // text before the ID
+		`"grt_01234567890123456789012345 4111111111111111"`, // text after it
+		`"sha256:` + hex64 + `0"`,                           // one character too long for a hash
+		`"2026-11-13"`,                                      // a date is not an RFC 3339 timestamp
+		`"2026-11-13T10:12:00Z 4111111111111111"`,           // a timestamp and more
+		`"n_xyz0123456789"`,                                 // not hex
+		`"idk_v1_` + hex64[:60] + `"`,                       // too short for the key
+	}
+	for _, v := range bad {
+		if err := check(t, `{"v":`+v+`}`); err == nil {
+			t.Errorf("%s was accepted", v)
+		}
+	}
+}
+
+func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *testing.T) {
+	hex64 := strings.Repeat("0123456789abcdef", 4)
+	for name, js := range map[string]string{
+		"a signature value":         `{"verdict":{"sig":{"key_id":"core-outcome.ed25519.2","value":"` + hex64 + `"}}}`,
+		"a base64 signature":        `{"sig":{"key_id":"k","value":"` + strings.Repeat("0123456789", 5) + `"}}`,
+		"the target's reference":    `{"external_ack":"CMP-2026-00001"}`,
+		"a nested target reference": `{"receipt":{"external_ack":"att_20261113123456"}}`,
+		"the target of a grant":     `{"target_ref":"case_01KE8M3Q4Z5J6N7P8R9STV2WX3","capability_id":"test.cap.create_case"}`,
+		"a target with a long run":  `{"target_ref":"case_0123456789ABCDEFGHJKMNPQRS"}`,
+	} {
+		if err := check(t, js); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+	for name, js := range map[string]string{
+		"a signature shape at another path":   `{"note":"` + hex64 + `"}`,
+		"a signature value that is not hex":   `{"sig":{"value":"4111111111111111 note"}}`,
+		"digits alone as a signature value":   `{"sig":{"value":"4111111111111111"}}`,
+		"a reference with a space":            `{"external_ack":"CMP 2026 00001 4111111111111111"}`,
+		"a reference longer than 64":          `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
+		"the reference shape at another path": `{"note":"CMP-2026-00001"}`,
+		"a target with a space":               `{"target_ref":"case 4111111111111111"}`,
+		"the target shape under another key":  `{"resolved":"case_0123456789ABCDEFGHJKMNPQRS"}`,
+		"an algorithm name hiding a long run": `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
+	} {
+		if err := check(t, js); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	// The algorithm name is removed before the digits are counted: it does not make a long run of its own, and it does not hide the digits beside it.
+	if err := check(t, `{"key_id":"core-execution.ed25519.1"}`); err != nil {
+		t.Errorf("a key ID with ed25519 was refused: %v", err)
+	}
+	if err := check(t, `{"key_id":"4111ed25519111111111"}`); err == nil {
+		t.Error("digits beside an algorithm name were accepted")
+	}
+}
+
+func TestAViolationNamesThePathAndNeverTheValue(t *testing.T) {
+	err := check(t, `{"outer":{"inner":["ok","card 4111111111111111"]},"other":"fine"}`)
+	var e *payloadguard.Error
+	if !errors.As(err, &e) || len(e.Violations) != 1 || e.Violations[0].Path != "/outer/inner/1" || e.Violations[0].Run != 16 {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), "4111") || strings.Contains(err.Error(), "card") {
+		t.Fatalf("the error quotes the value: %q", err.Error())
+	}
+}
+
+func TestEveryViolationIsListedInPathOrder(t *testing.T) {
+	err := check(t, `{"b":"12345","a":"67890","c":"ok"}`)
+	var e *payloadguard.Error
+	if !errors.As(err, &e) {
+		t.Fatalf("got %v", err)
+	}
+	var paths []string
+	for _, v := range e.Violations {
+		paths = append(paths, v.Path)
+	}
+	if !sort.StringsAreSorted(paths) || len(paths) != 2 {
+		t.Fatalf("paths %v", paths)
+	}
+}
+
+func TestAPayloadThatIsNotJSONIsAnError(t *testing.T) {
+	if err := check(t, `not json`); err == nil || errors.Is(err, payloadguard.ErrDigitRun) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// The typed IDs of the guard are the ID definitions of contracts/schemas/common.v1.json: a prefix and 2 to 32 letters or digits. A new ID in the contract that the guard does not
+// list would make a legitimate write fail; a prefix the contract does not define would exempt text that is no ID.
+func TestTheTypedIDPrefixesAreTheContractsIDDefinitions(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "schemas", "common.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Defs map[string]struct {
+			Pattern string `json:"pattern"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`^\^([a-z]{2,6})_\[0-9A-Za-z\]\{2,32\}\$$`)
+	want := map[string]bool{}
+	for name, d := range doc.Defs {
+		if name == "Id" { // the generic ID of any prefix
+			continue
+		}
+		if m := re.FindStringSubmatch(d.Pattern); m != nil {
+			want[m[1]] = true
+		}
+	}
+	got := map[string]bool{}
+	for _, p := range payloadguard.TypedIDPrefixes() {
+		got[p] = true
+	}
+	if len(want) < 20 {
+		t.Fatalf("found only %d ID definitions in common.v1.json: the test is looking in the wrong place", len(want))
+	}
+	for p := range want {
+		if !got[p] {
+			t.Errorf("common.v1.json defines the ID prefix %q and the guard does not list it", p)
+		}
+	}
+	for p := range got {
+		if !want[p] {
+			t.Errorf("the guard lists the ID prefix %q and common.v1.json does not define it", p)
+		}
+	}
+}
+
+// ScanEvent is what the CI scan of every test Record runs on a stored event: the guard on the payload, and the object_ref against derivation from the payload.
+func TestScanEventFindsADigitRunAndADerivedObjectRef(t *testing.T) {
+	uuid := "12345678-1234-1234-1234-123456789012"
+	hex := strings.ReplaceAll(uuid, "-", "")
+	for name, tc := range map[string]struct {
+		objectRef, payload string
+		wantFindings       int
+	}{
+		"clean":                            {"grt_synth0001", `{"grant_id":"grt_synth0001","n":3}`, 0},
+		"a digit run":                      {"grt_synth0001", `{"note":"4111111111111111"}`, 1},
+		"the gateway's shape":              {"req_" + hex, `{"request_id":"` + uuid + `"}`, 1},
+		"the same, a different UUID":       {"req_0123456789abcdef0123456789abcdef", `{"request_id":"01234567-89ab-cdef-0123-456789abcdef"}`, 1},
+		"the object's own ID cited":        {"int_01234567890123456789012345", `{"intent_id":"int_01234567890123456789012345"}`, 0},
+		"a versioned citation of the ID":   {"int_01234567890123456789012345", `{"ref":"int_01234567890123456789012345@2"}`, 0},
+		"another minted ID in the payload": {"gat_0123456789abcdef", `{"grant_id":"grt_0123456789abcdef"}`, 0},
+		"a short coincidence":              {"req_abc123", `{"note":"abc123"}`, 0},
+		"no payload":                       {"req_" + hex, ``, 0},
+	} {
+		got := payloadguard.ScanEvent("TEST_EVENT", tc.objectRef, []byte(tc.payload))
+		if len(got) != tc.wantFindings {
+			t.Errorf("%s: %d findings %v, want %d", name, len(got), got, tc.wantFindings)
+		}
+		for _, f := range got {
+			if strings.Contains(f, "4111") || strings.Contains(f, uuid) || strings.Contains(f, hex) {
+				t.Errorf("%s: a finding quotes a value: %q", name, f)
+			}
+		}
+	}
+}
