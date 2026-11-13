@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,6 +65,8 @@ type trustStandIn struct {
 	led   *ledger.Ledger
 	plans map[string]controller.PlanStep
 	n     int
+
+	policyChanged atomic.Bool
 }
 
 var (
@@ -79,7 +84,7 @@ func (s *trustStandIn) ActivePolicyVersion(_ context.Context, g controller.Grant
 }
 
 func (s *trustStandIn) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
-	return true, nil
+	return !s.policyChanged.Load(), nil // S11: a policy publish after issue makes the decision's policy version no longer active
 }
 func (s *trustStandIn) Plan(_ context.Context, g controller.Grant) (controller.PlanStep, error) {
 	s.mu.Lock()
@@ -185,8 +190,15 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	trust := &trustStandIn{pool: trustPool, keys: keys, clk: clk, led: led, plans: map[string]controller.PlanStep{}}
-	ctl := &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
-		Ledger: led, Out: bridge.CaseDispatcher{Case: cases}, IDs: gen}
+	// One SYNTHETIC key for every stack of the package, so that two runs of the same decision sign the same bytes (the proposer-swap test compares them).
+	ring, err := signingtest.RingAt(t.TempDir(), "e2e", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signingtest.Register(t, admin, ring)
+	led.Rec.Signers = recordsig.All(t, admin, "e2e", map[string]chain.Signer{"core-execution": ring})
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+		Ledger: led, Out: bridge.CaseDispatcher{Case: cases, Records: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}
 }

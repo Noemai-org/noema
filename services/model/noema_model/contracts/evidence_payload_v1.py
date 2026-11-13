@@ -13,7 +13,7 @@ class EvidencePayloadV1(ContractModel):
     """PERD §38.2 evidence_payload: the normalised JSON an adapter produced, plus the hash of the raw response. Insert-only. Money inside the payload follows the money rules (integer minor units); the adapter validates that,... Source: evidence-payload.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
-    payload_ref: Annotated[str, StringConstraints(pattern='^[a-z]+_[A-Za-z0-9_]{2,64}$')]
+    payload_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]+_[A-Za-z0-9_]{2,64}\\Z')]
     json_: dict[str, Any] = Field(alias='json')
     raw_hash: CommonV1Hash
     sensitivity: EnumsV1DataSensitivity

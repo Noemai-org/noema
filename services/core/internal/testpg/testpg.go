@@ -98,6 +98,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	if _, err := pool.Exec(ctx, "GRANT CREATE ON SCHEMA public TO record_append"); err != nil {
 		t.Fatalf("testpg: grant CREATE to record_append: %v", err)
 	}
+	bootstrapSigning(t, pool, name)
 	t.Cleanup(func() {
 		pool.Close()
 		c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -112,9 +113,60 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 	return pool, dsn
 }
 
+// bootstrapSigning is the one-time superuser step of DEC-2026-11-01 D10a, as deploy/compose/postgres/init.sh does it before any migration:
+// pgsodium is created without shared_preload_libraries, its event triggers are disabled and the setting they read is off, nothing in its
+// schema is executable by PUBLIC, and only noema_migrator may call the verifier it needs. A cluster without the extension (a developer's
+// machine) is left as it is: the receipt trigger then fails closed (D13) and every test that needs a receipt says so; the CI job builds
+// the extension in (ruling A16). It never skips a test.
+func bootstrapSigning(t testing.TB, pool *pgxpool.Pool, dbName string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var available bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'pgsodium')`).Scan(&available); err != nil {
+		t.Fatalf("testpg: look for pgsodium: %v", err)
+	}
+	if !available {
+		return
+	}
+	// CREATE EXTENSION creates cluster-wide roles, so two sessions that run it together on a server that has never had the extension collide on pg_authid.
+	// An advisory lock belongs to one database, so the lock is taken on the server's maintenance database, the one ensureRoles uses, and serialises
+	// the bootstrap across every test database and every test binary on the server. It is held on its own connection until the bootstrap ends.
+	lock, err := pgx.Connect(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("testpg: connect to lock the pgsodium bootstrap: %v", err)
+	}
+	defer func() { _ = lock.Close(context.Background()) }()
+	if _, err := lock.Exec(ctx, `SELECT pg_advisory_lock(7770001)`); err != nil {
+		t.Fatalf("testpg: lock the pgsodium bootstrap: %v", err)
+	}
+	for _, stmt := range []string{
+		`CREATE EXTENSION IF NOT EXISTS pgsodium`,
+		`DO $$ DECLARE r record; BEGIN
+		   FOR r IN SELECT e.evtname FROM pg_event_trigger e JOIN pg_depend d ON d.objid = e.oid AND d.deptype = 'e'
+		            JOIN pg_extension x ON x.oid = d.refobjid AND x.extname = 'pgsodium' LOOP
+		     EXECUTE format('ALTER EVENT TRIGGER %I DISABLE', r.evtname);
+		   END LOOP;
+		 END $$`,
+		`ALTER DATABASE ` + pgx.Identifier{dbName}.Sanitize() + ` SET pgsodium.enable_event_trigger = 'off'`,
+		`REVOKE ALL ON SCHEMA pgsodium FROM PUBLIC`,
+		`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA pgsodium FROM PUBLIC`,
+		`GRANT USAGE ON SCHEMA pgsodium TO noema_migrator`,
+		`GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO noema_migrator`,
+	} {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("testpg: bootstrap pgsodium: %v\n%s", err, stmt)
+		}
+	}
+}
+
 // clusterRoles are the NOLOGIN group roles that deploy/compose/postgres/init.sh creates. A migration never creates a role (the
 // migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
 var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter", "noema_migrator"}
+
+// clusterLoginRoles are the LOGIN roles that init.sh creates and that belong to no group: the nightly evidence recompute's read-only login
+// (EVD-03, D9). They are created here with no password because the test cluster authenticates by trust, as it does for VerifierLogin.
+var clusterLoginRoles = []string{"evidence_verify"}
 
 func ensureRoles(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -137,6 +189,11 @@ func ensureRoles(url string) error {
 	for _, r := range clusterRoles {
 		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` NOLOGIN; END IF; END $$`); err != nil {
 			return fmt.Errorf("create role %s: %w", r, err)
+		}
+	}
+	for _, r := range clusterLoginRoles {
+		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION; END IF; END $$`); err != nil {
+			return fmt.Errorf("create login role %s: %w", r, err)
 		}
 	}
 	return nil
@@ -177,6 +234,26 @@ func VerifierLogin(t testing.TB, admin *pgxpool.Pool, dsn string) *pgxpool.Pool 
 	pool, err := pgxpool.New(ctx, u.String())
 	if err != nil {
 		t.Fatalf("testpg: connect as %s: %v", role, err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// EvidenceVerifyLogin returns a pool whose connections authenticate as evidence_verify, the read-only login of the nightly evidence
+// recompute (EVD-03, D9): a member of no role, with SELECT on context_snapshot and evidence_item and nothing else. The role is the
+// cluster's, as in Compose; it is not created or dropped per test.
+func EvidenceVerifyLogin(t testing.TB, dsn string) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("testpg: parse dsn: %v", err)
+	}
+	u.User = url.User("evidence_verify")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("testpg: connect as evidence_verify: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	return pool

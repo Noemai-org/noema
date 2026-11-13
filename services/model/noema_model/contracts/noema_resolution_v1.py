@@ -25,11 +25,11 @@ class NoemaResolutionV1(ContractModel):
     schema_version: CommonV1SchemaVersion
     correlation_id: CommonV1CorrelationId
     investigation_id: CommonV1InvestigationId
-    disposition: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    disposition: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     verdicts: list[NoemaResolutionV1VerdictsItem]
-    case_ref: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{9})[\\s\\S]*$', min_length=1, max_length=64)] | None = Field(default=None)
-    owner_queue: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] | None = Field(default=None)
-    customer_message: Annotated[str, StringConstraints(pattern='^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$', min_length=1, max_length=1000)]
+    case_ref: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{9})[\\s\\S]*\\Z', min_length=1, max_length=64)] | None = Field(default=None)
+    owner_queue: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] | None = Field(default=None)
+    customer_message: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=1000)]
     verified: bool
 
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -85,7 +86,7 @@ func newWorld(t *testing.T) *world {
 		readers[id] = testpg.TenantLogin(t, admin, dsn, "record_read", id)
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC))
-	return &world{admin: admin, writers: writers, readers: readers, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{})}}
+	return &world{admin: admin, writers: writers, readers: readers, dsn: dsn, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, zeros{}), Signers: recordsig.All(t, admin, "reconstruct", nil)}}
 }
 
 // dbs is the TenantDBs of the world's per-tenant read logins.
@@ -171,7 +172,7 @@ func us01() []ev {
 	return []ev{
 		{writtenBy: "core-edge", actor: customer, eventType: "SESSION_VALIDATED", objectRef: "ses_synth0001", payload: map[string]any{"channel": "TEXT", "locale": "en"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INPUT_RECEIVED", objectRef: "req_synth0001", payload: map[string]any{"channel": "TEXT", "request_id": "req_synth0001"}},
-		{writtenBy: "model-service", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "note": "model text is never a fact"}},
+		{writtenBy: "core-edge", eventType: "INTENT_PROPOSED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "note": "model text is never a fact"}},
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"resolved_target": target, "candidate_count": 1, "margin": "0.41"}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},
@@ -829,5 +830,50 @@ func TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline(t *testing.T) {
 	}
 	if left := tx.deadline.Sub(clock.System{}.Now()); left > 10*time.Second {
 		t.Fatalf("the rollback may run for %v; it must be bounded to seconds", left)
+	}
+}
+
+// S9 (REQ-AUD-003, INV-07): the process died after the dispatch was recorded and before the receipt. The write may have reached the target, so the
+// ACTION section must show the attempt, as DISPATCHED with no receipt, and not leave the action empty. The capability is the one the dispatch
+// recorded: logical_action is an action label (ESCALATE_CASE), not a pack capability.
+func TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_s9", []ev{
+		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
+		{writtenBy: "core-execution", eventType: "REVALIDATION_PASSED", objectRef: grantID, payload: map[string]any{"grant_id": grantID}},
+		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_s9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	act := parse(t, raw).section("ACTION")
+	if len(act) != 1 {
+		t.Fatalf("ACTION has %d items, want the one dispatch", len(act))
+	}
+	f := act[0].Facts
+	if f["execution_state"] != "DISPATCHED" || f["capability_id"] != capability || f["attempt"] != json.Number("1") || f["grant_state"] != "VALID" {
+		t.Fatalf("ACTION facts %v, want DISPATCHED, %s, attempt 1, a VALID grant", f, capability)
+	}
+}
+
+// A receipt takes the place of its dispatch: one attempt is one ACTION item, and the receipt's capability is the one the dispatch recorded.
+func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_s9b", []ev{
+		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
+		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
+		{writtenBy: "core-execution", eventType: "RECEIPT", objectRef: grantID, payload: map[string]any{"receipt_id": "rcp_synth0009", "grant_id": grantID, "attempt": 1,
+			"logical_action": "ESCALATE_CASE", "execution_state": "ACKNOWLEDGED", "transport_result": "ACK_2XX"}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_s9b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	act := parse(t, raw).section("ACTION")
+	if len(act) != 1 || act[0].Facts["execution_state"] != "ACKNOWLEDGED" || act[0].Facts["capability_id"] != capability {
+		t.Fatalf("ACTION %v, want one ACKNOWLEDGED item for %s", act, capability)
 	}
 }

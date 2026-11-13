@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/benchmark/hostility_proxy/internal/numbers"
+	"github.com/Noemai-org/noema/benchmark/hostility_proxy/internal/plan"
 	"github.com/Noemai-org/noema/benchmark/hostility_proxy/internal/proxy"
 	"github.com/Noemai-org/noema/benchmark/hostility_proxy/internal/routes"
 )
@@ -22,7 +23,7 @@ import (
 // route table is config/routes.standin.json. The stand-in is a read store with six read routes; the proxy forwards exactly
 // those, passes the caller's credentials through untouched (it holds none), and applies its own faults to them.
 
-const standinPrincipalAssertion = "v1.dXNyX2E.1790847660.aef356c16b785df13d4e4f17c28430155dc3de688179577663024029a99230ce" // the README's worked vector, SYNTHETIC
+const standinPrincipalAssertion = "v2.dXNyX2E.dGVuX2FscGhh.1790847660.36f86867759aea52907e4c76ed41bd1608534527a1f3ecbe5d7f8f57c8d9ed42" // the README's worked vector, SYNTHETIC
 
 // fakeStandin answers the stand-in's six read routes and records the headers it received.
 type fakeStandin struct {
@@ -204,5 +205,22 @@ func TestTheStandinRouteTableMatchesTheStandinReadme(t *testing.T) {
 	}
 	if n := strings.Count(string(raw), `"method":`); n != len(documented) {
 		t.Errorf("the proxy table has %d routes, the README documents %d", n, len(documented))
+	}
+}
+
+// Codex P2 on noema#449: an identity label the proxy cannot verify must never choose which fault fires. A FaultPlan that matches a stand-in route on principal_id is refused when
+// it is loaded, because the route has no such attribute.
+func TestAFaultPlanCannotMatchAStandinRouteOnAPrincipal(t *testing.T) {
+	b, err := os.ReadFile("../../config/routes.standin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err := routes.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"fault_plan_id":"fp_t","scenario_id":"SCN-T","seed":7,"deterministic":true,"source":"PROXY","faults":[{"target":"mock-customer","operation":"get_principal","effect":"DROP_RESPONSE","match":{"principal_id":"usr_a"},"params":{}}]}`
+	if _, err := plan.Parse([]byte(body), plan.Env{Routes: tab}); err == nil || !strings.Contains(err.Error(), "not an attribute") {
+		t.Fatalf("a plan matching a stand-in route on principal_id must be refused: %v", err)
 	}
 }

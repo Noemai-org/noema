@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 90513de3bf079483e92f63dc38cb0912081a2581. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 77da67e2f4df0aa3b5dd46b570b1ca8aa476c923. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -10,7 +10,7 @@ This file adds no product rules. It adds the working practice for applying the [
 
 - **Noema:** models understand; Noema makes understanding safe to act on, makes the action happen correctly, and proves the outcome (SoT §0.1, item 4).
 - **What we are building now:** the POC, one narrow, hostile workflow. Noema is not its POC (SoT §0.1, item 1).
-- **Dates:** build from Mon 19 Oct to Fri 13 Nov 2026 (re-baselined by DEC-2026-10-16 E3). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
+- **Dates:** build from Mon 19 Oct to Sat 12 Dec 2026, with the demo on Sat 12 Dec at 14:00 (re-baselined by DEC-2026-11-03-demo-date-and-no-scope-cut). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
 - **The three documents, in order:** the SoT, then the PERD, then the plan. Code comes last.
 - **The one rule:** when in doubt, take the safer reading, write the ambiguity down, and ask (AGENT-20). Never invent.
 
@@ -375,7 +375,7 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 5. The hand-off report (plan §4.1 step 6).
 6. CONFLICT blocks, if any.
 
-**Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+**Reviews.** Review gates are set by tier (A143, plan §4). **Tier 1** (trust, execution, outcome, record, migrations, identity): Codex READY + SR READY + one independent role review (EL, C1 or C2, not the author) + CI + one Founder approval. **Tier 2** (contracts, packs, benchmark, voice, docs): Codex where A14 applies + one independent reviewer READY (SR counts) + CI + one Founder approval; `.github` and `deploy` still need SR. An agent's report is not acceptance (plan §4.1).
 
 **Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 

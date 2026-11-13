@@ -67,3 +67,16 @@ Proposed, for the Security Reviewer to own and adjust:
 ## 2026-11-07 · ruling A30: option B; slice 1 built
 
 The Architect chose option B (a Go test, real SIGKILL, no new CI job; A30). Slice 1 is `services/core/adapters/outcome_e2e/crash_test.go` (points 1 and 2, in noema#TST-05-slice-1's PR). The shared kill-point list with RESIST S9 is in that package's README (A40). Not yet built: slice 2 (points 3 and 4, with a FaultPlan and a kill on the truth endpoint's state) and the third S9 point, which needs an Outcome boundary hook from Core Engineer 2. The earlier sections of this file describe the superseded option 2.
+
+# Session 2026-11-12 · TST-05 (slice 2, the points after the write)
+
+## Session summary
+- What changed: four kill points added to the crash matrix in `services/core/adapters/outcome_e2e/crash_test.go`: after dispatch before the response is classified; the target commits and the response is lost (the real `TIMEOUT_AFTER_COMMIT` fault); while the receipt is being completed; after the receipt commits. Each is a real SIGKILL of a child process (ruling A30, A40).
+- Why: REQ-TST-008, G3, the S9.2 half of the shared kill-point list (README).
+- What each point proves after the kill: the target holds exactly one committed create under the key; the grant is spent, so executing it again is not a write; the sweeper writes one OUTCOME_UNKNOWN when no receipt committed (none when it had) and never dispatches (EC-E09); neither the replay nor the recovery sends the target a second create (INV-07, AGENT-08). For the lost response the command log must show `response_suppressed` (the fault was real).
+- Honest limit: the database tests need the pinned PostgreSQL with pgsodium; the session that wrote this had none (`schema "pgsodium" does not exist`), so the matrix was compiled and vetted here and its first run is CI.
+- Not built: the third S9 point after the verdict (the Outcome hook exists since #320; its kill needs the verifier wired into the child) and a fresh grant after a post-write kill (the target's behaviour on a duplicate create under the same key is not asserted here).
+
+## Pre-work for the next agent
+- Exact next step: the S9.3 point (after verify, before the note) through the Outcome boundary hook.
+- Do not touch: the first two kill points' assertions (slice 1).

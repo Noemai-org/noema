@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
     branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -13,6 +16,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # SEC-11: the topology of every run profile (dev, ci, bench, demo), read from `docker compose config`; needs no running stack.
       - run: python3 -I deploy/compose/netcheck/profiles.py --self-test
+      # ENV-13: the relay host script refuses a DuckDNS token file that could change the curl configuration line (--check only; changes nothing).
+      - run: python3 -I deploy/relay-host/test_setup.py
       - run: make up
       - run: docker compose -f deploy/compose/docker-compose.yml --profile dev ps
       - run: make net-matrix

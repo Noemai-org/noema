@@ -17,6 +17,7 @@ var reviewedPaths = map[string]string{
 	"function decision_grant_guard":          "trigger on decision_grant (migration 0001); compares columns of OLD and NEW only; reads no other table",
 	"function decision_record_tenant_guard":  "trigger on decision_record; SECURITY DEFINER with search_path = pg_catalog, pg_temp; reads public.tenant_login and pg_roles, never decision_record",
 	"function outcome_record_verdict":        "Outcome (migration 0007); SECURITY DEFINER, reads decision_grant to check a verdict's correlation; its policy sees only the caller's tenant because the policy keys on session_user, and its search_path pins pg_temp last since migration 0012",
+	"function grant_spend_budget_guard":      "trigger on grant_spend (migration 0023); SECURITY INVOKER, so it reads public.decision_grant as the spending login and row security applies to it (a foreign tenant's grant is invisible); a superuser skips it; the record count is made by dispatch_budget_count, which counts only the calling login's tenant",
 	"function reject_mutation":               "trigger function that always raises; reads no table",
 }
 
@@ -104,18 +105,10 @@ func TestEveryDefinerThatReadsTheDecisionTablesPinsItsSearchPathWithTempLast(t *
 	}
 }
 
-// The definer functions that do NOT read the decision tables and still leave pg_temp unpinned are not mine to change (the Record functions are Core
-// Engineer 1's under ruling A6; the Outcome ones are the Outcome owner's). They are named here so that the list can only shrink: the day one is
-// fixed this test fails until it is removed, and a new unpinned definer function fails it at once. They are in the audit handed to the Security Reviewer.
-var definersWithoutTempPinned = map[string]string{
-	"outcome_verdict_complete":       "Outcome (migration 0007); reads outcome tables only",
-	"provision_tenant_login":         "Record (migration 0006); Core Engineer 1, ruling A6",
-	"record_insert_t":                "Record (migration 0004); Core Engineer 1, ruling A6",
-	"record_lock_head_t":             "Record (migration 0004); Core Engineer 1, ruling A6",
-	"record_login_tenant":            "Record (migration 0004); Core Engineer 1, ruling A6",
-	"record_read_chain_t":            "Record (migration 0004); Core Engineer 1, ruling A6",
-	"recovery_request_verdict_guard": "Outcome/Recovery (migration 0007); reads recovery tables only",
-}
+// The definer functions that do NOT read the decision tables and still leave pg_temp unpinned were not Core Engineer 1's to change under ruling A6 at the time; migration
+// 0016 (noema#234, EXE-08) pins every Record and Outcome definer, so the list is now empty. It stays so that a NEW unpinned definer function fails this test at once;
+// the list can only shrink, and this is its end.
+var definersWithoutTempPinned = map[string]string{}
 
 func TestTheListOfDefinersWithoutPgTempPinnedOnlyShrinks(t *testing.T) {
 	pool := migrated(t)
