@@ -150,7 +150,7 @@ type rig struct {
 func newRig() *rig {
 	r := &rig{in: &intents{a: admitted(tenant, resolvedTx)}, rd: &reads{items: known()},
 		cl: &classifier{out: readseal.Classified{ReconciliationID: "rec_01HZ", Classification: "SUCCESS_CONFIRMED"}}, se: &sealer{}, sr: &source{tx: &tx{}}}
-	r.a = &readseal.Adapter{TenantID: tenant, Intents: r.in, Transactions: r.rd, Reconciler: r.cl, Sealer: r.se, Tx: r.sr, Timeout: 5 * time.Second}
+	r.a = &readseal.Adapter{TenantID: tenant, TransactionSlot: "subject_resource", ResourceKind: "fin.transaction", Intents: r.in, Transactions: r.rd, Reconciler: r.cl, Sealer: r.se, Tx: r.sr, Timeout: 5 * time.Second}
 	return r
 }
 
@@ -253,14 +253,15 @@ func TestAnIntentThatIsNotStoredIsAnErrorAndNothingIsRead(t *testing.T) {
 func TestAnIntentWithNoResolvedTransactionIsRefusedAndNothingIsRead(t *testing.T) {
 	// INV-06 and INV-19: a transaction that was never resolved is not guessed from a surface form or a candidate.
 	for name, slots := range map[string]string{
-		"no slots":                   `{}`,
-		"no subject_resource":        `{"amount":{"type":"Quantity","status":"RESOLVED"}}`,
-		"not resolved":               `{"subject_resource":{"type":"Resource","status":"AMBIGUOUS","candidates_ref":"cset_01"}}`,
-		"resolved with no ref":       `{"subject_resource":{"type":"Resource","status":"RESOLVED"}}`,
-		"another kind":               `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.account:ACC1"}}`,
-		"no id after kind":           `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.transaction:"}}`,
-		"an id with a path":          `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.transaction:../x"}}`,
-		"a ref that is not a string": `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":7}}`,
+		"no slots":                             `{}`,
+		"no subject_resource":                  `{"amount":{"type":"Quantity","status":"RESOLVED"}}`,
+		"not resolved":                         `{"subject_resource":{"type":"Resource","status":"AMBIGUOUS","candidates_ref":"cset_01"}}`,
+		"a ref on a slot that is not resolved": `{"subject_resource":{"type":"Resource","status":"AMBIGUOUS","resolved_ref":"fin.transaction:TX88213"}}`,
+		"resolved with no ref":                 `{"subject_resource":{"type":"Resource","status":"RESOLVED"}}`,
+		"another kind":                         `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.account:ACC1"}}`,
+		"no id after kind":                     `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.transaction:"}}`,
+		"an id with a path":                    `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":"fin.transaction:../x"}}`,
+		"a ref that is not a string":           `{"subject_resource":{"type":"Resource","status":"RESOLVED","resolved_ref":7}}`,
 	} {
 		r := newRig()
 		r.in.a = admitted(tenant, slots)
@@ -353,13 +354,16 @@ func TestATransactionThatCannotBeginIsAnError(t *testing.T) {
 func TestAnAdapterThatIsNotFullyWiredDoesNothing(t *testing.T) {
 	// AGENT-16: no default for the deadline, and no default for any collaborator.
 	bad := map[string]func(*readseal.Adapter){
-		"no tenant":       func(a *readseal.Adapter) { a.TenantID = "" },
-		"no intents":      func(a *readseal.Adapter) { a.Intents = nil },
-		"no transactions": func(a *readseal.Adapter) { a.Transactions = nil },
-		"no reconciler":   func(a *readseal.Adapter) { a.Reconciler = nil },
-		"no sealer":       func(a *readseal.Adapter) { a.Sealer = nil },
-		"no tx source":    func(a *readseal.Adapter) { a.Tx = nil },
-		"no timeout":      func(a *readseal.Adapter) { a.Timeout = 0 },
+		"no tenant":                            func(a *readseal.Adapter) { a.TenantID = "" },
+		"no intents":                           func(a *readseal.Adapter) { a.Intents = nil },
+		"no transactions":                      func(a *readseal.Adapter) { a.Transactions = nil },
+		"no reconciler":                        func(a *readseal.Adapter) { a.Reconciler = nil },
+		"no sealer":                            func(a *readseal.Adapter) { a.Sealer = nil },
+		"no tx source":                         func(a *readseal.Adapter) { a.Tx = nil },
+		"no timeout":                           func(a *readseal.Adapter) { a.Timeout = 0 },
+		"no slot name":                         func(a *readseal.Adapter) { a.TransactionSlot = "" },
+		"no resource kind":                     func(a *readseal.Adapter) { a.ResourceKind = "" },
+		"a kind that is not <vertical>.<kind>": func(a *readseal.Adapter) { a.ResourceKind = "transaction" },
 	}
 	for name, mutate := range bad {
 		r := newRig()
@@ -386,5 +390,38 @@ func TestASessionWithNoTenantOrNoPrincipalIsRefused(t *testing.T) {
 			t.Errorf("%s: want orchestrator.ErrNoSession, got %v", name, err)
 		}
 		r.nothingRead(t)
+	}
+}
+
+func TestTheSlotAndTheResourceKindComeFromConfigurationNotFromTheCode(t *testing.T) {
+	// INV-14: the package names no industry. Another pack's slot and kind read another pack's transaction, and the first pack's are then not found.
+	r := newRig()
+	r.a.TransactionSlot, r.a.ResourceKind = "claim_ref", "ins.claim"
+	r.in.a = admitted(tenant, `{"claim_ref":{"type":"Resource","status":"RESOLVED","resolved_ref":"ins.claim:CL77"}}`)
+	if _, err := r.a.Read(deadline(t), session, ref); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.rd.calls) != 1 || r.rd.calls[0].tx != "CL77" {
+		t.Errorf("read %+v, want the configured slot's transaction CL77", r.rd.calls)
+	}
+	r = newRig()
+	r.a.TransactionSlot, r.a.ResourceKind = "claim_ref", "ins.claim"
+	if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, readseal.ErrNoTransaction) {
+		t.Errorf("an intent of the other pack's shape: want ErrNoTransaction, got %v", err)
+	}
+	r.nothingRead(t)
+}
+
+func TestAnIncompleteClassificationIsNeverSealed(t *testing.T) {
+	// REQ-CTX-004: a snapshot records the reconciliation that classified its evidence; an answer with no ID or no classification is refused before any seal.
+	for name, out := range map[string]readseal.Classified{"no ID": {Classification: "SUCCESS_CONFIRMED"}, "no classification": {ReconciliationID: "rec_01HZ"}, "neither": {}} {
+		r := newRig()
+		r.cl.out = out
+		if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, readseal.ErrIncomplete) {
+			t.Errorf("%s: want ErrIncomplete, got %v", name, err)
+		}
+		if len(r.se.calls) != 0 || r.sr.begun != 0 {
+			t.Errorf("%s: nothing may be begun or sealed", name)
+		}
 	}
 }
