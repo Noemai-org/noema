@@ -50,11 +50,11 @@ def results_sha(run_id: str) -> str:
 DECLARED: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": PINNED["version"]}
 
 
-def provenance_for(card: Json, repeats: list[Json], pinned: Json | None = None) -> tuple[Json, list[Json]]:
+def provenance_for(card: Json, repeats: list[Json], pinned: Json | None = None, context: str | None = None) -> tuple[Json, list[Json]]:
     """The provenance files scoring writes for the primary run and the four repeats: the primary lists all five runs, each file names its own scorecard's digest."""
     runs = [{"run_id": c["run_id"], "results_sha256": results_sha(c["run_id"])} for c in (card, *repeats)]
     def one(c: Json, listed: list[Json] | None) -> Json:
-        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": CONTEXT, "pinned": pinned if pinned is not None else dict(DECLARED), "pass_k_runs": listed}
+        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": context if context is not None else CONTEXT, "pinned": pinned if pinned is not None else dict(DECLARED), "pass_k_runs": listed}
     return one(card, runs), [one(c, None) for c in repeats]
 
 
@@ -77,16 +77,27 @@ def scorecard() -> Json:
     return card
 
 
+def forty_case_card() -> Json:
+    """A scorecard whose pass^k is measured on 40 cases: what a re-qualification needs as well as a first qualification (C2 on noema#199)."""
+    card = scorecard()
+    card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 36, "n": 40, "rate": 0.9}
+    card["n_cases"] = 40
+    return card
+
+
 def record(card: Json | None = None, drift: Json | None = None, **changes: Any) -> Json:
     args: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION, "decision_record": DEC, "qualified_on": "2026-11-06", "baseline_pass_k": 0.9,
                   "floor": None, "floor_source": None}
     args.update(changes)
     if args["baseline_pass_k"] is not None:
         args.setdefault("baseline_record_sha256", baseline_sha())
-    card = card or scorecard()
+    card = card or forty_case_card()
+    context = args.pop("context", None)
     args.setdefault("repeat_cards", repeat_cards(card))
+    if args["baseline_pass_k"] is not None and "baseline_record_sha256" not in changes:
+        args.setdefault("baseline_record", baseline_record())
     if "provenance" not in args and len(args["repeat_cards"]) == 4:
-        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"], pinned={name: args[name] for name in ("kind", "provider", "model_id", "version")})
+        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"], pinned={name: args[name] for name in ("kind", "provider", "model_id", "version")}, context=context)
     return build_record(card, drift or run(), **args)
 
 
@@ -132,7 +143,7 @@ class Making(unittest.TestCase):
         self.assertEqual("QUALIFIED", rec["verdict"])
         self.assertEqual([], rec["reasons"])
         self.assertEqual([], validate_record(rec))
-        self.assertEqual({"k": 9, "n": 10, "rate": 0.9}, rec["pass_k"]["rate"])
+        self.assertEqual({"k": 36, "n": 40, "rate": 0.9}, rec["pass_k"]["rate"])
         self.assertEqual("PASS", rec["drift"]["result"])
 
     def test_the_record_carries_the_numbers_it_was_made_from_and_the_digests(self) -> None:
@@ -654,6 +665,91 @@ class RepeatBinding(unittest.TestCase):
             self.build(card=card, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
 
 
+class Requalification(unittest.TestCase):
+    """C2 on noema#199 (24d8a37, blocking): the pass^k bar was compared across different case sets, so a re-qualification could clear a 40-case baseline on a one-case run. A
+    re-qualification now needs at least the minimum number of cases, at least as many as its baseline, and the baseline's scoring context (cases, oracles and pack)."""
+
+    def tiny(self) -> Json:
+        card = forty_case_card()
+        card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 1, "n": 1, "rate": 1.0}
+        card["n_cases"] = 1
+        return card
+
+    def test_the_reproduction_of_the_review_is_not_qualified_and_refused_by_the_lookup(self) -> None:
+        rec = record(self.tiny(), baseline_pass_k=0.9)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("at least 40" in r for r in rec["reasons"]), rec["reasons"])
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION))
+
+    def test_a_hand_written_qualified_record_on_one_case_is_invalid(self) -> None:
+        rec = record(forty_case_card(), baseline_pass_k=0.9)
+        rec["pass_k"] = {**rec["pass_k"], "rate": {"k": 1, "n": 1, "rate": 1.0}}
+        rec["n_cases"] = 1
+        self.assertTrue(any("at least 40" in p for p in validate_record(rec)), validate_record(rec))
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION))
+
+    def test_fewer_cases_than_the_baseline_is_not_qualified(self) -> None:
+        big = forty_case_card()
+        big["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 54, "n": 60, "rate": 0.9}
+        big["n_cases"] = 60
+        base = record(big, drift=first_drift(), version=PINNED["version"], baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-08-floor")
+        rec = record(forty_case_card(), baseline_pass_k=0.9, baseline_record=base, baseline_record_sha256=sha256_of(base))
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("fewer" in r and "baseline" in r for r in rec["reasons"]), rec["reasons"])
+
+    def test_the_lookup_refuses_a_record_with_fewer_cases_than_the_baseline_it_names(self) -> None:
+        big = forty_case_card()
+        big["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 54, "n": 60, "rate": 0.9}
+        big["n_cases"] = 60
+        base = record(big, drift=first_drift(), version=PINNED["version"], baseline_pass_k=None, floor=0.9, floor_source="DEC-2026-11-08-floor")
+        rec = record(forty_case_card(), baseline_pass_k=0.9, baseline_record=base, baseline_record_sha256=sha256_of(base))
+        rec["verdict"], rec["reasons"] = "QUALIFIED", []  # the edit a hand-written record would make
+        got = check_model([rec, base], PROVIDER, MODEL, VERSION)
+        self.assertTrue(any("fewer" in p and "baseline" in p for p in got), got)
+
+    def test_as_many_cases_as_the_baseline_and_the_same_context_qualifies(self) -> None:
+        self.assertEqual("QUALIFIED", record(baseline_pass_k=0.9)["verdict"])
+        self.assertEqual([], lookup([record(baseline_pass_k=0.9)], PROVIDER, MODEL, VERSION))
+
+    def test_another_scoring_context_than_the_baselines_is_not_qualified(self) -> None:
+        other = "sha256:" + hashlib.sha256(b"another case set, oracle set or pack").hexdigest()
+        rec = record(baseline_pass_k=0.9, context=other)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("context" in r and "baseline" in r for r in rec["reasons"]), rec["reasons"])
+
+    def test_the_lookup_refuses_a_record_scored_in_another_context_than_its_baseline(self) -> None:
+        other = "sha256:" + hashlib.sha256(b"another case set, oracle set or pack").hexdigest()
+        rec = record(baseline_pass_k=0.9, context=other)
+        rec["verdict"], rec["reasons"] = "QUALIFIED", []
+        got = lookup([rec], PROVIDER, MODEL, VERSION)
+        self.assertTrue(any("context" in p for p in got), got)
+
+    def test_the_record_carries_the_context_of_the_runs_it_rests_on(self) -> None:
+        self.assertEqual(CONTEXT, record(baseline_pass_k=0.9)["context_sha256"])
+
+    def test_a_context_that_is_not_a_digest_is_invalid(self) -> None:
+        rec = record(baseline_pass_k=0.9)
+        for bad in ("not-a-digest", CONTEXT + "\n", 7):
+            rec["context_sha256"] = bad
+            self.assertTrue(any("context_sha256" in p for p in validate_record(rec)), bad)
+
+    def test_a_score_within_a_hundredth_below_the_bar_is_not_qualified(self) -> None:
+        # With 40 cases the rate moves in steps of 0.025, so 0.875 against a bar of 0.88 is the nearest miss that separates `rate < bar` from `rate < bar - 0.01`.
+        card = forty_case_card()
+        card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 35, "n": 40, "rate": 0.875}
+        rec = record(card, baseline_pass_k=0.88)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("below the bar" in r for r in rec["reasons"]), rec["reasons"])
+
+    def test_a_score_just_below_the_bar_is_not_qualified(self) -> None:
+        # C2's surviving mutation: `rate < bar` weakened to `rate < bar - 0.01` passed every test, because only 0.8 against 0.9 was tested.
+        card = forty_case_card()
+        card["tier1"]["diagnostics"]["pass_k"]["rate"] = {"k": 35, "n": 40, "rate": 0.875}
+        rec = record(card, baseline_pass_k=0.9)
+        self.assertEqual("NOT_QUALIFIED", rec["verdict"])
+        self.assertTrue(any("below the bar" in r for r in rec["reasons"]), rec["reasons"])
+
+
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:
         got = lookup([], PROVIDER, MODEL, VERSION)
@@ -824,11 +920,11 @@ class Cli(unittest.TestCase):
             code = main(list(argv))
         return code, out.getvalue()
 
-    def files(self, root: Path, card: Json | None = None, repeats: list[Json] | None = None, version: str = VERSION) -> list[str]:
+    def files(self, root: Path, card: Json | None = None, repeats: list[Json] | None = None, version: str = VERSION, context: str | None = None) -> list[str]:
         card = card or scorecard()
         repeats = repeats if repeats is not None else repeat_cards(card)
         (root / "scorecard.json").write_text(json.dumps(card), encoding="utf-8")
-        prov, repeat_prov = provenance_for(card, repeats, pinned={"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": version}) if len(repeats) == 4 else (None, [])
+        prov, repeat_prov = provenance_for(card, repeats, pinned={"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": version}, context=context) if len(repeats) == 4 else (None, [])
         if prov is not None:
             (root / "provenance.json").write_text(json.dumps(prov), encoding="utf-8")
         for i, one in enumerate(repeats):
@@ -857,6 +953,18 @@ class Cli(unittest.TestCase):
             code, text = self.run_main("check", "--records", str(root / "records"), "--provider", PROVIDER, "--model-id", MODEL, "--version", "2026-11-02", "--kind", "llm")
             self.assertEqual(1, code, text)
             self.assertIn("no qualification record", text)
+
+    def test_record_exits_one_when_the_runs_were_scored_in_another_context_than_the_baseline(self) -> None:
+        # C2 on noema#199: the command must carry the baseline record itself, not only its digest, or none of the baseline comparisons runs.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root / "r.json"
+            other = "sha256:" + hashlib.sha256(b"another case set, oracle set or pack").hexdigest()
+            code, text = self.run_main("record", *self.files(root, first_card(), context=other), "--out", str(out))
+            self.assertEqual(1, code, text)
+            reasons = json.loads(out.read_text(encoding="utf-8"))["reasons"]
+            self.assertEqual(1, len(reasons), reasons)  # the context is the only reason: the card has the 40 cases
+            self.assertIn("context", reasons[0])
 
     def test_record_exits_one_when_the_run_is_not_qualified_but_still_writes_the_record(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

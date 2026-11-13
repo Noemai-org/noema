@@ -38,7 +38,7 @@ VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
 FIRST_QUALIFICATION_FLOOR = 0.90
 FIRST_QUALIFICATION_MIN_CASES = 40
 CITE = "A43 of DEC-2026-11-08-rulings-a41-onward"
-REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record",
+REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "context_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons", "runs")
 
 
@@ -68,6 +68,11 @@ def _reasons(complete: bool, tier0_all_zero: bool, pass_k: Mapping[str, Any], dr
     bar_value = baseline if baseline is not None else floor
     if baseline is None and requalification:
         reasons.append(f"this is a re-qualification (the drift run compares the version with another version) and it has no baseline pass^k: the first-qualification floor is for a first qualification only ({CITE})")
+    if baseline is not None and pass_k.get("available") is True:
+        block = pass_k.get("rate")
+        n = block.get("n") if isinstance(block, Mapping) else None
+        if type(n) is not int or n < FIRST_QUALIFICATION_MIN_CASES:
+            reasons.append(f"pass^k was measured on {n!r} cases; a re-qualification needs at least {FIRST_QUALIFICATION_MIN_CASES} cases too, so a tiny run cannot clear a baseline measured on more (C2 on noema#199)")
     if baseline is None:
         if floor is not None and is_fraction(floor) and floor < FIRST_QUALIFICATION_FLOOR:
             reasons.append(f"the first-qualification floor {floor} is below the minimum {FIRST_QUALIFICATION_FLOOR}, which a floor can be raised above and never lowered below ({CITE})")
@@ -110,7 +115,7 @@ def _fraction(name: str, value: float | None) -> None:
 def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str, provider: str, model_id: str, version: str, decision_record: str, qualified_on: str,
                  baseline_pass_k: float | None, floor: float | None, floor_source: str | None, baseline_record_sha256: str | None = None,
                  repeat_cards: Sequence[Mapping[str, Any]] = (), provenance: Mapping[str, Any] | None = None,
-                 repeat_provenance: Sequence[Mapping[str, Any]] = ()) -> Json:
+                 repeat_provenance: Sequence[Mapping[str, Any]] = (), baseline_record: Mapping[str, Any] | None = None) -> Json:
     """A record whose numbers are copied from the scorecard and the run record, so an author never types one.
 
     `card` is the primary run. pass^k needs exactly five runs, and Tier 0 and completeness must hold in every one of them (Codex P1 on noema#199), so the other four runs'
@@ -133,6 +138,8 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
         raise ValueError("a baseline pass^k and the digest of the baseline record it came from (baseline_record_sha256) come together")
     if baseline_record_sha256 is not None and not DIGEST.fullmatch(baseline_record_sha256):
         raise ValueError(f"baseline_record_sha256 {baseline_record_sha256!r} is not a digest written sha256:<64 lowercase hex>")
+    if baseline_record is not None and baseline_record_sha256 != sha256_of(baseline_record):
+        raise ValueError("the baseline record given is not the record baseline_record_sha256 names (its digest differs)")
     problems = validate_run_record(drift)
     if problems:
         raise ValueError(f"the drift run record is invalid: {'; '.join(problems)}")
@@ -169,13 +176,30 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     runs = [{"run_id": one["run_id"], "scorecard_sha256": sha256_of(one), "complete": one["complete"], "tier0_all_zero": one["tier0"]["all_zero"]} for one in (card, *repeat_cards)]
     drift_block = {"result": drift["result"], "run_sha256": sha256_of(drift), "subset_id": drift["subset_id"], "cases_sha256": drift["cases_sha256"],
                    "baseline_version": drift["baseline"]["pinned"]["version"]}
+    context = provenance["context_sha256"] if source["available"] is True and provenance is not None else None
     reasons = run_reasons + _reasons(all_complete, all_zero, pass_k, drift["result"], bar, requalification=drift_block["baseline_version"] != version)
+    if baseline_record is not None:
+        reasons += _against_baseline(pass_k, context, baseline_record)
     return {
         "schema": SCHEMA, "kind": kind, "provider": provider, "model_id": model_id, "version": version, "run_id": card["run_id"], "n_cases": card["n_cases"],
-        "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "drift": drift_block,
+        "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "context_sha256": context, "drift": drift_block,
         "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
         "runs": runs,
     }
+
+
+def _against_baseline(pass_k: Mapping[str, Any], context: Any, base: Mapping[str, Any]) -> list[str]:
+    """Why this run's pass^k cannot be held to the baseline record's: it was measured on fewer cases, or in another scoring context (cases, oracles, pack). A bar is a number measured on a
+    set; comparing it with a number measured on another set proves nothing (C2 on noema#199: a one-case run cleared a 40-case baseline)."""
+    out: list[str] = []
+    mine = (pass_k.get("rate") or {}).get("n") if isinstance(pass_k.get("rate"), Mapping) else None
+    theirs = (base.get("pass_k", {}).get("rate") or {}).get("n") if isinstance(base.get("pass_k", {}).get("rate"), Mapping) else None
+    if type(mine) is int and type(theirs) is int and mine < theirs:
+        out.append(f"pass^k was measured on {mine} cases, fewer than the baseline record's {theirs}: a bar measured on more cases is not cleared on fewer")
+    base_context = base.get("context_sha256")
+    if pass_k.get("available") is True and (context is None or base_context is None or context != base_context):
+        out.append("the runs were scored in another context (cases, oracles or pack) than the baseline record's, so its pass^k is not a bar for them: re-measure the baseline in this context first")
+    return out
 
 
 def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]], provenance: Mapping[str, Any] | None, repeat_provenance: Sequence[Mapping[str, Any]],
@@ -252,6 +276,8 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
     if "pass_k" in blocks and type(blocks["pass_k"].get("available")) is not bool:
         out.append(f"pass_k.available must be a boolean, not {blocks['pass_k'].get('available')!r}")
         flags_ok = False
+    if record["context_sha256"] is not None and (not isinstance(record["context_sha256"], str) or not DIGEST.fullmatch(record["context_sha256"])):
+        out.append("context_sha256 is not a sha256 digest written sha256:<64 lowercase hex>, or null")
     for name, value in (("scorecard_sha256", record["scorecard_sha256"]), *(("drift." + k, blocks["drift"].get(k)) for k in ("run_sha256", "cases_sha256") if "drift" in blocks and k in blocks["drift"])):
         if not isinstance(value, str) or not DIGEST.fullmatch(value):
             out.append(f"{name} is not a sha256 digest written sha256:<64 lowercase hex>")
@@ -363,6 +389,8 @@ def _baseline_problems(record: Mapping[str, Any], records: Sequence[Mapping[str,
     rate = (base["pass_k"].get("rate") or {}).get("rate")
     if rate != record["bar"]["baseline_pass_k"]:
         out.append(f"bar.baseline_pass_k {record['bar']['baseline_pass_k']!r} is not the baseline record's own pass^k {rate!r}")
+    if record["verdict"] == "QUALIFIED":
+        out += _against_baseline(record["pass_k"], record["context_sha256"], base)
     return out or _baseline_problems(base, records, seen | {sha})
 
 

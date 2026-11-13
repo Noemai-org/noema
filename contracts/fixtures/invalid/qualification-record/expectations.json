@@ -5,5 +5,7 @@
   "bad_verdict.json": "enum",
   "floor_above_one.json": "maximum",
   "missing_decision_record.json": "required",
-  "unknown_member.json": "additionalProperties"
+  "unknown_member.json": "additionalProperties",
+  "missing_context_sha256.json": "required",
+  "context_not_a_digest.json": "oneOf"
 }

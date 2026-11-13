@@ -70,5 +70,6 @@
   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
   "tier0_all_zero": true,
   "verdict": "QUALIFIED",
-  "version": "2026-11-01"
+  "version": "2026-11-01",
+  "context_sha256": "sha256:ff8a771c6cd1d82fdcb578d534bd7b3f0e2afbd96059b4be548c06103234dd91"
 }

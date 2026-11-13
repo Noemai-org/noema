@@ -56,7 +56,7 @@ def _record(args: argparse.Namespace) -> int:
     provenance = _sibling_provenance(Path(args.scorecard))
     repeat_provenance = [found for found in (_sibling_provenance(Path(path)) for path in args.repeat_scorecard or []) if found is not None]
     baseline_record = load_strict(Path(args.baseline_record)) if args.baseline_record else None
-    record = build_record(card, drift, repeat_cards=repeats, provenance=provenance, repeat_provenance=repeat_provenance, baseline_record_sha256=sha256_of(baseline_record) if baseline_record is not None else None, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
+    record = build_record(card, drift, repeat_cards=repeats, provenance=provenance, repeat_provenance=repeat_provenance, baseline_record_sha256=sha256_of(baseline_record) if baseline_record is not None else None, baseline_record=baseline_record, kind=args.kind, provider=args.provider, model_id=args.model_id, version=args.version, decision_record=args.decision_record,
                           qualified_on=args.qualified_on, baseline_pass_k=_baseline_pass_k(args.baseline_record, drift, args), floor=args.floor, floor_source=args.floor_source)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

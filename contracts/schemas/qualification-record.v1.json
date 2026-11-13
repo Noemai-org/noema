@@ -84,6 +84,17 @@
         "$ref": "#/$defs/Run"
       },
       "description": "The runs the record rests on, the primary run first (its digest is `scorecard_sha256`). Exactly five when pass^k is available. `complete` and `tier0_all_zero` of the record are the conjunction over these."
+    },
+    "context_sha256": {
+      "description": "The digest of the scoring context (cases, oracles and pack) the five pass^k runs were scored in, taken from the run provenance; null when pass^k was not available. A re-qualification is held to a baseline only if both were scored in the same context, and on at least as many cases (C2 on noema#199).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
     }
   },
   "required": [
@@ -98,6 +109,7 @@
     "tier0_all_zero",
     "pass_k",
     "scorecard_sha256",
+    "context_sha256",
     "drift",
     "bar",
     "decision_record",
