@@ -114,7 +114,7 @@ def test_a_deferred_close_that_fails_is_logged_with_a_fixed_code_and_never_with_
 
     async def scenario() -> None:
         with pytest.raises(ProviderError):
-            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.1, on_partial=lambda _: None)
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.1, hold_s=2.0, on_partial=lambda _: None)
         await asyncio.sleep(0.6)  # the read ends 0.2 s after it was cancelled; the deferred close then fails
 
     run(asyncio.wait_for(scenario(), timeout=GUARD_S))
