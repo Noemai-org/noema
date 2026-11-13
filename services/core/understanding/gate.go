@@ -29,27 +29,30 @@ const (
 
 // Every reason the gate gives.
 const (
-	ReasonSize               Reason = "SIZE"
-	ReasonNotJSON            Reason = "NOT_JSON"
-	ReasonShape              Reason = "SHAPE" // an unknown or repeated member, a missing or null member, a wrong type (the contract's closed shape)
-	ReasonStatus             Reason = "STATUS_NOT_VALIDATED"
-	ReasonSchemaVersion      Reason = "SCHEMA_VERSION"
-	ReasonIntentID           Reason = "INTENT_ID"
-	ReasonVersion            Reason = "VERSION"
-	ReasonSupersedes         Reason = "SUPERSEDES"
-	ReasonCreatedAt          Reason = "CREATED_AT"
-	ReasonCorrelation        Reason = "CORRELATION_MISMATCH"
-	ReasonModeNotEnabled     Reason = "MODE_NOT_ENABLED"
-	ReasonSource             Reason = "SOURCE"
-	ReasonPackMismatch       Reason = "PACK_MISMATCH"
-	ReasonUnknownNode        Reason = "UNKNOWN_NODE"
-	ReasonSlotName           Reason = "SLOT_NAME"
-	ReasonUnknownSlot        Reason = "UNKNOWN_SLOT"
-	ReasonSlotType           Reason = "SLOT_TYPE"
-	ReasonSlotInvalid        Reason = "SLOT_INVALID"
-	ReasonAmbiguityFlag      Reason = "AMBIGUITY_FLAG"
-	ReasonOutcomeNotInNode   Reason = "OUTCOME_NOT_IN_NODE"
-	ReasonSig                Reason = "SIG"
+	ReasonSize             Reason = "SIZE"
+	ReasonNotJSON          Reason = "NOT_JSON"
+	ReasonShape            Reason = "SHAPE" // an unknown or repeated member, a missing or null member, a wrong type (the contract's closed shape)
+	ReasonStatus           Reason = "STATUS_NOT_VALIDATED"
+	ReasonSchemaVersion    Reason = "SCHEMA_VERSION"
+	ReasonIntentID         Reason = "INTENT_ID"
+	ReasonVersion          Reason = "VERSION"
+	ReasonSupersedes       Reason = "SUPERSEDES"
+	ReasonCreatedAt        Reason = "CREATED_AT"
+	ReasonCorrelation      Reason = "CORRELATION_MISMATCH"
+	ReasonModeNotEnabled   Reason = "MODE_NOT_ENABLED"
+	ReasonSource           Reason = "SOURCE"
+	ReasonPackMismatch     Reason = "PACK_MISMATCH"
+	ReasonUnknownNode      Reason = "UNKNOWN_NODE"
+	ReasonSlotName         Reason = "SLOT_NAME"
+	ReasonUnknownSlot      Reason = "UNKNOWN_SLOT"
+	ReasonSlotType         Reason = "SLOT_TYPE"
+	ReasonSlotInvalid      Reason = "SLOT_INVALID"
+	ReasonAmbiguityFlag    Reason = "AMBIGUITY_FLAG"
+	ReasonOutcomeNotInNode Reason = "OUTCOME_NOT_IN_NODE"
+	ReasonSig              Reason = "SIG"
+	// ReasonIdentitySetByModel: the model's proposal carried a principal_type or an asserted_by of its own (ruling A195). Only the session sets them (INV-12), so a model that
+	// sends either, even the session's own value, is refused under a code of its own and not under SHAPE, which stays for a malformed document.
+	ReasonIdentitySetByModel Reason = "IDENTITY_SET_BY_MODEL"
 	ReasonHashUnavailable    Reason = "HASH_UNAVAILABLE" // the object holds a number the intent hash cannot cover (see ErrHashUnavailable)
 	ReasonIdentityNotInOrder Reason = "SESSION_INVALID"  // the session the caller passed is incomplete: a bug of the caller, never the model's
 )
