@@ -61,6 +61,20 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Files to read first: `contracts/schemas/explanation-facts.v2.json`, `contracts/fixtures/invalid/explanation-facts.v2/`.
 - Do not touch: generated `*_gen.go` and `explanation_facts_v2.py` by hand.
 
+## Session 2026-11-12 04:00 UTC · EXP-01 · the template version is checked (follow-up to noema#224)
+
+## Session summary
+- What changed: `Validate` refuses a template-bound render whose `TemplateVersion` is not the loaded version of its template (new `Templates.version`, four lines in `Validate`), with `TestATemplateBoundRenderMustCarryTheLoadedTemplateVersion` (empty, another digest, the loaded digest upcased, the loaded digest plus text, not a digest) and a README paragraph. Nothing else in the package changed.
+- Why: found by C2 while answering the review of noema#224: text and template id were right but the version string was not compared with the loaded digest, so a wrong value would have been stored as provenance (A18). It cannot change what a customer sees. Not part of the four findings on noema#224; it waited until that PR merged (A131).
+- Risks, and how they are contained: a render that carries no template version (fact-bound claims only) is not checked; a caller that builds a template-bound render by hand must copy `Fallback`'s version. Both are stated in the README.
+- Tests added (REQ-EXP-002, A18): the one above. Failing first: seen failing locally on the five variants before the fix (no separate red CI run). Mutants killed: check disabled; case-insensitive comparison.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: slice 4 (the `orchestrator.Explainer` constructor) waits on the two decisions on noema#461.
+- Do not touch: the fallback templates (EXP-04's content).
+
+
 ## Session 2026-11-12 (C2) · slice 4: fact slots, FactsSource, the Explainer (ruling A155)
 - **What changed:** `{fact:<kind>}` slots (`slots.go`, `Fallback`, `LoadTemplates`, `Validate`); `FactsSource`, `Recorder`, `Subject`, `Event`, `Explanation` and `NewExplainer`/`Explain` (`explainer.go`); tests `slots_test.go` and `explainer_test.go`; README.
 - **Failing first:** tests-only commit `4b199633` did not compile.
@@ -87,3 +101,9 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Open questions (owner): the marker for a template-only claim's `bound_fact_status` (Architect or REC-04).
 - Files to read first: `services/core/explanation/recorder/README.md`, `recorder.go`.
 - Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (night) · EXP-01 · the notes of the reviews of noema#493 (merged)
+- **What changed:** `blockedPayload` stores the rule codes sorted and without repeats and `rule` is the first (EL's P2 1; the README already said sorted); the Record-backed test `TestWhatTheReconstructionCouldNotServeIsNotWritten` now uses a template id that passes the shape rule, so its "rendered event with a rule" and "event without a correlation id" cases are refused for the rule they name (EL's P2 3; checked against `build`: "carries no rule" and "the correlation id is not well formed"); `explanation/recorder_callers_test.go` fails if any code in the core other than the Explainer calls `AppendExplanation` (Security Reviewer, note 1); README sentences for the shared object reference and the unrecorded `PrincipalID` (C1, EL P3).
+- **Failing first:** `TestTheBlockedEventStoresItsRulesSortedAndWithoutRepeats` was red locally (the stored rules were in the caller's order). Mutation by hand: a call added in another package is red; the Explainer's own call is found.
+- **Not changed, stated in the README for the reviewers (decisions, not fixes):** the digit rule across separators (a decision about ruling A154; the single source is noema#468's `platform/masking`, to which the recorder's second copy of the threshold moves when it merges, EL's P2 2), a count cap on `FactIDs` and `Rules`, and how `reconstruct` reads two events for one correlation.
+- Debt: the second copy of the digit threshold (`maxDigitRun` in the recorder), until noema#468 merges. Conflicts raised: none.

@@ -50,7 +50,7 @@ func base() map[string]any {
 	return map[string]any{
 		"schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": "ten_demo", "correlation_id": corr,
 		"created_at":  "2026-10-01T09:47:03Z",
-		"principal":   map[string]any{"principal_id": "usr_88213", "principal_type": "end_user", "authn_ref": "ses_7a1b", "asserted_by": "enterprise_idp"},
+		"principal":   map[string]any{"principal_id": "usr_88213", "principal_type": "unset", "authn_ref": "ses_7a1b", "asserted_by": "unset"},
 		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "raw_01J9X3"},
 		"pack":        map[string]any{"pack_id": "fin", "pack_version": "1.0.0"},
 		"intent_node": "fin.payments.exception.investigate",
@@ -62,7 +62,7 @@ func base() map[string]any {
 			"question_type": map[string]any{"type": "Reference", "value": "WHERE_IS_MY_MONEY"},
 		},
 		"ambiguity_flags": []any{}, "desired_outcome_refs": []any{"fin.outcome.explained"}, "status": "VALIDATED",
-		"sig": map[string]any{"key_id": "und-2026-10", "value": "c2lnbmF0dXJl"},
+		"sig": map[string]any{"key_id": "unsigned", "value": "unsigned"},
 	}
 }
 
@@ -104,7 +104,7 @@ func TestAValidObjectIsAdmittedWithTheSessionsIdentityAndAnIndependentlyComputed
 	}
 	want := `{"ambiguity_flags":[],"correlation_id":"corr_4c21f9","created_at":"2026-10-01T09:47:03Z","desired_outcome_refs":["fin.outcome.explained"],"intent_id":"int_01J9X3",` +
 		`"intent_node":"fin.payments.exception.investigate","pack":{"pack_id":"fin","pack_version":"1.0.0"},"principal":{"asserted_by":"enterprise_idp","authn_ref":"ses_7a1b",` +
-		`"principal_id":"usr_88213","principal_type":"end_user"},"schema_version":"1.0","sig":{"key_id":"und-2026-10","value":"c2lnbmF0dXJl"},` +
+		`"principal_id":"usr_88213","principal_type":"end_user"},"schema_version":"1.0","sig":{"key_id":"unsigned","value":"unsigned"},` +
 		`"slots":{"amount":{"type":"Quantity","unit":"NGN","value":2000000},"counterparty":{"surface_form":"Ade","type":"Party"},` +
 		`"question_type":{"type":"Reference","value":"WHERE_IS_MY_MONEY"},"transaction":{"resolved_ref":"fin.transaction:TX88213","status":"RESOLVED","type":"Resource"},` +
 		`"when":{"surface_form":"yesterday","type":"TimeRef","window":["2026-09-30T00:00:00Z","2026-09-30T23:59:59Z"]}},"source":{"asr_confidence":null,"channel":"text",` +
@@ -118,7 +118,7 @@ func TestAValidObjectIsAdmittedWithTheSessionsIdentityAndAnIndependentlyComputed
 func TestTheSessionsIdentityIsWrittenOverWhateverTheModelServiceReturned(t *testing.T) {
 	a, err := gate(t).Admit(raw(t, func(m map[string]any) {
 		m["tenant_id"] = "ten_other"
-		m["principal"] = map[string]any{"principal_id": "usr_attacker", "principal_type": "operator", "authn_ref": "ses_forged", "asserted_by": "model"}
+		m["principal"] = map[string]any{"principal_id": "usr_attacker", "principal_type": "unset", "authn_ref": "ses_forged", "asserted_by": "unset"}
 	}), session, corr)
 	if err != nil {
 		t.Fatal(err)
@@ -128,8 +128,8 @@ func TestTheSessionsIdentityIsWrittenOverWhateverTheModelServiceReturned(t *test
 		o.Principal.AssertedBy != "enterprise_idp" {
 		t.Fatalf("the admitted identity is %+v tenant %s, want the session's", o.Principal, o.TenantId)
 	}
-	if got := strings.Join(a.Overrides, ","); got != "tenant_id,principal_id,principal_type,authn_ref,asserted_by" {
-		t.Errorf("overrides %q, want every field that differed, by name", got)
+	if got := strings.Join(a.Overrides, ","); got != "tenant_id,principal_id,authn_ref" {
+		t.Errorf("overrides %q, want the identity members that differed, by name (principal_type and asserted_by are never the model's, ruling A166)", got)
 	}
 	if strings.Contains(string(a.Intent.JSON()), "attacker") || strings.Contains(string(a.Intent.JSON()), "ten_other") {
 		t.Error("a forged identity survives in the canonical form the hash covers")
@@ -366,5 +366,33 @@ func TestNewGateRefusesWhatItCannotRunWith(t *testing.T) {
 	}
 	if _, err := understanding.NewGate(1, nil); err == nil {
 		t.Error("no pack was accepted")
+	}
+}
+
+// Ruling A163 (asserted_by pattern ^[a-z][a-z0-9_-]*$): the session's identity provider may be named with a hyphen, as the POC's own is (noema-poc-idp). Session.valid()
+// is the gate's own check of the session the caller passes, so it must allow what the contract's pattern allows and nothing more (INV-12).
+func TestTheAssertedByOfASessionFollowsTheContractsPattern(t *testing.T) {
+	g := gate(t)
+	with := func(by string) understanding.Session {
+		s := session
+		s.AssertedBy = by
+		return s
+	}
+	for _, by := range []string{"noema-poc-idp", "enterprise_idp", "idp", "a-b_c-9", "x9"} {
+		a, err := g.Admit(raw(t, nil), with(by), corr)
+		if err != nil {
+			t.Errorf("asserted_by %q: %v", by, err)
+			continue
+		}
+		if o := a.Intent.Object(); o.Principal.AssertedBy != by {
+			t.Errorf("asserted_by %q was admitted as %q", by, o.Principal.AssertedBy)
+		}
+	}
+	for name, by := range map[string]string{"empty": "", "a leading hyphen": "-idp", "a leading digit": "9idp", "a leading underscore": "_idp", "upper case": "Noema-idp",
+		"a space": "noema idp", "a dot": "noema.idp", "a slash": "noema/idp", "a newline at the end": "noema-idp\n", "a unicode hyphen": "noema\u2010idp"} {
+		_, err := g.Admit(raw(t, nil), with(by), corr)
+		if err == nil || !has(reasons(t, err), understanding.ReasonIdentityNotInOrder) {
+			t.Errorf("%s (%q): %v, want SESSION_INVALID", name, by, err)
+		}
 	}
 }

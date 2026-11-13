@@ -118,6 +118,7 @@ var Types = map[string]func() any{
 	"integration-contract.v1":                               func() any { return new(IntegrationContractV1) },
 	"intent-node.v1":                                        func() any { return new(IntentNodeV1) },
 	"intent-object.v1":                                      func() any { return new(IntentObjectV1) },
+	"intent-object.v2":                                      func() any { return new(IntentObjectV2) },
 	"intent-slot.v1":                                        func() any { return new(IntentSlotV1) },
 	"intent-slot.v1#PartySlot":                              func() any { return new(IntentSlotV1PartySlot) },
 	"intent-slot.v1#QuantitySlot":                           func() any { return new(IntentSlotV1QuantitySlot) },

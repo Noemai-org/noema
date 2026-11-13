@@ -253,6 +253,10 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 				out = append(out, fmt.Sprintf("claim %d: its span is not the text of template %q filled from the input facts", i, c.TemplateID))
 				continue
 			}
+			if version, _ := t.version(c.TemplateID); r.TemplateVersion != version {
+				out = append(out, fmt.Sprintf("claim %d: the render's template version %q is not the loaded version of template %q", i, r.TemplateVersion, c.TemplateID))
+				continue
+			}
 		case len(c.FactIDs) > 0:
 			bad := false
 			for _, id := range c.FactIDs {
@@ -351,6 +355,17 @@ func (t Templates) text(id string) (string, bool) {
 	}
 	e, found := t.byLocale[locale][key]
 	return e.text, found
+}
+
+// version finds the version (the digest of the locale file it was loaded from) for an ID of the same form. Validate asks it only after text has found the ID, so a
+// loaded version is never empty there.
+func (t Templates) version(id string) (string, bool) {
+	locale, key, ok := strings.Cut(id, "/")
+	if !ok {
+		return "", false
+	}
+	e, found := t.byLocale[locale][key]
+	return e.version, found
 }
 
 func sentences(text string) []string {
