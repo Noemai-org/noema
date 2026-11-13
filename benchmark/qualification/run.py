@@ -70,7 +70,51 @@ def _sha(commit_sha: str) -> str:
     return commit_sha
 
 
+def subset_problems(subset: Mapping[str, Any]) -> list[str]:
+    """Why a loaded subset is not the one `select_subset` would build from its own case documents (Codex P2 on noema#199). A shortened `case_ids` and `n_cases` under the original `cases` and
+    `cases_sha256` would otherwise let a one-case PASS carry the full subset's digest. The ids, the count, the case documents and the recomputed digest must agree, and every document must be a
+    GENERATED, understanding-dependent case (INV-22: nothing held out reaches qualification)."""
+    missing = [f for f in ("schema", "subset_id", "layer", "n_cases", "case_ids", "cases_sha256", "cases") if f not in subset]
+    if missing:
+        return [f"subset is missing {', '.join(missing)}"]
+    out: list[str] = []
+    if subset["schema"] != SUBSET_SCHEMA:
+        out.append(f"subset schema must be {SUBSET_SCHEMA}, not {subset['schema']!r}")
+    if subset["layer"] != "GENERATED":
+        out.append(f"subset layer must be GENERATED, not {subset['layer']!r}")
+    if not isinstance(subset["subset_id"], str) or not subset["subset_id"] or subset["subset_id"] != subset["subset_id"].strip():
+        out.append("subset_id must be a non-empty string without surrounding space")
+    docs, ids = subset["cases"], subset["case_ids"]
+    if not isinstance(docs, list) or not isinstance(ids, list) or not all(isinstance(c, Mapping) for c in docs):
+        return out + ["subset cases and case_ids must be lists, and every case a document"]
+    doc_ids = [c.get("case_id") for c in docs]
+    if not all(isinstance(i, str) and i for i in doc_ids):
+        out.append("every case document needs a non-empty string case_id")
+    out += [f"case {i!r} appears twice in the subset's case documents" for i in sorted({x for x in doc_ids if isinstance(x, str) and doc_ids.count(x) > 1})]
+    if ids != doc_ids:
+        out.append("case_ids are not the ids of the case documents, in order: a subset's id list must be exactly the documents it carries")
+    if ids != sorted(ids, key=str):
+        out.append("case_ids are not sorted")
+    if type(subset["n_cases"]) is not int or subset["n_cases"] != len(docs):
+        out.append(f"n_cases is {subset['n_cases']!r} but the subset carries {len(docs)} case documents")
+    if subset["cases_sha256"] != sha256_of(docs):
+        out.append("cases_sha256 is not the digest of the subset's case documents: the digest, the documents and the id list must agree")
+    for doc in docs:
+        if doc.get("suite_layer") != "GENERATED":
+            out.append(f"case {doc.get('case_id')} is in layer {doc.get('suite_layer')}; held-out and partner cases never reach qualification (INV-22)")
+        elif not understanding_dependent(dict(doc)):
+            out.append(f"case {doc.get('case_id')} is not an understanding-dependent case, so it does not belong in a qualification subset")
+    return out
+
+
+def _check_subset(subset: Mapping[str, Any]) -> None:
+    problems = subset_problems(subset)
+    if problems:
+        raise ValueError("the subset is not consistent: " + "; ".join(problems))
+
+
 def _answers(subset: Mapping[str, Any], answers: Mapping[str, Json | None]) -> None:
+    _check_subset(subset)
     wanted, got = set(subset["case_ids"]), set(answers)
     if wanted != got:
         raise ValueError(f"answers must cover exactly the subset: missing {sorted(wanted - got)}, outside the subset {sorted(got - wanted)}")
@@ -130,12 +174,15 @@ def _result(statuses: list[str]) -> str:
 def compare(subset: Mapping[str, Any], baseline: Mapping[str, Any], pinned: Mapping[str, Any], answers: Mapping[str, Json | None], *, commit_sha: str, recorded_on: str) -> Json:
     """The run record: a new pinned version's answers against the baseline, case by case."""
     pin = _pinned(pinned)
+    _check_subset(subset)
     if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
         raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")
     base_pin = baseline["pinned"]
     if any(base_pin[name] != pin[name] for name in ("kind", "provider", "model_id")):
         raise ValueError(f"the baseline is for {base_pin['provider']}/{base_pin['model_id']} ({base_pin['kind']}), not {pin['provider']}/{pin['model_id']} ({pin['kind']})")
     _answers(subset, answers)
+    if set(baseline["cases"]) != set(subset["case_ids"]):
+        raise ValueError(f"the baseline does not cover exactly the subset: missing {sorted(set(subset['case_ids']) - set(baseline['cases']))}, outside the subset {sorted(set(baseline['cases']) - set(subset['case_ids']))}")
     parse_date(recorded_on)
     rows = []
     for case_id in subset["case_ids"]:

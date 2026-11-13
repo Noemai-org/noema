@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark.qualification.__main__ import main
+from benchmark.contracts import sha256_of
 from benchmark.qualification.run import (REQUIRED_RUN, build_baseline, compare, select_subset, validate_run_record)
 from benchmark.scoring.diagnostics import understanding_dependent
 from benchmark.scoring.test_report import fixture
@@ -419,6 +420,89 @@ class Cli(unittest.TestCase):
             code, text = self.run_main("subset", "--cases", str(root / "cases.json"), "--subset-id", "qs-test", "--out", str(root / "subset.json"))
             self.assertEqual(2, code, text)
             self.assertFalse((root / "subset.json").exists())
+
+
+class SubsetIntegrity(unittest.TestCase):
+    """Codex P2 on noema#199 (run.py): a loaded subset with shortened `case_ids` and `n_cases` but its original `cases` and `cases_sha256` was accepted, so a one-case PASS carried the full
+    subset's digest and qualified without drift-testing the rest. A subset is validated (ids, count, case documents, recomputed digest, layer and kind) before either artifact is built."""
+
+    def shortened(self) -> Json:
+        sub = copy.deepcopy(subset())
+        sub["case_ids"] = sub["case_ids"][:1]
+        sub["n_cases"] = 1
+        return sub
+
+    def refused_everywhere(self, sub: Json, pattern: str) -> None:
+        answers_for = answers(sub, PINNED["version"])
+        with self.assertRaisesRegex(ValueError, pattern):
+            build_baseline(sub, PINNED, answers_for, commit_sha=SHA)
+        honest = subset()
+        with self.assertRaisesRegex(ValueError, pattern):
+            compare(sub, baseline(honest), NEW, answers(sub, NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
+
+    def test_the_reproduction_of_the_review_is_refused(self) -> None:
+        self.refused_everywhere(self.shortened(), "subset")
+
+    def test_a_count_that_is_not_the_number_of_cases_is_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["n_cases"] += 1
+        self.refused_everywhere(sub, "n_cases")
+
+    def test_case_ids_that_are_not_the_ids_of_the_case_documents_in_order_are_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["case_ids"] = list(reversed(sub["case_ids"]))
+        self.refused_everywhere(sub, "case_ids")
+
+    def test_an_id_list_that_names_a_case_the_documents_do_not_carry_is_refused(self) -> None:
+        """Same length, still sorted, digest and count right: only the id list lies (it would make `compare` ask for an answer to a case that is not in the subset)."""
+        sub = copy.deepcopy(subset())
+        sub["case_ids"][-1] = sub["case_ids"][-1] + "~"
+        self.assertEqual(sub["case_ids"], sorted(sub["case_ids"]))
+        self.refused_everywhere(sub, "case_ids")
+
+    def test_case_documents_that_do_not_hash_to_the_digest_are_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["cases"][0]["suite_family"] = "TAMPERED"
+        self.refused_everywhere(sub, "cases_sha256")
+
+    def test_a_digest_recomputed_over_fewer_cases_with_the_full_id_list_is_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["cases"] = sub["cases"][:1]
+        sub["cases_sha256"] = sha256_of(sub["cases"])
+        self.refused_everywhere(sub, "case_ids|n_cases")
+
+    def test_a_case_that_is_not_generated_or_not_understanding_dependent_is_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["cases"][0]["suite_layer"] = "HELD_OUT"
+        sub["cases_sha256"] = sha256_of(sub["cases"])
+        self.refused_everywhere(sub, "GENERATED|layer|INV-22")
+        other = [c for c in cases() if c.get("suite_layer") == "GENERATED" and not understanding_dependent(c)]
+        self.assertTrue(other)
+        sub = copy.deepcopy(subset())
+        sub["cases"][0] = other[0]
+        sub["case_ids"][0] = other[0]["case_id"]
+        sub["cases_sha256"] = sha256_of(sub["cases"])
+        self.refused_everywhere(sub, "understanding")
+
+    def test_a_repeated_case_document_is_refused(self) -> None:
+        sub = copy.deepcopy(subset())
+        sub["cases"].append(copy.deepcopy(sub["cases"][0]))
+        sub["case_ids"].append(sub["case_ids"][0])
+        sub["n_cases"] += 1
+        sub["cases_sha256"] = sha256_of(sub["cases"])
+        self.refused_everywhere(sub, "twice|duplicate")
+
+    def test_a_baseline_that_does_not_cover_exactly_the_subset_is_refused(self) -> None:
+        base = copy.deepcopy(baseline())
+        dropped = sorted(base["cases"])[0]
+        del base["cases"][dropped]
+        with self.assertRaisesRegex(ValueError, "baseline"):
+            compare(subset(), base, NEW, answers(subset(), NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
+
+    def test_an_honest_subset_is_accepted_by_both(self) -> None:
+        sub = subset()
+        self.assertEqual("PASS", run(sub=sub)["result"])
+        self.assertEqual(sub["n_cases"], baseline(sub) and len(baseline(sub)["cases"]))
 
 
 if __name__ == "__main__":
