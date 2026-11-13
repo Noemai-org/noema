@@ -5,7 +5,7 @@
 # `make up` and the CI stack have no BENCH_OUT, no writable mount and no benchmark code. The three variables are set by that target:
 #   NOEMA_BENCH_OUT  absolute host path of the Makefile's BENCH_OUT
 #   NOEMA_BENCH_UID, NOEMA_BENCH_GID  the invoking user, so the files on the host are theirs
-# The two mounts are benchmark output and the read-only writer code; nothing here mounts benchmark-heldout (INV-22).
+# The two mounts are the benchmark COST directory only (not the whole output directory, which also holds the generated suite and its oracle documents, INV-22) and the read-only writer code; nothing here mounts benchmark-heldout (INV-22).
 services:
   model:
     user: "${NOEMA_BENCH_UID:?set by make bench-model-up}:${NOEMA_BENCH_GID:?set by make bench-model-up}"
@@ -14,5 +14,5 @@ services:
       BENCH_OUT: /bench-out
       PYTHONPATH: /bench
     volumes:
-      - ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out
+      - ${NOEMA_BENCH_OUT:?set by make bench-model-up}/cost:/bench-out/cost
       - ../../benchmark/model_cost:/bench/model_cost:ro

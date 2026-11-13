@@ -72,7 +72,10 @@ def test_the_bench_compose_override_mounts_benchmark_output_and_the_writer_code_
     text = (REPO / "deploy" / "compose" / "bench-model.yml").read_text()
     live = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     volumes = [line.strip() for line in live if line.lstrip().startswith("- ") and ":" in line]
-    assert volumes == ["- ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out", "- ../../benchmark/model_cost:/bench/model_cost:ro"]
+    # Only the cost directory is shared with the model, never the whole output directory: the runner writes the generated suite and its oracle documents beside it, and the model
+    # must not be able to read the expected outcomes or change the files the scorer reads (INV-22; Codex P1 on noema#444).
+    assert volumes == ["- ${NOEMA_BENCH_OUT:?set by make bench-model-up}/cost:/bench-out/cost", "- ../../benchmark/model_cost:/bench/model_cost:ro"]
+    assert not any(line.endswith(":/bench-out") for line in volumes)
     assert not any("held" in line.lower() for line in live)
     assert any("model_cost.model_app:app" in line for line in live)
 

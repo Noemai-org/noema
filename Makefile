@@ -120,7 +120,7 @@ env-relay-build:
 # Only this target adds deploy/compose/bench-model.yml, so `make up` never sets BENCH_OUT or mounts anything writable.
 model-bench-up:
 	deploy/compose/secrets_local.sh
-	mkdir -p $(BENCH_OUT)
+	mkdir -p $(BENCH_OUT)/cost
 	NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) \
 	  docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml --profile bench up -d --build --wait
 
@@ -131,7 +131,7 @@ BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NO
 .PHONY: bench-up bench-down
 bench-up:
 	deploy/compose/secrets_local.sh
-	mkdir -p $(BENCH_OUT)
+	mkdir -p $(BENCH_OUT)/cost
 	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait
 
 bench-down:
