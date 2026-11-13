@@ -694,6 +694,63 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 	}
 }
 
+// A154 (relayed, to be committed): the maximum unmasked digit run is 4 on every outward surface, in whatever script the digits are written. Full-width,
+// Arabic-Indic and Devanagari digits, and a run that mixes scripts, are digits (Unicode Nd) like ASCII ones; a four-digit run in any script is left alone.
+func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[9].payload = map[string]any{"claims": []any{
+		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H 12345 I",
+			"bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
+	}}
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "A ****\uff14\uff15\uff16\uff17 B ***\u0663\u0664\u0665\u0666 C **\u0969\u096a\u096b\u096c D *****\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H *2345 I"
+	if got := parse(t, raw).section("EXPLANATION")[0].Facts["text"]; got != want {
+		t.Fatalf("claim text %q, want %q", got, want)
+	}
+}
+
+// Codex P1 on noema#492 (A154): an `_id` fact was served as written whatever its value, so a payload that put an account-number-shaped value in `request_id` or
+// `decision_id` was served whole. An ID is exempt from masking only when it is the contract shape of that key (its prefix and a 2 to 32 character body); any other
+// value is masked like every scalar. A minted ID (26 Crockford characters) that holds a long digit run is still served as written, because other facts cite it (project_mask_test.go).
+func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[1].payload["request_id"] = "see req_ab 0123456789"   // no prefix: a number, not a request ID
+	events[8].payload["decision_id"] = "acct_0123456789"        // a prefix of another kind
+	events[3].payload["intent_id"] = "int_AB123456CD"           // a shaped ID that is not a minted ID: masked
+	events[7].payload["policy_id"] = "fin.pol.limit_0123456789" // a pack ID is masked like text
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	for _, c := range []struct{ section, key, want string }{
+		{"REQUEST", "request_id", "see req_ab ******6789"},
+		{"DECISION", "decision_id", "acct_******6789"},
+		{"REQUEST", "intent_id", "int_AB**3456CD"},
+		{"POLICY", "policy_id", "fin.pol.limit_******6789"},
+	} {
+		found := false
+		for _, it := range b.section(c.section) {
+			if got, ok := it.Facts[c.key]; ok {
+				found = true
+				if got != c.want {
+					t.Errorf("%s.%s = %q, want %q", c.section, c.key, got, c.want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s has no %s fact", c.section, c.key)
+		}
+	}
+}
+
 // REQ-AUD-003 Security ("Masked"), AGENTS.md section 7 (mask to the last four digits): a run of five or more digits in
 // a served free-text or scalar fact keeps only its last four. References and IDs, which the contract patterns check
 // and which the reader matches on, are not facts of this kind and are served as written.
