@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { ContractError, PARSERS } from "../build/js/contracts/index.js";
-import { arr, bool, closed, int, lit, num, obj, oneOfLit, req, str, union } from "../build/js/contracts/_runtime.js";
+import { ContractError, PARSERS } from "../build/js/contract_types/index.js";
+import { arr, bool, closed, int, lit, num, obj, oneOfLit, req, str, union } from "../build/js/contract_types/_runtime.js";
 
 const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.url));
 // The rules a generated parser holds beyond shape: the bounds of a string, a number and a list. Conditional rules (anyOf over constraints, if/then, not, contains) stay with the

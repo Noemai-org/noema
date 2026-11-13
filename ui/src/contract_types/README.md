@@ -1,4 +1,4 @@
-# ui/src/contracts
+# ui/src/contract_types
 
 Generated TypeScript types and parsers for the contracts the UI reads (REQ-UI-001, REQ-API-001, AGENT-15). **Nothing here is edited by hand**: `python3 -I tools/codegen/generate.py --write` regenerates it from `contracts/schemas`, and `--check` (run by CI) fails when a file differs or was added by hand.
 
