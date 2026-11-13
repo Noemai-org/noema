@@ -61,6 +61,20 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Files to read first: `contracts/schemas/explanation-facts.v2.json`, `contracts/fixtures/invalid/explanation-facts.v2/`.
 - Do not touch: generated `*_gen.go` and `explanation_facts_v2.py` by hand.
 
+## Session 2026-11-12 04:00 UTC · EXP-01 · the template version is checked (follow-up to noema#224)
+
+## Session summary
+- What changed: `Validate` refuses a template-bound render whose `TemplateVersion` is not the loaded version of its template (new `Templates.version`, four lines in `Validate`), with `TestATemplateBoundRenderMustCarryTheLoadedTemplateVersion` (empty, another digest, the loaded digest upcased, the loaded digest plus text, not a digest) and a README paragraph. Nothing else in the package changed.
+- Why: found by C2 while answering the review of noema#224: text and template id were right but the version string was not compared with the loaded digest, so a wrong value would have been stored as provenance (A18). It cannot change what a customer sees. Not part of the four findings on noema#224; it waited until that PR merged (A131).
+- Risks, and how they are contained: a render that carries no template version (fact-bound claims only) is not checked; a caller that builds a template-bound render by hand must copy `Fallback`'s version. Both are stated in the README.
+- Tests added (REQ-EXP-002, A18): the one above. Failing first: seen failing locally on the five variants before the fix (no separate red CI run). Mutants killed: check disabled; case-insensitive comparison.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: slice 4 (the `orchestrator.Explainer` constructor) waits on the two decisions on noema#461.
+- Do not touch: the fallback templates (EXP-04's content).
+
+
 ## Session 2026-11-12 (C2) · slice 4: fact slots, FactsSource, the Explainer (ruling A155)
 - **What changed:** `{fact:<kind>}` slots (`slots.go`, `Fallback`, `LoadTemplates`, `Validate`); `FactsSource`, `Recorder`, `Subject`, `Event`, `Explanation` and `NewExplainer`/`Explain` (`explainer.go`); tests `slots_test.go` and `explainer_test.go`; README.
 - **Failing first:** tests-only commit `4b199633` did not compile.
@@ -73,4 +87,17 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Exact next step: C2 builds the `RecordRecorder` (as `core-edge`, `EXPLANATION_RENDERED` claims in the shape `record/reconstruct/project.go` reads, `EXPLANATION_BLOCKED{rule}`), then the pack edit under Founder approval.
 - Open questions (owner): the payload shape of `EXPLANATION_RENDERED` for template-bound claims (REC-04).
 - Files to read first: `services/core/explanation/README.md`, `explainer.go`.
+- Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (C2) · slice 5: the Record-backed Recorder (ruling A155)
+- **What changed:** `services/core/explanation/recorder/` (`Recorder`, `doc.go`, `README.md`, `recorder.go`), tests `recorder_test.go` (against PostgreSQL) and `build_test.go` (no database), the README of `explanation/`.
+- **Failing first:** the tests-only commit `8662462e` (the package did not exist). The PR was opened on that head so its CI run is the red evidence. That commit built an unsigned `chain.Appender`; `main` requires a signer per emitter since REC-08 (`record/chain` refuses to append otherwise), so the implementation commit adds `recordsig.All` to the test world.
+- **Local limit, stated:** this machine has no pgsodium, so a database append cannot succeed here and `recorder_test.go` ran in CI only. The rule layer (`build_test.go`) ran locally, with 31 hand-run mutations of `recorder.go`, each red; three first did not compile (an unused variable or import) and were redone in a compile-safe form.
+- **Found while doing it:** my open PRs noema#466 (input gateway) and noema#471 (admitted-intent store) were cut before REC-08 reached `main` and build an unsigned Appender in their tests. They will fail on `core` once they meet current `main`; both need `main` merged in and `recordsig.All` in their test worlds (done in follow-up pushes, noted on each PR).
+- **Debt for the Steward to register:** none new. **Conflicts raised:** none.
+
+### Pre-work for the next agent
+- Exact next step: EL wires `Recorder` (the tenant's core-edge login), the real `FactsSource` and the adapter in `compose.go`; the pack templates with slots need one Founder approval.
+- Open questions (owner): the marker for a template-only claim's `bound_fact_status` (Architect or REC-04).
+- Files to read first: `services/core/explanation/recorder/README.md`, `recorder.go`.
 - Do not touch: the pack templates (Founder approval).

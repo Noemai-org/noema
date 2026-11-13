@@ -76,6 +76,7 @@ var (
 	sessionTenantRe    = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	sessionAuthnRe     = regexp.MustCompile(`^ses_[0-9A-Za-z]{2,32}$`)
 	lowerSnakeRe       = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	assertedByRe       = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`) // the contract's asserted_by pattern since ruling A163: the POC's own provider is noema-poc-idp
 	intentIDRe         = regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`)
 	intentRefRe        = regexp.MustCompile(`^(int_[0-9A-Za-z]{2,32})@([0-9]+)$`)
 	correlationRe      = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
@@ -103,7 +104,7 @@ type Session struct {
 
 func (s Session) valid() bool {
 	return sessionPrincipalRe.MatchString(s.PrincipalID) && sessionTenantRe.MatchString(s.TenantID) && sessionAuthnRe.MatchString(s.AuthnRef) &&
-		lowerSnakeRe.MatchString(s.PrincipalType) && lowerSnakeRe.MatchString(s.AssertedBy)
+		lowerSnakeRe.MatchString(s.PrincipalType) && assertedByRe.MatchString(s.AssertedBy)
 }
 
 // Node is what the pack says about one intent node: its slots by name and type, and its outcome definitions.
