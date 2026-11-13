@@ -209,6 +209,7 @@
  "qualification-record/bad_verdict.json": "enum",
  "qualification-record/missing_context_sha256.json": "required",
  "qualification-record/missing_decision_record.json": "required",
+ "qualification-record/missing_pass_k_cases_sha256.json": "required",
  "qualification-record/unknown_member.json": "additionalProperties",
  "qualification-run/bad_case_status.json": "enum",
  "qualification-run/held_out_layer.json": "const",

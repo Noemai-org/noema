@@ -10,5 +10,7 @@
   "missing_pinned.json": "required",
   "pinned_without_a_version.json": "oneOf",
   "pinned_kind_not_llm_or_speech.json": "oneOf",
-  "pinned_with_an_extra_field.json": "oneOf"
+  "pinned_with_an_extra_field.json": "oneOf",
+  "missing_pass_k_cases_sha256.json": "required",
+  "pass_k_cases_sha256_not_a_digest.json": "oneOf"
 }

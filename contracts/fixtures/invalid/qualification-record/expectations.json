@@ -7,5 +7,7 @@
   "missing_decision_record.json": "required",
   "unknown_member.json": "additionalProperties",
   "missing_context_sha256.json": "required",
-  "context_not_a_digest.json": "oneOf"
+  "context_not_a_digest.json": "oneOf",
+  "missing_pass_k_cases_sha256.json": "required",
+  "pass_k_cases_sha256_not_a_digest.json": "oneOf"
 }

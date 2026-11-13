@@ -72,5 +72,6 @@
   "tier0_all_zero": true,
   "verdict": "QUALIFIED",
   "version": "2026-11-01",
-  "context_sha256": "not-a-digest"
+  "context_sha256": "not-a-digest",
+  "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036"
 }

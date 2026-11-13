@@ -134,3 +134,35 @@ class Identity(unittest.TestCase):
             code, text = run_cli(root, root / "out", "--pinned-provider", "openai")
             self.assertEqual(2, code)
             self.assertIn("pinned", text)
+
+
+class SubsetDigest(unittest.TestCase):
+    """Codex P2 on noema#199: the provenance carries the digest of the understanding-dependent cases the scorer read, computed by the same function as the qualification subset's
+    `cases_sha256`, so the two can be compared."""
+
+    def test_it_is_the_qualification_subsets_own_digest_for_the_same_cases(self) -> None:
+        from benchmark.qualification.run import select_subset
+        from benchmark.scoring.provenance import understanding_cases_digest
+        from benchmark.scoring.test_report import fixture
+        cases = fixture()[0]
+        self.assertEqual(select_subset(cases, subset_id="s")["cases_sha256"], understanding_cases_digest(cases))
+
+    def test_it_ignores_cases_that_do_not_depend_on_understanding_and_their_order(self) -> None:
+        from benchmark.scoring.provenance import understanding_cases_digest
+        from benchmark.scoring.test_report import fixture
+        cases = fixture()[0]
+        self.assertEqual(understanding_cases_digest(cases), understanding_cases_digest(list(reversed(cases))))
+
+    def test_no_understanding_dependent_case_gives_no_digest(self) -> None:
+        from benchmark.scoring.provenance import understanding_cases_digest
+        self.assertIsNone(understanding_cases_digest([]))
+
+    def test_the_command_writes_it_into_the_provenance(self) -> None:
+        from benchmark.scoring.provenance import understanding_cases_digest
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            prov = scored(root, "out")["prov"]
+            cases = [json.loads(f.read_text()) for f in sorted((root / "cases").glob("*.json"))]
+            self.assertEqual(understanding_cases_digest(cases), prov["pass_k_cases_sha256"])  # type: ignore[index]
+            self.assertEqual([], CONTRACTS.errors("benchmark-run-provenance", prov))

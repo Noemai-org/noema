@@ -113,6 +113,7 @@ class QualificationRecordV1(ContractModel):
     reasons: list[Annotated[str, StringConstraints(min_length=1)]]
     runs: Annotated[list[QualificationRecordV1Run], Field(min_length=1, max_length=5)]
     context_sha256: QualificationRecordV1Sha256 | None
+    pass_k_cases_sha256: QualificationRecordV1Sha256 | None
 
 
 QualificationRecordV1Bar.model_rebuild()

@@ -50,11 +50,11 @@ def results_sha(run_id: str) -> str:
 DECLARED: Json = {"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": PINNED["version"]}
 
 
-def provenance_for(card: Json, repeats: list[Json], pinned: Json | None = None, context: str | None = None) -> tuple[Json, list[Json]]:
+def provenance_for(card: Json, repeats: list[Json], pinned: Json | None = None, context: str | None = None, subset_digest: str | None = None) -> tuple[Json, list[Json]]:
     """The provenance files scoring writes for the primary run and the four repeats: the primary lists all five runs, each file names its own scorecard's digest."""
     runs = [{"run_id": c["run_id"], "results_sha256": results_sha(c["run_id"])} for c in (card, *repeats)]
     def one(c: Json, listed: list[Json] | None) -> Json:
-        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": context if context is not None else CONTEXT, "pinned": pinned if pinned is not None else dict(DECLARED), "pass_k_runs": listed}
+        return {"schema": "benchmark-run-provenance.v1", "run_id": c["run_id"], "results_sha256": results_sha(c["run_id"]), "scorecard_sha256": sha256_of(c), "context_sha256": context if context is not None else CONTEXT, "pass_k_cases_sha256": subset_digest if subset_digest is not None else subset()["cases_sha256"], "pinned": pinned if pinned is not None else dict(DECLARED), "pass_k_runs": listed}
     return one(card, runs), [one(c, None) for c in repeats]
 
 
@@ -93,11 +93,12 @@ def record(card: Json | None = None, drift: Json | None = None, **changes: Any) 
         args.setdefault("baseline_record_sha256", baseline_sha())
     card = card or forty_case_card()
     context = args.pop("context", None)
+    subset_digest = args.pop("subset_digest", None)
     args.setdefault("repeat_cards", repeat_cards(card))
     if args["baseline_pass_k"] is not None and "baseline_record_sha256" not in changes:
         args.setdefault("baseline_record", baseline_record())
     if "provenance" not in args and len(args["repeat_cards"]) == 4:
-        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"], pinned={name: args[name] for name in ("kind", "provider", "model_id", "version")}, context=context)
+        args["provenance"], args["repeat_provenance"] = provenance_for(card, args["repeat_cards"], pinned={name: args[name] for name in ("kind", "provider", "model_id", "version")}, context=context, subset_digest=subset_digest)
     return build_record(card, drift or run(), **args)
 
 
@@ -748,6 +749,52 @@ class Requalification(unittest.TestCase):
         rec = record(card, baseline_pass_k=0.9)
         self.assertEqual("NOT_QUALIFIED", rec["verdict"])
         self.assertTrue(any("below the bar" in r for r in rec["reasons"]), rec["reasons"])
+
+
+class SubsetBinding(unittest.TestCase):
+    """Codex P2 on noema#199 (bbcf8909): the five scored runs were bound to each other and to the baseline's context, but not to the qualification subset the drift canary ran on, so
+    passing scores on a different, easier set could still qualify the model. The understanding-dependent cases the scorer read (the pass^k denominator's set) must be exactly the
+    subset of the drift run (`cases_sha256`)."""
+
+    EASIER = "sha256:" + hashlib.sha256(b"a different, easier set of cases").hexdigest()
+
+    def test_the_runs_scored_on_the_drift_runs_subset_qualify_and_the_record_says_so(self) -> None:
+        rec = record(baseline_pass_k=0.9)
+        self.assertEqual("QUALIFIED", rec["verdict"])
+        self.assertEqual(subset()["cases_sha256"], rec["pass_k_cases_sha256"])
+        self.assertEqual(rec["drift"]["cases_sha256"], rec["pass_k_cases_sha256"])
+
+    def test_scores_on_a_different_set_than_the_drift_subset_are_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pass_k_cases_sha256"):
+            record(baseline_pass_k=0.9, subset_digest=self.EASIER)
+
+    def test_one_repeat_scored_on_another_set_is_refused(self) -> None:
+        card = forty_case_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats, pinned={"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION})
+        repeat_prov[1]["pass_k_cases_sha256"] = self.EASIER
+        with self.assertRaisesRegex(ValueError, "pass_k_cases_sha256"):
+            record(card, baseline_pass_k=0.9, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_a_run_with_no_recorded_case_set_cannot_back_pass_k(self) -> None:
+        card = forty_case_card()
+        repeats = repeat_cards(card)
+        prov, repeat_prov = provenance_for(card, repeats, pinned={"kind": "llm", "provider": PROVIDER, "model_id": MODEL, "version": VERSION})
+        prov["pass_k_cases_sha256"] = None
+        with self.assertRaisesRegex(ValueError, "pass_k_cases_sha256"):
+            record(card, baseline_pass_k=0.9, repeat_cards=repeats, provenance=prov, repeat_provenance=repeat_prov)
+
+    def test_the_lookup_refuses_a_qualified_record_whose_runs_were_not_on_the_drift_subset(self) -> None:
+        rec = record(baseline_pass_k=0.9)
+        rec["pass_k_cases_sha256"] = self.EASIER
+        self.assertTrue(any("pass_k_cases_sha256" in p for p in validate_record(rec)), validate_record(rec))
+        self.assertTrue(lookup([rec], PROVIDER, MODEL, VERSION))
+
+    def test_a_case_set_digest_that_is_not_a_digest_is_invalid(self) -> None:
+        rec = record(baseline_pass_k=0.9)
+        for bad in ("not-a-digest", rec["pass_k_cases_sha256"] + "\n", 7):
+            rec["pass_k_cases_sha256"] = bad
+            self.assertTrue(any("pass_k_cases_sha256" in p for p in validate_record(rec)), bad)
 
 
 class Refusing(unittest.TestCase):

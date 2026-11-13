@@ -9,5 +9,6 @@
     "provider": "openai",
     "model_id": "decision-model-a",
     "version": "2026-11-01"
-  }
+  },
+  "pass_k_cases_sha256": "sha256:d4f2d2c3b74e4620ccfc60254b5b260ccb1526fb3c2ca91738b12110cd5f2ba5"
 }

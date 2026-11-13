@@ -95,6 +95,17 @@
           "$ref": "#/$defs/Sha256"
         }
       ]
+    },
+    "pass_k_cases_sha256": {
+      "description": "The digest of the understanding-dependent cases the five pass^k runs were scored on, from the run provenance; for a QUALIFIED record it equals `drift.cases_sha256`, the subset the drift canary ran on, so scores on another set cannot qualify the model. Null when pass^k was not available.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
     }
   },
   "required": [
@@ -110,6 +121,7 @@
     "pass_k",
     "scorecard_sha256",
     "context_sha256",
+    "pass_k_cases_sha256",
     "drift",
     "bar",
     "decision_record",

@@ -75,6 +75,17 @@
           "additionalProperties": false
         }
       ]
+    },
+    "pass_k_cases_sha256": {
+      "description": "The digest of the understanding-dependent cases this scoring run read (the set pass^k is measured on), computed as the qualification subset's `cases_sha256` is; null when there is none. A qualification requires it to equal the drift run's `cases_sha256` (Codex P2 on noema#199).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
     }
   },
   "required": [
@@ -84,7 +95,8 @@
     "scorecard_sha256",
     "context_sha256",
     "pass_k_runs",
-    "pinned"
+    "pinned",
+    "pass_k_cases_sha256"
   ],
   "additionalProperties": false,
   "$defs": {

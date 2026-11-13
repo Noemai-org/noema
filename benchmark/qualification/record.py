@@ -38,7 +38,7 @@ VERDICTS = ("QUALIFIED", "NOT_QUALIFIED")
 FIRST_QUALIFICATION_FLOOR = 0.90
 FIRST_QUALIFICATION_MIN_CASES = 40
 CITE = "A43 of DEC-2026-11-08-rulings-a41-onward"
-REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "context_sha256", "drift", "bar", "decision_record",
+REQUIRED = ("schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "context_sha256", "pass_k_cases_sha256", "drift", "bar", "decision_record",
             "qualified_on", "verdict", "reasons", "runs")
 
 
@@ -152,7 +152,7 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     if source["available"] is True and len(repeat_cards) != PASS_K - 1:
         raise ValueError(f"pass^k over {PASS_K} runs needs the scorecards of the {PASS_K - 1} other runs (repeat_cards), not {len(repeat_cards)}: Tier 0 is checked in every run")
     if source["available"] is True:
-        _bind_runs(card, repeat_cards, provenance, repeat_provenance, {"kind": kind, "provider": provider, "model_id": model_id, "version": version})
+        _bind_runs(card, repeat_cards, provenance, repeat_provenance, {"kind": kind, "provider": provider, "model_id": model_id, "version": version}, drift["cases_sha256"])
     if source["available"] is True and isinstance(source.get("rate"), Mapping) and type(source["rate"].get("n")) is int and source["rate"]["n"] > card["n_cases"]:
         raise ValueError(f"the scorecard's pass^k denominator {source['rate']['n']} is more than its n_cases {card['n_cases']}: it is a subset of the scored cases and cannot exceed them")
     run_ids = [card["run_id"], *(c["run_id"] for c in repeat_cards)]
@@ -182,7 +182,7 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
         reasons += _against_baseline(pass_k, context, baseline_record)
     return {
         "schema": SCHEMA, "kind": kind, "provider": provider, "model_id": model_id, "version": version, "run_id": card["run_id"], "n_cases": card["n_cases"],
-        "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "context_sha256": context, "drift": drift_block,
+        "complete": all_complete, "tier0_all_zero": all_zero, "pass_k": pass_k, "scorecard_sha256": sha256_of(card), "context_sha256": context, "pass_k_cases_sha256": provenance["pass_k_cases_sha256"] if source["available"] is True and provenance is not None else None, "drift": drift_block,
         "bar": bar, "decision_record": decision_record, "qualified_on": qualified_on, "verdict": "NOT_QUALIFIED" if reasons else "QUALIFIED", "reasons": reasons,
         "runs": runs,
     }
@@ -203,7 +203,7 @@ def _against_baseline(pass_k: Mapping[str, Any], context: Any, base: Mapping[str
 
 
 def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]], provenance: Mapping[str, Any] | None, repeat_provenance: Sequence[Mapping[str, Any]],
-               identity: Mapping[str, str]) -> None:
+               identity: Mapping[str, str], subset_cases_sha256: str | None = None) -> None:
     """The repeat scorecards are the runs pass^k rests on (Codex P1 on noema#199): the primary's provenance lists the five runs with their result digests, each repeat has its own
     provenance, and every scorecard is the one its provenance was written beside. Four unrelated clean scorecards fail here, so their safety flags are never read."""
     if provenance is None:
@@ -219,6 +219,9 @@ def _bind_runs(card: Mapping[str, Any], repeat_cards: Sequence[Mapping[str, Any]
         for field in ("kind", "provider", "model_id", "version"):
             if declared[field] != identity[field]:
                 raise ValueError(f"run {one['run_id']!r} was scored for {field} {declared[field]!r}, not {identity[field]!r}: another model's evidence cannot qualify this one")
+    for one in (provenance, *repeat_provenance):
+        if one["pass_k_cases_sha256"] is None or one["pass_k_cases_sha256"] != subset_cases_sha256:
+            raise ValueError(f"run {one['run_id']!r}: its pass_k_cases_sha256 {one['pass_k_cases_sha256']!r} is not the drift run's cases_sha256 {subset_cases_sha256!r}: the understanding-dependent cases it was scored on are not the qualification subset the drift canary ran on, so its scores cannot qualify the model")
     if provenance["run_id"] != card["run_id"] or provenance["scorecard_sha256"] != sha256_of(card):
         raise ValueError("the primary provenance is not for the primary scorecard (run_id or scorecard_sha256 differs): the scorecard was edited or is another run's")
     listed = provenance["pass_k_runs"]
@@ -276,6 +279,10 @@ def validate_record(record: Mapping[str, Any]) -> list[str]:
     if "pass_k" in blocks and type(blocks["pass_k"].get("available")) is not bool:
         out.append(f"pass_k.available must be a boolean, not {blocks['pass_k'].get('available')!r}")
         flags_ok = False
+    if record["pass_k_cases_sha256"] is not None and (not isinstance(record["pass_k_cases_sha256"], str) or not DIGEST.fullmatch(record["pass_k_cases_sha256"])):
+        out.append("pass_k_cases_sha256 is not a sha256 digest written sha256:<64 lowercase hex>, or null")
+    if record["verdict"] == "QUALIFIED" and "pass_k" in blocks and blocks["pass_k"].get("available") is True and "drift" in blocks and record["pass_k_cases_sha256"] != blocks["drift"].get("cases_sha256"):
+        out.append("verdict is QUALIFIED but pass_k_cases_sha256 is not drift.cases_sha256: the five runs were not scored on the qualification subset the drift canary ran on")
     if record["context_sha256"] is not None and (not isinstance(record["context_sha256"], str) or not DIGEST.fullmatch(record["context_sha256"])):
         out.append("context_sha256 is not a sha256 digest written sha256:<64 lowercase hex>, or null")
     for name, value in (("scorecard_sha256", record["scorecard_sha256"]), *(("drift." + k, blocks["drift"].get(k)) for k in ("run_sha256", "cases_sha256") if "drift" in blocks and k in blocks["drift"])):

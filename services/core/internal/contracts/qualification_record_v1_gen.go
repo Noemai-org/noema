@@ -217,28 +217,29 @@ func (e *QualificationRecordV1Verdict) UnmarshalJSON(b []byte) error {
 // QualificationRecordV1 is generated from qualification-record.v1.json.
 // UND-13, REQ-INT-006 (model-drift canary; DEC-2026-10-31 D25), ruling A17 of 6 Nov 2026. The record that lets a model or speech provider version be used: made from the scorecard of a qualification run that includes pas...
 type QualificationRecordV1 struct {
-	Schema          string                       `json:"schema"`
-	Kind            QualificationRecordV1Kind    `json:"kind"`
-	Provider        string                       `json:"provider"`
-	ModelId         string                       `json:"model_id"`
-	Version         string                       `json:"version"`
-	RunId           string                       `json:"run_id"`
-	NCases          int64                        `json:"n_cases"`
-	Complete        bool                         `json:"complete"`
-	Tier0AllZero    bool                         `json:"tier0_all_zero"`
-	PassK           QualificationRecordV1PassK   `json:"pass_k"`
-	ScorecardSha256 QualificationRecordV1Sha256  `json:"scorecard_sha256"`
-	Drift           QualificationRecordV1Drift   `json:"drift"`
-	Bar             QualificationRecordV1Bar     `json:"bar"`
-	DecisionRecord  string                       `json:"decision_record"`
-	QualifiedOn     string                       `json:"qualified_on"`
-	Verdict         QualificationRecordV1Verdict `json:"verdict"`
-	Reasons         []string                     `json:"reasons"`
-	Runs            []QualificationRecordV1Run   `json:"runs"`
-	ContextSha256   *QualificationRecordV1Sha256 `json:"context_sha256"`
+	Schema           string                       `json:"schema"`
+	Kind             QualificationRecordV1Kind    `json:"kind"`
+	Provider         string                       `json:"provider"`
+	ModelId          string                       `json:"model_id"`
+	Version          string                       `json:"version"`
+	RunId            string                       `json:"run_id"`
+	NCases           int64                        `json:"n_cases"`
+	Complete         bool                         `json:"complete"`
+	Tier0AllZero     bool                         `json:"tier0_all_zero"`
+	PassK            QualificationRecordV1PassK   `json:"pass_k"`
+	ScorecardSha256  QualificationRecordV1Sha256  `json:"scorecard_sha256"`
+	Drift            QualificationRecordV1Drift   `json:"drift"`
+	Bar              QualificationRecordV1Bar     `json:"bar"`
+	DecisionRecord   string                       `json:"decision_record"`
+	QualifiedOn      string                       `json:"qualified_on"`
+	Verdict          QualificationRecordV1Verdict `json:"verdict"`
+	Reasons          []string                     `json:"reasons"`
+	Runs             []QualificationRecordV1Run   `json:"runs"`
+	ContextSha256    *QualificationRecordV1Sha256 `json:"context_sha256"`
+	PassKCasesSha256 *QualificationRecordV1Sha256 `json:"pass_k_cases_sha256"`
 }
 
-var QualificationRecordV1Shape = objectShape{name: "QualificationRecordV1", props: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true, "context_sha256": true}, required: []string{"schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record", "qualified_on", "verdict", "reasons", "runs", "context_sha256"}, nonNull: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true}, closed: true}
+var QualificationRecordV1Shape = objectShape{name: "QualificationRecordV1", props: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true, "context_sha256": true, "pass_k_cases_sha256": true}, required: []string{"schema", "kind", "provider", "model_id", "version", "run_id", "n_cases", "complete", "tier0_all_zero", "pass_k", "scorecard_sha256", "drift", "bar", "decision_record", "qualified_on", "verdict", "reasons", "runs", "context_sha256", "pass_k_cases_sha256"}, nonNull: map[string]bool{"schema": true, "kind": true, "provider": true, "model_id": true, "version": true, "run_id": true, "n_cases": true, "complete": true, "tier0_all_zero": true, "pass_k": true, "scorecard_sha256": true, "drift": true, "bar": true, "decision_record": true, "qualified_on": true, "verdict": true, "reasons": true, "runs": true}, closed: true}
 
 func (t *QualificationRecordV1) UnmarshalJSON(b []byte) error {
 	raw, err := QualificationRecordV1Shape.check(b)
