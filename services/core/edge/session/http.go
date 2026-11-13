@@ -15,7 +15,7 @@ import (
 // CorrelationHeader carries the correlation ID on every response (PERD 39.1).
 const CorrelationHeader = "Noema-Correlation-Id"
 
-// noCorrelationID stands in only when the ID source fails; it still has the contract's shape.
+// noCorrelationID is the ID of the refusal when the ID source fails; it has the contract's shape and is never given to a request that goes on.
 const noCorrelationID = "corr_NONE"
 
 var correlationShape = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
@@ -26,6 +26,15 @@ type IDs interface {
 }
 
 type ctxKey struct{}
+
+type corrKey struct{}
+
+// CorrelationFromContext returns the correlation ID the edge minted for this request, or "" for a request that passed no session check. Later layers (the role gate,
+// the body guard, handlers, the Record's correlation chain) use this one ID; none takes it from the request.
+func CorrelationFromContext(ctx context.Context) string {
+	c, _ := ctx.Value(corrKey{}).(string)
+	return c
+}
 
 // FromContext returns the authenticated principal of a request that passed Middleware.
 func FromContext(ctx context.Context) (Principal, bool) {
@@ -39,7 +48,12 @@ func FromContext(ctx context.Context) (Principal, bool) {
 func Middleware(v *Verifier, ids IDs) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			corr := correlationID(r, ids)
+			corr, ok := correlationID(r, ids)
+			if !ok {
+				refuseNoCorrelation(w)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), corrKey{}, corr))
 			w.Header().Set(CorrelationHeader, corr)
 			authz := r.Header.Get("Authorization")
 			if authz == "" {
@@ -72,7 +86,11 @@ func RequireRole(ids IDs, allowed ...Role) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			corr := correlationID(r, ids)
+			corr, ok := correlationID(r, ids)
+			if !ok {
+				refuseNoCorrelation(w)
+				return
+			}
 			w.Header().Set(CorrelationHeader, corr)
 			p, ok := FromContext(r.Context())
 			if !ok {
@@ -110,16 +128,25 @@ func bearerToken(authz string) (string, bool) {
 	return cred, true
 }
 
-// correlationID keeps a well-formed incoming ID so a call can be traced end to end, and makes a new one otherwise.
-func correlationID(r *http.Request, ids IDs) string {
-	if in := r.Header.Get(CorrelationHeader); correlationShape.MatchString(in) {
-		return in
+// correlationID is the request's correlation ID: the one the session check put in the context, or a new one when this layer runs without it. An incoming
+// Noema-Correlation-Id is never adopted: a caller could send an account-number-shaped value (corr_0123456789) and have it echoed in the answer and carried into logs and
+// the Record with the chain (noema#458, REQ-SEC-003). The chain ID is ours; the caller's value is not kept.
+func correlationID(r *http.Request, ids IDs) (string, bool) {
+	if c := CorrelationFromContext(r.Context()); correlationShape.MatchString(c) {
+		return c, true
 	}
 	id, err := ids.ID("corr")
 	if err != nil || !correlationShape.MatchString(id) {
-		return noCorrelationID
+		return noCorrelationID, false
 	}
-	return id
+	return id, true
+}
+
+// refuseNoCorrelation answers a request for which no unique, valid correlation ID could be minted. The fixed value is in this refusal only, never on a request that goes on:
+// requests that continued under one shared ID would write to the Record and the logs under it (reviewer P1 on noema#481).
+func refuseNoCorrelation(w http.ResponseWriter) {
+	w.Header().Set(CorrelationHeader, noCorrelationID)
+	writeErrorStatus(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", noCorrelationID)
 }
 
 func writeError(w http.ResponseWriter, code contracts.ErrorsV2ErrorCode, message, corr string) {

@@ -20,3 +20,46 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): the counted guards ("at most 2 times" on REJECTED_AT_GATE and BLOCKED_UNKNOWN) are policy numbers and come from `platform/config` when it has them, not from literals (Architect); OD-P-60 (EXPLAINING_BLOCKED exit).
 - Files to read first: `services/core/orchestrator/README.md`, `transitions.yaml`, PERD v1.20 section 28.
 - Do not touch: `transitions.yaml` without the PERD text and `test_transitions.py` (the vendored PERD text is the check).
+
+# Session 2026-11-11 · STM-01 and EDG-01 slice 3c (the G1 slice composition root and the US-01 read runner)
+
+## Session summary
+- What changed: `orchestrator/ports.go` and `conversation.go` (the ports the slice needs and `Runner.RunRead`, the read-only path of US-01 through the PERD 28.2 table); `cmd/core/compose.go` (the composition root: `Components`, `compose`, `composeReadiness`). The ports live in `orchestrator` because `internal/contracts` holds only generated types; this is a small deviation from the package comment, which now says so.
+- Why: the Architect's order (A146/A147): the Engineering Lead owns the G1 slice composition. Task IDs EDG-01 slice 3c and STM-01; allowlist `cmd/core/compose.go`, `orchestrator/**`.
+- Risks, and how they are contained: nothing is wired into `main.go` yet (`/readyz` still answers 503 until it is), and no real component implements a port yet. The Record-first guarantee is tested against a recorder double until the Record-backed recorder exists (STM-01 slice 2); that is a shortcut for the Steward to register as debt.
+- Tests added (REQ-STM-001, INV-12, INV-03; PERD 32.4): `TestAReadWalksTheTableAndRecordsEveryMoveBeforeTheNextStep`, `TestEveryPortSeesTheSessionAndAnIncompleteSessionIsRefusedFirst`, `TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns`, `TestARecordFailureStopsTheRunAtThatMoveAndWithholdsTheAnswer`, `TestInterpretationOutcomesTakeTheTableArrows`, `TestEveryDecisionOutcomeTakesItsTableArrowAndOnlyAnAllowedReadExplains`, `TestABlockedExplanationEndsInExplainingBlockedAndNeverInCompleted`, `TestAPortFailureStopsTheRunInItsStateAndMakesNoMove`, `TestARunnerThatIsNotFullyWiredDoesNotBuild`, `TestAFullyWiredSliceComposesAndIsReady`, `TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing`. Six mutants of the runner (swallowed append error, advance before recording, an action explained, no session check, an unknown outcome allowed, a blocked explanation completing) are each killed by a named test.
+- Regression cases added: the same tests.
+- Debt entries: the recorder double (see Risks): for the Steward to register.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: switch `main.go` to `compose` and `composeReadiness` (EL, same task) once the first real components exist; then US-06 (the write path: PLANNED, EXECUTING, AWAITING_VERIFICATION) in `RunWrite`.
+- Open questions (owner): constructor names and signatures from C1 (the edge chain, noema#445), IL (the stand-in read port, noema#441), C2 (interpreter and evidence); the interface of Trust's decide call (EL, with noema#237).
+- Files to read first: `orchestrator/conversation.go`, `cmd/core/compose.go`.
+- Do not touch: `cmd/core/main.go` and `compose.go` (the composition root is the Engineering Lead's alone).
+
+## Review notes from C2 on the composition PR (2026-11-11, EL)
+1. **Session fields (REQ-INP-002).** `orchestrator.Session{TenantID, PrincipalID}` is smaller than the four identity fields the input gate takes (`principal_id`, `principal_type`, `authn_ref`, `asserted_by`). Neither the edge's `session.Principal` nor the token carries the other three. This is not decided here: it needs an owner (EDG-01 for the token and principal, UND-04 for the gate). Until then the Interpreter adapter cannot be built from this `Session`. Open on noema#454 (owner: Architect or Steward).
+2. **Creation of the investigation** is not recorded by `RunRead`, which starts at RECEIVED and records four moves. Whether the input gateway's `INPUT_RECEIVED` is that event is undecided (owner: Architect). Until it is, a reconstruction would begin at a move from a state with no event.
+3. **A second `RunRead` with the same `InvestigationID`** restarts at version 0. The Record-backed recorder (slice 2) must refuse a stale expected version (unique key on investigation and version) so the same moves cannot be appended twice.
+4. **A port failure or `ErrNotARead`** leaves the investigation in its last state with no failure move, by design. The persistence slice needs a way to resume or close such a run.
+5. **Typed nil.** `missing` compares interface values to nil, so a typed nil pointer in an interface passes. Check when the C1, C2 and IL constructors are plugged in.
+6. **Intent store.** No merged code or task row builds the store of an admitted intent with its `intent_hash` (`Interpretation.IntentRef`, #448's `IntentSource`). Open on noema#454.
+
+## Session 2026-11-12 · slice 2: the investigation store (EL)
+
+## Session summary
+- What changed: migration `0025_investigation.sql` (number proposed to the Steward, next free after 0024) and `orchestrator/investigations` (`Store.Start`, idempotent per recorded input; `Store.AppendChange`, the Recorder: event first, then the compare-and-swap, one transaction).
+- Why: noema#477 (an input whose turn failed to start must not be run twice or stranded) and SR's note 2 on noema#264 (the expected version is part of the compare-and-swap and comes from what the caller read, never from a default). Gives the runner a durable, tenant-bound state.
+- Tests added (REQ-STM-001, REQ-AUD-001, REQ-SEC-004, EC-E16): `table_test.go` (SQL only: the states equal the machine's, RECEIVED at 0, one investigation per recorded input, one version at a time, identity columns immutable by privilege, no delete or truncate, tenant isolation, only the orchestrator role) and `store_test.go` (idempotent Start, eight concurrent starts make one, refusals, event and row together, a stale change writes nothing, a failed append moves nothing, four racing changes have one winner, another tenant's login). Written first (`841b9d52`, `51b518e4`). Seven mutants on the migration killed (no FORCE, no version guard, update on all columns, no unique key, delete allowed, no insert guard, a second role admitted); the column-privilege mutant survived until the tests bumped the version.
+- Not run locally: the Record-signing extension is not in this machine's PostgreSQL, so `store_test.go`'s tests that append events could not run here; CI is the first run for them. The Start tests, the refusals and all of `table_test.go` ran and pass.
+- Not done, stated: the runner does not call `Start` yet (it follows noema#465, same files); resume of a stranded run (the table has no failure state; re-deciding would record a second decision); the Admissions read.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#465 merges, add `Investigations` to `orchestrator.Ports`, have `RunRead` call `Start` and refuse to run an investigation whose version is above 0 (`ErrAlreadyStarted`), and plug the store into `compose.go` as `Recorder` and `Investigations`.
+
+### Update 2026-11-12 · reviewer P1 and P2 on noema#490
+- P1 (an investigation for an input the Record does not confirm): `Store.Inputs` (required) is asked before the insert; `ConfirmWith(Lookuper)` compares the recorded event with the session and the request (type INPUT_RECEIVED, tenant, principal, correlation); a lookup failure is a refusal. P2 (reuse with another correlation): `Start` reads the stored correlation on the conflict path and refuses a mismatch. Tests first; seven mutants killed (confirmation skipped, the correlation compare, each of the four comparisons in `ConfirmWith`, a lookup failure passing).
+- Pre-work: the composition root adapts `record/admission.Reader` (noema#497, `Found`) to `Lookuper` and passes `ConfirmWith(...)` as `Inputs`.
+
