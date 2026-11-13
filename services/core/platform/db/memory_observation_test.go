@@ -182,3 +182,24 @@ func TestTheOwnerCannotInsertAnObservationOutsideTheWritePath(t *testing.T) {
 		t.Fatal("the owner inserted into memory_observation directly: row security is not forced on it (A6)")
 	}
 }
+
+// C2's finding on noema#272 (the same defect as noema#462): a function created without a REVOKE is executable by every role, and noema#268's
+// TestEvidenceVerifyHoldsExactlyTheGrantsD9Names counts every non-trigger function in public that evidence_verify can execute and expects none. Neither function of this
+// migration is executable by PUBLIC: the CHECK that calls memory_observation_is_typed runs as the owner inside the definer function, which needs no grant. REQ-SEC-004.
+func TestNoFunctionOfTheMemoryMigrationIsExecutableByPublic(t *testing.T) {
+	admin, _ := migratedDSN(t)
+	for _, fn := range []string{"public.memory_observation_is_typed(jsonb)", "public.memory_observation_record(text, text, text, jsonb, text, timestamptz, text, text)"} {
+		var can bool
+		if err := admin.QueryRow(ctx(t), `SELECT has_function_privilege('public', $1::regprocedure, 'EXECUTE')`, fn).Scan(&can); err != nil {
+			t.Fatalf("%s: %v", fn, err)
+		}
+		if can {
+			t.Errorf("%s is executable by PUBLIC", fn)
+		}
+	}
+	// The CHECK still holds: an observation with free text is refused by the constraint even though PUBLIC cannot call the function.
+	var typed bool
+	if err := admin.QueryRow(ctx(t), `SELECT public.memory_observation_is_typed('{"samples": 12}'::jsonb)`).Scan(&typed); err != nil || !typed {
+		t.Fatalf("the owner cannot call the typed check: %v %v", typed, err)
+	}
+}

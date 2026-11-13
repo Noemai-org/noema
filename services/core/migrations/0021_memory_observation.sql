@@ -31,6 +31,9 @@ LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $$
           ))
 $$;
 ALTER FUNCTION public.memory_observation_is_typed(jsonb) OWNER TO noema_migrator;
+-- Not executable by PUBLIC (the same defect 0015 had, noema#462): a function created without a REVOKE is callable by every role. The CHECK below runs it as the owner, inside the
+-- definer write function, which needs no grant.
+REVOKE ALL ON FUNCTION public.memory_observation_is_typed(jsonb) FROM PUBLIC;
 
 CREATE TABLE public.memory_observation (
   memory_id             text PRIMARY KEY CHECK (memory_id ~ '^mem_[A-Za-z0-9]+$'),
