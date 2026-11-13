@@ -28,11 +28,19 @@ type fakes struct {
 	explEr   error
 	failAt   int // the nth AppendChange fails (1-based); 0 means never
 
+	admission orchestrator.Admission // what the Record holds for the turn's INPUT_RECEIVED reference
+	admitEr   error
+	lookedUp  string // the reference the runner asked about
+
 	calls   []string
 	changes []orchestrator.Change
 	session orchestrator.Session // the session every port was called with
 }
 
+func (f *fakes) Lookup(_ context.Context, s orchestrator.Session, ref string) (orchestrator.Admission, error) {
+	f.calls, f.session, f.lookedUp = append(f.calls, "admission"), s, ref
+	return f.admission, f.admitEr
+}
 func (f *fakes) Interpret(_ context.Context, s orchestrator.Session, _ orchestrator.Turn) (orchestrator.Interpretation, error) {
 	f.calls, f.session = append(f.calls, "interpret"), s
 	return f.interp, f.interpEr
@@ -60,16 +68,17 @@ func (f *fakes) AppendChange(_ context.Context, s orchestrator.Session, c orches
 
 func happy() *fakes {
 	return &fakes{
-		interp:   orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: "int_AA11"},
-		evid:     orchestrator.EvidenceRef{SnapshotID: "evs_AA11"},
-		decision: orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: true},
-		expl:     orchestrator.Explanation{Text: "Your payment is pending at the destination."},
+		admission: orchestrator.Admission{EventType: "INPUT_RECEIVED", TenantID: "ten_aa", PrincipalID: "usr_01", CorrelationID: "corr_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"},
+		interp:    orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: "int_AA11"},
+		evid:      orchestrator.EvidenceRef{SnapshotID: "evs_AA11"},
+		decision:  orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: true},
+		expl:      orchestrator.Explanation{Text: "Your payment is pending at the destination."},
 	}
 }
 
 var (
 	sess = orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01"}
-	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?"}
+	turn = orchestrator.Turn{InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "Where is my money?", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"}
 )
 
 func runner(t *testing.T, f *fakes) *orchestrator.Runner {
@@ -78,7 +87,7 @@ func runner(t *testing.T, f *fakes) *orchestrator.Runner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f})
+	r, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +116,7 @@ func TestAReadWalksTheTableAndRecordsEveryMoveBeforeTheNextStep(t *testing.T) {
 		t.Errorf("answer %q", res.Answer)
 	}
 	// Record first: each move is recorded before the port work that follows it.
-	order := []string{"record:INTERPRETING", "interpret", "record:EVALUATING", "evidence", "decide", "record:EXPLAINING", "explain", "record:COMPLETED"}
+	order := []string{"admission", "record:INTERPRETING", "interpret", "record:EVALUATING", "evidence", "decide", "record:EXPLAINING", "explain", "record:COMPLETED"}
 	if !reflect.DeepEqual(f.calls, order) {
 		t.Errorf("calls %v, want %v", f.calls, order)
 	}
@@ -130,14 +139,90 @@ func TestEveryPortSeesTheSessionAndAnIncompleteSessionIsRefusedFirst(t *testing.
 
 func TestATurnWithoutItsIdentifiersIsRefusedBeforeAnythingRuns(t *testing.T) {
 	for name, tr := range map[string]orchestrator.Turn{
-		"no investigation": {CorrelationID: "corr_AA11", Text: "x"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11"},
-		"a control character in the id": {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x"},
+		"no investigation": {CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"}, "no correlation": {InvestigationID: "inv_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"}, "no text": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"},
+		"no request id":                                             {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11"},
+		"a request id with text before it":                          {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "x3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"},
+		"a request id in capitals":                                  {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "3F2B8C1E-5D4A-4B7E-9A10-2C6D8E0F1A23"},
+		"the common.v1 req_ form (the client request id is a UUID)": {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "req_AA11"},
+		"a request id that is not one":                              {InvestigationID: "inv_AA11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23\n"},
+		"a control character in the id":                             {InvestigationID: "inv_AA\n11", CorrelationID: "corr_AA11", Text: "x", InputReceivedRef: "recev_AA11", RequestID: "3f2b8c1e-5d4a-4b7e-9a10-2c6d8e0f1a23"},
 	} {
 		f := happy()
 		_, err := runner(t, f).RunRead(context.Background(), sess, tr)
 		if !errors.Is(err, orchestrator.ErrBadTurn) || len(f.calls) != 0 {
 			t.Errorf("%s: err %v, calls %v; want ErrBadTurn and nothing run", name, err, f.calls)
 		}
+	}
+}
+
+// A161 (relayed, to be committed): the input gateway writes INPUT_RECEIVED; the orchestrator does not. It refuses a turn that does not carry the reference of
+// that recorded event, before it records or runs anything, because a reconstruction would otherwise begin at a move from a state with no event (PERD 28.2:
+// RECEIVED is entered by INPUT_RECEIVED; PERD 32.4: the Record comes first). The reference is a Record event ID (common.v1 RecordEventId: recev_ and 2 to 32 letters or digits).
+func TestATurnWithoutTheRecordedInputReceivedIsRefusedBeforeAnythingIsRecordedOrRun(t *testing.T) {
+	for name, ref := range map[string]string{
+		"none": "", "another prefix": "evt_AA11", "an intent id": "int_AA11", "too short": "recev_A", "too long": "recev_" + "A123456789B123456789C123456789D12",
+		"text before the prefix": "xrecev_AA11", "a control character": "recev_AA\n11", "a space": "recev_AA 11", "a symbol": "recev_AA-11", "a trailing newline": "recev_AA11\n",
+	} {
+		f := happy()
+		tr := turn
+		tr.InputReceivedRef = ref
+		res, err := runner(t, f).RunRead(context.Background(), sess, tr)
+		if !errors.Is(err, orchestrator.ErrNoInputReceived) {
+			t.Errorf("%s: err %v, want ErrNoInputReceived", name, err)
+		}
+		if len(f.calls) != 0 || len(f.changes) != 0 || len(res.Changes) != 0 || res.Answer != "" {
+			t.Errorf("%s: calls %v, recorded %v, result %+v; want nothing recorded or run", name, f.calls, f.changes, res)
+		}
+	}
+	f := happy()
+	tr := turn
+	tr.InputReceivedRef = "recev_" + "A123456789B123456789C123456789D1"
+	if _, err := runner(t, f).RunRead(context.Background(), sess, tr); err != nil {
+		t.Errorf("a reference of 32 characters is valid: %v", err)
+	}
+}
+
+// A161 and the reviewer's P1 on noema#465: a reference that merely looks like an event ID proves nothing. The runner asks the Record (through the Admissions port, which
+// reads as the session's tenant) for the event the reference names and runs only if that event is an INPUT_RECEIVED of this tenant, this principal and this correlation.
+// A fabricated reference, one from another tenant, principal or correlation, another event type, an event with an empty field and a failed lookup are all refused before
+// anything is recorded or run: the only call is the lookup.
+func TestAReferenceThatTheRecordDoesNotConfirmAsThisTurnsInputIsRefusedBeforeAnythingIsRecordedOrRun(t *testing.T) {
+	good := happy().admission
+	cases := map[string]func(*fakes){
+		"no such event":                func(f *fakes) { f.admission, f.admitEr = orchestrator.Admission{}, errors.New("not found") },
+		"a lookup that failed":         func(f *fakes) { f.admission, f.admitEr = good, errors.New("record unavailable") },
+		"another tenant's event":       func(f *fakes) { f.admission.TenantID = "ten_bb" },
+		"another principal's event":    func(f *fakes) { f.admission.PrincipalID = "usr_02" },
+		"another correlation":          func(f *fakes) { f.admission.CorrelationID = "corr_BB22" },
+		"another event type":           func(f *fakes) { f.admission.EventType = "INTENT_PROPOSED" },
+		"an event with no type":        func(f *fakes) { f.admission.EventType = "" },
+		"an event with no tenant":      func(f *fakes) { f.admission.TenantID = "" },
+		"an event with no principal":   func(f *fakes) { f.admission.PrincipalID = "" },
+		"an event with no correlation": func(f *fakes) { f.admission.CorrelationID = "" },
+		"another request (an older input of the same actor and conversation)": func(f *fakes) { f.admission.RequestID = "9c1d7e20-1b2a-4c3d-8e4f-5a6b7c8d9e01" },
+		"an event with no request id":                                         func(f *fakes) { f.admission.RequestID = "" },
+	}
+	for name, mutate := range cases {
+		f := happy()
+		mutate(f)
+		res, err := runner(t, f).RunRead(context.Background(), sess, turn)
+		if !errors.Is(err, orchestrator.ErrNoInputReceived) {
+			t.Errorf("%s: err %v, want ErrNoInputReceived", name, err)
+		}
+		if !reflect.DeepEqual(f.calls, []string{"admission"}) || len(f.changes) != 0 || len(res.Changes) != 0 || res.Answer != "" {
+			t.Errorf("%s: calls %v, recorded %v, result %+v; want only the lookup", name, f.calls, f.changes, res)
+		}
+	}
+}
+
+// The lookup is made with the session's tenant and the turn's reference, and a confirmed event lets the run go on.
+func TestTheLookupGetsTheSessionAndTheTurnsReference(t *testing.T) {
+	f := happy()
+	if _, err := runner(t, f).RunRead(context.Background(), sess, turn); err != nil {
+		t.Fatal(err)
+	}
+	if f.lookedUp != turn.InputReceivedRef || f.session != sess {
+		t.Errorf("looked up %q as %+v; want %q as %+v", f.lookedUp, f.session, turn.InputReceivedRef, sess)
 	}
 }
 
@@ -257,11 +342,11 @@ func TestARunnerThatIsNotFullyWiredDoesNotBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := happy()
-	full := orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f}
+	full := orchestrator.Ports{Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f}
 	for name, p := range map[string]orchestrator.Ports{
-		"no interpreter": {Evidence: f, Trust: f, Explainer: f, Recorder: f}, "no evidence": {Interpreter: f, Trust: f, Explainer: f, Recorder: f},
-		"no trust": {Interpreter: f, Evidence: f, Explainer: f, Recorder: f}, "no explainer": {Interpreter: f, Evidence: f, Trust: f, Recorder: f},
-		"no recorder": {Interpreter: f, Evidence: f, Trust: f, Explainer: f},
+		"no interpreter": {Evidence: f, Trust: f, Explainer: f, Recorder: f, Admissions: f}, "no evidence": {Interpreter: f, Trust: f, Explainer: f, Recorder: f, Admissions: f},
+		"no trust": {Interpreter: f, Evidence: f, Explainer: f, Recorder: f, Admissions: f}, "no explainer": {Interpreter: f, Evidence: f, Trust: f, Recorder: f, Admissions: f},
+		"no recorder": {Interpreter: f, Evidence: f, Trust: f, Explainer: f, Admissions: f}, "no admissions": {Interpreter: f, Evidence: f, Trust: f, Explainer: f, Recorder: f},
 	} {
 		if _, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, p); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("%s: %v; want ErrNotWired", name, err)

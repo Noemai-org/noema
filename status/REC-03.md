@@ -113,3 +113,8 @@ Updated 2026-11-01. Plan task REC-03: owner C1+AG; REQ-AUD-003; needs REC-01; do
 - Notes 3 and 4 are not changed here: `disclosed_refs` (a transaction reference that is digits would stop matching if masked) and the hashed `events` array need a ruling (noema#515).
 - Residual (named, not hidden): a card number can still be hidden inside a cited ID by interleaving single letters between groups of four digits, because the ID is whatever the core appended as an object_ref; the object_ref is itself served as written by its contract pattern, so this is the same exposure as the object_ref, not a new one.
 
+
+## Session 2026-11-13 (C1): main merged in; the events array is audit and ops only (noema#492, Security Reviewer's note of 16:39, A184 as relayed)
+- Merge: `main` into this branch (noema#486 landed; one conflict, in the `record/reconstruct/README.md` Handler bullet: the mount text of `main` and the staff-principal and masking text of this branch are both kept).
+- Point 1 of the Security Reviewer, done: a customer or an approver already got the not-found shape with and without the role gate (`TestOtherRolesAndNoSessionAreRefusedWithNoEvents`, `TestTheHandlerRefusesCustomersAndApproversWithoutTheRoleGate`). New: `boundary_test.go` fails when any package other than `cmd/core` and `record/admission` imports the reconstruction, so no arm, UI or customer-facing package can build a body with the events array (mutant: an import from `explanation`, caught).
+- Point 2, open: one masking definition. `masking-limits.v1` does not exist; noema#536 adds `record/payloadguard` (limit 4, the separator set). After #536 merges, `project.go`'s `digitRun` imports it. Waits for the Security Reviewer's answer on noema#492 (contract file or `payloadguard`).

@@ -596,6 +596,43 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 	})
 }
 
+// REQ-AUD-003 (reads are logged in the access log, not the chain): against a real Record, a served call and each kind of refusal write exactly one RECORD_ACCESSED line
+// with the tenant, the principal and the outcome code, and nothing of the Record's content.
+func TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_us06", us06()...)
+	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
+	audit := Caller{TenantID: tenant, Principal: "auditor:usr_synth_900", Roles: []string{"audit"}}
+	for _, c := range []struct {
+		name    string
+		caller  Caller
+		corr    string
+		outcome string
+	}{
+		{"a served reconstruction", audit, "corr_us06", "SERVED"},
+		{"a correlation that does not exist", audit, "corr_nothing01", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+		{"a refused kind of caller", Caller{TenantID: tenant, Principal: "customer:usr_synth_3", Roles: []string{"audit"}}, "corr_us06", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+		{"another tenant's caller", Caller{TenantID: other, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, "corr_us06", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var log bytes.Buffer
+			serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{c.caller}, IDs: gen, Log: slog.New(slog.NewJSONHandler(&log, nil))}, c.corr)
+			line := log.String()
+			if n := strings.Count(line, `"msg":"RECORD_ACCESSED"`); n != 1 {
+				t.Fatalf("%d RECORD_ACCESSED lines, want 1: %s", n, line)
+			}
+			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`} {
+				if !strings.Contains(line, want) {
+					t.Errorf("access log %s lacks %s", line, want)
+				}
+			}
+			if strings.Contains(line, "locate_transfer") || strings.Contains(line, "synth0001") {
+				t.Errorf("the access log carries Record content: %s", line)
+			}
+		})
+	}
+}
+
 // REQ-AUD-003 expected behaviour: P95 < 1 s for a case with 200 events [REC]. Measured on a real Record of 200 events
 // in the requested correlation, after 200 events of another correlation (the whole tenant chain is verified).
 func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {

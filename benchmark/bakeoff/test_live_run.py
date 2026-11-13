@@ -73,9 +73,10 @@ class Factory:
         return self.made[label]
 
 
-def phase(name: str, out: Path, environ: dict[str, str] | None = None, prior: int = 0, models: dict[str, Json] | None = None) -> tuple[int, Factory]:
+def phase(name: str, out: Path, environ: dict[str, str] | None = None, prior: int = 0, models: dict[str, Json] | None = None,
+          hard_stop: int | None = None) -> tuple[int, Factory]:
     f = Factory(models)
-    code = run_phase(name, prior, out, {"OPENAI_API_KEY": SECRET} if environ is None else environ, f, TEMPLATE)
+    code = run_phase(name, prior, out, {"OPENAI_API_KEY": SECRET} if environ is None else environ, f, TEMPLATE, hard_stop_micros=hard_stop)
     return code, f
 
 
@@ -238,6 +239,44 @@ class Command(unittest.TestCase):
     def test_the_prior_spend_is_required(self) -> None:
         with self.assertRaises(SystemExit):
             main(["--phase", "pilot", "--out", "x"], {})
+
+
+# Architect sync of 10 Nov 2026 (A79 under the USD 25 cap; the USD 5 hard stop is the Architect sync's, Draft until committed): a hard stop is an extra cap that can
+# only tighten the phase's own cap. REQ-BEN-005, REQ-NFR-007, REQ-AGT-005.
+class HardStop(unittest.TestCase):
+    def test_a_hard_stop_below_the_phase_cap_is_the_guards_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            code, f = phase("full", Path(tmp), hard_stop=5_000_000)
+            self.assertEqual(code, 0)
+            self.assertEqual(next(iter(f.made.values()))._guard.limit_micros, 5_000_000)
+
+    def test_a_hard_stop_above_the_phase_cap_cannot_loosen_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, full = phase("full", Path(tmp), hard_stop=gates.BUDGET_TOTAL_MICROS * 10)
+            self.assertEqual(next(iter(full.made.values()))._guard.limit_micros, gates.BUDGET_TOTAL_MICROS)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, pilot = phase("pilot", Path(tmp), hard_stop=gates.BUDGET_PILOT_MICROS * 10)
+            self.assertEqual(next(iter(pilot.made.values()))._guard.limit_micros, gates.BUDGET_PILOT_MICROS)
+
+    def test_no_hard_stop_leaves_the_phase_cap_as_it_was(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, f = phase("full", Path(tmp))
+            self.assertEqual(next(iter(f.made.values()))._guard.limit_micros, gates.BUDGET_TOTAL_MICROS)
+
+    def test_prior_spending_counts_against_the_hard_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            _, f = phase("full", Path(tmp), prior=4_999_990, hard_stop=5_000_000)
+            guard = next(iter(f.made.values()))._guard
+            self.assertEqual((guard.limit_micros, guard.spent_micros >= 4_999_990), (5_000_000, True))
+
+    def test_a_hard_stop_that_is_not_a_positive_integer_is_refused_and_nothing_runs(self) -> None:
+        for bad in (0, -1):
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaises(ValueError):
+                phase("full", Path(tmp), hard_stop=bad)
+        with self.assertRaises(SystemExit):
+            main(["--phase", "full", "--prior-spent-micros", "0", "--hard-stop-micros", "0", "--out", "x"], {})
+        with self.assertRaises(SystemExit):
+            main(["--phase", "full", "--prior-spent-micros", "0", "--hard-stop-micros", "five", "--out", "x"], {})
 
 
 if __name__ == "__main__":

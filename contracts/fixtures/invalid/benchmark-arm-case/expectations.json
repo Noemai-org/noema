@@ -1,0 +1,9 @@
+{
+  "carries_the_expected_block.json": "additionalProperties",
+  "carries_the_goal.json": "additionalProperties",
+  "carries_the_real_case_id.json": "additionalProperties",
+  "case_ref_is_a_real_case_id.json": "pattern",
+  "carries_the_oracle_ref.json": "additionalProperties",
+  "role_outside_the_four.json": "enum",
+  "missing_fixture_ref.json": "required"
+}

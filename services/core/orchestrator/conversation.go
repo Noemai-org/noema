@@ -3,10 +3,20 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"unicode"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
+
+// inputReceived is the Record event type the input gateway writes when it admits a turn (PERD 28.2, entry of RECEIVED).
+const inputReceived = "INPUT_RECEIVED"
+
+// requestID is the pattern of the client's request ID: a lower-case UUID, as canonical-input.v2 types request_id (the input gateway records the same value on INPUT_RECEIVED) and recordEventID that of a Record event ID (common.v1 RecordEventId). \A and \z, not ^ and $, so
+// text before or a trailing newline does not match (A138).
+var requestID = regexp.MustCompile(`\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z`)
+
+var recordEventID = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
 
 // Runner walks one investigation through the PERD 28.2 table (STM-01). It never sets a state itself: every move is a Command applied by the Machine, so an arrow that is
 // not in the table is refused. Each applied move is appended to the Record before the run goes on (PERD 32.4, EC-E16); if the append fails the run stops, and nothing
@@ -21,7 +31,7 @@ func NewRunner(m *Machine, p Ports) (*Runner, error) {
 	switch {
 	case m == nil || m.Table == nil:
 		return nil, fmt.Errorf("%w: no machine or table", ErrNotWired)
-	case p.Interpreter == nil || p.Evidence == nil || p.Trust == nil || p.Explainer == nil || p.Recorder == nil:
+	case p.Interpreter == nil || p.Evidence == nil || p.Trust == nil || p.Explainer == nil || p.Recorder == nil || p.Admissions == nil:
 		return nil, fmt.Errorf("%w: a port is missing", ErrNotWired)
 	}
 	return &Runner{m: m, p: p}, nil
@@ -61,13 +71,25 @@ func (u *run) result(answer string) Result {
 
 // RunRead runs the read-only path of US-01: RECEIVED, INTERPRETING, EVALUATING, EXPLAINING, COMPLETED. Any other interpretation or decision outcome takes its table
 // arrow and the run ends there (a clarification, a confirmation, a wait, a rejection, an escalation and an unknown are other runs' work). An ALLOW that is not a read
-// stops the run in EVALUATING with ErrNotARead: it executes nothing. The session must be the authenticated caller's (INV-12).
+// stops the run in EVALUATING with ErrNotARead: it executes nothing. The session must be the authenticated caller's (INV-12). The turn must name the recorded INPUT_RECEIVED event the input gateway wrote (A161); without it the run is refused before anything is recorded or run.
 func (r *Runner) RunRead(ctx context.Context, s Session, t Turn) (Result, error) {
 	if s.TenantID == "" || s.PrincipalID == "" {
 		return Result{}, ErrNoSession
 	}
-	if t.Text == "" || !plainID(t.InvestigationID) || !plainID(t.CorrelationID) {
+	if t.Text == "" || !plainID(t.InvestigationID) || !plainID(t.CorrelationID) || !requestID.MatchString(t.RequestID) {
 		return Result{}, ErrBadTurn
+	}
+	if !recordEventID.MatchString(t.InputReceivedRef) {
+		return Result{}, ErrNoInputReceived
+	}
+	// The shape proves nothing: the Record must confirm the event, and that it is this turn's input (tenant, principal, correlation and request ID), before anything runs.
+	a, err := r.p.Admissions.Lookup(ctx, s, t.InputReceivedRef)
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: lookup: %w", ErrNoInputReceived, err)
+	}
+	// The session's tenant and principal and the turn's correlation and request ID are non-empty here, so an event with an empty field cannot match.
+	if a.EventType != inputReceived || a.TenantID != s.TenantID || a.PrincipalID != s.PrincipalID || a.CorrelationID != t.CorrelationID || a.RequestID != t.RequestID {
+		return Result{}, ErrNoInputReceived
 	}
 	u := &run{ctx: ctx, r: r, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}
 	if err := u.move("INTERPRETING"); err != nil {
