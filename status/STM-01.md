@@ -75,3 +75,14 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 ### Update 2026-11-12 · reviewer P2 on noema#465 (the admission must bind this turn, not only the actor and conversation)
 - `Turn.RequestID` (a lower-case UUID, as canonical-input.v2 types `request_id`; the first version used common.v1's `req_` form, which is a different kind of ID, found when reading the input gateway's payload against it and fixed at the next push, tests first; checked as part of the turn) and `Admission.RequestID`: `RunRead` runs only if the confirmed INPUT_RECEIVED carries this turn's request ID, so an older input of the same actor and conversation cannot be paired with different text. Tests first at `08e47583`. Mutants killed: the request compare removed, the request pattern removed, the pattern unanchored (it survived until a "text before the id" case was added).
 - Not done: the text itself. The INPUT_RECEIVED payload the reconstruction reads has `channel`, `locale` and `request_id`; no text digest is defined, so there is nothing to compare the turn's text with. If the input gateway (C2) puts a digest of the canonical input in that event, `Admission` gains it and the runner compares it; that is the gateway's payload decision, noted on noema#454.
+
+## Session 2026-11-12 · the Admissions read (EL)
+
+## Session summary
+- What changed: `record/admission` (`Reader.Lookup`, `Found`): finds one event by ID in the tenant's chain as the tenant's `record_read` login, verifies the chain, returns the facts the orchestrator compares (A161, A169). Tests first (`8f3b7bed`, the red head).
+- Why: the `Admissions` port of noema#465 had no implementation; `compose.go` cannot be wired without one.
+- Tests added (REQ-AUD-001, REQ-SEC-004, INV-12): the event of the tenant with its identity; another tenant's reader and an unknown ID are the same `ErrNotFound`; another event type and missing facts come back as they are (the reader decides nothing); refusals (no pool, bad IDs, no deadline, unconfigured). The refusals ran here; the tests that append signed events need the signing extension, so CI is their first run.
+- Not done, stated: the adapter to `orchestrator.Admission` (follows noema#465); a keyed Record read (the whole chain is read per lookup, bounded by the tenant's chain).
+- Debt: whole-chain read per lookup (the same as the input gateway's index); owner EL with C2; fix: a keyed read function, a migration.
+- Conflicts raised: none. Found on the way: noema#465 required common.v1's `req_` form for the request ID where the gateway records a UUID (canonical-input.v2); fixed in noema#465 at `186ae004`.
+
