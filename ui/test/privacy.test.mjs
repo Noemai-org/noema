@@ -5,6 +5,9 @@ import { scanVisibleText } from "../build/js/privacy.js";
 test("REQ-UI-001: refuses a visible digit run longer than four", () => {
   assert.deepEqual(scanVisibleText("Account ending 1234"), []);
   assert.notDeepEqual(scanVisibleText("Account 12345"), []);
+  assert.notDeepEqual(scanVisibleText("Account 12-34 5"), []);
+  assert.deepEqual(scanVisibleText("Account 12-34"), []);
+  assert.deepEqual(scanVisibleText("12--345"), []);
 });
 
 test("REQ-UI-001: detects never-shown internal material", () => {

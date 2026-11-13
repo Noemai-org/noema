@@ -28,6 +28,21 @@ const test = base.extend({
   },
 });
 
+test("REQ-UI-001: scanner checks attribute and input value leakage", async ({ page }) => {
+  await load(page);
+  const findings = await page.evaluate(async (source) => {
+    const moduleUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+    try {
+      const { scanDom } = await import(moduleUrl);
+      const root = document.createElement("div");
+      root.innerHTML = '<input aria-label="1-2-3-4-5"><input>';
+      root.querySelectorAll("input")[1].value = "12 34 5";
+      return scanDom(root);
+    } finally { URL.revokeObjectURL(moduleUrl); }
+  }, scanner);
+  expect(findings.filter((item) => item === "digit-run").length).toBeGreaterThanOrEqual(2);
+});
+
 test("REQ-UI-001: the skeleton shows no fabricated state or answer", async ({ page }) => {
   await load(page);
   await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
