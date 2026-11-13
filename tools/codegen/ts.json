@@ -1,0 +1,9 @@
+{
+  "comment": "The contracts the UI reads (REQ-UI-001). Each root is generated to ui/src/contracts as TypeScript types and parsers, with every contract it refers to. A contract the UI does not read is not listed, so it does not reach the client bundle.",
+  "roots": [
+    "clarification.v1.json",
+    "confirmation-request.v1.json",
+    "errors.v2.json",
+    "noema-resolution.v1.json"
+  ]
+}

@@ -71,3 +71,19 @@ Found mechanically (member-name overlap of every hand-written Go struct and Pyth
 ## Pre-work for the next agent
 - Exact next step: after this merges, noema#411 merges `main` and runs `make codegen` once (its two `arm_turn` models), as every open PR that adds a contract will.
 - Do not touch: generated files by hand.
+
+# Session 2026-11-13 20:00 WAT · CON-03 (TypeScript types and parsers for the UI, EL)
+
+## Session summary
+- What changed: `tools/codegen/ts.py` (new) and `generate.py`: the generator also writes TypeScript types and runtime parsers for the contracts the UI reads, to `ui/src/contracts/`; the roots are `tools/codegen/ts.json` (today `clarification.v1`, `confirmation-request.v1`, `errors.v2`, `noema-resolution.v1`, with every contract they refer to). `ui/test/contracts.test.mjs` runs every valid and invalid fixture of those contracts through the parsers; `test_codegen.py` gains four tests.
+- Why: the UI (PERD §40.4, REQ-UI-001) shows only what the core sent and never an unmasked number, and must parse untrusted JSON; the fixed stack gives codegen to Go and Pydantic only, so there was no source for UI types and the alternative was hand-written types per language (forbidden). The approach was chosen by the user in a session; it is not authoritative until committed, so this PR stays a draft until C1 (owner of `tools/codegen`), the frontend owner (`ui/`) and the Steward ([OPEN] entry, AGENT-14: a new codegen target) agree.
+- Risks, and how they are contained: (1) a new generated tree in `ui/` that the frontend owner must accept; `generate.py --check` (CI `codegen-diff`) fails on a hand edit. (2) The parsers hold shape and bounds, not conditional rules (`if`/`then`, `not`, `contains`); two fixtures are listed in the test as conditional. (3) No dependency: the generator is the standard library and the output has none.
+- Tests added (REQ-UI-001, REQ-API-001, AGENT-15): 18 UI tests (fixtures of four contracts, a whole-string pattern, code points, a closed object with `__proto__`, errors that never name the value, exactly-one `oneOf`, bounded lists, required members, integers, enums); four generator tests. Red first (`npm test` failed with no contracts module). Ten runtime mutants killed (pattern, closed, required, `oneOf` uniqueness, code points, `maxLength`, `maxItems`, integer check); two survived at first and got direct tests.
+- Regression cases added: the fixtures themselves.
+- Debt entries: none. Conflicts raised: none; open: AGENT-14 approval for the TypeScript target.
+
+## Pre-work for the next agent
+- Exact next step: after noema#521 (the public API contracts) merges, add its four contracts to `ts.json` and regenerate (a data change); then the frontend's API client in `ui/src/api/` (fetch with the session token, idempotent POSTs, an SSE reader that parses every event and reconnects with `Last-Event-ID`).
+- Open questions (owner): C1 and the frontend owner accept the target and the path; whether the parsers should also refuse conditional rules (Architect).
+- Files to read first: `tools/codegen/ts.py`, `ui/src/contracts/README.md`, `ui/test/contracts.test.mjs`.
+- Do not touch: `ui/src/contracts/**` by hand.
