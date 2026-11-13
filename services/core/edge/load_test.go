@@ -127,25 +127,25 @@ func TestTheLoadedEdgeIsBehindTheVerifiedSession(t *testing.T) {
 		h.ServeHTTP(rec, req)
 		return rec.Code
 	}
-	if got := call("/v1/cases", ""); got != http.StatusUnauthorized {
-		t.Errorf("/v1/cases without a session = %d", got)
+	if got := call("/v1/investigations", ""); got != http.StatusUnauthorized {
+		t.Errorf("/v1/investigations without a session = %d", got)
 	}
-	if got := call("/v1/cases", "garbage"); got != http.StatusUnauthorized {
-		t.Errorf("/v1/cases with a bad session = %d", got)
+	if got := call("/v1/investigations", "garbage"); got != http.StatusUnauthorized {
+		t.Errorf("/v1/investigations with a bad session = %d", got)
 	}
 	tok := wired(iss, session.RoleOps)
-	if got := call("/v1/cases", tok); got != http.StatusNotFound {
-		t.Errorf("/v1/cases with a valid session but no registered route = %d, want 404 (deny by default)", got)
+	if got := call("/v1/investigations", tok); got != http.StatusNotFound {
+		t.Errorf("/v1/investigations with a valid session but no registered route = %d, want 404 (deny by default)", got)
 	}
 	other := edgetest.Good(wiringEpoch, session.RoleOps)
 	other.Tenant, other.Aud = "tnt_unlisted", wiredAud
-	if got := call("/v1/cases", iss.Token(wiredKid, other)); got != http.StatusUnauthorized {
+	if got := call("/v1/investigations", iss.Token(wiredKid, other)); got != http.StatusUnauthorized {
 		t.Errorf("a tenant the deployment does not serve = %d, want 401", got)
 	}
-	if got := call("/v1/cases", iss.Token(edgetest.Kid, edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
+	if got := call("/v1/investigations", iss.Token(edgetest.Kid, edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
 		t.Errorf("a token for another audience and key id than the configured ones = %d, want 401", got)
 	}
-	if got := call("/v1/cases", iss.Token("idp-other", edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
+	if got := call("/v1/investigations", iss.Token("idp-other", edgetest.Good(wiringEpoch, session.RoleOps))); got != http.StatusUnauthorized {
 		t.Errorf("an unknown key id = %d, want 401", got)
 	}
 }
@@ -163,7 +163,7 @@ func TestTheLeewayIsTheLimitsDocumentsAndNothingElse(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req := httptest.NewRequest(http.MethodGet, "/v1/cases", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/investigations", nil)
 		req.Header.Set("Authorization", "Bearer "+tok)
 		rec := httptest.NewRecorder()
 		protected.ServeHTTP(rec, req)
@@ -178,13 +178,13 @@ func TestTheBodyLimitIsTheConfiguredOne(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(wiringEpoch)
 	e := files(t, iss, limitsOK)
-	route := edge.Route{Pattern: "POST /v1/probe", Roles: []session.Role{session.RoleOps}, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })}
+	route := edge.Route{Pattern: "POST /v1/confirmations", Roles: []session.Role{session.RoleOps}, Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })}
 	protected, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{route})
 	if err != nil {
 		t.Fatal(err)
 	}
 	post := func(body string) int {
-		req := httptest.NewRequest(http.MethodPost, "/v1/probe", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/v1/confirmations", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+wired(iss, session.RoleOps))
 		rec := httptest.NewRecorder()
@@ -204,8 +204,8 @@ func TestARouteFaultIsNotBlamedOnTheBodyLimit(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(wiringEpoch)
 	e := files(t, iss, limitsOK)
-	_, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{{Pattern: "GET /v1/x"}})
-	if err == nil || strings.Contains(err.Error(), edge.EnvMaxBody) || !strings.Contains(err.Error(), "GET /v1/x") {
+	_, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{{Pattern: "GET /v1/conversations"}})
+	if err == nil || strings.Contains(err.Error(), edge.EnvMaxBody) || !strings.Contains(err.Error(), "GET /v1/conversations") {
 		t.Fatalf("a route with no handler and no roles: %v", err)
 	}
 	e[edge.EnvMaxBody] = "0"

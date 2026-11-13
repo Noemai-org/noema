@@ -1,4 +1,4 @@
-<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.23.md section 32.2 (Event types) at docs commit 77da67e2f4df0aa3b5dd46b570b1ca8aa476c923. The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Vendored extract of Noemai-org/docs docs/poc/perd/NOEMA_POC_PERD_v1.23.md section 32.2 (Event types) at docs commit af3f840d895e251726c4d7e9e013e39bb39934a1. The PERD original is normative; this copy exists so CI can compare /contracts against it without cross-repository access. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 ### 32.2 Event types
 
