@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
@@ -108,39 +110,65 @@ func TestEvidenceIsAppendedOnceThroughTheControllerToTheRealMockCase(t *testing.
 	}
 }
 
-// REQ-EXE-003, descriptor precondition "not exists(complaint_ref ...)": the first complaint is logged; a second, under its own grant and key, is voided at
-// E7 before any write, with the revalidation failure and the recovery request in the Record, and the case holds one complaint.
-func TestASecondComplaintIsVoidedAtRevalidationAndTheCaseHoldsOne(t *testing.T) {
+// A noema#491 review finding (P1, atomicity): the complaint capability is CONDITIONAL_WRITE on "no complaint for the subject and epoch", but mock-case's create is
+// keyed by idempotency key alone, so two executions with distinct keys could both pass E7 and write two irreversible regulatory complaints. Until the target creates
+// conditionally and atomically, the capability is undispatchable: its grant is voided at E7 (REVALIDATION_UNAVAILABLE), nothing is spent and nothing reaches the case.
+func TestAComplaintGrantIsVoidedAndNothingReachesTheCase(t *testing.T) {
 	mc := startMockCase(t)
 	st := newStack(t, mc)
 	caseID := escalatedCase(t, st)
-	first, err := st.trust.IssueRecord(bg(t), bridge.CapLogComplaintReference, caseID, "LOG_COMPLAINT", nil)
+	g, err := st.trust.IssueRecord(bg(t), bridge.CapLogComplaintReference, caseID, "LOG_COMPLAINT", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := execute(t, st, first)
-	if out.Void != "" || out.Receipt == nil || out.Receipt.State != "ACKNOWLEDGED" {
-		t.Fatalf("first complaint: %+v", out)
+	out := execute(t, st, g)
+	if out.Void != controller.VoidRevalidationFailed || out.Receipt != nil {
+		t.Fatalf("complaint: %+v; want a void grant (REVALIDATION_UNAVAILABLE) and no receipt", out)
 	}
-	if got := st.complaintsOf(t, caseID); len(got) != 1 || got[0].CaseID != caseID || got[0].ComplaintRef != *out.Receipt.ExternalAck {
-		t.Fatalf("complaints on the case: %+v", got)
+	if n := len(st.complaintsOf(t, caseID)); n != 0 {
+		t.Fatalf("mock-case holds %d complaints, want 0", n)
 	}
-	failed := st.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'REVALIDATION_FAILED'`)
-	second, err := st.trust.IssueRecord(bg(t), bridge.CapLogComplaintReference, caseID, "LOG_COMPLAINT_AGAIN", nil)
-	if err != nil {
-		t.Fatal(err)
+	if st.count(t, `SELECT count(*) FROM grant_spend WHERE grant_id = $1`, g) != 0 {
+		t.Fatal("the voided complaint spent its grant")
 	}
-	run := execute(t, st, second)
-	if run.Void != controller.VoidStateChanged || run.Receipt != nil {
-		t.Fatalf("second complaint: %+v; want a void grant (STATE_CHANGED) and no receipt", run)
+}
+
+// The reviewer's concurrent regression: eight complaint grants of the same case under distinct keys, executed at once, create no complaint. (When the target creates
+// conditionally and atomically, this test becomes "exactly one"; until then "at most one" holds only because none is written.)
+func TestConcurrentComplaintsOfOneCaseCreateNone(t *testing.T) {
+	mc := startMockCase(t)
+	st := newStack(t, mc)
+	caseID := escalatedCase(t, st)
+	const n = 8
+	grants := make([]string, n)
+	for i := range grants {
+		g, err := st.trust.IssueRecord(bg(t), bridge.CapLogComplaintReference, caseID, fmt.Sprintf("LOG_COMPLAINT_%d", i), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grants[i] = g
 	}
-	if n := len(st.complaintsOf(t, caseID)); n != 1 {
-		t.Fatalf("mock-case holds %d complaints, want 1", n)
+	var wg sync.WaitGroup
+	outs := make([]controller.Outcome, n)
+	for i := range grants {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out, err := st.ctl.Execute(bg(t), tenant, grants[i])
+			if err != nil {
+				t.Error(err)
+			}
+			outs[i] = out
+		}()
 	}
-	if st.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'REVALIDATION_FAILED'`) != failed+1 ||
-		st.count(t, `SELECT count(*) FROM recovery_request WHERE reason = 'STATE_CHANGED' AND grant_id = $1`, second) != 1 ||
-		st.count(t, `SELECT count(*) FROM grant_spend WHERE grant_id = $1`, second) != 0 {
-		t.Fatal("the voided complaint left no REVALIDATION_FAILED and RecoveryRequest, or spent its grant")
+	wg.Wait()
+	for i, out := range outs {
+		if out.Receipt != nil {
+			t.Errorf("execution %d produced a receipt: %+v", i, out.Receipt)
+		}
+	}
+	if got := len(st.complaintsOf(t, caseID)); got != 0 {
+		t.Fatalf("mock-case holds %d complaints after %d concurrent executions, want 0", got, n)
 	}
 }
 

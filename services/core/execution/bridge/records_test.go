@@ -75,28 +75,36 @@ func TestEvidenceIsOneKeyedAppendWithThePlansParameters(t *testing.T) {
 	}
 }
 
-func TestAComplaintIsOneKeyedLogWithThePlansCase(t *testing.T) {
+// A noema#491 review finding (P1, atomicity): the pack declares log_complaint_reference CONDITIONAL_WRITE with the precondition "not exists(complaint for the subject and
+// epoch)", E7 can only read absence before the write, and mock-case's create is keyed by idempotency key alone, so two executions with distinct keys can both pass E7 and
+// create two irreversible regulatory complaints. Until the target creates a complaint conditionally and atomically, the capability has no mapping: Dispatch makes no
+// call, whatever the plan says (REQ-CAP-002, REQ-EXE-004, EC-E06, INV-03; AGENT-20 the safer reading).
+func TestAComplaintIsNotDispatchedUntilTheTargetCreatesItConditionally(t *testing.T) {
 	rec := &recordsRecorder{write: adapters.WriteResult{Class: adapters.ClassAck2xx, ExternalAck: "cmp_1", RawCode: "201"}}
-	got := bridge.CaseDispatcher{Case: &recorder{}, Records: rec}.Dispatch(context.Background(), complaintReq())
-	if got.Class != controller.TransportAck2xx || got.ExternalAck != "cmp_1" {
-		t.Fatalf("result %+v", got)
+	for name, mutate := range map[string]func(*controller.DispatchRequest){
+		"a well-formed plan": func(*controller.DispatchRequest) {},
+		"another case":       func(r *controller.DispatchRequest) { r.Params["case_id"] = "case_02" },
+		"no case":            func(r *controller.DispatchRequest) { delete(r.Params, "case_id") },
+		"an unknown key":     func(r *controller.DispatchRequest) { r.Params["note"] = "x" },
+	} {
+		req := complaintReq()
+		mutate(&req)
+		got := bridge.CaseDispatcher{Case: &recorder{}, Records: rec}.Dispatch(context.Background(), req)
+		if got.Class != controller.TransportDefect || got.RawCode != "NO_ADAPTER_FOR_CAPABILITY" {
+			t.Errorf("%s: %+v, want an adapter defect NO_ADAPTER_FOR_CAPABILITY", name, got)
+		}
 	}
-	if len(rec.complaints) != 1 || len(rec.evidence) != 0 {
-		t.Fatalf("calls: %d complaints, %d evidence", len(rec.complaints), len(rec.evidence))
-	}
-	in := rec.complaints[0]
-	if in.IdempotencyKey != "idk_v1_cm" || in.TenantID != "ten_aa" || in.CaseID != "case_01" || in.Timeout != 1500*time.Millisecond {
-		t.Fatalf("input %+v", in)
+	if len(rec.complaints) != 0 || len(rec.evidence) != 0 {
+		t.Fatalf("calls made for a complaint: %d complaints, %d evidence", len(rec.complaints), len(rec.evidence))
 	}
 }
 
-// EC-E06: a key collision crosses the bridge for both capabilities, so the controller can raise the security event.
-func TestKeyCollisionCrossesTheBridgeForBothRecords(t *testing.T) {
+// EC-E06: a key collision crosses the bridge for evidence, so the controller can raise the security event.
+func TestKeyCollisionCrossesTheBridgeForEvidence(t *testing.T) {
 	rec := &recordsRecorder{write: adapters.WriteResult{Class: adapters.ClassRejected4xx, RawCode: "409:IDEMPOTENCY_CONFLICT", KeyCollision: true}}
-	for _, req := range []controller.DispatchRequest{evidenceReq(), complaintReq()} {
-		if got := (bridge.CaseDispatcher{Case: &recorder{}, Records: rec}).Dispatch(context.Background(), req); !got.KeyCollision || got.Class != controller.TransportRejected4xx {
-			t.Errorf("%s: %+v", req.CapabilityID, got)
-		}
+	req := evidenceReq()
+	if got := (bridge.CaseDispatcher{Case: &recorder{}, Records: rec}).Dispatch(context.Background(), req); !got.KeyCollision || got.Class != controller.TransportRejected4xx {
+		t.Errorf("%s: %+v", req.CapabilityID, got)
 	}
 }
 
@@ -116,9 +124,6 @@ func TestRecordDefectsMakeNoAdapterCall(t *testing.T) {
 		{"evidence, a payload that is not a string", evidenceReq, func(r *controller.DispatchRequest) { r.Params["payload"] = 7 }, "MISSING_PARAMETER"},
 		{"evidence, no case", evidenceReq, func(r *controller.DispatchRequest) { delete(r.Params, "case_id") }, "MISSING_PARAMETER"},
 		{"evidence, another case than the grant's target", evidenceReq, func(r *controller.DispatchRequest) { r.Params["case_id"] = "case_02" }, "TARGET_MISMATCH"},
-		{"complaint, an unknown parameter", complaintReq, func(r *controller.DispatchRequest) { r.Params["note"] = "x" }, "UNKNOWN_PARAMETER"},
-		{"complaint, no case", complaintReq, func(r *controller.DispatchRequest) { delete(r.Params, "case_id") }, "MISSING_PARAMETER"},
-		{"complaint, another case than the grant's target", complaintReq, func(r *controller.DispatchRequest) { r.Params["case_id"] = "case_02" }, "TARGET_MISMATCH"},
 	} {
 		rec := &recordsRecorder{write: ack}
 		req := c.req()
@@ -128,10 +133,8 @@ func TestRecordDefectsMakeNoAdapterCall(t *testing.T) {
 			t.Errorf("%s: %+v, calls %d", c.name, got, len(rec.evidence)+len(rec.complaints))
 		}
 	}
-	for _, req := range []controller.DispatchRequest{evidenceReq(), complaintReq()} {
-		if got := (bridge.CaseDispatcher{Case: &recorder{}}).Dispatch(context.Background(), req); got.Class != controller.TransportDefect || got.RawCode != "NO_ADAPTER_FOR_CAPABILITY" {
-			t.Errorf("%s with no records adapter: %+v", req.CapabilityID, got)
-		}
+	if got := (bridge.CaseDispatcher{Case: &recorder{}}).Dispatch(context.Background(), evidenceReq()); got.Class != controller.TransportDefect || got.RawCode != "NO_ADAPTER_FOR_CAPABILITY" {
+		t.Errorf("evidence with no records adapter: %+v", got)
 	}
 }
 
@@ -160,47 +163,24 @@ func TestEvidenceRevalidation(t *testing.T) {
 		"unknown case": {getErr: &adapters.ReadError{Failure: adapters.ReadNotFound}, wantErr: true},
 	} {
 		r := &recorder{get: c.get, getErr: c.getErr}
-		got, err := bridge.CaseRevalidator{Case: r, Records: &recordsRecorder{}}.Revalidate(context.Background(), recordGrant(), step)
+		got, err := bridge.CaseRevalidator{Case: r}.Revalidate(context.Background(), recordGrant(), step)
 		if c.wantErr != (err != nil) || (err == nil && (got.Passed != c.passed || !sameFacts(got.ChangedFacts, c.facts))) {
 			t.Errorf("%s: %+v, %v", name, got, err)
 		}
 	}
 }
 
-// REQ-EXE-003, descriptor preconditions: a complaint is logged once per case and epoch. It revalidates the case status and that no complaint reference exists for
-// the case yet; a complaint already there fails the grant; an incomplete page proves nothing and is an error, not a pass.
-func TestComplaintRevalidation(t *testing.T) {
+// The complaint has no dispatch (above), so it has no revalidation either: E7 returns an error whatever the reads would say, the controller voids the grant
+// (REVALIDATION_UNAVAILABLE), and no read is made on its behalf. A complaint that cannot be written is never revalidated as if it could be.
+func TestAComplaintCannotBeRevalidatedSoItsGrantIsVoided(t *testing.T) {
 	step := controller.PlanStep{CapabilityID: bridge.CapLogComplaintReference, Params: complaintReq().Params}
-	one := adapters.ComplaintPage{Complete: true, Items: []adapters.ComplaintRecord{{ComplaintRef: "cmp_1", CaseID: "case_01", TenantID: "ten_aa"}}}
-	for name, c := range map[string]struct {
-		get     adapters.CaseRecord
-		getErr  error
-		page    adapters.ComplaintPage
-		perr    error
-		passed  bool
-		facts   []string
-		wantErr bool
-	}{
-		"open case, no complaint":       {get: openCase(), page: adapters.ComplaintPage{Complete: true}, passed: true},
-		"a complaint exists":            {get: openCase(), page: one, facts: []string{bridge.FactExistingComplaint}},
-		"closed case, no complaint":     {get: adapters.CaseRecord{Status: "CLOSED"}, page: adapters.ComplaintPage{Complete: true}, facts: []string{bridge.FactCaseStatus}},
-		"closed case and a complaint":   {get: adapters.CaseRecord{Status: "CLOSED"}, page: one, facts: []string{bridge.FactCaseStatus, bridge.FactExistingComplaint}},
-		"an incomplete page":            {get: openCase(), page: adapters.ComplaintPage{Complete: false, NextCursor: "c1"}, wantErr: true},
-		"the case cannot be read":       {getErr: &adapters.ReadError{Failure: adapters.ReadUnavailable}, page: adapters.ComplaintPage{Complete: true}, wantErr: true},
-		"the complaints cannot be read": {get: openCase(), perr: &adapters.ReadError{Failure: adapters.ReadUnavailable}, wantErr: true},
-	} {
-		rec := &recordsRecorder{cpage: c.page, cerr: c.perr}
-		got, err := bridge.CaseRevalidator{Case: &recorder{get: c.get, getErr: c.getErr}, Records: rec}.Revalidate(context.Background(), recordGrant(), step)
-		if c.wantErr != (err != nil) || (err == nil && (got.Passed != c.passed || !sameFacts(got.ChangedFacts, c.facts))) {
-			t.Errorf("%s: %+v, %v", name, got, err)
-		}
-		if len(rec.cfinds) > 0 && (rec.cfinds[0].TenantID != "ten_aa" || rec.cfinds[0].CaseID != "case_01" || rec.cfinds[0].IdempotencyKey != "") {
-			t.Errorf("%s: the complaint find was %+v, want this tenant and this case only", name, rec.cfinds[0])
-		}
+	rec := &recordsRecorder{cpage: adapters.ComplaintPage{Complete: true}}
+	r := &recorder{get: openCase()}
+	if got, err := (bridge.CaseRevalidator{Case: r}).Revalidate(context.Background(), recordGrant(), step); err == nil || got.Passed {
+		t.Fatalf("a complaint revalidated: %+v, %v", got, err)
 	}
-	// With no records adapter there is no revalidation, which the controller turns into a void grant.
-	if _, err := (bridge.CaseRevalidator{Case: &recorder{get: openCase()}}).Revalidate(context.Background(), recordGrant(), step); err == nil {
-		t.Error("a complaint revalidated with no records adapter")
+	if len(rec.cfinds) != 0 {
+		t.Fatalf("%d complaint reads were made", len(rec.cfinds))
 	}
 }
 

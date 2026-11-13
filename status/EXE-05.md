@@ -41,3 +41,14 @@ Updated 2026-11-12. Plan task EXE-05: owner C1+AG; REQ-EXE-003, REQ-EXE-007, REQ
 - Open questions (owner): whether mock-case should make the complaint create conditional on absence (Tushe delta, Architect).
 - Files to read first: `services/core/execution/bridge/dispatch.go`, `revalidate.go`, `execution/e2e/records_test.go`.
 - Do not touch: the migrations.
+
+## Session 2026-11-13 14:30 WAT · slice 2 after the merge of noema#470: the Security Reviewer's P1 on the complaint (noema#491)
+- **The finding (P1, atomicity):** the pack declares `log_complaint_reference` `CONDITIONAL_WRITE` on "not exists(complaint for the subject and epoch)"; E7 reads absence and then the unconditional `LogComplaint` runs; mock-case's create is keyed by idempotency key alone, so two executions under distinct keys can both pass E7 and write two irreversible regulatory complaints. The finding is correct, and it is the open question I had written down ("whether mock-case should make the complaint create conditional on absence", Tushe delta, Architect).
+- **What I did (the reviewer's second option, AGENT-20 the safer reading):** the complaint capability has no mapping: `Dispatch` makes no call (`NO_ADAPTER_FOR_CAPABILITY`), `Revalidate` returns an error and the controller voids the grant (`REVALIDATION_UNAVAILABLE`), nothing is spent or written. `complaintInput`, `complaint()`, `FactExistingComplaint` and `CaseRevalidator.Records` are removed. The adapter's own `LogComplaint` (noema#470) is unchanged and unused by the bridge.
+- **Tests (red first, run locally against the previous code):** `TestAComplaintIsNotDispatchedUntilTheTargetCreatesItConditionally` (a well-formed complaint was dispatched and acknowledged), `TestAComplaintGrantIsVoidedAndNothingReachesTheCase` (a receipt was produced), `TestConcurrentComplaintsOfOneCaseCreateNone` (eight concurrent executions under distinct keys: mock-case held 1 complaint; the test names why the race is not proved in practice: the previous run produced one, but the window exists), `TestAComplaintCannotBeRevalidatedSoItsGrantIsVoided`. Replaced, not weakened: the tests that asserted a complaint is dispatched and revalidated asserted the behaviour this finding removes.
+- **Scope note:** this reduces what A157 asked for (evidence and complaint). The complaint half returns when the target creates a complaint conditionally and atomically. Decision and the target change: noema issue to the Architect (Tushe delta; mock-case owner).
+- **Not claimed:** the end-to-end complaint of US-06; ACHIEVED for it.
+
+## Pre-work for the next agent (complaint)
+- Exact next step: when the target (mock-case, and the Tushe delta it follows) creates a complaint conditionally on absence for the subject and epoch, map `fin.cap.log_complaint_reference` again with the condition carried through `adapters.LogComplaintInput`, restore its revalidation, and change `TestConcurrentComplaintsOfOneCaseCreateNone` to "exactly one".
+
