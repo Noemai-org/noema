@@ -1,0 +1,11 @@
+{
+  "clarification_with_binding_hash.json": "additionalProperties",
+  "confirmation_bad_policy_version.json": "pattern",
+  "confirmation_carrying_clarification_id.json": "additionalProperties",
+  "confirmation_missing_id.json": "required",
+  "confirmation_target_unmasked.json": "pattern",
+  "five_options.json": "maxItems",
+  "label_with_full_account_number.json": "pattern",
+  "no_none_choice.json": "const",
+  "unknown_card_type.json": "const"
+}

@@ -1,0 +1,9 @@
+{
+  "account_number_in_found.json": "pattern",
+  "case_ref_unmasked.json": "pattern",
+  "confidence_member.json": "additionalProperties",
+  "missing_next.json": "required",
+  "reason_codes_member.json": "additionalProperties",
+  "too_many_found.json": "maxItems",
+  "verified_not_boolean.json": "type"
+}

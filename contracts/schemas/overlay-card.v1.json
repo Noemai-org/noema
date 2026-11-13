@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/overlay-card.v1.json",
+  "title": "Overlay card",
+  "description": "PERD §40.1 and REQ-UI-002: the two cards the customer overlay shows, each bound to one ID so that a card's submit sends that ID and never free-form parameters. It is the customer-facing projection of clarification.v1 and confirmation-request.v1: it carries only what the customer may see (PERD §40.1 'Never shown'), no candidate set, binding hash, signature, tenant, decision ID or internal key, and additionalProperties is false. Every text member carries no run of five or more digits (A154). A clarification card holds one question and at most four options plus 'None of these' (allow_none is always true); option labels show amount, local time and last four digits and are produced from pack templates by the core, never by a model. A confirmation card shows the exact action, the masked target, a short evidence summary and, on tap, the policy version; it is never produced for a prohibited action (the core decides). Both expire visibly (expires_at). New in this contract set; no earlier contract changes (AGENT-15).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ClarificationCard"
+    },
+    {
+      "$ref": "#/$defs/ConfirmationCard"
+    }
+  ],
+  "$defs": {
+    "ClarificationCard": {
+      "type": "object",
+      "properties": {
+        "card_type": {
+          "const": "CLARIFICATION"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "clarification_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClarificationId"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$",
+          "description": "One question."
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "properties": {
+              "option_id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]{1,32}$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160,
+                "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$"
+              }
+            },
+            "required": [
+              "option_id",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "allow_none": {
+          "description": "The 'None of these' choice is always offered.",
+          "type": "boolean",
+          "const": true
+        },
+        "expires_at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "card_type",
+        "schema_version",
+        "clarification_id",
+        "question",
+        "options",
+        "allow_none",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmationCard": {
+      "type": "object",
+      "properties": {
+        "card_type": {
+          "const": "CONFIRMATION"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "confirmation_request_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationRequestId"
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$",
+          "description": "The exact action to be approved."
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$",
+          "description": "The masked target (amount, recipient, last four digits, time)."
+        },
+        "evidence_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$",
+          "description": "A short summary of the evidence used."
+        },
+        "policy_version": {
+          "description": "Shown on request (on tap). Same shape as confirmation-request.v1 display.policy_version.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+        },
+        "expires_at": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        }
+      },
+      "required": [
+        "card_type",
+        "schema_version",
+        "confirmation_request_id",
+        "action",
+        "target",
+        "evidence_summary",
+        "policy_version",
+        "expires_at"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "card_type": "CONFIRMATION",
+  "schema_version": "1.0",
+  "confirmation_request_id": "cfr_01J9X3C6D7",
+  "action": "Open a case about the missing transfer",
+  "target": "NGN 20,000 sent at 14:05 to account ending 4821",
+  "evidence_summary": "Your bank shows the debit; the receiving bank has not confirmed the credit.",
+  "policy_version": "fintech.transfer_exceptions@1.0",
+  "expires_at": "2026-11-13T15:05:00Z"
+}

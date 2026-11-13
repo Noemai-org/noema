@@ -1,0 +1,7 @@
+{
+  "answer_with_confidence.json": "additionalProperties",
+  "case_ref_unmasked.json": "pattern",
+  "stack_trace_member.json": "additionalProperties",
+  "state_missing.json": "required",
+  "unknown_state.json": "enum"
+}
