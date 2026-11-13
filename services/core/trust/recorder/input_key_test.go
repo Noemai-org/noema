@@ -213,7 +213,8 @@ func TestTwoWritersOfTheSameInputGetOneDecision(t *testing.T) {
 	}()
 	// The second writer must be waiting on a lock of the first, not finished and not past the lookup.
 	waited := false
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+	for tries := 0; tries < 2000; tries++ { // a bound on the wait, about 20 seconds
+		time.Sleep(10 * time.Millisecond)
 		if w.count(t, `SELECT count(*) FROM pg_locks WHERE NOT granted`) > 0 {
 			waited = true
 			break
