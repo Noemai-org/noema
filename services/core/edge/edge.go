@@ -54,10 +54,11 @@ func Protected(o Options) (http.Handler, error) {
 	return mux, nil
 }
 
-// publicAreas are the first path segments of the public API (PERD 39.2: conversations, confirmations, investigations) and of the audit read (REQ-AUD-003: reconstructions).
+// publicAreas are the first path segments of the public API: PERD 39.2 (conversations, confirmations, investigations) and the routes of the authorization matrix rows 8 to 12
+// (PERD 39.4: ops, investigations, reconstructions, record, outcomes). Each route stays gated by its own role list.
 // The public edge serves nothing else and denies by default, so no route of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), no route of any other listener (row 13)
 // and no key route can be mounted on it by mistake. A new public area is a decision of the Architect and a row of the matrix before it is a line here.
-var publicAreas = map[string]bool{"conversations": true, "confirmations": true, "investigations": true, "reconstructions": true}
+var publicAreas = map[string]bool{"conversations": true, "confirmations": true, "investigations": true, "reconstructions": true, "ops": true, "record": true, "outcomes": true}
 
 // notPublic says why a path is not the public edge's to serve ("" when it is). Its first segment must be a public area (compared as written: the mux is case-sensitive, and an
 // upper-case variant is not a public area). No segment may name a key or a rotation (matrix rule 7, D3a: key rotation is an operator step with no API in the POC); the test is

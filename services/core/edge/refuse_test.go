@@ -59,6 +59,11 @@ func TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone(t *testing.T) {
 		"POST /v1/confirmations/{confirmation_request_id}",
 		"GET /v1/investigations/{investigation_id}",
 		"GET /v1/reconstructions/{correlation_id}",
+		"GET /v1/ops/debt", // the matrix rows 8 to 12 (PERD 39.4): each of these areas is public and role-gated
+		"GET /v1/ops/alerts",
+		"GET /v1/investigations/{id}/panel",
+		"GET /v1/record/verify",
+		"GET /v1/outcomes/{verdict_id}",
 	} {
 		if _, err := edge.Protected(edge.Options{Verifier: newVerifier(t, iss, clk), IDs: ids.New(clk, nil), MaxBody: maxBody, Routes: []edge.Route{
 			{Pattern: p, Roles: []session.Role{session.RoleOps}, Handler: ok},
