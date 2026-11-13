@@ -135,8 +135,8 @@ var (
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
 	// digitRun is a run of digits, each pair of neighbours joined by any number of spaces, dots, hyphens or zero-width characters (the Security Reviewer's rule on noema#492: a
-	// number split by a separator is still the number). A comma ends a run, so "20,000,000" (groups of three) is left alone.
-	digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}.\-\x{200B}-\x{200D}\x{2060}\x{FEFF}]*\p{Nd})*`)
+	// number split by a separator is still the number). The separator set is the leak scanner's (noema#222), so a number split by an en dash, a soft hyphen, a slash, brackets or a colon is masked too. A comma ends a run, so "20,000,000" (groups of three) is left alone.
+	digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}.\-/_():\x{00AD}\x{034F}\x{180E}\x{200B}-\x{200D}\x{2010}-\x{2015}\x{2060}\x{2212}\x{FEFF}]*\p{Nd})*`)
 	// mintedBody is the body of an ID the core minted: 26 Crockford base32 characters, the first 0 to 7 (a ULID).
 	mintedBody = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
@@ -201,7 +201,7 @@ func (e *errProjection) Error() string { return "reconstruct: cannot project the
 func projErr(format string, a ...any) error { return &errProjection{fmt.Sprintf(format, a...)} }
 
 // fact checks one value against the contract and returns it in the form it is served.
-func fact(key string, v any) (any, error) {
+func fact(key string, v any, known map[string]bool) (any, error) {
 	if !factKeyRe.MatchString(key) {
 		return nil, projErr("fact key %q is not snake_case", key)
 	}
@@ -255,7 +255,7 @@ func fact(key string, v any) (any, error) {
 		if len([]rune(x)) > maxFactString {
 			return nil, projErr("%s is longer than %d characters", key, maxFactString)
 		}
-		if re, ok := idShapes[key]; ok && re.MatchString(x) && (mintedID(x) || mask(x) == x) {
+		if re, ok := idShapes[key]; ok && re.MatchString(x) && (citedMintedID(key, x, known) || mask(x) == x) {
 			return x, nil // an ID cited by other facts, in the shape of its contract (PERD 32.3 prefixes); anything else is masked
 		}
 		return mask(x), nil
@@ -274,9 +274,14 @@ func fact(key string, v any) (any, error) {
 	return nil, projErr("%s is not a scalar or a list of strings", key)
 }
 
-// mintedID is true for an ID the core minted: a lower-case prefix, an underscore and the 26 Crockford characters of a ULID. Such an ID may hold a run of digits (about one in
-// fifteen does), and the reader matches on it, so it is served as written; any other ID that holds a long run of digits is masked.
-func mintedID(id string) bool {
+// citedMintedID is true for an ID the core minted and the Record itself names: a lower-case prefix, an underscore and the 26 Crockford characters of a ULID, and the object_ref of
+// an event of this correlation (known). The shape alone is no proof, since digits satisfy it (the Security Reviewer's finding on noema#492: 26 digits, or a card number followed by
+// letters, has the shape), so an ID is exempt from masking only when the Record cites it as an object. Such an ID may hold a run of digits (about one in fifteen does), and the
+// reader matches on it, so it is served as written. A request ID is chosen by the caller, so it is never exempt; any other ID that holds a long run of digits is masked.
+func citedMintedID(key, id string, known map[string]bool) bool {
+	if key == "request_id" || !known[id] {
+		return false
+	}
 	_, body, ok := strings.Cut(id, "_")
 	return ok && mintedBody.MatchString(body)
 }
@@ -326,21 +331,21 @@ func listFact(key string, v any) ([]string, error) {
 }
 
 // facts projects the listed payload keys and checks the required ones are present.
-func facts(p projection, payload map[string]any, extra map[string]any) (map[string]any, error) {
+func facts(p projection, known map[string]bool, payload map[string]any, extra map[string]any) (map[string]any, error) {
 	out := map[string]any{}
 	for _, k := range p.keys {
 		v, ok := payload[k]
 		if !ok {
 			continue
 		}
-		f, err := fact(k, v)
+		f, err := fact(k, v, known)
 		if err != nil {
 			return nil, err
 		}
 		out[k] = f
 	}
 	for k, v := range extra {
-		f, err := fact(k, v)
+		f, err := fact(k, v, known)
 		if err != nil {
 			return nil, err
 		}
@@ -370,6 +375,10 @@ type item struct {
 
 // project turns the correlation's events, in chain order, into section items.
 func project(events []stored) ([]item, error) {
+	known := make(map[string]bool, len(events))
+	for _, ev := range events {
+		known[ev.objectRef] = true
+	}
 	var out []item
 	for i, ev := range events {
 		p, ok := projections[ev.eventType]
@@ -393,7 +402,7 @@ func project(events []stored) ([]item, error) {
 				if !ok {
 					return nil, projErr("event %s holds a claim that is not an object", ev.id)
 				}
-				f, err := facts(p, claim, nil)
+				f, err := facts(p, known, claim, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -406,7 +415,7 @@ func project(events []stored) ([]item, error) {
 			}
 			capability := capabilityOf(events, i)
 			extra := map[string]any{"capability_id": capability, "execution_state": "DISPATCHED", "grant_state": grantState(events, i)}
-			f, err := facts(p, ev.payload, extra)
+			f, err := facts(p, known, ev.payload, extra)
 			if err != nil {
 				return nil, fmt.Errorf("dispatch %s: %w", ev.id, err)
 			}
@@ -415,7 +424,7 @@ func project(events []stored) ([]item, error) {
 		case evReceipt:
 			capability := capabilityOf(events, i)
 			extra := map[string]any{"capability_id": capability, "grant_state": grantState(events, i)}
-			f, err := facts(p, ev.payload, extra)
+			f, err := facts(p, known, ev.payload, extra)
 			if err != nil {
 				return nil, fmt.Errorf("receipt %s: %w", ev.id, err)
 			}
@@ -427,21 +436,21 @@ func project(events []stored) ([]item, error) {
 				// Outcome's event carries the signed verdict document; its verdict and id are the facts. The capability is the one of the receipt it verified.
 				payload = map[string]any{"verdict": doc["verdict"], "verdict_id": doc["verdict_id"], "capability_id": capabilityOfReceipt(events, doc["receipt_id"])}
 			}
-			f, err := facts(p, payload, nil)
+			f, err := facts(p, known, payload, nil)
 			if err != nil {
 				return nil, fmt.Errorf("verdict %s: %w", ev.id, err)
 			}
 			out = append(out, mk(f))
 			continue
 		case evClarify:
-			f, err := facts(p, ev.payload, map[string]any{"clarification_asked": true})
+			f, err := facts(p, known, ev.payload, map[string]any{"clarification_asked": true})
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, mk(f))
 			continue
 		}
-		f, err := facts(p, ev.payload, nil)
+		f, err := facts(p, known, ev.payload, nil)
 		if err != nil {
 			return nil, fmt.Errorf("event %s: %w", ev.id, err)
 		}
