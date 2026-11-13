@@ -57,6 +57,10 @@ func TestAValidInputIsRecordedAsInputReceivedByCoreEdgeBeforeTheTurnStarts(t *te
 		t.Errorf("payload %v", e.Payload)
 	}
 	// Review of noema#466 (REQ-SEC-003): the Record keeps an HMAC under the tenant's key, not a plain hash of the body, which a reader could confirm a guess against.
+	// A184: the event is named by the correlation ID the core minted, never by a string the client chose (the request ID is in the payload).
+	if e.ObjectRef != e.Corr || strings.Contains(strings.ToLower(strings.ReplaceAll(e.ObjectRef, "-", "")), strings.ReplaceAll(reqID, "-", "")) {
+		t.Errorf("object_ref %q, want the correlation ID %q and nothing built from the request ID", e.ObjectRef, e.Corr)
+	}
 	if h, _ := e.Payload["input_hash"].(string); !strings.HasPrefix(h, "hmac-sha256:") || len(h) != len("hmac-sha256:")+64 {
 		t.Errorf("input_hash %q", h)
 	}

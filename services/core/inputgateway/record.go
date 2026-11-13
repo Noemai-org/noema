@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,9 +20,6 @@ const (
 	eventSecurity     = "SECURITY_EVENT"
 	kindReused        = "REQUEST_ID_REUSED"
 )
-
-// objectRef names the input of a request in the Record: "req_" and the request id's hex digits. The reconstruction reads the request_id from the payload, not from here.
-func objectRef(requestID string) string { return "req_" + strings.ReplaceAll(requestID, "-", "") }
 
 // RecordRecorder appends the gateway's events to the Record as core-edge. Its Pool must log in as the tenant's core-edge emitter login (migration 0011,
 // DEBT-07): the database, not this code, binds the write to the tenant and the emitter, and that login can do nothing but append. Each event goes in its
@@ -57,9 +53,12 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) (chain.Stor
 	return st, nil
 }
 
-func (r *RecordRecorder) event(id Identity, corr, eventType, kind string, payload map[string]any, requestID string) chain.Event {
+// event names the input in the Record by its correlation ID, which the core minted (`corr_<ULID>`): every event of one input, the first receipt, a deduplicated redelivery and a
+// reuse of the request ID, is about the same object. An object_ref is never made from a payload string (A184): the client's request ID is a value the client chose, which can be
+// digits only, and it is kept in the payload, where the reconstruction masks it.
+func (r *RecordRecorder) event(id Identity, corr, eventType, kind string, payload map[string]any) chain.Event {
 	return chain.Event{TenantID: id.TenantID, CorrelationID: corr, WrittenBy: emitter, Actor: id.PrincipalKind + ":" + id.PrincipalID, EventType: eventType, Kind: kind,
-		ObjectRef: objectRef(requestID), Payload: payload}
+		ObjectRef: corr, Payload: payload}
 }
 
 // Received appends INPUT_RECEIVED: channel, locale (when the client sent a locale_hint) and request_id as the reconstruction reads them, and the body's hash.
@@ -68,7 +67,7 @@ func (r *RecordRecorder) Received(ctx context.Context, id Identity, corr string,
 	if in.Locale != "" {
 		p["locale"] = in.Locale
 	}
-	st, err := r.append(ctx, r.event(id, corr, eventReceived, "", p, in.RequestID))
+	st, err := r.append(ctx, r.event(id, corr, eventReceived, "", p))
 	if err != nil {
 		return Ref{}, err
 	}
@@ -77,13 +76,13 @@ func (r *RecordRecorder) Received(ctx context.Context, id Identity, corr string,
 
 // Deduplicated appends INPUT_DEDUPLICATED on the original input's correlation, naming the original event.
 func (r *RecordRecorder) Deduplicated(ctx context.Context, id Identity, corr, requestID string, original Ref) error {
-	_, err := r.append(ctx, r.event(id, corr, eventDeduplicated, "", map[string]any{"request_id": requestID, "original_event_id": original.EventID}, requestID))
+	_, err := r.append(ctx, r.event(id, corr, eventDeduplicated, "", map[string]any{"request_id": requestID, "original_event_id": original.EventID}))
 	return err
 }
 
 // Reused appends SECURITY_EVENT of kind REQUEST_ID_REUSED on the original input's correlation. It carries the new body's hash, never its text.
 func (r *RecordRecorder) Reused(ctx context.Context, id Identity, corr, requestID, inputHash string, original Ref) error {
-	_, err := r.append(ctx, r.event(id, corr, eventSecurity, kindReused, map[string]any{"request_id": requestID, "original_event_id": original.EventID, "input_hash": inputHash}, requestID))
+	_, err := r.append(ctx, r.event(id, corr, eventSecurity, kindReused, map[string]any{"request_id": requestID, "original_event_id": original.EventID, "input_hash": inputHash}))
 	return err
 }
 
