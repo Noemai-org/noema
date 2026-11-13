@@ -52,6 +52,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `arm-turn-result.v1.json` | §38.5 | §50.2 | REQ-BEN-007 | The result file of one arm turn: status, tool calls, text, usage and cost in micro-units, latency; `diagnostic` is true exactly when the mode is the forced-schema diagnostic, which is never a comparison result; only status OK carries tool calls or text. New file, AGENT-15; no tag (A12) |
 | `intent-slot.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-AMB-001 | Five abstract slot types; a RESOLVED slot has `resolved_ref` and only a RESOLVED slot has one |
 | `intent-object.v1.json` | §43.1 | §20.1 | REQ-INT-001, REQ-INT-004 | Version 1 supersedes nothing; a later version names `intent_id@version`; money in minor units |
+| `intent-object.v2.json` | §43.1 | §20.1 | REQ-INT-001, REQ-INP-002 | intent-object.v1 with `schema_version` major 2 and one relaxed pattern: `principal.asserted_by` also allows `-` (ruling A163; the verified issuer is `noema-poc-idp`, ruling A1). Nothing else differs; v1 is not edited |
 | `clarification.v1.json` | §43.2 | §22.1 (REQ-AMB-004) | REQ-AMB-004, REQ-UI-002 | At most 4 options, no label with 5 or more consecutive digits, at most 2 rounds |
 | `clarification-answer.v1.json` | §43.2 | §22.1 (REQ-AMB-005) | REQ-AMB-005 | Base fields, `clarification_id` and `answers` (slot name to a typed slot value); only slots the clarification requested (DEC-2026-10-18) |
 
