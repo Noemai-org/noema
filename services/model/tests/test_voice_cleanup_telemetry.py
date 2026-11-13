@@ -75,8 +75,11 @@ async def call(source: object, correlation_id: str, telemetry: InMemoryTelemetry
 
 def test_an_abandoned_read_is_reported_as_a_structured_event_with_the_correlation_id() -> None:
     telemetry = InMemoryTelemetry()
-    run(asyncio.wait_for(call(NeverEnding(), "corr-1", telemetry), timeout=GUARD_S))
-    run(asyncio.sleep(0))
+    async def scenario() -> None:
+        await call(NeverEnding(), "corr-1", telemetry)
+        await asyncio.sleep(0.3)  # past the hold: the abandon happens after the call has returned
+
+    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
     assert (EVENT, "corr-1", {"code": ABANDONED}) in telemetry.events
 
 
