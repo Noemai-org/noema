@@ -14,9 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/migrations"
 	"github.com/Noemai-org/noema/services/core/platform/db"
+	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
 // Tests for the context_snapshot table and the evidence_verify login (EVD-03 slice 2): REQ-CTX-004 (sealed snapshots), INV-17 (no grant over an
@@ -52,6 +54,7 @@ type world struct {
 	dsn      string
 	evidence map[string]*pgxpool.Pool
 	trust    map[string]*pgxpool.Pool
+	sign     map[string]chain.Signer // one SYNTHETIC signer per emitter (REC-08): an emitter with no signer cannot append
 }
 
 func newWorld(t *testing.T) *world {
@@ -60,7 +63,7 @@ func newWorld(t *testing.T) *world {
 	if _, err := db.Migrate(ctx(t), admin, migrations.FS); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	w := &world{admin: admin, dsn: dsn, evidence: map[string]*pgxpool.Pool{}, trust: map[string]*pgxpool.Pool{}}
+	w := &world{admin: admin, dsn: dsn, evidence: map[string]*pgxpool.Pool{}, trust: map[string]*pgxpool.Pool{}, sign: recordsig.All(t, admin, "snapshot", nil)}
 	for _, id := range []string{tenantA, tenantB} {
 		if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic')`, id); err != nil {
 			t.Fatal(err)
@@ -472,12 +475,17 @@ func TestEvidenceVerifyHoldsExactlyTheGrantsD9Names(t *testing.T) {
 // The check is textual (a function body with FROM or JOIN and a forced table's name), which is the closest a catalog gets to "reads".
 func TestEverySecurityDefinerFunctionThatReadsAForcedTableHasAPolicyForItsOwner(t *testing.T) {
 	w := newWorld(t)
+	// The effective owner is the role that owns the function in Compose. A function that no migration gives an explicit owner belongs to the role that ran the migrations:
+	// in Compose that is noema_migrator (not a superuser, so bound by FORCE), in this test cluster it is the superuser, which bypasses row security and would hide the
+	// trap. So an owner that is a superuser or has BYPASSRLS stands for noema_migrator here; an owner that is any other role is checked as it is.
 	rows, err := w.admin.Query(ctx(t), `SELECT p.proname, pg_get_userbyid(p.proowner), c.relname
 		FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		JOIN pg_roles o ON o.oid = p.proowner
+		CROSS JOIN LATERAL (SELECT CASE WHEN o.rolsuper OR o.rolbypassrls THEN (SELECT oid FROM pg_roles WHERE rolname = 'noema_migrator') ELSE p.proowner END AS effective) e
 		JOIN pg_class c ON c.relnamespace = n.oid AND c.relkind = 'r' AND c.relforcerowsecurity
 		WHERE n.nspname = 'public' AND p.prosecdef AND p.prosrc ~* ('(from|join)\s+(public\.)?' || c.relname || '\M')
 		AND NOT EXISTS (SELECT 1 FROM pg_policy pol WHERE pol.polrelid = c.oid AND pol.polcmd IN ('r', '*')
-		                AND (pol.polroles = '{0}'::oid[] OR p.proowner = ANY (pol.polroles)))
+		                AND (pol.polroles = '{0}'::oid[] OR e.effective = ANY (pol.polroles)))
 		ORDER BY 1, 3`)
 	if err != nil {
 		t.Fatal(err)

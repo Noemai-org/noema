@@ -23,7 +23,7 @@ import (
 func (w *world) sealer() *snapshot.Sealer {
 	clk := clock.NewManual(time.Date(2026, 11, 5, 9, 1, 0, 0, time.UTC))
 	g := ids.New(clk, nil)
-	return &snapshot.Sealer{Rec: &chain.Appender{Clock: clk, IDs: g}, Clock: clk, IDs: g}
+	return &snapshot.Sealer{Rec: &chain.Appender{Clock: clk, IDs: g, Signers: w.sign}, Clock: clk, IDs: g}
 }
 
 func (w *world) seal(t *testing.T, s *snapshot.Sealer, tenant string, evidenceIDs []string) (snapshot.Sealed, error) {
@@ -119,7 +119,7 @@ func TestASnapshotIsNotStoredWhenTheRecordAppendFails(t *testing.T) {
 	w := newWorld(t)
 	a1 := w.item(t, tenantA, 1)
 	s := w.sealer()
-	s.Rec = &chain.Appender{Clock: s.Clock, IDs: failingIDs{}}
+	s.Rec = &chain.Appender{Clock: s.Clock, IDs: failingIDs{}, Signers: w.sign}
 	if _, err := w.seal(t, s, tenantA, []string{a1}); err == nil {
 		t.Fatal("sealed although the Record append failed")
 	}
@@ -134,7 +134,7 @@ func TestTheSnapshotIsNotInsertedBeforeTheRecordEventIsAppended(t *testing.T) {
 	w := newWorld(t)
 	a1 := w.item(t, tenantA, 1)
 	s := w.sealer()
-	s.Rec = &chain.Appender{Clock: s.Clock, IDs: failingIDs{}}
+	s.Rec = &chain.Appender{Clock: s.Clock, IDs: failingIDs{}, Signers: w.sign}
 	tx, err := w.trust[tenantA].Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
