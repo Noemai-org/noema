@@ -77,6 +77,22 @@ REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 -- The core may connect and nothing more: no CREATE, no TEMPORARY. Rights on tables come from the per-power roles (migrations).
 GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter, evidence_verify;
 \connect noema
+-- DEC-2026-11-01 D10, D10a (EXE-08 slice B, ruling A2): pgsodium verifies Ed25519 signatures in the database; the private keys never are in it. The extension
+-- is created without shared_preload_libraries (no server key management). Its event trigger reads a setting that exists only when the library is preloaded,
+-- so it is disabled here, once, as a superuser, before any Noema migration, and the setting is off. Nothing in its schema is executable by PUBLIC; only
+-- noema_migrator may call the one verification function noema_sig.verify uses. db.Migrate and the core refuse to run if the event trigger is enabled again.
+CREATE EXTENSION pgsodium;
+DO $$ DECLARE r record; BEGIN
+  FOR r IN SELECT e.evtname FROM pg_event_trigger e JOIN pg_depend d ON d.objid = e.oid AND d.deptype = 'e'
+           JOIN pg_extension x ON x.oid = d.refobjid AND x.extname = 'pgsodium' LOOP
+    EXECUTE format('ALTER EVENT TRIGGER %I DISABLE', r.evtname);
+  END LOOP;
+END $$;
+ALTER DATABASE noema SET pgsodium.enable_event_trigger = 'off';
+REVOKE ALL ON SCHEMA pgsodium FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA pgsodium FROM PUBLIC;
+GRANT USAGE ON SCHEMA pgsodium TO noema_migrator;
+GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO noema_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO noema_core;
 -- Migration 0001 runs ALTER TABLE ... OWNER TO record_append, which PostgreSQL allows only if the new owner can CREATE in the schema

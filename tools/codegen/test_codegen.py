@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 
 import generate  # noqa: E402
 import ir  # noqa: E402
+from anchors import fully_anchored  # noqa: E402
 
 
 def schema(**body):
@@ -186,3 +187,28 @@ class CommittedOutput(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Anchors(unittest.TestCase):
+    """A138: a pattern means the whole string. Python's `$` also matches before a final newline; `\\Z` does not."""
+
+    def test_the_leading_caret_and_trailing_dollar_become_whole_string_anchors(self):
+        self.assertEqual(fully_anchored("^raw_[0-9A-Za-z]{2,32}$"), r"\Araw_[0-9A-Za-z]{2,32}\Z")
+
+    def test_every_anchor_of_an_alternation_is_replaced(self):
+        self.assertEqual(fully_anchored("^(a$|b$)"), r"\A(a\Z|b\Z)")
+
+    def test_a_caret_or_dollar_in_a_character_class_or_escaped_is_kept(self):
+        self.assertEqual(fully_anchored(r"^[^\n$]+\$[]^$]$"), r"\A[^\n$]+\$[]^$]\Z")
+
+    def test_the_result_refuses_a_trailing_newline_that_the_dollar_form_accepts(self):
+        import re
+
+        self.assertIsNotNone(re.search("^ab$", "ab\n"))
+        self.assertIsNone(re.search(fully_anchored("^ab$"), "ab\n"))
+        self.assertIsNotNone(re.search(fully_anchored("^ab$"), "ab"))
+
+    def test_text_that_may_hold_a_newline_still_may(self):
+        import re
+
+        self.assertIsNotNone(re.search(fully_anchored(r"^[\s\S]*$"), "a\nb\n"))

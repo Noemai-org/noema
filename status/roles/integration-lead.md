@@ -36,6 +36,22 @@ Written only by the integration-lead role (see `README.md`). Append dated entrie
 **Next task**
 - TST-05 design note and exactly-one-effect kill-point list (starts on the Architect's answer to Escalation 1); TEN-06 the moment #115 merges (needs `PAGINATE`); TST-06 chaos subset with the Benchmark agent after the TST-05 design.
 
+### 2026-11-06 · queue of 5 Nov 15:30 · Founder click-script (one place)
+
+Everything below needs a human; none of it is done by an agent. Order matters where marked. No secret value goes in chat, a PR or the repo.
+
+1. **Reserve the DuckDNS name** (Founder, in progress). Tell the Integration Lead the name only when the relay host is up; the script takes it as `RELAY_HOSTNAME`.
+2. **Commit ruling A11 (Caddy)**: merge docs#112 then docs#117 (draft rulings carry A10 to A12). noema#189 must not merge before that (AGENT-14).
+3. **Relay host**: follow `deploy/relay-host/README.md` steps 1 to 8 (Lightsail, static IP, ports 80 and 443, Docker, token file, `setup.sh --check`, `setup.sh`, `curl https://NAME.duckdns.org/healthz` must answer 200). Send the output of step 7 back; the first real run is the test.
+4. **GitHub Environments** `tushe-runtime`, `tushe-fixture`, `tushe-admin`: main-only, Founder as required reviewer (DEC-2026-11-04 R12). Checklist: docs#108 (`docs/security/github-environments-checklist.md`). The administrator credential is held by the Founder only.
+5. **Tushe credentials into those Environments** (Tushe provisioned ten tenants, three credentials each, per deck v4 slide 23). Place each only in the Environment docs#108 names. Never paste one into a session.
+6. **Register the relay URL with Tushe** (deck v4 slide 23, R13: "Send us your HTTPS URL"), only after step 3 answers 200. The address is `https://NAME.duckdns.org/webhooks`. Founder's call: noema#189's README still says to wait for Tushe's written response; the deck since asked for the URL.
+7. **Put the webhook signing secret Tushe returns into the relay's volume file only** (`deploy/compose/services/webhook-relay.yml`), never into the core's environment.
+8. **Answer Tushe's open item R7**: rate-limit figures and hosting region for Noema's tenants (deck v4 slides 22 and 23: "to confirm with you").
+9. **AWS anchor account, anchor-store Environment and Pushover**: docs#111 (`docs/security/anchor-aws-click-script.md`).
+10. **Connect Codex to the GitHub identity that runs these sessions.** Codex answered "create a Codex account and connect to github" on noema#170 and noema#189, so no Codex review can happen until this is done (https://chatgpt.com/codex/cloud/settings/connectors).
+11. **Tushe's final written response (due Wed 11 Nov)**: commit it under `docs/poc/tushe/responses/` with its checksum. Until then G0-T has not passed and no Tushe route is mapped.
+
 ### 2026-11-06 · TEN-02 verdict half
 
 - The Outcome half of TEN-02 is `services/core/outcome/verifier/ten02_test.go`: six scenarios (effect present; verifiably absent; acknowledged but absent; incomplete page; malformed read; refused read), 64 seeded concurrent replays each (seed 20261103), every replay equal to the committed expectation. With the Trust half (noema#119) both halves are shown once both merge. Not shown: a replay on the real mock-case or a database (decision logic only).

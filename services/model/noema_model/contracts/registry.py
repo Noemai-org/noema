@@ -8,9 +8,12 @@ from typing import Any
 from . import (
     action_graph_v1,
     action_graph_v2,
+    arm_turn_result_v1,
+    arm_turn_v1,
     candidates_request_v1,
     candidates_response_v1,
     canonical_input_v1,
+    canonical_input_v2,
     capability_descriptor_v1,
     clarification_answer_v1,
     clarification_v1,
@@ -57,6 +60,7 @@ from . import (
     record_event_v2,
     record_event_v3,
     recovery_request_v1,
+    session_limits_v1,
     trust_profile_v1,
 )
 
@@ -65,12 +69,15 @@ TYPES: dict[str, Any] = {
     "action-graph.v1#RecoveryAction": action_graph_v1.ActionGraphV1RecoveryAction,
     "action-graph.v2": action_graph_v2.ActionGraphV2,
     "action-graph.v2#RecoveryAction": action_graph_v2.ActionGraphV2RecoveryAction,
+    "arm-turn-result.v1": arm_turn_result_v1.ArmTurnResultV1,
+    "arm-turn.v1": arm_turn_v1.ArmTurnV1,
     "candidates-request.v1": candidates_request_v1.CandidatesRequestV1,
     "candidates-request.v1#AmountRange": candidates_request_v1.CandidatesRequestV1AmountRange,
     "candidates-response.v1": candidates_response_v1.CandidatesResponseV1,
     "candidates-response.v1#Candidate": candidates_response_v1.CandidatesResponseV1Candidate,
     "candidates-response.v1#Candidate/properties/direction": candidates_response_v1.CandidatesResponseV1CandidateDirection,
     "canonical-input.v1": canonical_input_v1.CanonicalInputV1,
+    "canonical-input.v2": canonical_input_v2.CanonicalInputV2,
     "capability-descriptor.v1": capability_descriptor_v1.CapabilityDescriptorV1,
     "clarification-answer.v1": clarification_answer_v1.ClarificationAnswerV1,
     "clarification.v1": clarification_v1.ClarificationV1,
@@ -249,5 +256,6 @@ TYPES: dict[str, Any] = {
     "record-event.v3#RecordEventType": record_event_v3.RecordEventV3RecordEventType,
     "record-event.v3#SecurityKind": record_event_v3.RecordEventV3SecurityKind,
     "recovery-request.v1": recovery_request_v1.RecoveryRequestV1,
+    "session-limits.v1": session_limits_v1.SessionLimitsV1,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }

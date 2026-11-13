@@ -70,6 +70,8 @@ services:
       STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
       STANDIN_BENCH_TOKEN_FILE: /run/standin/bench/token
       STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+      # The one tenant this stand-in serves (A135); the adapter's assertion must name it. A synthetic id.
+      STANDIN_TENANT_ID: "${STANDIN_TENANT_ID:-ten_alpha}"
       # Empty means the system clock. Set it (for example 2026-10-01T09:40:00Z) to run on the simulated clock the benchmark advances.
       STANDIN_CLOCK_START: "${STANDIN_CLOCK_START:-}"
     volumes:
