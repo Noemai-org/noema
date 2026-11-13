@@ -235,6 +235,15 @@ func (r *Ring) Sign(tag Tag, doc map[string]any) (Signed, error) {
 	return r.sign(tag, canon)
 }
 
+// SignRecordEvent signs a Record event body (the event without hash and without sig) for the Record appender (D6, REC-08).
+func (r *Ring) SignRecordEvent(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error) {
+	s, err := r.Sign(RecordEventTag, doc)
+	if err != nil {
+		return "", "", nil, err
+	}
+	return s.KeyID, s.Value, s.SignedJCS, nil
+}
+
 // SignReceipt is the Controller's port (controller.ReceiptSigner): it signs an Execution Receipt document under the receipt tag and returns
 // the key ID, the signature and the exact bytes signed, which the ledger stores (D8).
 func (r *Ring) SignReceipt(doc map[string]any) (keyID, sigHex string, signedJCS []byte, err error) {

@@ -100,10 +100,10 @@ func TestEveryErrorCarriesACorrelationIDAndSafeText(t *testing.T) {
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Fatalf("content type %q", rec.Header().Get("Content-Type"))
 	}
-	// an incoming correlation ID in the right shape is kept, so a call can be traced end to end
-	kept := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "corr_ABC123"})
-	if envelope(t, kept).CorrelationId != "corr_ABC123" {
-		t.Fatalf("incoming correlation ID not kept: %+v", envelope(t, kept))
+	// the chain's correlation ID is ours (noema#458, EL's decision): an incoming one is never adopted, in the right shape or not
+	ignored := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "corr_ABC123"})
+	if envelope(t, ignored).CorrelationId == "corr_ABC123" || ignored.Header().Get("Noema-Correlation-Id") == "corr_ABC123" {
+		t.Fatalf("an incoming correlation ID was adopted: %+v", envelope(t, ignored))
 	}
 	hostile := do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": "x\r\nSet-Cookie: a=b"})
 	if hostile.Header().Get("Set-Cookie") != "" || !strings.HasPrefix(string(envelope(t, hostile).CorrelationId), "corr_") {
@@ -204,6 +204,93 @@ func TestTheBearerSchemeNameIsCaseInsensitive(t *testing.T) {
 	for name, authz := range map[string]string{"no space": "Bearer" + tok, "two spaces": "Bearer  " + tok, "tab": "Bearer\t" + tok, "other scheme": "Basic " + tok, "empty credential": "Bearer ", "scheme only": "bearer"} {
 		if rec := do(h, authz, nil); rec.Code == http.StatusNoContent {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// noema#458 (SEC-03 finding; REQ-SEC-003, AGENT-13, SR's reproduction): a caller-supplied Noema-Correlation-Id such as corr_0123456789 has the shape of an account number
+// and used to be echoed in the response header and body, and then ride into logs and the Record with the chain. The chain ID is minted by the core; the incoming value is
+// not echoed, in the header, the body or any later part of the answer, and the answer carries a minted ID of the contract's shape.
+func TestACallerSuppliedCorrelationIdIsNeverEchoed(t *testing.T) {
+	h, _, _ := serve(t, newKeys(t))
+	shape := regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
+	for _, supplied := range []string{"corr_0123456789", "corr_12345", "corr_ABC123", "corr_" + strings.Repeat("9", 32), "x\r\nSet-Cookie: a=b", "corr_9999999999999999"} {
+		for name, rec := range map[string]*httptest.ResponseRecorder{
+			"no credential": do(h, "", map[string]string{"Noema-Correlation-Id": supplied}),
+			"a bad token":   do(h, "Bearer junk", map[string]string{"Noema-Correlation-Id": supplied}),
+		} {
+			got := rec.Header().Get("Noema-Correlation-Id")
+			if !shape.MatchString(got) || got == supplied || strings.Contains(rec.Body.String(), supplied) || strings.Contains(strings.Join(rec.Header().Values("Noema-Correlation-Id"), ","), supplied) {
+				t.Errorf("%s, supplied %q: header %q, body %q", name, supplied, got, rec.Body.String())
+			}
+			if envelope(t, rec).CorrelationId != contracts.CommonV1CorrelationId(got) {
+				t.Errorf("%s, supplied %q: the body's correlation id is not the header's", name, supplied)
+			}
+		}
+	}
+}
+
+// One request has one correlation ID: the session check mints it, and the role gate, the body guard, the handler and the answer all use that one (noema#458: since the
+// incoming value is no longer adopted, each layer minting its own would give a body error an ID that is not the header's and break tracing).
+func TestOneRequestHasOneCorrelationIdThroughTheWholeChain(t *testing.T) {
+	k := newKeys(t)
+	v, clk := verifier(t, k, epoch)
+	idm := ids.New(clk, nil)
+	guard, err := session.RefuseBodyIdentity(idm, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inHandler string
+	h := session.Middleware(v, idm)(session.RequireRole(idm, session.RoleOps)(guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inHandler = session.CorrelationFromContext(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))))
+	c := goodClaims(epoch)
+	c["roles"] = []string{string(session.RoleOps)}
+	tok := "Bearer " + mint(t, k.priv, goodHeader(), c)
+
+	ok := do(h, tok, map[string]string{"Content-Type": "application/json"})
+	if got := ok.Header().Get("Noema-Correlation-Id"); ok.Code != http.StatusNoContent || got == "" || inHandler != got {
+		t.Fatalf("handler saw %q, header %q (status %d)", inHandler, got, ok.Code)
+	}
+	c["roles"] = []string{string(session.RoleCustomer)}
+	denied := do(h, "Bearer "+mint(t, k.priv, goodHeader(), c), nil)
+	if got := denied.Header().Get("Noema-Correlation-Id"); denied.Code != http.StatusNotFound || got == "" || string(envelope(t, denied).CorrelationId) != got {
+		t.Fatalf("role refusal: header %q, body %q", got, denied.Body.String())
+	}
+	if got := session.CorrelationFromContext(httptest.NewRequest(http.MethodGet, "/", nil).Context()); got != "" {
+		t.Fatalf("a request that passed no session check has the correlation ID %q in its context", got)
+	}
+}
+
+type brokenIDs struct{ out string }
+
+func (b brokenIDs) ID(string) (string, error) {
+	if b.out == "" {
+		return "", errors.New("synthetic id source failure")
+	}
+	return b.out, nil
+}
+
+// Reviewer P1 on noema#481: when a unique, valid correlation ID cannot be minted, the request does not continue under a shared fallback; it is refused (500
+// INTERNAL_SAFETY_BLOCK) before the role gate, the body guard and the handler, so no unrelated requests write under one ID. The fixed value appears only in that refusal.
+func TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns(t *testing.T) {
+	k := newKeys(t)
+	v, _ := verifier(t, k, epoch)
+	for name, src := range map[string]brokenIDs{"the source fails": {}, "the source returns a malformed ID": {out: "not an id"}, "the source returns an ID with a newline": {out: "corr_AB12\n"}} {
+		calls := 0
+		guard, err := session.RefuseBodyIdentity(src, 1024)
+		if err != nil {
+			t.Fatal(err)
+		}
+		h := session.Middleware(v, src)(session.RequireRole(src, session.RoleOps)(guard(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))))
+		c := goodClaims(epoch)
+		c["roles"] = []string{string(session.RoleOps)}
+		for label, authz := range map[string]string{"with a valid session": "Bearer " + mint(t, k.priv, goodHeader(), c), "with no credential": ""} {
+			rec := do(h, authz, map[string]string{"Content-Type": "application/json"})
+			if rec.Code != http.StatusInternalServerError || envelope(t, rec).Code != contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK || calls != 0 {
+				t.Errorf("%s, %s: %d %s, handler calls %d", name, label, rec.Code, rec.Body.String(), calls)
+			}
 		}
 	}
 }
