@@ -54,3 +54,10 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Settled since (merged `main`):** ruling A177 (`DEC-2026-11-12-architect-interim-a177-a178`, docs#163, entry OD-P-86 still [OPEN] for a SoT check) accepts the reading above: the core computes `intent_hash` over the canonical JSON and the signed `INTENT_ADMITTED` Record event is the signature; the object's `sig` stays the unsigned marker. Nothing in this PR changes for it.
 - **Next (not here):** the `Interpreter` (compile, gate, record `INTENT_REJECTED_AT_GATE` or the override, save through noema#471's store) after #471 merges, and the model-service route after noema#489 merges.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-13 22:30 WAT · UND-04 core · A195: IDENTITY_SET_BY_MODEL
+
+- **What changed (PR noema#549):** `gate.go`: a model that sends `principal_type` or `asserted_by` of its own is refused as `IDENTITY_SET_BY_MODEL`, not `SHAPE` (ruling A195, relayed and not yet committed here; the Founder's order of 13 Nov 2026, item 4). Same event, same path: the reason travels in `INTENT_REJECTED_AT_GATE`'s `reason_codes` like `SIG`. A document that is malformed in another way stays `SHAPE`; a model-set `sig` stays `SIG`. No metric and no log line (A195).
+- **Failing first:** `a166_test.go`'s seven-case test was committed alone as `854e8735` and failed in the `core` job (run 43508790123); the green push changes only `gate.go`, `README.md` and this file.
+- **Debt:** the entry A195 asks for is on noema#545 for the Steward to register. Conflicts raised: none.
+- **Pre-work for the next agent:** when noema#519 merges, its interpreter test for the rejected-at-gate event may assert the new code for an identity-setting model; the interpreter needs no change (it records `Rejection.Reasons` as they are).
