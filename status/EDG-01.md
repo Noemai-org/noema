@@ -61,3 +61,53 @@
 - Codex P3 (sub-second `-ttl`): the issuer now requires a TTL of at least one second (test first, one mutation caught).
 - Ruling A15 (benchmark roles are the four A1 roles; `ops_agent` to `ops`, `viewer` to `customer` when acting or `audit` when read-only) answers Codex's P1 on `benchmark/runner/env.py`: the change is in the benchmark generator's cases (`benchmark/generator/lib_security.py`), not in this PR. It also changes generated case content, so it needs its owner and a suite regeneration; I have not done it.
 - Ruling A20 for slice 3b: `audit` reads only through the tenant-bound Record read functions; `ops` and `audit` have no path to a Record writer.
+
+## Session 2026-11-11 09:00 WAT · slice 3b: the edge composition and the core wiring
+## Session summary
+- What changed (PR links): the EDG-01 slice 3b pull request on `feat/EDG-01-edge-wiring` (opened from main: the slice 3a and 3b parents, noema#156 and noema#198, are merged): `edge.Protected` (session, role gate, body guard, deny by default), `edge/edgetest` (SYNTHETIC tokens for tests), `edge.Load` (six settings, all or none, fail closed; the composition root `cmd/core/compose.go` is EL's, so this PR does not edit `cmd/core`), `make bench-tokens` (`deploy/compose/bench_tokens.sh` and its test; principals and token lifetime are arguments).
+- Why: REQ-API-004 needs every public call behind a verified session in the running core, not only in the package. The order is session, role, body: an unauthenticated caller gets 401 and a wrong-role caller 404 whatever the body says.
+- Risks, and how they are contained: no `/v1` route is registered yet, so the composition is proved with test routes. The six settings have no defaults; with some set `Load` returns an error and the root must not start. The test that cmd/core does not import `record/reconstruct` stays: the reconstruction route is wired by REC-03 with its role list.
+- Tests added (REQ-API-004, REQ-API-002, REQ-SEC-001, INV-12, INV-21, AGENT-16): `edge/edge_test.go` (10), `edge/load_test.go` (7). Mutation check of the new code: guard before role, no catch-all, no session check, no body guard, skew in code, lifetime above the ceiling, tenants, audience, kid, body limit and partial configuration accepted were each caught by a test; audience, kid and body limit survived once and the tests now use values that differ from the helper's.
+- Regression cases added: none. Debt entries: `deploy/compose/test_bench_tokens.sh` is not run by CI (no workflow runs the compose scripts' tests, `test_secrets_local.sh` included); a workflow change needs a Founder.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL plugs `edge.Load` into `cmd/core/compose.go` (slice 3c); the first handler that touches the database (REC-03's reconstruction route) passes its `Route`, lists `ops` and `audit` (ruling A20) and calls `session.CheckTenant(principal, loginTenant)` with its test.
+- Open questions (owner): the names of the six settings are mine; EL to say yes or rename. The body limit value for the deployment (EL, no default). The G1 principal list for `BENCH_PRINCIPALS` (Integration Lead, noema#441).
+- Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
+- Do not touch: the migration files.
+
+## Session 2026-11-12 · correlation ID (EL; noema#458, the Security Reviewer's SEC-03 finding)
+
+## Session summary
+- What changed: `session.Middleware` mints the correlation ID and puts it in the request context; `correlationID` (used by the role gate and the body guard) reads it from there and never from the request header; `session.CorrelationFromContext` is new. The existing test that required an incoming ID to be kept now requires it to be ignored.
+- Why: option (a) of the finding: the chain ID is ours, so a caller-supplied `corr_0123456789` (the shape of an account number) is not echoed in the response header or body and does not ride into logs and the Record. Option (b) would need a keyed check nothing else needs; option (c) leaves the response and the Record.
+- Tests added (REQ-SEC-003, AGENT-13, REQ-API-002): `TestACallerSuppliedCorrelationIdIsNeverEchoed` (six supplied values, two refusal paths, header, body and every header value), `TestOneRequestHasOneCorrelationIdThroughTheWholeChain` (the handler, the header, a role refusal and the body agree). Written first; both red on `main` (the first with SR's reproduction, the second did not compile). Mutants killed: no ID put in the context, the context value ignored, the incoming header adopted.
+- Not changed, stated: the reconstruction route sets `Noema-Correlation-Id` to the requested correlation from its path (the resource asked for, checked against the Record, not a header the caller sent).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: `compose.go` mounts routes behind this chain; log lines and Record events for a request take the ID from `session.CorrelationFromContext`.
+
+### Update 2026-11-12 · reviewer P1 on noema#481 (no shared fallback correlation ID)
+- `correlationID` now returns whether a unique valid ID exists; the session check, the role gate and the body guard each refuse (500 INTERNAL_SAFETY_BLOCK, the fixed `corr_NONE` only in that refusal) when none can be minted, so no request continues, writes or logs under a shared ID. Test first: `TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns` (the source fails, returns a malformed ID, returns one with a newline; with and without a credential). Mutant (the refusal replaced by continuing, in all three layers) killed.
+
+## Session 2026-11-12 10:00 WAT · A149: the three session fields
+## Session summary
+- What changed (PR links): the EDG-01 A149 pull request on `feat/EDG-01-a149-session-fields`, from main: `session.Principal` gains `PrincipalType`, `AssertedBy` and `AuthnRef`, set by `Verify` from the verified token and from nothing else.
+- Why: ruling A149 (DEC-2026-11-12-architect-rulings-a148-a160, relayed until docs#157 merges): the orchestrator copies `principal_type`, `authn_ref` and `asserted_by` into the Intent Object from the session (INV-12).
+- Risks, and how they are contained: a field taken from the request or from a token member the verifier did not check. All three derive from claims that `Verify` has checked (`roles`, `iss`) or from the header `kid` it has matched to a configured key, `sub` and `iat`. `authn_ref` is a hash, never a token or a part of one (test).
+- Tests added (INV-12, AGENT-10, A149): `edge/session/principal_fields_test.go` (5): role to type for all four roles, issuer, hash equal to an independent computation, `kid`, `sub` and `iat` each bound and `exp` not, no token part in the reference. Five mutants (kid unbound, iat unbound, ops not mapped, issuer, length) each killed.
+- Regression cases added: none. Debt entries: none.
+- Conflicts raised: **asserted_by against `intent-object.v1`** (see the PR): the issuer `noema-poc-idp` has hyphens and the contract's `asserted_by` pattern is `^[a-z][a-z0-9_]*$`.
+
+## Pre-work for the next agent
+- Exact next step: the Architect or EL decides the `asserted_by` form (relax the contract pattern with a version bump, AGENT-15, or map `noema-poc-idp` to a contract-valid token); until then the orchestrator must not copy `AssertedBy` into an Intent Object unchecked. `principal_id` has the same kind of gap: the contract wants `usr_...` and the verifier accepts any `sub` up to 128 bytes.
+- Files to read first: `services/core/edge/session/session.go`.
+- Do not touch: the migrations.
+
+## Session 2026-11-12 18:00 WAT · A163: the IdP mints usr_ IDs; the asserted_by conflict is decided
+- What changed (noema#467): `cmd/synthetic-idp issue` accepts only a `-principal` that is a `usr_` ID of the contract (`^usr_[0-9A-Za-z]{2,32}$`, anchored over the whole string), so the `sub` it mints is a valid Intent Object `principal_id` as it stands. The verifier is not changed: it still accepts any `sub` of up to 128 bytes (ruling A1 item 6).
+- Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
+- Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
+- Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).

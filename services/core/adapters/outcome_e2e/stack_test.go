@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"os"
 	"strings"
 	"sync"
@@ -242,7 +243,8 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	ring := signingtest.Ring(t, 1) // core-execution's SYNTHETIC key, version 1: receiptKeyID
 	signingtest.Register(t, admin, ring)
 	outKeys := crypto.NewKeyRing(map[string][]byte{outcomeKeyID: []byte("synthetic-outcome-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
+	signers := recordsig.All(t, admin, "outcome-e2e", map[string]chain.Signer{"core-execution": ring})
+	led := &ledger.Ledger{Pool: pool["execution_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: time.Minute}
 	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +262,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 		t.Fatal(err)
 	}
 	def := pack.Definitions[caseOpened]
-	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: 5 * time.Second}
+	st := &store.Store{Pool: pool["outcome_rw"], Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen, Signers: signers}, RollbackTimeout: 5 * time.Second}
 	pubs := publicKeys{receiptKeyID: {Key: ring.PublicKeys()[receiptKeyID], Status: receiptsig.Active}}
 	v, err := verifier.New(verifier.Config{Clock: clk, Waiter: waiter{clk}, IDs: gen, Cases: reader{cases}, Store: st, Signer: outcomeSigner{outKeys}, Authenticity: receiptsig.Checker{Keys: pubs}, Scope: pack.Scope,
 		Budget: verifier.ReadBudget{Backoffs: []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}, MaxPages: 3}})

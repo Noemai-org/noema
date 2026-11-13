@@ -66,6 +66,15 @@ type IDSource interface {
 type Appender struct {
 	Clock clock.Clock
 	IDs   IDSource
+	// Signers holds one signer per emitter identity (DEC-2026-11-01 D2): the key lives outside PostgreSQL and the database verifies the signature
+	// before an event is stored (REC-08). An emitter with no signer cannot append: Append fails before it touches the database.
+	Signers map[string]Signer
+}
+
+// Signer signs a Record event body under the newest key of one identity. The body is the event without hash and without sig; signedJCS are the exact
+// RFC 8785 bytes that were signed (without the domain tag), which the database re-reads and checks against the row.
+type Signer interface {
+	SignRecordEvent(body map[string]any) (keyID, sigHex string, signedJCS []byte, err error)
 }
 
 // ValidTenantID reports whether id has the shape of a tenant ID. The verification job uses it to refuse an ID before it
@@ -101,6 +110,10 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 	}
 	at := a.Clock.Now().UTC().Truncate(time.Millisecond)
 
+	signer, ok := a.Signers[ev.WrittenBy]
+	if !ok || signer == nil {
+		return Stored{}, fmt.Errorf("%sno signing key for the emitter %q: it cannot append (DEBT-03)", errPrefix, ev.WrittenBy)
+	}
 	var seq int64
 	var prev string
 	if err := tx.QueryRow(ctx, `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &prev); err != nil {
@@ -115,9 +128,13 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 	if err != nil {
 		return Stored{}, fmt.Errorf("%scanonical body: %w", errPrefix, err)
 	}
-	if _, err := tx.Exec(ctx, `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb)`,
+	keyID, sig, signed, err := signer.SignRecordEvent(body)
+	if err != nil {
+		return Stored{}, fmt.Errorf("%ssign %s: %w", errPrefix, ev.EventType, err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT record_insert_t($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $16, $17)`,
 		id, seq+1, prev, hash, ev.WrittenBy, ev.EventType, ev.ObjectRef, payloadHash, ev.CorrelationID, at,
-		SchemaVersion, ev.Actor, string(bodyJSON), payloadJSON); err != nil {
+		SchemaVersion, ev.Actor, string(bodyJSON), payloadJSON, keyID, sig, signed); err != nil {
 		return Stored{}, fmt.Errorf("%sinsert: %w", errPrefix, err)
 	}
 	return Stored{EventID: id, Seq: seq + 1, PrevHash: prev, Hash: hash}, nil
