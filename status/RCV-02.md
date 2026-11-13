@@ -61,3 +61,9 @@ Updated 2026-11-06. Plan task RCV-02: owner C1+AG; REQ-RCV-003, REQ-RCV-002; Nee
 - Note 2 (an Execution login can append `DISPATCH_ATTEMPTED` events to burn a key's budget): accepted as a stated limit, unchanged by this fix; a debt entry is for the Steward to file (docs), proposed text: "an `execution_rw` login can exhaust a key's dispatch budget by appending DISPATCH_ATTEMPTED events of that key; the cure is a payload-shape check on the event, which the Record accepts from many writers today". Not filed here: the debt register is in the docs repository.
 - Note 3 (the caller escalates a `BudgetSpent`): `Outcome.BudgetSpent` is the signal and no caller consumes it yet; the consumer is EXE-06 and the Recovery workflow (RCV-02 slice 3). Not claimed here.
 - Not verified by the Security Reviewer and not claimed: other roles' INSERT on `grant_spend` (the table's grants are unchanged here), and that `Migrate` accepts the 0022 gap (tested: `migration_order_test.go`).
+
+## Session 2026-11-13 (C1): Security Reviewer's notes on #472 at `7dc97789`
+- Note 1, done: the guard refuses a spend under REPEATABLE READ (SQLSTATE 0A000), because that level keeps the snapshot of its first statement and could count a stale budget after the wait. `TestASpendUnderRepeatableReadIsRefusedBecauseItsSnapshotCouldBeStale` (red first: the spend passed). READ COMMITTED is proved by `TestTwoSpendsOfOneKeyCannotBothPassUnderReadCommitted`; `Spend` runs SERIALIZABLE.
+- Note 2 (an Execution login can burn a key's budget by appending DISPATCH_ATTEMPTED events directly): recorded debt, no code. The text is for the Steward's register: "an `execution_rw` signer can use up a key's own budget; it cannot dispatch anything. Owner C1. Closes when the append is guarded by the same rule."
+- Note 3: `Outcome.BudgetSpent` is the signal; nothing in the POC escalates on it yet, because the recovery workflow (Temporal, US-16) is not built. The controller test asserts the signal.
+

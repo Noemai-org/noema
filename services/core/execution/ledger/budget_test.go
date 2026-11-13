@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -325,5 +326,23 @@ func TestTwoSpendsOfOneKeyCannotBothPassUnderReadCommitted(t *testing.T) {
 	_ = tx2.Rollback(ctx(t))
 	if n := dispatches(t, w, corr, capab, "TX1"); n != 2 {
 		t.Fatalf("%d DISPATCH_ATTEMPTED events, want 2", n)
+	}
+}
+
+// The Security Reviewer's note 1 on noema#472: the lock makes a waiting spend count after the first has committed only if its snapshot is taken after the wait. A REPEATABLE READ
+// transaction keeps the snapshot of its first statement, so it would count a stale one and pass on a count of one. The guard refuses that isolation level outright (SQLSTATE 0A000);
+// the only caller, Spend, runs SERIALIZABLE, and READ COMMITTED is proved by the test above. Proves REQ-RCV-003, INV-03.
+func TestASpendUnderRepeatableReadIsRefusedBecauseItsSnapshotCouldBeStale(t *testing.T) {
+	w := newWorld(t)
+	g := w.issue(t, 1)
+	tx, err := w.exec.BeginTx(ctx(t), pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	_, err = tx.Exec(ctx(t), `INSERT INTO grant_spend (grant_id, tenant_id, nonce, idempotency_key, attempt, spent_at) VALUES ($1, $2, $3, $4, 1, now())`,
+		g.GrantID, tenant, g.Nonce, "idem-rr")
+	if sqlState(err) != "0A000" {
+		t.Fatalf("a spend under REPEATABLE READ: %v (SQLSTATE %q), want 0A000", err, sqlState(err))
 	}
 }

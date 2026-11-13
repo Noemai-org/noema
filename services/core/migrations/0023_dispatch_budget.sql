@@ -71,6 +71,9 @@ BEGIN
   IF NOT FOUND OR COALESCE(v_capability, '') = '' OR COALESCE(v_target, '') = '' OR COALESCE(v_corr, '') = '' THEN
     RAISE EXCEPTION 'dispatch budget: the dispatch key of grant % cannot be read', NEW.grant_id USING ERRCODE = 'NS002';
   END IF;
+  IF pg_catalog.current_setting('transaction_isolation') = 'repeatable read' THEN
+    RAISE EXCEPTION 'dispatch budget: a spend under REPEATABLE READ keeps the snapshot of its first statement and could count a stale budget' USING ERRCODE = '0A000';
+  END IF;
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(NEW.tenant_id || pg_catalog.chr(31) || v_corr || pg_catalog.chr(31) || v_capability || pg_catalog.chr(31) || v_target, 0));
   IF public.dispatch_budget_count(v_corr, v_capability, v_target) >= c_budget THEN
     RAISE EXCEPTION 'dispatch budget spent: the key of grant % has already dispatched % times', NEW.grant_id, c_budget USING ERRCODE = 'NS002';
