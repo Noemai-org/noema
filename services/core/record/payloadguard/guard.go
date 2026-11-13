@@ -54,6 +54,9 @@ var typedIDs = []*regexp.Regexp{
 	regexp.MustCompile(`\Ahmac-sha256:[0-9a-f]{64}\z`),
 	regexp.MustCompile(`\Aidk_v1_[0-9a-f]{64}\z`),
 	regexp.MustCompile(`\An_[0-9a-f]{4,64}\z`),
+	// Every ID the core mints, whatever its prefix (PERD 32.3): a lower-case prefix, an underscore and a 26-character ULID, whose first character is 0 to 7. The contract's typed IDs
+	// above are a subset; the outbox ID (`obx_`, the verification ID of an outcome.verify delivery) is one that is not, and a ULID holds five digits in a row about one time in five.
+	regexp.MustCompile(`\A[a-z]{2,10}_[0-7][0-9A-HJKMNP-TV-Z]{25}\z`),
 }
 
 // clientRequestID is the lower-case UUID that canonical-input.v2 types the client's request ID as. It is exempt from the digit rule (a random UUID holds long digit runs by chance)

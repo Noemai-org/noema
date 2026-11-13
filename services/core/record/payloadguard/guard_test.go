@@ -68,7 +68,7 @@ func TestTheExemptionsAreWholeStringsOnly(t *testing.T) {
 	}
 	bad := []string{
 		`"grt_4111111111111111!"`,                           // not the shape of the ID
-		`"xgrt_01234567890123456789012345"`,                 // text before the ID
+		`"my grt_01234567890123456789012345"`,               // text before the ID
 		`"grt_01234567890123456789012345 4111111111111111"`, // text after it
 		`"sha256:` + hex64 + `0"`,                           // one character too long for a hash
 		`"2026-11-13"`,                                      // a date is not an RFC 3339 timestamp
@@ -105,7 +105,7 @@ func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *t
 		"a reference longer than 64":          `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
 		"the reference shape at another path": `{"note":"CMP-2026-00001"}`,
 		"a target with a space":               `{"target_ref":"case 4111111111111111"}`,
-		"the target shape under another key":  `{"resolved":"case_0123456789ABCDEFGHJKMNPQRS"}`,
+		"the target shape under another key":  `{"resolved":"CMP-2026-0000123456"}`,
 		"an algorithm name hiding a long run": `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
 	} {
 		if err := check(t, js); err == nil {
@@ -223,6 +223,35 @@ func TestScanEventFindsADigitRunAndADerivedObjectRef(t *testing.T) {
 			if strings.Contains(f, "4111") || strings.Contains(f, uuid) || strings.Contains(f, hex) {
 				t.Errorf("%s: a finding quotes a value: %q", name, f)
 			}
+		}
+	}
+}
+
+// PERD 32.3, AGENTS section 7 (Naming): every ID the core mints is `<prefix>_<ULID>`, and a ULID holds a run of five or more digits by chance in about one ID in five. An ID the
+// core minted for the outbox (`obx_`, the verification ID of the outcome.verify delivery) is not one of the contract's typed IDs and still must not stop a Record append: a write
+// refused one run in five would be a flake in the field. The shape is a lower-case prefix, an underscore and 26 Crockford characters whose first is 0 to 7 (48 bits of time).
+func TestACoreMintedIDOfAnyPrefixIsExemptAndNothingLookingLikeOneIs(t *testing.T) {
+	for name, js := range map[string]string{
+		"an outbox ID with a run of five": `{"verification_id":"obx_01M6GA61234XG8FMN6SCM59MJM"}`,
+		"a made-up prefix":                `{"a":"zzz_0123456789ABCDEFGHJKMNPQRS"}`,
+		"a verification ID of the outbox": `{"verification_id":"obx_7ZZZZZZZZZZZZZZZZZZZZZZZZZ"}`,
+	} {
+		if err := check(t, js); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+	for name, js := range map[string]string{
+		"a prefix over a prefix (a test's old shape)": `{"v":"vrf_rcp_01M6GA61234XG8FMN6SCM59MJM"}`,
+		"a ULID one character short":                  `{"v":"obx_01M6GA61234XG8FMN6SCM59MJ"}`,
+		"a ULID one character long":                   `{"v":"obx_01M6GA61234XG8FMN6SCM59MJMX"}`,
+		"a first character over 7":                    `{"v":"obx_81M6GA61234XG8FMN6SCM59MJM"}`,
+		"an upper-case prefix":                        `{"v":"OBX_01M6GA61234XG8FMN6SCM59MJM"}`,
+		"a letter I in the body":                      `{"v":"obx_01M6GA61234XG8FMN6SCM59MJI"}`,
+		"the shape under no prefix":                   `{"v":"_01M6GA61234XG8FMN6SCM59MJM"}`,
+		"a space":                                     `{"v":"obx_01M6GA61234XG8FMN6 CM59MJM"}`,
+	} {
+		if err := check(t, js); err == nil {
+			t.Errorf("%s was accepted", name)
 		}
 	}
 }

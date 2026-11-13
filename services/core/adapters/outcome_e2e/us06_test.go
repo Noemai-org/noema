@@ -50,7 +50,7 @@ func (s *stack) verify(t *testing.T, receiptID string) (verifier.Result, error) 
 	s.clk.jump(time.Duration(s.def.SettleWindowSecs+1) * time.Second)
 	req := s.request
 	req.ReceiptID = receiptID
-	req.VerificationID = "vrf_" + receiptID // the id of the outcome.verify delivery
+	req.VerificationID = "obx_" + strings.TrimPrefix(receiptID, "rcp_") // the id of the outcome.verify delivery: the outbox ID, `obx_<ULID>`, as the ledger mints it (A184: a core-minted ID, not a prefix over a prefix)
 	return s.v.Verify(bg(t), req)
 }
 
