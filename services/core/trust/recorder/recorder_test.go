@@ -40,6 +40,7 @@ const (
 var epoch = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 
 type world struct {
+	dsn    string
 	admin  *pgxpool.Pool
 	trust  *pgxpool.Pool
 	reader *pgxpool.Pool
@@ -85,7 +86,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
-	return &world{admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
+	return &world{dsn: dsn, admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 
 func freshness() decide.Freshness {

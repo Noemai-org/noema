@@ -8,9 +8,14 @@ package recorder_test
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
+	"github.com/Noemai-org/noema/services/core/internal/testpg"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
@@ -245,5 +250,82 @@ func TestTwoWritersOfTheSameInputGetOneDecision(t *testing.T) {
 	}
 	if n := w.count(t, `SELECT count(*) FROM decision_grant`); n != 1 {
 		t.Errorf("%d grants, want 1", n)
+	}
+}
+
+// seedEvidence stores one SYNTHETIC evidence item of the tenant (the Evidence Layer's write is not under test here): a payload row and the item that points at it.
+func (w *world) seedEvidence(t *testing.T, ev *pgxpool.Pool, n int) string {
+	t.Helper()
+	ref, id := fmt.Sprintf("pay_%d", n), fmt.Sprintf("evr_aa%d", n)
+	if _, err := ev.Exec(ctx(t), `INSERT INTO evidence_payload (payload_ref, tenant_id, json, raw_hash, sensitivity, created_at)
+		VALUES ($1, $2, '{"synthetic": true}', $3, 'S2_internal', '2026-11-05T09:00:00Z')`, ref, tenant, fmt.Sprintf("sha256:%064x", 1000+n)); err != nil {
+		t.Fatalf("payload: %v", err)
+	}
+	if _, err := ev.Exec(ctx(t), `INSERT INTO evidence_item (evidence_id, tenant_id, correlation_id, source, source_record_id, read_by, read_at, effective_at,
+		freshness_sla_seconds, authority_class, resource_scope, principal_scope, sensitivity, fact_status, payload_hash, payload_ref, created_at)
+		VALUES ($1, $2, 'corr_synthetic', 'fin.src.core_ledger', 'rec-1', 'TRUST', '2026-11-05T09:00:00Z', '2026-11-05T08:59:00Z',
+		60, 'AUTHORITATIVE_FOR:debit_posted_or_reversed', 'res_synthetic', 'prn_synthetic', 'S2_internal', 'KNOWN', $3, $4, '2026-11-05T09:00:00Z')`,
+		id, tenant, fmt.Sprintf("sha256:%064x", n), ref); err != nil {
+		t.Fatalf("item: %v", err)
+	}
+	return id
+}
+
+// seal seals the given evidence in its own transaction as the tenant's Trust login, with the real Sealer (REQ-CTX-004).
+func (w *world) seal(t *testing.T, evidence ...string) snapshot.Sealed {
+	t.Helper()
+	tx, err := w.trust.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := snapshot.Sealer{Rec: w.w.Appender, Clock: w.w.Clock, IDs: w.w.IDs}
+	sealed, err := s.Seal(ctx(t), tx, snapshot.Input{TenantID: tenant, CorrelationID: "corr_ABC123", EvidenceIDs: evidence, ReconciliationID: "rec_synth1", Classification: "CONSISTENT"})
+	if err != nil {
+		_ = tx.Rollback(ctx(t))
+		t.Fatal(err)
+	}
+	if err := tx.Commit(ctx(t)); err != nil {
+		t.Fatal(err)
+	}
+	return sealed
+}
+
+// A186: new evidence gives a new snapshot and a new decision. Each seal mints its own snapshot ID, so a fresh read of the same evidence is also a new snapshot; only a
+// request that names the very same snapshot gets the stored decision. The writer is given the real Sealer's snapshots, not made-up IDs.
+func TestNewEvidenceGivesANewSnapshotAndANewDecision(t *testing.T) {
+	w := newWorld(t)
+	ev := testpg.TenantLogin(t, w.admin, w.dsn, "evidence_rw", tenant) // the Evidence Layer's own login writes evidence, as in production
+	e1, e2 := w.seedEvidence(t, ev, 1), w.seedEvidence(t, ev, 2)
+	decide1 := func(s snapshot.Sealed) recorder.Result {
+		b := evaluatedWith(t, s.SnapshotID, "3.1")
+		res, err := w.write(t, request(t, decision(t, decide.Reject, b), b), true)
+		if err != nil {
+			t.Fatalf("decision for %s: %v", s.SnapshotID, err)
+		}
+		return res
+	}
+	first := w.seal(t, e1)
+	again := w.seal(t, e1)    // the same evidence, read again
+	more := w.seal(t, e1, e2) // new evidence
+	if first.SnapshotID == again.SnapshotID || first.SnapshotID == more.SnapshotID || again.SnapshotID == more.SnapshotID {
+		t.Fatalf("each seal must mint its own snapshot: %s %s %s", first.SnapshotID, again.SnapshotID, more.SnapshotID)
+	}
+	if first.EvidenceSetHash != again.EvidenceSetHash || first.EvidenceSetHash == more.EvidenceSetHash {
+		t.Fatalf("the set hash follows the evidence, not the seal: %s %s %s", first.EvidenceSetHash, again.EvidenceSetHash, more.EvidenceSetHash)
+	}
+	d1, d1again, d2 := decide1(first), decide1(again), decide1(more)
+	ids := map[string]bool{string(d1.Record.DecisionId): true, string(d1again.Record.DecisionId): true, string(d2.Record.DecisionId): true}
+	if len(ids) != 3 {
+		t.Fatalf("a new snapshot must be a new decision: %v", ids)
+	}
+	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+		t.Errorf("%d decision records, want 3", n)
+	}
+	// the same snapshot, named again, is the stored decision (not a fourth)
+	if back := decide1(first); back.Record.DecisionId != d1.Record.DecisionId {
+		t.Errorf("the same snapshot returned %s, want the stored %s", back.Record.DecisionId, d1.Record.DecisionId)
+	}
+	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 3 {
+		t.Errorf("%d decision records after the repeat, want 3", n)
 	}
 }
