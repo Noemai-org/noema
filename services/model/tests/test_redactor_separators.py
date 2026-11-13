@@ -36,7 +36,7 @@ def test_a_five_digit_run_of_any_script_is_masked_to_its_last_four(digits: str) 
 
 
 def test_a_mixed_script_and_separator_run_is_one_run() -> None:
-    assert R.mask_account_numbers("4111‑1111 ١٢٣٤") == "************١٢٣٤"
+    assert R.mask_account_numbers("4111‑1111 ١٢٣٤") == "*" * 8 + "١٢٣٤"
 
 
 def test_a_comma_and_a_newline_still_end_a_run() -> None:
