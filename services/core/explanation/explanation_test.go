@@ -304,3 +304,37 @@ func TestDuplicateFactIDsAreRefusedSoAStatusCannotBeOverwritten(t *testing.T) {
 		}
 	}
 }
+
+// REQ-EXP-002, A18: the template version is an output the caller stores with the explanation (provenance), so a template-bound render must carry the
+// version of the locale file that was loaded, not any other string. Found by C2 while answering a review of noema#224 (a stale or invented version passed).
+func TestATemplateBoundRenderMustCarryTheLoadedTemplateVersion(t *testing.T) {
+	tpl := load(t)
+	f := facts("fin.outcome.exception.status_explained", "SUCCESS_CONFIRMED")
+	good, err := explanation.Fallback(tpl, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := explanation.Validate(tpl, good, f, nil); len(problems) != 0 {
+		t.Fatalf("control: the pack's own fallback fails the validator: %v", problems)
+	}
+	for name, version := range map[string]string{
+		"empty":                       "",
+		"another digest":              "sha256:" + strings.Repeat("0", 64),
+		"the loaded digest, upcased":  strings.ToUpper(good.TemplateVersion),
+		"the loaded digest plus text": good.TemplateVersion + "x",
+		"not a digest":                "v1",
+	} {
+		r := good
+		r.TemplateVersion = version
+		problems := explanation.Validate(tpl, r, f, nil)
+		found := false
+		for _, p := range problems {
+			if strings.Contains(p, "version") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: a template-bound render with version %q passed (problems: %v)", name, version, problems)
+		}
+	}
+}

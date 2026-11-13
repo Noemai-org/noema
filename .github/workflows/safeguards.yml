@@ -6,6 +6,9 @@ on:
     types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ github.event.action == 'edited' && 'metadata' || 'code' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
   pull-requests: read
@@ -56,6 +59,9 @@ jobs:
       - name: Core test sharding (CI speed)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_go_shards.py
+      - name: Workflow concurrency groups (CI speed)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_workflow_concurrency.py
       - name: Administrator credential absent from workflows (SEC-02)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_no_admin_in_workflows.py

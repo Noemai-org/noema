@@ -45,3 +45,21 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 4. **A port failure or `ErrNotARead`** leaves the investigation in its last state with no failure move, by design. The persistence slice needs a way to resume or close such a run.
 5. **Typed nil.** `missing` compares interface values to nil, so a typed nil pointer in an interface passes. Check when the C1, C2 and IL constructors are plugged in.
 6. **Intent store.** No merged code or task row builds the store of an admitted intent with its `intent_hash` (`Interpretation.IntentRef`, #448's `IntentSource`). Open on noema#454.
+
+## Session 2026-11-12 · slice 2: the investigation store (EL)
+
+## Session summary
+- What changed: migration `0025_investigation.sql` (number proposed to the Steward, next free after 0024) and `orchestrator/investigations` (`Store.Start`, idempotent per recorded input; `Store.AppendChange`, the Recorder: event first, then the compare-and-swap, one transaction).
+- Why: noema#477 (an input whose turn failed to start must not be run twice or stranded) and SR's note 2 on noema#264 (the expected version is part of the compare-and-swap and comes from what the caller read, never from a default). Gives the runner a durable, tenant-bound state.
+- Tests added (REQ-STM-001, REQ-AUD-001, REQ-SEC-004, EC-E16): `table_test.go` (SQL only: the states equal the machine's, RECEIVED at 0, one investigation per recorded input, one version at a time, identity columns immutable by privilege, no delete or truncate, tenant isolation, only the orchestrator role) and `store_test.go` (idempotent Start, eight concurrent starts make one, refusals, event and row together, a stale change writes nothing, a failed append moves nothing, four racing changes have one winner, another tenant's login). Written first (`841b9d52`, `51b518e4`). Seven mutants on the migration killed (no FORCE, no version guard, update on all columns, no unique key, delete allowed, no insert guard, a second role admitted); the column-privilege mutant survived until the tests bumped the version.
+- Not run locally: the Record-signing extension is not in this machine's PostgreSQL, so `store_test.go`'s tests that append events could not run here; CI is the first run for them. The Start tests, the refusals and all of `table_test.go` ran and pass.
+- Not done, stated: the runner does not call `Start` yet (it follows noema#465, same files); resume of a stranded run (the table has no failure state; re-deciding would record a second decision); the Admissions read.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#465 merges, add `Investigations` to `orchestrator.Ports`, have `RunRead` call `Start` and refuse to run an investigation whose version is above 0 (`ErrAlreadyStarted`), and plug the store into `compose.go` as `Recorder` and `Investigations`.
+
+### Update 2026-11-12 · reviewer P1 and P2 on noema#490
+- P1 (an investigation for an input the Record does not confirm): `Store.Inputs` (required) is asked before the insert; `ConfirmWith(Lookuper)` compares the recorded event with the session and the request (type INPUT_RECEIVED, tenant, principal, correlation); a lookup failure is a refusal. P2 (reuse with another correlation): `Start` reads the stored correlation on the conflict path and refuses a mismatch. Tests first; seven mutants killed (confirmation skipped, the correlation compare, each of the four comparisons in `ConfirmWith`, a lookup failure passing).
+- Pre-work: the composition root adapts `record/admission.Reader` (noema#497, `Found`) to `Lookuper` and passes `ConfirmWith(...)` as `Inputs`.
+
