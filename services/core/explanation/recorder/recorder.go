@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -134,12 +136,17 @@ func blockedPayload(e explanation.Event) (map[string]any, error) {
 	if len(e.Rules) == 0 {
 		return nil, errors.New(prefix + "a blocked explanation needs at least one rule")
 	}
+	rules := make([]string, 0, len(e.Rules))
 	for _, rule := range e.Rules {
 		if !ruleRe.MatchString(rule) {
 			return nil, errors.New(prefix + "a rule is not an upper-case code")
 		}
+		rules = append(rules, rule)
 	}
-	return map[string]any{"rule": e.Rules[0], "rules": e.Rules}, nil
+	// Sorted and without repeats whatever the caller's order, so the Record holds one form of the same finding; the caller's slice is left as it was.
+	sort.Strings(rules)
+	rules = slices.Compact(rules)
+	return map[string]any{"rule": rules[0], "rules": rules}, nil
 }
 
 func longestDigitRun(s string) int {

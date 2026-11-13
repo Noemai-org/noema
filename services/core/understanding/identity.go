@@ -22,9 +22,8 @@ func overwrite(o *contracts.IntentObjectV1, s Session) []string {
 	}
 	set("tenant_id", string(o.TenantId), s.TenantID)
 	set("principal_id", string(o.Principal.PrincipalId), s.PrincipalID)
-	set("principal_type", o.Principal.PrincipalType, s.PrincipalType)
 	set("authn_ref", string(o.Principal.AuthnRef), s.AuthnRef)
-	set("asserted_by", o.Principal.AssertedBy, s.AssertedBy)
+	// principal_type and asserted_by are the session's alone (ruling A166, item 3): the gate has already refused any value the model sent, so there is no override to report.
 	o.TenantId = contracts.CommonV1TenantId(s.TenantID)
 	o.Principal = contracts.IntentObjectV1Principal{PrincipalId: contracts.CommonV1PrincipalId(s.PrincipalID), PrincipalType: s.PrincipalType,
 		AuthnRef: contracts.CommonV1SessionId(s.AuthnRef), AssertedBy: s.AssertedBy}

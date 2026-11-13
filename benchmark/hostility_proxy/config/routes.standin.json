@@ -2,8 +2,8 @@
   "schema_version": "1.0",
   "synthetic": true,
   "routes": [
-    { "method": "GET", "path": "/standin/v1/principal", "upstream": "standin", "target": "mock-customer", "operation": "get_principal", "attrs": { "principal_id": "header:X-Principal" } },
-    { "method": "GET", "path": "/standin/v1/beneficiaries", "upstream": "standin", "target": "mock-customer", "operation": "get_beneficiaries", "attrs": { "principal_id": "header:X-Principal" } },
+    { "method": "GET", "path": "/standin/v1/principal", "upstream": "standin", "target": "mock-customer", "operation": "get_principal" },
+    { "method": "GET", "path": "/standin/v1/beneficiaries", "upstream": "standin", "target": "mock-customer", "operation": "get_beneficiaries" },
     { "method": "GET", "path": "/standin/v1/transactions", "upstream": "standin", "target": "mock-ledger", "operation": "list_transactions", "attrs": { "account": "query:account" }, "page": { "items": "items", "complete": "complete", "next_cursor": "next_cursor", "cursor_param": "cursor" } },
     { "method": "GET", "path": "/standin/v1/transactions/{transaction_ref}/ledger-entries", "upstream": "standin", "target": "mock-ledger", "operation": "get_entries", "attrs": { "transaction_ref": "path:transaction_ref" } },
     { "method": "GET", "path": "/standin/v1/transactions/{transaction_ref}/switch-status", "upstream": "standin", "target": "mock-switch", "operation": "get_status", "attrs": { "transaction_ref": "path:transaction_ref" } },
