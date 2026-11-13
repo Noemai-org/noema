@@ -112,19 +112,18 @@
 - Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
 - Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
 
-# Session 2026-11-13 16:30 WAT · EDG-01 · the public edge refuses the control plane (noema#505, SEC-04)
+# Session 2026-11-13 16:30 WAT · EDG-01 · the public edge serves only the public areas (noema#505, SEC-04)
 
 ## Session summary
-- What changed (PR links): `edge.checkRoute` refuses a pattern whose first segment is `admin` or `benchmark`, or any of whose segments contains `key` or `rotat` (`controlPlane` in `edge/edge.go`); `edge/refuse_test.go`; the edge README. The PR number is on noema#505.
-- Why: the Security Reviewer's finding on noema#504 (a draft, red by design at `ec5b44a`): `checkRoute` required only a `/v1/` prefix, a handler and a role, so the public edge accepted routes of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7 and 13) and a route that names a key or a rotation (matrix rule 7, D3a).
-- Risks, and how they are contained: it can only add refusals. A word that merely contains `key` or `rotat` in a future public route is refused (fail closed); that route needs a decision and a row in the matrix first. No current route is affected (the only route table is noema#486's `GET /v1/reconstructions/{correlation_id}`; `go test ./cmd/core/` passes).
-- Tests added (REQ-SEC-001, REQ-API-004, INV-12): `TestThePublicEdgeRefusesToServeTheAdminBenchmarkAndKeyRoutes` (15 patterns), `TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone` (7 public patterns, including `administrators`). Seven mutants, each caught: admin, benchmark, key, rotation, case-insensitivity, prefix instead of whole segment, the `:verb` on the first segment.
-- Failing first: the same test failed in noema#504 at `ec5b44a` (for the nine patterns of that file); locally, before the fix, all 15 patterns of this test were accepted.
-- Decision recorded for the D14 spelling: segment form (`/versions/{v}/publish`), recommended on noema#505; the decision is the Engineering Lead's and the Architect's.
+- What changed (PR links): `edge.checkRoute` now denies by default: the first path segment must be a public area (`conversations`, `confirmations`, `investigations`, `reconstructions`), and no segment may contain `key` or `rotat` (`notPublic`, `publicAreas` in `edge/edge.go`); `edge/refuse_test.go`; the edge README. The existing edge tests used the placeholder paths `/v1/cases`, `/v1/x` and `/v1/probe`; they now use public areas (a rename of 33 path strings, no assertion changed). The PR number is on noema#505.
+- Why: the Security Reviewer's finding on noema#504 (a draft, red by design at `ec5b44a`): `checkRoute` required only a `/v1/` prefix, a handler and a role, so the public edge accepted routes of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), of any other listener (row 13) and a route that names a key or a rotation (rule 7, D3a). **Design choice, and why:** a deny-list would have to name the other listener's path, and core code and tests may carry no benchmark-aware term (REQ-TST-006; `tools/lint` failed my first version on exactly that), so the edge allow-lists the public areas instead. That is the stronger form (deny by default) and it needs no forbidden word.
+- Risks, and how they are contained: it can only add refusals. A new public area needs a line in `publicAreas` and a matrix row, on purpose. The only route table on `main` or in an open PR is noema#486's `GET /v1/reconstructions/{correlation_id}`, which is a public area; `go test ./cmd/core/` passes. noema#496's route `GET /v1/conversations/{ref}/events` is a public area as well.
+- Tests added (REQ-SEC-001, REQ-API-004, INV-12): `TestThePublicEdgeServesOnlyThePublicAreasAndNoKeyRoute` (17 patterns), `TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone` (the six public routes of PERD 39.2 and the audit read).
+- Failing first: the Security Reviewer's test failed in noema#504 at `ec5b44a`; locally, before the fix, every refused pattern of this test was accepted (CI red evidence: noema#504's run, and the first commit of this branch, which failed `lint` on the deny-list form).
 
 ## Pre-work for the next agent
-- Exact next step: the Security Reviewer re-runs noema#504 against this change; the admin listener (C-ADMIN) is a separate task.
+- Exact next step: the Security Reviewer re-runs noema#504 (rows 8 to 12 and the refusal) against this change; the admin listener (C-ADMIN) is a separate task.
 - Open questions (owner): the D14 admin route spelling (Engineering Lead, Architect).
-- Files to read first: `edge/edge.go` (`controlPlane`), `edge/refuse_test.go`.
+- Files to read first: `edge/edge.go` (`notPublic`), `edge/refuse_test.go`.
 - Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
 

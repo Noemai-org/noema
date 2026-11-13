@@ -54,14 +54,18 @@ func Protected(o Options) (http.Handler, error) {
 	return mux, nil
 }
 
-// controlPlane says why a path is not the public edge's to serve ("" when it is). The public edge serves no admin route and no benchmark route (they belong to their own
-// listeners, OD-P-79, ruling A54, matrix rows 1 to 7 and 13) and no route that names a key or a rotation (matrix rule 7, D3a: key rotation is an operator step with no API in
-// the POC). The test is on whole path segments, case-insensitively and ignoring a ":verb" suffix, so "administrators" is not "admin"; a segment that merely contains "key" or
-// "rotat" is refused, which fails closed (a new route with such a word is a decision for the Architect, added to the matrix first).
-func controlPlane(path string) string {
+// publicAreas are the first path segments of the public API (PERD 39.2: conversations, confirmations, investigations) and of the audit read (REQ-AUD-003: reconstructions).
+// The public edge serves nothing else and denies by default, so no route of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), no route of any other listener (row 13)
+// and no key route can be mounted on it by mistake. A new public area is a decision of the Architect and a row of the matrix before it is a line here.
+var publicAreas = map[string]bool{"conversations": true, "confirmations": true, "investigations": true, "reconstructions": true}
+
+// notPublic says why a path is not the public edge's to serve ("" when it is). Its first segment must be a public area (compared as written: the mux is case-sensitive, and an
+// upper-case variant is not a public area). No segment may name a key or a rotation (matrix rule 7, D3a: key rotation is an operator step with no API in the POC); the test is
+// on the word inside the segment and fails closed.
+func notPublic(path string) string {
 	segs := strings.Split(strings.TrimPrefix(path, apiPrefix), "/")
-	if first, _, _ := strings.Cut(strings.ToLower(segs[0]), ":"); first == "admin" || first == "benchmark" {
-		return "belongs to another listener, not the public edge (OD-P-79)"
+	if !publicAreas[segs[0]] {
+		return "is not a public API route: the public edge serves the conversation, confirmation, investigation and reconstruction areas only (the control plane has its own listeners, OD-P-79)"
 	}
 	for _, s := range segs {
 		s = strings.ToLower(s)
@@ -77,7 +81,7 @@ func checkRoute(r Route, seen map[string]bool) error {
 	if !ok || !strings.HasPrefix(path, apiPrefix) || strings.ContainsAny(r.Pattern, "\t\n\r") {
 		return fmt.Errorf("edge: route %q is not \"METHOD /v1/...\"", r.Pattern)
 	}
-	if why := controlPlane(path); why != "" {
+	if why := notPublic(path); why != "" {
 		return fmt.Errorf("edge: route %q %s", r.Pattern, why)
 	}
 	if seen[r.Pattern] {
