@@ -2,7 +2,7 @@ import { test as base, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 const markup = await readFile("dist/index.html", "utf8");
 const stylesheet = await readFile("dist/tokens.css", "utf8");
-const scanner = await readFile("dist/js/privacy.js", "utf8");
+const scanner = await readFile("build/js/privacy.js", "utf8");
 
 async function load(page) {
   await page.setContent(markup);

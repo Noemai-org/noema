@@ -1,7 +1,7 @@
 // Test aid only: these checks cannot prove that arbitrary text is safe to show.
 export function scanVisibleText(text: string): string[] {
   const findings: string[] = [];
-  if (/\d{5,}/u.test(text)) findings.push("digit-run");
+  if (/[0-9](?:[ -]?[0-9]){4}/u.test(text)) findings.push("digit-run");
   if (/\bmodel confidence\b/iu.test(text)) findings.push("model-confidence");
   if (/\btraceback\s*\(most recent call last\)/iu.test(text)) findings.push("stack-trace");
   if (/\bpolicy threshold\b/iu.test(text)) findings.push("policy-threshold");
@@ -13,5 +13,14 @@ export function scanVisibleText(text: string): string[] {
 // Scan the whole rendered subtree, including visually hidden accessible text.
 // Do not print the text: it may contain information that should never be logged.
 export function scanDom(root: Element): string[] {
-  return scanVisibleText(root.textContent ?? "");
+  const findings = scanVisibleText(root.textContent ?? "");
+  for (const element of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    for (const attribute of Array.from(element.attributes)) {
+      findings.push(...scanVisibleText(attribute.value));
+    }
+    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+      findings.push(...scanVisibleText(element.value));
+    }
+  }
+  return findings;
 }
