@@ -48,6 +48,15 @@ def _blank(value: object) -> bool:
     return not isinstance(value, str) or not value.strip()
 
 
+def _valid_marker(value: object) -> bool:
+    return isinstance(value, datetime) and value.tzinfo is not None and value.utcoffset() is not None
+
+
+def _deleted(value: object) -> bool:
+    """A deletion counts only when the marker is a timezone-aware datetime; "", False, 0 or a string never prove a deletion."""
+    return value is not None and _valid_marker(value)
+
+
 def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, ConsentRecord]) -> ScanReport:
     """The bucket scan: an object without a consent ref, with one that is not in the register, or whose consent was withdrawn and which is not deleted, is a violation."""
     violations: list[tuple[str, str]] = []
@@ -57,6 +66,8 @@ def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, ConsentR
             violations.append((f"#{position}", "not a study object"))
             continue
         label = o.object_key if not _blank(o.object_key) else f"#{position}"
+        if o.deleted_at is not None and not _valid_marker(o.deleted_at):
+            violations.append((label, "deleted_at malformed: treat the object as not deleted"))
         if _blank(o.object_key):
             violations.append((label, "object_key blank or not text"))
         if _blank(o.consent_ref):
@@ -68,7 +79,7 @@ def scan_objects(objects: Sequence[StudyObject], register: Mapping[str, ConsentR
             record = register[ref]
             if not isinstance(record, ConsentRecord) or record.consent_ref != ref or type(record.withdrawn) is not bool:
                 violations.append((label, "consent record malformed: treat as no consent"))
-            elif record.withdrawn and o.deleted_at is None:
+            elif record.withdrawn and not _deleted(o.deleted_at):
                 violations.append((label, "consent withdrawn: the object must be deleted"))
     return ScanReport(not violations, len(objects), n_without, tuple(violations))
 
@@ -98,6 +109,7 @@ def deletions_due(objects: Sequence[StudyObject], now: datetime, *, retention_af
         if not isinstance(o, StudyObject):
             raise TypeError("every item must be a StudyObject")
         if o.deleted_at is not None:
+            _aware(o.deleted_at, "deleted_at")  # a malformed marker is refused, never taken as a deletion
             continue
         candidates: list[tuple[datetime, str]] = []
         if o.analysed_at is not None:
