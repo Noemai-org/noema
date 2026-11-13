@@ -50,13 +50,13 @@ type spyRecorder struct {
 	failWith  error
 }
 
-func (s *spyRecorder) Rejected(_ context.Context, _, _ string, reasons []understanding.Reason) error {
+func (s *spyRecorder) Rejected(_ context.Context, _ interpreter.Subject, reasons []understanding.Reason) error {
 	s.c.order = append(s.c.order, "rejected")
 	s.rejected = append(s.rejected, reasons)
 	return s.failWith
 }
 
-func (s *spyRecorder) OverrideAttempt(_ context.Context, _, _ string, fields []string) error {
+func (s *spyRecorder) OverrideAttempt(_ context.Context, _ interpreter.Subject, fields []string) error {
 	s.c.order = append(s.c.order, "override")
 	s.overrides = append(s.overrides, fields)
 	return s.failWith
@@ -320,4 +320,32 @@ func mustGate(t *testing.T) *understanding.Gate {
 		t.Fatal(err)
 	}
 	return g
+}
+
+// A session the caller passed that the gate finds incomplete is the caller's bug, not a rejection of the model's proposal: it is ErrInput and nothing is recorded.
+func TestASessionTheGateFindsMalformedIsTheCallersBugAndRecordsNothing(t *testing.T) {
+	w := newWorld(t, proposal(nil))
+	in := input()
+	in.Session.PrincipalType = "End User"
+	_, err := w.in.Interpret(context.Background(), in)
+	if !errors.Is(err, interpreter.ErrInput) {
+		t.Fatalf("err %v, want ErrInput", err)
+	}
+	if len(w.rec.rejected) != 0 || len(w.save.saved) != 0 {
+		t.Errorf("rejected %d saved %d: a caller's bug was recorded as a rejection or saved", len(w.rec.rejected), len(w.save.saved))
+	}
+}
+
+// The cause of a failure stays reachable but is never printed: a database error that carries a key must not reach a message.
+func TestACauseIsReachableButNeverPrinted(t *testing.T) {
+	cause := errors.New("synthetic key (ten_demo, int_01J9X3, 1) already exists")
+	w := newWorld(t, proposal(nil))
+	w.save.err = cause
+	_, err := w.in.Interpret(context.Background(), input())
+	if !errors.Is(err, cause) || !errors.Is(err, interpreter.ErrSave) {
+		t.Fatalf("err %v: the cause or the kind is not reachable", err)
+	}
+	if strings.Contains(err.Error(), "int_01J9X3") || strings.Contains(err.Error(), "ten_demo") {
+		t.Errorf("the message prints the cause: %v", err)
+	}
 }

@@ -54,3 +54,16 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Settled since (merged `main`):** ruling A177 (`DEC-2026-11-12-architect-interim-a177-a178`, docs#163, entry OD-P-86 still [OPEN] for a SoT check) accepts the reading above: the core computes `intent_hash` over the canonical JSON and the signed `INTENT_ADMITTED` Record event is the signature; the object's `sig` stays the unsigned marker. Nothing in this PR changes for it.
 - **Next (not here):** the `Interpreter` (compile, gate, record `INTENT_REJECTED_AT_GATE` or the override, save through noema#471's store) after #471 merges, and the model-service route after noema#489 merges.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-13 · UND-04 core · the Interpreter
+
+- **What changed (PR noema#519):** new package `services/core/understanding/interpreter`: `Interpret` (input, compile, gate, then by what the gate found the Record first and the store last), `RecordRecorder` for `INTENT_REJECTED_AT_GATE` and `SECURITY_EVENT` `PRINCIPAL_OVERRIDE_ATTEMPT`, four ports, classified errors whose messages never print a cause. README.
+- **Failing first:** tests-only commit `9b621841`, `core` red (the package did not exist): https://github.com/Noemai-org/noema/actions/runs/43422188651/job/131874642722
+- **Tests added (REQ-INT-001, REQ-INP-002, REQ-AUD-001; INV-02, INV-12, EC-E16):** `interpreter_test.go` (no database: a normal compile saves with no event of its own; a refusal is recorded first and nothing is saved; a rejection the Record refuses is `ErrRecord`; a real override is recorded by name before the save and the session's identity is saved; an override the Record refuses saves nothing; every model-service failure class; a failed save; incomplete inputs; a malformed session is the caller's bug and records nothing; a cause is reachable and never printed; the constructor), `record_test.go` (the real Record: both events, a refused append stores nothing, another tenant's subject is refused by the database, what the recorder will not write).
+- **Mutations by hand on the pure part, each red:** the rejection record skipped; the override record skipped; the identity branch removed; the actor-suffix check off; the cause printed; the rejection replaced by another error; a wrong hash; the compile failure unclassified; the correlation check off. The database-backed tests ran only in CI (no pgsodium here).
+- **Not here, stated:** the compile route and compiler in the model service, `INTENT_PROPOSED`, the retry meaning of a repeated intent id, `cmd/core` wiring (EL).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `interpreter.Config` in `compose.go` (see the README); the model-service route follows the compiler.
+- Files to read first: `services/core/understanding/interpreter/README.md`, `interpreter.go`.
