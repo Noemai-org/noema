@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,15 +78,72 @@ func buildMockCase(t testing.TB) string {
 	return buildPath
 }
 
-func freePort(t testing.TB) string {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+// syncBuffer is a bytes.Buffer that the writer goroutine of os/exec and a reader (the harness, waiting for the process's first log line) may use at once.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// listeningMsg is the log line mock-case writes once both listeners are bound (cmd/mock-case/main.go).
+const listeningMsg = "mock-case listening (SYNTHETIC)"
+
+// parseListening reads one log line and returns the case and bench addresses the process bound, if the line is the one that reports them. The harness starts the
+// process on port 0 so that the process itself holds its listeners from the first instant: no port is chosen before it is bound, so another process cannot win it
+// in between (noema#525). Both addresses must be loopback: a listener on any other interface is refused.
+func parseListening(line string) (caseAddr, benchAddr string, ok bool, err error) {
+	var rec struct {
+		Msg   string `json:"msg"`
+		Case  string `json:"case"`
+		Bench string `json:"bench"`
 	}
-	defer l.Close()
-	_, port, _ := net.SplitHostPort(l.Addr().String())
-	return port
+	if json.Unmarshal([]byte(line), &rec) != nil || rec.Msg != listeningMsg {
+		return "", "", false, nil
+	}
+	for _, a := range []string{rec.Case, rec.Bench} {
+		host, port, splitErr := net.SplitHostPort(a)
+		if splitErr != nil || host != "127.0.0.1" || port == "" || port == "0" {
+			return "", "", false, fmt.Errorf("mock-case reported the address %q: want 127.0.0.1 and a bound port", a)
+		}
+	}
+	return rec.Case, rec.Bench, true, nil
+}
+
+// boundAddrs waits for the process to report the addresses it bound. If the process exits first it fails at once with its log (not after a timeout).
+func boundAddrs(t testing.TB, logs *syncBuffer, exited <-chan struct{}) (caseAddr, benchAddr string) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		for _, line := range strings.Split(logs.String(), "\n") {
+			c, b, ok, err := parseListening(strings.TrimSpace(line))
+			if err != nil {
+				t.Fatalf("%v; log:\n%s", err, logs.String())
+			}
+			if ok {
+				return c, b
+			}
+		}
+		select {
+		case <-exited:
+			t.Fatalf("mock-case stopped before it reported its addresses; log:\n%s", logs.String())
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mock-case did not report its addresses within a minute; log:\n%s", logs.String())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func writeSecret(t testing.TB, dir, name, value string) string {
@@ -138,6 +197,9 @@ type mockCase struct {
 	BenchTokenFile string
 }
 
+// healthClient bounds each readiness probe, so a process that accepted the connection and then hangs cannot stall the wait loop.
+var healthClient = &http.Client{Timeout: 5 * time.Second}
+
 func startMockCase(t *testing.T) mockCase {
 	t.Helper()
 	bin := buildMockCase(t)
@@ -183,13 +245,11 @@ func startMockCase(t *testing.T) mockCase {
 	secrets := t.TempDir()
 	runtimeTokenFile := writeSecret(t, secrets, "runtime_token", randomHex(t))
 	benchTokenFile := writeSecret(t, secrets, "other_token", randomHex(t))
-	caseAddr := "127.0.0.1:" + freePort(t)
-	otherAddr := "127.0.0.1:" + freePort(t)
-	var logs bytes.Buffer
+	var logs syncBuffer
 	cmd := exec.Command(bin)
 	cmd.Env = append(os.Environ(),
-		"MOCK_CASE_LISTEN="+caseAddr,
-		"MOCK_CASE_BENCH_LISTEN="+otherAddr,
+		"MOCK_CASE_LISTEN=127.0.0.1:0", // port 0: the process binds its own free port and logs it; the harness never chooses one (noema#525)
+		"MOCK_CASE_BENCH_LISTEN=127.0.0.1:0",
 		"MOCK_CASE_DB_HOST="+u.Hostname(), "MOCK_CASE_DB_PORT="+u.Port(), "MOCK_CASE_DB_NAME="+name,
 		"MOCK_CASE_DB_APP_PASSWORD_FILE="+writeSecret(t, secrets, "app_pw", rolePassword),
 		"MOCK_CASE_DB_ADMIN_PASSWORD_FILE="+writeSecret(t, secrets, "admin_pw", rolePassword),
@@ -200,17 +260,23 @@ func startMockCase(t *testing.T) mockCase {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start mock-case: %v", err)
 	}
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		<-exited
 		if t.Failed() {
 			t.Logf("mock-case log:\n%s", logs.String())
 		}
 	})
+	caseAddr, otherAddr := boundAddrs(t, &logs, exited)
 	wait, stopWaiting := context.WithTimeout(context.Background(), time.Minute)
 	defer stopWaiting()
 	for {
-		resp, err := http.Get("http://" + caseAddr + "/healthz")
+		resp, err := healthClient.Get("http://" + caseAddr + "/healthz")
 		if err == nil {
 			ok := resp.StatusCode == http.StatusOK
 			_ = resp.Body.Close()
