@@ -149,15 +149,16 @@ func longestRun(s string) int {
 	return longest
 }
 
-// targetReference is the shape of a reference the target system minted: the acknowledgement of a receipt (`external_ack`, execution-receipt.v1: any non-empty string) and the
-// target of a grant (`target_ref`, decision-grant: `case_<ULID>` from the mock-case, whose ULID carries the clock and so holds a run of five digits now and then). One token
-// of up to 64 characters with no space. It is exempt at those two paths only (A184 names no such exemption: see the PR).
-var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
+// acknowledgementReference is the form of the target's acknowledgement of a receipt (`external_ack`, execution-receipt.v1): the case reference the mock-case writes,
+// `CMP-<year>-<five digits>` (PERD 39.5 example form). It is exempt at that path only, and only in that form: a bare number is not a reference, so a card number cannot use
+// the path (the Security Reviewer's finding on noema#536). The target of a grant (`target_ref`) needs no path rule: the targets the core writes are `<prefix>_<ULID>` IDs the
+// target system minted, which the core-minted ID shape below already covers anywhere, and anything else is held to the digit limit.
+var acknowledgementReference = regexp.MustCompile(`\A[A-Z]{2,10}-[0-9]{4}-[0-9]{5}\z`)
 
 // exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the value of a signature at /sig/value or the
 // target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
-	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
+	if strings.HasSuffix(path, "/external_ack") && acknowledgementReference.MatchString(s) {
 		return true
 	}
 	if strings.HasSuffix(path, "/sig/value") {

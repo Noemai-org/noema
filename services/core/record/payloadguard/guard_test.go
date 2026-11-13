@@ -89,7 +89,7 @@ func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *t
 		"a signature value":         `{"verdict":{"sig":{"key_id":"core-outcome.ed25519.2","value":"` + hex64 + `"}}}`,
 		"a base64 signature":        `{"sig":{"key_id":"k","value":"` + strings.Repeat("0123456789", 5) + `"}}`,
 		"the target's reference":    `{"external_ack":"CMP-2026-00001"}`,
-		"a nested target reference": `{"receipt":{"external_ack":"att_20261113123456"}}`,
+		"a nested target reference": `{"receipt":{"external_ack":"CMP-2026-00001"}}`,
 		"the target of a grant":     `{"target_ref":"case_01KE8M3Q4Z5J6N7P8R9STV2WX3","capability_id":"test.cap.create_case"}`,
 		"a target with a long run":  `{"target_ref":"case_0123456789ABCDEFGHJKMNPQRS"}`,
 	} {
@@ -98,15 +98,21 @@ func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *t
 		}
 	}
 	for name, js := range map[string]string{
-		"a signature shape at another path":   `{"note":"` + hex64 + `"}`,
-		"a signature value that is not hex":   `{"sig":{"value":"4111111111111111 note"}}`,
-		"digits alone as a signature value":   `{"sig":{"value":"4111111111111111"}}`,
-		"a reference with a space":            `{"external_ack":"CMP 2026 00001 4111111111111111"}`,
-		"a reference longer than 64":          `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
-		"the reference shape at another path": `{"note":"CMP-2026-00001"}`,
-		"a target with a space":               `{"target_ref":"case 4111111111111111"}`,
-		"the target shape under another key":  `{"resolved":"CMP-2026-0000123456"}`,
-		"an algorithm name hiding a long run": `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
+		"a signature shape at another path":    `{"note":"` + hex64 + `"}`,
+		"a signature value that is not hex":    `{"sig":{"value":"4111111111111111 note"}}`,
+		"digits alone as a signature value":    `{"sig":{"value":"4111111111111111"}}`,
+		"a reference with a space":             `{"external_ack":"CMP 2026 00001 4111111111111111"}`,
+		"a reference longer than 64":           `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
+		"the reference shape at another path":  `{"note":"CMP-2026-00001"}`,
+		"a target with a space":                `{"target_ref":"case 4111111111111111"}`,
+		"a bare number as the target":          `{"target_ref":"4111111111111111"}`, // the Security Reviewer's P1 on noema#536
+		"a bare number as the acknowledgement": `{"external_ack":"4111111111111111"}`,
+		"a short number as the target":         `{"target_ref":"123456789012"}`,
+		"letters and digits as the target":     `{"target_ref":"acct4111111111111"}`,
+		"a token that is not the minted form":  `{"external_ack":"att_20261113123456"}`,
+		"the form with a long middle":          `{"external_ack":"CMP-2026411111111-00001"}`,
+		"the target shape under another key":   `{"resolved":"CMP-2026-0000123456"}`,
+		"an algorithm name hiding a long run":  `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
 	} {
 		if err := check(t, js); err == nil {
 			t.Errorf("%s was accepted", name)
