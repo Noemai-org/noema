@@ -164,6 +164,10 @@ func bootstrapSigning(t testing.TB, pool *pgxpool.Pool, dbName string) {
 // migrating role cannot), so the test cluster creates them once, as init.sh does, before any database is migrated.
 var clusterRoles = []string{"trust_rw", "execution_rw", "outcome_rw", "evidence_rw", "orchestrator_rw", "record_append", "record_read", "record_verify", "record_emitter", "noema_migrator"}
 
+// clusterLoginRoles are the LOGIN roles that init.sh creates and that belong to no group: the nightly evidence recompute's read-only login
+// (EVD-03, D9). They are created here with no password because the test cluster authenticates by trust, as it does for VerifierLogin.
+var clusterLoginRoles = []string{"evidence_verify"}
+
 func ensureRoles(url string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -185,6 +189,11 @@ func ensureRoles(url string) error {
 	for _, r := range clusterRoles {
 		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` NOLOGIN; END IF; END $$`); err != nil {
 			return fmt.Errorf("create role %s: %w", r, err)
+		}
+	}
+	for _, r := range clusterLoginRoles {
+		if _, err := conn.Exec(ctx, `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '`+r+`') THEN CREATE ROLE `+r+` LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION; END IF; END $$`); err != nil {
+			return fmt.Errorf("create login role %s: %w", r, err)
 		}
 	}
 	return nil
@@ -225,6 +234,26 @@ func VerifierLogin(t testing.TB, admin *pgxpool.Pool, dsn string) *pgxpool.Pool 
 	pool, err := pgxpool.New(ctx, u.String())
 	if err != nil {
 		t.Fatalf("testpg: connect as %s: %v", role, err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
+
+// EvidenceVerifyLogin returns a pool whose connections authenticate as evidence_verify, the read-only login of the nightly evidence
+// recompute (EVD-03, D9): a member of no role, with SELECT on context_snapshot and evidence_item and nothing else. The role is the
+// cluster's, as in Compose; it is not created or dropped per test.
+func EvidenceVerifyLogin(t testing.TB, dsn string) *pgxpool.Pool {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("testpg: parse dsn: %v", err)
+	}
+	u.User = url.User("evidence_verify")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, u.String())
+	if err != nil {
+		t.Fatalf("testpg: connect as evidence_verify: %v", err)
 	}
 	t.Cleanup(pool.Close)
 	return pool

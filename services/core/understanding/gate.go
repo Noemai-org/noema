@@ -19,6 +19,14 @@ const prefix = "understanding: "
 // Reason says why the gate refused an Intent Object. Reasons are a closed list; a reason never carries the object's text (AGENT-13).
 type Reason string
 
+// What the model service's own gate writes where the model has nothing to say (noema#489). Ruling A166, item 3: principal_type and asserted_by are the session's, so the
+// model service fills the two members the contract requires with unsetMarker and the core writes the session's values over them. Item 1: the model service never signs,
+// so `sig` holds unsignedMarker, which the core holds as it is.
+const (
+	unsetMarker    = "unset"
+	unsignedMarker = "unsigned"
+)
+
 // Every reason the gate gives.
 const (
 	ReasonSize               Reason = "SIZE"
@@ -68,6 +76,7 @@ var (
 	sessionTenantRe    = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 	sessionAuthnRe     = regexp.MustCompile(`^ses_[0-9A-Za-z]{2,32}$`)
 	lowerSnakeRe       = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+	assertedByRe       = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`) // the contract's asserted_by pattern since ruling A163: the POC's own provider is noema-poc-idp
 	intentIDRe         = regexp.MustCompile(`^int_[0-9A-Za-z]{2,32}$`)
 	intentRefRe        = regexp.MustCompile(`^(int_[0-9A-Za-z]{2,32})@([0-9]+)$`)
 	correlationRe      = regexp.MustCompile(`^corr_[0-9A-Za-z]{2,32}$`)
@@ -95,7 +104,7 @@ type Session struct {
 
 func (s Session) valid() bool {
 	return sessionPrincipalRe.MatchString(s.PrincipalID) && sessionTenantRe.MatchString(s.TenantID) && sessionAuthnRe.MatchString(s.AuthnRef) &&
-		lowerSnakeRe.MatchString(s.PrincipalType) && lowerSnakeRe.MatchString(s.AssertedBy)
+		lowerSnakeRe.MatchString(s.PrincipalType) && assertedByRe.MatchString(s.AssertedBy)
 }
 
 // Node is what the pack says about one intent node: its slots by name and type, and its outcome definitions.
@@ -262,8 +271,14 @@ func (g *Gate) check(o *contracts.IntentObjectV1, correlationID string, r *reaso
 	if string(o.Pack.PackId) != packID || string(o.Pack.PackVersion) != packVersion {
 		r.add(ReasonPackMismatch)
 	}
-	if o.Sig.KeyId == "" || o.Sig.Value == "" {
+	// Ruling A166 item 1: the model service never signs. Its own gate leaves the neutral marker; anything else is a signature the model made.
+	if o.Sig.KeyId != unsignedMarker || o.Sig.Value != unsignedMarker {
 		r.add(ReasonSig)
+	}
+	// Ruling A166 item 3: the model's output carries no principal_type and no asserted_by. The contract requires the members, so the model service fills them with the
+	// marker; a model that sends a value anyway, even the session's own, is a shape error.
+	if o.Principal.PrincipalType != unsetMarker || o.Principal.AssertedBy != unsetMarker {
+		r.add(ReasonShape)
 	}
 	for _, f := range o.AmbiguityFlags {
 		if !flagRe.MatchString(f) {

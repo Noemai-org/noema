@@ -111,3 +111,20 @@ func TestWhatTheReconstructionCouldNotServeIsRefusedBeforeItIsBuilt(t *testing.T
 		}
 	}
 }
+
+// Review of noema#493 (EL, P2 1): the blocked event stores the rule codes sorted and without repeats whatever order the caller gave them, as the README says, and `rule` is
+// the first of them. The input slice is not changed.
+func TestTheBlockedEventStoresItsRulesSortedAndWithoutRepeats(t *testing.T) {
+	in := []string{"UNSUPPORTED_NAME", "FORBIDDEN_CLAIM", "UNSUPPORTED_NAME", "DIGIT_RUN"}
+	ev, err := build(subj, explanation.Event{CorrelationID: "corr_c1", Rules: in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"DIGIT_RUN", "FORBIDDEN_CLAIM", "UNSUPPORTED_NAME"}
+	if !reflect.DeepEqual(pl(ev)["rules"], want) || pl(ev)["rule"] != "DIGIT_RUN" {
+		t.Errorf("payload %v, want rules %v and rule DIGIT_RUN", pl(ev), want)
+	}
+	if !reflect.DeepEqual(in, []string{"UNSUPPORTED_NAME", "FORBIDDEN_CLAIM", "UNSUPPORTED_NAME", "DIGIT_RUN"}) {
+		t.Errorf("the caller's slice was changed: %v", in)
+	}
+}

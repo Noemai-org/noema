@@ -52,11 +52,18 @@ type killPoint struct {
 	name  string
 	point controller.Point
 	s9    string
+	// slice 2: the points after the write. dispatched is true when the target already saw the create when the core dies; lostResponse loads TIMEOUT_AFTER_COMMIT first
+	// (the target commits and the response never arrives); receiptAtKill is true when the receipt had already committed.
+	dispatched, lostResponse, receiptAtKill bool
 }
 
 var killPoints = []killPoint{
-	{"before the spend commits", controller.PointInSpendBeforeCommit, "S9.1 before the write"},
-	{"after the spend commits and before dispatch", controller.PointAfterSpend, "S9.1 before the write"},
+	{name: "before the spend commits", point: controller.PointInSpendBeforeCommit, s9: "S9.1 before the write"},
+	{name: "after the spend commits and before dispatch", point: controller.PointAfterSpend, s9: "S9.1 before the write"},
+	{name: "after dispatch, before the response is classified", point: controller.PointAfterDispatch, s9: "S9.2 after the write, before verify", dispatched: true},
+	{name: "the target commits and the response is lost", point: controller.PointAfterDispatch, s9: "S9.2 after the write, before verify", dispatched: true, lostResponse: true},
+	{name: "after the receipt is built, before its transaction starts", point: controller.PointInCompleteBeforeCommit, s9: "S9.2 after the write, before verify", dispatched: true},
+	{name: "after the receipt commits", point: controller.PointAfterComplete, s9: "S9.2 after the write, before verify", dispatched: true, receiptAtKill: true},
 }
 
 // createPlan is the plan step of the first create grant, exactly as trustStandIn.issueCreate records it for n = 1. The child needs it
@@ -184,6 +191,20 @@ func (s *stack) receiptStates(t *testing.T, grant string) []string {
 	return out
 }
 
+// recordCounts asserts the grant's Record events by type: the spend and the dispatch attempt are appended in the spend transaction, and the receipt by the completion
+// transaction (the controller's receipt for a live attempt, the sweeper's OUTCOME_UNKNOWN receipt for a dead one). A regression that persists a row without its event, or that
+// appends an event twice on replay or recovery, fails here (Codex P1 on noema#498; AGENTS.md section 8, Record events on consequential paths).
+func recordCounts(t *testing.T, st *stack, when string, spent, receipts int) {
+	t.Helper()
+	counts := map[string]int{}
+	for _, e := range st.eventTypes(t) {
+		counts[e]++
+	}
+	if counts["GRANT_SPENT"] != spent || counts["DISPATCH_ATTEMPTED"] != spent || counts["RECEIPT"] != receipts {
+		t.Fatalf("%s: Record events GRANT_SPENT=%d DISPATCH_ATTEMPTED=%d RECEIPT=%d, want %d, %d and %d", when, counts["GRANT_SPENT"], counts["DISPATCH_ATTEMPTED"], counts["RECEIPT"], spent, spent, receipts)
+	}
+}
+
 func TestCrashMatrix(t *testing.T) {
 	for _, kp := range killPoints {
 		t.Run(kp.name, func(t *testing.T) {
@@ -194,15 +215,40 @@ func TestCrashMatrix(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			if kp.lostResponse { // the real target's own fault: it commits the create and suppresses the response (the same fixture US-06 uses)
+				st.bench.loadPlan(t, planWith(t, "fp_crash_response_lost_v1", fault("create_case", "TIMEOUT_AFTER_COMMIT", map[string]any{"delay_ms": 3500})))
+			}
 			killAt(t, st, mc, grant, kp)
 
-			// What is true at the kill. The target saw nothing at either point: the write was never dispatched.
+			// What is true at the kill. Before dispatch the target saw nothing. After it, the target holds exactly one committed create under the key.
 			spends := st.count(t, `SELECT count(*) FROM grant_spend WHERE grant_id = $1`, grant)
-			if r, c, n := effects(t, st); r != 0 || c != 0 || n != 0 {
-				t.Fatalf("%s: at the kill the target received %d create commands, committed %d and holds %d cases, want 0 of each", kp.name, r, c, n)
+			wantTarget := 0
+			if kp.dispatched {
+				wantTarget = 1
 			}
-			if got := st.receiptStates(t, grant); len(got) != 0 {
-				t.Fatalf("%s: a receipt exists at the kill: %v", kp.name, got)
+			if r, c, n := effects(t, st); r != wantTarget || c != wantTarget || n != wantTarget {
+				t.Fatalf("%s: at the kill the target received %d create commands, committed %d and holds %d cases, want %d of each", kp.name, r, c, n, wantTarget)
+			}
+			wantReceipts := 0
+			if kp.receiptAtKill {
+				wantReceipts = 1
+			}
+			if got := st.receiptStates(t, grant); len(got) != wantReceipts {
+				t.Fatalf("%s: %d receipts at the kill (%v), want %d", kp.name, len(got), got, wantReceipts)
+			}
+			recordCounts(t, st, kp.name+" at the kill", spends, wantReceipts)
+			if kp.lostResponse {
+				lost := false
+				for _, c := range st.bench.commands(t) {
+					lost = lost || (c.Operation == "create_case" && c.ResponseSuppressed && c.FaultEffect != nil && *c.FaultEffect == "TIMEOUT_AFTER_COMMIT")
+				}
+				if !lost {
+					t.Fatalf("%s: the fault trace shows no TIMEOUT_AFTER_COMMIT: the response was not really lost", kp.name)
+				}
+			}
+			if kp.dispatched {
+				afterTheWrite(t, st, kp, grant, spends)
+				return
 			}
 
 			switch kp.point {
@@ -215,6 +261,7 @@ func TestCrashMatrix(t *testing.T) {
 				if err != nil || out.Receipt == nil || out.Void != "" || out.Replayed {
 					t.Fatalf("%s: executing the unspent grant after the crash: %+v, %v", kp.name, out, err)
 				}
+				recordCounts(t, st, kp.name+" after the execution", 1, 1)
 			case controller.PointAfterSpend:
 				// The spend committed and nothing was dispatched. The grant is spent, so it cannot be dispatched again (AGENT-08).
 				if spends != 1 {
@@ -234,6 +281,7 @@ func TestCrashMatrix(t *testing.T) {
 				if got := st.receiptStates(t, grant); len(got) != 1 || got[0] != "OUTCOME_UNKNOWN" {
 					t.Fatalf("%s: receipts after recovery %v, want one OUTCOME_UNKNOWN", kp.name, got)
 				}
+				recordCounts(t, st, kp.name+" after recovery", 1, 1)
 				if r, _, _ := effects(t, st); r != 0 {
 					t.Fatalf("%s: recovery dispatched: the target received %d create commands, want 0", kp.name, r)
 				}
@@ -255,4 +303,45 @@ func TestCrashMatrix(t *testing.T) {
 			t.Logf("CRASH_RESULT point=%q s9=%q effects_at_kill=0 effects_final=1 pass=%t", kp.name, kp.s9, !t.Failed())
 		})
 	}
+}
+
+// afterTheWrite is the recovery path for a core that died after the target saw the create (S9.2): the target holds exactly one effect and must keep exactly one. The grant is
+// spent, so executing it again is not a write (AGENT-08); the sweeper only ever records what it does not know and never dispatches (EC-E09); and nothing, not the replay and not
+// the recovery, sends the target a second create (INV-07: an unknown outcome is verified, never retried blind).
+func afterTheWrite(t *testing.T, st *stack, kp killPoint, grant string, spends int) {
+	t.Helper()
+	if spends != 1 {
+		t.Fatalf("%s: grant_spend has %d rows, want 1 (the spend committed before the write)", kp.name, spends)
+	}
+	// Executing the spent grant again must never write. The controller revalidates (E7) before it reaches the spend, and after the write the target already holds the case for
+	// the subject, so revalidation fails and the grant is voided as STATE_CHANGED: that is the form this takes once the target has committed (CI run 43243610931 showed it).
+	// A replay is the other safe form. What is forbidden is a receipt, a race or any other void, and a second create at the target (checked below).
+	out, err := st.ctl.Execute(bg(t), tenant, grant)
+	if err != nil || out.Receipt != nil || out.Raced || !(out.Replayed || out.Void == controller.VoidStateChanged) {
+		t.Fatalf("%s: executing the spent grant again must be a replay or a STATE_CHANGED void and never a write: %+v, %v", kp.name, out, err)
+	}
+	if r, c, n := effects(t, st); r != 1 || c != 1 || n != 1 {
+		t.Fatalf("%s: after the replay the target received %d creates, committed %d and holds %d cases, want 1 of each (a second dispatch happened)", kp.name, r, c, n)
+	}
+	wantReceiptEvents := 0 // the replay or the void appends no receipt; a receipt that committed before the kill keeps its one event
+	if kp.receiptAtKill {
+		wantReceiptEvents = 1
+	}
+	recordCounts(t, st, kp.name+" after the replay", 1, wantReceiptEvents)
+	wantRecovered := 1 // the dead attempt has no receipt: the sweeper writes OUTCOME_UNKNOWN. If the receipt had committed, there is nothing to record.
+	if kp.receiptAtKill {
+		wantRecovered = 0
+	}
+	if n, err := st.ctl.Recover(bg(t), tenant); err != nil || n != wantRecovered {
+		t.Fatalf("%s: Recover wrote %d receipts (%v), want %d", kp.name, n, err, wantRecovered)
+	}
+	got := st.receiptStates(t, grant)
+	if len(got) != 1 || (!kp.receiptAtKill && got[0] != "OUTCOME_UNKNOWN") {
+		t.Fatalf("%s: receipts after recovery %v, want exactly one (OUTCOME_UNKNOWN when none had committed)", kp.name, got)
+	}
+	if r, c, n := effects(t, st); r != 1 || c != 1 || n != 1 {
+		t.Fatalf("%s: after recovery the target received %d creates, committed %d and holds %d cases, want 1 of each (recovery must not dispatch)", kp.name, r, c, n)
+	}
+	recordCounts(t, st, kp.name+" after recovery", 1, 1) // exactly one RECEIPT event, never duplicated by the sweeper
+	t.Logf("CRASH_RESULT point=%q s9=%q effects_at_kill=1 effects_final=1 pass=%t", kp.name, kp.s9, !t.Failed())
 }
