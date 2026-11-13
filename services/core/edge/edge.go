@@ -54,10 +54,31 @@ func Protected(o Options) (http.Handler, error) {
 	return mux, nil
 }
 
+// controlPlane says why a path is not the public edge's to serve ("" when it is). The public edge serves no admin route and no benchmark route (they belong to their own
+// listeners, OD-P-79, ruling A54, matrix rows 1 to 7 and 13) and no route that names a key or a rotation (matrix rule 7, D3a: key rotation is an operator step with no API in
+// the POC). The test is on whole path segments, case-insensitively and ignoring a ":verb" suffix, so "administrators" is not "admin"; a segment that merely contains "key" or
+// "rotat" is refused, which fails closed (a new route with such a word is a decision for the Architect, added to the matrix first).
+func controlPlane(path string) string {
+	segs := strings.Split(strings.TrimPrefix(path, apiPrefix), "/")
+	if first, _, _ := strings.Cut(strings.ToLower(segs[0]), ":"); first == "admin" || first == "benchmark" {
+		return "belongs to another listener, not the public edge (OD-P-79)"
+	}
+	for _, s := range segs {
+		s = strings.ToLower(s)
+		if strings.Contains(s, "key") || strings.Contains(s, "rotat") {
+			return "names a key or a rotation, which has no route in the POC (D3a)"
+		}
+	}
+	return ""
+}
+
 func checkRoute(r Route, seen map[string]bool) error {
 	_, path, ok := strings.Cut(r.Pattern, " ")
 	if !ok || !strings.HasPrefix(path, apiPrefix) || strings.ContainsAny(r.Pattern, "\t\n\r") {
 		return fmt.Errorf("edge: route %q is not \"METHOD /v1/...\"", r.Pattern)
+	}
+	if why := controlPlane(path); why != "" {
+		return fmt.Errorf("edge: route %q %s", r.Pattern, why)
 	}
 	if seen[r.Pattern] {
 		return fmt.Errorf("edge: route %q is registered twice", r.Pattern)

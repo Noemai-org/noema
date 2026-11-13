@@ -111,3 +111,20 @@
 - Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
 - Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
 - Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
+
+# Session 2026-11-13 16:30 WAT · EDG-01 · the public edge refuses the control plane (noema#505, SEC-04)
+
+## Session summary
+- What changed (PR links): `edge.checkRoute` refuses a pattern whose first segment is `admin` or `benchmark`, or any of whose segments contains `key` or `rotat` (`controlPlane` in `edge/edge.go`); `edge/refuse_test.go`; the edge README. The PR number is on noema#505.
+- Why: the Security Reviewer's finding on noema#504 (a draft, red by design at `ec5b44a`): `checkRoute` required only a `/v1/` prefix, a handler and a role, so the public edge accepted routes of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7 and 13) and a route that names a key or a rotation (matrix rule 7, D3a).
+- Risks, and how they are contained: it can only add refusals. A word that merely contains `key` or `rotat` in a future public route is refused (fail closed); that route needs a decision and a row in the matrix first. No current route is affected (the only route table is noema#486's `GET /v1/reconstructions/{correlation_id}`; `go test ./cmd/core/` passes).
+- Tests added (REQ-SEC-001, REQ-API-004, INV-12): `TestThePublicEdgeRefusesToServeTheAdminBenchmarkAndKeyRoutes` (15 patterns), `TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone` (7 public patterns, including `administrators`). Seven mutants, each caught: admin, benchmark, key, rotation, case-insensitivity, prefix instead of whole segment, the `:verb` on the first segment.
+- Failing first: the same test failed in noema#504 at `ec5b44a` (for the nine patterns of that file); locally, before the fix, all 15 patterns of this test were accepted.
+- Decision recorded for the D14 spelling: segment form (`/versions/{v}/publish`), recommended on noema#505; the decision is the Engineering Lead's and the Architect's.
+
+## Pre-work for the next agent
+- Exact next step: the Security Reviewer re-runs noema#504 against this change; the admin listener (C-ADMIN) is a separate task.
+- Open questions (owner): the D14 admin route spelling (Engineering Lead, Architect).
+- Files to read first: `edge/edge.go` (`controlPlane`), `edge/refuse_test.go`.
+- Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
+
