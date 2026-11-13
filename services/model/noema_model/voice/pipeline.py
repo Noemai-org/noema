@@ -23,6 +23,7 @@ returns and closes its stream at its next event, so a late partial can never lan
 
 import asyncio
 import logging
+import weakref
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -41,6 +42,7 @@ from noema_model.voice.endpoint import AudioSource
 logger = logging.getLogger(__name__)
 READ_ABANDONED = "VOI_AUDIO_READ_ABANDONED"  # fixed codes only: nothing about the audio, the source or the error text is ever logged (AGENT-13)
 DEFERRED_CLOSE_FAILED = "VOI_AUDIO_DEFERRED_CLOSE_FAILED"
+CLOSE_ABANDONED = "VOI_AUDIO_CLOSE_ABANDONED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,34 +120,68 @@ class _AudioLease:
 _DEFERRED: set["asyncio.Future[None]"] = set()  # closes waiting for a read to end; held so they are not collected before they run
 
 
-def _deferred_close_done(closing: "asyncio.Future[None]") -> None:
-    _DEFERRED.discard(closing)
-    if not closing.cancelled() and closing.exception() is not None:
-        logger.error(DEFERRED_CLOSE_FAILED)  # a fixed code: the error text may carry data, and a silent failure would hide an open source
+def _begin_close(audio: AudioSource, close_s: float) -> "asyncio.Future[None]":
+    """Close the source in its own task, with a bound: a close that never finishes is cancelled after `close_s` and logged, so no deferred close is
+    held for ever (Codex P2 on #474). A failed close is logged with a fixed code, never with the error text (it may carry data)."""
+    closing = asyncio.ensure_future(audio.aclose())
+    _DEFERRED.add(closing)
+
+    def stalled() -> None:
+        if not closing.done():
+            logger.error(CLOSE_ABANDONED)
+            closing.cancel()
+
+    timer = asyncio.get_running_loop().call_later(close_s, stalled)
+
+    def done(_: "asyncio.Future[None]") -> None:
+        timer.cancel()
+        _DEFERRED.discard(closing)
+        if not closing.cancelled() and closing.exception() is not None:
+            logger.error(DEFERRED_CLOSE_FAILED)
+
+    closing.add_done_callback(done)
+    return closing
 
 
-def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource, hold_s: float) -> None:
+def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource, hold_s: float, close_s: float | None = None) -> None:
     """A read that outlived the bounded wait keeps the source open for now. Close it as soon as that read ends.
 
-    The wait has a second bound, `hold_s`. If the read is still running then, the pipeline stops waiting: it removes its callback, drops every reference it
-    holds to the read and the source, and logs `VOI_AUDIO_READ_ABANDONED` once. What the read itself holds is that read's own business: nothing else points at
-    it, so it is collected. A read that never ends can no longer keep the source reachable from here for the life of the process, and repeated calls do not
-    accumulate (Security Reviewer on #474).
+    The wait has a second bound, `hold_s`. If the read is still running then, the pipeline stops waiting and does three things: it logs
+    `VOI_AUDIO_READ_ABANDONED` once; it tries to close the source now, bounded by `close_s` (default `hold_s`), because closing is what interrupts a stuck read
+    on a real source; and it leaves a callback on the read that holds the source only by a weak reference, so that if that close failed, the read later ends
+    and the source is still alive, it is closed then. The pipeline therefore pins nothing for the life of the process, repeated calls do not accumulate,
+    and a source is not left open just because its read was slow (Security Reviewer and Codex on #474).
+
+    The limit: this bounds what the PIPELINE holds. A read that is really stuck (a socket, an executor thread, a timer) is held by the loop or the
+    executor, not by this module, and still pins whatever it references until it ends.
     """
+    window = hold_s if close_s is None else close_s
     timer: asyncio.TimerHandle | None = None
 
     def start(_: "asyncio.Future[Any]") -> None:
         if timer is not None:
             timer.cancel()
-        closing = asyncio.ensure_future(audio.aclose())
-        _DEFERRED.add(closing)
-        closing.add_done_callback(_deferred_close_done)
+        _begin_close(audio, window)
 
     def abandon() -> None:
         if read.done():
             return  # it ended in time: start() has run or is queued, and nothing was abandoned
         read.remove_done_callback(start)
         logger.error(READ_ABANDONED)
+        try:
+            weak: "weakref.ReferenceType[AudioSource] | None" = weakref.ref(audio)
+        except TypeError:
+            weak = None  # a source that cannot be weakly referenced is closed now and not remembered
+        attempt = _begin_close(audio, window)
+
+        def late(_: "asyncio.Future[Any]") -> None:
+            source = weak() if weak is not None else None
+            if source is None:
+                return
+            if attempt.done() and (attempt.cancelled() or attempt.exception() is not None):
+                _begin_close(source, window)  # the close at the abandon did not succeed; the read has ended, so try once more
+
+        read.add_done_callback(late)
 
     timer = asyncio.get_running_loop().call_later(hold_s, abandon)
     read.add_done_callback(start)
@@ -217,7 +253,7 @@ async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio:
     running = await lease.revoke(bound_s)  # no read of the source may be running when it is closed
     failure: BaseException | None = None
     if running is not None:
-        close_when_read_ends(running, audio, hold_s)  # it cannot be closed while the read runs; it is closed when the read ends
+        close_when_read_ends(running, audio, hold_s, bound_s)  # it cannot be closed while the read runs; it is closed when the read ends
         failure = TimeoutError("an audio read did not stop in time; the source is closed when it ends")
     else:
         closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
