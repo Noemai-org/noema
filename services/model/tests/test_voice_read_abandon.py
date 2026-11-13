@@ -121,3 +121,107 @@ def test_a_deferred_close_that_fails_is_logged_with_a_fixed_code_and_never_with_
     messages = [r.getMessage() for r in caplog.records if r.name == LOGGER]
     assert messages == [CLOSE_FAILED]
     assert all("secret-marker" not in r.getMessage() and not r.exc_info for r in caplog.records)
+
+
+# ---- Security Reviewer and Codex P2 on #474 at c8eff438: abandoning the wait must not leave the source open -------------------------------------------
+
+
+CLOSE_ABANDONED = "VOI_AUDIO_CLOSE_ABANDONED"
+
+
+class EndsLateAndRefusesCloseWhileReading(Source):
+    """A generator-like source: its read ends 0.4 s after it is cancelled, and it cannot be closed while a read runs."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.reading = False
+
+    async def __anext__(self) -> AudioChunk:
+        self.reading = True
+        try:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.4)
+            raise StopAsyncIteration
+        finally:
+            self.reading = False
+
+    async def aclose(self) -> None:
+        if self.reading:
+            raise RuntimeError("aclose(): asynchronous generator is already running")
+        self.closed = True
+
+
+class NeverEndingAndNeverFinishesClosing(NeverEnding):
+    async def aclose(self) -> None:
+        await asyncio.Event().wait()
+
+
+def test_an_abandoned_read_gets_the_source_closed_at_the_abandon_and_nothing_stays_pinned() -> None:
+    async def scenario() -> tuple[bool, bool]:
+        source = NeverEnding()
+        ref = weakref.ref(source)
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
+        await asyncio.sleep(0.3)  # past the hold: the abandon has happened
+        closed = source.closed
+        del source
+        gc.collect()
+        gc.collect()
+        return closed, ref() is None
+
+    closed, freed = run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert closed  # a source that is never closed is worse than a stuck read: the abandon closes it, it does not just forget it
+    assert freed
+
+
+def test_a_read_that_ends_after_the_hold_still_gets_the_source_closed_without_the_pipeline_pinning_it(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.ERROR, logger=LOGGER)
+    source = EndsLateAndRefusesCloseWhileReading()
+
+    async def scenario() -> tuple[bool, bool]:
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
+        closed_at_return = source.closed
+        await asyncio.sleep(0.8)  # the read ends 0.4 s after it was cancelled, which is after the hold; the source is closed then
+        return closed_at_return, source.closed
+
+    closed_at_return, closed_later = run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert not closed_at_return
+    assert closed_later  # eventual closure is kept after the abandon (Codex P2 at c8eff438)
+    messages = [r.getMessage() for r in caplog.records if r.name == LOGGER]
+    assert ABANDONED in messages
+    assert set(messages) <= {ABANDONED, CLOSE_FAILED}  # fixed codes only
+
+
+def test_a_close_that_never_finishes_is_abandoned_after_a_bound_logged_and_the_source_is_freed(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.ERROR, logger=LOGGER)
+
+    async def scenario() -> bool:
+        source = NeverEndingAndNeverFinishesClosing()
+        ref = weakref.ref(source)
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.05, on_partial=lambda _: None)
+        del source
+        await asyncio.sleep(0.5)  # the hold, then one close bound
+        gc.collect()
+        gc.collect()
+        return ref() is None
+
+    assert run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert [r.getMessage() for r in caplog.records if r.name == LOGGER] == [ABANDONED, CLOSE_ABANDONED]  # Codex P2 on c97980da: no deferred close is held for ever
+
+
+def test_a_read_that_ends_in_time_is_closed_once_and_nothing_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.ERROR, logger=LOGGER)
+    source = EndsLateAndRefusesCloseWhileReading()
+
+    async def scenario() -> None:
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=5.0, on_partial=lambda _: None)
+        await asyncio.sleep(0.8)
+
+    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert source.closed
+    assert [r for r in caplog.records if r.name == LOGGER] == []
