@@ -167,6 +167,9 @@ var (
 	ErrBadPortAnswer = errors.New("orchestrator: a port gave an answer outside its contract")
 	// ErrRecoveryBudgetSpent is returned when Trust allows a further write after the recovery budget is spent: the run stops in EVALUATING and executes nothing more.
 	ErrRecoveryBudgetSpent = errors.New("orchestrator: the recovery budget is spent; another write is not executed")
+	// ErrOutcomeUnknown is returned when the Verifier could not tell whether the write happened. The run is recorded as RECOVERING and stops: nothing is executed
+	// again and no new decision is asked for, because a new grant could apply the same write twice (INV-07, AGENT-07, AGENT-08).
+	ErrOutcomeUnknown = errors.New("orchestrator: the outcome of the write is unknown; the run stops and nothing is dispatched again")
 	// ErrNoGrant is returned for an allowed write that does not carry exactly one grant (the POC has no multi-step plan).
 	ErrNoGrant = errors.New("orchestrator: the allowed write does not carry exactly one grant")
 	// ErrNotResumable is returned for a stored state the write path cannot resume from.

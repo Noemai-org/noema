@@ -30,6 +30,8 @@ type wfakes struct {
 	progress  orchestrator.Progress
 	journalEr error
 
+	sessions map[string]orchestrator.Session // the session each write port was called with (the fakes of the read path keep only the last)
+
 	nDecide, nExec, nVerify int
 	executed                []string // grant IDs handed to Execute
 	snapshots               []string // evidence snapshots Trust decided on
@@ -56,7 +58,15 @@ func (w *wfakes) Read(_ context.Context, s orchestrator.Session, _ string) (orch
 	return orchestrator.EvidenceRef{SnapshotID: "evs_" + string(rune('A'+w.nDecide)) + "A11"}, nil
 }
 
-func (w *wfakes) Execute(_ context.Context, _ orchestrator.Session, grantID string) (orchestrator.Receipt, error) {
+func (w *wfakes) note(port string, s orchestrator.Session) {
+	if w.sessions == nil {
+		w.sessions = map[string]orchestrator.Session{}
+	}
+	w.sessions[port] = s
+}
+
+func (w *wfakes) Execute(_ context.Context, s orchestrator.Session, grantID string) (orchestrator.Receipt, error) {
+	w.note("executor", s)
 	w.calls = append(w.calls, "execute:"+grantID)
 	w.executed = append(w.executed, grantID)
 	var err error
@@ -64,24 +74,29 @@ func (w *wfakes) Execute(_ context.Context, _ orchestrator.Session, grantID stri
 		err = pick(w.execErr, w.nExec)
 	}
 	r := pick(w.receipts, w.nExec)
+	if r.GrantID == "" {
+		r.GrantID = grantID // a receipt names the grant that was executed; a test that wants another says so
+	}
 	w.nExec++
 	return r, err
 }
 
-func (w *wfakes) Verify(_ context.Context, _ orchestrator.Session, _, grantID string) (contracts.EnumsV1Verdict, error) {
+func (w *wfakes) Verify(_ context.Context, s orchestrator.Session, _, grantID string) (contracts.EnumsV1Verdict, error) {
+	w.note("verifier", s)
 	w.calls = append(w.calls, "verify:"+grantID)
 	v := pick(w.verdicts, w.nVerify)
 	w.nVerify++
 	return v, nil
 }
 
-func (w *wfakes) Progress(_ context.Context, _ orchestrator.Session, _, grantID string) (orchestrator.Progress, error) {
+func (w *wfakes) Progress(_ context.Context, s orchestrator.Session, _, grantID string) (orchestrator.Progress, error) {
+	w.note("journal", s)
 	w.calls = append(w.calls, "journal:"+grantID)
 	return w.progress, w.journalEr
 }
 
 func writeDecision(grantIDs ...string) orchestrator.Decision {
-	return orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: false, GrantIDs: grantIDs}
+	return orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: false, GrantIDs: grantIDs, IntentRef: "int_AA11"}
 }
 
 func newWrite(t *testing.T, w *wfakes) *orchestrator.WriteRunner {
@@ -167,7 +182,7 @@ func TestALostReplyIsVerifiedByKeyAndNeverDispatchedASecondTime(t *testing.T) {
 // Test 3 (US-06, PERD 28.2): NOT_ACHIEVED and UNKNOWN take AWAITING_VERIFICATION to RECOVERING, then EVALUATING under a fresh evidence snapshot and a fresh
 // decision (a new grant). The first grant is never executed again (AGENT-08). PENDING_EXTERNAL waits for the outcome instead.
 func TestAVerdictOtherThanAchievedRecoversUnderAFreshSnapshotAndANewGrant(t *testing.T) {
-	for _, v := range []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictUNKNOWN, contracts.EnumsV1VerdictPARTIALLYACHIEVED} {
+	for _, v := range []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED, contracts.EnumsV1VerdictCOMPENSATED} {
 		t.Run(string(v), func(t *testing.T) {
 			w := newWfakes()
 			w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
@@ -400,5 +415,103 @@ func TestAnExecutorThatCannotSayWhatHappenedStopsTheRunWithoutRecordingExecuting
 	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
 	if err == nil || w.nExec != 1 || w.nVerify != 0 || res.Investigation.State != "PLANNED" || count(w.calls, "record:EXECUTING") != 0 {
 		t.Fatalf("err %v, executes %d, verifies %d, final %s; want an error, one execute, no verify, PLANNED", err, w.nExec, w.nVerify, res.Investigation.State)
+	}
+}
+
+// Security Reviewer, blocking 1 on noema#576 (INV-07, AGENT-07, AGENT-08): when the check by key could not tell whether the write happened, a new grant could apply
+// the same write twice. An UNKNOWN verdict is recorded as RECOVERING and the run stops there: nothing is executed again, no new decision is asked for, and the
+// caller gets ErrOutcomeUnknown. (A NOT_ACHIEVED verdict is different: the first write is known not to have happened.)
+func TestAnUnknownVerdictStopsInRecoveringAndNeverDispatchesAgain(t *testing.T) {
+	w := newWfakes()
+	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictUNKNOWN}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 5)
+	if !errors.Is(err, orchestrator.ErrOutcomeUnknown) || res.Investigation.State != "RECOVERING" || w.nExec != 1 || w.nDecide != 1 || count(w.calls, "evidence") != 1 {
+		t.Fatalf("err %v, final %s, executes %d, decisions %d, evidence reads %d; want ErrOutcomeUnknown, RECOVERING, 1, 1, 1", err, res.Investigation.State, w.nExec, w.nDecide, count(w.calls, "evidence"))
+	}
+	if !containsInOrder(states(w.changes), "AWAITING_VERIFICATION", "RECOVERING") {
+		t.Errorf("states %v: want RECOVERING recorded after AWAITING_VERIFICATION", states(w.changes))
+	}
+}
+
+// Security Reviewer, blocking 2 and note (e): ResumeWrite does not trust the caller. It asks the Record that the turn's INPUT_RECEIVED is this tenant's, principal's
+// and correlation's (as RunWrite does), and it refuses a decision with no intent, a grant whose ID is not a plain reference, and a stored projection of another
+// investigation. A state the write path cannot resume from is ErrNotResumable.
+func TestResumeWriteChecksItsInputsAndTheStateItResumesFrom(t *testing.T) {
+	planned := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
+	d := writeDecision("grt_AA11")
+	noIntent := d
+	noIntent.IntentRef = ""
+	cases := []struct {
+		name string
+		inv  orchestrator.Investigation
+		dec  orchestrator.Decision
+		sess orchestrator.Session
+		turn orchestrator.Turn
+		fix  func(*wfakes)
+		want error
+	}{
+		{"a decision with no intent", planned, noIntent, sess, turn, nil, orchestrator.ErrBadTurn},
+		{"a grant that is not a plain reference", planned, writeDecision("grt AA11"), sess, turn, nil, orchestrator.ErrNoGrant},
+		{"another investigation's projection", orchestrator.Investigation{ID: "inv_OTHER", State: "PLANNED", Version: 5}, d, sess, turn, nil, orchestrator.ErrBadTurn},
+		{"a turn with no recorded input", planned, d, sess, orchestrator.Turn{InvestigationID: turn.InvestigationID, CorrelationID: turn.CorrelationID, Text: turn.Text, RequestID: turn.RequestID}, nil, orchestrator.ErrNoInputReceived},
+		{"an input the Record does not confirm", planned, d, sess, turn, func(w *wfakes) { w.admission.PrincipalID = "usr_OTHER" }, orchestrator.ErrNoInputReceived},
+		{"a lookup that fails", planned, d, sess, turn, func(w *wfakes) { w.admitEr = errors.New("synthetic lookup failure") }, orchestrator.ErrNoInputReceived},
+		{"a session with no tenant", planned, d, orchestrator.Session{PrincipalID: "usr_01"}, turn, nil, orchestrator.ErrNoSession},
+		{"a state the write path cannot resume from", orchestrator.Investigation{ID: turn.InvestigationID, State: "EVALUATING", Version: 5}, d, sess, turn, nil, orchestrator.ErrNotResumable},
+		{"a negative budget", planned, d, sess, turn, nil, orchestrator.ErrBadTurn},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWfakes()
+			if c.fix != nil {
+				c.fix(w)
+			}
+			budget := 1
+			if c.name == "a negative budget" {
+				budget = -1
+			}
+			_, err := newWrite(t, w).ResumeWrite(context.Background(), c.sess, c.turn, c.inv, c.dec, budget)
+			if !errors.Is(err, c.want) || w.nExec != 0 || w.nVerify != 0 {
+				t.Fatalf("err %v, executes %d, verifies %d; want %v and nothing dispatched or verified", err, w.nExec, w.nVerify, c.want)
+			}
+		})
+	}
+}
+
+// Security Reviewer, note (a): a receipt for another grant is not the receipt of this one; and note (e): an answer outside the contract is refused, never guessed.
+func TestAReceiptForAnotherGrantOrAnAnswerOutsideTheContractIsRefused(t *testing.T) {
+	for name, fix := range map[string]func(*wfakes){
+		"a receipt for another grant": func(w *wfakes) {
+			w.receipts = []orchestrator.Receipt{{GrantID: "grt_ZZ99", Class: orchestrator.ReceiptApplied}}
+		},
+		"an unknown receipt class": func(w *wfakes) { w.receipts = []orchestrator.Receipt{{Class: "SUCCEEDED"}} },
+		"an unknown verdict":       func(w *wfakes) { w.verdicts = []contracts.EnumsV1Verdict{"SUCCEEDED"} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWfakes()
+			fix(w)
+			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			if !errors.Is(err, orchestrator.ErrBadPortAnswer) || w.nExec != 1 || count(w.calls, "record:EXPLAINING") != 0 {
+				t.Fatalf("err %v, executes %d; want ErrBadPortAnswer after one execute and no explanation (%v)", err, w.nExec, w.calls)
+			}
+		})
+	}
+}
+
+// Security Reviewer, note (e): the Executor, Verifier and Journal receive the session of the run, tenant and principal included.
+func TestTheWritePortsReceiveTheSessionOfTheRun(t *testing.T) {
+	w := newWfakes()
+	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1); err != nil {
+		t.Fatal(err)
+	}
+	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
+	w.progress = orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}
+	if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"), 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, port := range []string{"executor", "verifier", "journal"} {
+		if got := w.sessions[port]; got != sess {
+			t.Errorf("the %s port saw %+v, want %+v", port, got, sess)
+		}
 	}
 }
