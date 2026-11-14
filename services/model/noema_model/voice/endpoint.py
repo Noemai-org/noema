@@ -118,7 +118,12 @@ class EndpointGate:
         except BaseException:
             await self.aclose()
             raise
-        if self._detector.feed(chunk) is EndpointState.ENDED:
+        try:
+            ended = self._detector.feed(chunk) is EndpointState.ENDED
+        except BaseException:
+            await self.aclose()  # invalid audio (not PCM, empty, not whole samples) ends the gate and releases the source (Codex on #200 and #218)
+            raise
+        if ended:
             self._done = True
         return chunk
 
@@ -130,7 +135,13 @@ class EndpointGate:
             return
         if self._closing is None:
             self._closing = asyncio.ensure_future(self._audio.aclose())
-        await asyncio.shield(self._closing)
+        closing = self._closing
+        try:
+            await asyncio.shield(closing)
+        except BaseException:
+            if closing.done() and (closing.cancelled() or closing.exception() is not None):
+                self._closing = None  # a close that FAILED (or was cancelled) is tried again by the next call, not served from the cache (Codex P2 on #474)
+            raise  # a close still running is resumed by the next call; this caller was only cancelled
         self._closed = True
 
 

@@ -22,10 +22,13 @@ returns and closes its stream at its next event, so a late partial can never lan
 """
 
 import asyncio
+import logging
+import weakref
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import (
     AudioChunk,
     FinalTranscript,
@@ -36,6 +39,27 @@ from noema_model.providers.speech.base import (
 )
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.voice.endpoint import AudioSource
+
+logger = logging.getLogger(__name__)
+READ_ABANDONED = "VOI_AUDIO_READ_ABANDONED"  # fixed codes only: nothing about the audio, the source or the error text is ever logged (AGENT-13)
+DEFERRED_CLOSE_FAILED = "VOI_AUDIO_DEFERRED_CLOSE_FAILED"
+CLOSE_ABANDONED = "VOI_AUDIO_CLOSE_ABANDONED"
+CLEANUP_EVENT = "voice_audio_cleanup"
+Report = Callable[[str], None]
+
+
+def _reporter(telemetry: Telemetry | None, correlation_id: str) -> Report:
+    """How a cleanup that happens after the call has returned is reported: one structured event, `voice_audio_cleanup`, on the call's correlation id, carrying a
+    fixed code and nothing else (no error text, no audio, no source). The harness passes its Telemetry (REQ-OBS-001). A caller with none still gets a line
+    with the same code, so a failed release is never silent (Codex P1 on #474)."""
+
+    def report(code: str) -> None:
+        if telemetry is not None:
+            telemetry.event(CLEANUP_EVENT, correlation_id, {"code": code})
+        else:
+            logger.error(code, extra={"correlation_id": correlation_id})
+
+    return report
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +121,109 @@ class _AudioLease:
             if self._pending is read and read.done():
                 self._pending = None
 
-    async def revoke(self, bound_s: float) -> None:
-        """End the lease and any read still running, giving the read `bound_s` to end."""
+    async def revoke(self, bound_s: float) -> "asyncio.Future[AudioChunk] | None":
+        """End the lease and any read still running, giving the read `bound_s` to end. Returns the read if it is STILL running after that (a read that
+        resists cancellation): the source cannot be closed while it runs, so the caller must close it when that read ends."""
         self._source = None
         read, self._pending = self._pending, None
         if read is not None and not read.done():
             read.cancel()
             await asyncio.wait({read}, timeout=bound_s)
+            if not read.done():
+                return read
+        return None
+
+
+_DEFERRED: set["asyncio.Future[None]"] = set()  # closes waiting for a read to end; held so they are not collected before they run
+
+
+def _begin_close(audio: AudioSource, close_s: float, report: Report) -> "asyncio.Future[None]":
+    """Close the source in its own task, with a bound: a close that never finishes is cancelled after `close_s` and logged, so no deferred close is
+    held for ever (Codex P2 on #474). A failed close is logged with a fixed code, never with the error text (it may carry data)."""
+    closing = asyncio.ensure_future(audio.aclose())
+    _DEFERRED.add(closing)
+
+    def stalled() -> None:
+        if not closing.done():
+            report(CLOSE_ABANDONED)
+            closing.cancel()
+            _DEFERRED.discard(closing)  # cancelling is cooperative: a close that ignores it is let go of here, not held for the life of the process (Codex P2 on #474)
+
+    timer = asyncio.get_running_loop().call_later(close_s, stalled)
+
+    def done(_: "asyncio.Future[None]") -> None:
+        timer.cancel()
+        _DEFERRED.discard(closing)
+        if not closing.cancelled() and closing.exception() is not None:
+            report(DEFERRED_CLOSE_FAILED)
+
+    closing.add_done_callback(done)
+    return closing
+
+
+def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource, hold_s: float, close_s: float | None = None, report: Report | None = None) -> None:
+    """A read that outlived the bounded wait keeps the source open for now. Close it as soon as that read ends.
+
+    The wait has a second bound, `hold_s`. If the read is still running then, the pipeline stops waiting and does three things: it logs
+    `VOI_AUDIO_READ_ABANDONED` once; it tries to close the source now, bounded by `close_s` (default `hold_s`), because closing is what interrupts a stuck read
+    on a real source; and it leaves a callback on the read that holds the source only weakly (or, for a source that cannot be weakly referenced, strongly for one more bounded window), so that if that close failed, the read later ends
+    and the source is still alive, it is closed then. The pipeline therefore pins nothing for the life of the process, repeated calls do not accumulate,
+    and a source is not left open just because its read was slow (Security Reviewer and Codex on #474).
+
+    The limit: this bounds what the PIPELINE holds. A read that is really stuck (a socket, an executor thread, a timer) is held by the loop or the
+    executor, not by this module, and still pins whatever it references until it ends.
+    """
+    window = hold_s if close_s is None else close_s
+    say = report if report is not None else _reporter(None, "uncorrelated")
+    timer: asyncio.TimerHandle | None = None
+
+    def start(_: "asyncio.Future[Any]") -> None:
+        if timer is not None:
+            timer.cancel()
+        _begin_close(audio, window, say)
+
+    def abandon() -> None:
+        if read.done():
+            return  # it ended in time: start() has run or is queued, and nothing was abandoned
+        read.remove_done_callback(start)
+        say(READ_ABANDONED)
+        # How the retry finds the source later without the pipeline pinning it. A source that can be weakly referenced is held weakly. One that cannot (`__slots__`
+        # without `__weakref__`; AudioSource does not require it) is held strongly in a box that is emptied when the retry window ends or the retry is no longer
+        # needed, so it is retried, and never held for ever (Codex P2 on #474).
+        box: list[AudioSource] = []
+        try:
+            weak: "weakref.ReferenceType[AudioSource] | None" = weakref.ref(audio)
+        except TypeError:
+            weak = None
+            box.append(audio)
+            asyncio.get_running_loop().call_later(window + hold_s, box.clear)
+        state = {"over": False, "failed": False, "retried": False}
+
+        def source() -> AudioSource | None:
+            if weak is not None:
+                return weak()
+            return box[0] if box else None
+
+        def retry_if_needed(_: "asyncio.Future[Any]") -> None:
+            # Called when the read ends and when the close at the abandon ends, in whichever order: the retry needs both to have happened (Codex P2 on #474).
+            if state["retried"] or not read.done() or not state["over"]:
+                return
+            state["retried"] = True
+            target = source() if state["failed"] else None
+            box.clear()  # whatever happens next, the pipeline keeps no strong reference to the source after this
+            if target is not None:
+                _begin_close(target, window, say)  # once: the read has ended, so the source can now be closed
+
+        def attempt_over(closed: "asyncio.Future[None]") -> None:
+            state["over"] = True
+            state["failed"] = closed.cancelled() or closed.exception() is not None
+            retry_if_needed(closed)
+
+        _begin_close(audio, window, say).add_done_callback(attempt_over)
+        read.add_done_callback(retry_if_needed)
+
+    timer = asyncio.get_running_loop().call_later(hold_s, abandon)
+    read.add_done_callback(start)
 
 
 async def transcribe_utterance(
@@ -114,14 +234,18 @@ async def transcribe_utterance(
     deadline_s: float,
     on_partial: Callable[[str], None],
     cleanup_s: float | None = None,
+    hold_s: float | None = None,
+    telemetry: Telemetry | None = None,
+    correlation_id: str = "uncorrelated",
 ) -> FinalUtterance:
     """Stream `audio` to `provider` and return its final transcript. `deadline_s` bounds the whole call.
 
-    Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`): a provider that stalls while closing, or while it
+    Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`), and a read that still runs after that is waited for `hold_s` more (default: ten times `cleanup_s`) and then abandoned and logged: a provider that stalls while closing, or while it
     is being cancelled, cannot hold the result back or keep the audio source open. The audio source is released whatever
     happens, including when the provider refuses before it returns a stream.
     """
     bound_s = deadline_s if cleanup_s is None else cleanup_s
+    hold = 10 * bound_s if hold_s is None else hold_s  # how long a deferred close waits for a read that outlived the bound before it is abandoned
     gate = _Gate()
     lease = _AudioLease(audio)
     outcome: asyncio.Future[FinalUtterance] = asyncio.get_running_loop().create_future()
@@ -139,7 +263,7 @@ async def transcribe_utterance(
         await asyncio.wait({task}, timeout=bound_s)  # the provider's own shutdown, bounded
     except BaseException as caught:  # held while the audio is released, then raised again unchanged
         error = caught
-    failure = await _release(task, lease, audio, gate, bound_s)
+    failure = await _release(task, lease, audio, gate, bound_s, hold, _reporter(telemetry, correlation_id))
     if error is not None:
         raise error
     if failure is not None or utterance is None:
@@ -147,10 +271,10 @@ async def transcribe_utterance(
     return utterance
 
 
-async def _release(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float) -> BaseException | None:
+async def _release(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float, hold_s: float, report: Report) -> BaseException | None:
     """Release everything the call holds, and return the shutdown failure it saw, if any. It survives a cancellation of the caller: the
     work is bounded (three waits of at most `bound_s`), so it is finished and the cancellation is raised afterwards."""
-    work = asyncio.ensure_future(_release_work(task, lease, audio, gate, bound_s))
+    work = asyncio.ensure_future(_release_work(task, lease, audio, gate, bound_s, hold_s, report))
     cancelled = False
     while not work.done():
         try:
@@ -163,19 +287,23 @@ async def _release(task: "asyncio.Future[None]", lease: _AudioLease, audio: Audi
     return failure
 
 
-async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float) -> BaseException | None:
+async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio: AudioSource, gate: _Gate, bound_s: float, hold_s: float, report: Report) -> BaseException | None:
     gate.closed = True
     if not task.done():
         task.cancel()
-    await lease.revoke(bound_s)  # no read of the source may be running when it is closed
-    closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
-    closing.add_done_callback(_mark_retrieved)
+    running = await lease.revoke(bound_s)  # no read of the source may be running when it is closed
     failure: BaseException | None = None
-    await asyncio.wait({closing}, timeout=bound_s)
-    if not closing.done():
-        failure = TimeoutError("the audio source did not finish closing")
-    elif not closing.cancelled() and closing.exception() is not None:
-        failure = closing.exception()
+    if running is not None:
+        close_when_read_ends(running, audio, hold_s, bound_s, report)  # it cannot be closed while the read runs; it is closed when the read ends
+        failure = TimeoutError("an audio read did not stop in time; the source is closed when it ends")
+    else:
+        closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
+        closing.add_done_callback(_mark_retrieved)
+        await asyncio.wait({closing}, timeout=bound_s)
+        if not closing.done():
+            failure = TimeoutError("the audio source did not finish closing")
+        elif not closing.cancelled() and closing.exception() is not None:
+            failure = closing.exception()
     if not task.done():
         await asyncio.wait({task}, timeout=bound_s)
     if task.done() and not task.cancelled() and task.exception() is not None:
