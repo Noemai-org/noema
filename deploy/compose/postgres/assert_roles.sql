@@ -72,5 +72,18 @@ BEGIN
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'over-privileged role(s): %', bad;
   END IF;
+
+  -- The evidence recompute's login (EVD-03, D9): it logs in, is a member of no role, holds no attribute, may connect, and can create nothing.
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'evidence_verify' AND rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+                 AND NOT rolreplication AND NOT rolbypassrls) THEN
+    RAISE EXCEPTION 'evidence_verify is missing, cannot log in, or holds an attribute';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles u ON u.oid = m.member WHERE u.rolname = 'evidence_verify') THEN
+    RAISE EXCEPTION 'evidence_verify is a member of a role';
+  END IF;
+  IF NOT has_database_privilege('evidence_verify', 'noema', 'CONNECT') OR has_database_privilege('evidence_verify', 'noema', 'CREATE')
+     OR has_database_privilege('evidence_verify', 'noema', 'TEMPORARY') OR has_schema_privilege('evidence_verify', 'public', 'CREATE') THEN
+    RAISE EXCEPTION 'evidence_verify: CONNECT is missing, or it can CREATE or create temporary tables';
+  END IF;
 END $$;
 SELECT 'roles ok';

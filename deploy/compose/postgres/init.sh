@@ -8,13 +8,18 @@ core_pw="$(cat "$secrets/noema_core_password")"
 temporal_pw="$(cat "$secrets/temporal_password")"
 migrator_pw="$(cat "$secrets/noema_migrator_password")"
 verify_pw="$(cat "$secrets/noema_verify_password")"
+evidence_verify_pw="$(cat "$secrets/evidence_verify_password")"
 tenant_pw="$(cat "$secrets/noema_tenant_login_password")"
+# The evidence recompute's secret is its own: a login that shares another login's secret is that login (Security Reviewer, noema#268).
+for other in "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw"; do
+  [ "$evidence_verify_pw" != "$other" ] || { echo "init: evidence_verify_password equals another login's secret; give it its own" >&2; exit 1; }
+done
 
 # A4 (Architect ruling, 6 Nov 2026): each emitter login has its own file-mounted secret, $secrets/emitter_logins/<tenant>__<emitter>. Checked
 # before anything is created: every file must exist, be non-empty and differ from every other secret, including the other emitter logins'.
 # The shared tenant-login password never opens an emitter login. A refusal names the file, never a value. DEBT-13 extends this to the
 # tenant and power logins before G3 evidence.
-seen="$(printf '%s\n' "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw" "$(cat "$secrets/postgres_superuser_password" 2>/dev/null || true)")"
+seen="$(printf '%s\n' "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw" "$evidence_verify_pw" "$(cat "$secrets/postgres_superuser_password" 2>/dev/null || true)")"
 for tenant in ${NOEMA_TENANTS:-}; do
   case "$tenant" in
     ten_[0-9A-Za-z][0-9A-Za-z]*) ;;
@@ -34,7 +39,7 @@ for tenant in ${NOEMA_TENANTS:-}; do
     seen="$(printf '%s\n%s\n' "$seen" "$pw")"
   done
 done
-psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" \
+psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" -v evidence_verify_pw="$evidence_verify_pw" \
   --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 -- The migration role owns the database and, from migration W4 on, the signed tables. It cannot log in; its one login can.
 CREATE ROLE noema_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
@@ -60,6 +65,9 @@ CREATE ROLE record_verify NOLOGIN;
 CREATE ROLE record_emitter NOLOGIN;
 -- The verification job logs in as this; migration 0006 grants record_verify its privileges.
 CREATE ROLE noema_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'verify_pw' IN ROLE record_verify;
+-- The nightly evidence recompute's login (EVD-03, D9): a member of no role, so it holds only what migration 0020 grants it directly (SELECT on
+-- context_snapshot and evidence_item, with one SELECT policy on each). It is not a power and not noema_verify (the Record verifier).
+CREATE ROLE evidence_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'evidence_verify_pw';
 CREATE DATABASE noema OWNER noema_migrator;
 CREATE DATABASE temporal OWNER temporal;
 CREATE DATABASE temporal_visibility OWNER temporal;
@@ -67,7 +75,7 @@ REVOKE ALL ON DATABASE noema FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 -- The core may connect and nothing more: no CREATE, no TEMPORARY. Rights on tables come from the per-power roles (migrations).
-GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter;
+GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter, evidence_verify;
 \connect noema
 -- DEC-2026-11-01 D10, D10a (EXE-08 slice B, ruling A2): pgsodium verifies Ed25519 signatures in the database; the private keys never are in it. The extension
 -- is created without shared_preload_libraries (no server key management). Its event trigger reads a setting that exists only when the library is preloaded,
