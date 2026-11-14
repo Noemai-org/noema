@@ -37,6 +37,7 @@ type spy struct {
 	capPresent  bool
 	inScope     bool
 	roleAllowed bool
+	late        *lateSpy // the T13 to T15 ports, which no T1 to T6 test may reach
 	// faults: the method named here returns an error or panics
 	failAt  string
 	panicAt string
@@ -44,6 +45,7 @@ type spy struct {
 
 func newSpy() *spy {
 	return &spy{
+		late: &lateSpy{},
 		intent: intake.AdmittedIntent{TenantID: tenant, IntentID: "int_synth0001", Version: 2, IntentNode: node, IntentHash: "sha256:" + hex64(), CorrelationID: "corr_synth0001",
 			PrincipalID: principal, View: decide.IntentView{Version: 2}},
 		latest: 2, enabled: true, capability: intake.Capability{ID: "fin.cap.lookup_transaction", Registered: true}, capPresent: true, inScope: true, roleAllowed: true,
@@ -104,7 +106,7 @@ func (s *spy) RoleAllowed(context.Context, string, string) (bool, error) {
 
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Confirmations: s.late, Planner: s.late, Recorder: s.late},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}
@@ -284,5 +286,18 @@ func TestTheSameInputsGiveTheSameDecisionAndTrace(t *testing.T) {
 	a, b := eval(t, newSpy(), request()), eval(t, newSpy(), request())
 	if !reflect.DeepEqual(a.Trace, b.Trace) || a.Decision.Outcome() != b.Decision.Outcome() || !reflect.DeepEqual(reasons(a.Decision), reasons(b.Decision)) {
 		t.Fatalf("two runs differ: %v %v / %v %v", a.Decision.Outcome(), a.Trace, b.Decision.Outcome(), b.Trace)
+	}
+}
+
+// T13 to T15 are built, but T7 to T12 are not in this change, so a full evaluation still ends in UNKNOWN INTERNAL_ERROR at T7 and never reaches the confirmation store, the
+// Planner or the Recorder: nothing is written and nothing is allowed (REQ-NFR-002, EC-E16).
+func TestAFullEvaluationStillEndsAtT7AndNeverReachesTheConfirmationPlannerOrRecorder(t *testing.T) {
+	s := newSpy()
+	res := eval(t, s, request())
+	if res.Decision.Outcome() != decide.Unknown || last(res).Step != decide.T7TargetResolution {
+		t.Fatalf("decision %s, trace %v, want UNKNOWN at T7", res.Decision.Outcome(), res.Trace)
+	}
+	if len(s.late.calls) != 0 || res.DecisionID != "" || len(res.GrantIDs) != 0 {
+		t.Errorf("a later port was called or an ID was returned: %v %q %v", s.late.calls, res.DecisionID, res.GrantIDs)
 	}
 }

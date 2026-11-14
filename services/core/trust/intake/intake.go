@@ -22,6 +22,10 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
+	// DecisionID and GrantIDs are set only for an ALLOW: the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
+	// plan step; none for a read).
+	DecisionID string
+	GrantIDs   []string
 }
 
 // ErrNotBuilt is what a step that does not exist yet returns: the evaluation ends in UNKNOWN INTERNAL_ERROR at that step (fail closed, INV-16).
@@ -37,14 +41,14 @@ var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<versio
 
 func (s *Service) configured() error {
 	p := s.Ports
-	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || s.Clock == nil || s.PackVersion == "" {
+	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Confirmations == nil || p.Planner == nil || p.Recorder == nil || s.Clock == nil || s.PackVersion == "" {
 		return ErrConfig
 	}
 	return nil
 }
 
 // Evaluate runs T1 to T15 for r in the fixed order of PERD 23.3 and returns the one decision with its trace (REQ-TRU-002). A malformed intent reference is REJECT
-// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T7 to T15 are not built yet.
+// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T7 to T12 are not built yet.
 func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err := s.configured(); err != nil {
 		return Result{}, err
@@ -68,7 +72,16 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("intake: %w", err)
 	}
-	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version}
-	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), bb)
-	return Result{Decision: d, Trace: trace}, nil
+	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version, basis: bb}
+	return ev.run(ctx, ev.steps()), nil
+}
+
+// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned.
+func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
+	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.basis)
+	res := Result{Decision: d, Trace: trace}
+	if d.Outcome() == decide.Allow {
+		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
+	}
+	return res
 }

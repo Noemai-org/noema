@@ -14,6 +14,8 @@ type evaluation struct {
 	intentID string
 	version  int
 	intent   *AdmittedIntent
+	basis    *decide.BasisBuilder // the evaluated set of this call: the steps record into it and T13 and T15 take the basis of their decisions from it
+	late     lateState            // what T3 and T13 to T15 learn
 }
 
 func (e *evaluation) steps() decide.Steps {
@@ -31,9 +33,9 @@ func (e *evaluation) steps() decide.Steps {
 		decide.T10Reconciliation - 1:    notBuilt,
 		decide.T11Policy - 1:            notBuilt,
 		decide.T12Clocks - 1:            notBuilt,
-		decide.T13Confirmation - 1:      notBuilt,
-		decide.T14Plan - 1:              notBuilt,
-		decide.T15DecisionRecorded - 1:  notBuilt,
+		decide.T13Confirmation - 1:      e.t13,
+		decide.T14Plan - 1:              e.t14,
+		decide.T15DecisionRecorded - 1:  e.t15,
 	}
 }
 
@@ -95,6 +97,7 @@ func (e *evaluation) t3(ctx context.Context) decide.StepResult {
 	if err != nil {
 		return decide.FailStep(err)
 	}
+	e.late.needsWrite = needs
 	if !needs {
 		return decide.Continue()
 	}

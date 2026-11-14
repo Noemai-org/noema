@@ -77,11 +77,14 @@ type Authority interface {
 	RoleAllowed(ctx context.Context, intentNode, role string) (bool, error)
 }
 
-// Ports are the adapters the intake needs for T1 to T6. A nil port makes Evaluate refuse to run.
+// Ports are the adapters the intake needs (T1 to T6 here; T13 to T15 in ports_t13_t15.go). A nil port makes Evaluate refuse to run.
 type Ports struct {
-	Intents      Intents
-	Writes       Writes
-	Capabilities Capabilities
-	Scope        Scope
-	Authority    Authority
+	Intents       Intents
+	Writes        Writes
+	Capabilities  Capabilities
+	Scope         Scope
+	Authority     Authority
+	Confirmations Confirmations
+	Planner       Planner
+	Recorder      Recorder
 }
