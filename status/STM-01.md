@@ -86,3 +86,31 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Debt: whole-chain read per lookup (the same as the input gateway's index); owner EL with C2; fix: a keyed read function, a migration.
 - Conflicts raised: none. Found on the way: noema#465 required common.v1's `req_` form for the request ID where the gateway records a UUID (canonical-input.v2); fixed in noema#465 at `186ae004`.
 
+
+# Session 2026-11-14 · the write path of the runner (EL)
+
+## Session summary
+- What changed (PR link: noema#576): `orchestrator/runwrite.go` (`WriteRunner`, `RunWrite`, `ResumeWrite`), the write ports and `Decision.GrantIDs` and `IntentRef` in `ports.go`, `orchestrator/runwrite_test.go`, the README.
+- Why: the Founder's order of 14 Nov and ruling A204 (relayed, not yet committed): the Record is the truth; EXECUTING is recorded after `Execute` returns; GRANT_SPENT and DISPATCH_ATTEMPTED are read from the Record; a resume continues from the Record.
+- Risks, and how they are contained: a second dispatch (a lost reply is verified by key; a spent grant is never executed again; an Executor error stops the run); an unbounded loop (the recovery budget counts failed verdicts and voided grants and has no default); a stale or absent Record (an unreadable Journal executes nothing). The resume does not know how many recoveries the crashed run already used: the caller passes what is left (stated debt).
+- Tests added (REQ-STM-001, INV-03, INV-07, INV-17, AGENT-07, AGENT-08, AGENT-16, EC-E16): the eight tests of the card, plus the missing-port, voided-again, grant-count and executor-error cases. Red first at `70f8e28e` (does not compile). Nine mutants killed: no budget check, resume ignoring the Journal, resume ignoring the dispatch flag, a verdict other than ACHIEVED taken as achieved, a voided grant not counted, a recovery not counted, an unknown receipt skipping AWAITING_VERIFICATION, a Journal error ignored, the grant count relaxed, an Executor error swallowed. Four of them survived the first eight tests and are killed by the four added cases.
+- Regression cases added: the same tests.
+- Debt entries (for the Steward): `RunWrite` repeats the turn checks of `RunRead` (a refactor PR); the ports are doubles, the real-stack run is the end-to-end task (C1's extracted fixture is not on `main`); the budget across a crash.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Executor adapter over `execution/controller` (receipt classes: APPLIED, VOIDED, UNKNOWN for a timeout, a 5xx or silence), the Verifier adapter over `outcome/verifier`, the Record-backed Journal, then plug them into `compose.go`. Then the end-to-end test against mock-case.
+- Open questions (owner): where a resume finds the stored decision and its `GrantIDs` (Trust's decision store: C1); whether the budget is kept in the Record (Architect).
+- Files to read first: `orchestrator/runwrite.go`, `orchestrator/runwrite_test.go`.
+- Do not touch: `transitions.yaml`.
+
+### Update 2026-11-14 · Security Reviewer's NOT READY on noema#576 (EL)
+- **Blocking 1 (UNKNOWN led to a second dispatch).** Fixed: an UNKNOWN verdict is recorded as RECOVERING and the run stops with `ErrOutcomeUnknown`; nothing is executed again and Trust is not asked again. The first-round test had required a second grant after UNKNOWN; it now covers NOT_ACHIEVED, PARTIALLY_ACHIEVED and COMPENSATED, and `TestAnUnknownVerdictStopsInRecoveringAndNeverDispatchesAgain` holds the rule. A NOT_ACHIEVED verdict still recovers under a new grant (the first write is known not to have happened). Open for the Architect: whether PARTIALLY_ACHIEVED (part of the write happened) may also take a new grant; it still does here.
+- **Blocking 2 (ResumeWrite trusted the caller).** Fixed: it runs the same admission check as `RunWrite` (the turn's INPUT_RECEIVED must be this tenant's, principal's, correlation's and request's, from the Record), refuses an investigation that is not the turn's, a grant that is not one plain reference and a decision with no `IntentRef`. Not done: loading the decision itself from the Record (the Trust adapter's work: the decision store is C1's); until then the caller still supplies the decision.
+- **Ruling needed (the recovery budget), not decided here.** `maxRecoveries` is still given per call, so a crash-and-resume loop that passes a fresh budget gets fresh recoveries, and when the budget runs out the run stops in EVALUATING with a grant issued and never spent or voided, and no escalation state. The safe fix needs the Architect: where the count lives (the Record or a projection column), and which arrow ends an exhausted run (the table has only EVALUATING to ESCALATING by a Trust ESCALATE decision).
+- Notes taken: (a) a receipt for another grant is refused (`ErrBadPortAnswer`); (e) tests added for `ErrNotResumable`, the resume input checks, COMPENSATED, an unknown receipt class and verdict, and the session reaching the Executor, Verifier and Journal. Note (b) (a crash in EVALUATING or RECOVERING is `ErrNotResumable` and stays stuck) and (c) (two concurrent resumes can both reach `Execute`; only the database's unique spend stops the second, which the e2e crash test exercises once) and (d) (RECOVERY_REQUESTED on the Record for RECOVERING) are open.
+- Mutants killed (seven, this round): UNKNOWN as a recovery; the stop move dropped; ResumeWrite without the admission check; no `IntentRef` check; no plain-grant check; the receipt's grant not compared; no investigation check.
+
+### Update 2026-11-14 · Security Reviewer's READY at `bc3c6ba2` on noema#576, items 1 to 4 (EL)
+- **Item 4 (two concurrent resumes).** `TestTwoResumesAtOnceDispatchTheGrantOnce` (real PostgreSQL and mock-case): two `ResumeWrite` calls start together on the same planned grant; the target receives one create, the Record holds one GRANT_SPENT, at least one resume completes and the other stops with an error. Runs in CI only.
+- **Items 1 to 3** are registered as debt in the orchestrator README (the closing test of each is named there): the recovery budget is not persisted and an exhausted run has no escalation end state (**the Architect's ruling is asked on noema#576**); a crash in EVALUATING or RECOVERING is `ErrNotResumable`; RECOVERY_REQUESTED is not written. For the Steward to register in `debt.md`.
