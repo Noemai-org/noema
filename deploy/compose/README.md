@@ -40,3 +40,8 @@ The only networks that are not Docker-internal are `provider_egress` (the model,
 - only the UI publishes a port, on `127.0.0.1:8082`.
 
 Step 5 of the matrix proves it: a listener on the host stands for an address outside the stack. The core, and a probe carrying the model's networks minus `provider_egress`, must not reach it; the model (through `provider_egress`) and the UI may. Shared environments still need the host firewall rules REQ-OPS-001 also requires.
+
+## mTLS between the core and the model service (noema#555)
+
+The model service's listener requires a client certificate signed by the stack's local CA (uvicorn's own `--ssl-*` options, set as `UVICORN_SSL_*` in `services/model/Dockerfile`, `CERT_REQUIRED`); there is no plain HTTP port. `secrets_local.sh` calls `tls_local.sh`, which makes a throwaway CA and three certificates into the git-ignored `secrets/tls/` (OD-P-22) and deletes the CA key: `model.crt/.key` (the model's server certificate), `core-client.crt/.key` (the core's identity) and `model-health.crt/.key` (the model's own health-check client). Each service mounts only its own key and the CA certificate; `netcheck/profiles.py` fails if the core mounts the model's key or the model the core's. The model's health check presents `model-health` on the same listener. The core is given the setting names `NOEMA_MODEL_URL` (`https://model:8081`), `NOEMA_MODEL_TLS_CA_FILE`, `NOEMA_MODEL_TLS_CERT_FILE`, `NOEMA_MODEL_TLS_KEY_FILE`; its client is the Engineering Lead's. SYNTHETIC local material; real certificates are the OQ-09 decision. The compile route stays unwired in `main.py` until this is merged.
+

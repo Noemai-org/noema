@@ -140,7 +140,17 @@ services:
       NOEMA_DB_USER: noema_core
       NOEMA_DB_PASSWORD_FILE: /run/secrets/noema_core_password
       NOEMA_TEMPORAL_ADDRESS: temporal:7233
+      # mTLS to the model service (noema#555; PERD 36.1). Names only: the core's client for the model service reads these; its identity is this certificate, signed by the local CA.
+      # The core holds its own client key and the CA certificate and never the model's server key.
+      NOEMA_MODEL_URL: "https://model:8081"
+      NOEMA_MODEL_TLS_CA_FILE: /run/tls/ca.crt
+      NOEMA_MODEL_TLS_CERT_FILE: /run/tls/core-client.crt
+      NOEMA_MODEL_TLS_KEY_FILE: /run/tls/core-client.key
     secrets: [noema_core_password]
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/core-client.crt:/run/tls/core-client.crt:ro
+      - ./secrets/tls/core-client.key:/run/tls/core-client.key:ro
     healthcheck:
       test: ["CMD", "/usr/local/bin/core", "-healthcheck"]
       interval: 3s
@@ -159,8 +169,16 @@ services:
       NOEMA_MODEL_LLM_POOL_SIZE: "16"
       # NOEMA_MODEL_EVIDENCE_POOL_SIZE: "8" is the Architect's initial value for the evidence link. Nothing builds the evidence transport yet, so the
       # service does not read it; it is set here, as an active value, when the evidence link is composed.
+    # The listener requires a client certificate (the image sets uvicorn's --ssl-* options, noema#555). The model holds its server key, the CA certificate and its own health-check client
+    # certificate; it does not hold the core's client key, so the container that serves the route cannot pose as the core.
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/model.crt:/run/tls/model.crt:ro
+      - ./secrets/tls/model.key:/run/tls/model.key:ro
+      - ./secrets/tls/model-health.crt:/run/tls/model-health.crt:ro
+      - ./secrets/tls/model-health.key:/run/tls/model-health.key:ro
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8081/healthz', timeout=2).status == 200 else 1)"]
+      test: ["CMD", "python", "-c", "import ssl,urllib.request,sys; c=ssl.create_default_context(cafile='/run/tls/ca.crt'); c.load_cert_chain('/run/tls/model-health.crt','/run/tls/model-health.key'); sys.exit(0 if urllib.request.urlopen('https://127.0.0.1:8081/healthz', timeout=2, context=c).status == 200 else 1)"]
       interval: 3s
       timeout: 3s
       retries: 20

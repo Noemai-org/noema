@@ -28,3 +28,8 @@ The Python model service (the Go core is the other deployable). It hosts Underst
 - Data-terms review (PERD R-18) before any non-synthetic data reaches a provider.
 - Live-provider runs: not run, no access.
 - OpenAI Responses adapter: fixtures only, from the reference of 2026-10-27; no live call. The model selection that uses it is frozen in `benchmark/decisions/2026-10-27-model-selection.md`. Multi-provider support is not complete: Anthropic and Google have fixtures only.
+
+## mTLS on the listener (noema#555)
+
+The image sets `UVICORN_SSL_CERTFILE`, `UVICORN_SSL_KEYFILE`, `UVICORN_SSL_CA_CERTS` (files under `/run/tls`, mounted at run time, never in the image) and `UVICORN_SSL_CERT_REQS=2` (`CERT_REQUIRED`), so every way of starting uvicorn in this image requires a client certificate signed by the CA; without the files uvicorn does not start. `tests/test_mtls_listener.py` starts the real service with exactly the Dockerfile's settings and proves, over real sockets, that the core's certificate reaches `/healthz` and that no certificate, a certificate from another CA and plain HTTP are all refused. Running it by hand needs `openssl` and `sh`.
+
