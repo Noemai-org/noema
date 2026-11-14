@@ -1,0 +1,10 @@
+# 2026/11/14 16:35:13.356863 [TestINV03NoDispatchWhenTheDispatchBudgetIsSpent] [rapid] draw fault: 0
+# 2026/11/14 16:35:13.356870 [TestINV03NoDispatchWhenTheDispatchBudgetIsSpent] [rapid] draw presentations: 1
+# 2026/11/14 16:35:13.356949 [TestINV03NoDispatchWhenTheDispatchBudgetIsSpent] presentation 0: {Void: Replayed:false Receipt:<nil> Raced:false BudgetSpent:false}, <nil>; want BudgetSpent and nothing else
+# 
+v0.4.8#7440719362796030275
+0x0
+0x0
+0x0
+0x0
+0x0

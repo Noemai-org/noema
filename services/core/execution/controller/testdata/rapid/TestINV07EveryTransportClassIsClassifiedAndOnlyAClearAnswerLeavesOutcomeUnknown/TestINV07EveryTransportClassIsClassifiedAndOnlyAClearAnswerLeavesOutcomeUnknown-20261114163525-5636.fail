@@ -1,0 +1,9 @@
+# 2026/11/14 16:35:25.893285 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] [rapid] draw class: "DUPLICATE_CREATE"
+# 2026/11/14 16:35:25.893294 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] [rapid] draw ack: ""
+# 2026/11/14 16:35:25.893470 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] class "DUPLICATE_CREATE" ack "" gave ACKNOWLEDGED, want REJECTED_BY_TARGET
+# 
+v0.4.8#16234228866510671365
+0x38e38e38e38e4
+0x3
+0x0
+0x0

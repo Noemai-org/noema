@@ -1,0 +1,13 @@
+# 2026/11/14 16:35:06.652503 [TestINV03NoDispatchWhenAReadFailsOrThePlanIsNotCallable] [rapid] draw case: controller_test.unsafeRead{name:"E7 the revalidation read cannot be made", prepare:(func(*controller_test.World, time.Time) controller.SignedGrant)(nil), set:(func(*controller_test.reads))(0x6fcae0), wantVoid:"REVALIDATION_UNAVAILABLE"}
+# 2026/11/14 16:35:06.652522 [TestINV03NoDispatchWhenAReadFailsOrThePlanIsNotCallable] [rapid] draw fault: 0
+# 2026/11/14 16:35:06.652524 [TestINV03NoDispatchWhenAReadFailsOrThePlanIsNotCallable] [rapid] draw presentations: 1
+# 2026/11/14 16:35:06.653400 [TestINV03NoDispatchWhenAReadFailsOrThePlanIsNotCallable] "E7 the revalidation read cannot be made" under fault 0: 1 dispatches, 1 spent grants, 1 receipts; this must reach nothing
+# 
+v0.4.8#586573259472862601
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
