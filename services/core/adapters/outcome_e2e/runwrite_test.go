@@ -166,7 +166,7 @@ func TestRunWriteAfterALostReplyVerifiesByKeyAndNeverDispatchesTwice(t *testing.
 		t.Fatalf("final %s (states %v); want COMPLETED: the case was committed, so verification by key finds it", res.Investigation.State, r.d.states())
 	}
 	var state string
-	if err := r.s.admin.QueryRow(bg(t), `SELECT state FROM execution_receipt WHERE tenant_id = $1 AND grant_id = $2`, tenant, r.d.grants[0]).Scan(&state); err != nil || state != string(controller.StateOutcomeUnknown) {
+	if err := r.s.admin.QueryRow(bg(t), `SELECT execution_state FROM execution_receipt WHERE tenant_id = $1 AND grant_id = $2`, tenant, r.d.grants[0]).Scan(&state); err != nil || state != string(controller.StateOutcomeUnknown) {
 		t.Fatalf("receipt state %q, %v; want OUTCOME_UNKNOWN (the reply was really lost)", state, err)
 	}
 	cmds := r.s.bench.commands(t)
