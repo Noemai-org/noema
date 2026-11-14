@@ -1,0 +1,7 @@
+# 2026/11/14 13:01:27.208457 [TestNoPrincipalOrTenantInTheModelOutputEverSurvives] [rapid] draw principal: ""
+# 2026/11/14 13:01:27.208462 [TestNoPrincipalOrTenantInTheModelOutputEverSurvives] [rapid] draw tenant: ""
+# 2026/11/14 13:01:27.208745 [TestNoPrincipalOrTenantInTheModelOutputEverSurvives] admission failed for "" "": understanding: the Intent Object is refused at the gate: SCHEMA_VERSION
+# 
+v0.4.8#10823589840207740433
+0x0
+0x0

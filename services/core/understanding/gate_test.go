@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -45,10 +46,10 @@ func gate(t *testing.T) *understanding.Gate {
 	return g
 }
 
-// base is a valid Intent Object with no fractional number (a fractional one cannot be hashed yet, see the conflict test).
+// base is a valid intent-object.v3 proposal as the model service emits it (ruling A173: confidence is an integer in basis points, so no number in it is a fraction).
 func base() map[string]any {
 	return map[string]any{
-		"schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": "ten_demo", "correlation_id": corr,
+		"schema_version": "3.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": "ten_demo", "correlation_id": corr,
 		"created_at":  "2026-10-01T09:47:03Z",
 		"principal":   map[string]any{"principal_id": "usr_88213", "principal_type": "unset", "authn_ref": "ses_7a1b", "asserted_by": "unset"},
 		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "raw_01J9X3"},
@@ -104,7 +105,7 @@ func TestAValidObjectIsAdmittedWithTheSessionsIdentityAndAnIndependentlyComputed
 	}
 	want := `{"ambiguity_flags":[],"correlation_id":"corr_4c21f9","created_at":"2026-10-01T09:47:03Z","desired_outcome_refs":["fin.outcome.explained"],"intent_id":"int_01J9X3",` +
 		`"intent_node":"fin.payments.exception.investigate","pack":{"pack_id":"fin","pack_version":"1.0.0"},"principal":{"asserted_by":"enterprise_idp","authn_ref":"ses_7a1b",` +
-		`"principal_id":"usr_88213","principal_type":"end_user"},"schema_version":"1.0","sig":{"key_id":"unsigned","value":"unsigned"},` +
+		`"principal_id":"usr_88213","principal_type":"end_user"},"schema_version":"3.0","sig":{"key_id":"unsigned","value":"unsigned"},` +
 		`"slots":{"amount":{"type":"Quantity","unit":"NGN","value":2000000},"counterparty":{"surface_form":"Ade","type":"Party"},` +
 		`"question_type":{"type":"Reference","value":"WHERE_IS_MY_MONEY"},"transaction":{"resolved_ref":"fin.transaction:TX88213","status":"RESOLVED","type":"Resource"},` +
 		`"when":{"surface_form":"yesterday","type":"TimeRef","window":["2026-09-30T00:00:00Z","2026-09-30T23:59:59Z"]}},"source":{"asr_confidence":null,"channel":"text",` +
@@ -199,7 +200,8 @@ func TestWhatTheGateRefusesAndWhy(t *testing.T) {
 	}{
 		{"status EXTRACTED", func(m map[string]any) { m["status"] = "EXTRACTED" }, understanding.ReasonStatus},
 		{"status REJECTED_AT_GATE", func(m map[string]any) { m["status"] = "REJECTED_AT_GATE" }, understanding.ReasonStatus},
-		{"schema version 2.0", func(m map[string]any) { m["schema_version"] = "2.0" }, understanding.ReasonSchemaVersion},
+		{"schema version 1.0", func(m map[string]any) { m["schema_version"] = "1.0" }, understanding.ReasonSchemaVersion},
+		{"schema version 3.1", func(m map[string]any) { m["schema_version"] = "3.1" }, understanding.ReasonSchemaVersion},
 		{"intent id off shape", func(m map[string]any) { m["intent_id"] = "INT_1" }, understanding.ReasonIntentID},
 		{"version 0", func(m map[string]any) { m["version"] = 0 }, understanding.ReasonVersion},
 		{"version above the safe integer", func(m map[string]any) { m["version"] = 9007199254740992 }, understanding.ReasonVersion},
@@ -295,31 +297,47 @@ func TestADocumentThatIsNotExactlyOneObjectIsRefused(t *testing.T) {
 	}
 }
 
-// The intent hash cannot cover a fraction yet (platform/crypto refuses every non-integer number), so an object with a confidence is refused, never hashed by a
-// different rule. The PR carries the CONFLICT block for the decision; this test is the safer reading made explicit.
-func TestAnObjectWithAFractionalConfidenceIsRefusedBecauseItsHashIsUndefined(t *testing.T) {
+// Ruling A173: confidence is an integer in basis points, 0 to 10000, so the canonical form the hash covers has no fraction and the confidence is part of what is signed. A
+// fraction is a shape error (the closed decode of intent-object.v3), not a hash problem; a value outside 0 to 10000 is refused; 0, 9100 and 10000 are admitted and hashed.
+func TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash(t *testing.T) {
 	g := gate(t)
+	setSlot := func(v any) func(m map[string]any) {
+		return func(m map[string]any) { m["slots"].(map[string]any)["transaction"].(map[string]any)["confidence"] = v }
+	}
+	setASR := func(v any) func(m map[string]any) {
+		return func(m map[string]any) { m["source"].(map[string]any)["asr_confidence"] = v }
+	}
 	for name, mutate := range map[string]func(m map[string]any){
-		"a slot confidence": func(m map[string]any) {
-			m["slots"].(map[string]any)["transaction"].(map[string]any)["confidence"] = 0.91
-		},
-		"an ASR confidence": func(m map[string]any) { m["source"].(map[string]any)["asr_confidence"] = 0.91 },
+		"a slot confidence as a ratio":  setSlot(0.91),
+		"an ASR confidence as a ratio":  setASR(0.91),
+		"a slot confidence of 1.5":      setSlot(1.5),
+		"a slot confidence over range":  setSlot(10001),
+		"a slot confidence below range": setSlot(-1),
+		"an ASR confidence over range":  setASR(10001),
+		"a slot confidence as text":     setSlot("9100"),
 	} {
 		_, err := g.Admit(raw(t, mutate), session, corr)
-		if err == nil || !has(reasons(t, err), understanding.ReasonHashUnavailable) {
-			t.Errorf("%s: %v, want a refusal with HASH_UNAVAILABLE", name, err)
+		if err == nil {
+			t.Errorf("%s: admitted", name)
+			continue
+		}
+		if has(reasons(t, err), understanding.ReasonHashUnavailable) {
+			t.Errorf("%s: reported as HASH_UNAVAILABLE; under v3 a fraction is a shape error", name)
 		}
 	}
-	// A confidence of exactly 1 or 0 is an integer in JSON and is hashed.
-	if _, err := g.Admit(raw(t, func(m map[string]any) { m["slots"].(map[string]any)["transaction"].(map[string]any)["confidence"] = 1 }), session, corr); err != nil {
-		t.Errorf("a confidence of 1: %v", err)
+	for _, bp := range []int{0, 9100, 10000} {
+		a, err := g.Admit(raw(t, setSlot(bp)), session, corr)
+		if err != nil {
+			t.Errorf("a slot confidence of %d: %v", bp, err)
+			continue
+		}
+		if !strings.Contains(string(a.Intent.JSON()), `"confidence":`+strconv.Itoa(bp)) {
+			t.Errorf("confidence %d is not in the canonical form the hash covers: %s", bp, a.Intent.JSON())
+		}
 	}
-	// An out-of-range ratio is a schema failure first.
-	if _, err := g.Admit(raw(t, func(m map[string]any) {
-		m["slots"].(map[string]any)["transaction"].(map[string]any)["confidence"] = 1.5
-	}), session, corr); err == nil ||
-		!has(reasons(t, err), understanding.ReasonSlotInvalid) {
-		t.Errorf("a confidence of 1.5: %v", err)
+	a, err := g.Admit(raw(t, setASR(9100)), session, corr)
+	if err != nil || !strings.Contains(string(a.Intent.JSON()), `"asr_confidence":9100`) {
+		t.Errorf("an ASR confidence of 9100: %v", err)
 	}
 }
 
