@@ -40,3 +40,8 @@ The only networks that are not Docker-internal are `provider_egress` (the model,
 - only the UI publishes a port, on `127.0.0.1:8082`.
 
 Step 5 of the matrix proves it: a listener on the host stands for an address outside the stack. The core, and a probe carrying the model's networks minus `provider_egress`, must not reach it; the model (through `provider_egress`) and the UI may. Shared environments still need the host firewall rules REQ-OPS-001 also requires.
+
+## Session tokens in the G1 stack (after noema#444)
+
+`make bench-up` needs `BENCH_MAX_BODY_BYTES` (no default: no body limit is approved in the repository, so a person gives it; the G1 workflow takes it as a required input) and runs `make bench-tokens` first: it builds the Edge's synthetic issuer, makes a throw-away SYNTHETIC ES256 key pair under `$BENCH_OUT/idp` (a 0700 directory, the private key 0600) and writes nothing that is uploaded. The core gets the six `NOEMA_SESSION_*`/`NOEMA_MAX_BODY_BYTES` settings and mounts the **public** key and the pack's session limits only; the runner reads the issuer and the private key from `/bench-out/idp` and issues each principal's token on demand (`--idp-*`). `netcheck/profiles.py` fails if any other service mounts anything of that directory or the core mounts more than the public key.
+
