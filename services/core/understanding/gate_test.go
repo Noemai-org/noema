@@ -299,6 +299,31 @@ func TestADocumentThatIsNotExactlyOneObjectIsRefused(t *testing.T) {
 
 // Ruling A173: confidence is an integer in basis points, 0 to 10000, so the canonical form the hash covers has no fraction and the confidence is part of what is signed. A
 // fraction is a shape error (the closed decode of intent-object.v3), not a hash problem; a value outside 0 to 10000 is refused; 0, 9100 and 10000 are admitted and hashed.
+// The range 0 to 10000 is the gate's own rule: the generated IntentSlotV2BasisPoints is a plain int64 with no range check (the Security Reviewer's finding on this PR), so the
+// check in slots.go is the only one and must be pinned for every slot type, not for the one the test above varies.
+func TestEverySlotTypeAndTheASRConfidenceHoldTheRangeOfAConfidence(t *testing.T) {
+	g := gate(t)
+	for _, slot := range []string{"transaction", "amount", "counterparty", "when", "question_type"} {
+		for name, value := range map[string]any{"over range": 10001, "below range": -1, "far over range": 1000000, "a ratio": 0.5} {
+			_, err := g.Admit(raw(t, func(m map[string]any) { m["slots"].(map[string]any)[slot].(map[string]any)["confidence"] = value }), session, corr)
+			if err == nil {
+				t.Errorf("slot %s, a confidence %s (%v): admitted", slot, name, value)
+			}
+		}
+		for _, value := range []int{0, 1, 10000} {
+			if _, err := g.Admit(raw(t, func(m map[string]any) { m["slots"].(map[string]any)[slot].(map[string]any)["confidence"] = value }), session, corr); err != nil {
+				t.Errorf("slot %s, a confidence of %d: %v", slot, value, err)
+			}
+		}
+	}
+	for name, value := range map[string]any{"over range": 10001, "below range": -1, "a ratio": 0.5} {
+		_, err := g.Admit(raw(t, func(m map[string]any) { m["source"].(map[string]any)["asr_confidence"] = value }), session, corr)
+		if err == nil {
+			t.Errorf("an ASR confidence %s (%v): admitted", name, value)
+		}
+	}
+}
+
 func TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash(t *testing.T) {
 	g := gate(t)
 	setSlot := func(v any) func(m map[string]any) {
@@ -314,6 +339,7 @@ func TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash(t *testi
 		"a slot confidence over range":  setSlot(10001),
 		"a slot confidence below range": setSlot(-1),
 		"an ASR confidence over range":  setASR(10001),
+		"an ASR confidence below range": setASR(-1),
 		"a slot confidence as text":     setSlot("9100"),
 	} {
 		_, err := g.Admit(raw(t, mutate), session, corr)

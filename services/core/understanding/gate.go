@@ -50,6 +50,7 @@ const (
 	ReasonAmbiguityFlag      Reason = "AMBIGUITY_FLAG"
 	ReasonOutcomeNotInNode   Reason = "OUTCOME_NOT_IN_NODE"
 	ReasonSig                Reason = "SIG"
+	ReasonIdentitySetByModel Reason = "IDENTITY_SET_BY_MODEL"
 	ReasonHashUnavailable    Reason = "HASH_UNAVAILABLE" // the object holds a number the intent hash cannot cover (see ErrHashUnavailable)
 	ReasonIdentityNotInOrder Reason = "SESSION_INVALID"  // the session the caller passed is incomplete: a bug of the caller, never the model's
 )
@@ -283,9 +284,9 @@ func (g *Gate) check(o *contracts.IntentObjectV3, correlationID string, r *reaso
 		r.add(ReasonSig)
 	}
 	// Ruling A166 item 3: the model's output carries no principal_type and no asserted_by. The contract requires the members, so the model service fills them with the
-	// marker; a model that sends a value anyway, even the session's own, is a shape error.
+	// marker; a model that sends a value anyway, even the session's own, is refused under its own reason (ruling A195), so the Record tells the attempt from a malformed document.
 	if o.Principal.PrincipalType != unsetMarker || o.Principal.AssertedBy != unsetMarker {
-		r.add(ReasonShape)
+		r.add(ReasonIdentitySetByModel)
 	}
 	for _, f := range o.AmbiguityFlags {
 		if !flagRe.MatchString(f) {
