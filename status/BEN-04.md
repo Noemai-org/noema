@@ -5,7 +5,7 @@ Updated 2026-11-14. Owner: the Founder (benchmark owner B). Agent: Benchmark Own
 ## State
 
 - **The fixtures are generated, not committed.** Layer A is produced by `noema-casegen` 1.3.3: the same version and seed give byte-identical output. The generated directory is git-ignored (`benchmark/out/generated`), which is why the Steward found no `.json` under `benchmark/cases` on `main`: that is by design, not a gap. The evidence for "at least 50 fixtures, reproducible" is the command, the two run logs below and the digests, not 50 committed files. **I recommend the deciders read N10 that way and I do not recommend committing 320 generated files** (they would duplicate the generator and could drift from it; the golden manifest digest is already pinned by `benchmark/generator/test_generate.py` and checked on every CI run).
-- **This run is local** (Windows, a work tree converted to LF so it matches what CI checks out), not a CI run. It is shown as what exists today. A run on a Linux runner at a final head, linked, is stronger; the Founder can dispatch the `bench-suites` workflow for it.
+- **This run is local** (Windows, a work tree converted to LF so it matches what CI checks out), not a CI run. It is shown as what exists today. **No CI job yet generates the suite twice and keeps the comparison.** The `bench-suites` workflow does not: its suites generate once, discard the generator log and run API cases, and it uploads no generated tree or digest. CI does pin the manifest digest on every push (`benchmark/generator/test_generate.py`, one process), which is weaker than two separate generations compared. Writing that job is work still needed (see the next step).
 
 ## The two fixture runs (command, then the logs verbatim)
 
@@ -77,7 +77,7 @@ The mapping is **mine** (archetype names are the goal prefix of each case); a de
 
 ## Pre-work for the next agent
 
-- Exact next step: a CI run of the same two generations at a final head (dispatch `bench-suites`, Founder), linked here.
+- Exact next step (work still needed, not done): a small CI job (or `make` target plus a step in the `benchmark` job) that generates the suite twice into two directories with the same seed, compares every file's sha256, uploads the two logs and the tree digest as an artifact, and fails on any difference. Until it exists the N10 evidence is the local run above plus the pinned golden digest. Owner: BO (needs a workflow change, so a Founder approval and SR read of `.github`).
 - Open questions (owner): whether the deciders accept "generated, reproducible, digest-pinned" for N10 (EL, IL, BO and the Founders).
 - Files to read first: `benchmark/generator/README.md`, `benchmark/generator/test_generate.py`.
 - Do not touch: the generator output of seed 20261020 (a change moves the golden digest and needs its own change).
