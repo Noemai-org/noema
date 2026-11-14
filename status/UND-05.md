@@ -35,3 +35,19 @@
 - **Finding 1 (mTLS on the model listener): not fixable in this PR.** It needs `services/model/Dockerfile` and `deploy/compose` (IL's, protected). Tracked on noema#555; stated in `compiler/README.md` as the first precondition before any PR sets `compile_service` in `main.py`. The route compiles nothing until then.
 - **Notes 3 to 6:** recorded as preconditions in `compiler/README.md`; none is reachable while no compiler is wired.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-14 16:05 WAT · UND-05 · the minimal lexicon and normaliser (compiler slice 4, noema#584)
+
+## Session summary
+- What changed (PR noema#584): `packs/fintech/lexicons/fin.lex.en_ng.json` (pack data, every entry a `[synthetic seed]`), `understanding/compiler/lexicon.py` (`Lexicon`, `Normaliser`), `tests/test_lexicon.py`, the compiler README.
+- Why: the Founder's order of 14 Nov 2026 ("then the compiler"). `Normalise` was a seam with no implementation; G-A to G-E need an amount and a window. The pack's README and `understanding.md` assign `fin.lex.*` to UND-05.
+- Risks, and how they are contained: nothing is invented (a value the customer's own words do not hold is left unread, never taken from the model); no threshold is decided here (every number is a seed for a benchmark and a founder decision, AGENT-16); no dependency (a fixed offset, not `zoneinfo`, AGENT-14); no float (INV-21). Not wired.
+- Tests added (REQ-INT-003; INV-14, INV-21): 71, red first. Twenty-three hand mutations, all killed (two extra tests were added after two survived: the length bound and a clock of 24:30).
+- Regression cases added: a model's amount, time or name never reaches the reading unless the customer's own words hold it.
+- Debt entries: none. Conflicts raised: none. Open: noema#583 (the file's shape; Architect, EL).
+
+## Pre-work for the next agent
+- Exact next step: the `Compiler` (canonical input to `PipelineInput`, `run_pipeline` with this normaliser and the pack loader of noema#582, then `assemble` of noema#581), then `benchmark/compile_acceptance`. `compile_service` stays unwired until noema#555 closes.
+- Open questions (owner): noema#580 (who sets `intent_id`, `created_at`, `raw_ref`); noema#583 (the lexicon's shape); the G-B flag (`COUNTERPARTY_MULTIPLE_MATCH` against the pack's `MULTIPLE_TRANSACTIONS_MATCH`) (Architect).
+- Files to read first: `compiler/README.md`, `compiler/lexicon.py`, `packs/fintech/lexicons/fin.lex.en_ng.json`.
+- Do not touch: the generated contracts; the seeds' numbers.
