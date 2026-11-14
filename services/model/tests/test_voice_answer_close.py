@@ -116,3 +116,39 @@ def test_a_close_that_never_returns_cannot_delay_the_text_fallback() -> None:
     result = deliver(stream)
     assert result.mode is DeliveryMode.TEXT_ONLY and result.failure is ProviderFailure.TIMEOUT
     assert stream.closed
+
+
+# ---- Codex P2 on #213 at f7e1fd7: a TimeoutError raised by the iterator's own close is the provider's failure, not the cleanup bound expiring ---------------
+
+
+class TimeoutOnClose(Stream):
+    """Yields valid audio, then raises TimeoutError from its own aclose() (the provider's shutdown timing out, not our bound)."""
+
+    async def aclose(self) -> None:
+        self.closed = True
+        raise TimeoutError("the provider's shutdown timed out")
+
+
+class OtherErrorOnClose(Stream):
+    async def aclose(self) -> None:
+        self.closed = True
+        raise RuntimeError("the provider's shutdown failed")
+
+
+def test_a_timeout_error_raised_by_the_close_itself_is_reported_not_discarded() -> None:
+    result = deliver(TimeoutOnClose(chunks=2), deadline_s=5.0)
+    assert result.mode is DeliveryMode.TEXT_ONLY and result.text == REQUEST.text and result.audio == ()
+    assert result.failure is ProviderFailure.UNAVAILABLE  # the shutdown failure is recorded, as for any other exception from aclose()
+    assert result.error_type == "TimeoutError"
+
+
+def test_any_other_error_raised_by_the_close_is_still_reported() -> None:
+    result = deliver(OtherErrorOnClose(chunks=2), deadline_s=5.0)
+    assert result.failure is ProviderFailure.UNAVAILABLE and result.error_type == "RuntimeError"
+
+
+def test_a_close_that_never_returns_is_still_abandoned_after_the_bound_and_the_audio_is_kept() -> None:
+    stream = Stream(chunks=2, close_hangs=True)
+    result = run(asyncio.wait_for(deliver_answer(Synth(stream), REQUEST, deadline_s=5.0, cleanup_s=0.05), timeout=GUARD_S))
+    assert stream.closed
+    assert result.mode is DeliveryMode.SPEAK and len(result.audio) == 2 and result.failure is None  # the bound expiring is not a provider failure
