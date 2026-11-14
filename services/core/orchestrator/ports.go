@@ -11,9 +11,10 @@ import (
 // root (compose.go, EDG-01 slice 3c) is the only place that plugs implementations in. The ports live here, not in internal/contracts, because that directory holds only
 // generated types; a port carries no more than opaque references and enums that the contracts already define.
 
-// Session is the authenticated caller: the tenant and principal of the verified token, never of a request body (INV-12, AGENT-10). The HTTP edge builds it from the
-// session middleware's result; the orchestrator only passes it on.
-type Session struct{ TenantID, PrincipalID string }
+// Session is the authenticated caller: the tenant, principal and role of the verified token, never of a request body (INV-12, AGENT-10). The HTTP edge builds it from the
+// session middleware's result (its Principal.Role); the orchestrator only passes it on, interprets no field of it and never fills one in. Role is what Trust's
+// technical-authority step reads (T6); an empty role is refused there, not here (ruling A205, Q5).
+type Session struct{ TenantID, PrincipalID, Role string }
 
 // Turn is one admitted customer turn. The input gateway has bounded and validated the text; the orchestrator takes it as given and only requires that it is present.
 // InputReceivedRef is the Record event ID of the INPUT_RECEIVED event the input gateway wrote for this turn (A161): the orchestrator never writes that event, and it
