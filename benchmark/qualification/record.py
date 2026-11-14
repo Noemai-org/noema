@@ -170,6 +170,12 @@ def build_record(card: Mapping[str, Any], drift: Mapping[str, Any], *, kind: str
     all_complete = all(c["complete"] for c in (card, *repeat_cards))
     all_zero = all(c["tier0"]["all_zero"] for c in (card, *repeat_cards))
     rate = source.get("rate")
+    if rate is not None:
+        if not isinstance(rate, Mapping):
+            raise ValueError(f"pass_k.rate must be an object with k, n and rate, not {type(rate).__name__}")
+        rate_problems = _rate_problems(rate)
+        if rate_problems:
+            raise ValueError("; ".join(rate_problems))
     pass_k = {"k_required": source["k_required"], "runs_supplied": source["runs_supplied"], "available": source["available"], "reason": source.get("reason"),
               "rate": None if rate is None else {"k": rate["k"], "n": rate["n"], "rate": rate["rate"]}, "failing_cases": list(source.get("failing_cases") or [])}
     bar = {"baseline_pass_k": baseline_pass_k, "floor": floor, "floor_source": floor_source, "baseline_record_sha256": baseline_record_sha256}

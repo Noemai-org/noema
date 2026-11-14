@@ -29,7 +29,7 @@ An answers file maps each subset `case_id` to `{"slots": {...}, "answered_by": "
 - `result`: `DRIFT` if any case drifted (a different slot value, a missing or extra slot, or a version that answered under another version than the one asked for, even when every slot matches); else `PROVIDER_UNAVAILABLE` if any case got no answer; else `PASS`. Drift outranks unavailable.
 
 **Boundaries.** The subset holds GENERATED cases only; `select_subset` refuses a held-out or partner case anywhere in its input (INV-22), so none of it reaches the model service. The baseline is a recorded model answer, never the oracle's expectation. The canary must send the subset through the same provider adapters the service uses; this module never calls a model.
-  - A loaded subset is validated before a baseline or a run is built from it (`subset_problems`): its ids, count, case documents and recomputed digest agree, every document is a GENERATED understanding-dependent case, and a baseline must cover exactly the subset's ids. A shortened id list under the original digest is refused (Codex P2 on noema#199).
+- A loaded subset is validated before a baseline or a run is built from it (`subset_problems`): its ids, count, case documents and recomputed digest agree, every document is a GENERATED understanding-dependent case, and a baseline must cover exactly the subset's ids. A shortened id list under the original digest is refused (Codex P2 on noema#199). The layer is the case document's own `suite_layer`: a held-out case is refused only if its document says so; no manifest is read here, so the caller must not feed this module a mixed-layer file (INV-22).
 
 ## The qualification record
 

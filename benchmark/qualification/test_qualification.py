@@ -797,6 +797,38 @@ class SubsetBinding(unittest.TestCase):
             self.assertTrue(any("pass_k_cases_sha256" in p for p in validate_record(rec)), bad)
 
 
+class MalformedRate(unittest.TestCase):
+    """C2 on noema#199 (P2): `build_record` copied `rate["k"]`, `rate["n"]` and `rate["rate"]` without checking the block, so a block with no `k` was a raw KeyError, a string or a list a raw
+    TypeError, and `{"k": 0, "n": 40, "rate": 1.0}` built a QUALIFIED record (the check ran only in `validate_record`). The builder now refuses a malformed or inconsistent pass^k rate with a
+    ValueError that names the problem."""
+
+    def with_rate(self, rate: Any) -> Json:
+        card = forty_case_card()
+        card["tier1"]["diagnostics"]["pass_k"]["rate"] = rate
+        return card
+
+    def test_a_block_without_k_is_a_typed_refusal_not_a_key_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pass_k.rate"):
+            record(self.with_rate({"n": 40, "rate": 0.9}), baseline_pass_k=0.9)
+
+    def test_a_string_or_a_list_is_a_typed_refusal_not_a_type_error(self) -> None:
+        for bad in ("0.9", [36, 40, 0.9], 7, True):
+            with self.assertRaisesRegex(ValueError, "pass_k.rate"):
+                record(self.with_rate(bad), baseline_pass_k=0.9)
+
+    def test_zero_successes_at_a_passing_rate_is_refused_not_qualified(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pass_k.rate"):
+            record(self.with_rate({"k": 0, "n": 40, "rate": 1.0}), baseline_pass_k=0.9)
+
+    def test_other_inconsistent_counts_are_refused(self) -> None:
+        for bad in ({"k": 41, "n": 40, "rate": 1.0}, {"k": 36, "n": 0, "rate": 0.9}, {"k": -1, "n": 40, "rate": 0.9}, {"k": 36.0, "n": 40, "rate": 0.9}, {"k": 36, "n": 40, "rate": 0.5}):
+            with self.assertRaisesRegex(ValueError, "pass_k.rate"):
+                record(self.with_rate(bad), baseline_pass_k=0.9)
+
+    def test_a_consistent_block_still_builds(self) -> None:
+        self.assertEqual("QUALIFIED", record(self.with_rate({"k": 36, "n": 40, "rate": 0.9}), baseline_pass_k=0.9)["verdict"])
+
+
 class Refusing(unittest.TestCase):
     def test_no_record_means_refused(self) -> None:
         got = lookup([], PROVIDER, MODEL, VERSION)

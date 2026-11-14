@@ -499,6 +499,21 @@ class SubsetIntegrity(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline"):
             compare(subset(), base, NEW, answers(subset(), NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
 
+    def test_a_baseline_case_whose_digest_is_not_the_hash_of_its_own_slots_is_refused(self) -> None:
+        """Voice reader, noema#199 note 1: a hand-edited baseline would otherwise still compare."""
+        base = copy.deepcopy(baseline())
+        first = sorted(base["cases"])[0]
+        base["cases"][first]["slots"] = {**base["cases"][first]["slots"], "amount_minor": 999999}
+        with self.assertRaisesRegex(ValueError, "slots_sha256"):
+            compare(subset(), base, NEW, answers(subset(), NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
+
+    def test_a_baseline_missing_a_member_is_a_message_not_a_key_error(self) -> None:
+        for member in ("pinned", "cases", "commit_sha", "cases_sha256", "subset_id"):
+            base = copy.deepcopy(baseline())
+            del base[member]
+            with self.assertRaisesRegex(ValueError, member):
+                compare(subset(), base, NEW, answers(subset(), NEW["version"]), commit_sha=SHA, recorded_on="2026-11-06")
+
     def test_an_honest_subset_is_accepted_by_both(self) -> None:
         sub = subset()
         self.assertEqual("PASS", run(sub=sub)["result"])

@@ -175,6 +175,12 @@ def compare(subset: Mapping[str, Any], baseline: Mapping[str, Any], pinned: Mapp
     """The run record: a new pinned version's answers against the baseline, case by case."""
     pin = _pinned(pinned)
     _check_subset(subset)
+    absent = [m for m in ("subset_id", "cases_sha256", "pinned", "commit_sha", "cases") if not isinstance(baseline, Mapping) or m not in baseline]
+    if absent:
+        raise ValueError(f"the baseline is missing {', '.join(absent)}")
+    for case_id, entry in baseline["cases"].items():
+        if not isinstance(entry, Mapping) or entry.get("slots_sha256") != sha256_of(entry.get("slots")):
+            raise ValueError(f"the baseline's slots_sha256 for {case_id} is not the hash of its own slots: a hand-edited baseline is refused")
     if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
         raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")
     base_pin = baseline["pinned"]
