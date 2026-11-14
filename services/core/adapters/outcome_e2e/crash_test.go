@@ -47,6 +47,9 @@ const (
 	childMiss  = 3 // the child came back from Execute: the point was never reached
 )
 
+// noControllerPoint is a controller.Point that is never reached: a child that kills inside the ledger must not also die at a controller boundary.
+const noControllerPoint controller.Point = -1
+
 // killPoint is one boundary of the shared list. S9 is the RESIST family it belongs to (A40).
 type killPoint struct {
 	name  string
@@ -107,9 +110,13 @@ func TestCrashChild(t *testing.T) {
 	}
 	dsn, grant := os.Getenv(envDSN), os.Getenv(envGrant)
 	var point controller.Point
+	var txPoint *ledger.Point // set for a point inside the receipt transaction: then no controller point may fire
 	for _, kp := range killPoints {
 		if kp.name == os.Getenv(envPoint) {
 			point = kp.point
+			if kp.inTx {
+				point, txPoint = noControllerPoint, &kp.tx
+			}
 		}
 	}
 	execPool, trustPool := tenantPool(t, dsn, "execution_rw"), tenantPool(t, dsn, "trust_rw")
@@ -126,6 +133,16 @@ func TestCrashChild(t *testing.T) {
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if txPoint != nil {
+		want := *txPoint
+		led.Boundary = func(p ledger.Point) error {
+			if p == want {
+				_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL) // inside Ledger.Complete, every write done and the commit not yet sent: the server rolls the transaction back
+				select {}
+			}
+			return nil
+		}
 	}
 	trust := &trustStandIn{pool: trustPool, keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{grant: createPlan()}}
 	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust,
