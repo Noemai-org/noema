@@ -272,5 +272,16 @@
  "record-event/unknown_security_kind.json": "enum",
  "recovery-request/addressed_to_execution.json": "additionalProperties",
  "session-limits/fractional_skew.json": "type",
+ "trust-limits/at_risk_boolean.json": "type",
+ "trust-limits/at_risk_fractional.json": "type",
+ "trust-limits/at_risk_null.json": "type",
+ "trust-limits/floor_as_ratio.json": "type",
+ "trust-limits/floor_fractional.json": "type",
+ "trust-limits/floor_string.json": "type",
+ "trust-limits/label_not_allowed.json": "enum",
+ "trust-limits/missing_at_risk.json": "required",
+ "trust-limits/missing_floor.json": "required",
+ "trust-limits/schema_version_2.json": "enum",
+ "trust-limits/unknown_member.json": "additionalProperties",
  "trust-profile/missing_prohibitions.json": "required"
 }

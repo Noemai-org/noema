@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/trust-limits.v1.json",
+  "title": "Trust limits",
+  "description": "The two provisional limits the Trust steps read as pack data, not code, for one pack (Architect ruling A205 Q1, recorded in docs PR #176; AGENT-16: agents do not set thresholds, so no number lives in code). Both are integer basis points (BasisPoints, 0 to 10000; ruling A166), never a fraction. NON-CANONICAL until GOV-06 adopts the PERD 67.3 defaults: (1) ambiguity_absolute_floor_bp is the top score the auto-resolve rule requires (PERD v1.23 line 1772, 'top >= 0.70 (absolute floor [ADOPTED DEC-2026-10-17]', an addition that can only tighten the SoT margin); (2) clock_at_risk_remaining_bp is the share of a clock's duration below which the phase is AT_RISK (PERD v1.23 line 2134, 'AT_RISK means remaining < 25% [REC]'). The auto-resolve margin (0.35) and the maximum number of candidates (4) are not here: they are in the pack's intent nodes (disambiguation). SYNTHETIC configuration (AGENT-25). A change of meaning is a new major version of this contract.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ]
+    },
+    "pack_id": {
+      "description": "The pack's vertical prefix, as in pack.v1 pack_id.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*$"
+    },
+    "label": {
+      "type": "string",
+      "enum": [
+        "SYNTHETIC",
+        "VALIDATED"
+      ]
+    },
+    "ambiguity_absolute_floor_bp": {
+      "description": "The absolute floor of the auto-resolve rule, in basis points: auto-resolve only if the top candidate's score is at least this (PERD v1.23 line 1772, REQ-AMB-003). Provisional value 7000 (0.70); NON-CANONICAL until GOV-06 adopts it. Integer, 0 to 10000.",
+      "$ref": "https://contracts.noema.invalid/intent-slot.v2.json#/$defs/BasisPoints"
+    },
+    "clock_at_risk_remaining_bp": {
+      "description": "The AT_RISK threshold of a clock, in basis points of its duration: a clock is AT_RISK when the time remaining is under this share of its duration (PERD v1.23 line 2134, REQ-TRU-006, labelled [REC]). Provisional value 2500 (25 percent); NON-CANONICAL until adopted. Integer, 0 to 10000.",
+      "$ref": "https://contracts.noema.invalid/intent-slot.v2.json#/$defs/BasisPoints"
+    }
+  },
+  "required": [
+    "schema_version",
+    "pack_id",
+    "label",
+    "ambiguity_absolute_floor_bp",
+    "clock_at_risk_remaining_bp"
+  ],
+  "additionalProperties": false
+}

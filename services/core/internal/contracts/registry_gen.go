@@ -210,5 +210,6 @@ var Types = map[string]func() any{
 	"record-event.v3#SecurityKind":                                 func() any { return new(RecordEventV3SecurityKind) },
 	"recovery-request.v1":                                          func() any { return new(RecoveryRequestV1) },
 	"session-limits.v1":                                            func() any { return new(SessionLimitsV1) },
+	"trust-limits.v1":                                              func() any { return new(TrustLimitsV1) },
 	"trust-profile.v1":                                             func() any { return new(TrustProfileV1) },
 }
