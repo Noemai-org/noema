@@ -22,6 +22,8 @@ from noema_model.providers.speech.base import AudioChunk, AudioCodec
 
 _BYTES_PER_SAMPLE = 2
 _MS_PER_S = 1000
+_A191_MAX_CHUNK_BYTES = 32_000  # ruling A191 (docs#169): a hard ceiling. The limits below are data that may be made stricter, never looser.
+_A191_SAMPLE_RATE_HZ = 16_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,14 +41,18 @@ class VadConfig:
 class FrameLimits:
     """What one audio frame may be, as data (ruling A191, committed in docs#169): at most 32,000 bytes, and 16 kHz only. Mono 16-bit PCM is the contract of the source;
     `AudioChunk` carries no channel count, so the detector cannot see it. A frame outside the limits is refused and ends the gate (AGENT-13, REQ-VOI-004). The defaults are
-    the decided values; a caller or a pack may pass others."""
+    the decided values. They are a ceiling: a caller or a pack may pass a stricter byte cap, never a higher one and never another rate; ruling A191 is the only authority for either."""
 
-    max_chunk_bytes: int = 32_000
-    sample_rate_hz: int = 16_000
+    max_chunk_bytes: int = _A191_MAX_CHUNK_BYTES
+    sample_rate_hz: int = _A191_SAMPLE_RATE_HZ
 
     def __post_init__(self) -> None:
-        if self.max_chunk_bytes < _BYTES_PER_SAMPLE or self.max_chunk_bytes % _BYTES_PER_SAMPLE or self.sample_rate_hz < 1:
-            raise ValueError("frame limits must be a positive even byte cap and a positive sample rate")
+        if self.max_chunk_bytes < _BYTES_PER_SAMPLE or self.max_chunk_bytes % _BYTES_PER_SAMPLE:
+            raise ValueError("frame limits must be a positive even byte cap")
+        if self.max_chunk_bytes > _A191_MAX_CHUNK_BYTES:
+            raise ValueError(f"ruling A191: the frame cap cannot be raised above {_A191_MAX_CHUNK_BYTES} bytes (a stricter cap is allowed)")
+        if self.sample_rate_hz != _A191_SAMPLE_RATE_HZ:
+            raise ValueError(f"ruling A191: only {_A191_SAMPLE_RATE_HZ} Hz audio is accepted")
 
 
 class EndpointState(StrEnum):
