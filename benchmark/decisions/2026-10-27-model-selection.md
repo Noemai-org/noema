@@ -54,15 +54,30 @@ Every run's file carries a `pin` object with exactly these fields; a run without
   "retry_policy": {"schema_validation_attempts": 1, "transport_retries": 0},
   "reasoning_effort": "medium",
   "harness_configs": {
-    "benchmark/decisions/harness-gpt-6-luna.json": "ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd",
-    "benchmark/decisions/harness-gpt-6.1-terra.json": "841f01ba906f4b3663711b8cbd8d52596518a38d9a31f3176eba95d63325cd4f"
+    "benchmark/decisions/harness-gpt-6-luna.json": "1b8c026b12c990047d96eb654174df10744865b67a262b6fa2f48f414c4fda6f",
+    "benchmark/decisions/harness-gpt-6.1-terra.json": "599c123f9367d9c240c494e2d730daed649a84a41cdf959abaa5054476a8784b"
+  },
+  "superseded_harness_configs": {
+    "benchmark/decisions/harness-gpt-6-luna.json": [
+      {"sha256": "ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd", "masking_floor_during_use": 8,
+       "superseded_by": "benchmark/decisions/2026-11-13-harness-masking-refreeze.md"}],
+    "benchmark/decisions/harness-gpt-6.1-terra.json": [
+      {"sha256": "841f01ba906f4b3663711b8cbd8d52596518a38d9a31f3176eba95d63325cd4f", "masking_floor_during_use": 8,
+       "superseded_by": "benchmark/decisions/2026-11-13-harness-masking-refreeze.md"}]
+  },
+  "masking_limits": {
+    "file": "packs/fintech/limits/masking_limits.json",
+    "sha256": "37071a85fe119256914c7dad0a51d6b2e748f2eb16135cf640df335765dffd0b",
+    "schema": "contracts/schemas/masking-limits.v1.json",
+    "schema_sha256": "f567106a579a9c67441a96dfe212cb30d8a2cffccc8fcc7824cb0dd1f636d8db",
+    "max_unmasked_digit_run": 4
   }
 }
 ```
 
 - **Corpus** (decision D1): the bake-off case set (`benchmark/bakeoff`, generated layer, synthetic, seed 1, 20 cases per task per language bucket): 480 base cases and 1,440 calls (each base call plus its one or two meaning-preserving rewrites). Nothing held out is read (INV-22).
 - **Corpus hash:** `cases_digest` of that set: SHA-256 over the canonical bytes of the cases in id order.
-- **Harness configurations:** the files `benchmark/decisions/harness-gpt-6-luna.json` and `harness-gpt-6.1-terra.json` are the configuration the harness reads for each run (model ID, endpoint, the key's environment-variable name, `reasoning.effort`, `max_output_tokens`, timeout, rate card, routes). Their SHA-256 is in the frozen block and recomputed by CI. The data limits, masking floor, breaker settings and the 30-second timeout in them are values chosen for this run, not product defaults (D10); the timeout is long on purpose so latency is measured by G5 rather than cut off.
+- **Harness configurations:** the files `benchmark/decisions/harness-gpt-6-luna.json` and `harness-gpt-6.1-terra.json` are the configuration the harness reads for each run (model ID, endpoint, the key's environment-variable name, `reasoning.effort`, `max_output_tokens`, timeout, rate card, routes). Their SHA-256 is in the frozen block and recomputed by CI. **Re-frozen on 13 Nov 2026 (ruling A162, `DEC-2026-11-12-harness-masking-refreeze`; see `2026-11-13-harness-masking-refreeze.md`):** the `masking` member was removed from both files, the floor now comes from the shared `masking-limits.v1` (4), pinned in the block by the hash of its pack file and its schema, and the two earlier hashes are kept under `superseded_harness_configs` so that runs made before the re-freeze still verify and stay labelled. The data limits, masking floor (moved out of these files by the 13 Nov 2026 re-freeze), breaker settings and the 30-second timeout in them are values chosen for this run, not product defaults (D10); the timeout is long on purpose so latency is measured by G5 rather than cut off.
 - **Prompt-template hash:** the digest of `DECIDE_V2`, pinned by `services/model/tests/test_harness_fields.py` and re-checked against this record by `services/model/tests/test_freeze_record.py`.
 - **Scoring-code hash:** SHA-256 over the lines `<sha256 of the file>  <path>` of the files listed, sorted by path (`benchmark/bakeoff/freeze.py`). `benchmark/bakeoff/test_freeze.py` recomputes the corpus hash and the scoring-code hash on every CI run, so a change after the freeze fails the build; changing either needs a new record.
 
