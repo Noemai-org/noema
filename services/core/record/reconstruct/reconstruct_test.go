@@ -106,6 +106,9 @@ func (w *world) dbs() reconstruct.TenantDBs { return dbs{w.readers} }
 type ev struct {
 	writtenBy, actor, eventType, objectRef, kind, reason string
 	payload                                              map[string]any
+	// unguarded appends the event without the payload digit-run guard of A184 (recordsig.AppendUnguarded): only a test that must put a long digit run into the Record to prove
+	// that the reader masks it sets it, and it calls testpg.AllowUnguardedRecord for the same reason.
+	unguarded bool
 }
 
 // groupOfEmitter is the group role whose login writes as a power's own emitter (migration 0004, DEBT-07). Any other emitter is
@@ -143,8 +146,15 @@ func (w *world) append(t *testing.T, tenantID, corr string, events ...ev) []chai
 		if actor == "" {
 			actor = e.writtenBy
 		}
-		st, err := w.app.Append(ctx(t), tx, chain.Event{TenantID: tenantID, CorrelationID: corr, WrittenBy: e.writtenBy, Actor: actor,
-			EventType: e.eventType, Kind: e.kind, Reason: e.reason, ObjectRef: e.objectRef, Payload: e.payload})
+		ce := chain.Event{TenantID: tenantID, CorrelationID: corr, WrittenBy: e.writtenBy, Actor: actor,
+			EventType: e.eventType, Kind: e.kind, Reason: e.reason, ObjectRef: e.objectRef, Payload: e.payload}
+		var st chain.Stored
+		if e.unguarded {
+			st = recordsig.AppendUnguarded(t, w.app, tx, ce)
+			err = nil
+		} else {
+			st, err = w.app.Append(ctx(t), tx, ce)
+		}
 		if err != nil {
 			_ = tx.Rollback(ctx(t))
 			t.Fatalf("append %s: %v", e.eventType, err)
@@ -703,6 +713,9 @@ func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
 		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H 12345 I",
 			"bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
 	}}
+	// The Record never holds such a run (A184, A154: the append guard refuses it). This test writes it on purpose, to prove that the reader would still mask it.
+	testpg.AllowUnguardedRecord(t, w.dsn)
+	events[9].unguarded = true
 	w.append(t, tenant, "corr_us01", events...)
 	raw, err := build(t, w, tenant, "corr_us01")
 	if err != nil {
@@ -724,6 +737,11 @@ func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
 	events[8].payload["decision_id"] = "acct_0123456789"        // a prefix of another kind
 	events[3].payload["intent_id"] = "int_AB123456CD"           // a shaped ID that is not a minted ID: masked
 	events[7].payload["policy_id"] = "fin.pol.limit_0123456789" // a pack ID is masked like text
+	// The Record never holds such values (A184, A154): this test writes them on purpose, to prove that the reader would still mask them.
+	testpg.AllowUnguardedRecord(t, w.dsn)
+	for _, i := range []int{1, 3, 7, 8} {
+		events[i].unguarded = true
+	}
 	w.append(t, tenant, "corr_us01", events...)
 	raw, err := build(t, w, tenant, "corr_us01")
 	if err != nil {
@@ -761,6 +779,9 @@ func TestServedFactsAreMaskedToTheLastFourDigits(t *testing.T) {
 		map[string]any{"fact_id": "f1", "text": "Sent from 0123456789 to 9876543210 on day 12.", "bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
 	}}
 	events[5].payload["source"] = "branch 4402211"
+	// The Record never holds such a run (A184, A154: the append guard refuses it). This test writes it on purpose, to prove that the reader would still mask it.
+	testpg.AllowUnguardedRecord(t, w.dsn)
+	events[5].unguarded, events[9].unguarded = true, true
 	w.append(t, tenant, "corr_us01", events...)
 	raw, err := build(t, w, tenant, "corr_us01")
 	if err != nil {
