@@ -64,11 +64,21 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("intake: the intent version: %w", err)
 	}
-	bb, err := decide.NewBasisBuilder(s.PackVersion, s.Clock.Now().Unix())
+	ev, err := s.newEvaluation(r, "int_"+m[intentRefRe.SubexpIndex("id")], version)
 	if err != nil {
-		return Result{}, fmt.Errorf("intake: %w", err)
+		return Result{}, err
 	}
-	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version}
-	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), bb)
+	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), ev.bb)
 	return Result{Decision: d, Trace: trace}, nil
+}
+
+// newEvaluation starts one evaluation: one clock reading, taken once, is the evaluation's time for every step (INV-21), and one basis builder holds what the
+// steps read and evaluate (TRU-13).
+func (s *Service) newEvaluation(r Request, intentID string, version int) (*evaluation, error) {
+	now := s.Clock.Now().Unix()
+	bb, err := decide.NewBasisBuilder(s.PackVersion, now)
+	if err != nil {
+		return nil, fmt.Errorf("intake: %w", err)
+	}
+	return &evaluation{svc: s, req: r, intentID: intentID, version: version, now: now, bb: bb, snapshotID: r.EvidenceSnapshotID}, nil
 }
