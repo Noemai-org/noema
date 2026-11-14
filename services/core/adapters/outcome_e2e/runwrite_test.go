@@ -211,3 +211,45 @@ func TestResumeWriteAfterACrashBetweenTheSpendAndExecutingNeverDispatchesAgain(t
 		t.Errorf("the Record holds %d DISPATCH_ATTEMPTED for %s; want 1", got, g)
 	}
 }
+
+// Security Reviewer, item 4 on noema#576 (INV-03, AGENT-08): two resumes of the same investigation at once. Both read the Journal, find nothing spent and reach Execute;
+// only the database's unique spend stops the second (the Controller reports a replay, or the serialisable spend does not commit). The target received one create, the
+// Record holds one GRANT_SPENT, and at most one resume completes; the other stops with an error and writes nothing.
+func TestTwoResumesAtOnceDispatchTheGrantOnce(t *testing.T) {
+	r := newRWRig(t)
+	g, err := r.s.trust.issueCreate(bg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := orchestrator.Investigation{ID: rwTurn.InvestigationID, State: "PLANNED", Version: 3}
+	dec := orchestrator.Decision{ID: rwDecisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{g}, IntentRef: intentRef}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	results := make([]orchestrator.Result, 2)
+	errs := make([]error, 2)
+	for i := range results {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i], errs[i] = r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, dec, 1)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	completed := 0
+	for i := range results {
+		if errs[i] == nil && results[i].Investigation.State == "COMPLETED" {
+			completed++
+		}
+	}
+	if completed < 1 {
+		t.Fatalf("no resume completed: %v, %v", errs[0], errs[1])
+	}
+	if received, committed := creates(r.s.bench.commands(t), theKey()); received != 1 || committed != 1 {
+		t.Fatalf("the target received %d creates and committed %d; want 1 and 1", received, committed)
+	}
+	if spent := r.recordCount(t, "GRANT_SPENT", g); spent != 1 {
+		t.Errorf("the Record holds %d GRANT_SPENT for %s; want 1", spent, g)
+	}
+}
