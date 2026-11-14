@@ -86,3 +86,16 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Failing first:** `a166_test.go`'s seven-case test was committed alone as `854e8735` and failed in the `core` job (run 43508790123); the green push changes only `gate.go`, `README.md` and this file.
 - **Debt:** the entry A195 asks for is on noema#545 for the Steward to register. Conflicts raised: none.
 - **Pre-work for the next agent:** when noema#519 merges, its interpreter test for the rejected-at-gate event may assert the new code for an identity-setting model; the interpreter needs no change (it records `Rejection.Reasons` as they are).
+
+# Session 2026-11-14 16:20 WAT · UND-04 core · the two assertions left over from noema#549
+
+## Session summary
+- What changed: `a166_test.go` only. The seven-case test now also asserts that the refusal does not carry `SHAPE`; a new test asserts that a `principal_type` that is null, a number, an object or a list stays `SHAPE` and is not reported as `IDENTITY_SET_BY_MODEL`.
+- Why: C1's and the Security Reviewer's reads of noema#549 (merged): the claim "the Record can tell the attempt from a malformed document" had no assertion for its second half, and a mutant that added `SHAPE` next to the new reason survived.
+- Risks, and how they are contained: a test-only change; no code in `gate.go` changed.
+- Tests added (REQ-INT-001, REQ-INP-002; INV-12): two assertions. Both mutants are killed: `SHAPE` added alongside the new reason, and the reason put back to `SHAPE`. Run locally (the package has no database test in this selection); CI follows.
+- Regression cases added: the above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none here. The interpreter's own test (noema#519, merged) may assert `IDENTITY_SET_BY_MODEL` in `INTENT_REJECTED_AT_GATE` for a model that sets an identity member.
+- Do not touch: the gate's reason names.
