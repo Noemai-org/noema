@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/ceilings"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
 
@@ -42,7 +43,8 @@ func (e *evaluation) t7(ctx context.Context) decide.StepResult {
 		return decide.FailStep(err)
 	}
 	d := tc.Disambiguation
-	if d.MaxCandidates < 1 || d.Floor < 0 || d.MaxDigitRun < 0 {
+	// A pack may be stricter than the ceilings and never looser (A154 as corrected, A205 Q1, PERD v1.24): a value above one is an unusable answer, not clamped and not shown.
+	if d.MaxCandidates < 1 || d.MaxCandidates > ceilings.MaxClarificationOptions || d.Floor < 0 || d.MaxDigitRun < 0 || d.MaxDigitRun > ceilings.MaxLabelDigitRun {
 		return decide.FailStep(ErrBadDisambiguation)
 	}
 	offered, err := offerable(tc.Ranked, d.Floor)

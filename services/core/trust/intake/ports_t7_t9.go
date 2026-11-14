@@ -41,9 +41,9 @@ type RankedCandidate struct {
 type Disambiguation struct {
 	// Floor is the absolute floor: a candidate scoring below it is not offered.
 	Floor int64
-	// MaxCandidates is the most candidates a question may list (`max_candidates_before_escalate`); more above the floor is an ESCALATE.
+	// MaxCandidates is the most candidates a question may list (`max_candidates_before_escalate`); more above the floor is an ESCALATE. A value above platform/ceilings is refused.
 	MaxCandidates int
-	// MaxDigitRun is the most consecutive digits a label may show (REQ-AMB-004).
+	// MaxDigitRun is the most consecutive digits a label may show (REQ-AMB-004). A value above platform/ceilings is refused.
 	MaxDigitRun int
 	// AttributeOrder is the pack's fixed order of askable attributes (ask by attribute, D4).
 	AttributeOrder []decide.AttributeSpec

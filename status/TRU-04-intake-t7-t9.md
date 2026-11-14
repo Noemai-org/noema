@@ -30,3 +30,15 @@ Updated 2026-11-14. The next piece of the Trust assembly after TRU-02 (noema#567
 
 ### Mutation check (20 mutants of the non-test code)
 18 caught. Two survive and are equivalent: removing only the explicit maximum check (`decide.BuildClarification` enforces the same maximum and still escalates), and a second `RecordEvidence` whose error is ignored (the builder refuses it and its state is unchanged). Removing both maximum guards, or a second call whose error is checked, is caught.
+
+## Session 2026-11-14 · TRU-04 · the Security Reviewer's blocking finding on noema#571 (the clarification ceilings)
+### Session summary
+- What changed (PR links): noema#571. New `platform/ceilings` holds the two hard bounds on a clarification question: at most 4 options (PERD v1.24 lines 1810, 1891, 1892, 6063) and a digit run of at most 4 in a label (A154 as corrected; its test fails if the pack's masking limit ever differs). T7 refuses a pack value above either bound (UNKNOWN INTERNAL_ERROR, never clamped, never shown); a pack may be stricter.
+- Why: the values come from the pack through the port, and the step checked only that they were positive; a pack value of 12 would have put twelve options, or full account numbers, in a question (A154, A205 Q1, REQ-AMB-004).
+- Risks, and how they are contained: the bounds are numbers in code, so changing one needs a decision record (AGENT-16); each cites its source and a test pins the digit one to the pack. Red first at `c1d71919`.
+- Tests added (REQ-AMB-004, REQ-SEC-003): `TestT7APackValueLooserThanTheCeilingIsRefused` (5 and 12 of each; at and below the ceiling work), `TestTheDigitCeilingIsTheMaskingLimitOfThePack`; the "max 1 to 5" loop now stops at the ceiling.
+- Debt entries: none. Conflicts raised: none.
+- Answers to the reviewer's notes: (a) the no-oracle property depends on the Ownership adapter, as the port's contract says; the adapter PR must be read for it. (b) Ownership true for an intent with no `principal_must_own` slot is intended only for an intent that names no target; the adapter PR confirms. (c) the plan's `TargetRef` against what T8 found owned is checked at T14 (noema#572 and the integration). (d) the snapshot scope is the adapter's. (e) the fault test of this PR does assert the stop step (`failed` checks the step and FAILED or PANICKED).
+### Pre-work for the next agent
+- Exact next step: after noema#567 merges, merge `main` in.
+- Do not touch: `platform/ceilings` values without a decision record.
