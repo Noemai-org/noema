@@ -46,25 +46,36 @@ func (p *recordPools) For(tenantID string) (reconstruct.TxBeginner, error) {
 // no pool left open. Pools connect lazily: nothing is dialled here.
 func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, func(), error) {
 	noop := func() {}
-	dir := env.Getenv(EnvRecordReadDSNDir)
-	if dir == "" {
+	if env.Getenv(EnvRecordReadDSNDir) == "" {
 		return nil, noop, nil
 	}
+	pools, closer, err := loginPools(ctx, env, EnvRecordReadDSNDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &recordPools{pools: pools}, closer, nil
+}
+
+// loginPools is the directory loader both the Record reader and the orchestrator's Recorder use (noema#535, A202): one lazily connecting pool per file, each file named by a
+// tenant ID and holding that tenant's login; regular files only, no link; one login in one file. setting is the name of the setting that holds the directory, for the
+// errors. The error names the setting or the tenant and never a DSN or any part of one (AGENT-13). The closer is safe to call more than once.
+func loginPools(ctx context.Context, env Env, setting string) (map[string]*pgxpool.Pool, func(), error) {
+	dir := env.Getenv(setting)
 	if env.ReadDir == nil || env.ReadFile == nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", EnvRecordReadDSNDir)
+		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", setting)
 	}
 	entries, err := env.ReadDir(dir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cmd/core: %s: the directory cannot be read", EnvRecordReadDSNDir)
+		return nil, nil, fmt.Errorf("cmd/core: %s: the directory cannot be read", setting)
 	}
 	if len(entries) == 0 {
-		return nil, nil, fmt.Errorf("cmd/core: %s: the directory holds no tenant file", EnvRecordReadDSNDir)
+		return nil, nil, fmt.Errorf("cmd/core: %s: the directory holds no tenant file", setting)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		// Type() does not follow a link: a symlink, a directory or any other non-regular entry is refused, so one tenant's file cannot stand in for another's.
 		if !e.Type().IsRegular() || !tenantFileRe.MatchString(e.Name()) {
-			return nil, nil, fmt.Errorf("cmd/core: %s: an entry is not a regular file named by a tenant ID", EnvRecordReadDSNDir)
+			return nil, nil, fmt.Errorf("cmd/core: %s: an entry is not a regular file named by a tenant ID", setting)
 		}
 		names = append(names, e.Name())
 	}
@@ -80,33 +91,33 @@ func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, fun
 		raw, err := env.ReadFile(filepath.Join(dir, tenant))
 		if err != nil {
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s cannot be read", EnvRecordReadDSNDir, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s cannot be read", setting, tenant)
 		}
 		dsn := strings.TrimSpace(string(raw))
 		if dsn == "" {
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s is empty", EnvRecordReadDSNDir, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the file of tenant %s is empty", setting, tenant)
 		}
 		cfg, err := pgxpool.ParseConfig(dsn)
 		if err != nil { // the parse error is dropped on purpose: it can quote the DSN
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the DSN of tenant %s does not parse", EnvRecordReadDSNDir, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the DSN of tenant %s does not parse", setting, tenant)
 		}
 		// One login serves one tenant: the database binds a login to a tenant (DEBT-04), so the same login in two files would let two tenants share a binding. The identity is
 		// the user, host, port and database; the password and options do not make another login. The error names the tenants, never the login.
 		id := fmt.Sprintf("%s\x00%s\x00%d\x00%s", cfg.ConnConfig.User, cfg.ConnConfig.Host, cfg.ConnConfig.Port, cfg.ConnConfig.Database)
 		if other, dup := logins[id]; dup {
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the files of tenants %s and %s hold the same login", EnvRecordReadDSNDir, other, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the files of tenants %s and %s hold the same login", setting, other, tenant)
 		}
 		logins[id] = tenant
 		pool, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			closeAll()
-			return nil, nil, fmt.Errorf("cmd/core: %s: the pool of tenant %s cannot be made", EnvRecordReadDSNDir, tenant)
+			return nil, nil, fmt.Errorf("cmd/core: %s: the pool of tenant %s cannot be made", setting, tenant)
 		}
 		pools[tenant] = pool
 	}
 	var once sync.Once
-	return &recordPools{pools: pools}, func() { once.Do(closeAll) }, nil
+	return pools, func() { once.Do(closeAll) }, nil
 }
