@@ -49,6 +49,11 @@ func TestAppendRefusesAPayloadStringWithADigitRunOverFour(t *testing.T) {
 		"in an array":                          map[string]any{"list": []any{"ok", "0123456789"}},
 		"an ID-shaped value that is not an ID": map[string]any{"grant_id": "grt_4111111111111111!"},
 		"a date that is not RFC 3339":          map[string]any{"on": "2026-11-13"},
+		"a typed ID that is only digits":       map[string]any{"ref": "ten_4111111111111111"},
+		"a bare number as the target":          map[string]any{"target_ref": "4111111111111111"},
+		"a bare number as the acknowledgement": map[string]any{"external_ack": "4111111111111111"},
+		"a number split by an algorithm name":  map[string]any{"note": "4111ed25519111ed25519111ed25519111"},
+		"a number as an object key":            map[string]any{"4111111111111111": "x"},
 	} {
 		err := appendErr(t, w, payloadEvent("ten_aa", 1, payload))
 		if err == nil {
@@ -69,7 +74,7 @@ func TestAppendAcceptsWhatTheRuleExempts(t *testing.T) {
 	n := 0
 	for name, payload := range map[string]any{
 		"a run of four":          map[string]any{"note": "PIN 1234 and year 2026"},
-		"typed IDs":              map[string]any{"grant_id": "grt_01234567890123456789012345", "int": "int_0123456789@2", "corr": "corr_synth0001"},
+		"typed IDs":              map[string]any{"grant_id": "grt_01234567890123456789AB2345", "int": "int_0123456789ab@2", "corr": "corr_synth0001"},
 		"an RFC 3339 timestamp":  map[string]any{"at": "2026-11-13T10:12:00Z", "with": "2026-11-13T10:12:00.123+01:00"},
 		"a content hash":         map[string]any{"h": "sha256:" + hex64, "k": "hmac-sha256:" + hex64},
 		"the idempotency key":    map[string]any{"idempotency_key": "idk_v1_" + hex64},

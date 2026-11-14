@@ -56,10 +56,10 @@ func TestARunOfFiveDigitsInAStringIsRefusedAndARunOfFourIsNot(t *testing.T) {
 func TestTheExemptionsAreWholeStringsOnly(t *testing.T) {
 	hex64 := strings.Repeat("0123456789abcdef", 4)
 	ok := []string{
-		`"grt_01234567890123456789012345"`, `"corr_synth0001"`, `"int_0123456789@12"`, `"recev_0123456789ABCDEF"`,
+		`"grt_01234567890123456789AB2345"`, `"corr_synth0001"`, `"int_0123456789ab@12"`, `"recev_0123456789ABCDEF"`,
 		`"sha256:` + hex64 + `"`, `"hmac-sha256:` + hex64 + `"`, `"idk_v1_` + hex64 + `"`, `"n_0123456789abcdef0123456789abcdef"`,
 		`"2026-11-13T10:12:00Z"`, `"2026-11-13T10:12:00.123456789Z"`, `"2026-11-13T10:12:00+01:00"`,
-		`"12345678-1234-1234-1234-123456789012"`, `"3f2a9c1e-7b4d-4e8a-9c3b-1d2e3f4a5b6c"`, // the client's request ID, a lower-case UUID
+		`"12345678-1234-1234-1234-12345678901a"`, `"3f2a9c1e-7b4d-4e8a-9c3b-1d2e3f4a5b6c"`, // the client's request ID, a lower-case UUID
 	}
 	for _, v := range ok {
 		if err := check(t, `{"v":`+v+`}`); err != nil {
@@ -68,8 +68,8 @@ func TestTheExemptionsAreWholeStringsOnly(t *testing.T) {
 	}
 	bad := []string{
 		`"grt_4111111111111111!"`,                           // not the shape of the ID
-		`"my grt_01234567890123456789012345"`,               // text before the ID
-		`"grt_01234567890123456789012345 4111111111111111"`, // text after it
+		`"my grt_01234567890123456789AB2345"`,               // text before the ID
+		`"grt_01234567890123456789AB2345 4111111111111111"`, // text after it
 		`"sha256:` + hex64 + `0"`,                           // one character too long for a hash
 		`"2026-11-13"`,                                      // a date is not an RFC 3339 timestamp
 		`"2026-11-13T10:12:00Z 4111111111111111"`,           // a timestamp and more
@@ -87,7 +87,7 @@ func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *t
 	hex64 := strings.Repeat("0123456789abcdef", 4)
 	for name, js := range map[string]string{
 		"a signature value":         `{"verdict":{"sig":{"key_id":"core-outcome.ed25519.2","value":"` + hex64 + `"}}}`,
-		"a base64 signature":        `{"sig":{"key_id":"k","value":"` + strings.Repeat("0123456789", 5) + `"}}`,
+		"a base64 signature":        `{"sig":{"key_id":"k","value":"` + strings.Repeat("0123456789", 5) + `a"}}`,
 		"the target's reference":    `{"external_ack":"CMP-2026-00001"}`,
 		"a nested target reference": `{"receipt":{"external_ack":"CMP-2026-00001"}}`,
 		"the target of a grant":     `{"target_ref":"case_01KE8M3Q4Z5J6N7P8R9STV2WX3","capability_id":"test.cap.create_case"}`,
@@ -205,7 +205,7 @@ func TestTheTypedIDPrefixesAreTheContractsIDDefinitions(t *testing.T) {
 
 // ScanEvent is what the CI scan of every test Record runs on a stored event: the guard on the payload, and the object_ref against derivation from the payload.
 func TestScanEventFindsADigitRunAndADerivedObjectRef(t *testing.T) {
-	uuid := "12345678-1234-1234-1234-123456789012"
+	uuid := "12345678-1234-1234-1234-12345678901a"
 	hex := strings.ReplaceAll(uuid, "-", "")
 	for name, tc := range map[string]struct {
 		objectRef, payload string
@@ -215,8 +215,8 @@ func TestScanEventFindsADigitRunAndADerivedObjectRef(t *testing.T) {
 		"a digit run":                      {"grt_synth0001", `{"note":"4111111111111111"}`, 1},
 		"the gateway's shape":              {"req_" + hex, `{"request_id":"` + uuid + `"}`, 1},
 		"the same, a different UUID":       {"req_0123456789abcdef0123456789abcdef", `{"request_id":"01234567-89ab-cdef-0123-456789abcdef"}`, 1},
-		"the object's own ID cited":        {"int_01234567890123456789012345", `{"intent_id":"int_01234567890123456789012345"}`, 0},
-		"a versioned citation of the ID":   {"int_01234567890123456789012345", `{"ref":"int_01234567890123456789012345@2"}`, 0},
+		"the object's own ID cited":        {"int_01234567890123456789AB2345", `{"intent_id":"int_01234567890123456789AB2345"}`, 0},
+		"a versioned citation of the ID":   {"int_01234567890123456789AB2345", `{"ref":"int_01234567890123456789AB2345@2"}`, 0},
 		"another minted ID in the payload": {"gat_0123456789abcdef", `{"grant_id":"grt_0123456789abcdef"}`, 0},
 		"a short coincidence":              {"req_abc123", `{"note":"abc123"}`, 0},
 		"no payload":                       {"req_" + hex, ``, 0},
@@ -259,5 +259,94 @@ func TestACoreMintedIDOfAnyPrefixIsExemptAndNothingLookingLikeOneIs(t *testing.T
 		if err := check(t, js); err == nil {
 			t.Errorf("%s was accepted", name)
 		}
+	}
+}
+
+// The Security Reviewer's second blocking finding on noema#536: every exemption is structural. A bare run of digits in a typed shape, a hash shape, a UUID or a signature is not
+// an ID, a hash or a signature, so it is refused; the same shapes with a letter in the body are accepted (a genuine one has a letter, bar a probability of about 10^-13).
+func TestNoExemptionAcceptsABareRunOfDigits(t *testing.T) {
+	digits64 := strings.Repeat("4", 64)
+	for name, js := range map[string]string{
+		"a typed ID of digits":             `{"v":"ten_4111111111111111"}`,
+		"a typed ID, the longest body":     `{"v":"grt_` + strings.Repeat("4", 32) + `"}`,
+		"the nonce of digits":              `{"v":"n_4111111111111111"}`,
+		"a content hash of digits":         `{"v":"sha256:` + digits64 + `"}`,
+		"a keyed hash of digits":           `{"v":"hmac-sha256:` + digits64 + `"}`,
+		"an idempotency key of digits":     `{"v":"idk_v1_` + digits64 + `"}`,
+		"an intent reference of digits":    `{"v":"int_4111111111111111@2"}`,
+		"a ULID of digits, any prefix":     `{"v":"zzz_01234567890123456789012345"}`,
+		"a UUID of digits":                 `{"v":"41111111-1111-1111-1111-111111111111"}`,
+		"a signature of digits (hex)":      `{"sig":{"value":"` + digits64 + `"}}`,
+		"a signature of digits (base64)":   `{"sig":{"value":"` + strings.Repeat("4", 50) + `"}}`,
+		"a bare number as the target":      `{"target_ref":"4111111111111111"}`,
+		"a bare number as acknowledgement": `{"external_ack":"4111111111111111"}`,
+	} {
+		if err := check(t, js); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// Note 4 of the Security Reviewer: an algorithm name is exempt only as a key ID, at /key_id and in the key ID's own shape. It is not removed from any string, so it cannot be
+// put between groups of digits to split a number into runs of four or fewer.
+func TestAnAlgorithmNameIsExemptOnlyAsAKeyID(t *testing.T) {
+	for name, js := range map[string]string{
+		"a key ID":              `{"sig":{"key_id":"core-execution.ed25519.1","value":"` + strings.Repeat("ab", 32) + `"}}`,
+		"a key ID of the other": `{"k":{"key_id":"core-trust.x25519.12"}}`,
+	} {
+		if err := check(t, js); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+	for name, js := range map[string]string{
+		"a number split by the algorithm name": `{"v":"4111ed25519111ed25519111ed25519111"}`,
+		"the same, upper case":                 `{"v":"4111ED25519111X25519111"}`,
+		"the algorithm name alone":             `{"v":"ed25519"}`,
+		"a key ID shape at another key":        `{"v":"core-execution.ed25519.1"}`,
+		"a key ID with text after it":          `{"key_id":"core-execution.ed25519.1 4111111111111111"}`,
+	} {
+		if err := check(t, js); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// Note 4: combining marks and format characters between digits do not split a number.
+func TestCombiningMarksAndFormatCharactersDoNotSplitANumber(t *testing.T) {
+	for name, v := range map[string]string{
+		"a combining acute":     "4\u0301 1\u0301 1\u0301 1\u0301 1",
+		"a combining mark only": "4\u03011\u03011\u03011\u03011",
+		"a left-to-right mark":  "4\u200e1\u200e1\u200e1\u200e1",
+		"a word joiner":         "4\u20601\u20601\u20601\u20601",
+		"a variation selector":  "4\ufe0f1\ufe0f1\ufe0f1\ufe0f1",
+	} {
+		if err := check(t, `{"v":"`+v+`"}`); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// Note 3: an object key is text too. A number used as a key is refused, and the refusal names no key: the path says "{key}".
+func TestAnObjectKeyIsHeldToTheSameRuleAndNeverQuoted(t *testing.T) {
+	err := check(t, `{"outer":{"4111111111111111":"x"}}`)
+	if err == nil {
+		t.Fatal("a card number as a key was accepted")
+	}
+	if strings.Contains(err.Error(), "4111") || !strings.Contains(err.Error(), "/outer/{key}") {
+		t.Fatalf("the error quotes the key or does not name its place: %v", err)
+	}
+	err = check(t, `{"4111111111111111":{"note":"4111111111111111"}}`)
+	if err == nil || strings.Contains(err.Error(), "4111") || !strings.Contains(err.Error(), "/{key}/note") {
+		t.Fatalf("the path of a value under a numeric key quotes it or is wrong: %v", err)
+	}
+	if err := check(t, `{"grt_01234567890123456789AB2345":"x","evr_01":{"a":1}}`); err != nil {
+		t.Fatalf("an ID used as a key was refused: %v", err)
+	}
+}
+
+// Note 3, the other half, stated as a test: a number-typed field is not examined (A184's third exception).
+func TestANumberTypedFieldIsNotExamined(t *testing.T) {
+	if err := check(t, `{"amount":4111111111111111,"count":12345678}`); err != nil {
+		t.Fatalf("a number-typed field was refused: %v", err)
 	}
 }

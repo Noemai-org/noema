@@ -26,3 +26,9 @@ Updated 2026-11-13. A184 (the Founder's instruction of 13 Nov, relayed; to be co
 - Open questions (Architect): accept or replace the exemptions; the `IdempotencyKeyId` contract pattern does not fit `idk_v1_` plus 64 hex (a contract defect, not mine to change).
 - Files to read first: `services/core/record/payloadguard/guard.go`, `services/core/internal/testpg/scan.go`.
 - Do not touch: the limit (4), the exemption list, without the Architect.
+
+## Session 2026-11-14 · REC-01 append guard: the Security Reviewer's round on noema#536 (373c4722)
+- Summary: the exemptions are structural (a typed ID, a hash, a nonce, a UUID or a signature needs a letter in its body, so a bare run of digits in a typed shape is refused; `/external_ack` only as `CMP-<year>-<5 digits>`; `/target_ref` has no path rule; the algorithm name is exempt only as a key ID at `/key_id`, no longer removed from any string); object keys are held to the same rule and never quoted in an error; combining marks and format characters no longer split a number; numbers are not examined (A184, now stated in the code and a test); `AppendUnguarded` and `testpg` may not be imported by production code (a test, until an arch-lint rule exists). Commits `be2d2dbd` and the one after it, both held (no push until noema#531 merges, A193).
+- Not enforced in the database: the guard is in `chain.Appender.Append` only. Stated in `guard.go`; the PR body no longer implies otherwise. Waiting on the Architect: database enforcement as well, or "application only" in the ruling.
+- Measured, no cap set: Check of a 318 KB payload (2,000 items) takes about 25 ms (12.6 MB/s) and allocates 4.6 MB. A size cap is a limit; the Architect's call.
+- Residual, named: a number written with a letter inside an exempt shape (`ten_4111111111111111a`) is not caught; a bound on the digit run inside an exempt ID would be a threshold.
