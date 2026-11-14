@@ -41,3 +41,19 @@ State: draft PR. New contracts only; nothing earlier changes (AGENT-15). No core
 - Risks, and how they are contained: the wider set refuses more text than before: `1234 / 5678`, a date such as `12/05/2026` or an IP address are refused (eight digits joined by separators), as the Record mask and the guard treat them; the core must send dates and decimals in a form without such runs. A schema pattern cannot require the mask to be placed well (`CMP-1234*` passes).
 - Tests added (REQ-API-001, REQ-SEC-003, AGENT-13): the refuse list gains slash, dot, brackets, colon, underscore, tab, line feed, carriage return, soft hyphen, zero-width and several separators in a row; the accept list gains `20,000,000` and `1,234`; a test for the option key and the pack version; the case reference test requires the mask. 10 new invalid fixtures. Red first at `6b93b1dd`.
 - Regression cases added: the fixtures above. Debt entries: none new. Conflicts raised: none.
+
+# Session 2026-11-14 · noema#521: A211 (EL)
+
+## Session summary
+- What changed (noema#521): (1) **Stage values.** The six values are A207's, adopted by A211: `understanding`, `needs_input`, `needs_confirmation`, `working`, `answered`, `unavailable` (the first round's upper-case words are gone from the schema, the fixtures and the generated types). They cannot collide with the 21 internal state names, which are upper case (tested). Fixture `handed_to_team.json` is now `unavailable.json`. (2) **`option_id`** may carry at most four digits in all (it was: no run of five), still bounded at 32 characters and ASCII only. (3) **No RE2 claim.** The test file's docstring said Go's RE2 reads the digit pattern; RE2 has no look-ahead, so the generated Go types do not evaluate these patterns. On the Go side the masking is enforced by `record/payloadguard` on every outbound edge response (A194, A211); the claim is removed and the sentence says so.
+- Why: A211 (relayed, Founder-approved interim, not yet committed: the Steward's record of A209 to A213). One push, as the ruling says; the tests and the fix are in the same commit, so there is no separate red push for this round (the failing-first rounds were the first two pushes of this PR).
+- Risks, and how they are contained: a client or test that used the old upper-case stage words (none in the repository: searched). Whether `needs_confirmation` and `unavailable` mean what the Architect intends is stated in the schema description; the frontend owns the strings.
+- Tests added (REQ-API-001, A187, A207, A211): `PUBLIC_STAGES` is the new list; the `option_id` accept and refuse lists gain the four-digits-in-all cases (`opt_1234` and `opt_1_2_3_4` pass; `a1b2c3d4e5`, `opt_1_2_3_4_5` and `1a2b3c4d5` are refused). The test file failed on the schema before the schema edit (run locally, not in CI).
+- Regression cases added: the refuse cases above.
+- Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the core's mapping from internal states to the six values (with the investigation route); `record/payloadguard` on outbound edge responses (C1, EDG-01).
+- Open questions (owner): none new.
+- Files to read first: `contracts/schemas/investigation-response.v1.json` (`PublicStage`), `tools/contracts/test_public_api.py`.
+- Do not touch: the generated files by hand.

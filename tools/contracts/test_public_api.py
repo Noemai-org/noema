@@ -6,10 +6,12 @@ of every script (A154, A184, A194), the public error body has one not-found shap
 be added by accident. Names are SYNTHETIC test data.
 
 The digit-run pattern is built here from the Unicode decimal digits (category Nd, Python 3.13: Unicode 15.1) and the separator set of the model redactor (noema#468,
-`noema_model/platform/redaction`), written as literal characters so that Python's `re`, Go's RE2, Pydantic's Rust regex and a JavaScript RegExp with the `u` flag read the
-same pattern (the digit shorthand is ASCII-only in the last three and Unicode in the first; the Unicode property class for decimal digits is not in Python's `re`; unicode escapes are not in RE2). A test recomputes the class, so a
-Python upgrade that adds digits fails here instead of leaving a digit unmasked. This file reads the pattern with Python's `re`; the generated Pydantic models (Python `re`) and the generated Go
-types are held to the same fixtures by `shape_refusals.json` in CI, and a JavaScript validator must compile the pattern with the `u` flag (noema#523 does).
+`noema_model/platform/redaction`) and the core (`record/reconstruct/project.go`), written as literal characters so that Python's `re`, Pydantic's Rust regex and a JavaScript
+RegExp with the `u` flag read the same pattern (the digit shorthand is ASCII-only in the last two and Unicode in the first; the Unicode property class for decimal digits is not in
+Python's `re`). A test recomputes the class, so a Python upgrade that adds digits fails here instead of leaving a digit unmasked. This file reads the pattern with Python's `re`;
+the generated Pydantic models are held to the same fixtures by `shape_refusals.json` in CI, and a JavaScript validator must compile the pattern with the `u` flag (noema#523 does).
+Go's regexp (RE2) has no look-ahead, so the generated Go types do not evaluate this pattern and no claim is made that they do: on the Go side the masking is enforced by
+`record/payloadguard` on every outbound edge response (A194, A211), and the Go tests of that package are the check.
 """
 import json
 import re
@@ -61,8 +63,8 @@ DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
 # A masked case reference shows at most four digits in all (A187), of any script, and carries a mask character (A207: the core masks it before it reaches the client).
 MASK_CHARS = "*\u2022\u2026"
 AT_MOST_FOUR_DIGITS = rf"^(?=[\s\S]*[{MASK_CHARS}])(?:{NOT_DIGIT}*{DIGIT}){{0,4}}{NOT_DIGIT}*$"
-# option_id of an overlay card and the pack version of a confirmation: no run of five digits, and bounded (ASCII-only members, so the ASCII class is the whole alphabet).
-OPTION_ID = r"^(?![a-z0-9_]*[0-9]{5})[a-z0-9_]{1,32}$"
+# option_id of an overlay card: no more than four digits in all (A211), and bounded. The pack version of a confirmation: each number at most four digits, and bounded (ASCII-only members, so the ASCII class is the whole alphabet).
+OPTION_ID = r"^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
 POLICY_VERSION = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\.[0-9]{1,4}(\.[0-9]{1,4})?$"
 # PERD §39.2: the five event kinds of the stream.
 EVENT_KINDS = {"progress", "clarification", "confirmation", "answer", "error"}
@@ -89,9 +91,9 @@ def walk(node, path=()):
                 yield from walk(sub, path + (f"{key}{i}",))
 
 
-# Public stage (A187: six values or fewer, never the 21 internal states). The values are the author's choice, stated in the pull request; the owner of the plain-language strings
+# Public stage (A187: six values or fewer, never the 21 internal states). The six values are A207's, adopted by A211; the owner of the plain-language strings
 # is the frontend owner. The core maps its internal states to these (the investigation route is not built yet).
-PUBLIC_STAGES = ["UNDERSTANDING", "CHECKING", "NEEDS_YOU", "ACTING", "HANDED_TO_TEAM", "FINISHED"]
+PUBLIC_STAGES = ["understanding", "needs_input", "needs_confirmation", "working", "answered", "unavailable"]
 
 
 def internal_states() -> list[str]:
@@ -181,9 +183,9 @@ class PublicApi(unittest.TestCase):
         self.assertEqual(option["pattern"], OPTION_ID)
         self.assertEqual(version["pattern"], POLICY_VERSION)
         self.assertIn("maxLength", version)
-        for text in ("opt_1", "opt_2", "none", "o" * 32):
+        for text in ("opt_1", "opt_2", "none", "o" * 32, "opt_1234", "opt_1_2_3_4"):
             self.assertFalse(refused(OPTION_ID, text), f"option {text!r} is refused")
-        for text in ("opt_12345", "4" * 32, "opt_" + "1" * 20, "", "x" * 33, "Opt_1"):
+        for text in ("opt_12345", "4" * 32, "opt_" + "1" * 20, "", "x" * 33, "Opt_1", "a1b2c3d4e5", "opt_1_2_3_4_5", "1a2b3c4d5"):
             self.assertTrue(refused(OPTION_ID, text), f"option {text!r} passes")
         for text in ("fintech.transfer_exceptions@1.0", "fin.pol@3.1.2", "fin@9999.9999.9999"):
             self.assertFalse(refused(POLICY_VERSION, text), f"version {text!r} is refused")

@@ -28,15 +28,15 @@
   "additionalProperties": false,
   "$defs": {
     "PublicStage": {
-      "description": "Where the investigation stands, in six words the customer can be told (ruling A187). UNDERSTANDING: reading the request. CHECKING: reading and comparing records, evaluating, waiting for a bounded condition. NEEDS_YOU: a question or a confirmation waits for the customer. ACTING: an approved action is being carried out or verified. HANDED_TO_TEAM: a person has the case. FINISHED: the investigation has ended; the final text, if any, is last_answer. FINISHED says nothing about success.",
+      "description": "Where the investigation stands, in six values the customer can be told (rulings A187, A207, A211). understanding: reading the request. needs_input: a question waits for the customer. needs_confirmation: a confirmation waits for the customer. working: records are being read and compared, an approved action is being carried out and verified, or a bounded condition is awaited. answered: the investigation has ended; the final text, if any, is last_answer, and answered says nothing about success. unavailable: Noema cannot go on now, because a person has the case or a source cannot be read. The core owns the mapping from its internal states; the frontend owns the plain-language string of each value.",
       "type": "string",
       "enum": [
-        "UNDERSTANDING",
-        "CHECKING",
-        "NEEDS_YOU",
-        "ACTING",
-        "HANDED_TO_TEAM",
-        "FINISHED"
+        "understanding",
+        "needs_input",
+        "needs_confirmation",
+        "working",
+        "answered",
+        "unavailable"
       ]
     }
   }

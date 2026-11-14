@@ -8,16 +8,16 @@ import (
 )
 
 // InvestigationResponseV1PublicStage is generated from investigation-response.v1.json#$defs/PublicStage.
-// Where the investigation stands, in six words the customer can be told (ruling A187). UNDERSTANDING: reading the request. CHECKING: reading and comparing records, evaluating, waiting for a bounded condition. NEEDS_YOU:...
+// Where the investigation stands, in six values the customer can be told (rulings A187, A207, A211). understanding: reading the request. needs_input: a question waits for the customer. needs_confirmation: a confirmation...
 type InvestigationResponseV1PublicStage string
 
 const (
-	InvestigationResponseV1PublicStageUNDERSTANDING InvestigationResponseV1PublicStage = "UNDERSTANDING"
-	InvestigationResponseV1PublicStageCHECKING      InvestigationResponseV1PublicStage = "CHECKING"
-	InvestigationResponseV1PublicStageNEEDSYOU      InvestigationResponseV1PublicStage = "NEEDS_YOU"
-	InvestigationResponseV1PublicStageACTING        InvestigationResponseV1PublicStage = "ACTING"
-	InvestigationResponseV1PublicStageHANDEDTOTEAM  InvestigationResponseV1PublicStage = "HANDED_TO_TEAM"
-	InvestigationResponseV1PublicStageFINISHED      InvestigationResponseV1PublicStage = "FINISHED"
+	InvestigationResponseV1PublicStageUnderstanding     InvestigationResponseV1PublicStage = "understanding"
+	InvestigationResponseV1PublicStageNeedsInput        InvestigationResponseV1PublicStage = "needs_input"
+	InvestigationResponseV1PublicStageNeedsConfirmation InvestigationResponseV1PublicStage = "needs_confirmation"
+	InvestigationResponseV1PublicStageWorking           InvestigationResponseV1PublicStage = "working"
+	InvestigationResponseV1PublicStageAnswered          InvestigationResponseV1PublicStage = "answered"
+	InvestigationResponseV1PublicStageUnavailable       InvestigationResponseV1PublicStage = "unavailable"
 )
 
 func (e *InvestigationResponseV1PublicStage) UnmarshalJSON(b []byte) error {
@@ -26,7 +26,7 @@ func (e *InvestigationResponseV1PublicStage) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("contracts: InvestigationResponseV1PublicStage: %w", err)
 	}
 	switch v := InvestigationResponseV1PublicStage(s); v {
-	case InvestigationResponseV1PublicStageUNDERSTANDING, InvestigationResponseV1PublicStageCHECKING, InvestigationResponseV1PublicStageNEEDSYOU, InvestigationResponseV1PublicStageACTING, InvestigationResponseV1PublicStageHANDEDTOTEAM, InvestigationResponseV1PublicStageFINISHED:
+	case InvestigationResponseV1PublicStageUnderstanding, InvestigationResponseV1PublicStageNeedsInput, InvestigationResponseV1PublicStageNeedsConfirmation, InvestigationResponseV1PublicStageWorking, InvestigationResponseV1PublicStageAnswered, InvestigationResponseV1PublicStageUnavailable:
 		*e = v
 		return nil
 	}

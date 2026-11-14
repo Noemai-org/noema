@@ -11,14 +11,14 @@ from .common_v1 import CommonV1SchemaVersion
 from .customer_answer_v1 import CustomerAnswerV1
 
 class InvestigationResponseV1PublicStage(StrEnum):
-    """Where the investigation stands, in six words the customer can be told (ruling A187). UNDERSTANDING: reading the request. CHECKING: reading and comparing records, evaluating, waiting for a bounded condition. NEEDS_YOU:... Source: investigation-response.v1.json#$defs/PublicStage"""
+    """Where the investigation stands, in six values the customer can be told (rulings A187, A207, A211). understanding: reading the request. needs_input: a question waits for the customer. needs_confirmation: a confirmation... Source: investigation-response.v1.json#$defs/PublicStage"""
 
-    UNDERSTANDING = 'UNDERSTANDING'
-    CHECKING = 'CHECKING'
-    NEEDS_YOU = 'NEEDS_YOU'
-    ACTING = 'ACTING'
-    HANDED_TO_TEAM = 'HANDED_TO_TEAM'
-    FINISHED = 'FINISHED'
+    UNDERSTANDING = 'understanding'
+    NEEDS_INPUT = 'needs_input'
+    NEEDS_CONFIRMATION = 'needs_confirmation'
+    WORKING = 'working'
+    ANSWERED = 'answered'
+    UNAVAILABLE = 'unavailable'
 
 
 class InvestigationResponseV1(ContractModel):

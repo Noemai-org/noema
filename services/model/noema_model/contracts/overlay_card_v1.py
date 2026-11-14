@@ -12,7 +12,7 @@ class OverlayCardV1ClarificationCardOptionsItem(ContractModel):
     """OverlayCardV1ClarificationCardOptionsItem Source: overlay-card.v1.json#$defs/ClarificationCard/properties/options/items"""
 
     model_config = ConfigDict(extra="forbid")
-    option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z0-9_]*[0-9]{5})[a-z0-9_]{1,32}\\Z')]
+    option_id: Annotated[str, StringConstraints(pattern='\\A(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}\\Z')]
     label: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[\t-\n\x0c-\r (-).-/:_\xa0\xad͏\u1680\u180e\u2000-\u200a\u200b-\u200d‐-―\u202f\u205f\u2060−\u3000\ufeff\\-]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*\\Z', min_length=1, max_length=160)]
 
 
