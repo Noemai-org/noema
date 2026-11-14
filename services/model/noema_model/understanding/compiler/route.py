@@ -60,7 +60,24 @@ def register(app: FastAPI) -> None:
     @app.post(ROUTE)
     async def compile_route(request: Request) -> JSONResponse:
         service: CompileService | None = getattr(request.app.state, "compile_service", None)
-        raw = await request.body()
+        if service is None:  # nothing to compile with: the body is not read at all (the bound below comes from the service's configuration)
+            return _envelope(503, ErrorsV2ErrorCode.DEPENDENCY_UNAVAILABLE, "The compile service is not configured.", True, _NO_CORRELATION)
+        limit = service.max_request_bytes
+        too_large = _envelope(413, ErrorsV2ErrorCode.INPUT_INVALID, "The compile request is too large.", False, _NO_CORRELATION)
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            if not (declared.isascii() and declared.isdigit()):
+                return _envelope(422, ErrorsV2ErrorCode.INPUT_INVALID, "The compile request is not valid.", False, _NO_CORRELATION)
+            if int(declared) > limit:
+                return too_large  # refused by its declared length: not one byte of it is read
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in request.stream():  # a body that declares no length (or lies) is cut here, as it arrives
+            total += len(chunk)
+            if total > limit:
+                return too_large
+            chunks.append(chunk)
+        raw = b"".join(chunks)
         try:
             doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_pairs)
         except (ValueError, RecursionError, _Repeated):  # not JSON, too deep, or a member named twice
@@ -78,8 +95,6 @@ def register(app: FastAPI) -> None:
             return invalid
         if not str(canonical.get("schema_version", "")).startswith("2."):
             return invalid  # the contract's schema_version is the generic X.Y shape; this route takes canonical-input major 2 and no other
-        if service is None:
-            return _envelope(503, ErrorsV2ErrorCode.DEPENDENCY_UNAVAILABLE, "The compile service is not configured.", True, corr)
         try:
             intent_object = await service.run(canonical, pack_ref, open_intent)
         except InputInvalid:

@@ -9,7 +9,7 @@ Written before the route: against `main` the first test fails on the status (the
 """
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -243,3 +243,39 @@ def test_a_bad_content_length_is_refused_and_nothing_is_compiled() -> None:
         r = client(c).post(ROUTE, content=_request_bytes(), headers={"content-type": "application/json", "content-length": value})
         assert r.status_code in (400, 413, 422), value
         assert c.calls == [], value
+
+
+def test_a_body_whose_declared_length_is_over_the_bound_is_not_read_at_all() -> None:
+    # The declared length decides before one byte is read: the ASGI receive channel must not be touched (a client that declares a huge body and then sends it slowly
+    # holds nothing). This is called at the ASGI level because the test client always sends the body.
+    import asyncio
+
+    c = Compiler(reply=json.dumps(proposal()).encode())
+    app = create_app(
+        check=lambda: (True, "ok"),
+        compile_service=CompileService(compiler=c, packs=Packs(), max_proposal_bytes=65536, timeout_s=5.0, max_request_bytes=1024),
+    )
+    sent: list[MutableMapping[str, Any]] = []
+
+    async def receive() -> MutableMapping[str, Any]:
+        raise AssertionError("the body was read although its declared length is over the bound")
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": ROUTE,
+        "raw_path": ROUTE.encode(),
+        "query_string": b"",
+        "headers": [(b"content-type", b"application/json"), (b"content-length", b"100000")],
+        "client": ("127.0.0.1", 1),
+        "server": ("127.0.0.1", 8081),
+    }
+    asyncio.run(app(scope, receive, send))
+    assert sent[0]["status"] == 413
+    assert c.calls == []
