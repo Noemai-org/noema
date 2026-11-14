@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from noema_model.harness.config import HarnessConfig, load_harness_config
+from noema_model.platform.masking import MaskingLimits
 from noema_model.providers.llm.base import (
     FinishReason,
     HttpResponse,
@@ -19,6 +20,10 @@ from noema_model.providers.llm.base import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+MASKING_FILE = str(Path(__file__).resolve().parents[3] / "packs" / "fintech" / "limits" / "masking_limits.json")  # the pack's masking-limits.v1 document
+MASKING = MaskingLimits(4)  # the pack's masking-limits.v1 value; the one source of the longest unmasked digit run (A154)
 
 
 def run[T](coro: Awaitable[T]) -> T:

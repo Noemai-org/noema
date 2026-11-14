@@ -48,6 +48,8 @@ type Ledger struct {
 	// RollbackTimeout bounds the rollback of a failed transaction after the caller's context has ended (ruling A24). It comes from configuration and
 	// has no default: a Ledger without one refuses to start a transaction.
 	RollbackTimeout time.Duration
+	// Boundary is called at each boundary inside a transaction (see Point). Production leaves it nil; the crash harness returns ErrCrash.
+	Boundary func(Point) error
 }
 
 var (

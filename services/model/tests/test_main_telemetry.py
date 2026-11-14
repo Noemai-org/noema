@@ -13,6 +13,7 @@ from noema_model.main import build_telemetry, create_app
 from noema_model.platform.telemetry import COST_EVENT, InMemoryTelemetry
 from tests.support import ManualClock, ScriptedProvider, make_config, run
 from tests.test_harness_call import good, request
+from tests.support import MASKING
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -26,7 +27,7 @@ def bench_module(name: str):  # type: ignore[no-untyped-def]
 
 
 def one_call(telemetry) -> object:  # type: ignore[no-untyped-def]
-    harness = Harness(make_config(providers=("alpha",)), {"alpha": ScriptedProvider("alpha", [good("alpha")])}, ManualClock(), telemetry)
+    harness = Harness(make_config(providers=("alpha",)), {"alpha": ScriptedProvider("alpha", [good("alpha")])}, ManualClock(), telemetry, masking=MASKING)
     return run(harness.generate(request())).call
 
 
@@ -83,7 +84,8 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
     from tests.support import raw_config
 
-    from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL
+    from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
+    from tests.support import MASKING_FILE
 
     bare = create_app(environ={})
     assert bare.state.harness is None
@@ -93,12 +95,12 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
 
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
-    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2"})
+    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: MASKING_FILE})
     assert isinstance(ready.state.harness, Harness)
     assert TestClient(ready).get("/readyz").status_code == 200
 
     path.write_text("{}")
-    broken = create_app(environ={ENV_CONFIG: str(path)})
+    broken = create_app(environ={ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE})
     assert broken.state.harness is None and TestClient(broken).get("/readyz").status_code == 503
 
 
