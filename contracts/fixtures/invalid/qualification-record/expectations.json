@@ -1,0 +1,13 @@
+{
+  "bad_date.json": "pattern",
+  "bad_drift_result.json": "enum",
+  "bad_kind.json": "enum",
+  "bad_verdict.json": "enum",
+  "floor_above_one.json": "maximum",
+  "missing_decision_record.json": "required",
+  "unknown_member.json": "additionalProperties",
+  "missing_context_sha256.json": "required",
+  "context_not_a_digest.json": "oneOf",
+  "missing_pass_k_cases_sha256.json": "required",
+  "pass_k_cases_sha256_not_a_digest.json": "oneOf"
+}

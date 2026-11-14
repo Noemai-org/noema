@@ -20,6 +20,7 @@ Generated layer only. `make bench-test` runs every test and `mypy --strict`; `ma
 | `replay/` | The replay diff: two runs, same cases, are the Trust decisions and verdicts identical (compares two recorded runs; runs nothing) | BEN-05 |
 | `impact/` | The Operations Model for the IMPACT layer: every parameter ASSUMED until the Founder supplies a sourced value, ranges, the M0 manual baseline (suite definition v1) | BEN-16 |
 | `hallucination/` | The corpus of 200 seeded bad explanations and 50 good controls for the claim validator (B5) | BEN-14 |
+| `qualification/` | Model and speech version qualification records, made from a scorecard with pass^k, and the lookup that refuses an unqualified ID (the model service's configuration check is C2's) | UND-13 |
 | `nightly/` | Files one regression issue per failing case, de-duplicated by case ID | TST-02 |
 | `bakeoff/` | The decision-model bake-off: case set, metrics, runner, comparison | BEN-21 |
 | `evil_provider/` | The adversarial provider, in the bench profile only | SEC-06 |

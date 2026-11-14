@@ -1,0 +1,79 @@
+{
+  "bar": {
+    "baseline_pass_k": null,
+    "baseline_record_sha256": null,
+    "floor": null,
+    "floor_source": null
+  },
+  "complete": true,
+  "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+  "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+  },
+  "kind": "llm",
+  "model_id": "decision-model-a",
+  "n_cases": 10,
+  "pass_k": {
+    "available": true,
+    "failing_cases": [
+      "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+      "k": 9,
+      "n": 10,
+      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+  },
+  "provider": "openai",
+  "qualified_on": "2026-11-06",
+  "reasons": [
+    "there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)"
+  ],
+  "run_id": "run_report",
+  "runs": [
+    {
+      "complete": true,
+      "run_id": "run_report",
+      "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_2",
+      "scorecard_sha256": "sha256:2b2b2e42670639aa594d3fdc435b0372cbf18b37d9dcf3f29b15e18002aa5430",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_3",
+      "scorecard_sha256": "sha256:7eaa5ef3754489fff14cc9c34dbb95cf8e2546859872a02f19b25f693fd9f028",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_4",
+      "scorecard_sha256": "sha256:c0a0cd93c26c0aa7cabbf16bbaa98c7c3c2755b3a75b097f99ad387b5660510f",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_5",
+      "scorecard_sha256": "sha256:473b963c45e312c0c0766839177c8c1a5c77f1102ad0aa00f6961cb548fca281",
+      "tier0_all_zero": true
+    }
+  ],
+  "schema": "qualification-record.v1",
+  "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+  "tier0_all_zero": true,
+  "verdict": "NOT_QUALIFIED",
+  "version": "2026-11-01",
+  "context_sha256": "sha256:ff8a771c6cd1d82fdcb578d534bd7b3f0e2afbd96059b4be548c06103234dd91",
+  "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036"
+}

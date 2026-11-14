@@ -1,0 +1,16 @@
+{
+  "schema": "benchmark-run-provenance.v1",
+  "run_id": "run_1",
+  "results_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scorecard_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pass_k_runs": null,
+  "context_sha256": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "pinned": {
+    "kind": "llm",
+    "provider": "openai",
+    "model_id": "decision-model-a",
+    "version": "2026-11-01",
+    "note": "x"
+  },
+  "pass_k_cases_sha256": "sha256:d4f2d2c3b74e4620ccfc60254b5b260ccb1526fb3c2ca91738b12110cd5f2ba5"
+}

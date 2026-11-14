@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-run-provenance.v1.json",
+  "title": "Benchmark run provenance (v1)",
+  "description": "UND-13 (noema#199, Codex P1). Which results one scoring run read, written beside scorecard.json as provenance.json. `results_sha256` is the digest of the result set the scorer read (canonical JSON, results ordered by case_id); `scorecard_sha256` is the digest of the scorecard it wrote; `context_sha256` is the digest of what the results were scored against (the case set, the oracle set and the pack), so repeat scorecards rescored against another pack or oracle set are told from the primary's. When the scoring run was given the four other runs for pass^k, `pass_k_runs` lists all five runs (the primary first) with each result set's digest, so a qualification can check that the repeat scorecards it is shown are the runs the pass^k rests on and not four unrelated clean ones. Without repeats `pass_k_runs` is null. The reference implementation is benchmark/scoring/provenance.py. SYNTHETIC in tests (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "benchmark-run-provenance.v1"
+    },
+    "run_id": {
+      "$ref": "#/$defs/Id"
+    },
+    "results_sha256": {
+      "$ref": "#/$defs/Sha256"
+    },
+    "scorecard_sha256": {
+      "$ref": "#/$defs/Sha256"
+    },
+    "pass_k_runs": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        }
+      ]
+    },
+    "context_sha256": {
+      "$ref": "#/$defs/Sha256"
+    },
+    "pinned": {
+      "description": "The identity of the model or speech version whose results this run scored, DECLARED by whoever ran the scoring (--pinned-* flags); null when none was declared. A qualification refuses pass^k evidence whose declared identity is not the one being qualified, so one model's five-run evidence cannot qualify another model (Codex P1 on noema#199). It is a declaration that a contradiction can expose, not authentication: records and provenance are unsigned (DEBT-17).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "llm",
+                "speech"
+              ]
+            },
+            "provider": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "model_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
+          },
+          "required": [
+            "kind",
+            "provider",
+            "model_id",
+            "version"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "pass_k_cases_sha256": {
+      "description": "The digest of the understanding-dependent cases this scoring run read (the set pass^k is measured on), computed as the qualification subset's `cases_sha256` is; null when there is none. A qualification requires it to equal the drift run's `cases_sha256` (Codex P2 on noema#199).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "run_id",
+    "results_sha256",
+    "scorecard_sha256",
+    "context_sha256",
+    "pass_k_runs",
+    "pinned",
+    "pass_k_cases_sha256"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.-]+$"
+    },
+    "Sha256": {
+      "type": "string",
+      "maxLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "Run": {
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "results_sha256": {
+          "$ref": "#/$defs/Sha256"
+        }
+      },
+      "required": [
+        "run_id",
+        "results_sha256"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

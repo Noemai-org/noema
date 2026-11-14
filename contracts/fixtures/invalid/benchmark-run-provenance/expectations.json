@@ -1,0 +1,16 @@
+{
+  "extra_field.json": "additionalProperties",
+  "digest_not_sha.json": "pattern",
+  "missing_scorecard_sha.json": "required",
+  "run_id_has_space.json": "pattern",
+  "run_without_digest.json": "required",
+  "run_id_too_long.json": "maxLength",
+  "too_many_runs.json": "maxItems",
+  "missing_context_sha.json": "required",
+  "missing_pinned.json": "required",
+  "pinned_without_a_version.json": "oneOf",
+  "pinned_kind_not_llm_or_speech.json": "oneOf",
+  "pinned_with_an_extra_field.json": "oneOf",
+  "missing_pass_k_cases_sha256.json": "required",
+  "pass_k_cases_sha256_not_a_digest.json": "oneOf"
+}

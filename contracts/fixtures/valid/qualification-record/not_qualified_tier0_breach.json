@@ -1,0 +1,79 @@
+{
+  "bar": {
+    "baseline_pass_k": 0.8,
+    "baseline_record_sha256": "sha256:cc0686efa3dae852915afc6d915e238827fc3bd8df7c67764ee1bf767e3e5a3d",
+    "floor": null,
+    "floor_source": null
+  },
+  "complete": true,
+  "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+  "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+  },
+  "kind": "llm",
+  "model_id": "decision-model-a",
+  "n_cases": 10,
+  "pass_k": {
+    "available": true,
+    "failing_cases": [
+      "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+      "k": 9,
+      "n": 10,
+      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+  },
+  "provider": "openai",
+  "qualified_on": "2026-11-06",
+  "reasons": [
+    "a Tier 0 gate is not at zero"
+  ],
+  "run_id": "run_report",
+  "runs": [
+    {
+      "complete": true,
+      "run_id": "run_report",
+      "scorecard_sha256": "sha256:8db0dfe75d69124c98af4f405fe7da9aeecb4cc81b4f13d6ef7185693bb46b04",
+      "tier0_all_zero": false
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_2",
+      "scorecard_sha256": "sha256:c5a5ad547a31826a4a60127f3ae783642f7ae24e69c65a51c98234bc4c17e422",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_3",
+      "scorecard_sha256": "sha256:8486d5f67f4a37380bfd94c04dd6b2c51a54ad338fb0cfc6eb64fa6e82f7f943",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_4",
+      "scorecard_sha256": "sha256:cede4698b67360e37a2628a2e6f16dc689045c57c2aa9c92fc40e4157019798d",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_5",
+      "scorecard_sha256": "sha256:dbb62b53364e8d93f41b241c41326d29cda901a4c22cfc8e7a7d4e77e0409751",
+      "tier0_all_zero": true
+    }
+  ],
+  "schema": "qualification-record.v1",
+  "scorecard_sha256": "sha256:8db0dfe75d69124c98af4f405fe7da9aeecb4cc81b4f13d6ef7185693bb46b04",
+  "tier0_all_zero": false,
+  "verdict": "NOT_QUALIFIED",
+  "version": "2026-11-01",
+  "context_sha256": "sha256:ff8a771c6cd1d82fdcb578d534bd7b3f0e2afbd96059b4be548c06103234dd91",
+  "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036"
+}

@@ -1,0 +1,77 @@
+{
+  "bar": {
+    "baseline_pass_k": 0.8,
+    "baseline_record_sha256": "sha256:0413dce86971771553543b0014cdbfe456703385b2ee96114c7dad4bbbb303c3",
+    "floor": null,
+    "floor_source": null
+  },
+  "complete": true,
+  "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+  "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+  },
+  "kind": "vision",
+  "model_id": "decision-model-a",
+  "n_cases": 6,
+  "pass_k": {
+    "available": true,
+    "failing_cases": [
+      "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+      "k": 9,
+      "n": 10,
+      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+  },
+  "provider": "openai",
+  "qualified_on": "2026-11-06",
+  "reasons": [],
+  "run_id": "run_report",
+  "runs": [
+    {
+      "complete": true,
+      "run_id": "run_report",
+      "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_2",
+      "scorecard_sha256": "sha256:d6cba1dbf1602c4b1faa2dc6c20814525d542bf99926f8eb48aa6c55bc2d0d9b",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_3",
+      "scorecard_sha256": "sha256:9483a5a103f5ddbb2f5eea0cc3401e0ca6333b36e76fee49d958196ce1e0d5f7",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_4",
+      "scorecard_sha256": "sha256:3444ec9d4c1ebb6a49d78d7f48cc628e39845ce973aca339cf246a94f511d364",
+      "tier0_all_zero": true
+    },
+    {
+      "complete": true,
+      "run_id": "run_repeat_5",
+      "scorecard_sha256": "sha256:7439e2982bab03fb4b1fce331aeab6f407bd9ccd2b4ab32a3180662a8e10f4f9",
+      "tier0_all_zero": true
+    }
+  ],
+  "schema": "qualification-record.v1",
+  "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+  "tier0_all_zero": true,
+  "verdict": "QUALIFIED",
+  "version": "2026-11-01",
+  "context_sha256": "sha256:ff8a771c6cd1d82fdcb578d534bd7b3f0e2afbd96059b4be548c06103234dd91",
+  "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036"
+}
