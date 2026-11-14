@@ -50,6 +50,9 @@ type Ref struct {
 	EventID string
 	Seq     int64
 	Hash    string
+	// ObjectRef is the event's object_ref: an ID the core minted for the input (A184), never derived from anything the client sent. A deduplication and a reuse name the
+	// original input's.
+	ObjectRef string
 }
 
 // Turn is what the orchestrator is handed (A161 item 3): the identity, the correlation of the investigation, the validated fields of the input, the body as it
@@ -81,6 +84,7 @@ type Received struct {
 	Channel   string
 	Locale    string // empty when the client sent no locale_hint; the key is then left out
 	InputHash string
+	ObjectRef string // minted by the gateway before the append (A184): the object_ref of the event
 }
 
 // Prior is an earlier INPUT_RECEIVED of the same tenant and principal for the same request_id, within the window.
@@ -202,7 +206,12 @@ func (g *Gateway) Accept(ctx context.Context, id Identity, raw []byte) (Result, 
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: correlation id: %v", ErrRecord, err)
 	}
-	ref, err := g.rec.Received(ctx, id, corr, Received{RequestID: in.requestID, Channel: in.channel, Locale: in.locale, InputHash: in.hash})
+	// A184: the object_ref is an ID the core mints, not "req_" and the digits of the client's request id (which a client chooses). If none can be minted nothing is appended.
+	objectRef, err := g.ids.ID("req")
+	if err != nil {
+		return Result{}, fmt.Errorf("%w: object reference: %v", ErrRecord, err)
+	}
+	ref, err := g.rec.Received(ctx, id, corr, Received{RequestID: in.requestID, Channel: in.channel, Locale: in.locale, InputHash: in.hash, ObjectRef: objectRef})
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrRecord, err)
 	}
@@ -273,6 +282,11 @@ func parseBody(raw []byte, max int64) (input, error) {
 		if step != nil {
 			return bad(step.Error())
 		}
+	}
+	// A UUID with none of the letters a to f is 32 digits, a card-number-sized run that the Record's digit-run rule would refuse at the append, after the input was accepted
+	// and its IDs minted: refuse it here, before anything is recorded (ruling A184). One letter is enough to pass; a longer run inside such a UUID is the append guard's.
+	if !strings.ContainsAny(in.requestID, "abcdef") {
+		return bad("request_id is off its shape")
 	}
 	if in.channel != "text" && in.channel != "voice" {
 		return bad("channel is not text or voice")

@@ -6,11 +6,11 @@
 
 | File | What |
 |---|---|
-| `gateway.go` | `Gateway.Accept(ctx, Identity, body)`: identity check, the closed body (only `request_id`, `channel`, `text`, `locale_hint`, `voice`, `conversation_ref`; one object; no repeated, unknown or null member; `request_id` a lower-case UUID; `channel` `text` or `voice`; non-empty `text`; a `voice` member is read: one object, no repeated member, `audio_ref` null or absent), the keyed hash of the canonical body, the lookup, one append, then the turn. Constructors only: `New(Config)` |
+| `gateway.go` | `Gateway.Accept(ctx, Identity, body)`: identity check, the closed body (only `request_id`, `channel`, `text`, `locale_hint`, `voice`, `conversation_ref`; one object; no repeated, unknown or null member; `request_id` a lower-case UUID with at least one of the letters a to f (a UUID of only digits is 32 digits, a card-number-sized run, and is refused as an invalid body before anything is recorded or started, A184); `channel` `text` or `voice`; non-empty `text`; a `voice` member is read: one object, no repeated member, `audio_ref` null or absent), the keyed hash of the canonical body, the lookup, one append, then the turn. Constructors only: `New(Config)` |
 | `record.go` | `RecordRecorder` appends the three events through `chain.Appender` on the tenant's **core-edge emitter login**, one transaction per event. `RecordIndex` finds an earlier input by reading the tenant's chain through `record_read_chain_t` as the tenant's `record_read` login |
 | `handler.go` | `Gateway.Handler(resolve)` serves `POST /v1/conversations`: 202 for a new input, 200 for a retry, 400 `INPUT_INVALID`, 401, 409 `REQUEST_ID_REUSED`, 413, 503 `DEPENDENCY_UNAVAILABLE`, in the errors.v2 envelope. `resolve` returns the session identity; nothing about identity is read from the query, the headers or the body |
 
-**The events.** All three are written by `core-edge`, with actor `<kind>:<principal>` and the tenant of the login (the database refuses another), object reference `req_` plus the request id's hex digits:
+**The events.** All three are written by `core-edge`, with actor `<kind>:<principal>` and the tenant of the login (the database refuses another), object reference a **core-minted** ID, `req_` and a ULID, made by the gateway before the append (A184); it is never derived from the request id or anything else a client sent, and a deduplication and a reuse name the **original** input's object reference, read from the Record:
 
 | Event | Payload | Correlation |
 |---|---|---|

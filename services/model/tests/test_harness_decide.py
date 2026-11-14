@@ -23,6 +23,7 @@ from noema_model.harness import (
 )
 from noema_model.platform.telemetry import InMemoryTelemetry
 from tests.support import ManualClock, ScriptedProvider, make_config, reply, run
+from tests.support import MASKING
 
 NODE_Q = ChoiceQuestion("node", "Which intent is this?", (Option("investigate", "Investigate a payment"), Option(ABSTAIN, "None or other")))
 FLAG_Q = YesNoQuestion("multiple_intents", "Does the customer ask for more than one thing?")
@@ -40,7 +41,7 @@ def ans(qid: str, selected: str, **probs: float) -> dict[str, Any]:
 def build(payloads: list[Any]) -> tuple[Harness, ScriptedProvider]:
     config = make_config(providers=("alpha",))
     provider = ScriptedProvider("alpha", [reply(p, version="model-alpha-2026-01-01") if not isinstance(p, str) else reply(None, version="model-alpha-2026-01-01", raw=p) for p in payloads])
-    return Harness(config, {"alpha": provider}, ManualClock(), InMemoryTelemetry()), provider
+    return Harness(config, {"alpha": provider}, ManualClock(), InMemoryTelemetry(), masking=MASKING), provider
 
 
 def request(questions: tuple[Any, ...], task: Any = DecisionTask.INTENT_NODE, state: dict[str, str] | None = None) -> DecideRequest:

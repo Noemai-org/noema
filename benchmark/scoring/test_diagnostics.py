@@ -194,8 +194,8 @@ class ClarificationAndPrecision(unittest.TestCase):
         sets = runs(pairs)
         full = card(pairs, sets)
         single = card(pairs, sets[:1])
-        self.assertEqual([], CONTRACTS.errors("benchmark-scorecard.v2", full))
-        self.assertEqual([], CONTRACTS.errors("benchmark-scorecard.v2", single))
+        self.assertEqual([], CONTRACTS.errors("benchmark-scorecard.v3", full))
+        self.assertEqual([], CONTRACTS.errors("benchmark-scorecard.v3", single))
         self.assertEqual(full["tier0"], single["tier0"])
 
     def test_scoring_does_not_change_its_inputs(self) -> None:
