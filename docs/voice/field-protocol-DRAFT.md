@@ -13,6 +13,8 @@ Serves REQ-VOI-005, REQ-VOI-007, REQ-VOI-004; PERD §45.4 (the protocol of recor
 5. Pass: P95 at most 2.5 s, with the Intent Object correct against the script annotation.
 6. Full sessions recorded with consent and stored per REQ-VOI-004.
 
+**Amended for the G5 field plan** by the Founder's decision on noema#349, recorded in DEC-2026-11-10-architect-block-f-a129-a136 §3: item 3 above ("at least 100 sessions") is replaced by **240 measured sessions, 120 in Pidgin and 30 each in en-NG, Yoruba, Hausa and Igbo**; the pooled correctness must be at least 90% with the lower end of its 95% interval at least 80%; each locale must also reach at least 80% (24 of 30), reported per locale; the P95 passes only if the upper 95% bound is at most 2.5 s; the 50% Pidgin rule stays. The text of items 1 to 6 is PERD §45.4 as published and is not edited here.
+
 If the gate fails there is no design-partner demo, and the demo runs in text (SoT §37.5).
 
 ## 2. Before any session: the checklist
@@ -46,7 +48,7 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 
 **Readiness before a measured batch**
 - [ ] A simulation report per locale exists and is ready (VOI-17, `ready_for_field`): native review approved, zero actions on a low-confidence key slot.
-- [ ] A dry run of 10 sessions (VOI-11) completed and its notes list every problem found and its fix. The dry run is not measured and is not part of the 100.
+- [ ] A dry run of 10 sessions (VOI-11) completed and its notes list every problem found and its fix. The dry run is not measured and is not part of the 240.
 
 ## 3. A session
 
@@ -58,13 +60,13 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 
 ## 4. Counting and reporting (VOI-14)
 
-- Sessions are counted by server timestamps. A session is in the 100 only if both timestamps exist.
+- Sessions are counted by server timestamps. A session is in the 240 only if both timestamps exist; the count per locale is kept, because each locale has its own floor.
 - P95 is reported with n, the method and a confidence interval; correctness is reported against the annotation. If the sample is smaller than the plan's, the report says so and does not claim the gate.
 - Failed, clarified and fallen-back sessions stay in the denominator.
 
 ## 5. Decisions of 8 Nov 2026 and what is still open
 
-**Decided by the Founder:** the F5 gate (Intent Object correctness against the script annotation at least 90%, the lower end of its 95% interval at least 80%, at least 30 sessions per locale; the P95 and Pidgin rules of §45.4 stay); the recording plan (VOI-05, noema#201: at least 30 speakers, none above 10% of sessions, separate encrypted bucket, 90 days after analysis, withdrawal within 7 days, access for the two Founders, consent text after counsel); samples for providers are synthetic audio only until data terms are confirmed (F4); the Founder orders the Tecno Spark and Airtel 3G SIMs (F6); PCM16 16 kHz from the phone (A19, Opus not adopted: F7).
+**Decided by the Founder:** the F5 gate (Intent Object correctness against the script annotation at least 90%, the lower end of its 95% interval at least 80%, at least 30 sessions per locale; the P95 and Pidgin rules of §45.4 stay; the session plan and per-locale floor were then decided on noema#349, see §1); the recording plan (VOI-05, noema#201: at least 30 speakers, none above 10% of sessions, separate encrypted bucket, 90 days after analysis, withdrawal within 7 days, access for the two Founders, consent text after counsel); samples for providers are synthetic audio only until data terms are confirmed (F4); the Founder orders the Tecno Spark and Airtel 3G SIMs (F6); PCM16 16 kHz from the phone (A19, Opus not adopted: F7).
 
 **Protocol owner's proposals (mine to make under F6; the Founders can change them):**
 
@@ -73,7 +75,7 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 | 1 | Sites and permissions in Lagos | One roadside and one market site at minimum, each visited at two times of day; the Founders obtain the permissions; the site list is fixed before the dry run | Open: the Founders obtain permissions |
 | 2 | dB-meter app and network-baseline tool | One named phone dB-meter app and one network-test app, both recorded by name and version in the first session log; chosen at the first site visit and then frozen | Open: needs the devices |
 | 3 | Who runs sessions | Two Founders-appointed facilitators who do not coach pronunciation; testers for each locale are native speakers who did not speak in the session they review | Open: the Founders recruit (F3) |
-| 4 | Session count | F5 asks for 30 per locale: five locales is 150 measured sessions, not 100 (the dry run of 10 is separate). Awaiting the Founder's confirmation of that reading | Open: noema#349 |
+| 4 | Session count | Decided by the Founder on noema#349 and recorded in DEC-2026-11-10-architect-block-f-a129-a136 §3: 240 measured sessions (120 Pidgin, 30 each in en-NG, Yoruba, Hausa and Igbo); the dry run of 10 is separate | Decided |
 | 5 | Devices and SIMs (PRE-05) | The Founder orders now (F6) | Open |
 | 6 | VOI-05 signed; consent text reviewed | Counsel first, then the Founder signs | Open |
 | 7 | At least one qualified speech provider (DEBT-14, expiry 2026-11-30) | API documents first, then one pinned synthetic-audio sample per provider (F4) | Open |
