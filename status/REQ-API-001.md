@@ -57,3 +57,6 @@ State: draft PR. New contracts only; nothing earlier changes (AGENT-15). No core
 - Open questions (owner): none new.
 - Files to read first: `contracts/schemas/investigation-response.v1.json` (`PublicStage`), `tools/contracts/test_public_api.py`.
 - Do not touch: the generated files by hand.
+
+### Update 2026-11-14 · A214: `policy_version` at four digits in all (EL)
+- `overlay-card.v1` `policy_version` may now hold at most four digits in all, the name and the numbers together (it was: each number at most four digits, so `@1234.1234.1234` passed, and the core's mask joins digits across the dot: the Security Reviewer's note (a)). Ruling A214 (relayed, Founder-approved interim, not yet committed). The test file's accept list gains `fin@12.34` and `fin.p1@1.2.3`; its refuse list gains `fin@1234.1234.1234`, `fin@123.45.6`, `fin.p12@12.345` and `fin.p1@1.2.3.4`; new invalid fixture `policy_version_split_across_dots.json`. Generated Pydantic model regenerated, not hand-edited. One push.

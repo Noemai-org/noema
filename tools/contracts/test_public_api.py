@@ -63,9 +63,9 @@ DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
 # A masked case reference shows at most four digits in all (A187), of any script, and carries a mask character (A207: the core masks it before it reaches the client).
 MASK_CHARS = "*\u2022\u2026"
 AT_MOST_FOUR_DIGITS = rf"^(?=[\s\S]*[{MASK_CHARS}])(?:{NOT_DIGIT}*{DIGIT}){{0,4}}{NOT_DIGIT}*$"
-# option_id of an overlay card: no more than four digits in all (A211), and bounded. The pack version of a confirmation: each number at most four digits, and bounded (ASCII-only members, so the ASCII class is the whole alphabet).
+# option_id of an overlay card: no more than four digits in all (A211), and bounded. The pack version of a confirmation: at most four digits in all, name and numbers together (A214), and bounded (ASCII-only members, so the ASCII class is the whole alphabet).
 OPTION_ID = r"^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
-POLICY_VERSION = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\.[0-9]{1,4}(\.[0-9]{1,4})?$"
+POLICY_VERSION = r"^(?![^0-9]*(?:[0-9][^0-9]*){5})[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\.[0-9]{1,4}(\.[0-9]{1,4})?$"
 # PERD §39.2: the five event kinds of the stream.
 EVENT_KINDS = {"progress", "clarification", "confirmation", "answer", "error"}
 # PERD §40.1 "Never shown", and the internal members of clarification.v1 and confirmation-request.v1 that the overlay projection leaves out.
@@ -187,9 +187,9 @@ class PublicApi(unittest.TestCase):
             self.assertFalse(refused(OPTION_ID, text), f"option {text!r} is refused")
         for text in ("opt_12345", "4" * 32, "opt_" + "1" * 20, "", "x" * 33, "Opt_1", "a1b2c3d4e5", "opt_1_2_3_4_5", "1a2b3c4d5"):
             self.assertTrue(refused(OPTION_ID, text), f"option {text!r} passes")
-        for text in ("fintech.transfer_exceptions@1.0", "fin.pol@3.1.2", "fin@9999.9999.9999"):
+        for text in ("fintech.transfer_exceptions@1.0", "fin.pol@3.1.2", "fin@12.34", "fin.p1@1.2.3"):
             self.assertFalse(refused(POLICY_VERSION, text), f"version {text!r} is refused")
-        for text in ("fin.pol@12345.0", "fin.pol@1." + "9" * 20, "fin.pol@1.0.12345"):
+        for text in ("fin.pol@12345.0", "fin.pol@1." + "9" * 20, "fin.pol@1.0.12345", "fin@1234.1234.1234", "fin@123.45.6", "fin.p12@12.345", "fin.p1@1.2.3.4"):
             self.assertTrue(refused(POLICY_VERSION, text), f"version {text!r} passes")
 
     def test_no_member_of_the_never_shown_list_or_an_internal_object_exists(self):

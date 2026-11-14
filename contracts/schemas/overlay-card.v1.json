@@ -112,7 +112,7 @@
         "policy_version": {
           "description": "Shown on request (on tap). Same shape as confirmation-request.v1 display.policy_version.",
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\\.[0-9]{1,4}(\\.[0-9]{1,4})?$",
+          "pattern": "^(?![^0-9]*(?:[0-9][^0-9]*){5})[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\\.[0-9]{1,4}(\\.[0-9]{1,4})?$",
           "maxLength": 128
         },
         "expires_at": {
