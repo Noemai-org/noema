@@ -122,6 +122,7 @@ def _execute(env: RunEnv, lc: LoadedCase, turns: _Turns) -> Json:
             env.control.advance(argument)
     turns.sent += 1  # counted when the request is sent: a timeout can come after the core received it (Codex review of noema#112)
     conv = env.api.start(token, f"{case['case_id']}-t1", texts[0], locale_hint=locale)
+    env.correlations[case["case_id"]] = conv.correlation_id
     env.api.wait_settled(token, conv.investigation_id, timeout_s=env.settle_timeout_s, poll_s=env.poll_s, sleep=env.sleep, now=env.now)
     _drive(env, token, case, after, conv)
     for number, text in enumerate(texts[1:], start=2):
@@ -190,6 +191,7 @@ def run_suite(env: RunEnv, suite: Suite, out: Path, *, commit_sha: str | None, p
             result = run_case(env, lc)
             _write(out / "results" / f"{lc.case['case_id']}.json", result)
             results.append(result)
+    _write(out / "correlations.json", dict(sorted(env.correlations.items())))  # the evidence probes read each case's reconstruction by its correlation id
     completed = sum(1 for r in results if r["status"] == "COMPLETED")
     errors: dict[str, int] = {}
     for r in results:

@@ -136,3 +136,4 @@ class RunEnv:
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.monotonic
     costs: CostFiles = field(default_factory=lambda: CostFiles(None))  # the model service's bench cost files; none configured means cost is not available
+    correlations: dict[str, str] = field(default_factory=dict)  # case id -> the correlation id of its conversation; written to correlations.json for the evidence probes (noema#436)
