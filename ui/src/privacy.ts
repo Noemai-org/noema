@@ -1,7 +1,9 @@
 // Test aid only: these checks cannot prove that arbitrary text is safe to show.
 export function scanVisibleText(text: string): string[] {
   const findings: string[] = [];
-  if (/[0-9](?:[ -]?[0-9]){4}/u.test(text)) findings.push("digit-run");
+  if (/\p{Nd}(?:[\s\p{Zs}.\-/_():\u00ad\u034f\u180e\u200b-\u200d\u2010-\u2015\u2060\u2212\ufeff]*\p{Nd}){4}/u.test(text)) {
+    findings.push("digit-run");
+  }
   if (/\bmodel confidence\b/iu.test(text)) findings.push("model-confidence");
   if (/\btraceback\s*\(most recent call last\)/iu.test(text)) findings.push("stack-trace");
   if (/\bpolicy threshold\b/iu.test(text)) findings.push("policy-threshold");

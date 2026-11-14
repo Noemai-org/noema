@@ -35,7 +35,7 @@ test("REQ-UI-001: scanner checks attribute and input value leakage", async ({ pa
     try {
       const { scanDom } = await import(moduleUrl);
       const root = document.createElement("div");
-      root.innerHTML = '<input aria-label="1-2-3-4-5"><input>';
+      root.innerHTML = '<input aria-label="١-٢-٣-٤-٥"><input>';
       root.querySelectorAll("input")[1].value = "12 34 5";
       return scanDom(root);
     } finally { URL.revokeObjectURL(moduleUrl); }
