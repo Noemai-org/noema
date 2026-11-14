@@ -77,6 +77,40 @@
 - Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
 - Do not touch: the migration files.
 
+## Session 2026-11-12 · slice 3c part 2: main wires the protected API (EL)
+
+## Session summary
+- What changed: `cmd/core/compose.go` gains `Env`, `Components.Records` (the Record reader), `apiRoutes` and `buildAPI` (`edge.Load` with the route table; none of the session settings is no API, some or wrong is an error, a Record reader without session settings is an error); `compose` and `composeReadiness` take the API as an argument and name `edge chain` and `record reader` when missing; `main.go` builds the API, refuses to start on a configuration error, mounts it under `/v1/` beside the public health routes. The not-yet-wired guard test `no_reconstruction_test.go` is removed in this PR, as its header and the REC-03 note asked.
+- Why: the first running route of the G1 path: `GET /v1/reconstructions/{correlation_id}` for ops and audit, from the token's tenant, behind the verified session and the deny-by-default role gate.
+- Tests added (REQ-API-004, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16): `cmd/core/api_test.go` (no settings is no API; partial settings and a reader without session settings refuse to start; ops and audit reach the handler and the reader is asked for the token's tenant, not the query's; customer, approver, no session, a bad token and an unserved tenant are refused before the reader; an unregistered route is 404; no reader means no route; the route table lists exactly ops and audit; health stays public). Written first (`b92deb55`, did not compile). Eight mutants killed (all roles allowed was first equivalent at the output level because the handler also refuses; the route-table test kills it).
+- Not done, stated: the input gateway (`POST /v1/conversations`, C2, noema#466) and its constructor; the Interpreter, Evidence, Trust, Explainer, Recorder and Admissions constructors; and the **per-tenant Record reader pools**, which need a configuration of logins and secrets that nothing defines (platform/config is empty). With no reader, no route is mounted and `/readyz` names what is missing; the core stays not ready.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#466 merges, add its handler to `apiRoutes` (roles: customer) and the Admissions/Recorder constructors to `Components`; settle the Record reader's pool configuration (see the PR's AGENT-02 note).
+
+
+## Session 2026-11-12 17:00 WAT · slice 3c part 2, fix round (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `6ad19f11`, blocking finding: `buildAPI` built the reconstruction `Handler` with no `Log`, so `access()` returned silently and no `RECORD_ACCESSED` line was written (REQ-AUD-003). Now `Components.AccessLog` is required whenever `Records` is set (startup error otherwise) and is passed to the handler.
+- Tests added (REQ-AUD-003): `TestARecordReaderWithoutAnAccessLoggerRefusesToStart`; `TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed` (one line, the token's tenant, an outcome code). Red first (did not compile: no `AccessLog`).
+- Notes: (2) README of `reconstruct` no longer says "not wired"; the route stays unreachable until a Record reader is configured (OD-P-82), and the removed `no_reconstruction_test.go` guard is stated in the PR. (3) `edge/README.md` reworded.
+- Not done, decided: note (4), the reconstruct handler echoing the path's correlation ID (header, body, access log) as the response ID. After noema#481 the route would carry two IDs and the echoed lookup key can be account-shaped. The fix changes `record/reconstruct` (P0) and needs noema#481 merged; it is a follow-up PR with a failing-first test (EL), not part of this one.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, make the reconstruct handler use `session.CorrelationFromContext` for header, envelope and access log, and name the lookup key as a separate field.
+- Do not touch: the handler's outcome codes.
+
+## Session 2026-11-12 23:15 WAT · slice 3c part 2, fix round 2 (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `d9f70642`, blocking: the test that a served and each refused call emit `RECORD_ACCESSED` covered one refused outcome only, and `api_test.go` claimed the SERVED outcome was asserted in the reconstruct package, which it was not (my claim was wrong). Added `TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome` in `record/reconstruct` against a real Record: SERVED, a missing correlation, a refused kind of caller and another tenant's caller each write exactly one line with tenant, principal and outcome and no Record content. Corrected the comment.
+- Tests: the new test needs `pgsodium` (the Record append), so it ran in CI only; a mutant (removing the SERVED `access` call) was not run locally for the same reason.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, the reconstruct handler's path-echoed correlation ID (follow-up PR, failing test first); the first reader PR needs the cross-tenant test for `TenantDBs`.
+
 ## Session 2026-11-12 · correlation ID (EL; noema#458, the Security Reviewer's SEC-03 finding)
 
 ## Session summary
@@ -111,3 +145,20 @@
 - Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
 - Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
 - Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
+
+# Session 2026-11-13 16:30 WAT · EDG-01 · the public edge serves only the public areas (noema#505, SEC-04)
+
+## Session summary
+- What changed (PR links): `edge.checkRoute` now denies by default: the first path segment must be a public area (`conversations`, `confirmations`, `investigations`, `reconstructions`, `ops`, `record`, `outcomes`: PERD 39.2 and the matrix rows 8 to 12), and no segment may contain `key` or `rotat` (`notPublic`, `publicAreas` in `edge/edge.go`); `edge/refuse_test.go`; the edge README. The existing edge tests used the placeholder paths `/v1/cases`, `/v1/x` and `/v1/probe`; they now use public areas (a rename of 33 path strings, no assertion changed). The PR number is on noema#505.
+- Why: the Security Reviewer's finding on noema#504 (a draft, red by design at `ec5b44a`): `checkRoute` required only a `/v1/` prefix, a handler and a role, so the public edge accepted routes of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), of any other listener (row 13) and a route that names a key or a rotation (rule 7, D3a). **Design choice, and why:** a deny-list would have to name the other listener's path, and core code and tests may carry no benchmark-aware term (REQ-TST-006; `tools/lint` failed my first version on exactly that), so the edge allow-lists the public areas instead. That is the stronger form (deny by default) and it needs no forbidden word.
+- Risks, and how they are contained: it can only add refusals. A new public area needs a line in `publicAreas` and a matrix row, on purpose. The only route table on `main` or in an open PR is noema#486's `GET /v1/reconstructions/{correlation_id}`, which is a public area; `go test ./cmd/core/` passes. noema#496's route `GET /v1/conversations/{ref}/events` is a public area as well.
+- Tests added (REQ-SEC-001, REQ-API-004, INV-12): `TestThePublicEdgeServesOnlyThePublicAreasAndNoKeyRoute` (17 patterns), `TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone` (the six public routes of PERD 39.2 and the audit read).
+- **Security Reviewer's finding on this PR (head `66068de5`):** my first allow-list was narrower than the matrix: rows 8 to 12 name the public routes `GET /v1/ops/debt`, `GET /v1/ops/alerts`, `GET /v1/record/verify` and `GET /v1/outcomes/{verdict_id}`, whose first segments `ops`, `record` and `outcomes` were refused. They are public areas now (each route stays role-gated), and the Security Reviewer's matrix test file (`edge/authz_matrix_test.go`, from noema#504, by the Security Reviewer) is part of this PR so the allow-list cannot drift from the matrix: all three of its tests pass.
+- Failing first: the Security Reviewer's test failed in noema#504 at `ec5b44a`; locally, before the fix, every refused pattern of this test was accepted (CI red evidence: noema#504's run, and the first commit of this branch, which failed `lint` on the deny-list form).
+
+## Pre-work for the next agent
+- Exact next step: the Security Reviewer re-runs noema#504 (rows 8 to 12 and the refusal) against this change; the admin listener (C-ADMIN) is a separate task.
+- Open questions (owner): the D14 admin route spelling (Engineering Lead, Architect).
+- Files to read first: `edge/edge.go` (`notPublic`), `edge/refuse_test.go`.
+- Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
+

@@ -1,7 +1,8 @@
 // Command core is the Noema core service: Trust, Execution, Outcome, the Record, the Evidence
 // Layer, the enterprise adapters and the Temporal workers (SoT §35.6).
 //
-// This skeleton serves only the two health endpoints. It holds no product logic (PLT-01).
+// It serves the two health endpoints and, when the session settings are present, the protected /v1 API (EDG-01 slice 3c). It holds no product logic (PLT-01): the
+// composition root is compose.go.
 package main
 
 import (
@@ -16,6 +17,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
 const (
@@ -33,9 +37,13 @@ func notReady() (bool, string) {
 	return false, "dependencies are not configured"
 }
 
-// newMux returns the health routes. /healthz says the process is alive; /readyz says it can serve.
-func newMux(check readiness) *http.ServeMux {
+// newMux returns the health routes and, when api is not nil, the protected /v1 API. /healthz says the process is alive; /readyz says it can serve. The health routes
+// are public and outside /v1; everything under /v1/ goes through api (the verified session first), never around it.
+func newMux(check readiness, api http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
+	if api != nil {
+		mux.Handle("/v1/", api)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -88,7 +96,15 @@ func main() {
 		}
 		return
 	}
-	srv := &http.Server{Addr: addr, Handler: newMux(notReady), ReadHeaderTimeout: headerTimeout}
+	// The components other tasks build are plugged in here as their constructors land (nothing is configured yet, so /readyz names the first one missing).
+	components := Components{}
+	clk := clock.System{}
+	api, err := buildAPI(components, Env{Getenv: os.Getenv, ReadFile: os.ReadFile}, clk, ids.New(clk, nil))
+	if err != nil {
+		logger.Error("configuration", "error", err.Error()) // names the setting, never a value
+		os.Exit(1)
+	}
+	srv := &http.Server{Addr: addr, Handler: newMux(composeReadiness(components, api), api), ReadHeaderTimeout: headerTimeout}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

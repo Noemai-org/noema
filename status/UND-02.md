@@ -140,3 +140,54 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Open questions (owner): PERD cell "null when the audio was discarded" rides the next PERD version (Steward).
 - Files to read first: `contracts/schemas/canonical-input.v2.json`, `services/model/noema_model/understanding/gateway/gateway.py`.
 - Do not touch: `canonical-input.v1.json`.
+
+# Session 2026-11-12 · UND-02 (core half) · the input gateway writes INPUT_RECEIVED (ruling A161)
+
+## Session summary
+- What changed (PR links): noema#466, `services/core/inputgateway/` (new): `Gateway.Accept` and `Handler`, `RecordRecorder` (core-edge), `RecordIndex` (record_read). Constructors for EL to wire into `compose.go`; nothing is wired by me.
+- Why: ruling A161 (Architect, answering noema#454): the input gateway writes INPUT_RECEIVED as core-edge before anything proceeds; a repeated request id with the same body appends INPUT_DEDUPLICATED and returns the original result; another body is 409 plus SECURITY_EVENT REQUEST_ID_REUSED; the orchestrator gets the recorded event reference with the turn. REQ-INP-001, REQ-INP-002, REQ-INP-003, REQ-AUD-001; INV-11, INV-12.
+- Risks, and how they are contained: the lookup and the append are two steps, so concurrent duplicates are serialised by a lock in the process (tested with eight at once; holds for one core process); a failed append of any of the three events refuses the input and starts nothing (tested for each). The text of an input never enters a Record event, an error or the HTTP error envelope (tested).
+- Tests added (REQ-INP-001/2/3, REQ-AUD-001, EC-E16, INV-12): `inputgateway/gateway_test.go`, ten behaviours on the real Record plus one that builds a reconstruction from it and reads the REQUEST section. Failing first: tests-only commit `b9e3aa12` (the package had no source, so it did not compile).
+- Mutations run by hand, each killed by a named test: append error ignored (M1), dedup dropped (M2), 409 dropped (M3), security event dropped (M4), INPUT_DEDUPLICATED dropped (M5) or its error ignored (M6), turn started before the append (M7), event reference not handed over (M8), lookup ignoring the principal (M9) or the window (M10), no per-key lock (M11), text in the payload (M12), empty locale key written (M13), repeated members allowed (M14), unknown members allowed (M15), channel and request_id keys renamed (M16, M17), the invalid-input error quoting the body (M18), a text field in the security event (M19). Three needed new tests (M10 was a bad mutation first; M13 survived until the no-locale test existed; M18 had no test until `TestNoErrorOrResponseQuotesTheTextOfAnInput`).
+- Debt entries (for the Steward to register, REQ-OPS-004): (1) `RecordIndex` reads the tenant's chain per request, owner C2, expires when a keyed lookup function exists (a migration); (2) the per-request lock is per process, owner C2, expires before a second core process; (3) dedupe scope is the principal, not the session, owner EL with C1 (the session id is not in the Record); (4) a recorded input whose `Start` failed is not resumed, owner EL (STM-01 persistence).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `Config` in `compose.go` (see the README), with the identity mapping of noema#454 item 3.
+- Open questions (owner): whether `Start` should run asynchronously (EL).
+- Files to read first: `services/core/inputgateway/README.md`, `gateway.go`.
+- Do not touch: the event payload keys (`channel`, `locale`, `request_id`): the reconstruction reads them by name.
+
+# Session 2026-11-12 (later) · UND-02 core · rulings A168 and the REC-08 merge
+
+## Session summary
+- What changed: (1) `main` merged in and the test world signs its Record events (`recordsig.All`; REC-08 reached `main` after this branch was cut). (2) Ruling A168 (docs#159, the Codex P1 on this PR): on a retry of a recorded input the gateway appends `INPUT_DEDUPLICATED` and then calls `Start` again for the same recorded input; a failing `Start` is `ErrStart` (503), not an acknowledgement. `Start` is now called on every delivery and must be idempotent per `Turn.Input` (noema#490's `Store.Start` is). `gateway.go`: the dedup branch and `turnOf`; `README.md`; four tests.
+- Failing first: tests-only commit `3328ec6a` (the retry did not call `Start`).
+- Tests added (REQ-INP-003, REQ-AUD-001, EC-E16): `TestARetryAfterAFailedStartCallsStartAgainAndReturnsTheOriginalResult`, `TestARetryWhoseStartFailsAgainIsRefusedAndRecorded`, `TestARetryThatCannotBeRecordedNeverReachesStart`; the dedup and concurrent-redelivery tests now assert two and eight identical turns.
+- Not run locally: the gateway tests run against PostgreSQL with pgsodium, which this machine lacks; CI's `core` is the evidence, so no hand mutation of this change was run (the red-first run is the proof that the retry did not call `Start` before).
+- Debt: item 4 (a recorded input whose `Start` failed is not resumed) is closed for the gateway by A168; the part inside the orchestrator (a run that started and failed) stays EL's.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's `Start` seam in `compose.go` calls `investigations.Store.Start` (noema#490) and then the runner, and treats `created=false` as "already started".
+- Open questions (owner): A169 (the Record lookup binds the turn ID) is noema#465's, EL.
+- Do not touch: `inputgateway/record.go` (the events are unchanged).
+
+# Session 2026-11-12 (later still) · UND-02 core · review P2 on noema#466
+
+- **Finding:** `Handler.fail` minted a second correlation ID for the error body (and fell back to `corr_unavailable`), so the body could disagree with the request's own correlation on the response header.
+- **Fix:** the error body reuses the correlation ID the edge middleware put on the response header, falls back to the edge's own `corr_NONE` when it is absent or malformed (never echoes it), and mints nothing. The success body's `correlation_id` stays the investigation's, minted by the gateway: adopting a client-supplied header as an investigation's chain would let a client choose which chain an input joins.
+- **Tests:** `handler_correlation_test.go` (no database): four failure paths under a simulated middleware, and a missing, malformed and injected header. Red locally before the fix (the body named `corr_unavailable`), then green; three hand mutations (shape check off, empty fallback, header ignored) each red. One push for the round, with the test and the fix together (A176).
+- Debt: none. Conflicts raised: none.
+
+
+# Session 2026-11-12 (evening) · UND-02 core · Security Reviewer's review at ad9c3ffc
+
+- **Findings:** (1) blocking: `voice` was accepted as any object and handed on, including any `audio_ref`; (2) to settle: `input_hash` was a plain sha-256 of the whole body in the Record; (3) a reuse answered 409 even when its `SECURITY_EVENT` append had failed. Notes 4 (the lookup scans the chain; stated debt, item 1) and 5 (each reuse appends a security event, so a session can fill its own chain; a rate limit belongs to the edge, C1) are not changed here.
+- **Fix (1):** `voice` is read (one object, no repeated member). A non-null `audio_ref` is refused with `INPUT_INVALID` and one fixed sentence, whatever it holds and without reading the Record, so another tenant's reference and a reference that exists nowhere get the same answer (CR-2026-11-08, A1: no retention path exists). The body that is hashed and handed on (`Turn.Body`) is the canonical body without `audio_ref`; a null and an absent `audio_ref` are one body. The reviewer's third test (a reference whose consent event is another tenant's) holds by construction rather than by a Record fixture: the refusal reads nothing, and no emitter writes `AUDIO_RETAINED` in the POC. When a retention path exists, the consent-bound check of the CR replaces this refusal and gets its own tests.
+- **Fix (2), my choice, for the reviewer to confirm:** HMAC-SHA-256 of the canonical body under a per-tenant key derived from a core key (`Config.HashKey`, at least 32 bytes, from configuration, no default), recorded as `hmac-sha256:` plus 64 hex digits. The alternative (keeping the plain hash and arguing it is acceptable) fails REQ-SEC-003 for a short text or an account number. **New for EL:** `compose.go` must supply the key from a file-mounted secret (PLT-05); rotating it makes a retry of an older input look new for up to the 24-hour window.
+- **Fix (3):** if the `SECURITY_EVENT` cannot be appended the error is `ErrRecord` (503) and no longer also `ErrRequestIDReused` (409): "Record first" for the answer too.
+- **Tests:** `parse_test.go` (no database): null, absent and invalid `audio_ref` (ten non-null forms, one answer for all), a repeated member in `voice`, null equals absent, the hash is an HMAC, per tenant and per key. `gateway_test.go`: the voice case end to end (400 for four references with identical answers, nothing recorded or started; a null accepted; the turn's body without `audio_ref`; a redelivery without the null deduplicated), the reuse-with-Record-down case (503, no second security event), the `input_hash` form, `New` refusing no key and a 31-byte key. The tests were written first and did not compile (no `canon`, `inputHash`, `HashKey`).
+- **Mutations by hand on the pure part, each red:** non-null check off; `audio_ref` not dropped; repeated-member check off; the tenant left out of the key; a plain sha-256 under the `hmac-sha256:` label; the key not mixed in; an error that quotes the reference; the voice read skipped; the cleaned voice not used. The database-backed tests ran only in CI (no pgsodium here); one push for the round (A176).
+- **Debt:** none new. **Conflicts raised:** none.
+- **Correction at the same head family:** `0a0bce96` failed `core` in `TestARetryThatCannotBeRecordedNeverReachesStart`, an A168 test of mine that still expected the 409 when the reuse event cannot be appended (https://github.com/Noemai-org/noema/actions/runs/43262070521/job/131335730267). I had changed the behaviour (note 3) and updated one test of it but not the other; the database-backed tests cannot run in my sandbox, so I found it in CI. The test now asserts the 503 with the Record down and the 409 with it up. Every other test passed.
