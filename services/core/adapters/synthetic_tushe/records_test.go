@@ -228,7 +228,8 @@ func TestEvidenceAndComplaintBadInputSendsNothing(t *testing.T) {
 	}
 }
 
-// REQ-EXE-003: the complaint reference is logged with one keyed POST that names the tenant and nothing else; it moves no clock and carries no text.
+// REQ-EXE-003, A185: the complaint reference is logged with one keyed POST that names the tenant and nothing else, conditional on the case having no complaint
+// (If-None-Match: *); it moves no clock and carries no text. Without the header the target creates unconditionally, so the write would not be atomic.
 func TestLogComplaintSendsOneKeyedRequestAndReadsTheReference(t *testing.T) {
 	var s seen
 	c := serveOnce(t, &s, 201, nil, complaint(nil))
@@ -236,11 +237,49 @@ func TestLogComplaintSendsOneKeyedRequestAndReadsTheReference(t *testing.T) {
 	if r.Class != adapters.ClassAck2xx || r.RawCode != "201" || r.ExternalAck != "cmp_1" || r.Complaint == nil || r.Complaint.ComplaintRef != "cmp_1" {
 		t.Fatalf("result %+v", r)
 	}
-	if s.hits != 1 || s.method != http.MethodPost || s.path != "/v1/cases/cas_1/complaints" || s.key != "idem-cm-1" || s.ifNone != "" {
-		t.Fatalf("request %s %s key=%q if-none-match=%q hits=%d", s.method, s.path, s.key, s.ifNone, s.hits)
+	if s.hits != 1 || s.method != http.MethodPost || s.path != "/v1/cases/cas_1/complaints" || s.key != "idem-cm-1" || s.ifNone != "*" {
+		t.Fatalf("request %s %s key=%q if-none-match=%q hits=%d, want If-None-Match: *", s.method, s.path, s.key, s.ifNone, s.hits)
 	}
 	if len(s.body) != 1 || s.body["tenant_id"] != "ten_a" {
 		t.Fatalf("body %v, want only the tenant", s.body)
+	}
+}
+
+func rivalBody(code string, ref string) map[string]any {
+	e := map[string]any{"code": code, "message": "x", "retryable": false}
+	if ref != "" {
+		e["details"] = []any{map[string]any{"field": "existing_complaint_ref", "issue": ref}}
+	}
+	return map[string]any{"error": e}
+}
+
+// REQ-EXE-007, A185, EC-E06: a conditional create refused because the case already has a complaint under another key (412 PRECONDITION_FAILED) is a business
+// rejection by the target, never an acknowledgement and never unknown: the class is DUPLICATE_CREATE, nothing is adopted as this write's result, and the complaint
+// that exists is named so it can be read back. Any other 412 is a plain rejection.
+func TestARivalComplaintIsRefusedAsExistingAndNeverAdopted(t *testing.T) {
+	in := adapters.LogComplaintInput{IdempotencyKey: "idem-cm-2", TenantID: "ten_a", CaseID: "cas_1", Timeout: time.Second}
+	var s seen
+	r := serveOnce(t, &s, 412, nil, rivalBody("PRECONDITION_FAILED", "cmp_9")).LogComplaint(deadline(t), in)
+	if r.Class != adapters.ClassDuplicateCreate || r.RawCode != "412:PRECONDITION_FAILED" || r.ExistingComplaintRef != "cmp_9" || r.ExternalAck != "" || r.Complaint != nil || r.KeyCollision {
+		t.Fatalf("a rival complaint: %+v", r)
+	}
+	if s.hits != 1 {
+		t.Fatalf("%d requests, want one: a refused create is never retried (AGENT-08)", s.hits)
+	}
+	for name, c := range map[string]struct {
+		body  any
+		class adapters.TransportClass
+		raw   string
+	}{
+		"another code":          {rivalBody("SOMETHING_ELSE", "cmp_9"), adapters.ClassRejected4xx, "412:SOMETHING_ELSE"},
+		"no body":               {nil, adapters.ClassRejected4xx, "412"},
+		"no existing reference": {rivalBody("PRECONDITION_FAILED", ""), adapters.ClassDuplicateCreate, "412:PRECONDITION_FAILED"},
+	} {
+		var s2 seen
+		r := serveOnce(t, &s2, 412, nil, c.body).LogComplaint(deadline(t), in)
+		if r.Class != c.class || r.RawCode != c.raw || r.ExistingComplaintRef != "" || r.ExternalAck != "" {
+			t.Errorf("%s: %+v", name, r)
+		}
 	}
 }
 
