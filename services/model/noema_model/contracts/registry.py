@@ -65,6 +65,7 @@ from . import (
     record_event_v3,
     recovery_request_v1,
     session_limits_v1,
+    trust_limits_v1,
     trust_profile_v1,
 )
 
@@ -275,5 +276,6 @@ TYPES: dict[str, Any] = {
     "record-event.v3#SecurityKind": record_event_v3.RecordEventV3SecurityKind,
     "recovery-request.v1": recovery_request_v1.RecoveryRequestV1,
     "session-limits.v1": session_limits_v1.SessionLimitsV1,
+    "trust-limits.v1": trust_limits_v1.TrustLimitsV1,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }
