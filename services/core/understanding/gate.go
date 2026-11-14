@@ -102,6 +102,10 @@ type Session struct {
 	AssertedBy    string // for example enterprise_idp
 }
 
+// Valid reports whether every field of the session has its shape: the one rule Gate.Admit applies first and refuses on (SESSION_INVALID). A caller that holds a
+// session uses it to refuse a malformed one before it calls anything else, so the user's input is not sent anywhere for a caller that should already be refused.
+func (s Session) Valid() bool { return s.valid() }
+
 func (s Session) valid() bool {
 	return sessionPrincipalRe.MatchString(s.PrincipalID) && sessionTenantRe.MatchString(s.TenantID) && sessionAuthnRe.MatchString(s.AuthnRef) &&
 		lowerSnakeRe.MatchString(s.PrincipalType) && assertedByRe.MatchString(s.AssertedBy)
