@@ -36,10 +36,10 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 
 ## Session summary
 - What changed: `benchmark-scorecard.v3.json` (v2 plus the required `exact_upper95` on every rate: the exact one-sided 95% upper bound on a failure rate, Clopper-Pearson, `1 - 0.05^(1/n)` at zero failures, rounded up to six places, null on a rate that is not a failure rate or has no cases); `benchmark/scoring/rates.py` wraps the frozen `stats.make_rate`; the scorer, its diagnostics and the report use it; v3 fixtures; INVENTORY and contracts README migration notes.
-- Why: A190 (interim, Founder-approved, relayed): approve `exact_upper95` in scorecard v3, AGENT-15 steps, thresholds unchanged.
+- Why: A190 (interim, Founder-approved; committed on `main` by docs#169 in `DEC-2026-11-13-architect-rulings-a183-a192`, merged 14 Nov 2026): approve `exact_upper95` in scorecard v3, AGENT-15 steps, thresholds unchanged.
 - Risks, and how they are contained: a new major for a strict reader of v2 (a required member is added). The v1 and v2 files are not edited and their bytes are pinned; a document is v2 or v3, never both. `stats.py` is hashed by the 27 Oct 2026 freeze, so it is not edited. No threshold, gate or margin is touched. `benchmark/publication` reads rate blocks by member name and keeps working; it does not check the new member. The qualification record copies only `k`, `n` and `rate`, so it is unaffected.
 - Tests added (REQ-BEN-004): `test_rates.py` (12), `tools/contracts/test_benchmark_v3.py` (7), emission tests in `test_scorecard.py`, report tests in `test_report.py`; seven mutations of the new code, each caught.
-- Regression cases added: none. Debt entries: none. Conflicts raised: none (A190 is relayed, not yet committed; docs#169 records it; the entry is cited as relayed).
+- Regression cases added: none. Debt entries: none. Conflicts raised: none. (Codex's P1 on noema#540 was right that A190 had to be committed first, AGENTS section 2.3; docs#169 merged on 14 Nov 2026 and this note now cites the committed record.)
 
 ## Pre-work for the next agent
 - Exact next step: if the Architect wants a published claim to carry the bound, `benchmark/publication/check.py` reads `exact_upper95` (a separate change; its rules are not changed here).
