@@ -1,0 +1,20 @@
+{
+  "missing_floor.json": "required",
+  "missing_at_risk.json": "required",
+  "unknown_member.json": "additionalProperties",
+  "floor_above_10000.json": "maximum",
+  "at_risk_above_10000.json": "maximum",
+  "floor_fractional.json": "type",
+  "floor_as_ratio.json": "type",
+  "at_risk_fractional.json": "type",
+  "floor_negative.json": "minimum",
+  "at_risk_negative.json": "minimum",
+  "floor_string.json": "type",
+  "at_risk_boolean.json": "type",
+  "at_risk_null.json": "type",
+  "pack_id_uppercase.json": "pattern",
+  "pack_id_trailing_newline.json": "pattern",
+  "pack_id_leading_digit.json": "pattern",
+  "label_not_allowed.json": "enum",
+  "schema_version_2.json": "enum"
+}
