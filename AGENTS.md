@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 77da67e2f4df0aa3b5dd46b570b1ca8aa476c923. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit af3f840d895e251726c4d7e9e013e39bb39934a1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -141,7 +141,7 @@ From PERD §36.1. The "never use instead" column is that table's rejected altern
 | JSON Schema in `/contracts`, with codegen to Pydantic and Go | Hand-written types per language |
 | React and TypeScript (thin) | Server-rendered templates |
 | GPT, Gemini and Claude behind `providers/` | A single provider with theoretical fallback |
-| Aethex AI, Indigenius and N-ATLAS behind `providers/` | A single vendor |
+| Aethex AI, Indigenius and N-ATLAS behind `providers/` (the rule until the SoT edit of DEC-2026-11-13-voice-provider-intron takes effect). **From that edit (A179, proposed):** Intron Sahara v2.5 behind separate speech-to-text and text-to-speech interfaces under `providers/`, the sole integrated speech provider in the POC | Until the edit: a single vendor. From the edit: integrating Aethex AI, Indigenius or N-ATLAS in the POC |
 | HMAC-SHA-256 grants and confirmations | Per-power asymmetric keys now (deferred to before Phase 2) |
 | mTLS between the services | A shared bearer token |
 | Hypothesis (Python) and a Go property-testing library | Example tests only. The Go library (`pgregory.net/rapid`) is [REC] and needs approval under AGENT-14 |

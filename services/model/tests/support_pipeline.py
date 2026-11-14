@@ -26,6 +26,7 @@ from noema_model.understanding.pipeline import (
 from noema_model.understanding.resolution import Candidate, RankingConfig, RecipientMatcher, ResolutionState
 from tests.support import ManualClock, make_config, raw_config
 from noema_model.harness.config import load_harness_config
+from tests.support import MASKING
 
 ROOT = Path(__file__).resolve().parents[3]
 PACK = json.loads((ROOT / "packs" / "fintech_v1.json").read_text(encoding="utf-8"))
@@ -122,7 +123,7 @@ def harness_for(model: ScriptedModel, *, routes: dict[str, Any] | None = None, e
     providers: dict[str, Any] = {"alpha": model}
     if extra:
         providers.update(extra)
-    return Harness(config, providers, ManualClock(), telemetry), telemetry
+    return Harness(config, providers, ManualClock(), telemetry, masking=MASKING), telemetry
 
 
 def full_routes(drop: tuple[str, ...] = ()) -> dict[str, Any]:

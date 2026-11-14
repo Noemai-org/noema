@@ -50,8 +50,6 @@ func TestAppendRefusesAPayloadStringWithADigitRunOverFour(t *testing.T) {
 		"an ID-shaped value that is not an ID": map[string]any{"grant_id": "grt_4111111111111111!"},
 		"a date that is not RFC 3339":          map[string]any{"on": "2026-11-13"},
 		"a typed ID that is only digits":       map[string]any{"ref": "ten_4111111111111111"},
-		"a bare number as the target":          map[string]any{"target_ref": "4111111111111111"},
-		"a bare number as the acknowledgement": map[string]any{"external_ack": "4111111111111111"},
 		"a number split by an algorithm name":  map[string]any{"note": "4111ed25519111ed25519111ed25519111"},
 		"a number as an object key":            map[string]any{"4111111111111111": "x"},
 	} {

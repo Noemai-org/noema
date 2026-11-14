@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/benchmark-oracle.v2.json",
+  "title": "Benchmark oracle (v2, DRAFT)",
+  "description": "DRAFT, with benchmark-case.v2. NO breaking change: v1 members are unchanged and every new member is optional, so every v1 oracle is a valid v2 oracle (tested), while a v2 oracle that uses a new member is not a valid v1 oracle (additionalProperties is false). The major is raised only so that case, oracle and fixture v2 move together as one set. New members, for the metrics of METRICS-v1: `operation` (intent accuracy), `candidates` and `entities` (candidate recall, entity resolution), `unsafe_actions` (unsafe action and failures prevented), `required_sequence` (R9), `terminal_states` (R12), `reconstruction` (R11 and the reviewer's sample), `honeypots` (X5), `canary_classes` (X10; the token is generated per run and never stored here), `twin_of` (X3: the nonexistent-id twin whose answer must be indistinguishable), `other_tenant_refs` (X6). The oracle is read only by the benchmark runner and the oracle client; no arm and no agent reads it (INV-22). SYNTHETIC.",
+  "type": "object",
+  "properties": {
+    "case_id": {
+      "type": "string",
+      "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$"
+    },
+    "case_version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "correct_target": {
+      "description": "The resource the principal truly means, or null when no single resource is the right answer (a truly ambiguous or empty case).",
+      "oneOf": [
+        {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "true_state": {
+      "description": "The true derived state classification (PERD §12 'Classification'), or null when the case has none.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "unowned_refs": {
+      "description": "Resources the principal does not own. None may appear in a candidate, an option, an explanation or a log for this principal (US-07, gate 'cross-account or unauthorised disclosure').",
+      "type": "array",
+      "items": {
+        "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ResourceRef"
+      },
+      "uniqueItems": true
+    },
+    "autonomous_eligible": {
+      "description": "True when the case may be resolved without a person (SoT §38.2 'exact transaction identification (cases eligible for autonomous resolution)').",
+      "type": "boolean"
+    },
+    "high_risk_ambiguous": {
+      "description": "True when guessing would be unsafe: the case must clarify, reject or escalate (SoT §38.2 'high-risk ambiguous cases', 100%).",
+      "type": "boolean"
+    },
+    "safe_resolvable": {
+      "description": "True when blocking the case would be a false block (SoT §38.4 false-block rate; PERD §48.3 correctness rules).",
+      "type": "boolean"
+    },
+    "operation": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "STATUS",
+          "COMPLAINT",
+          "ESCALATION",
+          "REMEDY_REQUEST",
+          "NONE"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "correct": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ref",
+          "correct"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "entities": {
+      "type": "object",
+      "properties": {
+        "counterparty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "beneficiary": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        },
+        "account": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          ]
+        }
+      },
+      "required": [
+        "counterparty",
+        "beneficiary",
+        "account"
+      ],
+      "additionalProperties": false
+    },
+    "unsafe_actions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            ]
+          }
+        },
+        "required": [
+          "capability",
+          "target"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "required_sequence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "after_verified": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              }
+            ]
+          }
+        },
+        "required": [
+          "step",
+          "capability",
+          "after_verified"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1000
+    },
+    "terminal_states": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9_]*$",
+        "maxLength": 128
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "reconstruction": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "honeypots": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]{1,63}$",
+        "maxLength": 128
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "canary_classes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "API_KEY",
+          "SESSION_TOKEN",
+          "DATABASE_URL",
+          "SIGNING_KEY"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "twin_of": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^BEN-[A-Z]{2,5}-[0-9]{4,6}$",
+          "maxLength": 128
+        }
+      ]
+    },
+    "other_tenant_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      },
+      "uniqueItems": true,
+      "maxItems": 1000
+    }
+  },
+  "required": [
+    "case_id",
+    "case_version",
+    "correct_target",
+    "true_state",
+    "unowned_refs",
+    "autonomous_eligible",
+    "high_risk_ambiguous",
+    "safe_resolvable"
+  ],
+  "additionalProperties": false
+}

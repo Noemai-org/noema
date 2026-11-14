@@ -187,16 +187,17 @@ func longestRun(s string) int {
 	return longest
 }
 
-// acknowledgementReference is the form of the target's acknowledgement of a receipt (`external_ack`, execution-receipt.v1): the case reference the mock-case writes,
-// `CMP-<year>-<five digits>` (PERD 39.5 example form). It is exempt at that path only, and only in that form: a bare number is not a reference, so a card number cannot use
-// the path (the Security Reviewer's finding on noema#536). The target of a grant (`target_ref`) needs no path rule: the targets the core writes are `<prefix>_<ULID>` IDs the
-// target system minted, which the core-minted ID shape below already covers anywhere, and anything else is held to the digit limit.
-var acknowledgementReference = regexp.MustCompile(`\A[A-Z]{2,10}-[0-9]{4}-[0-9]{5}\z`)
+// targetReference is the shape of a reference the target system minted, accepted by ruling A193 at two paths for the POC only: the acknowledgement of a receipt
+// (`external_ack`, execution-receipt.v1: any non-empty string) and the target of a grant (`target_ref`). One token of at most 64 characters with no space. A bare number
+// passes it: the Architect accepted that knowingly (DEBT-30: before the pilot these get an adapter-declared shape, or a masked reference plus its hash), because the case
+// system's reference form is not known until G0-T and a stricter rule could refuse a real receipt, which is an unknown outcome after the target acted (A201). They appear on
+// audit and ops surfaces only, never on the customer overlay or in an arm.
+var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
 // exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the value of a signature at /sig/value or the
 // target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
-	if strings.HasSuffix(path, "/external_ack") && acknowledgementReference.MatchString(s) {
+	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
 		return true
 	}
 	if strings.HasSuffix(path, "/key_id") && keyID.MatchString(s) {

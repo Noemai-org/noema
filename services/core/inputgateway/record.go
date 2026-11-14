@@ -53,12 +53,11 @@ func (r *RecordRecorder) append(ctx context.Context, ev chain.Event) (chain.Stor
 	return st, nil
 }
 
-// event names the input in the Record by its correlation ID, which the core minted (`corr_<ULID>`): every event of one input, the first receipt, a deduplicated redelivery and a
-// reuse of the request ID, is about the same object. An object_ref is never made from a payload string (A184): the client's request ID is a value the client chose, which can be
-// digits only, and it is kept in the payload, where the reconstruction masks it.
-func (r *RecordRecorder) event(id Identity, corr, eventType, kind string, payload map[string]any) chain.Event {
+// event builds one event of the gateway. objectRef is the core-minted reference of the input the event is about (A184): the first INPUT_RECEIVED carries the one the gateway
+// minted, and every later event of the same input carries that same one. It is never built from the request id or from anything else a client sent.
+func (r *RecordRecorder) event(id Identity, corr, eventType, kind string, payload map[string]any, objectRef string) chain.Event {
 	return chain.Event{TenantID: id.TenantID, CorrelationID: corr, WrittenBy: emitter, Actor: id.PrincipalKind + ":" + id.PrincipalID, EventType: eventType, Kind: kind,
-		ObjectRef: corr, Payload: payload}
+		ObjectRef: objectRef, Payload: payload}
 }
 
 // Received appends INPUT_RECEIVED: channel, locale (when the client sent a locale_hint) and request_id as the reconstruction reads them, and the body's hash.
@@ -67,22 +66,31 @@ func (r *RecordRecorder) Received(ctx context.Context, id Identity, corr string,
 	if in.Locale != "" {
 		p["locale"] = in.Locale
 	}
-	st, err := r.append(ctx, r.event(id, corr, eventReceived, "", p))
+	if in.ObjectRef == "" {
+		return Ref{}, errors.New(prefix + "the input has no minted object reference")
+	}
+	st, err := r.append(ctx, r.event(id, corr, eventReceived, "", p, in.ObjectRef))
 	if err != nil {
 		return Ref{}, err
 	}
-	return Ref{EventID: st.EventID, Seq: st.Seq, Hash: st.Hash}, nil
+	return Ref{EventID: st.EventID, Seq: st.Seq, Hash: st.Hash, ObjectRef: in.ObjectRef}, nil
 }
 
 // Deduplicated appends INPUT_DEDUPLICATED on the original input's correlation, naming the original event.
 func (r *RecordRecorder) Deduplicated(ctx context.Context, id Identity, corr, requestID string, original Ref) error {
-	_, err := r.append(ctx, r.event(id, corr, eventDeduplicated, "", map[string]any{"request_id": requestID, "original_event_id": original.EventID}))
+	if original.ObjectRef == "" {
+		return errors.New(prefix + "the original input has no object reference")
+	}
+	_, err := r.append(ctx, r.event(id, corr, eventDeduplicated, "", map[string]any{"request_id": requestID, "original_event_id": original.EventID}, original.ObjectRef))
 	return err
 }
 
 // Reused appends SECURITY_EVENT of kind REQUEST_ID_REUSED on the original input's correlation. It carries the new body's hash, never its text.
 func (r *RecordRecorder) Reused(ctx context.Context, id Identity, corr, requestID, inputHash string, original Ref) error {
-	_, err := r.append(ctx, r.event(id, corr, eventSecurity, kindReused, map[string]any{"request_id": requestID, "original_event_id": original.EventID, "input_hash": inputHash}))
+	if original.ObjectRef == "" {
+		return errors.New(prefix + "the original input has no object reference")
+	}
+	_, err := r.append(ctx, r.event(id, corr, eventSecurity, kindReused, map[string]any{"request_id": requestID, "original_event_id": original.EventID, "input_hash": inputHash}, original.ObjectRef))
 	return err
 }
 
@@ -103,7 +111,7 @@ func (x *RecordIndex) Find(ctx context.Context, id Identity, requestID string) (
 	}
 	ctx, cancel := context.WithTimeout(ctx, x.Timeout)
 	defer cancel()
-	rows, err := x.Pool.Query(ctx, `SELECT seq, event_id, hash, correlation_id, body::text, payload::text FROM record_read_chain_t()
+	rows, err := x.Pool.Query(ctx, `SELECT seq, event_id, hash, object_ref, correlation_id, body::text, payload::text FROM record_read_chain_t()
 		WHERE event_type = $1 AND actor = $2 AND (payload::jsonb)->>'request_id' = $3 ORDER BY seq DESC`, eventReceived, id.PrincipalKind+":"+id.PrincipalID, requestID)
 	if err != nil {
 		return Prior{}, false, fmt.Errorf("%sread the Record: %w", prefix, err)
@@ -113,7 +121,7 @@ func (x *RecordIndex) Find(ctx context.Context, id Identity, requestID string) (
 	for rows.Next() {
 		var p Prior
 		var body, payload string
-		if err := rows.Scan(&p.Ref.Seq, &p.Ref.EventID, &p.Ref.Hash, &p.CorrelationID, &body, &payload); err != nil {
+		if err := rows.Scan(&p.Ref.Seq, &p.Ref.EventID, &p.Ref.Hash, &p.Ref.ObjectRef, &p.CorrelationID, &body, &payload); err != nil {
 			return Prior{}, false, fmt.Errorf("%sread the Record: %w", prefix, err)
 		}
 		var b struct {

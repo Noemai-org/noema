@@ -98,21 +98,15 @@ func TestTheSignatureTheTargetReferenceAndTheKeyIDAreExemptAtTheirPathsOnly(t *t
 		}
 	}
 	for name, js := range map[string]string{
-		"a signature shape at another path":    `{"note":"` + hex64 + `"}`,
-		"a signature value that is not hex":    `{"sig":{"value":"4111111111111111 note"}}`,
-		"digits alone as a signature value":    `{"sig":{"value":"4111111111111111"}}`,
-		"a reference with a space":             `{"external_ack":"CMP 2026 00001 4111111111111111"}`,
-		"a reference longer than 64":           `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
-		"the reference shape at another path":  `{"note":"CMP-2026-00001"}`,
-		"a target with a space":                `{"target_ref":"case 4111111111111111"}`,
-		"a bare number as the target":          `{"target_ref":"4111111111111111"}`, // the Security Reviewer's P1 on noema#536
-		"a bare number as the acknowledgement": `{"external_ack":"4111111111111111"}`,
-		"a short number as the target":         `{"target_ref":"123456789012"}`,
-		"letters and digits as the target":     `{"target_ref":"acct4111111111111"}`,
-		"a token that is not the minted form":  `{"external_ack":"att_20261113123456"}`,
-		"the form with a long middle":          `{"external_ack":"CMP-2026411111111-00001"}`,
-		"the target shape under another key":   `{"resolved":"CMP-2026-0000123456"}`,
-		"an algorithm name hiding a long run":  `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
+		"a signature shape at another path":   `{"note":"` + hex64 + `"}`,
+		"a signature value that is not hex":   `{"sig":{"value":"4111111111111111 note"}}`,
+		"digits alone as a signature value":   `{"sig":{"value":"4111111111111111"}}`,
+		"a reference with a space":            `{"external_ack":"CMP 2026 00001 4111111111111111"}`,
+		"a reference longer than 64":          `{"external_ack":"` + strings.Repeat("a", 60) + `12345"}`,
+		"the reference shape at another path": `{"note":"CMP-2026-00001"}`,
+		"a target with a space":               `{"target_ref":"case 4111111111111111"}`,
+		"the target shape under another key":  `{"resolved":"CMP-2026-0000123456"}`,
+		"an algorithm name hiding a long run": `{"sig":{"key_id":"ed25519 4111111111111111"}}`,
 	} {
 		if err := check(t, js); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -267,19 +261,17 @@ func TestACoreMintedIDOfAnyPrefixIsExemptAndNothingLookingLikeOneIs(t *testing.T
 func TestNoExemptionAcceptsABareRunOfDigits(t *testing.T) {
 	digits64 := strings.Repeat("4", 64)
 	for name, js := range map[string]string{
-		"a typed ID of digits":             `{"v":"ten_4111111111111111"}`,
-		"a typed ID, the longest body":     `{"v":"grt_` + strings.Repeat("4", 32) + `"}`,
-		"the nonce of digits":              `{"v":"n_4111111111111111"}`,
-		"a content hash of digits":         `{"v":"sha256:` + digits64 + `"}`,
-		"a keyed hash of digits":           `{"v":"hmac-sha256:` + digits64 + `"}`,
-		"an idempotency key of digits":     `{"v":"idk_v1_` + digits64 + `"}`,
-		"an intent reference of digits":    `{"v":"int_4111111111111111@2"}`,
-		"a ULID of digits, any prefix":     `{"v":"zzz_01234567890123456789012345"}`,
-		"a UUID of digits":                 `{"v":"41111111-1111-1111-1111-111111111111"}`,
-		"a signature of digits (hex)":      `{"sig":{"value":"` + digits64 + `"}}`,
-		"a signature of digits (base64)":   `{"sig":{"value":"` + strings.Repeat("4", 50) + `"}}`,
-		"a bare number as the target":      `{"target_ref":"4111111111111111"}`,
-		"a bare number as acknowledgement": `{"external_ack":"4111111111111111"}`,
+		"a typed ID of digits":           `{"v":"ten_4111111111111111"}`,
+		"a typed ID, the longest body":   `{"v":"grt_` + strings.Repeat("4", 32) + `"}`,
+		"the nonce of digits":            `{"v":"n_4111111111111111"}`,
+		"a content hash of digits":       `{"v":"sha256:` + digits64 + `"}`,
+		"a keyed hash of digits":         `{"v":"hmac-sha256:` + digits64 + `"}`,
+		"an idempotency key of digits":   `{"v":"idk_v1_` + digits64 + `"}`,
+		"an intent reference of digits":  `{"v":"int_4111111111111111@2"}`,
+		"a ULID of digits, any prefix":   `{"v":"zzz_01234567890123456789012345"}`,
+		"a UUID of digits":               `{"v":"41111111-1111-1111-1111-111111111111"}`,
+		"a signature of digits (hex)":    `{"sig":{"value":"` + digits64 + `"}}`,
+		"a signature of digits (base64)": `{"sig":{"value":"` + strings.Repeat("4", 50) + `"}}`,
 	} {
 		if err := check(t, js); err == nil {
 			t.Errorf("%s was accepted", name)
@@ -348,5 +340,33 @@ func TestAnObjectKeyIsHeldToTheSameRuleAndNeverQuoted(t *testing.T) {
 func TestANumberTypedFieldIsNotExamined(t *testing.T) {
 	if err := check(t, `{"amount":4111111111111111,"count":12345678}`); err != nil {
 		t.Fatalf("a number-typed field was refused: %v", err)
+	}
+}
+
+// A193 (recorded in docs#172) and A201: `/external_ack` and `/target_ref` accept one token of at most 64 characters with no space, for the POC only. A bare number passes there
+// by the Architect's decision (DEBT-30: before the pilot an adapter-declared shape, or a masked reference plus its hash), because the case system's reference form is not known
+// until G0-T and a stricter rule could refuse a real receipt. The same value anywhere else is refused, and so is a token with a space or one over 64 characters.
+func TestTheTwoReferencePathsAcceptOneTokenAsTheArchitectRuled(t *testing.T) {
+	for name, js := range map[string]string{
+		"a bare number as the target":      `{"target_ref":"4111111111111111"}`,
+		"a bare number as acknowledgement": `{"external_ack":"4111111111111111"}`,
+		"the mock-case reference":          `{"external_ack":"CMP-2026-00001"}`,
+		"a minted target":                  `{"target_ref":"case_01KE8M3Q4Z5J6N7P8R9STV2WX3"}`,
+		"a nested path":                    `{"receipt":{"external_ack":"att_20261113123456"},"grant":{"target_ref":"TX0000123456"}}`,
+	} {
+		if err := check(t, js); err != nil {
+			t.Errorf("%s was refused: %v", name, err)
+		}
+	}
+	for name, js := range map[string]string{
+		"a bare number at another key":   `{"note":"4111111111111111"}`,
+		"a target with a space":          `{"target_ref":"4111 1111 1111 1111"}`,
+		"an acknowledgement with a dash": `{"external_ack":"4111 1111 1111 1111"}`,
+		"a token over 64 characters":     `{"target_ref":"` + strings.Repeat("a", 60) + `12345"}`,
+		"an empty target":                `{"target_ref":"4111111111111111 "}`,
+	} {
+		if err := check(t, js); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }
