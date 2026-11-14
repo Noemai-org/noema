@@ -12,9 +12,9 @@ WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 BASE = "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
 EDITED_SPLIT = "-${{ github.event.action == 'edited' && 'metadata' || 'code' }}"
 CANCEL = "${{ github.event_name == 'pull_request' }}"
-# Not touched by this change: the four bench workflows run only on dispatch or schedule, never on pull requests, and keep a deliberate single-flight named group (they spend money or hold the bench stack, so
+# The five bench workflows (bench-g1-stack is noema#444's) run only on dispatch or schedule, never on pull requests, and keep a deliberate single-flight named group (they spend money or hold the bench stack, so
 # one queued run replacing an older queued one is intended).
-OWN_GROUP = {"bench-live.yml", "bench-model-up.yml", "bench-nightly.yml", "bench-suites.yml"}
+OWN_GROUP = {"bench-g1-stack.yml", "bench-live.yml", "bench-model-up.yml", "bench-nightly.yml", "bench-suites.yml"}
 
 
 def triggers(text: str) -> set[str]:

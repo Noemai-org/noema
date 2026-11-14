@@ -141,6 +141,7 @@ var Types = map[string]func() any{
 	"intent-slot.v2#SlotStatus":                               func() any { return new(IntentSlotV2SlotStatus) },
 	"intent-slot.v2#SlotType":                                 func() any { return new(IntentSlotV2SlotType) },
 	"intent-slot.v2#TimeRefSlot":                              func() any { return new(IntentSlotV2TimeRefSlot) },
+	"masking-limits.v1":                                       func() any { return new(MaskingLimitsV1) },
 	"memory-observation.v2":                                   func() any { return new(MemoryObservationV2) },
 	"money.v1":                                                func() any { return new(MoneyV1) },
 	"money.v1#CurrencyCode":                                   func() any { return new(MoneyV1CurrencyCode) },

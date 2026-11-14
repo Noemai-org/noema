@@ -303,6 +303,11 @@ func outcomeReply(oc store.Outcome, body any, noun string) reply {
 	case store.IdempotencyConflict:
 		return reply{err: newErr(409, "IDEMPOTENCY_CONFLICT", "this idempotency key was already used with a different payload", false)}
 	case store.PreconditionFailed:
+		// The complaint that exists is named so the caller can read it back; it is in the caller's own tenant.
+		if c, ok := body.(store.Complaint); ok {
+			return reply{err: newErr(412, "PRECONDITION_FAILED", "a complaint reference already exists for this case: the create was conditional on there being none", false,
+				errDetail{"existing_complaint_ref", c.ComplaintRef})}
+		}
 		// The case that exists is named so the caller can read it back; it is in the caller's own tenant.
 		if c, ok := body.(store.Case); ok {
 			return reply{err: newErr(412, "PRECONDITION_FAILED", "a case already exists for this transaction and epoch: the create was conditional on there being none", false,

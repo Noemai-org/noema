@@ -5,7 +5,7 @@ import unittest
 from typing import Any
 
 from benchmark.contracts import Contracts, sha256_of
-from benchmark.scoring.report import ReportError, render_markdown
+from benchmark.scoring.report import ReportError, fmt_rate, render_markdown
 from benchmark.scoring.scorecard import score
 from benchmark.scoring.testdata import GATE_MUTATIONS, REGISTRY, clean_result, renumber, templates
 
@@ -180,6 +180,27 @@ class DiagnosticsReportTest(unittest.TestCase):
         text = self.report()
         self.assertIn("2026-11-03", text)
         self.assertIn("means family B1.", text)
+
+
+
+class ExactBoundInTheReport(unittest.TestCase):
+    """Ruling A190: a failure rate's text carries the exact one-sided 95% bound beside the rule of three; a rate that is not a failure rate does not."""
+
+    def test_a_zero_failure_rate_states_the_exact_bound_and_keeps_the_rule_of_three(self) -> None:
+        from benchmark.scoring.rates import make_rate
+        text = fmt_rate(make_rate(0, 300, failure=True), failure=True)
+        self.assertIn("rule of three", text)
+        self.assertIn("exact one-sided 95% upper bound 0.99%", text)
+
+    def test_a_rate_with_failures_states_the_exact_bound(self) -> None:
+        from benchmark.scoring.rates import make_rate
+        text = fmt_rate(make_rate(2, 300, failure=True), failure=True)
+        self.assertIn("exact one-sided 95% upper bound", text)
+        self.assertNotIn("rule of three", text)
+
+    def test_a_rate_that_is_not_a_failure_rate_states_no_bound(self) -> None:
+        from benchmark.scoring.rates import make_rate
+        self.assertNotIn("upper bound", fmt_rate(make_rate(2, 300)))
 
 
 if __name__ == "__main__":

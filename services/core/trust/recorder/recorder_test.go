@@ -40,6 +40,7 @@ const (
 var epoch = time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC)
 
 type world struct {
+	dsn    string
 	admin  *pgxpool.Pool
 	trust  *pgxpool.Pool
 	reader *pgxpool.Pool
@@ -85,7 +86,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w := &recorder.Writer{Keys: keys, Issuer: issuer, Appender: newAppender(t, admin, clk, idg), Clock: clk, IDs: idg, RecordLifetime: 15 * time.Minute}
-	return &world{admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
+	return &world{dsn: dsn, admin: admin, trust: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenant), reader: testpg.TenantLogin(t, admin, dsn, "record_read", tenant), keys: keys, w: w}
 }
 
 func freshness() decide.Freshness {
@@ -131,6 +132,8 @@ func decision(t *testing.T, o decide.Outcome, b *decide.BasisBuilder) decide.Dec
 		d, err = resolved(t).Allow(pass)
 	case decide.Reject:
 		d, err = resolved(t).Reject(decide.Authority{Technical: decide.Pass, Policy: decide.Fail, Business: decide.NotEvaluated}, reason)
+	case decide.Wait:
+		d, err = resolved(t).Wait(pass, epoch.Unix()+60, reason)
 	case decide.Escalate:
 		u, _ := decide.Admit(decide.IntentView{Version: 2, MaterialFlags: []string{"X"}}).Unresolved()
 		d, err = u.Escalate(reason)
@@ -560,11 +563,15 @@ func TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing(t *testing.T) 
 	dup.IDs = fixedIDs{inner: ids.New(clk, rand.New(rand.NewSource(4))), prefix: "dec", id: "dec_FIXEDDUP"}
 	dup.Appender = newAppender(t, w.admin, clk, ids.New(clk, rand.New(rand.NewSource(5))))
 	w.w = &dup
-	if _, err := w.write(t, first, true); err != nil { // the first use of the fixed decision id succeeds
+	// A186: a request for an input that is already stored returns the stored decision and never reaches the insert, so the two uses of the fixed decision ID
+	// are for two inputs (two intent hashes); the second collides on the primary key.
+	other, another := first, first
+	other.IntentHash, another.IntentHash = h(5), h(6)
+	if _, err := w.write(t, other, true); err != nil { // the first use of the fixed decision id succeeds
 		t.Fatal(err)
 	}
 	before := w.count(t, `SELECT count(*) FROM decision_record`)
-	_, err := w.write(t, first, true) // the second use collides on the primary key
+	_, err := w.write(t, another, true) // the second use collides on the primary key
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) || pg.Code != "23505" || !strings.Contains(err.Error(), "insert decision record") {
 		t.Fatalf("got %v, want the unique violation of the decision_record insert", err)

@@ -96,18 +96,25 @@ func main() {
 		}
 		return
 	}
-	// The components other tasks build are plugged in here as their constructors land (nothing is configured yet, so /readyz names the first one missing).
-	components := Components{}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// The components other tasks build are plugged in here as their constructors land (nothing else is configured yet, so /readyz names the first one missing).
+	env := Env{Getenv: os.Getenv, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
+	records, closeRecords, err := buildRecordReader(ctx, env)
+	if err != nil {
+		logger.Error("configuration", "error", err.Error()) // names the setting or the tenant, never a DSN
+		os.Exit(1)
+	}
+	defer closeRecords()
+	components := Components{Records: records, AccessLog: logger}
 	clk := clock.System{}
-	api, err := buildAPI(components, Env{Getenv: os.Getenv, ReadFile: os.ReadFile}, clk, ids.New(clk, nil))
+	api, err := buildAPI(components, env, clk, ids.New(clk, nil))
 	if err != nil {
 		logger.Error("configuration", "error", err.Error()) // names the setting, never a value
 		os.Exit(1)
 	}
 	srv := &http.Server{Addr: addr, Handler: newMux(composeReadiness(components, api), api), ReadHeaderTimeout: headerTimeout}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout) // ctx is already done: keep its values, not its cancellation

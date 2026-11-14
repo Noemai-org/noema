@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from noema_model.harness import assemble_harness
 from noema_model.platform.clock import SystemClock
 from noema_model.platform.telemetry import NullTelemetry, OtelTelemetry, Telemetry
+from noema_model.understanding.compiler import CompileService
+from noema_model.understanding.compiler.route import register as register_compile_route
 
 Readiness = Callable[[], tuple[bool, str]]
 
@@ -23,7 +25,10 @@ def build_telemetry() -> Telemetry:
 
 
 def create_app(
-    check: Readiness | None = None, telemetry: Telemetry | None = None, environ: Mapping[str, str] | None = None
+    check: Readiness | None = None,
+    telemetry: Telemetry | None = None,
+    environ: Mapping[str, str] | None = None,
+    compile_service: CompileService | None = None,
 ) -> FastAPI:
     """Build the app. /healthz says the process is alive; /readyz says it can serve: by default, that the harness was built
     from its mounted configuration (NOEMA_MODEL_HARNESS_CONFIG), and if not, why. The telemetry and the harness are kept on
@@ -33,6 +38,8 @@ def create_app(
     app.state.telemetry = telemetry if telemetry is not None else build_telemetry()
     assembly = assemble_harness(env, SystemClock(), app.state.telemetry)
     app.state.harness = assembly.harness
+    app.state.compile_service = compile_service  # None until the compiler is wired: the compile route then answers 503 (UND-05)
+    register_compile_route(app)
     readiness: Readiness = check if check is not None else (lambda: (assembly.harness is not None, assembly.reason))
 
     @app.get("/healthz")

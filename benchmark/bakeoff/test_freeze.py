@@ -11,6 +11,8 @@ from benchmark.bakeoff.freeze import SCORING_FILES, corpus_hash, scoring_code_ha
 
 ROOT = Path(__file__).resolve().parents[2]
 RECORD = ROOT / "benchmark" / "decisions" / "2026-10-27-model-selection.md"
+REFREEZE = ROOT / "benchmark" / "decisions" / "2026-11-13-harness-masking-refreeze.md"
+CONFIGS = ("harness-gpt-6-luna.json", "harness-gpt-6.1-terra.json")
 
 
 def frozen() -> dict:  # type: ignore[type-arg]
@@ -72,6 +74,50 @@ class Freeze(unittest.TestCase):
         text = RECORD.read_text(encoding="utf-8")
         self.assertIn("no production default is set from this benchmark", text)
         self.assertIn("Multi-provider support is not complete and is not marked complete", text)
+
+
+
+class HarnessMaskingRefreeze(unittest.TestCase):
+    """A162, DEC-2026-11-12-harness-masking-refreeze (docs#158): the two harness configurations are re-frozen without the masking member, and the floor (4) is pinned by the hash of
+    the shared masking-limits.v1 files, so a later run has frozen proof of it."""
+
+    def test_neither_harness_configuration_carries_a_masking_member(self) -> None:
+        for name in CONFIGS:
+            config = json.loads((ROOT / "benchmark" / "decisions" / name).read_text(encoding="utf-8"))
+            self.assertNotIn("masking", config, name)
+            self.assertNotIn("account_run_min_digits", json.dumps(config), name)
+
+    def test_the_recorded_masking_limits_are_the_files_and_the_value_is_4(self) -> None:
+        import hashlib
+        block = frozen()["masking_limits"]
+        for file_key, hash_key in (("file", "sha256"), ("schema", "schema_sha256")):
+            self.assertEqual(hashlib.sha256((ROOT / block[file_key]).read_bytes()).hexdigest(), block[hash_key], block[file_key])
+        self.assertEqual(block["max_unmasked_digit_run"], 4)
+        self.assertEqual(json.loads((ROOT / block["file"]).read_text(encoding="utf-8"))["max_unmasked_digit_run"], 4)
+
+    def test_the_superseded_hashes_are_the_ones_the_27_october_pilot_and_full_run_used(self) -> None:
+        old = frozen()["superseded_harness_configs"]
+        self.assertEqual(sorted(Path(p).name for p in old), sorted(CONFIGS))
+        self.assertEqual({p: [(e["sha256"], e["masking_floor_during_use"]) for e in entries] for p, entries in old.items()}, {
+            "benchmark/decisions/harness-gpt-6-luna.json": [("ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd", 8)],
+            "benchmark/decisions/harness-gpt-6.1-terra.json": [("841f01ba906f4b3663711b8cbd8d52596518a38d9a31f3176eba95d63325cd4f", 8)]})
+        for path, entries in old.items():
+            for entry in entries:
+                self.assertNotEqual(entry["sha256"], frozen()["harness_configs"][path])
+
+    def test_the_re_freeze_record_names_the_hashes_and_says_which_results_used_floor_8(self) -> None:
+        text = REFREEZE.read_text(encoding="utf-8")
+        for path, digest in frozen()["harness_configs"].items():
+            self.assertIn(digest, text, path)
+        for entries in frozen()["superseded_harness_configs"].values():
+            for entry in entries:
+                self.assertIn(entry["sha256"], text)
+        block = frozen()["masking_limits"]
+        for needle in (block["sha256"], block["schema_sha256"], "40577810935", "pilot", "account_run_min_digits: 8", "DEC-2026-11-12-harness-masking-refreeze", "A162"):
+            self.assertIn(needle, text, needle)
+
+    def test_the_27_october_record_points_to_the_re_freeze(self) -> None:
+        self.assertIn("2026-11-13-harness-masking-refreeze.md", RECORD.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

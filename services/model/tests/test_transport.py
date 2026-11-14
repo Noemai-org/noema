@@ -20,6 +20,7 @@ from noema_model.providers.llm.openai_chat import OpenAIChat
 from noema_model.providers.llm.transport import UrllibTransport
 from pydantic import BaseModel, ConfigDict
 from tests.support import FIXTURES, ManualClock, raw_config, run
+from tests.support import MASKING
 
 OK_BODY = json.dumps({
     "model": "model-alpha-2026-01-01",
@@ -155,11 +156,11 @@ def test_full_stack_failover_over_real_sockets(server: Server, other: Server) ->
         n: ProviderConfig(**{**{f: getattr(p, f) for f in p.__slots__}, "endpoint": url})
         for (n, p), url in zip(cfg.providers.items(), (server.url, other.url), strict=True)
     }
-    config = HarnessConfig(cfg.account_run_min_digits, cfg.data_limits, cfg.breaker, providers, cfg.routes)
+    config = HarnessConfig(cfg.data_limits, cfg.breaker, providers, cfg.routes)
     transport = UrllibTransport(pool_size=2, allow_loopback_http=True)
     adapters = {n: OpenAIChat(n, AdapterSettings(p.endpoint, "CRED", None, p.timeout_ms, p.max_response_bytes), transport) for n, p in providers.items()}
     other.behaviour = {"status": 200, "body": OK_BODY.replace(b"model-alpha", b"model-beta")}
-    harness = Harness(config, adapters, ManualClock(), InMemoryTelemetry())
+    harness = Harness(config, adapters, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     result = run(harness.generate(GenerateRequest("slot_values", PromptTemplate("t", 1, "S", "I"), {"utterance": "x"}, Out, None, "cor_test")))
     assert result.value == Out(surface="20k") and result.call.provider == "beta"
     assert [a.outcome for a in result.call.attempts] == [AttemptOutcome.UNAVAILABLE, AttemptOutcome.OK]

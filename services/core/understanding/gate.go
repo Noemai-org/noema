@@ -50,6 +50,7 @@ const (
 	ReasonAmbiguityFlag      Reason = "AMBIGUITY_FLAG"
 	ReasonOutcomeNotInNode   Reason = "OUTCOME_NOT_IN_NODE"
 	ReasonSig                Reason = "SIG"
+	ReasonIdentitySetByModel Reason = "IDENTITY_SET_BY_MODEL"
 	ReasonHashUnavailable    Reason = "HASH_UNAVAILABLE" // the object holds a number the intent hash cannot cover (see ErrHashUnavailable)
 	ReasonIdentityNotInOrder Reason = "SESSION_INVALID"  // the session the caller passed is incomplete: a bug of the caller, never the model's
 )
@@ -101,6 +102,10 @@ type Session struct {
 	PrincipalType string // for example end_user
 	AssertedBy    string // for example enterprise_idp
 }
+
+// Valid reports whether every field of the session has its shape: the one rule Gate.Admit applies first and refuses on (SESSION_INVALID). A caller that holds a
+// session uses it to refuse a malformed one before it calls anything else, so the user's input is not sent anywhere for a caller that should already be refused.
+func (s Session) Valid() bool { return s.valid() }
 
 func (s Session) valid() bool {
 	return sessionPrincipalRe.MatchString(s.PrincipalID) && sessionTenantRe.MatchString(s.TenantID) && sessionAuthnRe.MatchString(s.AuthnRef) &&
@@ -276,9 +281,9 @@ func (g *Gate) check(o *contracts.IntentObjectV1, correlationID string, r *reaso
 		r.add(ReasonSig)
 	}
 	// Ruling A166 item 3: the model's output carries no principal_type and no asserted_by. The contract requires the members, so the model service fills them with the
-	// marker; a model that sends a value anyway, even the session's own, is a shape error.
+	// marker; a model that sends a value anyway, even the session's own, is refused under its own reason (ruling A195), so the Record tells the attempt from a malformed document.
 	if o.Principal.PrincipalType != unsetMarker || o.Principal.AssertedBy != unsetMarker {
-		r.add(ReasonShape)
+		r.add(ReasonIdentitySetByModel)
 	}
 	for _, f := range o.AmbiguityFlags {
 		if !flagRe.MatchString(f) {

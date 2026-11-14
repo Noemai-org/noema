@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
@@ -38,6 +39,7 @@ type Components struct {
 type Env struct {
 	Getenv   func(string) string
 	ReadFile func(string) ([]byte, error)
+	ReadDir  func(string) ([]os.DirEntry, error)
 }
 
 // App is the composed slice. Today it holds the runner; the HTTP handlers that sit behind the protected API are added in buildAPI as they are built.

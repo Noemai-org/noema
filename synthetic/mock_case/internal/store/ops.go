@@ -237,19 +237,40 @@ func scanComplaint(row pgx.Row) (Complaint, string, error) {
 
 const complaintColumns = `complaint_ref, seq, tenant_id, case_id, idempotency_key, logged_at, clock_started_at, request_hash`
 
-// CreateComplaint logs a complaint reference against a case, with the same idempotency rules as a case.
+// complaintConditionalIndex is the unique index that backs the conditional create (migration 0004).
+const complaintConditionalIndex = "complaints_conditional_case_uq"
+
+// CreateComplaint logs a complaint reference against a case, with the same idempotency rules as a case. It is unconditional: any number of complaints with distinct keys.
 func (s *Store) CreateComplaint(ctx context.Context, cmd Cmd, tenant, caseID, key string) (Complaint, Outcome, error) {
+	return s.createComplaint(ctx, cmd, tenant, caseID, key, false)
+}
+
+// CreateComplaintIfNone logs a complaint reference only if the case has none (Architect ruling A185: the precondition of log_complaint_reference, "no complaint for the subject
+// and epoch", where a case is the subject and epoch). A repeat of the same command is its replay; a new key for a case that has a complaint is PreconditionFailed: nothing is
+// written, no counter value is spent, and the complaint that exists is returned. Every complaint create of a case takes the same per-case lock, so two concurrent creators cannot
+// both succeed, and a unique partial index is the backstop.
+func (s *Store) CreateComplaintIfNone(ctx context.Context, cmd Cmd, tenant, caseID, key string) (Complaint, Outcome, error) {
+	return s.createComplaint(ctx, cmd, tenant, caseID, key, true)
+}
+
+func (s *Store) createComplaint(ctx context.Context, cmd Cmd, tenant, caseID, key string, conditional bool) (Complaint, Outcome, error) {
 	var out Complaint
 	hash, err := hashJSON(struct {
-		Op     string `json:"op"`
-		Tenant string `json:"tenant_id"`
-		CaseID string `json:"case_id"`
-	}{"create_complaint", tenant, caseID})
+		Op          string `json:"op"`
+		Tenant      string `json:"tenant_id"`
+		CaseID      string `json:"case_id"`
+		Conditional bool   `json:"conditional,omitempty"` // omitted when false, so an unconditional request hashes as it always did
+	}{"create_complaint", tenant, caseID, conditional})
 	if err != nil {
 		return out, 0, err
 	}
 	oc, err := s.run(ctx, cmd, func(tx pgx.Tx) (result, error) {
 		res := result{tenant: tenant, caseID: caseID, key: key, reqHash: hash}
+		// One lock per case, held to the end of the transaction, taken by every complaint create before it looks at anything: the replay check, the existence check and the
+		// insert below then see every complaint committed before this one, and no other create of this case runs between them.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "complaint:"+tenant+"/"+caseID); err != nil {
+			return res, err
+		}
 		existing, existingHash, err := scanComplaint(tx.QueryRow(ctx, `SELECT `+complaintColumns+` FROM complaints WHERE tenant_id = $1 AND idempotency_key = $2`, tenant, key))
 		if err == nil {
 			res.replay = true
@@ -271,6 +292,16 @@ func (s *Store) CreateComplaint(ctx context.Context, cmd Cmd, tenant, caseID, ke
 			res.outcome = NotFound
 			return res, nil
 		}
+		if conditional {
+			found, _, qerr := scanComplaint(tx.QueryRow(ctx, `SELECT `+complaintColumns+` FROM complaints WHERE tenant_id = $1 AND case_id = $2 ORDER BY seq LIMIT 1`, tenant, caseID))
+			if qerr == nil {
+				out, res.outcome = found, PreconditionFailed // before the counter is taken: the references stay gapless
+				return res, nil
+			}
+			if qerr != pgx.ErrNoRows {
+				return res, qerr
+			}
+		}
 		n, err := nextCounter(ctx, tx, "complaint")
 		if err != nil {
 			return res, err
@@ -278,8 +309,12 @@ func (s *Store) CreateComplaint(ctx context.Context, cmd Cmd, tenant, caseID, ke
 		at := Micro(cmd.At)
 		ref := ids.ComplaintRef(at, n)
 		tag, err := tx.Exec(ctx, `
-INSERT INTO complaints (complaint_ref, seq, tenant_id, case_id, idempotency_key, request_hash, logged_at, clock_started_at)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$7) ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`, ref, n, tenant, caseID, key, hash, at)
+INSERT INTO complaints (complaint_ref, seq, tenant_id, case_id, idempotency_key, request_hash, logged_at, clock_started_at, conditional)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`, ref, n, tenant, caseID, key, hash, at, conditional)
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) && pe.Code == "23505" && pe.ConstraintName == complaintConditionalIndex {
+			return res, errRetry // the backstop fired, which the lock should make impossible: start again and see the complaint that won
+		}
 		if err != nil {
 			return res, err
 		}

@@ -54,3 +54,35 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Settled since (merged `main`):** ruling A177 (`DEC-2026-11-12-architect-interim-a177-a178`, docs#163, entry OD-P-86 still [OPEN] for a SoT check) accepts the reading above: the core computes `intent_hash` over the canonical JSON and the signed `INTENT_ADMITTED` Record event is the signature; the object's `sig` stays the unsigned marker. Nothing in this PR changes for it.
 - **Next (not here):** the `Interpreter` (compile, gate, record `INTENT_REJECTED_AT_GATE` or the override, save through noema#471's store) after #471 merges, and the model-service route after noema#489 merges.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-13 · UND-04 core · the Interpreter
+
+- **What changed (PR noema#519):** new package `services/core/understanding/interpreter`: `Interpret` (input, compile, gate, then by what the gate found the Record first and the store last), `RecordRecorder` for `INTENT_REJECTED_AT_GATE` and `SECURITY_EVENT` `PRINCIPAL_OVERRIDE_ATTEMPT`, four ports, classified errors whose messages never print a cause. README.
+- **Failing first:** tests-only commit `9b621841`, `core` red (the package did not exist): https://github.com/Noemai-org/noema/actions/runs/43422188651/job/131874642722
+- **Tests added (REQ-INT-001, REQ-INP-002, REQ-AUD-001; INV-02, INV-12, EC-E16):** `interpreter_test.go` (no database: a normal compile saves with no event of its own; a refusal is recorded first and nothing is saved; a rejection the Record refuses is `ErrRecord`; a real override is recorded by name before the save and the session's identity is saved; an override the Record refuses saves nothing; every model-service failure class; a failed save; incomplete inputs; a malformed session is the caller's bug and records nothing; a cause is reachable and never printed; the constructor), `record_test.go` (the real Record: both events, a refused append stores nothing, another tenant's subject is refused by the database, what the recorder will not write).
+- **Mutations by hand on the pure part, each red:** the rejection record skipped; the override record skipped; the identity branch removed; the actor-suffix check off; the cause printed; the rejection replaced by another error; a wrong hash; the compile failure unclassified; the correlation check off. The database-backed tests ran only in CI (no pgsodium here).
+- **Not here, stated:** the compile route and compiler in the model service, `INTENT_PROPOSED`, the retry meaning of a repeated intent id, `cmd/core` wiring (EL).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `interpreter.Config` in `compose.go` (see the README); the model-service route follows the compiler.
+- Files to read first: `services/core/understanding/interpreter/README.md`, `interpreter.go`.
+
+# Session 2026-11-13 (evening) · UND-04 core · Codex P2 on noema#519: the session is validated in full before the model service is called
+
+## Session summary
+- What changed (PR links): noema#519, one push after Codex's NOT READY at `40509e70`: `understanding/gate.go` exports the gate's own session rule as `Session.Valid()`; `interpreter.validate` uses it instead of checking only that each session field is non-empty.
+- Why: Codex found that a session that was present but malformed (`PrincipalType = "End User"`) reached `Compiler.Compile` first and was refused only later by `Gate.Admit`, so a caller that should already have been refused had its user's input sent to the model service. The documented contract is ErrInput before any call.
+- Tests added (REQ-INP-002, INV-12): `TestAMalformedSessionIsRefusedBeforeTheModelServiceIsCalled` (eight malformed fields; ErrInput and the compiler spy untouched; red first on the previous code, six of the eight cases red, the two principal-id cases were already caught by the actor-suffix check) and `TestTheSessionRuleOfTheCallersIsTheGatesOwn` (`Valid()` is false exactly when `Gate.Admit` refuses the same session as SESSION_INVALID, so the two cannot drift). Mutant: `Valid()` always true is killed by both.
+- Regression cases added: the two tests above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter is wired in `compose.go` by EL; it must pass the session the edge built, which the gate and the Interpreter now judge by one rule.
+- Do not touch: the gate's session regexes without changing `Valid()` and its test together.
+
+# Session 2026-11-13 22:30 WAT · UND-04 core · A195: IDENTITY_SET_BY_MODEL
+
+- **What changed (PR noema#549):** `gate.go`: a model that sends `principal_type` or `asserted_by` of its own is refused as `IDENTITY_SET_BY_MODEL`, not `SHAPE` (ruling A195, relayed and not yet committed here; the Founder's order of 13 Nov 2026, item 4). Same event, same path: the reason travels in `INTENT_REJECTED_AT_GATE`'s `reason_codes` like `SIG`. A document that is malformed in another way stays `SHAPE`; a model-set `sig` stays `SIG`. No metric and no log line (A195).
+- **Failing first:** `a166_test.go`'s seven-case test was committed alone as `854e8735` and failed in the `core` job (run 43508790123); the green push changes only `gate.go`, `README.md` and this file.
+- **Debt:** the entry A195 asks for is on noema#545 for the Steward to register. Conflicts raised: none.
+- **Pre-work for the next agent:** when noema#519 merges, its interpreter test for the rejected-at-gate event may assert the new code for an identity-setting model; the interpreter needs no change (it records `Rejection.Reasons` as they are).

@@ -13,7 +13,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from noema_model.contracts.intent_object_v1 import IntentObjectV1
+from noema_model.contracts.intent_object_v3 import IntentObjectV3
 from noema_model.understanding.gate import UNSET, UNSIGNED, Context, GateResult, Node, Reason, SchemaGate
 
 CTX = Context(tenant_id="ten_a1", correlation_id="corr_c1", principal_id="usr_88213", authn_ref="ses_7a1b")
@@ -40,13 +40,13 @@ def gate(max_bytes: int = 65536) -> SchemaGate:
 
 def proposal() -> dict[str, Any]:
     return {
-        "schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": None, "tenant_id": "ten_a1", "correlation_id": "corr_c1",
+        "schema_version": "3.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": None, "tenant_id": "ten_a1", "correlation_id": "corr_c1",
         "created_at": "2026-11-12T10:00:00Z",
         "principal": {"principal_id": "usr_88213", "authn_ref": "ses_7a1b"},  # ruling A166: the model sends no principal_type and no asserted_by; the core sets them
         "source": {"mode": "MODE_1", "channel": "text", "locale_detected": ["en-NG"], "asr_confidence": None, "raw_ref": "inp_abc123"},
         "pack": {"pack_id": "test", "pack_version": "1.0.0"}, "intent_node": NODE,
         "slots": {
-            "subject_resource": {"type": "Resource", "status": "RESOLVED", "resolved_ref": "test.transaction:TX88213", "confidence": 0.9},
+            "subject_resource": {"type": "Resource", "status": "RESOLVED", "resolved_ref": "test.transaction:TX88213", "confidence": 9000},
             "amount": {"type": "Quantity", "value": 2000000, "unit": "NGN", "surface_form": "20k"},
             "when": {"type": "TimeRef", "surface_form": "yesterday", "window": ["2026-11-11T00:00:00Z", "2026-11-11T23:59:59Z"]},
             "counterparty": {"type": "Party", "surface_form": "Ada"},
@@ -103,7 +103,7 @@ def without(path: tuple[str, ...]) -> dict[str, Any]:
 REJECTIONS: dict[str, tuple[dict[str, Any], Reason]] = {
     "already VALIDATED (the gate sets that, the model does not)": (mutate(("status",), "VALIDATED"), Reason.STATUS_NOT_EXTRACTED),
     "REJECTED_AT_GATE from the model": (mutate(("status",), "REJECTED_AT_GATE"), Reason.STATUS_NOT_EXTRACTED),
-    "schema version 2.0": (mutate(("schema_version",), "2.0"), Reason.SCHEMA_VERSION),
+    "schema version 3.1": (mutate(("schema_version",), "3.1"), Reason.SCHEMA_VERSION),  # a v3 object of a minor this gate does not know; v1 and v2 objects are not v3 (shape)
     "version 1 that supersedes": (mutate(("supersedes",), "int_01J9X3@0"), Reason.SUPERSEDES),
     "version 2 without supersedes": (mutate(("version",), 2), Reason.SUPERSEDES),
     "version 2 superseding another intent": (mutate(("version",), 2) | {"supersedes": "int_other@1"}, Reason.SUPERSEDES),
@@ -162,12 +162,14 @@ def test_an_unknown_member_at_any_depth_is_a_shape_refusal(path: tuple[str, ...]
     assert reasons(doc) == {Reason.SHAPE}
 
 
-def test_a_ratio_outside_zero_and_one_is_a_shape_refusal() -> None:
-    """The generated contract model bounds every Ratio, so the closed shape refuses it before any rule (the Go gate checks it by rule, its decode having no bounds)."""
-    assert reasons(mutate(("source", "asr_confidence"), 1.5)) == {Reason.SHAPE}
-    assert reasons(mutate(("slots", "subject_resource", "confidence"), -0.1)) == {Reason.SHAPE}
-    assert reasons(mutate(("source", "asr_confidence"), 0.0)) == set()
-    assert reasons(mutate(("slots", "subject_resource", "confidence"), 1)) == set()
+def test_a_confidence_that_is_not_an_integer_from_0_to_10000_is_a_shape_refusal() -> None:
+    """Ruling A173: a confidence is an integer number of basis points, because a fractional number cannot be hashed or signed. The generated contract model bounds it, so the closed
+    shape refuses a fraction, a value over 10000, a negative, a boolean or a string before any rule, and never rounds one (the Go gate refuses by the same contract)."""
+    for where in (("source", "asr_confidence"), ("slots", "subject_resource", "confidence")):
+        for bad in (0.93, 10001, -1, True, "9300", 1.0e4 + 0.5):
+            assert reasons(mutate(where, bad)) == {Reason.SHAPE}, (where, bad)
+        for good in (0, 1, 9300, 10000):
+            assert reasons(mutate(where, good)) == set(), (where, good)
 
 
 def test_a_null_where_the_contract_has_none_is_a_shape_refusal() -> None:
@@ -203,7 +205,7 @@ def test_a_bad_utf8_byte_inside_a_valid_document_is_refused_and_never_replaced()
 
 
 def test_a_number_too_large_for_a_float_is_refused_not_raised() -> None:
-    body = raw(proposal()).replace(b'"confidence": 0.9', b'"confidence": 1e400', 1)
+    body = raw(proposal()).replace(b'"confidence": 9000', b'"confidence": 1e400', 1)
     assert b"1e400" in body
     result = gate().check(body, CTX)
     assert result.reasons == (Reason.SHAPE,) and result.intent is None
@@ -279,7 +281,7 @@ def test_the_signature_slot_of_a_validated_intent_is_the_unsigned_marker_and_nev
     result = check(proposal())
     assert result.intent is not None
     assert (result.intent.sig.key_id, result.intent.sig.value) == ("unsigned", "unsigned")
-    assert isinstance(result.intent, IntentObjectV1)
+    assert isinstance(result.intent, IntentObjectV3)
 
 
 def test_no_reason_carries_text_of_the_object() -> None:
