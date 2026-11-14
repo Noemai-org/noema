@@ -303,6 +303,9 @@ func TestAMappingThatIsNotWholeIsRefusedAtLoad(t *testing.T) {
 		"a value that is not in the enum": func(m map[string]any) {
 			firstRowFor(m, "switch")["fields"].(map[string]any)["state"].(map[string]any)["map"].(map[string]any)["SUCCESS"] = "WORKED"
 		},
+		"a quantifier value that is not in the enum": func(m map[string]any) {
+			firstRowFor(m, "debit")["fields"].(map[string]any)["state"].(map[string]any)["value"] = "WORKED"
+		},
 		"an empty map": func(m map[string]any) {
 			firstRowFor(m, "switch")["fields"].(map[string]any)["state"].(map[string]any)["map"] = map[string]any{}
 		},
@@ -352,5 +355,23 @@ func TestAMappingNamesItsOwnRuleSetOnly(t *testing.T) {
 	}
 	if !strings.Contains(string(realFile(t)), "SYNTHETIC") {
 		t.Error("the pack data is not labelled SYNTHETIC (AGENT-25)")
+	}
+}
+
+func TestARepeatedMemberAtAnyDepthIsRefused(t *testing.T) {
+	rs, src := ruleSet(t), sources(t)
+	good := string(realFile(t))
+	for name, data := range map[string]string{
+		"at the top": strings.Replace(good, `"version": 1,`, `"version": 1, "version": 2,`, 1),
+		"in a field": strings.Replace(good, `"value": "POSTED"}`, `"value": "POSTED", "value": "POSTED"}`, 1),
+		"in a map":   strings.Replace(good, `"SUCCESS": "SUCCESSFUL",`, `"SUCCESS": "SUCCESSFUL", "SUCCESS": "FAILED",`, 1),
+		"in a where": strings.Replace(good, `"entry_type": "DEBIT",`, `"entry_type": "DEBIT", "entry_type": "CREDIT",`, 1),
+	} {
+		if data == good {
+			t.Fatalf("%s: the edit did not change the document", name)
+		}
+		if _, err := mapping.Parse([]byte(data), rs, src); err == nil {
+			t.Errorf("%s: a repeated member was accepted", name)
+		}
 	}
 }
