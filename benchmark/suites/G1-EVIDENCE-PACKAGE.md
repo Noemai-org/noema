@@ -29,14 +29,17 @@ G1 needs all four conditions of the gate record, shown, none inferred: US-01 and
 
 ## 3. Dispatch preconditions: when BO posts READY TO DISPATCH
 
-BO posts **READY TO DISPATCH at <sha>** on noema#436 (and noema#117) only when **all** of these are merged on `main` at that SHA and every check run at that SHA is green, read by BO with `gh pr checks`:
+BO posts **READY TO DISPATCH at <sha>** on noema#436 (and noema#117) only when **all nine** of these are merged on `main` at that SHA and every check run at that SHA is green, read by BO with `gh pr checks`:
 
 1. The stack workflow (noema#444) and IL's follow-up that passes the four `--idp-*` flags and a throw-away key pair.
 2. The Trust lane: C1's assembly of T1 to T15 and EL's `Trust.Decide` adapter (A186 lookup included), recording and grants in one transaction.
 3. The write lane: `RunWrite`, the Executor and Verifier ports and their adapters (EL), with the worker registered in `cmd/core`.
-4. The read lane: the compile route (noema#544), the `Interpreter` adapter (noema#519), the Evidence adapter (C2) and the reconciler, `POST /v1/conversations` and the investigation and audit routes mounted, and `/readyz` ready.
-5. The steps SR's items 6, 8 and 9 need, in the workflow or the runner: the FaultPlan and its seed recorded, the leak scan with its planted canary, the two negative probes.
-6. G0 passed, both halves (G1 evidence counts only once it does).
+4. The read lane: the `Interpreter` **adapter** over the merged Interpreter (noema#519 is the Interpreter itself and is merged; the adapter is C2's, with four design points for EL on noema#565), the Evidence adapter (noema#548, merged) and the reconciler, the Admissions, Explainer and Recorder adapters (noema#558, #559, #562), `POST /v1/conversations` and the investigation and audit routes mounted, and `/readyz` ready.
+5. **The compiler behind the compile route.** The route is merged (noema#544) but the compiler is not: its first slices are open (noema#581 the assembler, #582 the pack loader, #584 the lexicon) and the `Compiler` that joins them and calls a provider is not written. Without it the route answers 503 and US-01 cannot run.
+6. **The model side is the replay provider, so it must exist.** The replay provider (UND-15) needs recorded compile output from the compile-acceptance run (noema#546, ruling A198), which has not run. If neither exists at the dispatch head, the model side cannot be the replay provider, and the data label cannot be written.
+7. **mTLS between the core and the model service** (noema#555: noema#568 and #563 merged and agreeing; nothing sets `compile_service` before it is closed, the Security Reviewer's condition on #544).
+8. The steps SR's items 6, 8 and 9 need, in the workflow or the runner: the FaultPlan and its seed recorded, the leak scan with its planted canary, the two negative probes.
+9. G0 passed, both halves (G1 evidence counts only once it does).
 
 If any of these is missing at the dispatch head, the right outcome is "G1 not met, with this list", not a weaker run. Nobody dispatches before that post; the Founder dispatches once (this role's token has no Actions write permission), from the SHA in the post.
 
