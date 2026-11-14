@@ -17,13 +17,24 @@ import (
 // that pg_temp is named, and last, so a temporary table cannot shadow a real one, and that pg_catalog comes first.
 var pinnedForms = []string{"search_path=pg_catalog, pg_temp", "search_path=pg_catalog, public, pg_temp"}
 
+// isPinned proves the EFFECTIVE search_path of a function, not that some entry looks safe (Codex P2 on noema#251). PostgreSQL applies the entries of proconfig in order, so with a
+// repeated search_path the last one wins; a pinned function carries exactly one search_path entry, and that entry is one of the accepted forms. A repeated entry is ambiguous and is
+// refused, whatever its values (safe then unsafe, unsafe then safe, or the same twice). Another setting beside it (statement_timeout, say) is ignored; a setting whose name only
+// ends in search_path (my.search_path) is a different setting and is not the one that matters.
 func isPinned(cfg []string) bool {
+	var entries []string
 	for _, c := range cfg {
 		c = strings.ReplaceAll(c, `"`, "")
-		for _, f := range pinnedForms {
-			if strings.EqualFold(c, f) {
-				return true
-			}
+		if name, _, ok := strings.Cut(c, "="); ok && strings.EqualFold(strings.TrimSpace(name), "search_path") {
+			entries = append(entries, c)
+		}
+	}
+	if len(entries) != 1 {
+		return false
+	}
+	for _, f := range pinnedForms {
+		if strings.EqualFold(entries[0], f) {
+			return true
 		}
 	}
 	return false
