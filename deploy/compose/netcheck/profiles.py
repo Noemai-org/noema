@@ -72,7 +72,7 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
-BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000"}
+BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
 
 def resolved(profile):
@@ -121,6 +121,12 @@ def check(cfg, profile):
                 bad.append(f"{profile}: {name} mounts the Docker socket")
             if vol.get("source") in BENCH_CREDENTIAL_VOLUMES and name not in ORACLE_SIDE and name not in SIDECARS:
                 bad.append(f"{profile}: {name} mounts the bench credential volume {vol['source']} (oracle side only)")
+            # The synthetic IdP's material (benchmark/out/idp): the core holds the PUBLIC key and nothing else of it; the private key and the issuer binary are read by the runner only, so no
+            # other service may mount anything of that directory (a session token the core could mint would be an identity the core invents, INV-12).
+            idp_src = str(vol.get("source", "")).replace("\\", "/")
+            if "/idp/" in idp_src or idp_src.endswith("/idp"):
+                if not (name == "core" and idp_src.endswith("/idp/key/public.pem")) and name != "bench-runner":
+                    bad.append(f"{profile}: {name} mounts {idp_src} from the synthetic IdP's directory; only the core's public key and the runner may (the private key and the issuer stay with the runner)")
             if name == "model":
                 target, source = str(vol.get("target", "")), str(vol.get("source", ""))
                 # The model gets the benchmark COST directory and nothing else of the output directory: the runner writes the generated suite and its oracle documents beside it
@@ -187,6 +193,10 @@ def self_test(configs):
         "the bench runner mounts docker.sock": ("bench", lambda c: c["services"]["bench-runner"].update({"volumes": [{"source": "/var/run/docker.sock"}]})),
         "the core mounts the stand-in bench credential": ("bench", lambda c: c["services"]["core"].setdefault("volumes", []).append({"source": "standin_bench_credential", "target": "/x"})),
         "the model mounts the mock-case bench credential": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"source": "mock_case_bench_credential", "target": "/x"})),
+        "the core mounts the IdP's private key": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/private.pem", "target": "/run/idp/private.pem"})),
+        "the core mounts the IdP directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp", "target": "/run/idp-all"})),
+        "the model mounts the issuer binary": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/synthetic-idp", "target": "/usr/local/bin/synthetic-idp"})),
+        "the stand-in mounts the IdP public key": ("bench", lambda c: c["services"]["standin"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/public.pem", "target": "/x"})),
         "the model mounts the whole bench output directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out", "target": "/bench-out"})),
         "the model mounts the generated suite": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite", "target": "/bench-out/suite"})),
         "the model mounts the oracle directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite/oracle", "target": "/bench-out/suite/oracle"})),

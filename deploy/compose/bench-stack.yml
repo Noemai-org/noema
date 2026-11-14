@@ -19,9 +19,20 @@ services:
       NOEMA_STANDIN_TENANT_ID: "${STANDIN_TENANT_ID:-ten_alpha}"
       NOEMA_STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
       NOEMA_STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+      # The session settings of the protected /v1 API (EDG-01; all six or none, no defaults, AGENT-16): the synthetic IdP's PUBLIC key under its key id, the audience, the one tenant,
+      # the pack's session limits, and the body limit, which a person gives at dispatch (no value is approved in the repository). `make bench-tokens` makes the key pair under
+      # $NOEMA_BENCH_OUT/idp: the core mounts the public key only, never the private key or the issuer binary, which only the runner reads.
+      NOEMA_SESSION_PUBLIC_KEY_FILE: /run/idp/public.pem
+      NOEMA_SESSION_KID: "${NOEMA_BENCH_KID:-bench-k1}"
+      NOEMA_SESSION_AUDIENCE: "${NOEMA_BENCH_AUDIENCE:-noema-core}"
+      NOEMA_SESSION_TENANTS: "${STANDIN_TENANT_ID:-ten_alpha}"
+      NOEMA_SESSION_LIMITS_FILE: /run/idp/session_limits.json
+      NOEMA_MAX_BODY_BYTES: "${NOEMA_BENCH_MAX_BODY_BYTES:?set by make bench-up from BENCH_MAX_BODY_BYTES}"
     volumes:
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro
+      - ${NOEMA_BENCH_OUT:?set by make bench-up}/idp/key/public.pem:/run/idp/public.pem:ro
+      - ../../packs/fintech/limits/session_limits.json:/run/idp/session_limits.json:ro
     depends_on:
       hostility-proxy:
         condition: service_healthy
