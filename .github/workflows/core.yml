@@ -1,5 +1,9 @@
 # Core CI (PLT-01). Builds and tests services/core only. Environment: core-ci (DEC-2026-10-13 R3).
-# The workflow always triggers so the required check "core" always reports; the path filter runs inside the job.
+# The workflow always triggers so the required check "core" always reports; the path filter runs inside the `changed` job and the final job named `core` is the one check.
+#
+# CI speed (noema): the tests run in three shards, balanced by the measured seconds of each package (tools/ci/go_shards.py and go_shard_weights.json); the database image
+# (pgsodium) builds in parallel with the compilation of the test binaries instead of before it; and superseded pull-request runs are cancelled (concurrency below).
+# Every package is in exactly one shard (tested), and the `static` job checks the union against `go list ./...` on every run, so the split can never skip a package.
 name: core
 on:
   pull_request:
@@ -11,12 +15,10 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  core:
+  changed:
     runs-on: ubuntu-24.04
-    environment: core-ci
-    env:
-      NOEMA_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
-      EXPECTED_POSTGRES: "17.11"
+    outputs:
+      run: ${{ steps.changed.outputs.run }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -25,35 +27,102 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
-            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml|tools/ci/go_shard)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
           else
             echo run=true >> "$GITHUB_OUTPUT"
           fi
+
+  tests:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    environment: core-ci
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    env:
+      NOEMA_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+      EXPECTED_POSTGRES: "17.11"
+      SHARDS: "3"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
       # A16 (ruling of 6 Nov 2026): the database the tests run against is PostgreSQL 17.11 with pgsodium, built from the pinned Dockerfile (base image
       # by digest, libsodium by SHA-256, pgsodium by commit id). Trust authentication is for this throwaway, job-local container only; it holds synthetic data.
-      - if: steps.changed.outputs.run == 'true'
+      # The image builds in the background while this shard's test binaries compile (the compile is the build cache the real run reuses).
+      - name: Build the database image while the test binaries compile
+        env:
+          SHARD: ${{ matrix.shard }}
+        working-directory: services/core
         run: |
-          docker build -t noema-pg-sig:ci deploy/spike/pgsodium
+          set -eu
+          docker build -q -t noema-pg-sig:ci ../../deploy/spike/pgsodium > /tmp/pg-build.log 2>&1 &
+          pg_build=$!
+          pkgs="$(go list ./... | python3 -I ../../tools/ci/go_shards.py --shards "$SHARDS" --index "$SHARD" --weights ../../tools/ci/go_shard_weights.json)"
+          echo "$pkgs" | tr ' ' '\n' > /tmp/shard-packages.txt
+          echo "shard $SHARD of $SHARDS: $(wc -l < /tmp/shard-packages.txt) packages"
+          # Compile only: `-exec true` never runs the test binaries (several packages have a TestMain that needs the database, which is not up yet).
+          go test -race -count=1 -exec true $pkgs
+          wait "$pg_build" || { cat /tmp/pg-build.log; exit 1; }
           docker run -d --name noema-pg-sig -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 noema-pg-sig:ci
           for _ in $(seq 1 60); do docker exec noema-pg-sig pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
           sleep 2
           docker exec noema-pg-sig pg_isready -U postgres
-      - if: steps.changed.outputs.run == 'true'
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: services/core/go.mod
-          cache-dependency-path: services/core/go.mod
-      - if: steps.changed.outputs.run == 'true'
+      - name: Test this shard
         working-directory: services/core
         run: |
+          set -eu
           server="$(psql "$NOEMA_TEST_DATABASE_URL" -tAc 'SHOW server_version' | cut -d' ' -f1)"
           echo "test database: PostgreSQL $server"
           test "$server" = "$EXPECTED_POSTGRES"
+          go test -race $(cat /tmp/shard-packages.txt)
+  # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.
+  static:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      SHARDS: "3"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
+      - name: Shard coverage, formatting, vet, build
+        working-directory: services/core
+        run: |
+          set -eu
+          # coverage: the union of the test shards is exactly `go list ./...`, so the split can never skip a package
+          for i in $(seq 0 $((SHARDS - 1))); do
+            go list ./... | python3 -I ../../tools/ci/go_shards.py --shards "$SHARDS" --index "$i" --weights ../../tools/ci/go_shard_weights.json | tr ' ' '\n'
+          done | sort > /tmp/union.txt
+          go list ./... | sort > /tmp/all.txt
+          diff /tmp/all.txt /tmp/union.txt
           test -z "$(gofmt -l .)"
           go vet ./...
-          go test -race ./...
           go build ./...
-      - if: steps.changed.outputs.run == 'true'
+      - name: Build the core image
         run: docker build -t noema-core:ci services/core
-      - if: steps.changed.outputs.run != 'true'
-        run: echo "no services/core change; nothing to build"
+
+  # The one check named `core`: it passes when nothing in services/core changed, or when every shard passed. A shard that fails, is cancelled or is skipped by mistake fails it.
+  core:
+    needs: [changed, tests, static]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          RUN: ${{ needs.changed.outputs.run }}
+          CHANGED: ${{ needs.changed.result }}
+          TESTS: ${{ needs.tests.result }}
+          STATIC: ${{ needs.static.result }}
+        run: |
+          if [ "$CHANGED" != "success" ]; then echo "::error::the change detection did not succeed ($CHANGED)"; exit 1; fi
+          if [ "$RUN" != "true" ]; then echo "no services/core change; nothing to build"; exit 0; fi
+          if [ "$TESTS" != "success" ]; then echo "::error::the core test shards ended as $TESTS"; exit 1; fi
+          if [ "$STATIC" != "success" ]; then echo "::error::the core static checks ended as $STATIC"; exit 1; fi
+          echo "all core test shards and static checks passed"

@@ -1,0 +1,11 @@
+{
+  "missing_suite_family.json": "required",
+  "unknown_suite_family.json": "enum",
+  "duplicate_secondary_family.json": "uniqueItems",
+  "noema_audit_vocabulary_as_the_required_facts.json": "additionalProperties",
+  "unknown_audit_fact.json": "enum",
+  "missing_claim_probes.json": "required",
+  "missing_harness_block.json": "required",
+  "unknown_category.json": "enum",
+  "bad_kill_point.json": "pattern"
+}

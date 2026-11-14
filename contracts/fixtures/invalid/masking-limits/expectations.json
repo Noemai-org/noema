@@ -1,0 +1,10 @@
+{
+  "below_the_digits_kept.json": "const",
+  "at_the_old_maximum.json": "const",
+  "looser_than_the_ruling.json": "const",
+  "the_harness_floor.json": "const",
+  "fractional.json": "const",
+  "missing_value.json": "required",
+  "unknown_field.json": "additionalProperties",
+  "label_not_allowed.json": "enum"
+}

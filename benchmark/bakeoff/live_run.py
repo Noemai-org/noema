@@ -27,6 +27,7 @@ from benchmark.scoring.stats import percentile
 Json = dict[str, Any]
 ROOT = Path(__file__).resolve().parents[2]
 RECORD = ROOT / "benchmark" / "decisions" / "2026-10-27-model-selection.md"
+MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"  # the one source of the longest unmasked digit run (A154, A162)
 PILOT_PER_CELL = 2
 FETCHED_ON = "2026-10-27"
 SOURCES = {"gpt-6-luna": "https://developers.openai.com/api/docs/models/gpt-6-luna",
@@ -251,7 +252,7 @@ def main(argv: list[str], environ: Mapping[str, str]) -> int:
     templates = import_module("noema_model.harness.templates")
 
     def factory(label: str, path: str, guard: BudgetGuard) -> Any:
-        return build_real_decider(label, path, dict(environ), guard)
+        return build_real_decider(label, path, str(MASKING_LIMITS), dict(environ), guard)
 
     return run_phase(args.phase, args.prior_spent_micros, args.out, environ, factory, (templates.DECIDE_V2.version, templates.DECIDE_V2.digest),
                      hard_stop_micros=args.hard_stop_micros)
