@@ -283,6 +283,11 @@ func parseBody(raw []byte, max int64) (input, error) {
 			return bad(step.Error())
 		}
 	}
+	// A UUID with none of the letters a to f is 32 digits, a card-number-sized run that the Record's digit-run rule would refuse at the append, after the input was accepted
+	// and its IDs minted: refuse it here, before anything is recorded (ruling A184). One letter is enough to pass; a longer run inside such a UUID is the append guard's.
+	if !strings.ContainsAny(in.requestID, "abcdef") {
+		return bad("request_id is off its shape")
+	}
 	if in.channel != "text" && in.channel != "voice" {
 		return bad("channel is not text or voice")
 	}

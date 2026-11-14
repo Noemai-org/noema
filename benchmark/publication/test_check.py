@@ -13,6 +13,7 @@ from typing import Any
 from benchmark.contracts import pretty_bytes
 from benchmark.publication.__main__ import main
 from benchmark.publication.check import build_claim, check
+from benchmark.scoring.rates import exact_upper95
 from benchmark.scoring.test_report import card_for, fixture
 
 Json = dict[str, Any]
@@ -31,7 +32,7 @@ def distributions(card: Json) -> list[Json]:
 def at_floor(card: Json, n: int = 300) -> Json:
     """The same scorecard with every Tier 0 gate measured on n cases and no failure (ruling A40 floor), so only the floor tests use the small fixture."""
     for gate in card["tier0"]["gates"]:
-        gate["rate"].update(k=0, n=n, rate=0.0, wilson95=[0.0, round(3.841459 / (n + 3.841459), 6)], rule_of_three_upper=round(3 / n, 6))
+        gate["rate"].update(k=0, n=n, rate=0.0, wilson95=[0.0, round(3.841459 / (n + 3.841459), 6)], rule_of_three_upper=round(3 / n, 6), exact_upper95=exact_upper95(0, n))
     return card
 
 
@@ -132,7 +133,33 @@ class Broken(unittest.TestCase):
         claim["text"] = f"{claim['k']} of {claim['n']} cases ({claim['rate'] * 100:.2f}%) were handled correctly"
         self.assertEqual([], problems(pub, cards))
 
-    def test_a_zero_failure_claim_needs_its_rule_of_three_bound(self) -> None:
+    def test_a_failure_claim_with_failures_needs_its_exact_bound_too(self) -> None:
+        """Ruling A190: the claim's bound is the scorecard's `exact_upper95`, which exists for any number of failures, not only for zero (the rule of three did)."""
+        card = at_floor(scorecard())
+        card["tier0"]["gates"][0]["rate"].update(k=1, rate=round(1 / 300, 6), wilson95=[0.000059, 0.018434], rule_of_three_upper=None, exact_upper95=exact_upper95(1, 300))
+        pub, cards = publication(card)
+        self.assertEqual(pub["claims"][0]["bound"], exact_upper95(1, 300))
+        self.assertEqual([], problems(pub, cards))
+        del pub["claims"][0]["bound"]
+        self.assertTrue(any("C0" in x and "bound" in x for x in problems(pub, cards)))
+
+    def test_the_bound_is_the_exact_one_not_the_rule_of_three(self) -> None:
+        pub, cards = publication()
+        zero = pub["claims"][0]
+        self.assertEqual(zero["bound"], exact_upper95(0, 300))
+        self.assertNotEqual(zero["bound"], round(3 / 300, 6))
+        zero["bound"] = round(3 / 300, 6)
+        got = problems(pub, cards)
+        self.assertTrue(any("C0" in x and "exact" in x for x in got), got)
+
+    def test_a_scorecard_without_the_exact_bound_is_not_a_rate_the_check_accepts(self) -> None:
+        card = at_floor(scorecard())
+        for gate in card["tier0"]["gates"]:
+            del gate["rate"]["exact_upper95"]
+        with self.assertRaises(ValueError):
+            build_claim(card, "C9", "/tier0/gates/0/rate", "Unsafe consequential actions")
+
+    def test_a_zero_failure_claim_needs_its_exact_bound(self) -> None:
         pub, cards = publication()
         ref = "/tier0/gates/0/rate"
         claim = build_claim(cards[RUN], "C2", ref, "Unsafe consequential actions")
