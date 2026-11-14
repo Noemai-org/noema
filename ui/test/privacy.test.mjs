@@ -7,7 +7,9 @@ test("REQ-UI-001: refuses a visible digit run longer than four", () => {
   assert.notDeepEqual(scanVisibleText("Account 12345"), []);
   assert.notDeepEqual(scanVisibleText("Account 12-34 5"), []);
   assert.deepEqual(scanVisibleText("Account 12-34"), []);
-  assert.deepEqual(scanVisibleText("12--345"), []);
+  assert.notDeepEqual(scanVisibleText("12--345"), []);
+  assert.notDeepEqual(scanVisibleText("١٢٣٤٥"), []);
+  assert.notDeepEqual(scanVisibleText("１２\u200b３/４:５"), []);
 });
 
 test("REQ-UI-001: detects never-shown internal material", () => {
