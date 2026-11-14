@@ -37,7 +37,7 @@ var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<versio
 
 func (s *Service) configured() error {
 	p := s.Ports
-	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || s.Clock == nil || s.PackVersion == "" {
+	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || s.Clock == nil || s.PackVersion == "" {
 		return ErrConfig
 	}
 	return nil
