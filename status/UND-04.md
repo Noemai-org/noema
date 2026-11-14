@@ -80,3 +80,17 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - Exact next step: the Interpreter is wired in `compose.go` by EL; it must pass the session the edge built, which the gate and the Interpreter now judge by one rule.
 - Do not touch: the gate's session regexes without changing `Valid()` and its test together.
 
+
+# Session 2026-11-14 12:00 WAT · UND-04 core · the core gate decodes intent-object.v3 (noema#561)
+
+## Session summary
+- What changed (noema#561): `understanding/gate.go`, `identity.go`, `slots.go` use the generated `IntentObjectV3` and `IntentSlotV2*` types; `schema_version` must be `3.0`; confidence and ASR confidence are integers in basis points (0 to 10000, ruling A173), part of the canonical form the hash covers; a fraction or an out-of-range value is a shape refusal (not `HASH_UNAVAILABLE`, which stays only as the fail-closed answer for a number the canonical form cannot cover). The unused `ratio` helper is gone.
+- Why: the Founder's order of 14 Nov 2026 ("Core gate and the Interpreter adapter on v3 now"); the model service (noema#544) emits v3, and the core still decoded v1 and refused every proposal.
+- Risks, and how they are contained: nothing is loosened; the confidence is now signed. The gate's reason set is unchanged. The generated v3 types refuse a fraction or out-of-range value at the closed decode; the explicit range check in `basisPointsPtr` is defence in depth (a mutant that removes it for slots survives, and is equivalent while the generated decode checks the range).
+- Tests added (REQ-INT-001, REQ-INT-002; INV-02, INV-12): fixtures of the gate, interpreter and intent store moved to 3.0 (red first at `c4d79448`); `TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash` (seven refusals, three admissions whose canonical form carries the confidence); `schema version 1.0` and `3.1` are `SCHEMA_VERSION`. Four of five mutants killed.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter adapter (`orchestrator.Interpreter` over the Interpreter, the model-service client and the gate); the derivation of the actor inside the Interpreter from the session (C1's note on noema#519).
+- Files to read first: `understanding/gate.go`, `slots.go`.
+- Do not touch: the generated contracts.
