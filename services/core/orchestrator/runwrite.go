@@ -12,11 +12,12 @@ import (
 // from the stored projection, never from zero. It decides, executes and verifies nothing itself: Trust, the Executor and the Verifier do.
 type WriteRunner struct {
 	*Runner
-	w WritePorts
+	w   WritePorts
+	cfg WriteConfig
 }
 
 // NewWriteRunner refuses a Runner that does not build and any missing write port.
-func NewWriteRunner(m *Machine, p Ports, w WritePorts) (*WriteRunner, error) {
+func NewWriteRunner(m *Machine, p Ports, w WritePorts, cfg WriteConfig) (*WriteRunner, error) {
 	r, err := NewRunner(m, p)
 	if err != nil {
 		return nil, err
@@ -24,23 +25,23 @@ func NewWriteRunner(m *Machine, p Ports, w WritePorts) (*WriteRunner, error) {
 	if w.Executor == nil || w.Verifier == nil || w.Journal == nil {
 		return nil, fmt.Errorf("%w: a write port is missing", ErrNotWired)
 	}
-	return &WriteRunner{Runner: r, w: w}, nil
+	if cfg.MaxDispatchesPerKey < 1 {
+		return nil, fmt.Errorf("%w: the dispatch limit per key must be at least 1", ErrNotWired)
+	}
+	return &WriteRunner{Runner: r, w: w, cfg: cfg}, nil
 }
 
 // RunWrite runs a turn whose decision may write. It takes the same path as RunRead to EVALUATING; an ALLOW that writes then walks PLANNED, EXECUTING and
 // AWAITING_VERIFICATION. A verdict of ACHIEVED explains and completes; PENDING_EXTERNAL waits for the outcome; UNKNOWN is recorded as RECOVERING and the run stops
 // with ErrOutcomeUnknown (a new grant could apply the same write twice, INV-07); any other verdict goes to RECOVERING and back to EVALUATING, where Trust decides
-// again on a fresh evidence snapshot and issues a new grant (INV-17, AGENT-08). maxRecoveries is the number of such returns the
-// run may take; it has no default (AGENT-16), and when it is spent a further allowed write is refused with ErrRecoveryBudgetSpent. A grant is never dispatched
+// again on a fresh evidence snapshot and issues a new grant (INV-17, AGENT-08). Before Trust is asked again the runner counts the dispatches of the logical key from the Record (the Journal) and stops with
+// ErrRecoveryBudgetSpent at the configured limit, PERD's 2 per key (A216); a limit it was not given is no limit at all, so there is none by default. A grant is never dispatched
 // twice. Every move is recorded before the run goes on (PERD 32.4, EC-E16).
-func (w *WriteRunner) RunWrite(ctx context.Context, s Session, t Turn, maxRecoveries int) (Result, error) {
-	if maxRecoveries < 0 {
-		return Result{}, ErrBadTurn
-	}
+func (w *WriteRunner) RunWrite(ctx context.Context, s Session, t Turn) (Result, error) {
 	if err := w.admit(ctx, s, t); err != nil {
 		return Result{}, err
 	}
-	u := &wrun{run: run{ctx: ctx, r: w.Runner, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}, w: w, budget: maxRecoveries}
+	u := &wrun{run: run{ctx: ctx, r: w.Runner, s: s, inv: Investigation{ID: t.InvestigationID, State: "RECEIVED"}}, w: w}
 	if err := u.move("INTERPRETING"); err != nil {
 		return u.result(""), err
 	}
@@ -86,13 +87,10 @@ func (w *WriteRunner) admit(ctx context.Context, s Session, t Turn) error {
 }
 
 // ResumeWrite continues an investigation from its stored projection after a crash (A204). inv is what the store holds (state and version), d is the recorded
-// decision, and maxRecoveries is the number of recoveries still allowed. From PLANNED it asks the Journal: a grant that is not spent is executed, and a grant the
+// decision. The recovery count is derived from the Record, so a resume cannot reset it. From PLANNED it asks the Journal: a grant that is not spent is executed, and a grant the
 // Record shows as spent is never spent or dispatched again; the run verifies it by key. From EXECUTING and AWAITING_VERIFICATION it verifies by key. Any other
 // state is ErrNotResumable. A Journal that cannot be read stops the run before anything is dispatched.
-func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv Investigation, d Decision, maxRecoveries int) (Result, error) {
-	if maxRecoveries < 0 {
-		return Result{}, ErrBadTurn
-	}
+func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv Investigation, d Decision) (Result, error) {
 	// The caller's inputs are not trusted: the turn must be this tenant's recorded input, the stored projection this turn's investigation, and the decision must name
 	// one plain grant and the intent it was made on. (Loading the decision itself from the Record is the Trust adapter's work, noted on noema#576.)
 	if err := w.admit(ctx, s, t); err != nil {
@@ -107,7 +105,7 @@ func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv In
 	if d.IntentRef == "" {
 		return Result{}, ErrBadTurn
 	}
-	u := &wrun{run: run{ctx: ctx, r: w.Runner, s: s, inv: inv}, w: w, budget: maxRecoveries}
+	u := &wrun{run: run{ctx: ctx, r: w.Runner, s: s, inv: inv}, w: w}
 	switch inv.State {
 	case "PLANNED":
 		p, err := w.w.Journal.Progress(ctx, s, inv.ID, d.GrantIDs[0])
@@ -132,13 +130,17 @@ func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv In
 // wrun is a run with the write path's budget.
 type wrun struct {
 	run
-	w          *WriteRunner
-	budget     int
-	recoveries int
+	w         *WriteRunner
+	lastGrant string // the grant of the round that just ended; the recovery count is derived from the Record by it
+	voids     int    // grants voided before they were spent: they leave no GRANT_SPENT on the Record, so this run counts them
 }
 
 // evaluate is EVALUATING: read evidence, ask Trust, take the arrow. Each return here is a fresh evaluation on a fresh snapshot.
 func (u *wrun) evaluate(intentRef string) (Result, error) {
+	exhausted, err := u.budgetSpent()
+	if err != nil {
+		return u.result(""), err
+	}
 	ev, err := u.r.p.Evidence.Read(u.ctx, u.s, intentRef)
 	if err != nil {
 		return u.result(""), fmt.Errorf("orchestrator: evidence: %w", err)
@@ -165,7 +167,9 @@ func (u *wrun) evaluate(intentRef string) (Result, error) {
 	if len(d.GrantIDs) != 1 {
 		return u.result(""), ErrNoGrant
 	}
-	if u.recoveries > u.budget {
+	if exhausted {
+		// Trust allowed another write although the key's dispatches have reached the limit: PERD REQ-RCV-003 makes ESCALATE the result there. The runner does not
+		// execute it and does not decide in Trust's place; the grant that was issued is never spent (a defect of the decision, reported by this error).
 		return u.result(""), ErrRecoveryBudgetSpent
 	}
 	if err := u.move("PLANNED"); err != nil {
@@ -177,6 +181,7 @@ func (u *wrun) evaluate(intentRef string) (Result, error) {
 // execute spends and dispatches the decision's one grant. EXECUTING is recorded after Execute returns, so a crash before it leaves PLANNED and the Journal says
 // what happened. An error from the Executor stops the run: the write may have been dispatched, and only the Record can say.
 func (u *wrun) execute(d Decision) (Result, error) {
+	u.lastGrant = d.GrantIDs[0]
 	rc, err := u.w.w.Executor.Execute(u.ctx, u.s, d.GrantIDs[0])
 	if err != nil {
 		return u.result(""), fmt.Errorf("orchestrator: execute: %w", err)
@@ -190,7 +195,7 @@ func (u *wrun) execute(d Decision) (Result, error) {
 		if err := u.move("EVALUATING"); err != nil {
 			return u.result(""), err
 		}
-		u.recoveries++
+		u.voids++
 		return u.evaluate(d.IntentRef)
 	case ReceiptApplied, ReceiptUnknown:
 	default:
@@ -212,6 +217,7 @@ func (u *wrun) awaitVerification(d Decision) (Result, error) {
 
 // verify asks the Verifier for the verdict by the grant's key. It never executes.
 func (u *wrun) verify(d Decision) (Result, error) {
+	u.lastGrant = d.GrantIDs[0]
 	v, err := u.w.w.Verifier.Verify(u.ctx, u.s, d.ID, d.GrantIDs[0])
 	if err != nil {
 		return u.result(""), fmt.Errorf("orchestrator: verify: %w", err)
@@ -237,7 +243,6 @@ func (u *wrun) verify(d Decision) (Result, error) {
 		if err := u.move("EVALUATING"); err != nil {
 			return u.result(""), err
 		}
-		u.recoveries++
 		return u.evaluate(d.IntentRef)
 	}
 	return u.result(""), fmt.Errorf("%w: verdict %q", ErrBadPortAnswer, v)
@@ -256,4 +261,22 @@ func (u *wrun) explain(d Decision) (Result, error) {
 		return u.result(""), err
 	}
 	return u.result(ex.Text), nil
+}
+
+// budgetSpent is the recovery budget of PERD REQ-RCV-003 and ruling A216: at most cfg.MaxDispatchesPerKey dispatches per logical key. The count is derived from the
+// Record (GRANT_SPENT events of the last grant's idempotency key, through the Journal), so a crash and a resume cannot reset it. When it is spent the run still asks
+// Trust: REQ-RCV-003 makes ESCALATE the result there, taken by the existing arrows (EVALUATING to ESCALATING by that decision, then ESCALATED by the handoff), and
+// the runner never decides it. It only refuses to execute any other allowed write.
+func (u *wrun) budgetSpent() (bool, error) {
+	if u.voids >= u.w.cfg.MaxDispatchesPerKey {
+		return true, nil
+	}
+	if u.lastGrant == "" {
+		return false, nil
+	}
+	p, err := u.w.w.Journal.Progress(u.ctx, u.s, u.inv.ID, u.lastGrant)
+	if err != nil {
+		return false, fmt.Errorf("orchestrator: journal: %w", err)
+	}
+	return p.KeyDispatches >= u.w.cfg.MaxDispatchesPerKey, nil
 }

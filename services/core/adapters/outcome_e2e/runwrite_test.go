@@ -102,9 +102,10 @@ func (r rwRequests) For(ctx context.Context, tenantID, grantID string) (verifier
 
 // rwRig is the real stack behind a WriteRunner.
 type rwRig struct {
-	s   *stack
-	d   *rwDoubles
-	run *orchestrator.WriteRunner
+	s       *stack
+	d       *rwDoubles
+	run     *orchestrator.WriteRunner
+	journal journalport.Port
 }
 
 func newRWRig(t *testing.T) *rwRig {
@@ -115,17 +116,18 @@ func newRWRig(t *testing.T) *rwRig {
 	if err != nil {
 		t.Fatal(err)
 	}
+	jp := journalport.Port{DB: testpg.TenantLogin(t, s.admin, s.dsn, "record_read", tenant)}
 	run, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab},
 		orchestrator.Ports{Interpreter: d, Evidence: d, Trust: d, Explainer: d, Recorder: d, Admissions: d},
 		orchestrator.WritePorts{
 			Executor: executorport.Port{Controller: s.ctl, Timeout: time.Minute},
 			Verifier: verifierport.Port{Verifier: s.v, Requests: rwRequests{s: s}},
-			Journal:  journalport.Port{DB: testpg.TenantLogin(t, s.admin, s.dsn, "record_read", tenant)},
-		})
+			Journal:  jp,
+		}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &rwRig{s: s, d: d, run: run}
+	return &rwRig{s: s, d: d, run: run, journal: jp}
 }
 
 func (r *rwRig) recordCount(t *testing.T, eventType, grantID string) int {
@@ -136,7 +138,7 @@ func (r *rwRig) recordCount(t *testing.T, eventType, grantID string) int {
 // US-01 write, REQ-EXE-001, REQ-VER-001, AGENT-21: the write is dispatched once, verified against the target, and only then explained.
 func TestRunWriteExecutesVerifiesAndExplainsAgainstTheRealStack(t *testing.T) {
 	r := newRWRig(t)
-	res, err := r.run.RunWrite(bg(t), rwSession, rwTurn, 1)
+	res, err := r.run.RunWrite(bg(t), rwSession, rwTurn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,6 +150,10 @@ func TestRunWriteExecutesVerifiesAndExplainsAgainstTheRealStack(t *testing.T) {
 		t.Fatalf("the target received %d creates and committed %d; want 1 and 1", received, committed)
 	}
 	g := r.d.grants[0]
+	// A216: the dispatch count of the logical key is derived from the Record: one dispatch so far.
+	if p, err := r.journal.Progress(bg(t), rwSession, rwTurn.InvestigationID, g); err != nil || p.KeyDispatches != 1 {
+		t.Errorf("the Journal counts %d dispatches of the key (%v); want 1", p.KeyDispatches, err)
+	}
 	if spent, attempted := r.recordCount(t, "GRANT_SPENT", g), r.recordCount(t, "DISPATCH_ATTEMPTED", g); spent != 1 || attempted != 1 {
 		t.Errorf("the Record holds %d GRANT_SPENT and %d DISPATCH_ATTEMPTED for %s; want 1 and 1", spent, attempted, g)
 	}
@@ -158,7 +164,7 @@ func TestRunWriteExecutesVerifiesAndExplainsAgainstTheRealStack(t *testing.T) {
 func TestRunWriteAfterALostReplyVerifiesByKeyAndNeverDispatchesTwice(t *testing.T) {
 	r := newRWRig(t)
 	r.s.bench.loadPlan(t, planWith(t, "fp_runwrite_commit_then_drop_v1", fault("create_case", "TIMEOUT_AFTER_COMMIT", map[string]any{"delay_ms": 3500})))
-	res, err := r.run.RunWrite(bg(t), rwSession, rwTurn, 1)
+	res, err := r.run.RunWrite(bg(t), rwSession, rwTurn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +203,7 @@ func TestResumeWriteAfterACrashBetweenTheSpendAndExecutingNeverDispatchesAgain(t
 		t.Fatalf("the first dispatch: %+v, %v", out, err)
 	}
 	inv := orchestrator.Investigation{ID: rwTurn.InvestigationID, State: "PLANNED", Version: 3}
-	res, err := r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, orchestrator.Decision{ID: rwDecisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{g}, IntentRef: intentRef}, 1)
+	res, err := r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, orchestrator.Decision{ID: rwDecisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{g}, IntentRef: intentRef})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +238,7 @@ func TestTwoResumesAtOnceDispatchTheGrantOnce(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			results[i], errs[i] = r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, dec, 1)
+			results[i], errs[i] = r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, dec)
 		}()
 	}
 	close(start)

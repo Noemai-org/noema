@@ -125,13 +125,24 @@ type Verifier interface {
 	Verify(ctx context.Context, s Session, decisionID, grantID string) (contracts.EnumsV1Verdict, error)
 }
 
-// Progress is what the Record holds for one grant: whether GRANT_SPENT and DISPATCH_ATTEMPTED were written.
-type Progress struct{ GrantSpent, DispatchAttempted bool }
+// Progress is what the Record holds for one grant: whether GRANT_SPENT and DISPATCH_ATTEMPTED were written, and KeyDispatches, the number of GRANT_SPENT events on the
+// Record for the grant's idempotency key (0 if the grant is not spent). The recovery count of a run is derived from it, never kept by the runner (A216).
+type Progress struct {
+	GrantSpent, DispatchAttempted bool
+	KeyDispatches                 int
+}
 
 // Journal reads Progress from the Record as the session's tenant (A204: the Record is the truth). A grant that is spent is never spent again.
 type Journal interface {
 	Progress(ctx context.Context, s Session, investigationID, grantID string) (Progress, error)
 }
+
+// PERDMaxDispatchesPerKey is the adopted recovery budget: at most 2 dispatches per logical key (PERD v1.23 §30.2 and REQ-RCV-003, [ADOPTED DEC-2026-10-17], OD-P-32;
+// AGENT-16: an agent never changes it). The composition passes it to NewWriteRunner; the runner has no number of its own.
+const PERDMaxDispatchesPerKey = 2
+
+// WriteConfig is the write path's configuration. MaxDispatchesPerKey must be at least 1; NewWriteRunner refuses less.
+type WriteConfig struct{ MaxDispatchesPerKey int }
 
 // WritePorts are the services only the write path needs. NewWriteRunner refuses any missing.
 type WritePorts struct {
@@ -165,8 +176,9 @@ var (
 	ErrRecordFailed = errors.New("orchestrator: the Record append failed")
 	// ErrBadPortAnswer is returned for an answer outside what the port may give (an unknown kind or outcome); it is refused, never guessed.
 	ErrBadPortAnswer = errors.New("orchestrator: a port gave an answer outside its contract")
-	// ErrRecoveryBudgetSpent is returned when Trust allows a further write after the recovery budget is spent: the run stops in EVALUATING and executes nothing more.
-	ErrRecoveryBudgetSpent = errors.New("orchestrator: the recovery budget is spent; another write is not executed")
+	// ErrRecoveryBudgetSpent is returned when the dispatches of the logical key (counted from the Record) have reached the limit and Trust nevertheless allows another
+	// write: nothing is executed and the run stays in EVALUATING (PERD REQ-RCV-003 makes ESCALATE the result there; Trust's ESCALATE takes the existing arrows).
+	ErrRecoveryBudgetSpent = errors.New("orchestrator: the recovery budget is spent; the allowed write is not executed")
 	// ErrOutcomeUnknown is returned when the Verifier could not tell whether the write happened. The run is recorded as RECOVERING and stops: nothing is executed
 	// again and no new decision is asked for, because a new grant could apply the same write twice (INV-07, AGENT-07, AGENT-08).
 	ErrOutcomeUnknown = errors.New("orchestrator: the outcome of the write is unknown; the run stops and nothing is dispatched again")

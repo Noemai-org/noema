@@ -34,6 +34,7 @@ type wfakes struct {
 
 	nDecide, nExec, nVerify int
 	executed                []string // grant IDs handed to Execute
+	spent                   []string // those the Record would show as spent: every one but a voided grant
 	snapshots               []string // evidence snapshots Trust decided on
 }
 
@@ -77,6 +78,9 @@ func (w *wfakes) Execute(_ context.Context, s orchestrator.Session, grantID stri
 	if r.GrantID == "" {
 		r.GrantID = grantID // a receipt names the grant that was executed; a test that wants another says so
 	}
+	if r.Class != orchestrator.ReceiptVoided {
+		w.spent = append(w.spent, grantID)
+	}
 	w.nExec++
 	return r, err
 }
@@ -92,7 +96,13 @@ func (w *wfakes) Verify(_ context.Context, s orchestrator.Session, _, grantID st
 func (w *wfakes) Progress(_ context.Context, s orchestrator.Session, _, grantID string) (orchestrator.Progress, error) {
 	w.note("journal", s)
 	w.calls = append(w.calls, "journal:"+grantID)
-	return w.progress, w.journalEr
+	p := w.progress
+	for _, g := range w.spent { // the Record holds a GRANT_SPENT for every grant this double spent, all on one logical key
+		if g == grantID {
+			p.GrantSpent, p.DispatchAttempted, p.KeyDispatches = true, true, len(w.spent)
+		}
+	}
+	return p, w.journalEr
 }
 
 func writeDecision(grantIDs ...string) orchestrator.Decision {
@@ -107,7 +117,7 @@ func newWrite(t *testing.T, w *wfakes) *orchestrator.WriteRunner {
 	}
 	r, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab},
 		orchestrator.Ports{Interpreter: w.fakes, Evidence: w, Trust: w, Explainer: w.fakes, Recorder: w.fakes, Admissions: w.fakes},
-		orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w})
+		orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +148,7 @@ func count(calls []string, prefix string) int {
 // explanation is asked only after an ACHIEVED verdict (AGENT-21: an HTTP 200 is not an outcome).
 func TestAnAllowedWriteExecutesVerifiesAndOnlyThenExplains(t *testing.T) {
 	w := newWfakes()
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +180,7 @@ func TestALostReplyIsVerifiedByKeyAndNeverDispatchedASecondTime(t *testing.T) {
 	w := newWfakes()
 	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptUnknown}}
 	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictACHIEVED}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +198,7 @@ func TestAVerdictOtherThanAchievedRecoversUnderAFreshSnapshotAndANewGrant(t *tes
 			w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
 			w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptApplied}, {GrantID: "grt_BB22", Class: orchestrator.ReceiptApplied}}
 			w.verdicts = []contracts.EnumsV1Verdict{v, contracts.EnumsV1VerdictACHIEVED}
-			res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,7 +216,7 @@ func TestAVerdictOtherThanAchievedRecoversUnderAFreshSnapshotAndANewGrant(t *tes
 	t.Run("PENDING_EXTERNAL", func(t *testing.T) {
 		w := newWfakes()
 		w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictPENDINGEXTERNAL}
-		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 		if err != nil || res.Investigation.State != "AWAITING_EXTERNAL_OUTCOME" || w.nExec != 1 {
 			t.Fatalf("final %s, executes %d, err %v; want AWAITING_EXTERNAL_OUTCOME after one execute", res.Investigation.State, w.nExec, err)
 		}
@@ -229,7 +239,7 @@ func TestAVoidedGrantReturnsToEvaluatingAndIsNeverDispatched(t *testing.T) {
 	w := newWfakes()
 	w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
 	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptVoided}, {GrantID: "grt_BB22", Class: orchestrator.ReceiptApplied}}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,8 +251,9 @@ func TestAVoidedGrantReturnsToEvaluatingAndIsNeverDispatched(t *testing.T) {
 	}
 }
 
-// Test 5 (AGENT-16, REQ-RES-004): the recovery budget is a number the caller gives, with no default. When it is spent the runner does not execute again: a Trust
-// answer that allows another write is refused with ErrRecoveryBudgetSpent, and a Trust answer that escalates takes the ESCALATING arrow.
+// Test 5 (AGENT-16, REQ-RCV-003, A216): the recovery budget is the PERD's adopted limit, 2 dispatches per logical key (PERD v1.23 §30.2), given to the runner as
+// configuration and never per call. The count is derived from the Record through the Journal. When it is spent Trust is still asked, because REQ-RCV-003 makes
+// ESCALATE the result there and the existing arrows take it (EVALUATING to ESCALATING); an ALLOW that would write again is refused and nothing is executed.
 func TestAnExhaustedRecoveryBudgetNeverExecutesAgainAndEscalatesWhenTrustDoes(t *testing.T) {
 	failing := func() *wfakes {
 		w := newWfakes()
@@ -251,26 +262,75 @@ func TestAnExhaustedRecoveryBudgetNeverExecutesAgainAndEscalatesWhenTrustDoes(t 
 		w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED}
 		return w
 	}
-	t.Run("another write is refused", func(t *testing.T) {
+	t.Run("another allowed write is refused", func(t *testing.T) {
 		w := failing()
-		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
-		if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nExec != 2 || res.Investigation.State != "EVALUATING" {
-			t.Fatalf("err %v, executes %d, final %s; want ErrRecoveryBudgetSpent, 2 executes (one first run and one recovery), EVALUATING", err, w.nExec, res.Investigation.State)
+		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+		if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nExec != 2 || w.nDecide != 3 || res.Investigation.State != "EVALUATING" {
+			t.Fatalf("err %v, executes %d, decisions %d, final %s; want ErrRecoveryBudgetSpent, 2 executes, 3 decisions, EVALUATING", err, w.nExec, w.nDecide, res.Investigation.State)
 		}
 	})
 	t.Run("Trust escalates", func(t *testing.T) {
 		w := failing()
 		w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22"), {ID: "dec_ZZ99", Outcome: contracts.EnumsV1DecisionOutcomeESCALATE}}
-		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
-		if err != nil || res.Investigation.State != "ESCALATING" {
-			t.Fatalf("err %v, final %s; want ESCALATING", err, res.Investigation.State)
+		res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+		if err != nil || res.Investigation.State != "ESCALATING" || w.nExec != 2 {
+			t.Fatalf("err %v, final %s, executes %d; want ESCALATING after two dispatches", err, res.Investigation.State, w.nExec)
 		}
 	})
-	t.Run("a negative budget does not build a run", func(t *testing.T) {
-		if _, err := newWrite(t, newWfakes()).RunWrite(context.Background(), sess, turn, -1); !errors.Is(err, orchestrator.ErrBadTurn) {
-			t.Fatalf("err %v, want ErrBadTurn", err)
+}
+
+// A216: a crash and a resume cannot reset the count. The caller passes no budget; the Record says the logical key has been dispatched up to the limit, so a resume that
+// finds the verdict NOT_ACHIEVED asks Trust, executes nothing more if Trust allows a write, and takes ESCALATING if Trust escalates.
+func TestAResumeCannotResetTheDispatchCountOfTheKey(t *testing.T) {
+	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "AWAITING_VERIFICATION", Version: 9}
+	spent := orchestrator.Progress{GrantSpent: true, DispatchAttempted: true, KeyDispatches: orchestrator.PERDMaxDispatchesPerKey}
+	w := newWfakes()
+	w.progress = spent
+	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED}
+	res, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_BB22"))
+	if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nExec != 0 || w.nDecide != 1 || res.Investigation.State != "EVALUATING" {
+		t.Fatalf("err %v, executes %d, decisions %d, final %s; want ErrRecoveryBudgetSpent, 0, 1, EVALUATING", err, w.nExec, w.nDecide, res.Investigation.State)
+	}
+	w1 := newWfakes()
+	w1.progress = spent
+	w1.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED}
+	w1.decisions = []orchestrator.Decision{{ID: "dec_ZZ99", Outcome: contracts.EnumsV1DecisionOutcomeESCALATE}}
+	if res, err := newWrite(t, w1).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_BB22")); err != nil || res.Investigation.State != "ESCALATING" || w1.nExec != 0 {
+		t.Fatalf("err %v, final %s, executes %d; want ESCALATING and nothing executed", err, res.Investigation.State, w1.nExec)
+	}
+	// One dispatch fewer on the Record, and the same resume goes on to a fresh decision and a new dispatch.
+	w2 := newWfakes()
+	w2.progress = orchestrator.Progress{GrantSpent: true, DispatchAttempted: true, KeyDispatches: orchestrator.PERDMaxDispatchesPerKey - 1}
+	w2.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictACHIEVED}
+	if res, err := newWrite(t, w2).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_BB22")); err != nil || w2.nDecide != 1 || w2.nExec != 1 || res.Investigation.State != "COMPLETED" {
+		t.Fatalf("err %v, decisions %d, executes %d, final %s; want a fresh decision, one dispatch and COMPLETED", err, w2.nDecide, w2.nExec, res.Investigation.State)
+	}
+}
+
+// A Journal that cannot say how many times the key was dispatched stops the run before Trust is asked again: no count, no further dispatch.
+func TestAJournalThatCannotCountStopsTheRecovery(t *testing.T) {
+	w := newWfakes()
+	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED}
+	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "AWAITING_VERIFICATION", Version: 9}
+	w.journalEr = errors.New("synthetic journal failure")
+	if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_BB22")); err == nil || errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nDecide != 0 || w.nExec != 0 {
+		t.Fatalf("err %v, decisions %d, executes %d; want a journal error, no decision, no dispatch", err, w.nDecide, w.nExec)
+	}
+}
+
+// The limit is configuration with no default in the runner (AGENT-16): a limit under 1 does not build a runner.
+func TestAWriteRunnerWithoutADispatchLimitDoesNotBuild(t *testing.T) {
+	w := newWfakes()
+	tab, err := orchestrator.LoadTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := orchestrator.Ports{Interpreter: w.fakes, Evidence: w, Trust: w, Explainer: w.fakes, Recorder: w.fakes, Admissions: w.fakes}
+	for _, n := range []int{0, -1} {
+		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: n}); !errors.Is(err, orchestrator.ErrNotWired) {
+			t.Errorf("limit %d: err %v, want ErrNotWired", n, err)
 		}
-	})
+	}
 }
 
 // Test 6 (EC-E16, PERD 32.4): a failed Record append stops the run at that move. No grant is dispatched when PLANNED could not be recorded, and nothing is verified
@@ -291,7 +351,7 @@ func TestAFailedRecordAppendStopsTheWritePathAtThatMove(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			w := newWfakes()
 			w.failAt = c.failAt
-			res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 			if !errors.Is(err, orchestrator.ErrRecordFailed) || w.nExec != c.wantExec || w.nVerify != c.wantVerify || len(w.changes) != c.wantRecords || res.Answer != "" {
 				t.Fatalf("err %v, executes %d, verifies %d, records %d, answer %q; want ErrRecordFailed, %d, %d, %d, no answer", err, w.nExec, w.nVerify, len(w.changes), res.Answer, c.wantExec, c.wantVerify, c.wantRecords)
 			}
@@ -313,9 +373,9 @@ func TestACrashAtEachBoundaryResumesFromTheRecordAndNeverDispatchesTwice(t *test
 		wantFinal    orchestrator.State
 	}{
 		{"planned, nothing spent", "PLANNED", orchestrator.Progress{}, 1, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
-		// Spent and never dispatched: the grant cannot be used again (AGENT-08); the run verifies by key, finds nothing done and recovers. The budget given to the resume
-		// is 0, so the fresh decision that follows is not executed: the run stops in EVALUATING with ErrRecoveryBudgetSpent.
-		{"planned, grant spent but not dispatched", "PLANNED", orchestrator.Progress{GrantSpent: true}, 0, 1, contracts.EnumsV1VerdictNOTACHIEVED, "EVALUATING"},
+		// Spent and never dispatched: the grant cannot be used again (AGENT-08); the run verifies by key, finds nothing done and recovers. The Record
+		// says the key was dispatched up to the limit, so Trust is not asked again: the run stops in EVALUATING with ErrRecoveryBudgetSpent.
+		{"planned, grant spent but not dispatched", "PLANNED", orchestrator.Progress{GrantSpent: true, KeyDispatches: orchestrator.PERDMaxDispatchesPerKey}, 0, 1, contracts.EnumsV1VerdictNOTACHIEVED, "EVALUATING"},
 		{"planned, dispatch attempted and the reply lost", "PLANNED", orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
 		// The Record cannot show an attempt without a spend; if it ever does, the safer reading is that the grant is spent.
 		{"planned, dispatch attempted without a spend flag", "PLANNED", orchestrator.Progress{DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
@@ -328,7 +388,7 @@ func TestACrashAtEachBoundaryResumesFromTheRecordAndNeverDispatchesTwice(t *test
 			w.progress = c.progress
 			w.verdicts = []contracts.EnumsV1Verdict{c.verdict}
 			inv := orchestrator.Investigation{ID: turn.InvestigationID, State: c.state, Version: 5}
-			res, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"), 0)
+			res, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"))
 			if c.wantFinal == "EVALUATING" != errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || (err != nil && c.wantFinal != "EVALUATING") {
 				t.Fatalf("err %v, want ErrRecoveryBudgetSpent only when the run ends in EVALUATING", err)
 			}
@@ -344,7 +404,7 @@ func TestACrashAtEachBoundaryResumesFromTheRecordAndNeverDispatchesTwice(t *test
 		w := newWfakes()
 		w.journalEr = errors.New("synthetic journal failure")
 		inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
-		if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"), 1); err == nil || w.nExec != 0 {
+		if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11")); err == nil || w.nExec != 0 {
 			t.Fatalf("err %v, executes %d; want an error and no dispatch", err, w.nExec)
 		}
 	})
@@ -357,7 +417,7 @@ func TestAReEvaluationAfterRecoveryReadsEvidenceAgain(t *testing.T) {
 	w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
 	w.receipts = []orchestrator.Receipt{{Class: orchestrator.ReceiptApplied}}
 	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictACHIEVED}
-	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1); err != nil {
+	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn); err != nil {
 		t.Fatal(err)
 	}
 	if got := count(w.calls, "evidence"); got != 2 {
@@ -378,7 +438,7 @@ func TestAWriteRunnerWithAMissingWritePortDoesNotBuild(t *testing.T) {
 		"no verifier": {Executor: w, Journal: w},
 		"no journal":  {Executor: w, Verifier: w},
 	} {
-		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, wp); !errors.Is(err, orchestrator.ErrNotWired) {
+		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, wp, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey}); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("%s: err %v, want ErrNotWired", name, err)
 		}
 	}
@@ -390,7 +450,7 @@ func TestAWriteRunnerWithAMissingWritePortDoesNotBuild(t *testing.T) {
 func TestAGrantVoidedAgainAndAgainIsStoppedByTheBudget(t *testing.T) {
 	w := newWfakes()
 	w.receipts = []orchestrator.Receipt{{Class: orchestrator.ReceiptVoided}}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nExec != 2 || res.Investigation.State != "EVALUATING" {
 		t.Fatalf("err %v, executes %d, final %s; want ErrRecoveryBudgetSpent, 2 executes, EVALUATING", err, w.nExec, res.Investigation.State)
 	}
@@ -401,7 +461,7 @@ func TestAnAllowedWriteWithoutExactlyOneGrantIsRefusedBeforeItIsPlanned(t *testi
 		t.Run(name, func(t *testing.T) {
 			w := newWfakes()
 			w.decisions = []orchestrator.Decision{writeDecision(grants...)}
-			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 			if !errors.Is(err, orchestrator.ErrNoGrant) || w.nExec != 0 || count(w.calls, "record:PLANNED") != 0 {
 				t.Fatalf("err %v, executes %d; want ErrNoGrant and nothing planned or executed (%v)", err, w.nExec, w.calls)
 			}
@@ -412,7 +472,7 @@ func TestAnAllowedWriteWithoutExactlyOneGrantIsRefusedBeforeItIsPlanned(t *testi
 func TestAnExecutorThatCannotSayWhatHappenedStopsTheRunWithoutRecordingExecuting(t *testing.T) {
 	w := newWfakes()
 	w.execErr = []error{errors.New("synthetic controller failure")}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if err == nil || w.nExec != 1 || w.nVerify != 0 || res.Investigation.State != "PLANNED" || count(w.calls, "record:EXECUTING") != 0 {
 		t.Fatalf("err %v, executes %d, verifies %d, final %s; want an error, one execute, no verify, PLANNED", err, w.nExec, w.nVerify, res.Investigation.State)
 	}
@@ -424,7 +484,7 @@ func TestAnExecutorThatCannotSayWhatHappenedStopsTheRunWithoutRecordingExecuting
 func TestAnUnknownVerdictStopsInRecoveringAndNeverDispatchesAgain(t *testing.T) {
 	w := newWfakes()
 	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictUNKNOWN}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 5)
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if !errors.Is(err, orchestrator.ErrOutcomeUnknown) || res.Investigation.State != "RECOVERING" || w.nExec != 1 || w.nDecide != 1 || count(w.calls, "evidence") != 1 {
 		t.Fatalf("err %v, final %s, executes %d, decisions %d, evidence reads %d; want ErrOutcomeUnknown, RECOVERING, 1, 1, 1", err, res.Investigation.State, w.nExec, w.nDecide, count(w.calls, "evidence"))
 	}
@@ -458,7 +518,6 @@ func TestResumeWriteChecksItsInputsAndTheStateItResumesFrom(t *testing.T) {
 		{"a lookup that fails", planned, d, sess, turn, func(w *wfakes) { w.admitEr = errors.New("synthetic lookup failure") }, orchestrator.ErrNoInputReceived},
 		{"a session with no tenant", planned, d, orchestrator.Session{PrincipalID: "usr_01"}, turn, nil, orchestrator.ErrNoSession},
 		{"a state the write path cannot resume from", orchestrator.Investigation{ID: turn.InvestigationID, State: "EVALUATING", Version: 5}, d, sess, turn, nil, orchestrator.ErrNotResumable},
-		{"a negative budget", planned, d, sess, turn, nil, orchestrator.ErrBadTurn},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -466,11 +525,7 @@ func TestResumeWriteChecksItsInputsAndTheStateItResumesFrom(t *testing.T) {
 			if c.fix != nil {
 				c.fix(w)
 			}
-			budget := 1
-			if c.name == "a negative budget" {
-				budget = -1
-			}
-			_, err := newWrite(t, w).ResumeWrite(context.Background(), c.sess, c.turn, c.inv, c.dec, budget)
+			_, err := newWrite(t, w).ResumeWrite(context.Background(), c.sess, c.turn, c.inv, c.dec)
 			if !errors.Is(err, c.want) || w.nExec != 0 || w.nVerify != 0 {
 				t.Fatalf("err %v, executes %d, verifies %d; want %v and nothing dispatched or verified", err, w.nExec, w.nVerify, c.want)
 			}
@@ -490,7 +545,7 @@ func TestAReceiptForAnotherGrantOrAnAnswerOutsideTheContractIsRefused(t *testing
 		t.Run(name, func(t *testing.T) {
 			w := newWfakes()
 			fix(w)
-			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 			if !errors.Is(err, orchestrator.ErrBadPortAnswer) || w.nExec != 1 || count(w.calls, "record:EXPLAINING") != 0 {
 				t.Fatalf("err %v, executes %d; want ErrBadPortAnswer after one execute and no explanation (%v)", err, w.nExec, w.calls)
 			}
@@ -501,12 +556,12 @@ func TestAReceiptForAnotherGrantOrAnAnswerOutsideTheContractIsRefused(t *testing
 // Security Reviewer, note (e): the Executor, Verifier and Journal receive the session of the run, tenant and principal included.
 func TestTheWritePortsReceiveTheSessionOfTheRun(t *testing.T) {
 	w := newWfakes()
-	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1); err != nil {
+	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn); err != nil {
 		t.Fatal(err)
 	}
 	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
 	w.progress = orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}
-	if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"), 1); err != nil {
+	if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11")); err != nil {
 		t.Fatal(err)
 	}
 	for _, port := range []string{"executor", "verifier", "journal"} {

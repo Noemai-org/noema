@@ -5,6 +5,7 @@ package journalport
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -27,7 +28,8 @@ type TxBeginner interface {
 	BeginTx(ctx context.Context, opts pgx.TxOptions) (pgx.Tx, error)
 }
 
-// Port implements orchestrator.Journal.
+// Port implements orchestrator.Journal. KeyDispatches counts the GRANT_SPENT events of the tenant's Record that name the same idempotency key as the grant's own (the
+// logical key of PERD REQ-RCV-003): the recovery count of a run is derived from it (A216).
 type Port struct{ DB TxBeginner }
 
 var _ orchestrator.Journal = Port{}
@@ -53,6 +55,7 @@ func (p Port) Progress(ctx context.Context, s orchestrator.Session, investigatio
 		return orchestrator.Progress{}, fmt.Errorf("journalport: the Record does not verify: %w", err)
 	}
 	var out orchestrator.Progress
+	key := ""
 	for _, r := range rows {
 		if r.ObjectRef != grantID {
 			continue
@@ -60,9 +63,35 @@ func (p Port) Progress(ctx context.Context, s orchestrator.Session, investigatio
 		switch r.EventType {
 		case eventGrantSpent:
 			out.GrantSpent = true
+			key = idempotencyKey(r.Payload)
 		case eventDispatchAttempted:
 			out.DispatchAttempted = true
 		}
 	}
+	if !out.GrantSpent {
+		return out, nil
+	}
+	if key == "" {
+		return orchestrator.Progress{}, fmt.Errorf("journalport: GRANT_SPENT of %s names no idempotency key", grantID)
+	}
+	for _, r := range rows {
+		if r.EventType == eventGrantSpent && idempotencyKey(r.Payload) == key {
+			out.KeyDispatches++
+		}
+	}
 	return out, nil
+}
+
+// idempotencyKey is the key a GRANT_SPENT event names in its payload ("" if it names none).
+func idempotencyKey(payload *string) string {
+	if payload == nil {
+		return ""
+	}
+	var p struct {
+		Key string `json:"idempotency_key"`
+	}
+	if err := json.Unmarshal([]byte(*payload), &p); err != nil {
+		return ""
+	}
+	return p.Key
 }
