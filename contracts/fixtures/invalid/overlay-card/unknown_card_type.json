@@ -1,0 +1,26 @@
+{
+  "card_type": "PROMOTION",
+  "schema_version": "1.0",
+  "clarification_id": "clr_01J9X3A4B5",
+  "question": "Which transfer do you mean?",
+  "options": [
+    {
+      "option_id": "opt_1",
+      "label": "NGN 20,000 at 14:05 to account ending 4821"
+    },
+    {
+      "option_id": "opt_2",
+      "label": "NGN 20,000 at 16:40 to account ending 7710"
+    },
+    {
+      "option_id": "opt_3",
+      "label": "NGN 5,500 at 09:12 to account ending 4821"
+    },
+    {
+      "option_id": "opt_4",
+      "label": "NGN 12,000 at 11:30 to account ending 3302"
+    }
+  ],
+  "allow_none": true,
+  "expires_at": "2026-11-13T15:00:00Z"
+}

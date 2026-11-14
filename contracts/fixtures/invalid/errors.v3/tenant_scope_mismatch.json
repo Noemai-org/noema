@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "TENANT_SCOPE_MISMATCH",
+    "message": "We could not find that item.",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9"
+  }
+}

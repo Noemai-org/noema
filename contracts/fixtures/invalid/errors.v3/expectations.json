@@ -1,0 +1,6 @@
+{
+  "details_field_with_digit_run.json": "pattern",
+  "details_too_many.json": "maxItems",
+  "message_with_arabic_indic_digits.json": "pattern",
+  "tenant_scope_mismatch.json": "enum"
+}

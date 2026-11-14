@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/sse-event.v1.json",
+  "title": "SSE event payload",
+  "description": "PERD §39.2: the data of one server-sent event of GET /v1/conversations/{conversation_ref}/events: progress, clarification, confirmation, answer or error. The SSE 'event:' line carries the same name as 'event' here, and the SSE 'id:' line (the cursor Last-Event-ID resumes after) is not part of the payload. Events are emitted from committed state only and are masked (PERD §40; REQ-UI-001). Each payload holds only what the overlay may show: progress carries the public stage (the overlay shows the plain-language string that belongs to it, never a timer or percentage, PERD §13; A187); the card and answer events carry overlay-card.v1 and customer-answer.v1 objects; error carries the errors.v3 body (the public body: one not-found code, no TENANT_SCOPE_MISMATCH), whose message is safe text. There is no member for model confidence, reason codes, evidence payloads or thresholds. New in this contract set; no earlier contract changes (AGENT-15).",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Progress"
+    },
+    {
+      "$ref": "#/$defs/Clarification"
+    },
+    {
+      "$ref": "#/$defs/Confirmation"
+    },
+    {
+      "$ref": "#/$defs/Answer"
+    },
+    {
+      "$ref": "#/$defs/Error"
+    }
+  ],
+  "$defs": {
+    "Progress": {
+      "description": "The investigation moved to a public stage; the overlay shows the plain-language string that belongs to it.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "const": "progress"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "at": {
+          "description": "When the event was committed.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "state": {
+          "$ref": "https://contracts.noema.invalid/investigation-response.v1.json#/$defs/PublicStage"
+        }
+      },
+      "required": [
+        "event",
+        "schema_version",
+        "at",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "Clarification": {
+      "description": "One question for the customer.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "const": "clarification"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "at": {
+          "description": "When the event was committed.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "card": {
+          "$ref": "https://contracts.noema.invalid/overlay-card.v1.json#/$defs/ClarificationCard"
+        }
+      },
+      "required": [
+        "event",
+        "schema_version",
+        "at",
+        "card"
+      ],
+      "additionalProperties": false
+    },
+    "Confirmation": {
+      "description": "An action for the approver to accept or decline.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "const": "confirmation"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "at": {
+          "description": "When the event was committed.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "card": {
+          "$ref": "https://contracts.noema.invalid/overlay-card.v1.json#/$defs/ConfirmationCard"
+        }
+      },
+      "required": [
+        "event",
+        "schema_version",
+        "at",
+        "card"
+      ],
+      "additionalProperties": false
+    },
+    "Answer": {
+      "description": "A final answer. The overlay never shows a final answer the core did not send.",
+      "type": "object",
+      "properties": {
+        "event": {
+          "const": "answer"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "at": {
+          "description": "When the event was committed.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "answer": {
+          "$ref": "https://contracts.noema.invalid/customer-answer.v1.json"
+        }
+      },
+      "required": [
+        "event",
+        "schema_version",
+        "at",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "Error": {
+      "description": "The stream failed; the body is the errors.v3 body (safe text, a catalogue code, one not-found shape).",
+      "type": "object",
+      "properties": {
+        "event": {
+          "const": "error"
+        },
+        "schema_version": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+        },
+        "at": {
+          "description": "When the event was committed.",
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+        },
+        "error": {
+          "$ref": "https://contracts.noema.invalid/errors.v3.json#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "event",
+        "schema_version",
+        "at",
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
