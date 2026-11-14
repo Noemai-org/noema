@@ -7,7 +7,11 @@ package intake
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -218,13 +222,83 @@ func TestT10AsksTheReconcilerAboutTheTenantAndTheSealedSnapshot(t *testing.T) {
 	}
 }
 
-// A classification the pack maps to nothing lets the evaluation go on.
-func TestT10GoesOnWhenThePackMapsNothing(t *testing.T) {
-	for _, c := range []reconcile.Classification{reconcile.SuccessConfirmed, reconcile.SettlementPending, reconcile.PossibleDuplicate} {
+// A classification that names a settled, understood state and that the pack maps to nothing lets the evaluation go on.
+func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
+	for _, c := range []reconcile.Classification{reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
+		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial} {
 		f := &fake{rec: Reconciliation{Classification: c}}
 		_, trace := run(t, newEv(t, f), decide.T10Reconciliation)
 		wentOn(t, string(c), trace, decide.T10Reconciliation)
 	}
+}
+
+// SR blocking finding on noema#570 (INV-16, REQ-RES-001, "unknown means refuse or hand to the team"): a classification that says the state is contradictory, the outcome
+// is unknown, a duplicate is possible, the event order is uncertain or the evidence is insufficient, or a value that is not a classification at all, never goes on just
+// because the pack mapped nothing. The pack may add escalations; it is not the only thing between a contradiction and an ALLOW. The step fails closed (UNKNOWN).
+// This is the provisional safer reading (AGENT-20) of which classifications may go on unmapped; the Architect confirms or changes the two sets.
+func TestT10AClassificationThatMustNotGoOnFailsClosedWhenThePackMapsNothing(t *testing.T) {
+	for _, c := range []reconcile.Classification{reconcile.ContradictoryState, reconcile.ExecutionOutcomeUnknown, reconcile.PossibleDuplicate, reconcile.EventOrderUncertain,
+		reconcile.InsufficientEvidence, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
+		for name, ev := range map[string]func(*evaluation) *evaluation{
+			"no capability named":       func(e *evaluation) *evaluation { return e },
+			"a write capability named":  func(e *evaluation) *evaluation { return e.withCapability(tWriteCap) },
+			"a create capability named": func(e *evaluation) *evaluation { return e.withCapability(tCreateCap) },
+		} {
+			f := &fake{rec: Reconciliation{Classification: c}}
+			d, trace := run(t, ev(newEv(t, f)), decide.T10Reconciliation)
+			failedClosed(t, string(c)+", "+name, d, trace, decide.T10Reconciliation)
+		}
+	}
+}
+
+// Every classification the reconcile package declares is in exactly one of the two sets of the step, so a thirteenth one cannot arrive and go on by default.
+func TestT10EveryDeclaredClassificationIsEitherSettledOrStopsWhenUnmapped(t *testing.T) {
+	declared := declaredClassifications(t)
+	if len(declared) != 12 {
+		t.Fatalf("reconcile declares %d classifications, want the twelve of PERD 22.3", len(declared))
+	}
+	for _, c := range declared {
+		if goesOnUnmapped(reconcile.Classification(c)) == stopsWhenUnmapped[c] {
+			t.Errorf("%s: it is in %v of the two sets of the step; want exactly one", c, map[bool]string{true: "both", false: "neither"}[stopsWhenUnmapped[c]])
+		}
+	}
+}
+
+// stopsWhenUnmapped is the other half of the table, written out again here and not read from the step.
+var stopsWhenUnmapped = map[string]bool{"CONTRADICTORY_STATE": true, "EXECUTION_OUTCOME_UNKNOWN": true, "POSSIBLE_DUPLICATE": true, "EVENT_ORDER_UNCERTAIN": true, "INSUFFICIENT_EVIDENCE": true}
+
+// declaredClassifications reads the Classification constants out of reconcile/types.go.
+func declaredClassifications(t *testing.T) []string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "../reconcile/types.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			vs := sp.(*ast.ValueSpec)
+			if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "Classification" {
+				continue
+			}
+			for _, v := range vs.Values {
+				lit, ok := v.(*ast.BasicLit)
+				if !ok {
+					t.Fatalf("a Classification constant that is not a string literal: %T", v)
+				}
+				u, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, u)
+			}
+		}
+	}
+	return out
 }
 
 // REQ-RES-002: a frozen target and a capability the pack does not allow under the freeze never goes on. With no pack reason to escalate with, the step cannot build an
@@ -241,7 +315,7 @@ func TestT10TheFreezeEscalatesWithThePackReasonWhenThePackMapsIt(t *testing.T) {
 	stopped(t, "frozen with mapping", d, trace, decide.T10Reconciliation, decide.Escalate, []string{tPackCode}, escalateAtT10)
 }
 
-func TestT10TheFreezeLetsThroughACapabilityThePackAllowsUnderItAndAnIntentWithNone(t *testing.T) {
+func TestT10TheFreezeLetsThroughACapabilityThePackAllowsUnderIt(t *testing.T) {
 	frozen := Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}
 	notFrozen := Reconciliation{Classification: reconcile.SuccessConfirmed, AllowedUnderFreeze: []string{tCreateCap}}
 	for _, c := range []struct {
@@ -250,13 +324,20 @@ func TestT10TheFreezeLetsThroughACapabilityThePackAllowsUnderItAndAnIntentWithNo
 		ev   func(*evaluation) *evaluation
 	}{
 		{"frozen, capability allowed under the freeze", frozen, func(e *evaluation) *evaluation { return e.withCapability(tCreateCap) }},
-		{"frozen, the intent names no capability", frozen, func(e *evaluation) *evaluation { return e }},
 		{"not frozen, capability not on the freeze list", notFrozen, func(e *evaluation) *evaluation { return e.withCapability(tWriteCap) }},
 	} {
 		f := &fake{rec: c.rec}
 		_, trace := run(t, c.ev(newEv(t, f)), decide.T10Reconciliation)
 		wentOn(t, c.name, trace, decide.T10Reconciliation)
 	}
+}
+
+// SR blocking finding on noema#570: a frozen target with an intent that names no capability asks for no grant, but nothing says what it may do either, and a plan's
+// capabilities are only known at T14. With no pack mapping to escalate with, it fails closed here; the plan's own capabilities are checked against the freeze at T14.
+func TestT10AFrozenTargetWithNoNamedCapabilityAndNoPackMappingFailsClosed(t *testing.T) {
+	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
+	d, trace := run(t, newEv(t, f), decide.T10Reconciliation)
+	failedClosed(t, "frozen, no capability named, no mapping", d, trace, decide.T10Reconciliation)
 }
 
 // INV-16, REQ-NFR-002: everything else is UNKNOWN, never ALLOW and never a guess.

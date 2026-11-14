@@ -78,6 +78,9 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 	return escalate(r, rec.EscalateReason, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
 }
 
+// goesOnUnmapped reports whether a classification the pack maps to nothing lets the evaluation go on. (A stub: the fail-closed table follows the red run.)
+func goesOnUnmapped(reconcile.Classification) bool { return true }
+
 // freezeBlocks reports that the target is frozen and the pack does not allow the requested capability under the freeze. An intent that names no capability asks
 // for no grant, so the freeze does not stop it.
 func freezeBlocks(rec Reconciliation, c *Capability) bool {
