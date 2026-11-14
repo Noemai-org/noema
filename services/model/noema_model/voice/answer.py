@@ -45,10 +45,12 @@ async def _close(stream: object, bound_s: float) -> None:
     if close is None:
         return
     try:
-        async with asyncio.timeout(bound_s):
+        async with asyncio.timeout(bound_s) as scope:
             await close()
     except TimeoutError:
-        pass  # abandoned: a stalled provider shutdown must not hold the answer
+        if not scope.expired():
+            raise  # the iterator's own close raised TimeoutError: that is the provider's failure, reported through the caller's error path (Codex P2 on #213)
+        # our own bound expired: abandoned, a stalled provider shutdown must not hold the answer
 
 
 async def _collect(synthesizer: SpeechSynthesizer, request: SynthesisRequest, bound_s: float) -> tuple[AudioChunk, ...]:
