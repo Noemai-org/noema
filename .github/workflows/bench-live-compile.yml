@@ -1,0 +1,183 @@
+# Compile acceptance, live (noema#546; ruling A198, relayed; UND-05). The Intent Compiler's golden examples G-A to G-E, run once each through the model service's compile route with
+# the real provider adapter, recording every call for the replay provider (noema#528). It is NOT the bake-off (bench-live.yml, left as reviewed) and it does not involve the core.
+#
+# workflow_dispatch only. Two jobs:
+#   dry-run  no Environment, no secret, no provider call. It prints the token count of each request and the per-run ceiling, so the reviewer sees the cost BEFORE approving the next job.
+#   run      `environment: bench-live` (a required reviewer: every run waits for the founder's approval before any step starts and before the key is exposed). The key is the Environment's
+#            secret OPENAI_API_KEY; it is in the `env:` of ONE step and is never printed, written to a file or put in an argument.
+# Inputs reach the shell only through `env:`, and are validated before use. The spend is bounded: the runner reuses the budget guard of benchmark/bakeoff/live_run.py, counts
+# `prior_spent_micros` (the spending of earlier runs against the same cap; at least 326693 is already spent, noema#338), and the hard stop cannot exceed the USD 5 of the Architect's
+# sync of 10 Nov 2026. `leakscan` runs over the whole output before anything is uploaded; only the recordings and the run record are uploaded, never a log. A run that made no provider
+# call is NOT RUN, never a pass. Nothing here reads or mounts benchmark-heldout (INV-22). Linux runner only.
+name: bench-live-compile
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run prints the cost of each request and stops (no secret, no approval); run also calls the provider after the Environment reviewer approves"
+        type: choice
+        options: [dry-run, run]
+        required: true
+        default: dry-run
+      provider:
+        description: "Provider (OpenAI only until the Founder adds other keys)"
+        type: choice
+        options: [openai]
+        required: true
+        default: openai
+      pack_ref:
+        description: "Pack reference of the compile route, name@x.y.z"
+        type: string
+        required: true
+        default: "fin@1.0.0"
+      prior_spent_micros:
+        description: "Micro-dollars already spent against the same cap by earlier runs (at least 326693, noema#338)"
+        type: string
+        required: true
+      hard_stop_usd:
+        description: "Hard stop in whole dollars, 1 to 5 (the Architect's sync of 10 Nov 2026 set 5), counted with prior_spent_micros"
+        type: string
+        required: true
+        default: "5"
+      run_id:
+        description: "Run ID to record (letters, digits, dot, dash, underscore; default compile-gh<github run id>)"
+        type: string
+        required: false
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: bench-live-compile
+  cancel-in-progress: false
+jobs:
+  dry-run:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Install the pinned dependencies
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --require-hashes -r services/model/requirements.lock -r benchmark/requirements.lock
+      - name: Validate the inputs and print the cost of each request (no provider call, no secret)
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          PACK_REF: ${{ inputs.pack_ref }}
+          PRIOR: ${{ inputs.prior_spent_micros }}
+          HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
+          GIVEN_RUN_ID: ${{ inputs.run_id }}
+          GITHUB_RUN: ${{ github.run_id }}
+          PYTHONPATH: services/model:.
+        run: |
+          set -eu
+          run_id="${GIVEN_RUN_ID:-compile-gh$GITHUB_RUN}"
+          printf '%s' "$run_id" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' || { echo "run_id must match ^[A-Za-z0-9_.-]{1,64}$"; exit 2; }
+          printf '%s' "$PACK_REF" | grep -Eq '^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$' || { echo "pack_ref must look like fin@1.0.0"; exit 2; }
+          case "$PROVIDER" in openai) ;; *) echo "provider must be openai"; exit 2;; esac
+          case "$PRIOR" in ''|*[!0-9]*) echo "prior_spent_micros must be a non-negative integer"; exit 2;; esac
+          [ "$PRIOR" -ge 326693 ] || { echo "prior_spent_micros must be at least 326693 (already spent, noema#338): a run may not start with an unknown spend"; exit 2; }
+          case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) echo "hard_stop_usd must be a whole number from 1 to 5"; exit 2;; esac
+          mkdir -p out
+          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt
+          { echo "## bench-live-compile dry run (no provider call, no secret)"; echo; echo '```'; cat out/dry-run.txt; echo '```'; echo; echo "Approve the \`run\` job only if this cost is inside the Founders' ceiling."; } >> "$GITHUB_STEP_SUMMARY"
+  run:
+    needs: dry-run
+    if: inputs.mode == 'run'
+    runs-on: ubuntu-24.04
+    environment: bench-live
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Install the pinned dependencies
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/pip install --require-hashes -r services/model/requirements.lock -r benchmark/requirements.lock
+      - id: call
+        name: Run the golden examples through the compile route (the only step that sees the key)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PROVIDER: ${{ inputs.provider }}
+          PACK_REF: ${{ inputs.pack_ref }}
+          PRIOR: ${{ inputs.prior_spent_micros }}
+          HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
+          GIVEN_RUN_ID: ${{ inputs.run_id }}
+          GITHUB_RUN: ${{ github.run_id }}
+          PYTHONPATH: services/model:.
+        run: |
+          set -u
+          run_id="${GIVEN_RUN_ID:-compile-gh$GITHUB_RUN}"
+          code=2
+          if printf '%s' "$run_id" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' \
+             && printf '%s' "$PACK_REF" | grep -Eq '^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$' \
+             && [ "$PROVIDER" = openai ] \
+             && printf '%s' "$PRIOR" | grep -Eq '^[0-9]+$' && [ "$PRIOR" -ge 326693 ] \
+             && printf '%s' "$HARD_STOP_USD" | grep -Eq '^[1-5]$'; then
+            mkdir -p out
+            set +e
+            /tmp/venv/bin/python -m benchmark.compile_acceptance --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
+            code=$?
+            set -e
+          else
+            echo "an input is not valid; nothing was called"
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+      - id: scan
+        name: Leak scan over the whole output, before anything is uploaded
+        if: always()
+        run: |
+          set +e
+          if [ -d out/compile-acceptance ]; then
+            python3 -I tools/ci/leakscan.py --allow benchmark/compile_acceptance/leakscan.allow out/compile-acceptance
+            scan=$?
+          else
+            scan=2
+          fi
+          echo "scan=$scan" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Summary
+        if: always()
+        env:
+          CODE: ${{ steps.call.outputs.code }}
+          SCAN: ${{ steps.scan.outputs.scan }}
+          RUN_ID: ${{ steps.call.outputs.run_id }}
+        run: |
+          {
+            echo "## bench-live-compile: run id $RUN_ID, exit code $CODE, leak scan $SCAN"
+            echo
+            echo "**Understanding: compile acceptance on synthetic golden examples, recorded live output.** Not the bake-off; not a G1 result; every input is synthetic (AGENT-25)."
+            case "$CODE" in
+              0) echo "All five golden examples met their golden check and were recorded." ;;
+              1) echo "The run completed but a golden check failed. Everything is recorded; this fails the job." ;;
+              3) echo "**NOT RUN: no provider call was made. This is not a pass and not evidence.**" ;;
+              *) echo "Failed with exit code $CODE (2: bad input)." ;;
+            esac
+            case "$SCAN" in 0) echo "Leak scan: clean." ;; *) echo "**Leak scan did not pass (exit $SCAN): nothing is uploaded.**" ;; esac
+            [ -f out/compile-acceptance/recordings/manifest.json ] && { echo; echo '```json'; cat out/compile-acceptance/recordings/manifest.json; echo '```'; }
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the recordings and the run record (only if the leak scan is clean)
+        if: always() && steps.scan.outputs.scan == '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bench-live-compile-${{ github.run_id }}
+          path: out/compile-acceptance/
+          retention-days: 30
+          if-no-files-found: error
+      - name: Result (only a run that called the provider, met every golden check and scanned clean passes)
+        if: always()
+        env:
+          CODE: ${{ steps.call.outputs.code }}
+          SCAN: ${{ steps.scan.outputs.scan }}
+        run: |
+          [ "$SCAN" = 0 ] || { echo "::error::The leak scan did not pass (exit $SCAN); nothing was uploaded."; exit 1; }
+          case "$CODE" in
+            0) exit 0 ;;
+            3) echo "::error::NOT RUN: no provider call was made. That is not a pass."; exit 1 ;;
+            *) echo "::error::The run ended with exit code $CODE."; exit 1 ;;
+          esac
