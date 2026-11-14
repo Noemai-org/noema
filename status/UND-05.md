@@ -36,7 +36,7 @@
 - **Notes 3 to 6:** recorded as preconditions in `compiler/README.md`; none is reachable while no compiler is wired.
 - Debt: none. Conflicts raised: none.
 
-# Session 2026-11-14 16:00 WAT · UND-05 · the assembler (compiler slice 2, noema#581)
+# Session 2026-11-14 15:45 WAT · UND-05 · the assembler (compiler slice 2, noema#581)
 
 ## Session summary
 - What changed (PR noema#581): `understanding/compiler/assemble.py`, a pure function from the pipeline's result and the canonical input to the bytes of an `intent-object.v3` proposal; `tests/test_compile_assemble.py`; the compiler README.
