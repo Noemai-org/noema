@@ -166,3 +166,36 @@ def test_a_matcher_reference_that_leaves_the_pack_folder_or_names_no_file_is_ref
 def test_a_candidate_node_with_no_matcher_reference_is_refused() -> None:
     with pytest.raises(ConfigError):
         load(variant(lambda p: node(p)["disambiguation"].pop("matcher_ref")))
+
+
+def test_a_matcher_file_that_is_a_symlink_out_of_the_pack_folder_is_refused(tmp_path: Path) -> None:
+    pack_dir = tmp_path / "pack"
+    (pack_dir / "lex").mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text((PACK_DIR / "fintech" / "lexicons" / "recipient_matcher.json").read_text(encoding="utf-8"), encoding="utf-8")
+    (pack_dir / "lex" / "m.json").symlink_to(outside)
+    with pytest.raises(ConfigError):
+        load(variant(lambda p: node(p)["disambiguation"].update({"matcher_ref": "lex/m.json"})), pack_dir)
+
+
+def test_a_matcher_file_inside_the_pack_folder_is_accepted(tmp_path: Path) -> None:
+    pack_dir = tmp_path / "pack"
+    (pack_dir / "lex").mkdir(parents=True)
+    (pack_dir / "lex" / "m.json").write_text((PACK_DIR / "fintech" / "lexicons" / "recipient_matcher.json").read_text(encoding="utf-8"), encoding="utf-8")
+    assert load(variant(lambda p: node(p)["disambiguation"].update({"matcher_ref": "lex/m.json"})), pack_dir).matcher is not None
+
+
+def test_a_pack_with_two_candidate_nodes_is_refused() -> None:
+    def edit(p: dict[str, Any]) -> None:
+        second = copy.deepcopy(node(p))
+        second["node_id"] = "fin.payments.exception.second"
+        p["intent_nodes"].append(second)
+
+    with pytest.raises(ConfigError):
+        load(variant(edit))
+
+
+def test_a_margin_or_a_limit_inside_the_ranking_block_is_refused_so_there_is_one_source() -> None:
+    for key, value in (("auto_resolve_margin", "0.35"), ("max_candidates_before_escalate", 4)):
+        with pytest.raises(ConfigError):
+            load(variant(lambda p: p["understanding"]["ranking"].update({key: value})))
