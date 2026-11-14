@@ -6,7 +6,7 @@
 import asyncio
 import gc
 import weakref
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 
 import pytest
 
@@ -78,6 +78,8 @@ def test_an_abandoned_read_is_reported_as_a_structured_event_with_the_correlatio
     async def scenario() -> None:
         await call(NeverEnding(), "corr-1", telemetry)
         await asyncio.sleep(0.3)  # past the hold: the abandon happens after the call has returned
+        gc.collect()  # the stuck read ignores cancellation, so the loop could not be torn down while it is reachable
+        gc.collect()
 
     run(asyncio.wait_for(scenario(), timeout=GUARD_S))
     assert (EVENT, "corr-1", {"code": ABANDONED}) in telemetry.events
@@ -89,6 +91,8 @@ def test_two_concurrent_calls_each_carry_their_own_correlation_id() -> None:
     async def scenario() -> None:
         await asyncio.gather(call(NeverEnding(), "corr-A", telemetry), call(NeverEnding(), "corr-B", telemetry))
         await asyncio.sleep(0.3)
+        gc.collect()
+        gc.collect()
 
     run(asyncio.wait_for(scenario(), timeout=GUARD_S))
     assert sorted((cid, f["code"]) for name, cid, f in telemetry.events if name == EVENT) == [("corr-A", ABANDONED), ("corr-B", ABANDONED)]
@@ -130,7 +134,7 @@ class ResistantGenerator:
         self.closed = False
         self._gen = self._run()
 
-    async def _run(self) -> AsyncIterator[AudioChunk]:
+    async def _run(self) -> AsyncGenerator[AudioChunk, None]:
         try:
             try:
                 await asyncio.Event().wait()
@@ -153,7 +157,7 @@ class ResistantGenerator:
 
 def test_a_gate_whose_close_failed_while_a_read_ran_is_closed_when_the_read_ends() -> None:
     source = ResistantGenerator()
-    gate = until_end_of_speech(source, EndpointDetector(VAD))  # type: ignore[arg-type]
+    gate = until_end_of_speech(source, EndpointDetector(VAD))
     telemetry = InMemoryTelemetry()
 
     async def scenario() -> tuple[bool, bool]:
