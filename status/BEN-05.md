@@ -40,3 +40,18 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Finding (Major): an excluded errored or missing case could still give an overall IDENTICAL. Codex's option 2: keep the base-only comparison but never let the top-level verdict hide an errored or missing excluded case.
 - Done: the first fix (2 Nov) limited exclusion to the named registry. This change finishes it: every named case is probed; one that can be compared is counted (so it cannot hide a difference); one that cannot stays an open exclusion with `observed` (what each run showed), the report says "IDENTICAL on 5 of 6 cases (1 open exclusion, so not full coverage)", and `replay.json` carries `full_coverage: false`. An unnamed errored or missing case still makes the verdict NOT_COMPARABLE.
 - Reading of the Architect's rule: `BEN-CLEAN-1007` is, today, an errored or missing case by construction (its fault is Tushe-held), so a rule that made every errored or missing case, named or not, force NOT_COMPARABLE would make the founders' 5-of-6 G1 evidence unreachable. The named exclusion is therefore reported as non-full coverage rather than as NOT_COMPARABLE. If the Architect wants NOT_COMPARABLE there too, it is one condition in `compare.py`.
+
+# Session 2026-11-14 · BEN-05 · the G1 evidence package template
+
+## Session summary
+- What changed: `benchmark/suites/G1-EVIDENCE-PACKAGE.md` (the Security Reviewer's twelve criteria as a table: what closes each item, who produces it, how BO checks it; the dispatch preconditions; the package outline) and a pointer in `benchmark/suites/README.md`.
+- Why: the Founder's instruction of 14 Nov 2026: prepare the G1 package with SR's list; post READY TO DISPATCH when the stack, Trust and write lanes merge; the Founder dispatches.
+- Risks, and how they are contained: documentation only. It holds no result and claims nothing is met. The criteria are SR's (noema#436); where the file and that comment differ, the comment is right.
+- Tests added: none (docs). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when the preconditions in section 3 hold at one head, post READY TO DISPATCH at that SHA on noema#436 and noema#117; after the run, write the package from links opened.
+- Open questions (owner): SR items 6, 8 and 9 (FaultPlan record, leak scan with a planted canary, negative probes) were not found in `bench-g1-stack.yml` at noema#444 `9f3e2ce8` (IL to confirm or add).
+- Files to read first: `benchmark/suites/G1-EVIDENCE-PACKAGE.md`.
+- Do not touch: the gate conditions; they are the gate record's.
+

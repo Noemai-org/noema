@@ -48,3 +48,7 @@ Suite name, run ID, status (`NOT_RUN`, `COMPLETE`, `INCOMPLETE_OR_GATE_NOT_ZERO`
 - `make reset` destroys the local Compose project (containers, networks, the data volume). A suite or G1 run that resets therefore runs `make $(BENCH_UP)` next (default `model-bench-up`: the bench stack with the model writing cost records, started with `--wait` so it is healthy before the runner starts). `BENCH_UP` can name another target. The G1 legs do the same before each leg (`g1.reset_and_up`). A failed reset stops before anything starts; a failed start is the run's exit code, never a pass.
 - A run writes into one output directory (`benchmark/out/<suite>`, `benchmark/out/g1`). If that directory already holds an earlier run, it is first moved whole to a sibling named by the run ID it recorded (`benchmark/out/us.us-20261107T090000Z`), and the run prints where. Nothing is deleted, a retry with a new run ID cannot destroy the run before it, and no older score or replay file can sit beside a new record. The G1 suite is generated into `benchmark/out/g1-suite`, outside the directory that is archived.
 - Still not done: the first real execution in CI (the dispatch needs the Actions permission), and the session tokens and the stand-in adapter that the environment gives the runner.
+
+## The G1 evidence package
+
+`G1-EVIDENCE-PACKAGE.md` is the template for the G1 evidence package and the list of what must be merged before the Benchmark Owner posts READY TO DISPATCH. It is built from the Security Reviewer's twelve criteria (noema#436, 14 Nov 2026). It holds no result.
