@@ -107,3 +107,18 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - **Failing first:** `TestTheBlockedEventStoresItsRulesSortedAndWithoutRepeats` was red locally (the stored rules were in the caller's order). Mutation by hand: a call added in another package is red; the Explainer's own call is found.
 - **Not changed, stated in the README for the reviewers (decisions, not fixes):** the digit rule across separators (a decision about ruling A154; the single source is noema#468's `platform/masking`, to which the recorder's second copy of the threshold moves when it merges, EL's P2 2), a count cap on `FactIDs` and `Rules`, and how `reconstruct` reads two events for one correlation.
 - Debt: the second copy of the digit threshold (`maxDigitRun` in the recorder), until noema#468 merges. Conflicts raised: none.
+
+# Session 2026-11-14 · EXP-01 · the Explainer port adapter (A155)
+
+## Session summary
+- What changed (this PR): `orchestrator/portadapters/explainer` (package `explainerport`): `Port.Explain` implements `orchestrator.Explainer` over `explanation.Explainer`: the session becomes the subject (tenant and principal), the decision ID passes untouched, a blocked answer returns no text, and an error returns no text with it. Four tests (tests first, red in CI); four mutants killed (text on a block, principal dropped, text with an error, no-decision check dropped).
+- Why: the G1 card's Explainer lane (noema#436): the write path's EXPLAINING state needs the port; the template Explainer exists, the port did not.
+- Risks, and how they are contained: the port adds no decision of its own; the explainer renders, validates and records (EXPLANATION_RENDERED or EXPLANATION_BLOCKED) before it returns anything. It cannot show the text of a blocked answer.
+- Tests added (REQ-EXP-002, REQ-AUD-002, INV-12, INV-13): `port_test.go`.
+- Not done, stated: the real `FactsSource` behind the explainer (A155: the orchestrator builds it): it must read the decision record, its sealed snapshot and the evidence payloads to build `explanation-facts.v2`, which needs a design of which evidence fields become which fact kinds; it is the next lane. The port is not plugged into `cmd/core` yet (the composition PR).
+- Regression cases added: the tests above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the `FactsSource` design (EL), then plug the port into `Components.Ports.Explainer`.
+- Files to read first: `explanation/explainer.go`, `orchestrator/portadapters/explainer/port.go`.
+- Do not touch: `explanation` internals from the port.
