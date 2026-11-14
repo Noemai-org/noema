@@ -225,3 +225,51 @@ def test_a_read_that_ends_in_time_is_closed_once_and_nothing_is_logged(caplog: p
     run(asyncio.wait_for(scenario(), timeout=GUARD_S))
     assert source.closed
     assert [r for r in caplog.records if r.name == LOGGER] == []
+
+
+# ---- Codex P2 on #474 at 642e9218: a read that ends while the first close is still pending must still get a retry if that close then fails ------------------
+
+
+class FirstCloseStallsSecondWorks(Source):
+    """The read resists cancellation for 1 s. The first close (at the abandon) stalls and is cancelled at its bound; a second close works."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.calls = 0
+
+    async def __anext__(self) -> AudioChunk:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(1.0)
+        raise StopAsyncIteration
+
+    async def aclose(self) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.Event().wait()
+        self.closed = True
+
+
+class FirstCloseFailsLateSecondWorks(FirstCloseStallsSecondWorks):
+    async def aclose(self) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.sleep(0.8)  # still pending when the read ends, then fails
+            raise RuntimeError("first close failed")
+        self.closed = True
+
+
+@pytest.mark.parametrize("source_type", [FirstCloseStallsSecondWorks, FirstCloseFailsLateSecondWorks])
+def test_a_first_close_that_fails_after_the_read_ended_is_retried(source_type: type[FirstCloseStallsSecondWorks]) -> None:
+    source = source_type()
+
+    async def scenario() -> None:
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.5, hold_s=0.1, on_partial=lambda _: None)
+        await asyncio.sleep(2.5)  # the read ends at about 1.05 s, while the first close is pending; the first close then fails or is cancelled
+
+    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert source.closed  # the retry ran although the read had ended before the first close finished
+    assert source.calls == 2  # one retry, not a loop
+
