@@ -100,7 +100,7 @@ func newFake() *fake {
 	return &fake{
 		conf: Confirmation{Status: ConfirmationNotRequired},
 		plan: Plan{Hash: tPlanHash, Steps: []PlanStep{{CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash}}},
-		rec:  RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"gnt_synth0001"}},
+		rec:  RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001"}},
 	}
 }
 
@@ -380,7 +380,7 @@ func TestT15AllowStandsOnlyAfterTheRecordWasWrittenOnce(t *testing.T) {
 	if got := lastTrace(res); got.Step != decide.T15DecisionRecorded || got.Result != decide.StepTerminal {
 		t.Errorf("trace ends %v, want T15 terminal", got)
 	}
-	if res.DecisionID != "dec_synth0001" || !reflect.DeepEqual(res.GrantIDs, []string{"gnt_synth0001"}) {
+	if res.DecisionID != "dec_synth0001" || !reflect.DeepEqual(res.GrantIDs, []string{"grt_synth0001"}) {
 		t.Errorf("IDs %q %v, want those the Recorder returned", res.DecisionID, res.GrantIDs)
 	}
 	if !res.Decision.Authority().AllPass() {
@@ -456,10 +456,10 @@ func TestT15AResultThatIsNotWhatAWriteReturnsIsUnknown(t *testing.T) {
 		name string
 		rec  RecordResult
 	}{
-		{"no decision ID", RecordResult{GrantIDs: []string{"gnt_synth0001"}}},
-		{"a decision ID of the wrong form", RecordResult{DecisionID: "x", GrantIDs: []string{"gnt_synth0001"}}},
+		{"no decision ID", RecordResult{GrantIDs: []string{"grt_synth0001"}}},
+		{"a decision ID of the wrong form", RecordResult{DecisionID: "x", GrantIDs: []string{"grt_synth0001"}}},
 		{"no grant for a write step", RecordResult{DecisionID: "dec_synth0001"}},
-		{"a grant too many", RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"gnt_synth0001", "gnt_synth0002"}}},
+		{"a grant too many", RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001", "grt_synth0002"}}},
 		{"a grant ID of the wrong form", RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"y"}}},
 	} {
 		f := newFake()

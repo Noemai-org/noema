@@ -4,7 +4,8 @@
 // capability registry, the pack, the evidence layer, the planner) is reached through the small interfaces of ports.go, so Trust imports none of those packages (INV-01,
 // SoT 51). The composition root supplies the adapters.
 //
-// Implements: REQ-TRU-001, REQ-TRU-002, REQ-TRU-003 (T1 to T6 here), REQ-NFR-002. Steps that are not built yet fail closed: UNKNOWN INTERNAL_ERROR, never ALLOW.
+// Implements: REQ-TRU-001, REQ-TRU-002, REQ-TRU-003 (T1 to T6), REQ-TRU-008 and REQ-TRU-009 (T13 to T15: the confirmation, the plan, the Decision Record and then the
+// grants, through the Recorder port), REQ-NFR-002. Steps that are not built yet fail closed: UNKNOWN INTERNAL_ERROR, never ALLOW.
 //
 // May import: trust/decide, internal/contracts, platform/clock, the standard library.
 //
