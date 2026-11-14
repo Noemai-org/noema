@@ -1,0 +1,905 @@
+{
+ "lookups": [
+  {
+   "expected": [],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "qualified",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [],
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "name": "qualified_kind",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01 (speech): no qualification record"
+   ],
+   "kind": "speech",
+   "model_id": "decision-model-a",
+   "name": "wrong_kind",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: no qualification record"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "no_record",
+   "provider": "openai",
+   "records": [],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-12-01: no qualification record"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "other_version",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "2026-12-01"
+  },
+  {
+   "expected": [
+    "openai/other-model@2026-11-01: no qualification record"
+   ],
+   "kind": null,
+   "model_id": "other-model",
+   "name": "other_model",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "gemini/decision-model-a@2026-11-01: no qualification record"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "other_provider",
+   "provider": "gemini",
+   "records": [
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@latest: the version is not pinned (a dated or numbered version, never an alias such as latest)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "alias_latest",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "latest"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@stable-2: the version is not pinned (a dated or numbered version, never an alias such as latest)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "alias_stable_2",
+   "provider": "openai",
+   "records": [
+    "q"
+   ],
+   "version": "stable-2"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: the latest record (2026-11-07) says NOT_QUALIFIED (a Tier 0 gate is not at zero)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "later_revokes",
+   "provider": "openai",
+   "records": [
+    "q",
+    "nq"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: the latest record (2026-11-07) says NOT_QUALIFIED (a Tier 0 gate is not at zero)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "same_day_disagree",
+   "provider": "openai",
+   "records": [
+    "nq",
+    "q"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: records of 2026-11-07 disagree (QUALIFIED and NOT_QUALIFIED); re-run the qualification"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "later_requalifies",
+   "provider": "openai",
+   "records": [
+    "nq",
+    "q7"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): verdict is QUALIFIED but a Tier 0 gate is not at zero"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "tampered_verdict",
+   "provider": "openai",
+   "records": [
+    "tampered"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): record is missing scorecard_sha256"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "bad_shape",
+   "provider": "openai",
+   "records": [
+    "badshape"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: scorecard_sha256: None is not of type 'string'"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "null_digest",
+   "provider": "openai",
+   "records": [
+    "nulldigest"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: complete: 'false' is not of type 'boolean'; complete must be a boolean, not 'false'"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "string_flag",
+   "provider": "openai",
+   "records": [
+    "strflag"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: qualified_on: '2026W455' does not match '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; qualified_on '2026W455' is not a date written YYYY-MM-DD"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "week_date",
+   "provider": "openai",
+   "records": [
+    "weekdate"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): record is missing scorecard_sha256"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "invalid_plus_good_is_refused",
+   "provider": "openai",
+   "records": [
+    "q",
+    "badshape"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: the latest record (2026-11-07) says NOT_QUALIFIED (the drift check result is DRIFT, not PASS)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "drift_not_pass",
+   "provider": "openai",
+   "records": [
+    "drift_rec"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "first_qualification_with_floor",
+   "provider": "openai",
+   "records": [
+    "first"
+   ],
+   "version": "2026-10-15"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): verdict is QUALIFIED but the drift check result is DRIFT, not PASS"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "verdict_qualified_but_drift_fails",
+   "provider": "openai",
+   "records": [
+    "q_drift_fails"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): verdict is QUALIFIED but pass^k 0.9 is below the bar 0.99"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "verdict_qualified_but_below_bar",
+   "provider": "openai",
+   "records": [
+    "q_below_bar"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): verdict is QUALIFIED but there is no pass^k bar: a first qualification waits for a Founder-set floor (A17)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "verdict_qualified_but_no_bar",
+   "provider": "openai",
+   "records": [
+    "q_no_bar"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): pass^k is marked available but k_required is 5 and runs_supplied is 3; it needs exactly five runs; verdict is QUALIFIED but pass^k is marked available but k_required is 5 and runs_supplied is 3; it needs exactly five runs"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "verdict_qualified_but_not_five_runs",
+   "provider": "openai",
+   "records": [
+    "q_not_five_runs"
+   ],
+   "version": "2026-11-01"
+  }
+ ],
+ "records": {
+  "badshape": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "drift_rec": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "DRIFT",
+    "run_sha256": "sha256:ebda70fa382528e8142ef83e103f37b6dc982650c4ecbbf2cdab12b0b2736012",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-07",
+   "reasons": [
+    "the drift check result is DRIFT, not PASS"
+   ],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "NOT_QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "first": {
+   "bar": {
+    "baseline_pass_k": null,
+    "floor": 0.5,
+    "floor_source": "DEC-2026-11-05-floor"
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:6541eb75f4071083e8d06b9188ac11aa36315bc2d98831bf4f2a32047c153aa3",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-10-15"
+  },
+  "nq": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-07",
+   "reasons": [
+    "a Tier 0 gate is not at zero"
+   ],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:8db0dfe75d69124c98af4f405fe7da9aeecb4cc81b4f13d6ef7185693bb46b04",
+   "tier0_all_zero": false,
+   "verdict": "NOT_QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "nulldigest": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": null,
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q7": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-07",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q_below_bar": {
+   "bar": {
+    "baseline_pass_k": 0.99,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-09",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q_drift_fails": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "DRIFT",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-09",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q_no_bar": {
+   "bar": {
+    "baseline_pass_k": null,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-09",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q_not_five_runs": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 3
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-09",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "strflag": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": "false",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "tampered": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026-11-08",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": false,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "weekdate": {
+   "bar": {
+    "baseline_pass_k": 0.8,
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 6,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 9,
+     "n": 10,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "provider": "openai",
+   "qualified_on": "2026W455",
+   "reasons": [],
+   "run_id": "run_report",
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:ff86f4c7e62633d66c103149ddc166424cac91a334f709fb73409a3c498950d8",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  }
+ }
+}
