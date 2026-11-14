@@ -5,15 +5,17 @@ Written before `noema_model.understanding.compiler.assemble` exists: these fail 
 members nobody owns yet (intent_id, created_at, raw_ref; noema#580) come from one `Identifiers` argument, so the answer to that question changes one place.
 """
 
+import copy
 import json
-from datetime import UTC, datetime
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
 
 from noema_model.understanding.compiler.assemble import Identifiers, assemble
 from noema_model.understanding.gate import Context, Node, SchemaGate
-from noema_model.understanding.pipeline import NormalisedSlots, Outcome, run_pipeline
+from noema_model.understanding.pipeline import NodeCatalogue, NormalisedSlots, Outcome, run_pipeline
 from noema_model.understanding.resolution import Candidate
 from tests.support import run
 from tests.support_pipeline import (
@@ -21,6 +23,7 @@ from tests.support_pipeline import (
     GOOD_MENTIONS,
     NODE,
     OUT_OF_SCOPE,
+    PACK,
     T0,
     WINDOW,
     FakeSource,
@@ -142,13 +145,12 @@ def test_the_window_is_utc_with_a_z_and_the_surface_form_is_the_customers() -> N
 
 
 def test_a_time_the_lexicon_gave_no_window_for_is_unresolved_and_carries_no_window() -> None:
-    def no_window(inp: Any, proposal: Any) -> NormalisedSlots:
-        return NormalisedSlots(2_000_000, "NGN", False, None, "Tunde", "OUTGOING")
-
-    result = compile_result(g_a(), (), no_window)
-    doc = build(result)
-    when = doc["slots"]["when"]
-    assert when["status"] == "UNRESOLVED" and "window" not in when
+    # The pipeline itself refuses a candidate search with no window (REQ-CTX-006), so this result is built from a real one with the window taken out: the assembler is a pure function.
+    real = compile_result(g_a(), (ref_candidate("a"),))
+    assert real.normalised is not None
+    result = replace(real, normalised=replace(real.normalised, window=None))
+    when = build(result)["slots"]["when"]
+    assert when["status"] == "UNRESOLVED" and "window" not in when and when["surface_form"] == "this morning"
 
 
 def test_the_reference_slots_carry_the_models_closed_vocabulary_choice() -> None:
@@ -161,6 +163,47 @@ def test_a_confidence_is_floored_to_integer_basis_points_and_never_rounded_up() 
     assert build(compile_result(model, (ref_candidate("a"),)))["slots"]["amount"]["confidence"] == 8765  # A173: an integer, so the JCS hash can cover it
     model = g_a(mentions={**GOOD_MENTIONS, "amount": {**GOOD_MENTIONS["amount"], "confidence": 1.0}})
     assert build(compile_result(model, (ref_candidate("a"),)))["slots"]["amount"]["confidence"] == 10000
+
+
+def test_a_confidence_outside_zero_to_one_is_clamped_into_the_contracts_range() -> None:
+    for said, want in ((1.7, 10000), (-0.2, 0)):
+        model = g_a(mentions={**GOOD_MENTIONS, "amount": {**GOOD_MENTIONS["amount"], "confidence": said}})
+        assert build(compile_result(model, (ref_candidate("a"),)))["slots"]["amount"]["confidence"] == want
+
+
+def test_a_mention_with_no_words_of_the_customers_is_left_out_because_the_contract_needs_the_surface_form() -> None:
+    model = g_a(mentions={**GOOD_MENTIONS, "counterparty": {**GOOD_MENTIONS["counterparty"], "surface_form": ""}, "when": {**GOOD_MENTIONS["when"], "surface_form": ""}})
+    slots = build(compile_result(model, (ref_candidate("a"),)))["slots"]
+    assert "counterparty" not in slots and "when" not in slots and "amount" in slots
+
+
+def test_a_node_with_two_slots_of_one_lexicon_type_cannot_be_assembled() -> None:
+    pack = copy.deepcopy(PACK)
+    node = next(n for n in pack["intent_nodes"] if n["node_id"] == NODE)
+    node["slots"].append({"name": "second_amount", "type": "Quantity", "required": False})
+    catalogue = NodeCatalogue.from_pack(pack, out_of_scope_node=OUT_OF_SCOPE)
+    with pytest.raises(ValueError):
+        assemble(CANONICAL, compile_result(g_a(), (ref_candidate("a"),)), catalogue, "fin@1.0.0", IDS)
+
+
+def test_a_confidence_is_read_as_its_decimal_so_a_float_that_is_a_hair_under_does_not_lose_a_basis_point() -> None:
+    model = g_a(mentions={**GOOD_MENTIONS, "amount": {**GOOD_MENTIONS["amount"], "confidence": 0.29}})
+    assert build(compile_result(model, (ref_candidate("a"),)))["slots"]["amount"]["confidence"] == 2900  # as a binary float 0.29 is 0.28999...; read as binary it would give 2899
+
+
+def test_a_window_in_another_zone_is_written_as_the_same_instant_in_utc() -> None:
+    wat = timezone(timedelta(hours=1))
+
+    def lagos(inp: Any, proposal: Any) -> NormalisedSlots:
+        return NormalisedSlots(2_000_000, "NGN", False, (datetime(2026, 10, 21, 5, 0, tzinfo=wat), datetime(2026, 10, 21, 12, 0, tzinfo=wat)), "Tunde", "OUTGOING")
+
+    when = build(compile_result(g_a(), (ref_candidate("a"),), lagos))["slots"]["when"]
+    assert when["window"] == ["2026-10-21T04:00:00Z", "2026-10-21T11:00:00Z"]
+
+
+def test_the_flags_are_sorted_and_unique() -> None:
+    real = compile_result(g_a(), (ref_candidate("a"),))
+    assert build(replace(real, ambiguity_flags=("ZED_FLAG", "ALPHA_FLAG", "ZED_FLAG")))["ambiguity_flags"] == ["ALPHA_FLAG", "ZED_FLAG"]
 
 
 def test_no_number_in_the_proposal_is_fractional() -> None:
