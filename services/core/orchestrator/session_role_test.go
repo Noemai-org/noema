@@ -11,14 +11,56 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 )
 
+// seen records the session each port was called with, by port. The shared fakes keep only the last call's session, so a port that received a stripped session
+// could still pass a check on them (Security Reviewer, note 1 on noema#560).
+type seen struct {
+	*fakes
+	by map[string]orchestrator.Session
+}
+
+func (w *seen) Lookup(ctx context.Context, s orchestrator.Session, ref string) (orchestrator.Admission, error) {
+	w.by["admissions"] = s
+	return w.fakes.Lookup(ctx, s, ref)
+}
+func (w *seen) Interpret(ctx context.Context, s orchestrator.Session, t orchestrator.Turn) (orchestrator.Interpretation, error) {
+	w.by["interpreter"] = s
+	return w.fakes.Interpret(ctx, s, t)
+}
+func (w *seen) Read(ctx context.Context, s orchestrator.Session, ref string) (orchestrator.EvidenceRef, error) {
+	w.by["evidence"] = s
+	return w.fakes.Read(ctx, s, ref)
+}
+func (w *seen) Decide(ctx context.Context, s orchestrator.Session, ref string, e orchestrator.EvidenceRef) (orchestrator.Decision, error) {
+	w.by["trust"] = s
+	return w.fakes.Decide(ctx, s, ref, e)
+}
+func (w *seen) Explain(ctx context.Context, s orchestrator.Session, id string) (orchestrator.Explanation, error) {
+	w.by["explainer"] = s
+	return w.fakes.Explain(ctx, s, id)
+}
+func (w *seen) AppendChange(ctx context.Context, s orchestrator.Session, c orchestrator.Change) error {
+	w.by["recorder"] = s
+	return w.fakes.AppendChange(ctx, s, c)
+}
+
 func TestTheSessionsRoleReachesEveryPortUnchanged(t *testing.T) {
-	f := happy()
-	s := orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01", Role: "customer"}
-	if _, err := runner(t, f).RunRead(context.Background(), s, turn); err != nil {
+	w := &seen{fakes: happy(), by: map[string]orchestrator.Session{}}
+	tab, err := orchestrator.LoadTable()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if f.session != s || f.session.Role != "customer" {
-		t.Fatalf("the ports saw %+v, want the session as given, role included: %+v", f.session, s)
+	r, err := orchestrator.NewRunner(&orchestrator.Machine{Table: tab}, orchestrator.Ports{Interpreter: w, Evidence: w, Trust: w, Explainer: w, Recorder: w, Admissions: w})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := orchestrator.Session{TenantID: "ten_aa", PrincipalID: "usr_01", Role: "customer"}
+	if _, err := r.RunRead(context.Background(), s, turn); err != nil {
+		t.Fatal(err)
+	}
+	for _, port := range []string{"admissions", "interpreter", "evidence", "trust", "explainer", "recorder"} {
+		if got, ok := w.by[port]; !ok || got != s {
+			t.Errorf("the %s port saw %+v (called: %v), want the session as given, role included: %+v", port, got, ok, s)
+		}
 	}
 }
 
