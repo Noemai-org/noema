@@ -50,7 +50,7 @@ class CleanRunTest(unittest.TestCase):
                     found += blocks(value, f"{path}/{i}")
             return found
 
-        failure_paths = ("/tier0/gates/", "/tier1/diagnostics/incorrect_action", "/tier1/diagnostics/unnecessary_clarification", "/tier2/unsafe")
+        failure_paths = ("/tier0/gates/", "/tier1/diagnostics/incorrect_action", "/tier1/diagnostics/unnecessary_clarification", "/tier2/unsafe", "/tier2/false_block")
         seen_failure = seen_other = 0
         for path, block in blocks(self.card):
             self.assertIn("exact_upper95", block, path)
@@ -60,7 +60,7 @@ class CleanRunTest(unittest.TestCase):
             else:
                 self.assertIsNone(block["exact_upper95"], path)
                 seen_other += 1
-        self.assertGreaterEqual(seen_failure, 13)
+        self.assertGreaterEqual(seen_failure, 14)
         self.assertGreater(seen_other, 5)
 
     def test_a_clean_run_of_n_cases_bounds_every_tier_zero_gate_by_the_exact_value_not_above_the_rule_of_three(self) -> None:
