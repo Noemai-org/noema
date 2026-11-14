@@ -7,54 +7,39 @@ import (
 	"fmt"
 )
 
-// InvestigationResponseV1InvestigationState is generated from investigation-response.v1.json#$defs/InvestigationState.
-// PERD §28.2 states (21). FROZEN is a target-level flag, not an investigation state.
-type InvestigationResponseV1InvestigationState string
+// InvestigationResponseV1PublicStage is generated from investigation-response.v1.json#$defs/PublicStage.
+// Where the investigation stands, in six words the customer can be told (ruling A187). UNDERSTANDING: reading the request. CHECKING: reading and comparing records, evaluating, waiting for a bounded condition. NEEDS_YOU:...
+type InvestigationResponseV1PublicStage string
 
 const (
-	InvestigationResponseV1InvestigationStateRECEIVED                InvestigationResponseV1InvestigationState = "RECEIVED"
-	InvestigationResponseV1InvestigationStateINTERPRETING            InvestigationResponseV1InvestigationState = "INTERPRETING"
-	InvestigationResponseV1InvestigationStateREJECTEDATGATE          InvestigationResponseV1InvestigationState = "REJECTED_AT_GATE"
-	InvestigationResponseV1InvestigationStateAWAITINGCLARIFICATION   InvestigationResponseV1InvestigationState = "AWAITING_CLARIFICATION"
-	InvestigationResponseV1InvestigationStateEVALUATING              InvestigationResponseV1InvestigationState = "EVALUATING"
-	InvestigationResponseV1InvestigationStateAWAITINGCONFIRMATION    InvestigationResponseV1InvestigationState = "AWAITING_CONFIRMATION"
-	InvestigationResponseV1InvestigationStateWAITING                 InvestigationResponseV1InvestigationState = "WAITING"
-	InvestigationResponseV1InvestigationStatePLANNED                 InvestigationResponseV1InvestigationState = "PLANNED"
-	InvestigationResponseV1InvestigationStateEXECUTING               InvestigationResponseV1InvestigationState = "EXECUTING"
-	InvestigationResponseV1InvestigationStateAWAITINGVERIFICATION    InvestigationResponseV1InvestigationState = "AWAITING_VERIFICATION"
-	InvestigationResponseV1InvestigationStateAWAITINGEXTERNALOUTCOME InvestigationResponseV1InvestigationState = "AWAITING_EXTERNAL_OUTCOME"
-	InvestigationResponseV1InvestigationStateRECOVERING              InvestigationResponseV1InvestigationState = "RECOVERING"
-	InvestigationResponseV1InvestigationStateBLOCKEDUNKNOWN          InvestigationResponseV1InvestigationState = "BLOCKED_UNKNOWN"
-	InvestigationResponseV1InvestigationStateESCALATING              InvestigationResponseV1InvestigationState = "ESCALATING"
-	InvestigationResponseV1InvestigationStateEXPLAINING              InvestigationResponseV1InvestigationState = "EXPLAINING"
-	InvestigationResponseV1InvestigationStateEXPLAININGBLOCKED       InvestigationResponseV1InvestigationState = "EXPLAINING_BLOCKED"
-	InvestigationResponseV1InvestigationStateCOMPLETED               InvestigationResponseV1InvestigationState = "COMPLETED"
-	InvestigationResponseV1InvestigationStateESCALATED               InvestigationResponseV1InvestigationState = "ESCALATED"
-	InvestigationResponseV1InvestigationStateREJECTED                InvestigationResponseV1InvestigationState = "REJECTED"
-	InvestigationResponseV1InvestigationStateDORMANT                 InvestigationResponseV1InvestigationState = "DORMANT"
-	InvestigationResponseV1InvestigationStateEXPIRED                 InvestigationResponseV1InvestigationState = "EXPIRED"
+	InvestigationResponseV1PublicStageUNDERSTANDING InvestigationResponseV1PublicStage = "UNDERSTANDING"
+	InvestigationResponseV1PublicStageCHECKING      InvestigationResponseV1PublicStage = "CHECKING"
+	InvestigationResponseV1PublicStageNEEDSYOU      InvestigationResponseV1PublicStage = "NEEDS_YOU"
+	InvestigationResponseV1PublicStageACTING        InvestigationResponseV1PublicStage = "ACTING"
+	InvestigationResponseV1PublicStageHANDEDTOTEAM  InvestigationResponseV1PublicStage = "HANDED_TO_TEAM"
+	InvestigationResponseV1PublicStageFINISHED      InvestigationResponseV1PublicStage = "FINISHED"
 )
 
-func (e *InvestigationResponseV1InvestigationState) UnmarshalJSON(b []byte) error {
+func (e *InvestigationResponseV1PublicStage) UnmarshalJSON(b []byte) error {
 	var s string
 	if err := json.Unmarshal(b, &s); err != nil {
-		return fmt.Errorf("contracts: InvestigationResponseV1InvestigationState: %w", err)
+		return fmt.Errorf("contracts: InvestigationResponseV1PublicStage: %w", err)
 	}
-	switch v := InvestigationResponseV1InvestigationState(s); v {
-	case InvestigationResponseV1InvestigationStateRECEIVED, InvestigationResponseV1InvestigationStateINTERPRETING, InvestigationResponseV1InvestigationStateREJECTEDATGATE, InvestigationResponseV1InvestigationStateAWAITINGCLARIFICATION, InvestigationResponseV1InvestigationStateEVALUATING, InvestigationResponseV1InvestigationStateAWAITINGCONFIRMATION, InvestigationResponseV1InvestigationStateWAITING, InvestigationResponseV1InvestigationStatePLANNED, InvestigationResponseV1InvestigationStateEXECUTING, InvestigationResponseV1InvestigationStateAWAITINGVERIFICATION, InvestigationResponseV1InvestigationStateAWAITINGEXTERNALOUTCOME, InvestigationResponseV1InvestigationStateRECOVERING, InvestigationResponseV1InvestigationStateBLOCKEDUNKNOWN, InvestigationResponseV1InvestigationStateESCALATING, InvestigationResponseV1InvestigationStateEXPLAINING, InvestigationResponseV1InvestigationStateEXPLAININGBLOCKED, InvestigationResponseV1InvestigationStateCOMPLETED, InvestigationResponseV1InvestigationStateESCALATED, InvestigationResponseV1InvestigationStateREJECTED, InvestigationResponseV1InvestigationStateDORMANT, InvestigationResponseV1InvestigationStateEXPIRED:
+	switch v := InvestigationResponseV1PublicStage(s); v {
+	case InvestigationResponseV1PublicStageUNDERSTANDING, InvestigationResponseV1PublicStageCHECKING, InvestigationResponseV1PublicStageNEEDSYOU, InvestigationResponseV1PublicStageACTING, InvestigationResponseV1PublicStageHANDEDTOTEAM, InvestigationResponseV1PublicStageFINISHED:
 		*e = v
 		return nil
 	}
-	return fmt.Errorf("contracts: InvestigationResponseV1InvestigationState: %q is not one of its values", s)
+	return fmt.Errorf("contracts: InvestigationResponseV1PublicStage: %q is not one of its values", s)
 }
 
 // InvestigationResponseV1 is generated from investigation-response.v1.json.
-// PERD §39.2: the response of GET /v1/investigations/{investigation_id}, the current state for the overlay: {state, last_answer, case_ref_masked?}, with schema_version (PERD §39.1: bodies carry it). 'state' is the inves...
+// PERD §39.2: the response of GET /v1/investigations/{investigation_id}, the current state for the overlay: {state, last_answer, case_ref_masked?}, with schema_version (PERD §39.1: bodies carry it). 'state' is one of si...
 type InvestigationResponseV1 struct {
-	SchemaVersion CommonV1SchemaVersion                     `json:"schema_version"`
-	State         InvestigationResponseV1InvestigationState `json:"state"`
-	LastAnswer    *CustomerAnswerV1                         `json:"last_answer,omitempty"`
-	CaseRefMasked *string                                   `json:"case_ref_masked,omitempty"`
+	SchemaVersion CommonV1SchemaVersion              `json:"schema_version"`
+	State         InvestigationResponseV1PublicStage `json:"state"`
+	LastAnswer    *CustomerAnswerV1                  `json:"last_answer,omitempty"`
+	CaseRefMasked *string                            `json:"case_ref_masked,omitempty"`
 }
 
 var InvestigationResponseV1Shape = objectShape{name: "InvestigationResponseV1", props: map[string]bool{"schema_version": true, "state": true, "last_answer": true, "case_ref_masked": true}, required: []string{"schema_version", "state"}, nonNull: map[string]bool{"schema_version": true, "state": true, "last_answer": true, "case_ref_masked": true}, closed: true}

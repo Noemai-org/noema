@@ -8,8 +8,8 @@ from pydantic import ConfigDict
 from ._base import ContractModel
 from .common_v1 import CommonV1SchemaVersion, CommonV1Timestamp
 from .customer_answer_v1 import CustomerAnswerV1
-from .errors_v2 import ErrorsV2ErrorBody
-from .investigation_response_v1 import InvestigationResponseV1InvestigationState
+from .errors_v3 import ErrorsV3ErrorBody
+from .investigation_response_v1 import InvestigationResponseV1PublicStage
 from .overlay_card_v1 import OverlayCardV1ClarificationCard, OverlayCardV1ConfirmationCard
 
 class SseEventV1Answer(ContractModel):
@@ -43,23 +43,23 @@ class SseEventV1Confirmation(ContractModel):
 
 
 class SseEventV1Error(ContractModel):
-    """The stream failed; the body is the errors.v2 body (safe text, a catalogue code). Source: sse-event.v1.json#$defs/Error"""
+    """The stream failed; the body is the errors.v3 body (safe text, a catalogue code, one not-found shape). Source: sse-event.v1.json#$defs/Error"""
 
     model_config = ConfigDict(extra="forbid")
     event: Literal['error']
     schema_version: CommonV1SchemaVersion
     at: CommonV1Timestamp
-    error: ErrorsV2ErrorBody
+    error: ErrorsV3ErrorBody
 
 
 class SseEventV1Progress(ContractModel):
-    """The investigation moved to a state; the overlay shows the stage string that belongs to it. Source: sse-event.v1.json#$defs/Progress"""
+    """The investigation moved to a public stage; the overlay shows the plain-language string that belongs to it. Source: sse-event.v1.json#$defs/Progress"""
 
     model_config = ConfigDict(extra="forbid")
     event: Literal['progress']
     schema_version: CommonV1SchemaVersion
     at: CommonV1Timestamp
-    state: InvestigationResponseV1InvestigationState
+    state: InvestigationResponseV1PublicStage
 
 
 # SseEventV1: one of several shapes. Source: sse-event.v1.json

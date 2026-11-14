@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/errors.v3.json",
+  "title": "Error envelope and catalogue (v3, the public body)",
+  "description": "v3: errors.v2.json for the public edge and the SSE error event (ruling A187; AGENT-15). Three changes, and errors.v2.json is unchanged: (1) TENANT_SCOPE_MISMATCH is not a public code, so a client never sees it next to NOT_FOUND_OR_NOT_AUTHORIZED and cannot tell another tenant's object from a missing one: there is one not-found shape; (2) every free-text member, now including details[].field, carries the digit-run pattern of every script (a run of five digits, with at most one separator between two digits: A154, A184, A194) and a maxLength; (3) details is bounded (20 items). The rest is v2: DUPLICATE_CREATE and the other 33 codes, split into 5 retryable and 29 non-retryable; retryability is a property of the code, never inferred from an HTTP status; messages are safe text with no PII, stack trace, policy threshold or another principal's data. RetryableErrorCode and NonRetryableErrorCode partition ErrorCode (tools/contracts/test_public_api.py checks it). The core still uses v2 internally; moving the public edge's own error responses to v3 is the edge owner's follow-up.",
+  "$defs": {
+    "ErrorCode": {
+      "type": "string",
+      "enum": [
+        "INPUT_INVALID",
+        "SCHEMA_INVALID",
+        "UNKNOWN_ENUM_VALUE",
+        "SESSION_INVALID",
+        "UNAUTHENTICATED",
+        "NOT_FOUND_OR_NOT_AUTHORIZED",
+        "REQUEST_ID_REUSED",
+        "AMBIGUOUS_TARGET",
+        "STALE_CANDIDATE_SET",
+        "EVIDENCE_UNAVAILABLE",
+        "EVIDENCE_STALE",
+        "CONTRADICTORY_STATE",
+        "POLICY_STALE",
+        "GRANT_INVALID",
+        "GRANT_EXPIRED",
+        "GRANT_ALREADY_SPENT",
+        "CONFIRMATION_EXPIRED",
+        "CONFIRMATION_BINDING_MISMATCH",
+        "APPROVER_NOT_ELIGIBLE",
+        "CAPABILITY_PROHIBITED",
+        "CAPABILITY_NOT_REGISTERED",
+        "IDEMPOTENCY_CONFLICT",
+        "DUPLICATE_CREATE",
+        "REJECTED_STALE_VERSION",
+        "TARGET_RATE_LIMITED",
+        "TARGET_TIMEOUT",
+        "OUTCOME_UNKNOWN",
+        "POSTCONDITION_UNVERIFIED",
+        "RECORD_INTEGRITY_FAILURE",
+        "WRITES_DISABLED",
+        "PROVIDER_UNAVAILABLE",
+        "DEPENDENCY_UNAVAILABLE",
+        "CALLBACK_DELIVERY_FAILED",
+        "INTERNAL_SAFETY_BLOCK"
+      ]
+    },
+    "ErrorBody": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[ \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]?[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "correlation_id": {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[ \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]?[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$"
+              },
+              "issue": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[ \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]?[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$"
+              }
+            },
+            "required": [
+              "field",
+              "issue"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/RetryableErrorCode"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "retryable": {
+            "const": true
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "retryable": {
+            "const": false
+          }
+        }
+      }
+    },
+    "ErrorEnvelope": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ErrorBody"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "RetryableErrorCode": {
+      "description": "Retryable only if sending the identical request again can succeed with no change by the caller (transient: unavailable, timeout, rate-limited, dependency down).",
+      "type": "string",
+      "enum": [
+        "EVIDENCE_UNAVAILABLE",
+        "TARGET_RATE_LIMITED",
+        "TARGET_TIMEOUT",
+        "PROVIDER_UNAVAILABLE",
+        "DEPENDENCY_UNAVAILABLE"
+      ]
+    },
+    "NonRetryableErrorCode": {
+      "description": "Every decision or reason code, every validation error and every authorization error, and every other code. The identical request would fail the same way, or the caller must change something first.",
+      "type": "string",
+      "enum": [
+        "INPUT_INVALID",
+        "SCHEMA_INVALID",
+        "UNKNOWN_ENUM_VALUE",
+        "SESSION_INVALID",
+        "UNAUTHENTICATED",
+        "NOT_FOUND_OR_NOT_AUTHORIZED",
+        "REQUEST_ID_REUSED",
+        "AMBIGUOUS_TARGET",
+        "STALE_CANDIDATE_SET",
+        "EVIDENCE_STALE",
+        "CONTRADICTORY_STATE",
+        "POLICY_STALE",
+        "GRANT_INVALID",
+        "GRANT_EXPIRED",
+        "GRANT_ALREADY_SPENT",
+        "CONFIRMATION_EXPIRED",
+        "CONFIRMATION_BINDING_MISMATCH",
+        "APPROVER_NOT_ELIGIBLE",
+        "CAPABILITY_PROHIBITED",
+        "CAPABILITY_NOT_REGISTERED",
+        "IDEMPOTENCY_CONFLICT",
+        "DUPLICATE_CREATE",
+        "REJECTED_STALE_VERSION",
+        "OUTCOME_UNKNOWN",
+        "POSTCONDITION_UNVERIFIED",
+        "RECORD_INTEGRITY_FAILURE",
+        "WRITES_DISABLED",
+        "CALLBACK_DELIVERY_FAILED",
+        "INTERNAL_SAFETY_BLOCK"
+      ]
+    }
+  },
+  "$ref": "#/$defs/ErrorEnvelope"
+}

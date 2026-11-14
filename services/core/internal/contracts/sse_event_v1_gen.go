@@ -95,12 +95,12 @@ func (t *SseEventV1Confirmation) UnmarshalJSON(b []byte) error {
 }
 
 // SseEventV1Error is generated from sse-event.v1.json#$defs/Error.
-// The stream failed; the body is the errors.v2 body (safe text, a catalogue code).
+// The stream failed; the body is the errors.v3 body (safe text, a catalogue code, one not-found shape).
 type SseEventV1Error struct {
 	Event         string                `json:"event"`
 	SchemaVersion CommonV1SchemaVersion `json:"schema_version"`
 	At            CommonV1Timestamp     `json:"at"`
-	Error         ErrorsV2ErrorBody     `json:"error"`
+	Error         ErrorsV3ErrorBody     `json:"error"`
 }
 
 var SseEventV1ErrorShape = objectShape{name: "SseEventV1Error", props: map[string]bool{"event": true, "schema_version": true, "at": true, "error": true}, required: []string{"event", "schema_version", "at", "error"}, nonNull: map[string]bool{"event": true, "schema_version": true, "at": true, "error": true}, closed: true}
@@ -124,12 +124,12 @@ func (t *SseEventV1Error) UnmarshalJSON(b []byte) error {
 }
 
 // SseEventV1Progress is generated from sse-event.v1.json#$defs/Progress.
-// The investigation moved to a state; the overlay shows the stage string that belongs to it.
+// The investigation moved to a public stage; the overlay shows the plain-language string that belongs to it.
 type SseEventV1Progress struct {
-	Event         string                                    `json:"event"`
-	SchemaVersion CommonV1SchemaVersion                     `json:"schema_version"`
-	At            CommonV1Timestamp                         `json:"at"`
-	State         InvestigationResponseV1InvestigationState `json:"state"`
+	Event         string                             `json:"event"`
+	SchemaVersion CommonV1SchemaVersion              `json:"schema_version"`
+	At            CommonV1Timestamp                  `json:"at"`
+	State         InvestigationResponseV1PublicStage `json:"state"`
 }
 
 var SseEventV1ProgressShape = objectShape{name: "SseEventV1Progress", props: map[string]bool{"event": true, "schema_version": true, "at": true, "state": true}, required: []string{"event", "schema_version", "at", "state"}, nonNull: map[string]bool{"event": true, "schema_version": true, "at": true, "state": true}, closed: true}

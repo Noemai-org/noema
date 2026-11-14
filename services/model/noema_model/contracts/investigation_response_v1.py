@@ -10,40 +10,25 @@ from ._base import ContractModel
 from .common_v1 import CommonV1SchemaVersion
 from .customer_answer_v1 import CustomerAnswerV1
 
-class InvestigationResponseV1InvestigationState(StrEnum):
-    """PERD §28.2 states (21). FROZEN is a target-level flag, not an investigation state. Source: investigation-response.v1.json#$defs/InvestigationState"""
+class InvestigationResponseV1PublicStage(StrEnum):
+    """Where the investigation stands, in six words the customer can be told (ruling A187). UNDERSTANDING: reading the request. CHECKING: reading and comparing records, evaluating, waiting for a bounded condition. NEEDS_YOU:... Source: investigation-response.v1.json#$defs/PublicStage"""
 
-    RECEIVED = 'RECEIVED'
-    INTERPRETING = 'INTERPRETING'
-    REJECTED_AT_GATE = 'REJECTED_AT_GATE'
-    AWAITING_CLARIFICATION = 'AWAITING_CLARIFICATION'
-    EVALUATING = 'EVALUATING'
-    AWAITING_CONFIRMATION = 'AWAITING_CONFIRMATION'
-    WAITING = 'WAITING'
-    PLANNED = 'PLANNED'
-    EXECUTING = 'EXECUTING'
-    AWAITING_VERIFICATION = 'AWAITING_VERIFICATION'
-    AWAITING_EXTERNAL_OUTCOME = 'AWAITING_EXTERNAL_OUTCOME'
-    RECOVERING = 'RECOVERING'
-    BLOCKED_UNKNOWN = 'BLOCKED_UNKNOWN'
-    ESCALATING = 'ESCALATING'
-    EXPLAINING = 'EXPLAINING'
-    EXPLAINING_BLOCKED = 'EXPLAINING_BLOCKED'
-    COMPLETED = 'COMPLETED'
-    ESCALATED = 'ESCALATED'
-    REJECTED = 'REJECTED'
-    DORMANT = 'DORMANT'
-    EXPIRED = 'EXPIRED'
+    UNDERSTANDING = 'UNDERSTANDING'
+    CHECKING = 'CHECKING'
+    NEEDS_YOU = 'NEEDS_YOU'
+    ACTING = 'ACTING'
+    HANDED_TO_TEAM = 'HANDED_TO_TEAM'
+    FINISHED = 'FINISHED'
 
 
 class InvestigationResponseV1(ContractModel):
-    """PERD §39.2: the response of GET /v1/investigations/{investigation_id}, the current state for the overlay: {state, last_answer, case_ref_masked?}, with schema_version (PERD §39.1: bodies carry it). 'state' is the inves... Source: investigation-response.v1.json"""
+    """PERD §39.2: the response of GET /v1/investigations/{investigation_id}, the current state for the overlay: {state, last_answer, case_ref_masked?}, with schema_version (PERD §39.1: bodies carry it). 'state' is one of si... Source: investigation-response.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion
-    state: InvestigationResponseV1InvestigationState
+    state: InvestigationResponseV1PublicStage
     last_answer: CustomerAnswerV1 | None = Field(default=None)
-    case_ref_masked: Annotated[str, StringConstraints(pattern='\\A(?![\\s\\S]*[0-9]{5})[\\s\\S]*\\Z', min_length=1, max_length=64)] | None = Field(default=None)
+    case_ref_masked: Annotated[str, StringConstraints(pattern='\\A(?:[^0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){0,4}[^0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]*\\Z', min_length=1, max_length=64)] | None = Field(default=None)
 
 
 InvestigationResponseV1.model_rebuild()
