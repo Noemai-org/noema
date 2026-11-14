@@ -42,7 +42,12 @@ func deadline(t *testing.T) context.Context {
 
 // admitted builds the stored intent: the slots object is the part of the document the adapter reads.
 func admitted(tenantID, slots string) intentstore.Admitted {
-	doc := `{"intent_id":"` + intentID + `","version":1,"tenant_id":"` + tenantID + `","slots":` + slots + `}`
+	return admittedFor(tenantID, user, slots)
+}
+
+// admittedFor builds the stored intent of one principal: the principal and the slots are the parts of the document the adapter reads.
+func admittedFor(tenantID, principalID, slots string) intentstore.Admitted {
+	doc := `{"intent_id":"` + intentID + `","version":1,"tenant_id":"` + tenantID + `","principal":{"principal_id":"` + principalID + `"},"slots":` + slots + `}`
 	return intentstore.Admitted{TenantID: tenantID, IntentID: intentID, Version: 1, IntentNode: "fin.payments.exception.investigate", CorrelationID: corr, JSON: []byte(doc)}
 }
 
@@ -221,8 +226,8 @@ func TestAnythingElseThanTheAdaptersTenantIsRefusedBeforeAnyRead(t *testing.T) {
 	r.nothingRead(t)
 	r = newRig()
 	r.in.a = admitted(other, resolvedTx)
-	if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, readseal.ErrTenant) {
-		t.Errorf("an intent of another tenant: want ErrTenant, got %v", err)
+	if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, intentstore.ErrNotFound) {
+		t.Errorf("an intent of another tenant: want the same answer as an intent that does not exist (intentstore.ErrNotFound), got %v", err)
 	}
 	r.nothingRead(t)
 }
@@ -423,5 +428,37 @@ func TestAnIncompleteClassificationIsNeverSealed(t *testing.T) {
 		if len(r.se.calls) != 0 || r.sr.begun != 0 {
 			t.Errorf("%s: nothing may be begun or sealed", name)
 		}
+	}
+}
+
+func TestAnIntentOfAnotherPrincipalOfTheSameTenantIsNotFoundAndNothingIsRead(t *testing.T) {
+	// INV-12, REQ-SEC-004 (review of noema#548): the tenant is bound by the intent reader's login; the principal is not. A principal may seal evidence only for its own
+	// intent, and the answer is the one for an intent that does not exist, so the caller learns nothing about another principal's intents.
+	r := newRig()
+	r.in.a = admittedFor(tenant, "usr_zz99", resolvedTx)
+	_, err := r.a.Read(deadline(t), session, ref)
+	if !errors.Is(err, intentstore.ErrNotFound) {
+		t.Errorf("want intentstore.ErrNotFound, got %v", err)
+	}
+	if errors.Is(err, readseal.ErrTenant) || errors.Is(err, readseal.ErrNoTransaction) {
+		t.Errorf("the answer must not tell this case apart from a missing intent: %v", err)
+	}
+	r.nothingRead(t)
+}
+
+func TestAnIntentThatNamesNoPrincipalCannotBeProvedTheCallersAndIsNotFound(t *testing.T) {
+	for name, doc := range map[string]string{
+		"no principal member":   `{"intent_id":"` + intentID + `","slots":` + resolvedTx + `}`,
+		"no principal_id":       `{"intent_id":"` + intentID + `","principal":{},"slots":` + resolvedTx + `}`,
+		"principal_id not text": `{"intent_id":"` + intentID + `","principal":{"principal_id":7},"slots":` + resolvedTx + `}`,
+		"principal_id empty":    `{"intent_id":"` + intentID + `","principal":{"principal_id":""},"slots":` + resolvedTx + `}`,
+		"principal_id cased":    `{"intent_id":"` + intentID + `","principal":{"principal_id":"USR_AB12"},"slots":` + resolvedTx + `}`,
+	} {
+		r := newRig()
+		r.in.a.JSON = []byte(doc)
+		if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, intentstore.ErrNotFound) {
+			t.Errorf("%s: want intentstore.ErrNotFound, got %v", name, err)
+		}
+		r.nothingRead(t)
 	}
 }
