@@ -13,6 +13,21 @@
 - Files to read first: `.github/workflows/bench-live.yml`, `benchmark/bakeoff/live_run.py`.
 - Do not touch: `benchmark/bakeoff/gates.py` caps.
 
+# Session 2026-11-14 · UND-05 core side of mTLS (noema#555; the Founder's order of 14 Nov; ruling A208, relayed, not yet committed)
+
+## Session summary
+- What changed (this PR): `cmd/core/modelclient.go`: `buildModelHTTPClient` and `buildModelClient` build the core's client of the model service over **mutual TLS**: the core presents its own certificate (`NOEMA_MODEL_CLIENT_CERT_FILE`, `NOEMA_MODEL_CLIENT_KEY_FILE`), trusts only the CA file it is given (`NOEMA_MODEL_CA_FILE`, not the system's roots), refuses a URL that is not `https://` (`NOEMA_MODEL_URL`) and takes the response bound from `NOEMA_MODEL_MAX_RESPONSE_BYTES` (no default). All five or none; with none the Interpreter stays unconfigured and `/readyz` says so. TLS 1.2 minimum, as the egress gateway's. No error carries a key.
+- Why: noema#555 (the Security Reviewer's blocking finding on noema#544: the model service's listener checks nobody). A208 accepts IL's design: uvicorn terminates mTLS, IL does the Dockerfile and Compose, EL does this core client.
+- Risks, and how they are contained: this is the client half only; until IL's half lands (uvicorn with a CA and `CERT_REQUIRED`) the listener still checks nobody, and noema#544 must not wire a compiler (rule 5 of noema#555). Mutants run locally, four killed (server certificate not verified; no client certificate presented; plain http accepted; a bound of zero accepted).
+- Tests added (INV-29, AGENT-13, AGENT-16; PERD 36.1): `cmd/core/modelclient_test.go`: a real mutual-TLS server (certificates made at run time with the standard library): the core's certificate is what the server sees; a server certificate from another CA is refused; a core certificate from another CA is refused by the server; eleven bad configurations refuse to build with no key echoed; the understanding client is built over it.
+- Not done: plugging the client into `Ports.Interpreter` (the interpreter adapter and `main.go`: the composition PR), the model service's side (IL), the certificates' provisioning (OQ-09: file-mounted until decided).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: IL adds uvicorn's `--ssl-*` options and the Compose mounts; EL plugs `buildModelClient` into the composition and sets `NOEMA_MODEL_*` in the stack.
+- Files to read first: `cmd/core/modelclient.go`, `understanding/client.go`.
+- Do not touch: the model service's listener (IL), `understanding/client.go`.
+
 # Session 2026-11-13 21:30 WAT · UND-05 · the model service's compile route (slice 1, noema#544)
 
 ## Session summary
@@ -35,3 +50,8 @@
 - **Finding 1 (mTLS on the model listener): not fixable in this PR.** It needs `services/model/Dockerfile` and `deploy/compose` (IL's, protected). Tracked on noema#555; stated in `compiler/README.md` as the first precondition before any PR sets `compile_service` in `main.py`. The route compiles nothing until then.
 - **Notes 3 to 6:** recorded as preconditions in `compiler/README.md`; none is reachable while no compiler is wired.
 - Debt: none. Conflicts raised: none.
+
+### Update 2026-11-14 · Security Reviewer's NOT READY on noema#563 (EL)
+- **Blocking (the setting names did not match noema#568).** The core now reads IL's names: `NOEMA_MODEL_TLS_CA_FILE`, `NOEMA_MODEL_TLS_CERT_FILE`, `NOEMA_MODEL_TLS_KEY_FILE` (the constants keep their Go names). `NOEMA_MODEL_URL` is unchanged. **`NOEMA_MODEL_MAX_RESPONSE_BYTES` is not in noema#568's Compose file and the core refuses to build the client without it (no default, AGENT-16): IL adds it to the core service there, or the all-or-none rule keeps the Interpreter off.** The test that reads the Compose file's names belongs with the Compose file (noema#568 owns `deploy/compose`; main has none of these names yet), so it lands with #568 or after it merges; asked of IL on #568.
+- Merge conflict with main resolved (a merge; `status/UND-05.md` kept both sections).
+- Note (c): `TestAModelServiceWhoseCertificateNamesAnotherHostIsRefused` (a certificate from the trusted CA for 127.0.0.2, URL 127.0.0.1). Mutant killed: `InsecureSkipVerify: true` fails it and the other-CA test. Notes (a) and (b) (no rotation without a restart; no timeouts of its own, the caller's deadline bounds each call) are as the reviewer reads them. Dependency (noema#555): `buildModelClient` is not called from `main.go`; the composition PR calls it at startup and exits on error.
