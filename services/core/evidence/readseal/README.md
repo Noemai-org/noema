@@ -8,15 +8,17 @@ The adapter for the orchestrator's Evidence port (ENV-04 wiring slice W2; REQ-CT
 |---|---|---|
 | Wiring | every collaborator, the deadline of the seal transaction, the pack's slot name and resource kind are set; none has a default (AGENT-16) | `ErrNotWired` |
 | Context | the caller's context has a deadline | `ErrNoDeadline` |
-| Session | tenant and principal set (INV-12); the tenant is the adapter's (INV-11) | `orchestrator.ErrNoSession`, `ErrTenant` |
+| Session | tenant and principal set (INV-12); the tenant is the adapter's (INV-11; a wiring mistake, not an external answer) | `orchestrator.ErrNoSession`, `ErrTenant` |
 | Reference | `int_<id>@<version>`, version 1 to 999,999,999 | `ErrIntentRef` |
-| Intent | the stored intent is of the adapter's tenant | `intentstore.ErrNotFound` (wrapped), `ErrTenant` |
+| Intent | the stored intent is of the adapter's tenant **and names exactly the session's principal** (the database binds the tenant, nothing binds the principal, so it is checked here, INV-12); an intent of another tenant or principal, or one that names no provable principal, answers exactly as a missing intent | `intentstore.ErrNotFound` (wrapped) |
 | Transaction | the configured slot is RESOLVED and its `resolved_ref` is `<configured kind>:<id>` with an ID the read call site accepts; a surface form or a candidate is never used | `ErrNoTransaction` |
 | Read | the Record comes first: a failed record stops the run; no item at all is never sealed (INV-17) | the read's error, `snapshot.ErrEmptySet` |
-| Classify | the `Reconciler` answers with a reconciliation ID and a classification | the Reconciler's error, `ErrIncomplete` |
+| Classify | the `Reconciler` answers with a reconciliation ID (`rec_` and 2 to 32 letters or digits) and a classification (upper case, digits, underscore): the shapes migration 0020 checks; the database does not check the closed set of classifications, which is the Reconciler's contract (PERD 22.3) | the Reconciler's error, `ErrIncomplete` |
 | Seal | one transaction of the tenant's Trust login: the snapshot row and its `CONTEXT_SNAPSHOT_SEALED` event commit together or not at all | the seal's or the commit's error, rolled back |
 
 **Unavailable.** True when any item is UNAVAILABLE, UNKNOWN or UNAUTHORIZED (INV-19). The snapshot is still sealed over it. The adapter never decides what that means; Trust does.
+
+**For the caller (the orchestrator's composition).** Map `intentstore.ErrNotFound`, `ErrTenant`, `ErrNoTransaction` and every other error to one external answer, and never return `err.Error()` to a client: wrapped errors carry the underlying port and database errors. `Timeout` bounds the seal transaction only; the read and `Classify` run under the caller's deadline (the context must have one), and the item count is the read call site's (one item per port). The tenant binding in the database and a cross-tenant and cross-principal test over Postgres belong to the first real wiring; the tests here use fakes for the collaborators and assert the database binding by this comment only.
 
 **No industry terms (INV-14).** The slot name and the resource kind are configuration taken from the pack.
 

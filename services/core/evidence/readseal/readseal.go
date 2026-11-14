@@ -55,7 +55,7 @@ var (
 	ErrTenant        = errors.New("readseal: the session or the intent is not of this adapter's tenant")
 	ErrNoTransaction = errors.New("readseal: the intent names no resolved transaction")
 	ErrNoDeadline    = errors.New("readseal: the context needs a deadline")
-	ErrIncomplete    = errors.New("readseal: the Reconciler's answer has no reconciliation ID or no classification")
+	ErrIncomplete    = errors.New("readseal: the Reconciler's answer is not a reconciliation ID and a classification of the shape a snapshot records")
 )
 
 // Adapter implements orchestrator.Evidence for one tenant.
@@ -78,6 +78,10 @@ var (
 	slotNameRe  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 	kindRe      = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$`)
 	recordIDRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`) // the portread reader's own rule for a transaction reference
+	// The shapes migration 0020 gives context_snapshot (reconciliation_id, reconciliation_classification). The database checks the shape only, not the closed set of
+	// classifications: that set is the Reconciler's contract (PERD 22.3), and a real Reconciler returns one of its own constants.
+	reconciliationRe = regexp.MustCompile(`^rec_[0-9A-Za-z]{2,32}$`)
+	classificationRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 )
 
 func (a *Adapter) configured() error {
@@ -117,8 +121,10 @@ func (a *Adapter) Read(ctx context.Context, s orchestrator.Session, intentRef st
 	if err != nil {
 		return orchestrator.EvidenceRef{}, fmt.Errorf("readseal: read the intent: %w", err)
 	}
-	if admitted.TenantID != a.TenantID {
-		return orchestrator.EvidenceRef{}, ErrTenant
+	// The intent reader's login binds the tenant in the database; nothing binds the principal there, so it is checked here (INV-12, review of noema#548). An intent of another
+	// tenant or of another principal, and one that names no principal, answer exactly as an intent that does not exist: the caller learns nothing about what exists.
+	if admitted.TenantID != a.TenantID || !ownedBy(admitted.JSON, s.PrincipalID) {
+		return orchestrator.EvidenceRef{}, fmt.Errorf("readseal: read the intent: %w", intentstore.ErrNotFound)
 	}
 	txRef, err := a.transaction(admitted.JSON)
 	if err != nil {
@@ -135,7 +141,7 @@ func (a *Adapter) Read(ctx context.Context, s orchestrator.Session, intentRef st
 	if err != nil {
 		return orchestrator.EvidenceRef{}, fmt.Errorf("readseal: classify: %w", err)
 	}
-	if class.ReconciliationID == "" || class.Classification == "" {
+	if !reconciliationRe.MatchString(class.ReconciliationID) || !classificationRe.MatchString(class.Classification) {
 		return orchestrator.EvidenceRef{}, ErrIncomplete
 	}
 	ids, unavailable := make([]string, len(items)), false
@@ -152,6 +158,17 @@ func (a *Adapter) Read(ctx context.Context, s orchestrator.Session, intentRef st
 		return orchestrator.EvidenceRef{}, err
 	}
 	return orchestrator.EvidenceRef{SnapshotID: sealed.SnapshotID, Unavailable: unavailable}, nil
+}
+
+// ownedBy says that the stored intent names exactly the session's principal. Only the one member it needs is read, so it does not depend on the object's version; an
+// intent that names none, or a principal that is not text, is not provably the caller's.
+func ownedBy(doc []byte, principalID string) bool {
+	var d struct {
+		Principal struct {
+			PrincipalID string `json:"principal_id"`
+		} `json:"principal"`
+	}
+	return json.Unmarshal(doc, &d) == nil && d.Principal.PrincipalID != "" && d.Principal.PrincipalID == principalID
 }
 
 // transaction takes the transaction ID from the intent's resolved transaction slot. It reads only the two members it needs, so it does not depend on the intent

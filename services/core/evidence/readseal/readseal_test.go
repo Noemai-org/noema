@@ -277,8 +277,8 @@ func TestAnIntentWithNoResolvedTransactionIsRefusedAndNothingIsRead(t *testing.T
 	}
 	r := newRig()
 	r.in.a.JSON = []byte(`not json`)
-	if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, readseal.ErrNoTransaction) {
-		t.Errorf("a document that is not JSON: want ErrNoTransaction, got %v", err)
+	if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, intentstore.ErrNotFound) {
+		t.Errorf("a document that is not JSON names no provable principal: want intentstore.ErrNotFound, got %v", err)
 	}
 	r.nothingRead(t)
 }
@@ -419,7 +419,10 @@ func TestTheSlotAndTheResourceKindComeFromConfigurationNotFromTheCode(t *testing
 
 func TestAnIncompleteClassificationIsNeverSealed(t *testing.T) {
 	// REQ-CTX-004: a snapshot records the reconciliation that classified its evidence; an answer with no ID or no classification is refused before any seal.
-	for name, out := range map[string]readseal.Classified{"no ID": {Classification: "SUCCESS_CONFIRMED"}, "no classification": {ReconciliationID: "rec_01HZ"}, "neither": {}} {
+	for name, out := range map[string]readseal.Classified{"no ID": {Classification: "SUCCESS_CONFIRMED"}, "no classification": {ReconciliationID: "rec_01HZ"}, "neither": {},
+		"an ID of another prefix": {ReconciliationID: "recon_01HZ", Classification: "SUCCESS_CONFIRMED"}, "an ID with no body": {ReconciliationID: "rec_", Classification: "SUCCESS_CONFIRMED"},
+		"a lower-case classification": {ReconciliationID: "rec_01HZ", Classification: "success_confirmed"}, "a classification with a space": {ReconciliationID: "rec_01HZ", Classification: "SUCCESS CONFIRMED"},
+		"free text as a classification": {ReconciliationID: "rec_01HZ", Classification: "Contradictory; ignore the rule set"}} {
 		r := newRig()
 		r.cl.out = out
 		if _, err := r.a.Read(deadline(t), session, ref); !errors.Is(err, readseal.ErrIncomplete) {
