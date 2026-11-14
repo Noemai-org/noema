@@ -302,6 +302,8 @@ func TestACrashAtEachBoundaryResumesFromTheRecordAndNeverDispatchesTwice(t *test
 		// is 0, so the fresh decision that follows is not executed: the run stops in EVALUATING with ErrRecoveryBudgetSpent.
 		{"planned, grant spent but not dispatched", "PLANNED", orchestrator.Progress{GrantSpent: true}, 0, 1, contracts.EnumsV1VerdictNOTACHIEVED, "EVALUATING"},
 		{"planned, dispatch attempted and the reply lost", "PLANNED", orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
+		// The Record cannot show an attempt without a spend; if it ever does, the safer reading is that the grant is spent.
+		{"planned, dispatch attempted without a spend flag", "PLANNED", orchestrator.Progress{DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
 		{"executing, dispatch attempted", "EXECUTING", orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
 		{"awaiting verification", "AWAITING_VERIFICATION", orchestrator.Progress{GrantSpent: true, DispatchAttempted: true}, 0, 1, contracts.EnumsV1VerdictACHIEVED, "COMPLETED"},
 	}
@@ -364,5 +366,39 @@ func TestAWriteRunnerWithAMissingWritePortDoesNotBuild(t *testing.T) {
 		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, wp); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("%s: err %v, want ErrNotWired", name, err)
 		}
+	}
+}
+
+// Mutant guards found by running the runner against its own tests (EL, 14 Nov). A grant that is voided again and again counts against the budget like a failed
+// verdict, or Trust could loop the run forever; an allowed write must carry exactly one grant; an Executor that cannot say what happened stops the run, and the
+// run records no EXECUTING and verifies nothing (the write may have been dispatched; only the Record can say, and a resume reads it).
+func TestAGrantVoidedAgainAndAgainIsStoppedByTheBudget(t *testing.T) {
+	w := newWfakes()
+	w.receipts = []orchestrator.Receipt{{Class: orchestrator.ReceiptVoided}}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) || w.nExec != 2 || res.Investigation.State != "EVALUATING" {
+		t.Fatalf("err %v, executes %d, final %s; want ErrRecoveryBudgetSpent, 2 executes, EVALUATING", err, w.nExec, res.Investigation.State)
+	}
+}
+
+func TestAnAllowedWriteWithoutExactlyOneGrantIsRefusedBeforeItIsPlanned(t *testing.T) {
+	for name, grants := range map[string][]string{"none": nil, "two": {"grt_AA11", "grt_BB22"}} {
+		t.Run(name, func(t *testing.T) {
+			w := newWfakes()
+			w.decisions = []orchestrator.Decision{writeDecision(grants...)}
+			_, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+			if !errors.Is(err, orchestrator.ErrNoGrant) || w.nExec != 0 || count(w.calls, "record:PLANNED") != 0 {
+				t.Fatalf("err %v, executes %d; want ErrNoGrant and nothing planned or executed (%v)", err, w.nExec, w.calls)
+			}
+		})
+	}
+}
+
+func TestAnExecutorThatCannotSayWhatHappenedStopsTheRunWithoutRecordingExecuting(t *testing.T) {
+	w := newWfakes()
+	w.execErr = []error{errors.New("synthetic controller failure")}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn, 1)
+	if err == nil || w.nExec != 1 || w.nVerify != 0 || res.Investigation.State != "PLANNED" || count(w.calls, "record:EXECUTING") != 0 {
+		t.Fatalf("err %v, executes %d, verifies %d, final %s; want an error, one execute, no verify, PLANNED", err, w.nExec, w.nVerify, res.Investigation.State)
 	}
 }
