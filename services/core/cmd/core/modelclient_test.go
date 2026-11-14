@@ -61,6 +61,12 @@ func newTestCA(t *testing.T, name string) testCA {
 // issue makes a leaf certificate signed by the CA: for a server (with the loopback address as its name) or for a client (the core).
 func (ca testCA) issue(t *testing.T, cn string, server bool) (certPEM, keyPEM []byte) {
 	t.Helper()
+	return ca.issueAt(t, cn, server, "127.0.0.1")
+}
+
+// issueAt is issue with the address a server certificate names.
+func (ca testCA) issueAt(t *testing.T, cn string, server bool, ip string) (certPEM, keyPEM []byte) {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +75,7 @@ func (ca testCA) issue(t *testing.T, cn string, server bool) (certPEM, keyPEM []
 		KeyUsage: x509.KeyUsageDigitalSignature}
 	if server {
 		tpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
-		tpl.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
+		tpl.IPAddresses = []net.IP{net.ParseIP(ip)}
 	} else {
 		tpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
 	}
@@ -88,7 +94,13 @@ func (ca testCA) issue(t *testing.T, cn string, server bool) (certPEM, keyPEM []
 // records the subject of the certificate it was called with.
 func modelServer(t *testing.T, serverCA, clientCA testCA) (*httptest.Server, *string) {
 	t.Helper()
-	certPEM, keyPEM := serverCA.issue(t, "model", true)
+	return modelServerAt(t, serverCA, clientCA, "127.0.0.1")
+}
+
+// modelServerAt is modelServer with a certificate that names another address than the one the server listens on.
+func modelServerAt(t *testing.T, serverCA, clientCA testCA, certIP string) (*httptest.Server, *string) {
+	t.Helper()
+	certPEM, keyPEM := serverCA.issueAt(t, "model", true, certIP)
 	pair, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
 		t.Fatal(err)
@@ -225,5 +237,25 @@ func TestTheUnderstandingClientIsBuiltOverTheMutualTLSClient(t *testing.T) {
 	}
 	if c, err := buildModelClient(Env{Getenv: envMap{}.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}); err != nil || c != nil {
 		t.Errorf("with no model setting at all: got %v, %v; want no client and no error (the interpreter is then not configured)", c, err)
+	}
+}
+
+// Security Reviewer's note (c) on noema#563: a server certificate signed by the trusted CA but made for another address than the URL's is refused. The host name is checked
+// against the URL; the CA alone is not enough (InsecureSkipVerify is never set).
+func TestAModelServiceWhoseCertificateNamesAnotherHostIsRefused(t *testing.T) {
+	ca := newTestCA(t, "noema-poc-ca")
+	srv, _ := modelServerAt(t, ca, ca, "127.0.0.2")
+	cc, ck := ca.issue(t, "core-understanding", false)
+	client, err := buildModelHTTPClient(modelEnv(srv.URL, writeMTLS(t, cc, ck, ca.pem), "65536"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Get(srv.URL + "/healthz")
+	if err == nil {
+		_ = resp.Body.Close()
+		t.Fatalf("a certificate for 127.0.0.2 was accepted for %s", srv.URL)
+	}
+	if !strings.Contains(err.Error(), "certificate") && !strings.Contains(err.Error(), "x509") {
+		t.Errorf("the call failed for another reason: %v", err)
 	}
 }

@@ -21,10 +21,10 @@ const (
 	// EnvModelURL is the model service's base URL: https://host[:port], no path.
 	EnvModelURL = "NOEMA_MODEL_URL"
 	// EnvModelClientCertFile and EnvModelClientKeyFile are the core's client certificate and its private key (PEM, file-mounted).
-	EnvModelClientCertFile = "NOEMA_MODEL_CLIENT_CERT_FILE"
-	EnvModelClientKeyFile  = "NOEMA_MODEL_CLIENT_KEY_FILE"
+	EnvModelClientCertFile = "NOEMA_MODEL_TLS_CERT_FILE"
+	EnvModelClientKeyFile  = "NOEMA_MODEL_TLS_KEY_FILE"
 	// EnvModelCAFile is the CA that signs the model service's certificate (PEM, file-mounted): the only root the client trusts.
-	EnvModelCAFile = "NOEMA_MODEL_CA_FILE"
+	EnvModelCAFile = "NOEMA_MODEL_TLS_CA_FILE"
 	// EnvModelMaxResponseBytes is the longest answer the client accepts (understanding.ClientConfig.MaxResponseBytes): a positive integer with no default.
 	EnvModelMaxResponseBytes = "NOEMA_MODEL_MAX_RESPONSE_BYTES"
 )
