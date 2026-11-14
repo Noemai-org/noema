@@ -191,3 +191,19 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - **Mutations by hand on the pure part, each red:** non-null check off; `audio_ref` not dropped; repeated-member check off; the tenant left out of the key; a plain sha-256 under the `hmac-sha256:` label; the key not mixed in; an error that quotes the reference; the voice read skipped; the cleaned voice not used. The database-backed tests ran only in CI (no pgsodium here); one push for the round (A176).
 - **Debt:** none new. **Conflicts raised:** none.
 - **Correction at the same head family:** `0a0bce96` failed `core` in `TestARetryThatCannotBeRecordedNeverReachesStart`, an A168 test of mine that still expected the 409 when the reuse event cannot be appended (https://github.com/Noemai-org/noema/actions/runs/43262070521/job/131335730267). I had changed the behaviour (note 3) and updated one test of it but not the other; the database-backed tests cannot run in my sandbox, so I found it in CI. The test now asserts the 503 with the Record down and the 409 with it up. Every other test passed.
+
+# Session 2026-11-13 (late) · UND-02 core · A184: the INPUT_RECEIVED object_ref is core-minted
+
+## Session summary
+- What changed (PR links): the follow-up PR `fix/UND-02-minted-input-ref` (noema#531): `inputgateway/gateway.go` mints the `object_ref` of a new input with its ID source (`req_` and a ULID) before the append and hands it to the recorder (`Received.ObjectRef`); `Ref` gains `ObjectRef`; `record.go` writes it, returns it, and writes a deduplication and a reuse with the **original** input's `object_ref` (read from the Record by `RecordIndex.Find`, which now selects `object_ref`). The old `objectRef(requestID)` (`req_` plus the request id's hex digits) is removed.
+- Why: ruling A184 (Architect, 13 Nov 2026; relayed, not yet committed). The request id is the client's, so up to twelve digits a client chose came back, as written, in an `object_ref`, which the reconstruction serves by its contract pattern, unmasked. Found while reading noema#492.
+- Risks, and how they are contained: the prefix `req` is my reading (PERD §32.3 lists it; no other listed prefix means "an input"); the Architect's text may name another, which changes the prefix, not the design. `object_ref`s written before this change keep the old form; a retry of such an input names that stored value, which is a valid ref.
+- Tests added (REQ-INP-002, REQ-AUD-001, REQ-SEC-003, AGENT-13, EC-E16): `objectref_test.go` (database: a minted ref in the PERD form with none of the client's digits, two inputs two refs, a deduplication and a reuse name the original's, a failed mint appends and starts nothing); `objectref_pure_test.go` (no database: the same at the seams, with mutants). Red first at `b6f2112c`.
+- Mutants run by hand on the pure part, each red: the ref derived from the request id again; the ref not handed to the recorder; a mint failure ignored. The deduplication and reuse naming are covered by the database tests, which run in CI; I mutated them (a new ref instead of the original's) and the pure tests do not see it, as expected.
+- Regression cases added: the tests above. Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when A184's text is committed, check the prefix against it. C1's Record append guard (noema#436 reply: "an object_ref is never payload-derived") should add its own test over every writer; this PR covers the gateway only.
+- Files to read first: `inputgateway/gateway.go`, `record.go`, `objectref_test.go`.
+- Do not touch: the migrations.
+
