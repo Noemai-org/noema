@@ -146,6 +146,19 @@
 - Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
 - Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
 
+# Session 2026-11-13 17:30 WAT · EDG-01 slice 3c, part 3 · the Record reader's per-tenant pools (EL)
+
+## Session summary
+- What changed (PR: the pull request of branch `feat/EDG-01-record-reader-dsn-files`, which replaces noema#532: its tests-only commit held a credential-shaped test literal that the secret scanner flagged, and published history is never rewritten): `cmd/core/recordpools.go` (`buildRecordReader`, `recordPools.For`, `EnvRecordReadDSNDir`), `Env.ReadDir`, `main.go` builds the reader from `NOEMA_RECORD_READ_DSN_DIR` and closes it at shutdown, with the process logger as the access log (`RECORD_ACCESSED` lines).
+- Why: ruling A170 and its Founder-approved interim default for OD-P-82 (relayed, not yet committed): a file-mounted read-only DSN per tenant. Without it the reconstruction route of noema#486 can never be mounted in a deployment.
+- Risks, and how they are contained: a DSN holds a password: no message names a DSN or any part of it (the parse error is dropped, a test checks the text); no fallback to another tenant's pool; a bad directory stops the process; pools connect lazily, so no start-up network dependency.
+- Tests added (REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-13): `cmd/core/recordpools_test.go` (4 tests, ten refused shapes); five mutants killed (fall back to any pool, accept any file name, echo the parse error, no trim, empty directory accepted).
+- Not done, stated: the SSE and investigation routes (no feed, no handler yet); the Compose side (`deploy/compose`, a protected path; IL and a Founder); a ping in `/readyz` for the pools.
+
+## Pre-work for the next agent
+- Exact next step: mount the investigation route (after noema#521) and the SSE route (needs a `Feed` over the investigation table and the Record) in `apiRoutes`, each behind its component.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.
+
 # Session 2026-11-13 16:30 WAT · EDG-01 · the public edge serves only the public areas (noema#505, SEC-04)
 
 ## Session summary
@@ -162,3 +175,15 @@
 - Files to read first: `edge/edge.go` (`notPublic`), `edge/refuse_test.go`.
 - Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
 
+
+# Session 2026-11-14 · EDG-01 · review of noema#535 (Security Reviewer, NOT READY at `df92c13e`)
+
+## Session summary
+- What changed (noema#535): `buildRecordReader` refuses a symlink or any non-regular entry (`DirEntry.Type().IsRegular()`), and refuses one login (user, host, port, database) in two tenant files, naming both tenants and never a DSN. The README states the trust boundary. Tests first: `TestOneLoginInTwoTenantFilesIsRefused`, `TestASymlinkIsNotATenantFile` (red at `dd54d121`, fixed in the next commit).
+- Not done, and why (asked, not decided by me): a startup probe per pool (`SELECT session_user`, `record_read` membership only, not a superuser) dials at start and changes the lazy-pool design (Architect); the file mode check (Compose file secrets are 0444 by default, so refusing group or world readable would stop a Compose deployment; IL and the Architect); pool limits, connect and statement timeouts and a `sslmode=disable` refusal (a threshold is not mine to invent, AGENT-16; they travel in the DSN today). Note 4 (`os.Exit` after a deferred close) is harmless at exit and unchanged.
+- Tests added (REQ-SEC-004, REQ-AUD-003, INV-12, AGENT-13): the two above.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect decides the probe, the mode check and the pool limits; implement what they decide.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.
