@@ -54,3 +54,28 @@ def test_the_limits_are_data_the_caller_can_pass() -> None:
 def test_limits_that_make_no_sense_are_refused(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         FrameLimits(**kwargs)
+
+
+# ---- Codex P2 on #554 at 32a6033: a caller cannot raise A191's limits ---------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("cap", [32_002, 64_000, 1_000_000])
+def test_a_byte_cap_above_the_ruling_is_refused(cap: int) -> None:
+    with pytest.raises(ValueError, match="A191"):
+        FrameLimits(max_chunk_bytes=cap)
+
+
+@pytest.mark.parametrize("rate", [8_000, 15_998, 16_002, 22_050, 44_100, 48_000])
+def test_a_sample_rate_other_than_16_khz_is_refused(rate: int) -> None:
+    with pytest.raises(ValueError, match="A191"):
+        FrameLimits(sample_rate_hz=rate)
+
+
+def test_a_stricter_cap_and_the_decided_values_are_still_allowed() -> None:
+    assert FrameLimits(max_chunk_bytes=32_000).max_chunk_bytes == 32_000
+    assert FrameLimits(max_chunk_bytes=640, sample_rate_hz=16_000).max_chunk_bytes == 640
+
+
+def test_a_detector_given_a_raised_limit_cannot_be_built_so_the_frames_stay_refused() -> None:
+    with pytest.raises(ValueError):
+        EndpointDetector(VAD, FrameLimits(max_chunk_bytes=64_000))
