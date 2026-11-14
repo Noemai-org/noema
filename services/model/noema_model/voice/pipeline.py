@@ -147,6 +147,7 @@ def _begin_close(audio: AudioSource, close_s: float, report: Report) -> "asyncio
         if not closing.done():
             report(CLOSE_ABANDONED)
             closing.cancel()
+            _DEFERRED.discard(closing)  # cancelling is cooperative: a close that ignores it is let go of here, not held for the life of the process (Codex P2 on #474)
 
     timer = asyncio.get_running_loop().call_later(close_s, stalled)
 
@@ -165,7 +166,7 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
 
     The wait has a second bound, `hold_s`. If the read is still running then, the pipeline stops waiting and does three things: it logs
     `VOI_AUDIO_READ_ABANDONED` once; it tries to close the source now, bounded by `close_s` (default `hold_s`), because closing is what interrupts a stuck read
-    on a real source; and it leaves a callback on the read that holds the source only by a weak reference, so that if that close failed, the read later ends
+    on a real source; and it leaves a callback on the read that holds the source only weakly (or, for a source that cannot be weakly referenced, strongly for one more bounded window), so that if that close failed, the read later ends
     and the source is still alive, it is closed then. The pipeline therefore pins nothing for the life of the process, repeated calls do not accumulate,
     and a source is not left open just because its read was slow (Security Reviewer and Codex on #474).
 
@@ -186,28 +187,40 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
             return  # it ended in time: start() has run or is queued, and nothing was abandoned
         read.remove_done_callback(start)
         say(READ_ABANDONED)
+        # How the retry finds the source later without the pipeline pinning it. A source that can be weakly referenced is held weakly. One that cannot (`__slots__`
+        # without `__weakref__`; AudioSource does not require it) is held strongly in a box that is emptied when the retry window ends or the retry is no longer
+        # needed, so it is retried, and never held for ever (Codex P2 on #474).
+        box: list[AudioSource] = []
         try:
             weak: "weakref.ReferenceType[AudioSource] | None" = weakref.ref(audio)
         except TypeError:
-            weak = None  # a source that cannot be weakly referenced is closed now and not remembered
-        attempt = _begin_close(audio, window, say)
-        retried = False
+            weak = None
+            box.append(audio)
+            asyncio.get_running_loop().call_later(window + hold_s, box.clear)
+        state = {"over": False, "failed": False, "retried": False}
+
+        def source() -> AudioSource | None:
+            if weak is not None:
+                return weak()
+            return box[0] if box else None
 
         def retry_if_needed(_: "asyncio.Future[Any]") -> None:
             # Called when the read ends and when the close at the abandon ends, in whichever order: the retry needs both to have happened (Codex P2 on #474).
-            nonlocal retried
-            if retried or not read.done() or not attempt.done():
+            if state["retried"] or not read.done() or not state["over"]:
                 return
-            if not (attempt.cancelled() or attempt.exception() is not None):
-                return  # the close at the abandon worked
-            source = weak() if weak is not None else None
-            if source is None:
-                return
-            retried = True
-            _begin_close(source, window, say)  # once: the read has ended, so the source can now be closed
+            state["retried"] = True
+            target = source() if state["failed"] else None
+            box.clear()  # whatever happens next, the pipeline keeps no strong reference to the source after this
+            if target is not None:
+                _begin_close(target, window, say)  # once: the read has ended, so the source can now be closed
 
+        def attempt_over(closed: "asyncio.Future[None]") -> None:
+            state["over"] = True
+            state["failed"] = closed.cancelled() or closed.exception() is not None
+            retry_if_needed(closed)
+
+        _begin_close(audio, window, say).add_done_callback(attempt_over)
         read.add_done_callback(retry_if_needed)
-        attempt.add_done_callback(retry_if_needed)
 
     timer = asyncio.get_running_loop().call_later(hold_s, abandon)
     read.add_done_callback(start)

@@ -330,8 +330,8 @@ def test_a_source_that_cannot_be_weakly_referenced_still_gets_its_retry_after_th
 
     async def scenario() -> None:
         with pytest.raises(ProviderError):
-            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
-        await asyncio.sleep(1.0)  # the abandon at ~0.15 s closes too early (the read is running); the read ends at ~0.45 s
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.2, on_partial=lambda _: None)
+        await asyncio.sleep(1.0)  # the abandon at ~0.3 s closes too early (the read is running); the read ends at ~0.45 s, inside the 0.25 s retry window that follows
 
     run(asyncio.wait_for(scenario(), timeout=GUARD_S))
     assert source.closed  # Codex P2: with no weak reference the retry had no source to close, and the microphone stayed open
