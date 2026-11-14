@@ -35,6 +35,9 @@ var (
 	ErrNoEvaluatedBasis = errors.New(errPrefix + "the decision has no evaluated evidence and policy basis, which the record requires")
 	// ErrUnsupported is returned for an outcome the writer does not map yet (CLARIFY).
 	ErrUnsupported = errors.New(errPrefix + "this outcome is not written yet")
+	// ErrDecisionConflict is returned when a decision is already stored for the same input tuple and the new evaluation disagrees with it (INV-21: the same input
+	// gives the same decision). Nothing is written and nothing of either decision is returned; the error carries no content of the decision.
+	ErrDecisionConflict = errors.New(errPrefix + "the stored decision for this input does not agree with the new evaluation")
 )
 
 // IDs makes the decision ID.
@@ -96,6 +99,18 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	basis, policy, err := w.check(r)
 	if err != nil {
 		return Result{}, err
+	}
+	// A186: one decision per full input tuple. Writers of one input are serialised, the stored decision (if any) is read, and only a tuple with none is written.
+	key := inputKey{tenant: r.TenantID, intentID: r.IntentID, intentHash: string(r.IntentHash), snapshot: basis.EvidenceSnapshotID, policy: policy}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key.lockName()); err != nil {
+		return Result{}, fmt.Errorf("%slock the input: %w", errPrefix, err)
+	}
+	stored, found, err := w.lookup(ctx, tx, key, r, basis)
+	if err != nil {
+		return Result{}, err
+	}
+	if found {
+		return stored, nil
 	}
 	decisionID, err := w.IDs.ID("dec")
 	if err != nil || !decisionRe.MatchString(decisionID) {
