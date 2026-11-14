@@ -329,3 +329,25 @@ func TestNewEvidenceGivesANewSnapshotAndANewDecision(t *testing.T) {
 		t.Errorf("%d decision records after the repeat, want 3", n)
 	}
 }
+
+// A WAIT is re-evaluated later for the same intent (PERD 28.2). The re-evaluation reads evidence again, and every seal mints its own snapshot ID, so it is another input
+// and another decision: the WAIT stays on the Record and the later ESCALATE is written beside it, with no conflict and no stranded case (review of noema#534, question 1).
+func TestAWaitThenALaterDecisionUnderANewSnapshotAreTwoDecisions(t *testing.T) {
+	w := newWorld(t)
+	waitBasis := evaluatedWith(t, "evs_01ABC", "3.1")
+	waited, err := w.write(t, request(t, decision(t, decide.Wait, waitBasis), waitBasis), true)
+	if err != nil {
+		t.Fatalf("the WAIT: %v", err)
+	}
+	laterBasis := evaluatedWith(t, "evs_02XYZ", "3.1")
+	later, err := w.write(t, request(t, decision(t, decide.Escalate, laterBasis), laterBasis), true)
+	if err != nil {
+		t.Fatalf("the later ESCALATE under a new snapshot: %v", err)
+	}
+	if later.Record.DecisionId == waited.Record.DecisionId {
+		t.Errorf("the re-evaluation returned the WAIT again (%s)", later.Record.DecisionId)
+	}
+	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 2 {
+		t.Errorf("%d decision records, want 2 (the WAIT and the later decision)", n)
+	}
+}

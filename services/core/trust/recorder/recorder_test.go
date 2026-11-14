@@ -132,6 +132,8 @@ func decision(t *testing.T, o decide.Outcome, b *decide.BasisBuilder) decide.Dec
 		d, err = resolved(t).Allow(pass)
 	case decide.Reject:
 		d, err = resolved(t).Reject(decide.Authority{Technical: decide.Pass, Policy: decide.Fail, Business: decide.NotEvaluated}, reason)
+	case decide.Wait:
+		d, err = resolved(t).Wait(pass, epoch.Unix()+60, reason)
 	case decide.Escalate:
 		u, _ := decide.Admit(decide.IntentView{Version: 2, MaterialFlags: []string{"X"}}).Unresolved()
 		d, err = u.Escalate(reason)
