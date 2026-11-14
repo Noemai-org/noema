@@ -1,8 +1,10 @@
 package e2e_test
 
 import (
+	"flag"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -42,10 +44,32 @@ func TestParseListeningRefusesAnAddressThatIsNotALoopbackWithABoundPort(t *testi
 	}
 }
 
-// Four mock-cases started at once, all alive at the same time, each hold their own pair of listeners: the eight addresses are all different, and each process holds the
-// port it reported (a second bind on it fails). A harness that picked ports before binding them could hand two processes the same one.
+// parallelSlots is how many tests `go test` may run in parallel at once (the -parallel flag, GOMAXPROCS by default).
+func parallelSlots(t *testing.T) int {
+	t.Helper()
+	f := flag.Lookup("test.parallel")
+	if f == nil {
+		t.Fatal("the test.parallel flag is not defined")
+	}
+	n, err := strconv.Atoi(f.Value.String())
+	if err != nil || n < 1 {
+		t.Fatalf("the test.parallel flag is %q", f.Value.String())
+	}
+	return n
+}
+
+// Several mock-cases started at once, all alive at the same time, each hold their own pair of listeners: the addresses are all different, and each process holds the port it
+// reported (a second bind on it fails). A harness that picked ports before binding them could hand two processes the same one. The group is as large as the parallel slots
+// allow, at most four, because its subtests wait for each other: with fewer slots than subtests the ones holding the slots would wait for the ones that cannot start and the
+// run would hang until the test timeout (EL's finding on noema#526). The property needs two processes at once at least, so a limit of one fails loudly instead of hanging.
 func TestMockCasesStartedAtOnceEachHoldTheirOwnListeners(t *testing.T) {
-	const n = 4
+	n := parallelSlots(t)
+	if n > 4 {
+		n = 4
+	}
+	if n < 2 {
+		t.Fatalf("this test needs `-parallel 2` or more (it has %d): it starts mock-cases at once and a limit of one cannot start two", n)
+	}
 	var (
 		mu    sync.Mutex
 		addrs = map[string]int{}

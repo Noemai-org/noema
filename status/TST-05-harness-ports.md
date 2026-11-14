@@ -18,3 +18,7 @@ Updated 2026-11-13.
 - Exact next step: after merge, close noema#525 (the Benchmark Owner's re-run request on noema#199 is moot once its job passes) and decide on the `testpg` retry.
 - Files to read first: `adapters/outcome_e2e/mockcase_test.go` (`parseListening`, `boundAddrs`), `no_probe_test.go`.
 - Do not touch: `synthetic/mock_case` (Integration Lead's).
+
+## Session 2026-11-14 · TST-05 · EL's P2 on noema#526
+- What changed: `TestMockCasesStartedAtOnceEachHoldTheirOwnListeners` (both packages) no longer assumes four free parallel slots. Its group is `min(4, -parallel)`; a limit of one fails loudly (`t.Fatalf`, not a skip) because the property needs two processes at once. The old shape hung until the test timeout with fewer than four slots (reproduced: `-parallel 1` on the old test ran 5 minutes without finishing). Checked: `-parallel 1` fails at once with the message, `-parallel 2` and `-parallel 4` pass in both packages. The two notes of the reviewers are in the comments (the guard sees only a literal `:0`; the log line is a contract with `cmd/mock-case`).
+- Pre-work for the next agent: the harness is about to move to an importable package (`internal/e2estack`, this session's next PR); keep `parallelSlots` with the test that needs it.

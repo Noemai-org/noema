@@ -97,6 +97,8 @@ func (s *syncBuffer) String() string {
 }
 
 // listeningMsg is the log line mock-case writes once both listeners are bound (cmd/mock-case/main.go).
+// listeningMsg is the message of the line synthetic/mock_case/cmd/mock-case/main.go logs once both listeners are bound (the addresses actually bound, not the ones asked for). It is a
+// contract between this harness and that binary: if the text changes there, every harness waits a minute and fails with the process log (a clear failure, not a flake).
 const listeningMsg = "mock-case listening (SYNTHETIC)"
 
 // parseListening reads one log line and returns the case and bench addresses the process bound, if the line is the one that reports them. The harness starts the

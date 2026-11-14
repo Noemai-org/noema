@@ -16,7 +16,8 @@ import (
 // listener from the first instant: it is started on port 0 and the harness reads the address it logged.
 //
 // This guard parses the test files of both mock-case harnesses (this package and execution/e2e) and fails for a function that listens on port 0, closes the listener
-// and returns a value: the shape of a port probe. internal/testpg has the same shape for PostgreSQL (which cannot bind port 0); that is recorded as debt, not guarded here.
+// and returns a value: the shape of a port probe. It recognises only a literal `...:0"` argument to Listen: a probe built through a variable, a constant, a string sum
+// or net.ListenConfig passes, so this guard is a tripwire for the shape that was removed, not a proof that no harness probes. internal/testpg has the same shape for PostgreSQL (which cannot bind port 0); that is recorded as debt, not guarded here.
 func TestNoMockCaseHarnessChoosesAPortBeforeItIsBound(t *testing.T) {
 	var found []string
 	for _, dir := range []string{".", filepath.Join("..", "..", "execution", "e2e")} {
