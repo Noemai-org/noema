@@ -1,4 +1,5 @@
 """The command: refuses the held-out set, reports 'not run: no access' rather than faking a run, and exits by what happened."""
+import argparse
 import io
 import json
 import tempfile
@@ -68,8 +69,80 @@ class Cli(unittest.TestCase):
             main(["--help"])
 
 
-if __name__ == "__main__":
-    unittest.main()
+
+class OnlyFile(unittest.TestCase):
+    """BEN-29: `--only-file` reads case ids, one per line, beside `--only`."""
+
+    def test_ids_come_from_the_file_and_from_only(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("BEN-CLEAN-0001\nBEN-TMO-0001\n\n")
+            self.assertEqual({"BEN-CLEAN-0001", "BEN-TMO-0001", "BEN-AMB-0001"}, only_ids(["BEN-AMB-0001"], f))
+            self.assertEqual({"BEN-CLEAN-0001", "BEN-TMO-0001"}, only_ids(None, f))
+            self.assertIsNone(only_ids(None, None))
+
+    def test_a_malformed_id_in_the_file_is_refused(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("not-a-case\n")
+            with self.assertRaises(ValueError):
+                only_ids(None, f)
+
+
+class EmptySelection(unittest.TestCase):
+    """Codex P2 on noema#117: an empty or blank `--only-file` returned an empty set, so the runner executed zero cases and still wrote COMPLETE and exited 0. A failed selection step
+    must never look like a successful benchmark run."""
+
+    def only(self, text: str) -> object:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text(text)
+            return only_ids(None, f)
+
+    def test_an_empty_file_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no case id"):
+            self.only("")
+
+    def test_a_file_of_blank_lines_is_refused(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no case id"):
+            self.only("\n  \n\t\n")
+
+    def test_only_and_a_blank_file_together_still_select_the_only_ids(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import only_ids
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "ids.txt"
+            f.write_text("\n")
+            self.assertEqual({"BEN-CLEAN-0001"}, only_ids(["BEN-CLEAN-0001"], f))
+
+    def test_the_command_exits_two_and_writes_no_manifest_for_an_empty_selection(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import main
+        with tempfile.TemporaryDirectory() as tmp:
+            ids = Path(tmp) / "ids.txt"
+            ids.write_text("\n")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = main(["--suite", str(suite_dir()), "--out", str(Path(tmp) / "out"), "--only-file", str(ids)])
+            self.assertEqual(2, code)
+            self.assertIn("no case id", out.getvalue())
+            self.assertFalse((Path(tmp) / "out" / "run-manifest.json").exists())
 
 
 class StandInWiring(unittest.TestCase):
@@ -149,3 +222,34 @@ class ProxyLogWiring(unittest.TestCase):
 
     def test_with_the_proxy_log_monetary_calls_is_no_longer_a_gap(self) -> None:
         self.assertNotIn("monetary_calls", self.reason("--proxy-url", "http://127.0.0.1:9"))
+
+
+class PerServiceCredentials(unittest.TestCase):
+    """G1 stack (bench-runner): mock-case, the stand-in and the hostility proxy each generate their own bench credential, so one `--bench-credential-file` cannot serve all three.
+    `--standin-credential-file` and `--proxy-credential-file` name theirs; each defaults to `--bench-credential-file`, so a single-credential run is unchanged."""
+
+    def picked(self, *flags: str) -> tuple[str, str]:
+        from pathlib import Path
+
+        from benchmark.runner.__main__ import service_credentials
+        args = argparse.Namespace(standin_credential_file=None, proxy_credential_file=None, bench_credential_file=None)
+        for flag, value in zip(flags[::2], flags[1::2]):
+            setattr(args, flag, Path(value))
+        standin, proxy = service_credentials(args)
+        return str(standin), str(proxy)
+
+    def test_each_service_gets_its_own_credential_file_when_named(self) -> None:
+        self.assertEqual(("standin", "proxy"), self.picked("bench_credential_file", "bench", "standin_credential_file", "standin", "proxy_credential_file", "proxy"))
+
+    def test_without_the_per_service_flags_the_single_bench_credential_is_used_as_before(self) -> None:
+        self.assertEqual(("bench", "bench"), self.picked("bench_credential_file", "bench"))
+
+    def test_a_service_credential_alone_is_enough_for_that_service(self) -> None:
+        self.assertEqual(("standin", "proxy"), self.picked("standin_credential_file", "standin", "proxy_credential_file", "proxy"))
+
+    def test_one_service_credential_does_not_replace_the_other_services(self) -> None:
+        self.assertEqual(("standin", "bench"), self.picked("bench_credential_file", "bench", "standin_credential_file", "standin"))
+
+
+if __name__ == "__main__":
+    unittest.main()

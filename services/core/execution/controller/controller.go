@@ -133,12 +133,12 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return c.void(ctx, g, VoidRevalidationFailed)
 	}
 	if !rev.Passed {
-		if err := c.Ledger.Append(ctx, tenantID, Event{Type: eventRevalidationFailed, GrantID: g.GrantID, Detail: joinFacts(rev.ChangedFacts)}); err != nil {
+		if err := c.Ledger.Append(ctx, tenantID, Event{Type: eventRevalidationFailed, GrantID: g.GrantID, Detail: joinFacts(rev.ChangedFacts), PolicyVersion: g.PolicyVersion}); err != nil {
 			return Outcome{}, fmt.Errorf("%sappend: %w", errPrefix, err)
 		}
 		return c.void(ctx, g, VoidStateChanged)
 	}
-	if err := c.Ledger.Append(ctx, tenantID, Event{Type: eventRevalidationPassed, GrantID: g.GrantID}); err != nil {
+	if err := c.Ledger.Append(ctx, tenantID, Event{Type: eventRevalidationPassed, GrantID: g.GrantID, PolicyVersion: g.PolicyVersion}); err != nil {
 		return Outcome{}, fmt.Errorf("%sappend: %w", errPrefix, err)
 	}
 	if err := c.at(PointAfterE7); err != nil {
@@ -174,6 +174,8 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{Replayed: true}, nil
 	case spend.WritesDisabled:
 		return c.void(ctx, g, VoidWritesDisabled)
+	case spend.BudgetSpent:
+		return Outcome{BudgetSpent: true}, nil // nothing was written; the grant stays ISSUED and the database refuses it again each time
 	case !spend.Spent:
 		return Outcome{}, errors.New(errPrefix + "the ledger neither spent nor refused the grant")
 	}
@@ -208,7 +210,7 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 	}
 
 	// E11: the signed receipt, the idempotency record and the Record event in one transaction.
-	rc, err := c.receipt(g, receiptID, tenantID, key, step.KeyFields.LogicalAction, spend.Attempt, dispatchedAt, result, state)
+	rc, err := c.receipt(g, receiptID, tenantID, key, g.CapabilityID, spend.Attempt, dispatchedAt, result, state) // logical_action of the receipt is a pack ID (execution-receipt.v1), not the key's action
 	if err != nil {
 		return Outcome{}, err
 	}

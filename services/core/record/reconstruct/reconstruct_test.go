@@ -596,6 +596,43 @@ func TestTheHandlerServesOnlyItsRolesAndAnswersWithContractCodes(t *testing.T) {
 	})
 }
 
+// REQ-AUD-003 (reads are logged in the access log, not the chain): against a real Record, a served call and each kind of refusal write exactly one RECORD_ACCESSED line
+// with the tenant, the principal and the outcome code, and nothing of the Record's content.
+func TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_us06", us06()...)
+	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
+	audit := Caller{TenantID: tenant, Principal: "auditor:usr_synth_900", Roles: []string{"audit"}}
+	for _, c := range []struct {
+		name    string
+		caller  Caller
+		corr    string
+		outcome string
+	}{
+		{"a served reconstruction", audit, "corr_us06", "SERVED"},
+		{"a correlation that does not exist", audit, "corr_nothing01", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+		{"a refused kind of caller", Caller{TenantID: tenant, Principal: "customer:usr_synth_3", Roles: []string{"audit"}}, "corr_us06", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+		{"another tenant's caller", Caller{TenantID: other, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, "corr_us06", "NOT_FOUND_OR_NOT_AUTHORIZED"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var log bytes.Buffer
+			serve(t, &reconstruct.Handler{DBs: w.dbs(), Auth: fixedAuth{c.caller}, IDs: gen, Log: slog.New(slog.NewJSONHandler(&log, nil))}, c.corr)
+			line := log.String()
+			if n := strings.Count(line, `"msg":"RECORD_ACCESSED"`); n != 1 {
+				t.Fatalf("%d RECORD_ACCESSED lines, want 1: %s", n, line)
+			}
+			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`} {
+				if !strings.Contains(line, want) {
+					t.Errorf("access log %s lacks %s", line, want)
+				}
+			}
+			if strings.Contains(line, "locate_transfer") || strings.Contains(line, "synth0001") {
+				t.Errorf("the access log carries Record content: %s", line)
+			}
+		})
+	}
+}
+
 // REQ-AUD-003 expected behaviour: P95 < 1 s for a case with 200 events [REC]. Measured on a real Record of 200 events
 // in the requested correlation, after 200 events of another correlation (the whole tenant chain is verified).
 func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {
@@ -654,6 +691,63 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A154 (relayed, to be committed): the maximum unmasked digit run is 4 on every outward surface, in whatever script the digits are written. Full-width,
+// Arabic-Indic and Devanagari digits, and a run that mixes scripts, are digits (Unicode Nd) like ASCII ones; a four-digit run in any script is left alone.
+func TestServedFactsAreMaskedWhateverTheScriptOfTheDigits(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[9].payload = map[string]any{"claims": []any{
+		map[string]any{"fact_id": "f1", "text": "A \uff10\uff11\uff12\uff13\uff14\uff15\uff16\uff17 B \u0660\u0661\u0662\u0663\u0664\u0665\u0666 C \u0967\u0968\u0969\u096a\u096b\u096c D 12345\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H 12345 I",
+			"bound_fact_status": "KNOWN", "disclosed_refs": []any{target}},
+	}}
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "A ****\uff14\uff15\uff16\uff17 B ***\u0663\u0664\u0665\u0666 C **\u0969\u096a\u096b\u096c D *****\u0666\u0667\u0668\u0669 E \u0661\u0662\u0663\u0664 F 1234 G H *2345 I"
+	if got := parse(t, raw).section("EXPLANATION")[0].Facts["text"]; got != want {
+		t.Fatalf("claim text %q, want %q", got, want)
+	}
+}
+
+// Codex P1 on noema#492 (A154): an `_id` fact was served as written whatever its value, so a payload that put an account-number-shaped value in `request_id` or
+// `decision_id` was served whole. An ID is exempt from masking only when it is the contract shape of that key (its prefix and a 2 to 32 character body); any other
+// value is masked like every scalar. A minted ID (26 Crockford characters) that holds a long digit run is still served as written, because other facts cite it (project_mask_test.go).
+func TestAnIdFactIsServedAsWrittenOnlyWhenItHasTheShapeOfItsKey(t *testing.T) {
+	w := newWorld(t)
+	events := us01()
+	events[1].payload["request_id"] = "see req_ab 0123456789"   // no prefix: a number, not a request ID
+	events[8].payload["decision_id"] = "acct_0123456789"        // a prefix of another kind
+	events[3].payload["intent_id"] = "int_AB123456CD"           // a shaped ID that is not a minted ID: masked
+	events[7].payload["policy_id"] = "fin.pol.limit_0123456789" // a pack ID is masked like text
+	w.append(t, tenant, "corr_us01", events...)
+	raw, err := build(t, w, tenant, "corr_us01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := parse(t, raw)
+	for _, c := range []struct{ section, key, want string }{
+		{"REQUEST", "request_id", "see req_ab ******6789"},
+		{"DECISION", "decision_id", "acct_******6789"},
+		{"REQUEST", "intent_id", "int_AB**3456CD"},
+		{"POLICY", "policy_id", "fin.pol.limit_******6789"},
+	} {
+		found := false
+		for _, it := range b.section(c.section) {
+			if got, ok := it.Facts[c.key]; ok {
+				found = true
+				if got != c.want {
+					t.Errorf("%s.%s = %q, want %q", c.section, c.key, got, c.want)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s has no %s fact", c.section, c.key)
+		}
 	}
 }
 
@@ -830,5 +924,50 @@ func TestTheRollbackAfterAFailedReadIsBoundedByItsOwnDeadline(t *testing.T) {
 	}
 	if left := tx.deadline.Sub(clock.System{}.Now()); left > 10*time.Second {
 		t.Fatalf("the rollback may run for %v; it must be bounded to seconds", left)
+	}
+}
+
+// S9 (REQ-AUD-003, INV-07): the process died after the dispatch was recorded and before the receipt. The write may have reached the target, so the
+// ACTION section must show the attempt, as DISPATCHED with no receipt, and not leave the action empty. The capability is the one the dispatch
+// recorded: logical_action is an action label (ESCALATE_CASE), not a pack capability.
+func TestADispatchWithNoReceiptIsShownAsDispatchedWithItsCapability(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_s9", []ev{
+		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
+		{writtenBy: "core-execution", eventType: "REVALIDATION_PASSED", objectRef: grantID, payload: map[string]any{"grant_id": grantID}},
+		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_s9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	act := parse(t, raw).section("ACTION")
+	if len(act) != 1 {
+		t.Fatalf("ACTION has %d items, want the one dispatch", len(act))
+	}
+	f := act[0].Facts
+	if f["execution_state"] != "DISPATCHED" || f["capability_id"] != capability || f["attempt"] != json.Number("1") || f["grant_state"] != "VALID" {
+		t.Fatalf("ACTION facts %v, want DISPATCHED, %s, attempt 1, a VALID grant", f, capability)
+	}
+}
+
+// A receipt takes the place of its dispatch: one attempt is one ACTION item, and the receipt's capability is the one the dispatch recorded.
+func TestAReceiptReplacesItsDispatchAndTakesItsCapabilityFromTheDispatch(t *testing.T) {
+	w := newWorld(t)
+	w.append(t, tenant, "corr_s9b", []ev{
+		{writtenBy: "core-trust", eventType: "GRANT_ISSUED", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "capability_id": capability, "expires_at": "2026-11-02T10:00:00Z"}},
+		{writtenBy: "core-execution", eventType: "GRANT_SPENT", objectRef: grantID, payload: map[string]any{"grant_id": grantID, "attempt": 1}},
+		{writtenBy: "core-execution", eventType: "DISPATCH_ATTEMPTED", objectRef: grantID, payload: map[string]any{"attempt": 1, "logical_action": "ESCALATE_CASE", "capability": capability}},
+		{writtenBy: "core-execution", eventType: "RECEIPT", objectRef: grantID, payload: map[string]any{"receipt_id": "rcp_synth0009", "grant_id": grantID, "attempt": 1,
+			"logical_action": "ESCALATE_CASE", "execution_state": "ACKNOWLEDGED", "transport_result": "ACK_2XX"}},
+	}...)
+	raw, err := build(t, w, tenant, "corr_s9b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	act := parse(t, raw).section("ACTION")
+	if len(act) != 1 || act[0].Facts["execution_state"] != "ACKNOWLEDGED" || act[0].Facts["capability_id"] != capability {
+		t.Fatalf("ACTION %v, want one ACKNOWLEDGED item for %s", act, capability)
 	}
 }

@@ -35,7 +35,7 @@ func (l *Ledger) Void(ctx context.Context, g controller.Grant, reason controller
 		if _, err := tx.Exec(ctx, `UPDATE decision_grant SET status = 'VOID' WHERE tenant_id = $1 AND grant_id = $2`, g.TenantID, g.GrantID); err != nil {
 			return fmt.Errorf("%smark grant void: %w", errPrefix, err)
 		}
-		return l.addRecoveryRequest(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, reason, voidChange{from: statusIssued})
+		return l.addRecoveryRequest(ctx, tx, g.TenantID, g.CorrelationID, g.GrantID, reason, voidChange{from: statusIssued, policyVersion: g.PolicyVersion})
 	})
 }
 
@@ -65,13 +65,17 @@ func (l *Ledger) addRecoveryRequest(ctx context.Context, tx pgx.Tx, tenantID, co
 	if change.receiptID != "" {
 		body["receipt_id"] = change.receiptID
 	}
+	if change.policyVersion != "" { // S11: the policy version the grant was issued under, so a void by a policy change is told apart
+		body["policy_version"] = change.policyVersion
+	}
 	return l.record(ctx, tx, tenantID, correlationID, grantID, eventGrantVoided, "", string(reason), body)
 }
 
 // voidChange is the status a void leaves and, for a void made by a receipt, the receipt that confirmed it.
 type voidChange struct {
-	from      string
-	receiptID string
+	from          string
+	receiptID     string
+	policyVersion string
 }
 
 func (l *Ledger) outbox(ctx context.Context, tx pgx.Tx, id, tenantID, topic string, payload any) error {
@@ -150,9 +154,11 @@ func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, erro
 			if tag.RowsAffected() != 1 {
 				return fmt.Errorf("%svoid the spent grant %s: it is not SPENT", errPrefix, r.GrantID)
 			}
-			return l.addRecoveryRequest(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, controller.VoidTargetVersionStale, voidChange{from: statusSpent, receiptID: r.ReceiptID})
+			if err := l.addRecoveryRequest(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, controller.VoidTargetVersionStale, voidChange{from: statusSpent, receiptID: r.ReceiptID}); err != nil {
+				return err
+			}
 		}
-		return nil
+		return l.at(PointInCompleteTxBeforeCommit) // after every write of the receipt, before the commit: nothing above is kept if the hook fails
 	})
 	if pgCode(err) == pgSignatureNotVerified {
 		return false, fmt.Errorf("%w: %v", controller.ErrSignatureRefused, err)
@@ -171,10 +177,9 @@ func (l *Ledger) Dispatching(ctx context.Context, tenantID string) ([]controller
 	if err := needDeadline(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := l.Pool.Query(ctx, `SELECT gs.grant_id, gs.tenant_id, dg.json->>'correlation_id', gs.idempotency_key, ir.logical_action, gs.attempt
+	rows, err := l.Pool.Query(ctx, `SELECT gs.grant_id, gs.tenant_id, dg.json->>'correlation_id', gs.idempotency_key, dg.json->>'capability_id', gs.spent_at, gs.attempt
 		FROM grant_spend gs
 		JOIN decision_grant dg ON dg.grant_id = gs.grant_id
-		JOIN idempotency_record ir ON ir.tenant_id = gs.tenant_id AND ir.idempotency_key = gs.idempotency_key
 		WHERE gs.tenant_id = $1
 		  AND NOT EXISTS (SELECT 1 FROM execution_receipt r WHERE r.grant_id = gs.grant_id AND r.attempt = gs.attempt)
 		ORDER BY gs.spent_at, gs.grant_id`, tenantID)
@@ -186,7 +191,7 @@ func (l *Ledger) Dispatching(ctx context.Context, tenantID string) ([]controller
 	for rows.Next() {
 		var p controller.Pending
 		var corr *string
-		if err := rows.Scan(&p.GrantID, &p.TenantID, &corr, &p.IdempotencyKey, &p.LogicalAction, &p.Attempt); err != nil {
+		if err := rows.Scan(&p.GrantID, &p.TenantID, &corr, &p.IdempotencyKey, &p.CapabilityID, &p.SpentAt, &p.Attempt); err != nil {
 			return nil, fmt.Errorf("%sscan dispatching: %w", errPrefix, err)
 		}
 		if corr != nil {

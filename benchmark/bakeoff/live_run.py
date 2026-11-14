@@ -1,6 +1,6 @@
 """The live model-selection run (benchmark/decisions/2026-10-27-model-selection.md): pilot or full, for both models, one budget.
 
-    python -m benchmark.bakeoff.live_run --phase pilot|full --prior-spent-micros N --out DIR
+    python -m benchmark.bakeoff.live_run --phase pilot|full --prior-spent-micros N [--hard-stop-micros M] --out DIR
 
 It is started only by the `bench-live` workflow, whose Environment has a required reviewer; the key is the process environment's
 `OPENAI_API_KEY` and nothing here reads it, prints it or writes it. Before any request it checks that the record, the corpus, the
@@ -27,6 +27,7 @@ from benchmark.scoring.stats import percentile
 Json = dict[str, Any]
 ROOT = Path(__file__).resolve().parents[2]
 RECORD = ROOT / "benchmark" / "decisions" / "2026-10-27-model-selection.md"
+MASKING_LIMITS = ROOT / "packs" / "fintech" / "limits" / "masking_limits.json"  # the one source of the longest unmasked digit run (A154, A162)
 PILOT_PER_CELL = 2
 FETCHED_ON = "2026-10-27"
 SOURCES = {"gpt-6-luna": "https://developers.openai.com/api/docs/models/gpt-6-luna",
@@ -175,7 +176,10 @@ def full_markdown(evaluations: list[Json], chosen: Json, spent_micros: int) -> s
 Factory = Callable[[str, str, BudgetGuard], Any]
 
 
-def run_phase(phase: str, prior_spent_micros: int, out: Path, environ: Mapping[str, str], factory: Factory, template: tuple[int, str]) -> int:
+def run_phase(phase: str, prior_spent_micros: int, out: Path, environ: Mapping[str, str], factory: Factory, template: tuple[int, str],
+              hard_stop_micros: int | None = None) -> int:
+    if hard_stop_micros is not None and hard_stop_micros < 1:
+        raise ValueError("hard_stop_micros must be a positive integer")
     frozen = frozen_block()
     preflight(frozen, template[1], template[0])
     if not environ.get(KEY_VARIABLE):
@@ -184,6 +188,8 @@ def run_phase(phase: str, prior_spent_micros: int, out: Path, environ: Mapping[s
     cases = generate(CORPUS_SEED, CORPUS_PER_CELL)
     selected = pilot_cases(cases) if phase == "pilot" else cases
     limit = gates.BUDGET_PILOT_MICROS if phase == "pilot" else gates.BUDGET_TOTAL_MICROS
+    if hard_stop_micros is not None:
+        limit = min(limit, hard_stop_micros)  # a hard stop can only tighten the phase's cap, never loosen it (REQ-AGT-005)
     guard = BudgetGuard(limit_micros=limit, spent_micros=prior_spent_micros)
     out.mkdir(parents=True, exist_ok=True)
     runs, diagnostics = [], []
@@ -216,10 +222,14 @@ def main(argv: list[str], environ: Mapping[str, str]) -> int:
     parser = argparse.ArgumentParser(prog="python -m benchmark.bakeoff.live_run", description=__doc__)
     parser.add_argument("--phase", choices=("pilot", "full"), required=True)
     parser.add_argument("--prior-spent-micros", type=int, required=True, help="spending already made against the same cap; 0 for the first pilot")
+    parser.add_argument("--hard-stop-micros", type=int, default=None,
+                        help="an extra cap in micro-dollars, counted with the prior spending; it can only tighten the phase cap (the phase cap still applies)")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     if args.prior_spent_micros < 0:
         parser.error("--prior-spent-micros must not be negative")
+    if args.hard_stop_micros is not None and args.hard_stop_micros < 1:
+        parser.error("--hard-stop-micros must be a positive integer")
     if "benchmark-heldout" in " ".join(argv) or any("benchmark-heldout" in v for v in environ.values()):
         sys.stderr.write("refused: nothing here reads benchmark-heldout\n")
         return 2
@@ -229,9 +239,10 @@ def main(argv: list[str], environ: Mapping[str, str]) -> int:
     templates = import_module("noema_model.harness.templates")
 
     def factory(label: str, path: str, guard: BudgetGuard) -> Any:
-        return build_real_decider(label, path, dict(environ), guard)
+        return build_real_decider(label, path, str(MASKING_LIMITS), dict(environ), guard)
 
-    return run_phase(args.phase, args.prior_spent_micros, args.out, environ, factory, (templates.DECIDE_V2.version, templates.DECIDE_V2.digest))
+    return run_phase(args.phase, args.prior_spent_micros, args.out, environ, factory, (templates.DECIDE_V2.version, templates.DECIDE_V2.digest),
+                     hard_stop_micros=args.hard_stop_micros)
 
 
 if __name__ == "__main__":

@@ -22,11 +22,10 @@
 
 ## Configuration
 
-`load_harness_config(dict)` reads JSON-shaped data and refuses anything missing or unknown. Nothing has a default. Shape:
+`load_harness_config(dict)` reads JSON-shaped data and refuses anything missing or unknown. Nothing has a default. **The longest unmasked digit run is not in this file** (A154 as corrected, A162): it is the pack's `masking-limits.v1` value (4), the one the core reads, given to `Harness(..., masking=MaskingLimits)` (a required keyword, no default). The old top-level `masking` member of the frozen configurations (`{"account_run_min_digits": 8}`) is accepted and **ignored** until the re-freeze removes it (noema#538); a follow-up makes the loader refuse it. Shape:
 
 ```json
 {
-  "masking": {"account_run_min_digits": 8},
   "data_limits": {"default_max_chars": 256, "overrides": {"utterance": 2000}},
   "breaker": {"failure_threshold": 3, "cooldown_ms": 30000},
   "providers": {
@@ -76,7 +75,7 @@ Every model call emits one `MODEL_CALL_RECORDED` event whose `record` field is `
 
 ## Assembly
 
-`assemble_harness(environ, clock, telemetry, transport=None)` builds the `Harness` from the JSON file named by `NOEMA_MODEL_HARNESS_CONFIG` (the shape `load_harness_config` reads) and returns an `Assembly(harness, reason)`. It holds no provider, version, route or rate of its own. On any fault it returns no harness and a reason that names the fault, never a value or a credential, and emits `HARNESS_CONFIG_REJECTED`. It lives here because only `harness/` may import providers (the `harness-only-providers` lint).
+`assemble_harness(environ, clock, telemetry, transport=None)` builds the `Harness` from the JSON file named by `NOEMA_MODEL_HARNESS_CONFIG` (the shape `load_harness_config` reads) and the pack's masking limits named by `NOEMA_MODEL_MASKING_LIMITS_FILE` (required: a missing, unreadable or wrong document leaves no harness and a reason that never carries the document), and returns an `Assembly(harness, reason)`. It holds no provider, version, route or rate of its own. On any fault it returns no harness and a reason that names the fault, never a value or a credential, and emits `HARNESS_CONFIG_REJECTED`. It lives here because only `harness/` may import providers (the `harness-only-providers` lint).
 
 ## Provider configuration keys added for the model selection
 

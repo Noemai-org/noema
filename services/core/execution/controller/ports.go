@@ -87,6 +87,7 @@ type SpendResult struct {
 	Spent          bool
 	Replay         bool  // the grant ID or its nonce was already spent
 	WritesDisabled bool  // the kill switch was read inside the transaction and was on
+	BudgetSpent    bool  // the database refused the dispatch event: the key's budget is used up (ruling A153); nothing was written
 	Attempt        int64 // the attempt number of this dispatch for the key
 }
 
@@ -96,7 +97,9 @@ type Event struct {
 	Kind    string // SECURITY_EVENT only
 	GrantID string
 	Detail  string
-	// Payload, when set, is the event's payload; otherwise a Detail becomes {"detail": Detail}.
+	// PolicyVersion is the policy version the grant was issued under (S11): a policy change is told apart from other changes only by it.
+	PolicyVersion string
+	// Payload, when set, is the event's payload; otherwise a Detail (and a PolicyVersion) becomes the payload.
 	Payload map[string]any
 }
 
@@ -126,7 +129,8 @@ type Pending struct {
 	TenantID       string
 	CorrelationID  string
 	IdempotencyKey string
-	LogicalAction  string
+	CapabilityID   string    // the grant's capability, a pack ID: what the swept receipt names (execution-receipt.v1 logical_action)
+	SpentAt        time.Time // when the attempt was spent: the swept receipt's dispatched_at (S9)
 	Attempt        int64
 }
 
