@@ -78,11 +78,40 @@ jobs:
           sleep 2
           kill "$logpid" 2>/dev/null
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      # Evidence for the Security Reviewer's criteria 6 and 9 (noema#436): the FaultPlan of every case with its seed and producer, and one negative probe of each kind per case.
+      # Each exits 0 (met), 1 (not met), 2 (bad input) or 3 (NOT RUN); anything but 0 fails the job.
+      - id: evidence
+        name: Record the FaultPlans and probe identity and tenant (criteria 6 and 9)
+        if: always()
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/evidence
+          $compose exec -T bench-runner python -m benchmark.runner.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence
+          echo "fault_plans=$?" >> "$GITHUB_OUTPUT"
+          $compose exec -T bench-runner python -m benchmark.runner.evidence probes --suite /bench-out/suite --run /bench-out/run \
+            --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
+            --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence
+          echo "probes=$?" >> "$GITHUB_OUTPUT"
+      - name: Capture the services' logs for the leak scan
+        if: always()
+        run: |
+          set +e
+          export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
+          compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
+          mkdir -p benchmark/out/service-logs
+          for svc in core model hostility-proxy standin; do
+            $compose logs --no-color --no-log-prefix "$svc" > "benchmark/out/service-logs/$svc.log" 2> "benchmark/out/service-logs/$svc.err"
+          done
+          exit 0
       - name: Summary
         if: always()
         env:
           CODE: ${{ steps.run.outputs.code }}
           RUN_ID: ${{ steps.run.outputs.run_id }}
+          FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
+          PROBES: ${{ steps.evidence.outputs.probes }}
         run: |
           {
             echo "## bench-g1-stack: run id $RUN_ID, exit code $CODE"
@@ -92,29 +121,53 @@ jobs:
               1) echo "Ran and was scored, but the run is incomplete or a Tier 0 gate is not at zero. This fails the job." ;;
               *) echo "Failed with exit code $CODE (2: bad input or a missing part of the checkout)." ;;
             esac
+            echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met)."
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
           } >> "$GITHUB_STEP_SUMMARY"
+      # Criterion 8: a leak scan over every artifact the run produced, the step summary included, with a canary planted where the scanner must find it. A scanner that finds nothing is
+      # NOT RUN, never clean. The allow file lets only the named integer fields through the digit-run rule (a seed, a cost in micro-dollars, a latency): no other exception.
+      - id: scan
+        name: Leak scan over every artifact, with a planted canary (criterion 8)
+        if: always()
+        run: |
+          set +e
+          mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs
+          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" \
+            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err "$GITHUB_STEP_SUMMARY"
+          echo "scan=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       - name: Stop the stack
         if: always()
         run: make bench-down
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+      - name: Upload the artifacts (only if the leak scan is clean)
+        if: always() && steps.scan.outputs.scan == '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bench-g1-stack-${{ github.run_id }}
           path: |
             benchmark/out/run/
             benchmark/out/score/
+            benchmark/out/evidence/
+            benchmark/out/service-logs/
             benchmark/out/mock-case.log
             benchmark/out/mock-case-collector.err
           if-no-files-found: warn
           retention-days: 30
-      - name: Result (only a run that ran, complete, passes)
+      - name: Result (only a run that ran, complete, scored, with the evidence met and a clean leak scan, passes)
         env:
           CODE: ${{ steps.run.outputs.code }}
+          FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
+          PROBES: ${{ steps.evidence.outputs.probes }}
+          SCAN: ${{ steps.scan.outputs.scan }}
         run: |
+          fail=0
+          [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }
+          [ "${PROBES:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the negative probes (exit ${PROBES:-missing})."; fail=1; }
+          [ "${SCAN:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: the leak scan (exit ${SCAN:-missing}); nothing was uploaded."; fail=1; }
           case "$CODE" in
-            0) exit 0 ;;
-            3) echo "::error::The run did not run (exit 3, not run: no access). That is not a pass."; exit 1 ;;
-            *) echo "::error::The run ended with exit code $CODE."; exit 1 ;;
+            0) ;;
+            3) echo "::error::The run did not run (exit 3, not run: no access). That is not a pass."; fail=1 ;;
+            *) echo "::error::The run ended with exit code $CODE."; fail=1 ;;
           esac
+          exit "$fail"

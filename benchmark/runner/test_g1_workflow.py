@@ -12,6 +12,45 @@ class G1StackWorkflow(unittest.TestCase):
         self.text = WORKFLOW.read_text()
         self.script = "\n".join(line for line in self.text.splitlines() if not line.lstrip().startswith("#"))
 
+    # The Security Reviewer's criteria 6, 8 and 9 on noema#436 (the Founders' order of 15 Nov): the recorded FaultPlans, a leak scan with a planted canary over every artifact, and two
+    # negative probes per case. Each must be run and each must fail the job.
+    def test_the_fault_plans_are_recorded_and_the_identity_probes_run_in_the_runner_container(self) -> None:
+        self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.runner\.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence")
+        probes = re.search(r"python -m benchmark\.runner\.evidence probes (.*?)(?=\n\s*echo \"probes=)", self.script, re.S)
+        assert probes
+        for flag in ("--api-url http://core:8080", "--tenant-id ten_alpha", "--other-tenant-id ten_other", "--idp-binary", "--idp-key", "--idp-kid", "--idp-audience"):
+            self.assertIn(flag, probes.group(1))
+
+    def test_the_result_fails_unless_the_run_the_evidence_and_the_scan_are_all_met(self) -> None:
+        result = re.search(r"(?ms)- name: Result.*", self.script)
+        assert result
+        for variable in ("FAULT_PLANS", "PROBES", "SCAN", "CODE"):
+            self.assertIn(variable, result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{FAULT_PLANS:-missing\}" = 0 \]')
+        self.assertRegex(result.group(0), r'\[ "\$\{PROBES:-missing\}" = 0 \]')
+        self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
+        self.assertIn('exit "$fail"', result.group(0))
+
+    def test_the_leak_scan_runs_the_canary_probe_and_covers_every_uploaded_path_and_the_summary(self) -> None:
+        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
+        assert scan
+        scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
+        self.assertIn("$GITHUB_STEP_SUMMARY", scan.group(1))
+        uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
+        assert uploaded
+        for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
+            self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
+        self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+
+    def test_nothing_is_uploaded_unless_the_scan_is_clean_and_the_scan_comes_first(self) -> None:
+        self.assertIn("if: always() && steps.scan.outputs.scan == '0'", self.script)
+        self.assertLess(self.script.index("tools/ci/g1_leakscan.py"), self.script.index("actions/upload-artifact"))
+        self.assertLess(self.script.index("name: Summary"), self.script.index("tools/ci/g1_leakscan.py"), "the step summary is scanned after it is written")
+
+    def test_the_leak_scan_allow_file_names_only_three_integer_fields(self) -> None:
+        allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().split()
+        self.assertEqual(sorted(allow), sorted([r'^\s*"seed":\s*[0-9]+,?\s*$', r'^\s*"cost_usd_micros":\s*[0-9]+,?\s*$', r'^\s*"latency_ms":\s*[0-9]+,?\s*$']))
+
     def test_the_run_is_scored_by_the_scorer_in_the_runner_container(self) -> None:
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.scoring")
         for flag in ("--cases", "--oracles", "--results", "--pack packs/fintech_v1.json", "--manifest", "--run-id", "--out"):

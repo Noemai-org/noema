@@ -1,0 +1,3 @@
+^\s*"seed":\s*[0-9]+,?\s*$
+^\s*"cost_usd_micros":\s*[0-9]+,?\s*$
+^\s*"latency_ms":\s*[0-9]+,?\s*$
