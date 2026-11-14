@@ -18,6 +18,7 @@ Every schema in `contracts/schemas/` has exactly one row, and every row names an
 | `policy-version.v1.json` | §15.3, INV-26 | §23.4 | REQ-TRU-001 | |
 | `clock.v1.json` | §15.3 | §23.5 | REQ-TRU-001 | SYNTHETIC until validated by counsel |
 | `session-limits.v1.json` | §47, §39.1 | §41 (REQ-SEC-001) | REQ-SEC-001 | The edge's clock skew leeway on iat and exp as pack data (Architect ruling A21, AGENT-16); data in `packs/fintech/limits/session_limits.json`. A new file, so no existing contract changes meaning (AGENT-15 migration note: additive). SYNTHETIC |
+| `masking-limits.v1.json` | §47, AGENT-13 | PERD 31.2 check 4, §44.2 (REQ-SEC-003, REQ-EXP-002) | REQ-SEC-003, REQ-EXP-002 | The longest unmasked digit run (4) as pack data, the one source for the core redactor, the explanation validator, the error-scanner test and the model service's redactor (Architect ruling A154 as corrected, relayed, not yet committed; AGENT-16); data in `packs/fintech/limits/masking_limits.json`. A new file, so no existing contract changes meaning (AGENT-15 migration note: additive). SYNTHETIC |
 | `execution-limits.v1.json` | §35 | §25 (REQ-CAP-003, REQ-RCV-003) | REQ-CAP-003, REQ-RCV-003 | Circuit-breaker policy and dispatch budget as pack data (Architect ruling A3, AGENT-16); data in `packs/fintech/limits/execution_limits.json`. A new file, so no existing contract changes meaning (AGENT-15 migration note: additive). SYNTHETIC |
 | `reason-catalogue-entry.v1.json` | §43.2 | §23.3 | REQ-TRU-001 | Pack tier of the reason codes (money-and-value-lists §2.3) |
 
