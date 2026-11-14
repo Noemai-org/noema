@@ -1,0 +1,12 @@
+# 2026/11/14 16:35:43.772304 [TestINV05NoIDOutsideTheMappedSetReachesAnAdapter] [rapid] draw id: "fin.cap.transfer_funds"
+# 2026/11/14 16:35:43.772311 [TestINV05NoIDOutsideTheMappedSetReachesAnAdapter] [rapid] draw disguise: 0
+# 2026/11/14 16:35:43.772314 [TestINV05NoIDOutsideTheMappedSetReachesAnAdapter] "fin.cap.transfer_funds" (records adapter false): {Class:ACK_2XX ExternalAck:att_1 RawCode:201 KeyCollision:false} with 1 adapter calls; want NO_ADAPTER_FOR_CAPABILITY and none
+# 
+v0.4.8#10893120122806560820
+0x0
+0x1
+0xc05c654ab866b
+0x13
+0x0
+0x0
+0x0

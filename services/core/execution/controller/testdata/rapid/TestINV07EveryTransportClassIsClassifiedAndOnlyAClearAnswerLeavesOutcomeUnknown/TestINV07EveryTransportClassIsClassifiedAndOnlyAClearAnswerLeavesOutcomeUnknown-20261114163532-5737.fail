@@ -1,0 +1,9 @@
+# 2026/11/14 16:35:32.580065 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] [rapid] draw class: "NO_RESPONSE"
+# 2026/11/14 16:35:32.580074 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] [rapid] draw ack: ""
+# 2026/11/14 16:35:32.580280 [TestINV07EveryTransportClassIsClassifiedAndOnlyAClearAnswerLeavesOutcomeUnknown] class "NO_RESPONSE" ack "" gave REJECTED_BY_TARGET, want OUTCOME_UNKNOWN
+# 
+v0.4.8#16797210790373631418
+0x9867f1f40f739
+0x8
+0x0
+0x0
