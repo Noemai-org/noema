@@ -24,6 +24,15 @@ import (
 	"time"
 )
 
+// The validity is fixed and wide (these are SYNTHETIC certificates for a test server; the lint forbids reading the clock outside platform/clock).
+var (
+	validFrom = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	validTo   = time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)
+	serial    int64
+)
+
+func nextSerial() *big.Int { serial++; return big.NewInt(serial + 1) }
+
 type testCA struct {
 	cert *x509.Certificate
 	key  *ecdsa.PrivateKey
@@ -36,7 +45,7 @@ func newTestCA(t *testing.T, name string) testCA {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: name}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+	tpl := &x509.Certificate{SerialNumber: nextSerial(), Subject: pkix.Name{CommonName: name}, NotBefore: validFrom, NotAfter: validTo,
 		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
 	if err != nil {
@@ -56,7 +65,7 @@ func (ca testCA) issue(t *testing.T, cn string, server bool) (certPEM, keyPEM []
 	if err != nil {
 		t.Fatal(err)
 	}
-	tpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: cn}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+	tpl := &x509.Certificate{SerialNumber: nextSerial(), Subject: pkix.Name{CommonName: cn}, NotBefore: validFrom, NotAfter: validTo,
 		KeyUsage: x509.KeyUsageDigitalSignature}
 	if server {
 		tpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
