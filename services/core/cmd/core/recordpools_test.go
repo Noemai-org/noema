@@ -114,3 +114,46 @@ func TestClosingTheReaderIsSafeToRepeat(t *testing.T) {
 	closer()
 	closer()
 }
+
+// A login that serves two tenants breaks the binding the database makes (DEBT-04, INV-12): the same login in two files is refused, whatever else in the DSN differs
+// (a parameter, the password text), and the error names the two tenants and never a DSN (AGENT-13). SYNTHETIC logins.
+func TestOneLoginInTwoTenantFilesIsRefused(t *testing.T) {
+	cases := map[string]map[string]string{
+		"the same DSN twice":             {"ten_aa": synthDSN("record_read_x"), "ten_bb": synthDSN("record_read_x")},
+		"the same login, another option": {"ten_aa": synthDSN("record_read_x"), "ten_bb": strings.Replace(synthDSN("record_read_x"), "sslmode=disable", "sslmode=disable&application_name=b", 1)},
+		"the same login, another secret": {"ten_aa": synthDSN("record_read_x"), "ten_bb": strings.Replace(synthDSN("record_read_x"), synthPassword, strings.Repeat("m3z9", 4), 1)},
+	}
+	for name, files := range cases {
+		_, env := dsnDir(t, files)
+		reader, closer, err := buildRecordReader(t.Context(), env)
+		if err == nil || reader != nil {
+			t.Errorf("%s: got a reader %v and error %v; want an error and no reader", name, reader, err)
+			continue
+		}
+		if closer != nil {
+			closer()
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "ten_aa") || !strings.Contains(msg, "ten_bb") {
+			t.Errorf("%s: the error must name both tenants: %s", name, msg)
+		}
+		if strings.Contains(msg, synthPassword) || strings.Contains(msg, "127.0.0.1") || strings.Contains(msg, "postgres://") || strings.Contains(msg, "record_read_x") {
+			t.Errorf("%s: the error echoes a DSN or a login: %s", name, msg)
+		}
+	}
+}
+
+// A symlink is not a tenant's file: ten_aa pointing at ten_bb's file would give two tenants one login without two files looking alike (review of noema#535, note 2).
+func TestASymlinkIsNotATenantFile(t *testing.T) {
+	dir, env := dsnDir(t, map[string]string{"ten_bb": synthDSN("record_read_b")})
+	if err := os.Symlink(filepath.Join(dir, "ten_bb"), filepath.Join(dir, "ten_aa")); err != nil {
+		t.Skipf("symlinks are not available here: %v", err)
+	}
+	reader, closer, err := buildRecordReader(t.Context(), env)
+	if err == nil || reader != nil {
+		t.Fatalf("got a reader %v and error %v; want an error and no reader", reader, err)
+	}
+	if closer != nil {
+		closer()
+	}
+}
