@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/ceilings"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -300,7 +301,7 @@ func TestT7OnlyCandidatesAtOrAboveTheFloorAreOffered(t *testing.T) {
 
 // REQ-AMB-004: a question never lists more options than the port's maximum, for any maximum and any number of candidates.
 func TestT7TheOptionsNeverExceedThePortsMaximum(t *testing.T) {
-	for max := 1; max <= 5; max++ {
+	for max := 1; max <= ceilings.MaxClarificationOptions; max++ { // a pack value above the ceiling is refused (TestT7APackValueLooserThanTheCeilingIsRefused)
 		for n := 0; n <= 8; n++ {
 			f := newFake()
 			f.cands.Disambiguation.MaxCandidates = max
@@ -366,6 +367,45 @@ func TestT7AnUnusableAnswerFromThePortIsUnknown(t *testing.T) {
 		c.set(f)
 		d, trace := runStep(t, newEval(t, ambiguousView(), f, nil), decide.T7TargetResolution)
 		failed(t, c.name, d, trace, decide.T7TargetResolution, decide.StepFailed)
+	}
+}
+
+// SR blocking finding on noema#571 (A154, A205 Q1, REQ-AMB-004): the digit run and the number of options come from the pack through the port, and the step checked only that
+// they were not negative or zero, so a pack value of 12 would have put full account numbers, or twelve options, in a question. The bounds are in code (platform/ceilings):
+// a pack may be stricter and never looser, and a looser value is an unusable answer (UNKNOWN INTERNAL_ERROR), never clamped and never shown.
+func TestT7APackValueLooserThanTheCeilingIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(f *fake)
+	}{
+		{"one option above the ceiling", func(f *fake) { f.cands.Disambiguation.MaxCandidates = ceilings.MaxClarificationOptions + 1 }},
+		{"twelve options", func(f *fake) { f.cands.Disambiguation.MaxCandidates = 12 }},
+		{"a digit run one above the ceiling", func(f *fake) { f.cands.Disambiguation.MaxDigitRun = ceilings.MaxLabelDigitRun + 1 }},
+		{"a digit run of twelve", func(f *fake) { f.cands.Disambiguation.MaxDigitRun = 12 }},
+	} {
+		f := newFake()
+		c.set(f)
+		d, trace := runStep(t, newEval(t, ambiguousView(), f, nil), decide.T7TargetResolution)
+		failed(t, c.name, d, trace, decide.T7TargetResolution, decide.StepFailed)
+		if d.Clarification() != nil {
+			t.Errorf("%s: a question was built from a value above the ceiling", c.name)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		set  func(f *fake)
+	}{
+		{"options and digits at the ceiling", func(f *fake) {
+			f.cands.Disambiguation.MaxCandidates, f.cands.Disambiguation.MaxDigitRun = ceilings.MaxClarificationOptions, ceilings.MaxLabelDigitRun
+		}},
+		{"stricter than the ceiling", func(f *fake) { f.cands.Disambiguation.MaxCandidates, f.cands.Disambiguation.MaxDigitRun = 2, 0 }},
+	} {
+		f := newFake()
+		c.set(f)
+		d, _ := runStep(t, newEval(t, ambiguousView(), f, nil), decide.T7TargetResolution)
+		if d.Outcome() != decide.Clarify || d.Clarification() == nil {
+			t.Errorf("%s: %s, want a question", c.name, d.Outcome())
+		}
 	}
 }
 
