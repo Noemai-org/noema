@@ -510,7 +510,6 @@ func TestNestingIsCutAtTheDepthBound(t *testing.T) {
 	}
 }
 
-
 // Codex P2 on e095b99 (key classification): a field whose NAME says it holds a private key or raw audio is removed whatever its value looks like. Alphabetic or base64
 // content has no digit run for the masker to catch, so the name is the only signal (AGENT-13: never log secrets or raw audio). Nested maps and groups are covered.
 func TestAFieldNamedAsAPrivateKeyOrRawAudioIsRemovedWhatItsValueLooksLike(t *testing.T) {
