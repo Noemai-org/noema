@@ -69,7 +69,12 @@
     "RequestId": {
       "type": "string",
       "pattern": "^req_[0-9A-Za-z]{2,32}$",
-      "description": "Client-supplied request ID (a UUID in the canonical input, see CanonicalInput)."
+      "description": "The ID the core mints for an input: req_ and a ULID (ruling A184; the object_ref of INPUT_RECEIVED). Never a client's value: the client's UUID is ClientRequestId."
+    },
+    "ClientRequestId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "The client's request ID: a lower-case UUID, used for deduplication (REQ-INP-003). The core never uses it as the reference of an event (ruling A184); that is RequestId."
     },
     "CorrelationId": {
       "type": "string",
@@ -136,7 +141,7 @@
     },
     "IdempotencyKeyId": {
       "type": "string",
-      "pattern": "^idk_[0-9A-Za-z]{2,32}$"
+      "pattern": "^idk_v1_[0-9a-f]{64}$"
     },
     "ReceiptId": {
       "type": "string",

@@ -68,7 +68,7 @@ func (t CanonicalInputV2Voice) MarshalJSON() ([]byte, error) {
 // PERD REQ-INP-001 as changed by CR-2026-11-08-VOI-canonical-input-audio-ref (docs#137, approved): every request, text or voice, is normalised to one CanonicalInput before any business logic. v2 differs from v1 in one f...
 type CanonicalInputV2 struct {
 	SchemaVersion   CommonV1SchemaVersion    `json:"schema_version"`
-	RequestId       string                   `json:"request_id"`
+	RequestId       CommonV1ClientRequestId  `json:"request_id"`
 	CorrelationId   CommonV1CorrelationId    `json:"correlation_id"`
 	TenantId        CommonV1TenantId         `json:"tenant_id"`
 	SessionId       CommonV1SessionId        `json:"session_id"`

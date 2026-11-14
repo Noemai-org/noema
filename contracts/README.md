@@ -92,3 +92,9 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.
 - **Constraints:** both founders review changes (CODEOWNERS). The PERD §32.2 and state-registry files here are vendored copies; do not edit them.
 - **Open:** `INVENTORY.md` is also changed by #57; the second PR to merge merges `main` in. #59 adds the pack `understanding` schema fields.
+
+## common.v1, minor correction of three ID definitions (noema#543, ruling A203, relayed)
+
+- **What changed.** `IdempotencyKeyId` is `^idk_v1_[0-9a-f]{64}$` (the real key, PERD 27.2: 71 characters; the old pattern `^idk_[0-9A-Za-z]{2,32}$` matched no real key). `RequestId` keeps its pattern and says what it is: the ID the core mints for an input, `req_` and a ULID (A184). New `ClientRequestId` is the client's lower-case UUID; `canonical-input.v2`'s `request_id` now references it (the same pattern, so validation is unchanged).
+- **Migration note.** No schema referenced `IdempotencyKeyId` or `RequestId`, and no code outside the generated files used their generated types, so no document and no consumer changes meaning; `ClientRequestId` is additive. This is a correction in place, not a new major: the repository has one file per major and no mechanism for a minor version, so the file stays `common.v1.json` and the pin of its hash in `tools/contracts/test_intent_object_v3.py` moves to this edit (it is the only edit since v3). Regenerated: the Go and Pydantic models.
+- **Tests.** `tools/contracts/test_common_ids.py`: a real key validates and eight non-keys are refused; a core-minted `req_<ULID>` validates and a UUID does not; `ClientRequestId` accepts a lower-case UUID and refuses five non-UUIDs; `canonical-input.v2` references it.

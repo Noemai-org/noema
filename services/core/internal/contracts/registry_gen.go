@@ -25,6 +25,7 @@ var Types = map[string]func() any{
 	"common.v1":                                               func() any { return new(CommonV1) },
 	"common.v1#CandidateSetId":                                func() any { return new(CommonV1CandidateSetId) },
 	"common.v1#ClarificationId":                               func() any { return new(CommonV1ClarificationId) },
+	"common.v1#ClientRequestId":                               func() any { return new(CommonV1ClientRequestId) },
 	"common.v1#ConfirmationEventId":                           func() any { return new(CommonV1ConfirmationEventId) },
 	"common.v1#ConfirmationRequestId":                         func() any { return new(CommonV1ConfirmationRequestId) },
 	"common.v1#CorrelationId":                                 func() any { return new(CommonV1CorrelationId) },
