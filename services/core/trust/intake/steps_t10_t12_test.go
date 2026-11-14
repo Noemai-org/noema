@@ -192,7 +192,7 @@ func wentOn(t *testing.T, name string, trace []decide.TraceEntry, step decide.Ga
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 // T10
 
-var escalateAtT10 = decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Fail}
+var escalateAtT10 = decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass}
 
 // REQ-RES-001, PERD 23.3 T10: a classification the pack maps to ESCALATE (a contradiction, an unknown outcome) ends the evaluation with ESCALATE and the pack's reason code.
 func TestT10EscalatesWithThePackReasonCodeWhenThePackMapsTheClassification(t *testing.T) {
@@ -579,7 +579,7 @@ const (
 	clockStart   = int64(1_000_000_000)
 )
 
-var escalateAtT12 = decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Fail}
+var escalateAtT12 = decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass}
 
 func syntheticClock(id string, duration int64) contracts.ClockV1 {
 	return contracts.ClockV1{ClockId: contracts.CommonV1PackId(id), AnchorEvent: "complaint_logged", DurationSeconds: duration, Label: contracts.ClockV1LabelSYNTHETIC}

@@ -75,7 +75,7 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 		}
 		return decide.Continue()
 	}
-	return escalate(r, rec.EscalateReason, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Fail})
+	return escalate(r, rec.EscalateReason, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
 }
 
 // freezeBlocks reports that the target is frozen and the pack does not allow the requested capability under the freeze. An intent that names no capability asks
@@ -222,5 +222,5 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 	if !routing.Escalate {
 		return decide.Continue()
 	}
-	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Fail})
+	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
 }
