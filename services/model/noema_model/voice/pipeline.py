@@ -97,13 +97,32 @@ class _AudioLease:
             if self._pending is read and read.done():
                 self._pending = None
 
-    async def revoke(self, bound_s: float) -> None:
-        """End the lease and any read still running, giving the read `bound_s` to end."""
+    async def revoke(self, bound_s: float) -> "asyncio.Future[AudioChunk] | None":
+        """End the lease and any read still running, giving the read `bound_s` to end. Returns the read if it is STILL running after that (a read that
+        resists cancellation): the source cannot be closed while it runs, so the caller must close it when that read ends."""
         self._source = None
         read, self._pending = self._pending, None
         if read is not None and not read.done():
             read.cancel()
             await asyncio.wait({read}, timeout=bound_s)
+            if not read.done():
+                return read
+        return None
+
+
+_DEFERRED: set["asyncio.Future[None]"] = set()  # closes waiting for a read to end; held so they are not collected before they run
+
+
+def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource) -> None:
+    """A read that outlived the bounded wait keeps the source open for now. Close it as soon as that read ends, so the source is not left open for good."""
+
+    def start(_: "asyncio.Future[Any]") -> None:
+        closing = asyncio.ensure_future(audio.aclose())
+        closing.add_done_callback(_mark_retrieved)
+        _DEFERRED.add(closing)
+        closing.add_done_callback(_DEFERRED.discard)
+
+    read.add_done_callback(start)
 
 
 async def transcribe_utterance(
@@ -167,15 +186,19 @@ async def _release_work(task: "asyncio.Future[None]", lease: _AudioLease, audio:
     gate.closed = True
     if not task.done():
         task.cancel()
-    await lease.revoke(bound_s)  # no read of the source may be running when it is closed
-    closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
-    closing.add_done_callback(_mark_retrieved)
+    running = await lease.revoke(bound_s)  # no read of the source may be running when it is closed
     failure: BaseException | None = None
-    await asyncio.wait({closing}, timeout=bound_s)
-    if not closing.done():
-        failure = TimeoutError("the audio source did not finish closing")
-    elif not closing.cancelled() and closing.exception() is not None:
-        failure = closing.exception()
+    if running is not None:
+        close_when_read_ends(running, audio)  # it cannot be closed while the read runs; it is closed when the read ends
+        failure = TimeoutError("an audio read did not stop in time; the source is closed when it ends")
+    else:
+        closing = asyncio.ensure_future(audio.aclose())  # its own task: a source that never finishes closing is abandoned after `bound_s`
+        closing.add_done_callback(_mark_retrieved)
+        await asyncio.wait({closing}, timeout=bound_s)
+        if not closing.done():
+            failure = TimeoutError("the audio source did not finish closing")
+        elif not closing.cancelled() and closing.exception() is not None:
+            failure = closing.exception()
     if not task.done():
         await asyncio.wait({task}, timeout=bound_s)
     if task.done() and not task.cancelled() and task.exception() is not None:
