@@ -35,6 +35,20 @@ class VadConfig:
             raise ValueError("VAD thresholds must be positive")
 
 
+@dataclass(frozen=True, slots=True)
+class FrameLimits:
+    """What one audio frame may be, as data (ruling A191, committed in docs#169): at most 32,000 bytes, and 16 kHz only. Mono 16-bit PCM is the contract of the source;
+    `AudioChunk` carries no channel count, so the detector cannot see it. A frame outside the limits is refused and ends the gate (AGENT-13, REQ-VOI-004). The defaults are
+    the decided values; a caller or a pack may pass others."""
+
+    max_chunk_bytes: int = 32_000
+    sample_rate_hz: int = 16_000
+
+    def __post_init__(self) -> None:
+        if self.max_chunk_bytes < _BYTES_PER_SAMPLE or self.max_chunk_bytes % _BYTES_PER_SAMPLE or self.sample_rate_hz < 1:
+            raise ValueError("frame limits must be a positive even byte cap and a positive sample rate")
+
+
 class EndpointState(StrEnum):
     WAITING = "WAITING"
     SPEAKING = "SPEAKING"
@@ -50,8 +64,9 @@ def _rms(data: bytes) -> float:
 
 
 class EndpointDetector:
-    def __init__(self, config: VadConfig) -> None:
+    def __init__(self, config: VadConfig, limits: FrameLimits | None = None) -> None:
         self._config = config
+        self._limits = FrameLimits() if limits is None else limits
         self._speech_ms = 0.0
         self._silence_ms = 0.0
         self._state = EndpointState.WAITING
@@ -61,6 +76,10 @@ class EndpointDetector:
             raise ValueError("end-of-speech detection needs decoded PCM")
         if chunk.sample_rate_hz < 1 or not chunk.data or len(chunk.data) % _BYTES_PER_SAMPLE:
             raise ValueError("audio chunk is empty or not whole 16-bit samples")
+        if chunk.sample_rate_hz != self._limits.sample_rate_hz:
+            raise ValueError(f"audio frame is not {self._limits.sample_rate_hz} Hz (ruling A191)")
+        if len(chunk.data) > self._limits.max_chunk_bytes:
+            raise ValueError(f"audio frame is over the {self._limits.max_chunk_bytes}-byte cap (ruling A191)")
         if self._state is EndpointState.ENDED:
             return self._state
         duration_ms = len(chunk.data) // _BYTES_PER_SAMPLE * _MS_PER_S / chunk.sample_rate_hz

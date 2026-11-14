@@ -2,18 +2,15 @@
 
 A191: STT frames are capped at 32,000 bytes, and only 16 kHz mono PCM16 is accepted, as configuration data. The Security Reviewer asked for this on #474 (a frame of any size was
 read whole into the energy measure, and any sample rate was accepted). Before this change `EndpointDetector.feed` checked only that the rate was at least 1, the data
-non-empty and whole 16-bit samples. A refused frame ends the gate and closes the source, like every other invalid frame. AudioChunk carries no channel count, so mono is the
+non-empty and whole 16-bit samples. A refused frame raises the same ValueError as every other invalid frame; what the gate then does with it (ends and closes the source) is the behaviour of #474, which this PR does not repeat. AudioChunk carries no channel count, so mono is the
 contract of the source, not something the detector can see. All audio here is SYNTHETIC (AGENT-25).
 """
-
-import asyncio
 
 import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec
-from noema_model.voice.endpoint import EndpointDetector, FrameLimits, until_end_of_speech
-from tests.support import run
-from tests.support_voice import VAD, Source, loud_then_silent
+from noema_model.voice.endpoint import EndpointDetector, FrameLimits
+from tests.support_voice import VAD
 
 
 def pcm(n_bytes: int, rate: int = 16000) -> AudioChunk:
@@ -57,19 +54,3 @@ def test_the_limits_are_data_the_caller_can_pass() -> None:
 def test_limits_that_make_no_sense_are_refused(kwargs: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         FrameLimits(**kwargs)
-
-
-@pytest.mark.parametrize("bad", [pcm(32_002), pcm(640, 48_000)], ids=["oversize", "wrong-rate"])
-def test_a_refused_frame_closes_the_source_and_ends_the_gate(bad: AudioChunk) -> None:
-    source = Source([bad, *loud_then_silent()])
-    gate = until_end_of_speech(source.stream(), EndpointDetector(VAD))
-
-    async def scenario() -> bool:
-        with pytest.raises(ValueError):
-            await gate.__anext__()
-        assert source.closed  # a consumer iterating the gate directly has no other cleanup
-        with pytest.raises(StopAsyncIteration):
-            await gate.__anext__()
-        return True
-
-    assert run(asyncio.wait_for(scenario(), timeout=5.0))
