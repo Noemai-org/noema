@@ -72,11 +72,11 @@ class Packs:
         return Pack() if pack_ref == PACK_REF else None
 
 
-def client(compiler: Compiler | None = None, timeout_s: float = 5.0) -> TestClient:
+def client(compiler: Compiler | None = None, timeout_s: float = 5.0, max_request_bytes: int = 65536) -> TestClient:
     # With no compiler the app is built exactly as main builds it today, so the first test fails on the status, not on a missing argument.
     if compiler is None:
         return TestClient(create_app(check=lambda: (True, "ok")), raise_server_exceptions=False)
-    service = CompileService(compiler=compiler, packs=Packs(), max_proposal_bytes=65536, timeout_s=timeout_s)
+    service = CompileService(compiler=compiler, packs=Packs(), max_proposal_bytes=65536, timeout_s=timeout_s, max_request_bytes=max_request_bytes)
     return TestClient(create_app(check=lambda: (True, "ok"), compile_service=service), raise_server_exceptions=False)
 
 
@@ -192,9 +192,9 @@ def test_a_compiler_that_does_not_answer_within_the_deadline_is_provider_unavail
 
 
 def test_a_service_with_no_positive_deadline_or_bound_cannot_be_built() -> None:
-    for timeout_s, bound in ((0.0, 65536), (-1.0, 65536), (5.0, 0)):
+    for timeout_s, bound, request_bound in ((0.0, 65536, 65536), (-1.0, 65536, 65536), (5.0, 0, 65536), (5.0, 65536, 0), (5.0, 65536, -1)):
         with pytest.raises(ValueError):
-            CompileService(compiler=Compiler(), packs=Packs(), max_proposal_bytes=bound, timeout_s=timeout_s)
+            CompileService(compiler=Compiler(), packs=Packs(), max_proposal_bytes=bound, timeout_s=timeout_s, max_request_bytes=request_bound)
 
 
 def test_a_request_that_repeats_a_member_is_refused_because_json_would_keep_only_the_last() -> None:
@@ -203,3 +203,43 @@ def test_a_request_that_repeats_a_member_is_refused_because_json_would_keep_only
     r = client(c).post(ROUTE, content=raw, headers={"content-type": "application/json"})
     assert r.status_code in (400, 422) and ErrorsV2ErrorEnvelope.from_json(r.text).error.code is ErrorsV2ErrorCode.INPUT_INVALID
     assert c.calls == []
+
+
+# Review of noema#544 (Security Reviewer, blocking 2; AGENT-16): the request body has a bound from configuration, checked before any parsing. A body over it is refused as
+# INPUT_INVALID (413) by its declared length without being read, and a body that declares no length is cut as it streams. With no compiler wired the route reads nothing.
+def _request_bytes() -> bytes:
+    return json.dumps({"canonical_input": CANONICAL, "pack_ref": PACK_REF}).encode()
+
+
+def test_a_body_over_the_configured_bound_is_refused_by_its_declared_length_and_nothing_is_compiled() -> None:
+    c = Compiler(reply=json.dumps(proposal()).encode())
+    body = _request_bytes()
+    r = client(c, max_request_bytes=len(body) - 1).post(ROUTE, content=body, headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    assert ErrorsV2ErrorEnvelope.from_json(r.text).error.code is ErrorsV2ErrorCode.INPUT_INVALID
+    assert c.calls == []
+
+
+def test_a_body_that_declares_no_length_is_cut_at_the_bound_as_it_streams() -> None:
+    c = Compiler(reply=json.dumps(proposal()).encode())
+    body = _request_bytes()
+    chunks = [body[i : i + 16] for i in range(0, len(body), 16)]  # a generator body: no Content-Length, chunked transfer
+    r = client(c, max_request_bytes=len(body) // 2).post(ROUTE, content=(x for x in chunks), headers={"content-type": "application/json"})
+    assert r.status_code == 413
+    assert ErrorsV2ErrorEnvelope.from_json(r.text).error.code is ErrorsV2ErrorCode.INPUT_INVALID
+    assert c.calls == []
+
+
+def test_a_body_exactly_at_the_bound_is_read_and_served() -> None:
+    c = Compiler(reply=json.dumps(proposal()).encode())
+    body = _request_bytes()
+    r = client(c, max_request_bytes=len(body)).post(ROUTE, content=body, headers={"content-type": "application/json"})
+    assert r.status_code == 200, "the bound is on the size, and a body of exactly the bound is allowed"
+
+
+def test_a_bad_content_length_is_refused_and_nothing_is_compiled() -> None:
+    c = Compiler(reply=json.dumps(proposal()).encode())
+    for value in ("abc", "-1", "1.5"):
+        r = client(c).post(ROUTE, content=_request_bytes(), headers={"content-type": "application/json", "content-length": value})
+        assert r.status_code in (400, 413, 422), value
+        assert c.calls == [], value

@@ -35,11 +35,14 @@ class PackResolver(Protocol):
 class CompileService:
     """Build once, from configuration: a positive deadline for the compiler and a positive size bound for a proposal (AGENT-16: no literal here, no default)."""
 
-    def __init__(self, compiler: Compiler, packs: PackResolver, max_proposal_bytes: int, timeout_s: float) -> None:
+    def __init__(self, compiler: Compiler, packs: PackResolver, max_proposal_bytes: int, timeout_s: float, max_request_bytes: int) -> None:
         if max_proposal_bytes <= 0:
             raise ValueError("the compile service needs a positive proposal size bound")
         if not timeout_s > 0:
             raise ValueError("the compile service needs a positive deadline for the compiler")
+        if max_request_bytes <= 0:
+            raise ValueError("the compile service needs a positive request size bound")
+        self.max_request_bytes = max_request_bytes
         self._compiler = compiler
         self._packs = packs
         self._max = max_proposal_bytes
