@@ -273,3 +273,90 @@ def test_a_first_close_that_fails_after_the_read_ended_is_retried(source_type: t
     assert source.closed  # the retry ran although the read had ended before the first close finished
     assert source.calls == 2  # one retry, not a loop
 
+
+
+# ---- Codex P2 on #474 at a6d5de2a: a source that cannot be weakly referenced, and a close that suppresses its cancellation ------------------------------------
+
+
+class Slotted:
+    """A source that cannot be weakly referenced (`__slots__` with no `__weakref__`). Its read resists cancellation for 0.4 s; it cannot be closed while a read runs."""
+
+    __slots__ = ("reading", "closed", "calls")
+
+    def __init__(self) -> None:
+        self.reading = False
+        self.closed = False
+        self.calls = 0
+
+    def __aiter__(self) -> "Slotted":
+        return self
+
+    async def __anext__(self) -> AudioChunk:
+        self.reading = True
+        try:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.4)
+            raise StopAsyncIteration
+        finally:
+            self.reading = False
+
+    async def aclose(self) -> None:
+        self.calls += 1
+        if self.reading:
+            raise RuntimeError("aclose(): asynchronous generator is already running")
+        self.closed = True
+
+
+class SuppressesCancellationOnClose(EndsLateAndRefusesCloseWhileReading):
+    """Its read ends 0.4 s after it is cancelled; its close catches CancelledError and carries on: cancelling it does not stop it. The close ends by itself after 1 s,
+    so a test that fails cannot hang the loop."""
+
+    async def aclose(self) -> None:
+        loop = asyncio.get_running_loop()
+        end = loop.time() + 1.0
+        while loop.time() < end:
+            try:
+                await asyncio.sleep(0.05)
+            except asyncio.CancelledError:
+                continue
+
+
+def test_a_source_that_cannot_be_weakly_referenced_still_gets_its_retry_after_the_read_ends() -> None:
+    source = Slotted()
+    with pytest.raises(TypeError):
+        weakref.ref(source)  # the precondition of the case
+
+    async def scenario() -> None:
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
+        await asyncio.sleep(1.0)  # the abandon at ~0.15 s closes too early (the read is running); the read ends at ~0.45 s
+
+    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert source.closed  # Codex P2: with no weak reference the retry had no source to close, and the microphone stayed open
+    assert source.calls == 2  # one retry, not a loop
+
+
+def test_a_close_that_suppresses_cancellation_is_not_held_by_the_pipeline_for_ever(caplog: pytest.LogCaptureFixture) -> None:
+    from noema_model.voice import pipeline
+
+    caplog.set_level(logging.ERROR, logger=LOGGER)
+    before = set(pipeline._DEFERRED)
+
+    async def scenario() -> set[asyncio.Future[None]]:
+        with pytest.raises(ProviderError):
+            await transcribe_utterance(Reader(), REQUEST, SuppressesCancellationOnClose(), deadline_s=0.05, cleanup_s=0.05, hold_s=0.05, on_partial=lambda _: None)
+        await asyncio.sleep(0.5)  # past the hold and one close bound: the close was cancelled and ignored it, and is still running
+        held = set(pipeline._DEFERRED) - before
+        gc.collect()
+        gc.collect()
+        await asyncio.sleep(2.0)  # let the closes end by themselves so the loop can be torn down
+        return held
+
+    held = run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert held == set()  # the pipeline lets go of a close that will not stop; it does not hold it, and its source, for the life of the process
+    assert [r.getMessage() for r in caplog.records if r.name == LOGGER].count(CLOSE_ABANDONED_CODE) >= 1
+
+
+CLOSE_ABANDONED_CODE = "VOI_AUDIO_CLOSE_ABANDONED"
