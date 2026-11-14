@@ -18,7 +18,7 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 
 ## Session summary
 - What changed: `masking-limits.v1` (schema, fixtures, `packs/fintech/limits/masking_limits.json` with `max_unmasked_digit_run` 4, INVENTORY row, regenerated Go and Pydantic models, shape refusals); `platform/masking` (Go loader, no default, zero value is "not loaded"); `explanation.Templates.WithMaskingLimits` and check 4 reading it (templates without it block every text); `noema_model.platform.masking` and `Redactor.from_limits`; the error scanner `benchmark/isolation/check_isolation.py` reads the same file (it used 6, PERD line 4428 says longer than 4).
-- Why: one value, one source, for the redactor, the explanation validator (PERD line 3273) and the error-scanner test (line 4428), in both services.
+- Why: one value (4), read from one file, by the model redactor, the explanation validator (PERD line 3273, not yet attached by a production caller) and the error-scanner test (line 4428). Not one definition of a digit run: other surfaces still hold their own (see the masking README).
 - Tests added (REQ-SEC-003, REQ-EXP-002, AGENT-16): `platform/masking/masking_test.go`, `explanation/digitrun_test.go`, `services/model/tests/test_masking_limits.py`, `DigitRunLimitTest` and a 5-digit probe in `benchmark/isolation/test_isolation.py`. Written first; red at `6a8cf037` (no loader). Mutants run: 12; ten killed; two equivalent (unknown fields in the Go loader, because the generated shape already closes the object; a bool in the Python range check, because `True` is 1, below the minimum). The scanner hard-coding 4 survived until `judge` read the file on each call; a test now points it at a file with another value.
 - Debt: the Go redactor of noema#457 does not read this file yet (it takes a threshold parameter; pass `Limits.MinMaskedRun()` after that PR merges). Other fixed `{5,}` patterns remain in `record/reconstruct/project.go`, `edge/session/http_test.go`, `benchmark/hallucination/verify.py` and `benchmark/bakeoff/test_cases.py`; they agree with 4 today and are listed for a follow-up so this PR stays one change.
 
@@ -46,3 +46,15 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 ## Pre-work for the next agent
 - Exact next step: after noema#538 merges, a small PR makes `load_harness_config` refuse a `masking` member, with the test that an old config is refused.
 - Do not touch: `benchmark/decisions/harness-*.json` (frozen; BO's record).
+
+# Session 2026-11-14 · SEC-03 · Security Reviewer's re-check of noema#468 at `b8fd1971`
+
+## Session summary
+- What changed (noema#468): wording only, in `platform/masking/README.md`, `services/model/README.md` and this file: they said "the one source" for every surface; the code reads the limit of 4 from one file on some surfaces only, and the run's definition (digit alphabet, separators, count) is still held separately by `project.go`, the Python redactor, the recorder and the validator. The PR title and body now say "limit of 4 read from one file".
+- Why: the Security Reviewer's finding (A184 asks for one definition on every surface; this PR does not deliver it and must not claim it).
+- Not done: a `masking-limits.v1` that carries the run's definition, every surface loading it, and a shared test-vector file (a contract change, a new major or an additive member: Architect; the core redactor is noema#457's). The `WithMaskingLimits` caller belongs with the composition (mine, a later PR); mounting the limits file in Compose belongs to IL (protected path).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect decides the shape of the shared definition; then each surface loads it with the shared vectors.
+- Files to read first: `platform/masking/README.md`, `record/reconstruct/project.go`, `noema_model/platform/redaction/__init__.py`.
