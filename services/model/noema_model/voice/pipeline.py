@@ -191,15 +191,23 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
         except TypeError:
             weak = None  # a source that cannot be weakly referenced is closed now and not remembered
         attempt = _begin_close(audio, window, say)
+        retried = False
 
-        def late(_: "asyncio.Future[Any]") -> None:
+        def retry_if_needed(_: "asyncio.Future[Any]") -> None:
+            # Called when the read ends and when the close at the abandon ends, in whichever order: the retry needs both to have happened (Codex P2 on #474).
+            nonlocal retried
+            if retried or not read.done() or not attempt.done():
+                return
+            if not (attempt.cancelled() or attempt.exception() is not None):
+                return  # the close at the abandon worked
             source = weak() if weak is not None else None
             if source is None:
                 return
-            if attempt.done() and (attempt.cancelled() or attempt.exception() is not None):
-                _begin_close(source, window, say)  # the close at the abandon did not succeed; the read has ended, so try once more
+            retried = True
+            _begin_close(source, window, say)  # once: the read has ended, so the source can now be closed
 
-        read.add_done_callback(late)
+        read.add_done_callback(retry_if_needed)
+        attempt.add_done_callback(retry_if_needed)
 
     timer = asyncio.get_running_loop().call_later(hold_s, abandon)
     read.add_done_callback(start)
