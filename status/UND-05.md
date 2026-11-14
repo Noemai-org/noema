@@ -35,3 +35,21 @@
 - **Finding 1 (mTLS on the model listener): not fixable in this PR.** It needs `services/model/Dockerfile` and `deploy/compose` (IL's, protected). Tracked on noema#555; stated in `compiler/README.md` as the first precondition before any PR sets `compile_service` in `main.py`. The route compiles nothing until then.
 - **Notes 3 to 6:** recorded as preconditions in `compiler/README.md`; none is reachable while no compiler is wired.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-14 15:45 WAT · UND-05 · the assembler (compiler slice 2, noema#581)
+
+## Session summary
+- What changed (PR noema#581): `understanding/compiler/assemble.py`, a pure function from the pipeline's result and the canonical input to the bytes of an `intent-object.v3` proposal; `tests/test_compile_assemble.py`; the compiler README.
+- Why: the Founder's order of 14 Nov 2026 ("then the compiler"). The route (#544) has no `Compiler` behind it, and nothing turned a `PipelineResult` into a proposal. The plan of five slices is on noema#546.
+- Risks, and how they are contained: the proposal is untrusted and crosses only the schema gate; it carries no identity beyond the canonical input's, no `sig`, no outcome. The amount and the window are the lexicon's, a mention the lexicon cannot read is left out (never guessed). A rejected result is never assembled. Nothing is wired: `compile_service` stays unwired until noema#555.
+- Tests added (REQ-INT-001, REQ-INT-002, REQ-INT-003, REQ-INT-005; INV-01, INV-02, INV-06, INV-12, INV-21): 27, red first (run 43606420465, `model` failed at collection). Sixteen hand mutations all killed; six extra tests were added for the three that survived the first 21 (a float read as binary, a window in another zone, unsorted flags) and for the clamp, the empty surface form and two slots of one lexicon type.
+- Regression cases added: a model's amount never reaches the proposal; a rejected result is never assembled.
+- Debt entries: none.
+- Conflicts raised: none. Open question: noema#580 (who sets `intent_id`, `created_at`, `raw_ref`).
+- Test corrected, not weakened: one test (a time with no window) asserted a result the pipeline never produces for the investigate node (it refuses a candidate search with no window, REQ-CTX-006); it now builds that result from a real one and asserts the same rule.
+
+## Pre-work for the next agent
+- Exact next step: slice 3, the pack loader (`PipelineConfig` from `packs/fintech_v1.json`), then the minimal lexicon and `Normalise`, then the `Compiler`, then `benchmark/compile_acceptance` (plan on noema#546).
+- Open questions (owner): noema#580 (Architect, EL). The G-B golden example expects `COUNTERPARTY_MULTIPLE_MATCH`, but the pack's `state_flags` map the ranking's AMBIGUOUS to `MULTIPLE_TRANSACTIONS_MATCH` and `packs/fintech/understanding.md` says the engine has no counterparty-level ranking: that example cannot pass as the pack stands (Architect).
+- Files to read first: `compiler/README.md`, `compiler/assemble.py`, `tests/test_compile_assemble.py`.
+- Do not touch: the generated contracts; the gate's reason set.

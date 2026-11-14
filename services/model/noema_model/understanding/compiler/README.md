@@ -17,7 +17,21 @@ The model service's compile route (UND-05, slice 1; REQ-INT-001, REQ-INT-002, RE
 
 **Configuration.** `CompileService(compiler, packs, max_proposal_bytes, timeout_s, max_request_bytes)`: the three numbers must be positive and come from configuration (AGENT-16); there is no default.
 
-**Not here.** The compiler itself (prompt templates, the lexicon, assembly of the `intent-object.v3` proposal, the call into `providers/`) is the next slice; `create_app(compile_service=None)` is what a process without it runs. The pack resolver is a protocol: the real pack loader is PCK-01's.
+**The assembler** (`assemble.py`, slice 2; REQ-INT-001, REQ-INT-003, REQ-INT-005; PR noema#581). A pure function, `assemble(canonical_input, pipeline_result, catalogue, pack_ref, identifiers) -> bytes`: the bytes of an `intent-object.v3` proposal (status EXTRACTED, no `sig`, no `principal_type`, no `asserted_by`; compact JSON, keys sorted, no float). No clock, no randomness, no I/O.
+
+| Member | Where it comes from |
+|---|---|
+| `tenant_id`, `correlation_id`, `principal.principal_id` (`principal_ref`), `principal.authn_ref` (`session_id`), `source.mode`, `source.channel` | the canonical input only; the model's text never reaches them (INV-12) |
+| a Quantity slot's `value` and `unit`; a TimeRef slot's `window` | the deterministic lexicon (REQ-INT-003); a mention it cannot read is **left out, never guessed** |
+| the Resource slot | the ranking: RESOLVED only with a `resolved_ref` (INV-06); AMBIGUOUS and TOO_MANY are AMBIGUOUS; no match is UNRESOLVED; the candidate set id must be the contract's `cns_…` or the call is a bug (`ValueError`) |
+| every `confidence` | the model's, floored to integer basis points and clamped to 0 to 10000 (A173) |
+| Reference slots | the model's closed-vocabulary choice |
+| `intent_id`, `version`, `supersedes`, `created_at`, `source.raw_ref` | one `Identifiers` argument: **nobody owns them yet** (noema#580) |
+| `desired_outcome_refs` | always empty: the model never proposes an outcome (INV-01) |
+
+An out-of-scope or unclear request compiles to the out-of-scope node with its flag and no slots (an unclear request is read as out of scope: a default, noema#546); **a rejected result is never assembled** (REQ-INT-002). A node with two slots of one lexicon type (two amounts, two windows, two counterparties) is refused.
+
+**Not here.** The compiler itself (the prompts' use, the lexicon, the `providers/` call, the `Identifiers` choice) is a later slice; `create_app(compile_service=None)` is what a process without it runs. The pack resolver is a protocol: the real pack loader is PCK-01's.
 
 **Preconditions before any PR sets `compile_service` in `main.py`** (Security Reviewer's review of noema#544; none is reachable while no compiler is wired, and the route then answers 503 and compiles nothing):
 1. **Peer authentication.** Nothing enforces who may call the listener today but the network (`svc_net`, internal). mTLS on the model's listener is tracked on noema#555 and must be closed first.
