@@ -25,6 +25,10 @@ const EnvRecordReadDSNDir = "NOEMA_RECORD_READ_DSN_DIR"
 // tenantFileRe is the name of a DSN file: a tenant ID of common.v1, as written (anchored, case-sensitive).
 var tenantFileRe = regexp.MustCompile(`^ten_[0-9A-Za-z]{2,32}$`)
 
+// Trust boundary: the files are an operator step. This code checks the shape of the directory (regular files named by a tenant ID, no link) and that no login appears twice.
+// It does not check that a login is the tenant's own record_read login, or that it is not a login of wider reach (a superuser, record_verify): the database's own binding is
+// the defence for that (DEBT-04), and the operator who mounts the files is responsible for what each holds.
+
 // recordPools is a reconstruct.TenantDBs over one pool per tenant.
 type recordPools struct{ pools map[string]*pgxpool.Pool }
 
@@ -58,13 +62,15 @@ func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, fun
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		if e.IsDir() || !tenantFileRe.MatchString(e.Name()) {
-			return nil, nil, fmt.Errorf("cmd/core: %s: an entry is not a file named by a tenant ID", EnvRecordReadDSNDir)
+		// Type() does not follow a link: a symlink, a directory or any other non-regular entry is refused, so one tenant's file cannot stand in for another's.
+		if !e.Type().IsRegular() || !tenantFileRe.MatchString(e.Name()) {
+			return nil, nil, fmt.Errorf("cmd/core: %s: an entry is not a regular file named by a tenant ID", EnvRecordReadDSNDir)
 		}
 		names = append(names, e.Name())
 	}
 	sort.Strings(names)
 	pools := make(map[string]*pgxpool.Pool, len(names))
+	logins := make(map[string]string, len(names)) // login identity -> the tenant whose file holds it
 	closeAll := func() {
 		for _, p := range pools {
 			p.Close()
@@ -86,6 +92,14 @@ func buildRecordReader(ctx context.Context, env Env) (reconstruct.TenantDBs, fun
 			closeAll()
 			return nil, nil, fmt.Errorf("cmd/core: %s: the DSN of tenant %s does not parse", EnvRecordReadDSNDir, tenant)
 		}
+		// One login serves one tenant: the database binds a login to a tenant (DEBT-04), so the same login in two files would let two tenants share a binding. The identity is
+		// the user, host, port and database; the password and options do not make another login. The error names the tenants, never the login.
+		id := fmt.Sprintf("%s\x00%s\x00%d\x00%s", cfg.ConnConfig.User, cfg.ConnConfig.Host, cfg.ConnConfig.Port, cfg.ConnConfig.Database)
+		if other, dup := logins[id]; dup {
+			closeAll()
+			return nil, nil, fmt.Errorf("cmd/core: %s: the files of tenants %s and %s hold the same login", EnvRecordReadDSNDir, other, tenant)
+		}
+		logins[id] = tenant
 		pool, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			closeAll()

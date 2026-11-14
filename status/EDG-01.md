@@ -175,3 +175,15 @@
 - Files to read first: `edge/edge.go` (`notPublic`), `edge/refuse_test.go`.
 - Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
 
+
+# Session 2026-11-14 · EDG-01 · review of noema#535 (Security Reviewer, NOT READY at `df92c13e`)
+
+## Session summary
+- What changed (noema#535): `buildRecordReader` refuses a symlink or any non-regular entry (`DirEntry.Type().IsRegular()`), and refuses one login (user, host, port, database) in two tenant files, naming both tenants and never a DSN. The README states the trust boundary. Tests first: `TestOneLoginInTwoTenantFilesIsRefused`, `TestASymlinkIsNotATenantFile` (red at `dd54d121`, fixed in the next commit).
+- Not done, and why (asked, not decided by me): a startup probe per pool (`SELECT session_user`, `record_read` membership only, not a superuser) dials at start and changes the lazy-pool design (Architect); the file mode check (Compose file secrets are 0444 by default, so refusing group or world readable would stop a Compose deployment; IL and the Architect); pool limits, connect and statement timeouts and a `sslmode=disable` refusal (a threshold is not mine to invent, AGENT-16; they travel in the DSN today). Note 4 (`os.Exit` after a deferred close) is harmless at exit and unchanged.
+- Tests added (REQ-SEC-004, REQ-AUD-003, INV-12, AGENT-13): the two above.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect decides the probe, the mode check and the pool limits; implement what they decide.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.
