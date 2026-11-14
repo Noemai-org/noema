@@ -27,6 +27,8 @@ def fmt_rate(rate: Json, *, failure: bool = False) -> str:
     text = f"{k} of {n} ({_pct(rate['rate'])}; 95% Wilson {_pct(lo)} to {_pct(hi)})"
     if failure and rate["rule_of_three_upper"] is not None:
         text += f"; zero failures, so the true rate is below about {_pct(rate['rule_of_three_upper'])} at 95% confidence (rule of three, 3/n)"
+    if failure and rate.get("exact_upper95") is not None:
+        text += f"; exact one-sided 95% upper bound {_pct(rate['exact_upper95'])}"
     return text
 
 
