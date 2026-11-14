@@ -8,7 +8,8 @@ be added by accident. Names are SYNTHETIC test data.
 The digit-run pattern is built here from the Unicode decimal digits (category Nd, Python 3.13: Unicode 15.1) and the separator set of the model redactor (noema#468,
 `noema_model/platform/redaction`), written as literal characters so that Python's `re`, Go's RE2, Pydantic's Rust regex and a JavaScript RegExp with the `u` flag read the
 same pattern (the digit shorthand is ASCII-only in the last three and Unicode in the first; the Unicode property class for decimal digits is not in Python's `re`; unicode escapes are not in RE2). A test recomputes the class, so a
-Python upgrade that adds digits fails here instead of leaving a digit unmasked.
+Python upgrade that adds digits fails here instead of leaving a digit unmasked. This file reads the pattern with Python's `re`; the generated Pydantic models (Python `re`) and the generated Go
+types are held to the same fixtures by `shape_refusals.json` in CI, and a JavaScript validator must compile the pattern with the `u` flag (noema#523 does).
 """
 import json
 import re
@@ -44,16 +45,25 @@ def _class(ranges: list[tuple[int, int]], negate: bool = False) -> str:
 
 
 ND = _ranges(lambda cp: unicodedata.category(chr(cp)) == "Nd")
-# The separators the model redactor joins digits across: spaces (U+0020, U+00A0, U+1680, U+2000..U+200A, U+202F, U+205F, U+3000) and dashes (hyphen, U+2010..U+2015,
-# U+2212, U+FE58, U+FE63, U+FF0D). The hyphen is escaped inside the class.
-SEPARATORS = " \u00a0\u1680\u2000-\u200a\u202f\u205f\u3000\\-\u2010-\u2015\u2212\ufe58\ufe63\uff0d"
+ZS = _ranges(lambda cp: unicodedata.category(chr(cp)) == "Zs")
+# The separators the core's Record mask joins digits across (record/reconstruct/project.go `digitRun`, the leak scanner's set of noema#222 and noema#492; ruling A194, relayed):
+# the ASCII white space (tab, line feed, form feed, carriage return), every space separator (category Zs), dot, hyphen, slash, underscore, brackets, colon, the soft hyphen, the
+# combining grapheme joiner, the Mongolian vowel separator, the zero-width characters, the dashes U+2010 to U+2015, the word joiner, the minus sign and the byte order mark. Any
+# NUMBER of them may sit between two digits. A comma ends a run ("20,000,000" is groups of three). The hyphen is escaped inside the class.
+_SEP_RANGES = ZS + [(0x09, 0x0A), (0x0C, 0x0D), (0x2E, 0x2F), (0x3A, 0x3A), (0x28, 0x29), (0x5F, 0x5F), (0xAD, 0xAD), (0x34F, 0x34F), (0x180E, 0x180E), (0x200B, 0x200D),
+                    (0x2010, 0x2015), (0x2060, 0x2060), (0x2212, 0x2212), (0xFEFF, 0xFEFF)]
+SEPARATORS = "".join(chr(a) if a == b else f"{chr(a)}-{chr(b)}" for a, b in sorted(set(_SEP_RANGES))) + "\\-"
 SEPARATOR_CLASS = "[" + SEPARATORS + "]"
 DIGIT = _class(ND)
 NOT_DIGIT = _class(ND, negate=True)
-# Five digits of any script, with at most one separator between two digits: the run A154 forbids.
-DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}?{DIGIT}){{4}})[\s\S]*$"
-# A masked case reference shows at most four digits in all (A187), of any script.
-AT_MOST_FOUR_DIGITS = rf"^(?:{NOT_DIGIT}*{DIGIT}){{0,4}}{NOT_DIGIT}*$"
+# Five digits of any script, with any number of separators between two digits: the run A154 forbids.
+DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
+# A masked case reference shows at most four digits in all (A187), of any script, and carries a mask character (A207: the core masks it before it reaches the client).
+MASK_CHARS = "*\u2022\u2026"
+AT_MOST_FOUR_DIGITS = rf"^(?=[\s\S]*[{MASK_CHARS}])(?:{NOT_DIGIT}*{DIGIT}){{0,4}}{NOT_DIGIT}*$"
+# option_id of an overlay card and the pack version of a confirmation: no run of five digits, and bounded (ASCII-only members, so the ASCII class is the whole alphabet).
+OPTION_ID = r"^(?![a-z0-9_]*[0-9]{5})[a-z0-9_]{1,32}$"
+POLICY_VERSION = r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]{1,4}\.[0-9]{1,4}(\.[0-9]{1,4})?$"
 # PERD §39.2: the five event kinds of the stream.
 EVENT_KINDS = {"progress", "clarification", "confirmation", "answer", "error"}
 # PERD §40.1 "Never shown", and the internal members of clarification.v1 and confirmation-request.v1 that the overlay projection leaves out.
@@ -62,7 +72,7 @@ NEVER_MEMBERS = {
     "binding_hash", "sig", "tenant_id", "decision_id", "candidate_set_id", "candidate_set_version", "question_key", "slot", "principal_id", "account_number",
 }
 # Strings that are not free text, each with its own pattern: an option key.
-KEYED_STRINGS = {"option_id", "policy_version"}
+KEYED_STRINGS = {"option_id": OPTION_ID, "policy_version": POLICY_VERSION}
 
 
 def walk(node, path=()):
@@ -128,7 +138,7 @@ class PublicApi(unittest.TestCase):
                 if node.get("type") == "string" and "enum" not in node and "const" not in node and "$ref" not in node and path:
                     leaf = path[-1]
                     pattern = node.get("pattern")
-                    ok = pattern in (DIGIT_RUN, AT_MOST_FOUR_DIGITS) or (leaf in KEYED_STRINGS and pattern)
+                    ok = pattern in (DIGIT_RUN, AT_MOST_FOUR_DIGITS) or (leaf in KEYED_STRINGS and pattern == KEYED_STRINGS[leaf])
                     self.assertTrue(ok, f"{name}: {'/'.join(path)} is a string with no digit-run pattern")
                     self.assertIn("maxLength", node, f"{name}: {'/'.join(path)} is a free-text string with no maxLength") if pattern in (DIGIT_RUN, AT_MOST_FOUR_DIGITS) else None
 
@@ -138,12 +148,15 @@ class PublicApi(unittest.TestCase):
         for sample in ("0", "9", "\u0664", "\u0966", "\uff15", "\U0001d7d8"):
             self.assertIn(sample, digits)
 
-    def test_the_digit_run_pattern_refuses_five_digits_of_any_script_and_with_one_separator(self):
+    def test_the_digit_run_pattern_refuses_five_digits_of_any_script_across_any_separator_of_the_cores_set(self):
         refuse = [
             "12345", "\u0661\u0662\u0663\u0664\u0665", "\u0967\u0968\u0969\u096a\u096b", "\uff11\uff12\uff13\uff14\uff15", "\U0001d7d9\U0001d7da\U0001d7db\U0001d7dc\U0001d7dd",
             "12\u0663\u0664 5", "1234 5678 9012", "1234-5678", "1234\u00a05", "1234\u20115", "1234\u30005", "see 41111 and more",
+            # the Security Reviewer's cases on noema#521: slash, dot, brackets, colon, underscore, tab, newline, the soft hyphen and zero-width characters, and several separators in a row
+            "4111/1111/1111/1111", "4111.1111.1111.1111", "(4111)(1111)5", "4111:1111:1", "4111_1111_1", "1234\t5678", "1234\n5678", "1234\r\n5678", "1234\u00ad5678", "1234\u200b5678",
+            "1234 - 5678 - 9012", "12 / 34 / 5", "12 ( 34 ) 5",
         ]
-        accept = ["1234", "\u0661\u0662\u0663\u0664", "ending 4821", "1234 and 5678", "12 ab 34 cd 5", "1234\n5678", "no digits at all"]
+        accept = ["1234", "\u0661\u0662\u0663\u0664", "ending 4821", "1234 and 5678", "12 ab 34 cd 5", "20,000,000 naira", "1,234", "1234, 5678", "no digits at all"]
         for text in refuse:
             self.assertTrue(refused(DIGIT_RUN, text), f"{text!r} passes the digit-run pattern")
         for text in accept:
@@ -155,10 +168,27 @@ class PublicApi(unittest.TestCase):
             for key in path:
                 node = node[key]
             self.assertEqual(node["pattern"], AT_MOST_FOUR_DIGITS, name)
-        for text in ("CMP-****0001", "****4821", "CMP", "\u0661\u0662\u0663\u0664"):
+        for text in ("CMP-****0001", "****4821", "CMP-\u20260001", "CMP-\u2022\u2022\u20220001", "CMP-****"):
             self.assertFalse(refused(AT_MOST_FOUR_DIGITS, text), f"{text!r} is refused")
-        for text in ("CMP-2026-0001", "12345", "CMP-20-26-0001", "\u0661\u0662\u0663\u0664\u0665", "12 34 5"):
+        # at most four digits in all, and the mask must be there: a reference with four digits and no mask character is not masked (review of noema#521, note 3)
+        for text in ("CMP-2026-0001", "12345", "CMP-20-26-0001", "\u0661\u0662\u0663\u0664\u0665", "12 34 5", "CMP-1234", "CMP", "\u0661\u0662\u0663\u0664"):
             self.assertTrue(refused(AT_MOST_FOUR_DIGITS, text), f"{text!r} passes")
+
+    def test_the_option_key_and_the_pack_version_cannot_carry_a_number(self):
+        # review of noema#521, blocking 2: an option_id of 32 digits, or a policy_version with unbounded digits, would reach the customer as written.
+        option = SCHEMAS["overlay-card.v1.json"]["$defs"]["ClarificationCard"]["properties"]["options"]["items"]["properties"]["option_id"]
+        version = SCHEMAS["overlay-card.v1.json"]["$defs"]["ConfirmationCard"]["properties"]["policy_version"]
+        self.assertEqual(option["pattern"], OPTION_ID)
+        self.assertEqual(version["pattern"], POLICY_VERSION)
+        self.assertIn("maxLength", version)
+        for text in ("opt_1", "opt_2", "none", "o" * 32):
+            self.assertFalse(refused(OPTION_ID, text), f"option {text!r} is refused")
+        for text in ("opt_12345", "4" * 32, "opt_" + "1" * 20, "", "x" * 33, "Opt_1"):
+            self.assertTrue(refused(OPTION_ID, text), f"option {text!r} passes")
+        for text in ("fintech.transfer_exceptions@1.0", "fin.pol@3.1.2", "fin@9999.9999.9999"):
+            self.assertFalse(refused(POLICY_VERSION, text), f"version {text!r} is refused")
+        for text in ("fin.pol@12345.0", "fin.pol@1." + "9" * 20, "fin.pol@1.0.12345"):
+            self.assertTrue(refused(POLICY_VERSION, text), f"version {text!r} passes")
 
     def test_no_member_of_the_never_shown_list_or_an_internal_object_exists(self):
         for name in NAMES:

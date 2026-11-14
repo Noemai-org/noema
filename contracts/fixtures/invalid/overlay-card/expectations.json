@@ -8,5 +8,8 @@
   "label_with_arabic_indic_account_number.json": "pattern",
   "label_with_full_account_number.json": "pattern",
   "no_none_choice.json": "const",
+  "option_id_of_digits.json": "pattern",
+  "policy_version_unbounded.json": "pattern",
+  "policy_version_with_digit_run.json": "pattern",
   "unknown_card_type.json": "const"
 }
