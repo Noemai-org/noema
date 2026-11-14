@@ -1,0 +1,14 @@
+{
+  "error": {
+    "code": "INPUT_INVALID",
+    "message": "That request could not be read.",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9",
+    "details": [
+      {
+        "field": "account_01234567",
+        "issue": "Enter an amount."
+      }
+    ]
+  }
+}

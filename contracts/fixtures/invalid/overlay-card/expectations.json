@@ -5,6 +5,7 @@
   "confirmation_missing_id.json": "required",
   "confirmation_target_unmasked.json": "pattern",
   "five_options.json": "maxItems",
+  "label_with_arabic_indic_account_number.json": "pattern",
   "label_with_full_account_number.json": "pattern",
   "no_none_choice.json": "const",
   "unknown_card_type.json": "const"

@@ -1,9 +1,13 @@
 {
   "account_number_in_found.json": "pattern",
+  "arabic_indic_digits_in_found.json": "pattern",
   "case_ref_unmasked.json": "pattern",
   "confidence_member.json": "additionalProperties",
+  "fullwidth_digits_in_found.json": "pattern",
   "missing_next.json": "required",
+  "no_break_space_and_dash_digits_in_found.json": "pattern",
   "reason_codes_member.json": "additionalProperties",
+  "separated_digits_in_found.json": "pattern",
   "too_many_found.json": "maxItems",
   "verified_not_boolean.json": "type"
 }
