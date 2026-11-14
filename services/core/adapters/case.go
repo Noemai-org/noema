@@ -55,6 +55,9 @@ type WriteResult struct {
 	// ExistingCaseID is set on a refused create-if-absent: the case the target already holds for the subject and epoch.
 	// It is a name to read back, never this write's result.
 	ExistingCaseID string
+	// ExistingComplaintRef is set on a refused conditional complaint create (ClassDuplicateCreate): the complaint the target already holds for the case.
+	// It is a name to read back, never this write's result.
+	ExistingComplaintRef string
 	// RetryAfter is the target's Retry-After on a 429, if it sent one.
 	RetryAfter time.Duration
 	// Case is the case the target returned, when it returned one.

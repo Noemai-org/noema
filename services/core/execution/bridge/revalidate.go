@@ -14,6 +14,9 @@ const (
 	FactCaseStatus  = "case_status"
 	FactCaseVersion = "case_version"
 	FactOpenCases   = "open_cases"
+
+	// FactExistingComplaint: a complaint reference is already logged for the case (the descriptor's `existing_complaint_reference`).
+	FactExistingComplaint = "existing_complaint_reference"
 )
 
 // CaseRevalidator is E7 for mock-case: it re-reads exactly what the descriptors of the two capabilities name,
@@ -27,7 +30,8 @@ const (
 // The complaint capability has no revalidation: it has no dispatch (see CapLogComplaintReference), so a grant for it is voided here (REVALIDATION_UNAVAILABLE) and
 // nothing is written.
 type CaseRevalidator struct {
-	Case adapters.Case
+	Case    adapters.Case
+	Records adapters.CaseRecords
 }
 
 var _ controller.Revalidator = CaseRevalidator{}
