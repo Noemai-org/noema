@@ -70,7 +70,12 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 		return decide.FailStep(errAnswer)
 	}
 	if rec.EscalateReason == "" {
-		if freezeBlocks(rec, e.capability) {
+		// Nothing maps this classification to an escalation. A frozen target goes on only with a capability the pack allows under the freeze; an intent that names none has
+		// nothing that says what it may do (its plan's capabilities are checked against the freeze again at T14). Any other target goes on only on a settled classification.
+		if rec.Frozen && (e.capability == nil || freezeBlocks(rec, e.capability)) {
+			return decide.FailStep(errNoMapping)
+		}
+		if !rec.Frozen && !goesOnUnmapped(rec.Classification) {
 			return decide.FailStep(errNoMapping)
 		}
 		return decide.Continue()
@@ -78,11 +83,21 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 	return escalate(r, rec.EscalateReason, decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
 }
 
-// goesOnUnmapped reports whether a classification the pack maps to nothing lets the evaluation go on. (A stub: the fail-closed table follows the red run.)
-func goesOnUnmapped(reconcile.Classification) bool { return true }
+// goesOnUnmapped reports whether a classification the pack maps to nothing lets the evaluation go on. Only the classifications that name a settled, understood state do;
+// a contradiction, an unknown outcome, a possible duplicate, an uncertain event order, insufficient evidence and a value that is not a classification at all stop it, so
+// the pack may add escalations and is never the only thing between a contradiction and an ALLOW (INV-16, REQ-RES-001; the Security Reviewer's blocking finding on
+// noema#570). This is the provisional safer reading of PERD 22.3 and 23.3 (AGENT-20) until the Architect confirms or changes the two sets.
+func goesOnUnmapped(c reconcile.Classification) bool {
+	switch c {
+	case reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
+		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial:
+		return true
+	}
+	return false
+}
 
-// freezeBlocks reports that the target is frozen and the pack does not allow the requested capability under the freeze. An intent that names no capability asks
-// for no grant, so the freeze does not stop it.
+// freezeBlocks reports that the target is frozen and the pack does not allow the requested capability under the freeze. It needs a capability: the caller refuses a frozen
+// target that names none.
 func freezeBlocks(rec Reconciliation, c *Capability) bool {
 	if !rec.Frozen || c == nil {
 		return false

@@ -23,3 +23,15 @@ Updated 2026-11-14. The second of four PRs of the Trust assembly (the G1 card of
 
 ## Messages
 - 2026-11-14 · C1 → helper session (task statement): build T10 to T12 tests first; the helper's output is unreviewed input. Receiver used it for: this branch. Evidence: the two commits of `feat/TRU-06-intake-t10-t12`.
+
+## Session 2026-11-14 · TRU-06 · the Security Reviewer's blocking finding on noema#570 (T10)
+### Session summary
+- What changed (PR links): noema#570. T10 no longer lets a classification go on just because the pack mapped nothing: with no pack mapping, only the settled classifications (SUCCESS_CONFIRMED, REJECTED_CONFIRMED, REVERSED_CONFIRMED, DEBIT_POSTED_CREDIT_UNCONFIRMED, SETTLEMENT_PENDING, REVERSAL_PENDING, PARTIAL) go on; CONTRADICTORY_STATE, EXECUTION_OUTCOME_UNKNOWN, POSSIBLE_DUPLICATE, EVENT_ORDER_UNCERTAIN, INSUFFICIENT_EVIDENCE and any value that is not a classification fail closed (UNKNOWN INTERNAL_ERROR). A frozen target goes on only with a capability the pack allows under the freeze; an intent that names none now fails closed. A test reads the declared classifications out of `reconcile/types.go` and requires each to be in exactly one of the two sets, so a thirteenth cannot go on by default.
+- Why: INV-16 and "unknown means refuse or hand to the team"; the pack may add escalations but must not be the only thing between a contradiction and an ALLOW.
+- Risks, and how they are contained: **the split of the twelve classifications into the two sets is a provisional safer reading (AGENT-20), not a ruling.** If the Architect puts a classification in the other set, the table is one function and one test list. Red first at `1af4cadc` (three tests failed), then the implementation.
+- Not done here: the plan's capabilities are checked against the freeze at T14 (noema#572 and the integration after noema#567), because the plan does not exist at T10. The Security Reviewer's notes 3 to 6 (policy versions on the Record, the clock routing README, the snapshot's scope) are carried to that integration.
+- Tests added (REQ-RES-001, REQ-RES-002, INV-16): `TestT10GoesOnWhenThePackMapsNothingToASettledClassification`, `TestT10AClassificationThatMustNotGoOnFailsClosedWhenThePackMapsNothing`, `TestT10EveryDeclaredClassificationIsEitherSettledOrStopsWhenUnmapped`, `TestT10AFrozenTargetWithNoNamedCapabilityAndNoPackMappingFailsClosed`; replaced (not weakened): `TestT10GoesOnWhenThePackMapsNothing` (it asserted POSSIBLE_DUPLICATE goes on) and the "frozen, the intent names no capability" row of the freeze test.
+- Debt entries: none. Conflicts raised: none; an Architect question is on the PR.
+### Pre-work for the next agent
+- Exact next step: after noema#567 merges, merge `main` in and check the plan's capabilities against the freeze at T14.
+- Do not touch: the Reconciliation port's field names (they are the adapter's contract).
