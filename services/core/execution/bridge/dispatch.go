@@ -14,13 +14,11 @@ const (
 	CapCreateEscalationCase = "fin.cap.create_escalation_case"
 	CapRouteToInternalOwner = "fin.cap.route_to_internal_owner"
 
-	// The append-only evidence capability of EXE-05 slice 2 (ruling A157).
+	// The two append-only capabilities of EXE-05 slice 2 (ruling A157): evidence and a complaint reference on a case. The complaint is dispatched only as a create
+	// conditional on the case having no complaint (If-None-Match: *), because it is CONDITIONAL_WRITE and irreversible and E7 alone cannot close the race between two
+	// executions: the target's atomic create is the guard (ruling A185, noema#537; EXE-09). The Security Reviewer's P1 on noema#491 removed it until then.
 	CapRecordInvestigationEvidence = "fin.cap.record_investigation_evidence"
-
-	// CapLogComplaintReference is named only to say that it has no mapping: the pack declares it CONDITIONAL_WRITE on "no complaint for the subject and epoch", and
-	// mock-case's create is keyed by idempotency key alone, so two executions under distinct keys can both pass E7 and write two irreversible regulatory complaints
-	// (the Security Reviewer's P1 on noema#491). Until the target creates conditionally and atomically, neither Dispatch nor Revalidate handles it (AGENT-20).
-	CapLogComplaintReference = "fin.cap.log_complaint_reference"
+	CapLogComplaintReference       = "fin.cap.log_complaint_reference"
 )
 
 // Parameter names of the capabilities (the `input_schema` of their descriptors).
@@ -40,8 +38,7 @@ const (
 // A capability it has no mapping for, a parameter it does not know, and a conditional write sent without an
 // expected version are adapter defects, never calls: there is no callable path for them (REQ-CAP-002, REQ-EXE-004).
 //
-// Records is the evidence half of mock-case. With none, the append-only evidence capability has no mapping and Dispatch makes no call. The complaint capability has no
-// mapping with or without it (see CapLogComplaintReference).
+// Records is the evidence and complaint half of mock-case. With none, the two append-only capabilities have no mapping and Dispatch makes no call.
 type CaseDispatcher struct {
 	Case    adapters.Case
 	Records adapters.CaseRecords
@@ -78,6 +75,15 @@ func (d CaseDispatcher) Dispatch(ctx context.Context, req controller.DispatchReq
 			return defect(raw)
 		}
 		return fromWrite(d.Records.AppendEvidence(ctx, in))
+	case CapLogComplaintReference:
+		if d.Records == nil {
+			return defect("NO_ADAPTER_FOR_CAPABILITY")
+		}
+		in, raw := complaintInput(req, timeout)
+		if raw != "" {
+			return defect(raw)
+		}
+		return fromWrite(d.Records.LogComplaint(ctx, in))
 	}
 	return defect("NO_ADAPTER_FOR_CAPABILITY")
 }
@@ -166,4 +172,15 @@ func evidenceInput(req controller.DispatchRequest, timeout time.Duration) (adapt
 		return adapters.AppendEvidenceInput{}, "MISSING_PARAMETER"
 	}
 	return adapters.AppendEvidenceInput{IdempotencyKey: req.IdempotencyKey, TenantID: req.TenantID, CaseID: caseID, Payload: payload, Timeout: timeout}, ""
+}
+
+func complaintInput(req controller.DispatchRequest, timeout time.Duration) (adapters.LogComplaintInput, string) {
+	if k := unknownParam(req.Params, paramCaseID); k != "" {
+		return adapters.LogComplaintInput{}, "UNKNOWN_PARAMETER"
+	}
+	caseID, raw := targetCase(req)
+	if raw != "" {
+		return adapters.LogComplaintInput{}, raw
+	}
+	return adapters.LogComplaintInput{IdempotencyKey: req.IdempotencyKey, TenantID: req.TenantID, CaseID: caseID, Timeout: timeout}, ""
 }

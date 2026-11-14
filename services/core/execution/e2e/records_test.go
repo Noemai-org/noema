@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
 	"github.com/Noemai-org/noema/services/core/execution/bridge"
@@ -149,15 +150,18 @@ func TestAComplaintIsLoggedOnceThroughTheControllerToTheRealMockCase(t *testing.
 	}
 }
 
-// outcomeKinds counts what eight concurrent complaint executions came to: the receipts that say ACKNOWLEDGED, the receipts that say REJECTED_BY_TARGET, and the
-// grants voided before any write. Anything else is returned as "other".
-func complaintOutcomes(outs []controller.Outcome) (acked, rejected, voided, other int) {
+// complaintOutcomes counts what concurrent complaint executions came to: the receipts that say ACKNOWLEDGED, the receipts that say REJECTED_BY_TARGET, the grants voided
+// before any write, and the executions the database refused because the key's dispatch budget was spent (nothing spent, written or dispatched; ruling A153). Anything
+// else is "other".
+func complaintOutcomes(outs []controller.Outcome) (acked, rejected, voided, budget, other int) {
 	for _, o := range outs {
 		switch {
 		case o.Receipt != nil && o.Receipt.State == "ACKNOWLEDGED":
 			acked++
 		case o.Receipt != nil && o.Receipt.State == "REJECTED_BY_TARGET":
 			rejected++
+		case o.Receipt == nil && o.BudgetSpent:
+			budget++
 		case o.Receipt == nil && o.Void != "":
 			voided++
 		default:
@@ -169,10 +173,11 @@ func complaintOutcomes(outs []controller.Outcome) (acked, rejected, voided, othe
 
 // runAll executes every grant at once. Concurrent spends of one tenant contend for the head of its Record chain, and the database may refuse to serialise one of
 // them: the ledger documents that as "nothing was spent, the caller may try again" (execution/ledger/spend.go), so a refused spend is presented again, a bounded
-// number of times. The refusal happens before anything is dispatched, so it never makes a second write.
+// number of times, with a short growing pause so the contenders do not all collide again at once. The refusal happens before anything is dispatched, so it never
+// makes a second write.
 func runAll(t *testing.T, st *stack, grants []string) []controller.Outcome {
 	t.Helper()
-	const attempts = 30
+	const attempts = 200
 	var wg sync.WaitGroup
 	outs := make([]controller.Outcome, len(grants))
 	for i := range grants {
@@ -189,6 +194,7 @@ func runAll(t *testing.T, st *stack, grants []string) []controller.Outcome {
 					t.Errorf("grant %s, presentation %d: %v", grants[i], a, err)
 					return
 				}
+				time.Sleep(time.Duration(1+(a+i)%8) * time.Millisecond)
 			}
 		}()
 	}
@@ -217,18 +223,19 @@ func TestConcurrentComplaintsOfOneCaseCreateExactlyOne(t *testing.T) {
 	caseID := escalatedCase(t, st)
 	const n = 8
 	outs := runAll(t, st, complaintGrants(t, st, caseID, n))
-	acked, rejected, voided, other := complaintOutcomes(outs)
+	acked, rejected, voided, budget, other := complaintOutcomes(outs)
 	if got := len(st.complaintsOf(t, caseID)); got != 1 {
 		t.Fatalf("mock-case holds %d complaints after %d concurrent executions, want exactly 1", got, n)
 	}
-	if acked != 1 || other != 0 || acked+rejected+voided != n {
-		t.Fatalf("outcomes: %d acknowledged, %d refused by the target, %d voided, %d other; want exactly one acknowledged and no other kind", acked, rejected, voided, other)
+	if acked != 1 || other != 0 || acked+rejected+voided+budget != n {
+		t.Fatalf("outcomes: %d acknowledged, %d refused by the target, %d voided, %d over budget, %d other; want exactly one acknowledged and no other kind", acked, rejected, voided, budget, other)
 	}
 }
 
 // The target is the guard, not E7 (A185): with a revalidation that sees nothing (the window between E7 and E8 made certain, instead of waiting for the race), eight
-// distinct-key executions all dispatch, mock-case creates one complaint and refuses the other seven with 412, and the seven receipts say REJECTED_BY_TARGET: not
-// acknowledged, not unknown, and none carries a complaint reference as its own. Without the conditional create this test sees eight complaints.
+// distinct-key executions of one case all try to dispatch. The database lets a dispatch key (tenant, correlation, capability, target) dispatch twice at most (ruling
+// A153, migration 0023), so two reach mock-case: one creates the complaint and the other is refused with 412, REJECTED_BY_TARGET, carrying no reference as its own. The
+// other six are refused by the budget before anything is spent or sent. Without the conditional create this test sees two complaints.
 func TestTheTargetIsTheGuardWhenRevalidationSeesNothing(t *testing.T) {
 	mc := startMockCase(t)
 	st := newStack(t, mc)
@@ -236,12 +243,12 @@ func TestTheTargetIsTheGuardWhenRevalidationSeesNothing(t *testing.T) {
 	st.ctl.Reval = blindRevalidator{}
 	const n = 8
 	outs := runAll(t, st, complaintGrants(t, st, caseID, n))
-	acked, rejected, voided, other := complaintOutcomes(outs)
+	acked, rejected, voided, budget, other := complaintOutcomes(outs)
 	if got := len(st.complaintsOf(t, caseID)); got != 1 {
 		t.Fatalf("mock-case holds %d complaints, want exactly 1", got)
 	}
-	if acked != 1 || rejected != n-1 || voided != 0 || other != 0 {
-		t.Fatalf("outcomes: %d acknowledged, %d refused, %d voided, %d other; want 1, %d, 0, 0", acked, rejected, voided, other, n-1)
+	if acked != 1 || rejected != 1 || voided != 0 || budget != n-2 || other != 0 {
+		t.Fatalf("outcomes: %d acknowledged, %d refused, %d voided, %d over budget, %d other; want 1, 1, 0, %d, 0", acked, rejected, voided, budget, other, n-2)
 	}
 	for _, o := range outs {
 		if o.Receipt != nil && o.Receipt.State == "REJECTED_BY_TARGET" && (o.Receipt.ExternalAck != nil || o.Receipt.RawCode != "412:PRECONDITION_FAILED" || o.Receipt.TransportResult != "DUPLICATE_CREATE") {

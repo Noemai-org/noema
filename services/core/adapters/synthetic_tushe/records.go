@@ -88,7 +88,7 @@ func (c *CaseClient) LogComplaint(ctx context.Context, in adapters.LogComplaintI
 	if in.IdempotencyKey == "" || in.TenantID == "" || in.CaseID == "" || in.Timeout <= 0 {
 		return defect("INVALID_INPUT")
 	}
-	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases/"+url.PathEscape(in.CaseID)+"/complaints", nil, map[string]string{"Idempotency-Key": in.IdempotencyKey}, map[string]any{"tenant_id": in.TenantID}, in.Timeout)
+	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases/"+url.PathEscape(in.CaseID)+"/complaints", nil, map[string]string{"Idempotency-Key": in.IdempotencyKey, "If-None-Match": "*"}, map[string]any{"tenant_id": in.TenantID}, in.Timeout)
 	if res != nil {
 		return *res
 	}
@@ -133,7 +133,13 @@ func classifyEvidence(status int, h http.Header, raw []byte, in adapters.AppendE
 	})
 }
 
+// classifyComplaint reads the answer to a complaint create that is conditional on the case having no complaint (If-None-Match: *, A185). A 412 is the target saying a
+// complaint exists under another key: a business rejection (REJECTED_BY_TARGET), not an acknowledgement and not unknown, with the existing reference named and never
+// adopted as this write's result. Any other 412 is a plain rejection.
 func classifyComplaint(status int, h http.Header, raw []byte, in adapters.LogComplaintInput) adapters.WriteResult {
+	if status == http.StatusPreconditionFailed {
+		return refusedComplaint(status, raw)
+	}
 	return classifyKeyed(status, h, raw, func() (adapters.WriteResult, bool) {
 		var w wireComplaint
 		if strictJSON(h, raw, &w) != nil {
@@ -145,6 +151,20 @@ func classifyComplaint(status int, h http.Header, raw []byte, in adapters.LogCom
 		}
 		return adapters.WriteResult{Class: adapters.ClassAck2xx, ExternalAck: rec.ComplaintRef, Complaint: &rec}, true
 	})
+}
+
+func refusedComplaint(status int, raw []byte) adapters.WriteResult {
+	code, we := errCode(raw)
+	if code != "PRECONDITION_FAILED" {
+		return adapters.WriteResult{Class: adapters.ClassRejected4xx, RawCode: rawCode(status, code)}
+	}
+	r := adapters.WriteResult{Class: adapters.ClassDuplicateCreate, RawCode: rawCode(status, code)}
+	for _, d := range we.Error.Details {
+		if d.Field == "existing_complaint_ref" {
+			r.ExistingComplaintRef = d.Issue
+		}
+	}
+	return r
 }
 
 func malformed(status int, raw []byte) *adapters.ReadError {
