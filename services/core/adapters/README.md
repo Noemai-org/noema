@@ -29,3 +29,8 @@
 - The Execution bridge that turns a `WriteResult` into a controller `TransportResult` and the security event for `KeyCollision` (EXE tasks).
 
 **Tests.** `go test ./adapters/...` from `services/core/`.
+
+## Conditional complaint log (A185, noema#522; mock-case noema#537)
+
+`LogComplaintInput.IfNone` makes the log conditional on the case having no complaint yet (the precondition of `log_complaint_reference`, "no complaint for the subject and epoch"; a case is the subject and epoch). The case client then sends `If-None-Match: *`, and a `412 PRECONDITION_FAILED` answer is a refused create-if-absent: `ClassDuplicateCreate` with `ExistingComplaintRef` (the complaint the target holds, to read back; never this write's result, and a create has no version token). Any other 412 body is a plain rejection. Without `IfNone` nothing changes. Tests: `synthetic_tushe/complaint_conditional_test.go` (the documented answer shape, no database) and `outcome_e2e/complaint_conditional_test.go` (the real mock-case: one acknowledgement, a named refusal, a replay, and eight concurrent logs giving exactly one; CI). The bridge that maps the capability and carries the condition is C1's (noema#522).
+
