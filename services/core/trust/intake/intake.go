@@ -68,7 +68,7 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("intake: %w", err)
 	}
-	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version}
+	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version, basis: bb}
 	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), bb)
 	return Result{Decision: d, Trace: trace}, nil
 }

@@ -7,13 +7,14 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
 
-// evaluation holds what one Evaluate call learns as it goes: the admitted intent T1 read. It is private to the call and never shared.
+// evaluation holds what one Evaluate call learns as it goes: the admitted intent T1 read, and the basis builder. It is private to the call and never shared.
 type evaluation struct {
 	svc      *Service
 	req      Request
 	intentID string
 	version  int
 	intent   *AdmittedIntent
+	basis    *decide.BasisBuilder // the set this evaluation reads; T9 records the evidence into it
 }
 
 func (e *evaluation) steps() decide.Steps {
@@ -25,9 +26,9 @@ func (e *evaluation) steps() decide.Steps {
 		decide.T4Capability - 1:         e.t4,
 		decide.T5Scope - 1:              e.t5,
 		decide.T6TechnicalAuthority - 1: e.t6,
-		decide.T7TargetResolution - 1:   notBuilt,
-		decide.T8BusinessOwnership - 1:  notBuilt,
-		decide.T9Evidence - 1:           notBuilt,
+		decide.T7TargetResolution - 1:   e.t7,
+		decide.T8BusinessOwnership - 1:  e.t8,
+		decide.T9Evidence - 1:           e.t9,
 		decide.T10Reconciliation - 1:    notBuilt,
 		decide.T11Policy - 1:            notBuilt,
 		decide.T12Clocks - 1:            notBuilt,

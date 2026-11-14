@@ -25,6 +25,10 @@ type Request struct {
 	Session       Session
 	CorrelationID string
 	IntentRef     string // `int_<id>@<version>`: the admitted intent and the version the caller means
+	// EvidenceSnapshotID and EvidenceUnavailable are the orchestrator's EvidenceRef: the sealed snapshot the Evidence Layer built for the intent, and whether a source could not
+	// be read. T9 decides what they mean; nothing before T9 looks at them.
+	EvidenceSnapshotID  string
+	EvidenceUnavailable bool
 }
 
 // AdmittedIntent is what Trust needs of a stored, admitted Intent Object. The adapter reads it from the intent store and builds it; Trust does not parse the model's text.
@@ -77,11 +81,15 @@ type Authority interface {
 	RoleAllowed(ctx context.Context, intentNode, role string) (bool, error)
 }
 
-// Ports are the adapters the intake needs for T1 to T6. A nil port makes Evaluate refuse to run.
+// Ports are the adapters the intake needs for T1 to T9. A nil port makes Evaluate refuse to run. Candidates, Ownership and Evidence are the only ports that read about a
+// target (ports_t7_t9.go), and only T7, T8 and T9 hold them.
 type Ports struct {
 	Intents      Intents
 	Writes       Writes
 	Capabilities Capabilities
 	Scope        Scope
 	Authority    Authority
+	Candidates   Candidates
+	Ownership    Ownership
+	Evidence     Evidence
 }
