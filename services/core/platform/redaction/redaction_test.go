@@ -509,3 +509,61 @@ func TestNestingIsCutAtTheDepthBound(t *testing.T) {
 		t.Errorf("a 50-deep value should be cut: %s", out)
 	}
 }
+
+
+// Codex P2 on e095b99 (key classification): a field whose NAME says it holds a private key or raw audio is removed whatever its value looks like. Alphabetic or base64
+// content has no digit run for the masker to catch, so the name is the only signal (AGENT-13: never log secrets or raw audio). Nested maps and groups are covered.
+func TestAFieldNamedAsAPrivateKeyOrRawAudioIsRemovedWhatItsValueLooksLike(t *testing.T) {
+	const pem = "SYNTHETIC-PRIVATE-KEY-ABCDEFGHIJKLMNOP"
+	const audio = "SYNTHETICAUDIOBASE64QUJDREVGR0g"
+	out := logged(t, func(l *slog.Logger) {
+		l.Info("m", "private_key", pem, "raw_audio", audio, "PrivateKey", pem, "signing_key", pem, "rawAudio", audio)
+		l.Info("n", "payload", map[string]string{"private_key": pem, "raw_audio": audio, "note": "kept"})
+		l.WithGroup("raw_audio").Info("o", "chunk", audio)
+	})
+	for _, leak := range []string{pem, audio, "ABCDEFGHIJKLMNOP", "QUJDREVGR0g"} {
+		if strings.Contains(out, leak) {
+			t.Errorf("%q reached the output: %s", leak, out)
+		}
+	}
+	if !strings.Contains(out, `"note":"kept"`) {
+		t.Errorf("a non-secret member of the same map was lost: %s", out)
+	}
+	attrs := redaction.New().FilterAttributes(map[string]string{"private_key": pem, "raw_audio": audio, "span": "ok"})
+	if attrs["private_key"] != redaction.Redacted || attrs["raw_audio"] != redaction.Redacted || attrs["span"] != "ok" {
+		t.Errorf("the trace attribute filter did not remove the named fields: %v", attrs)
+	}
+}
+
+// A size or count of audio is a number, not audio: the exempt integer under a key ending _bytes still passes (the name rule above must not catch it).
+func TestAnAudioSizeInBytesIsStillANumberAndNotRemoved(t *testing.T) {
+	out := logged(t, func(l *slog.Logger) { l.Info("m", "audio_bytes", int64(123456)) })
+	if !strings.Contains(out, `"audio_bytes":123456`) {
+		t.Errorf("an exempt size field was removed: %s", out)
+	}
+}
+
+// Codex P2 on e095b99 (node budget): a wide slice or map must not be materialised member by member after the budget is gone. A flat slice of 10,000 strings is replaced by one
+// [REDACTED] and never emits thousands of attributes; the record stays small whatever the input width.
+func TestAWideSliceOrMapIsReplacedOnceAndNeverMaterialisedMemberByMember(t *testing.T) {
+	wide := make([]string, 10000)
+	for i := range wide {
+		wide[i] = "value"
+	}
+	wideMap := make(map[string]string, 10000)
+	for i := range wide {
+		wideMap[fmt.Sprintf("k%d", i)] = "value"
+	}
+	for name, v := range map[string]any{"slice": wide, "map": wideMap} {
+		out := logged(t, func(l *slog.Logger) { l.Info("m", "payload", v) })
+		if n := strings.Count(out, `"value"`); n > 4096 {
+			t.Errorf("%s: %d members were emitted, want at most the node budget", name, n)
+		}
+		if len(out) > 1<<16 {
+			t.Errorf("%s: the record is %d bytes, want it bounded", name, len(out))
+		}
+		if !strings.Contains(out, redaction.Redacted) {
+			t.Errorf("%s: the excess was not replaced by %s: %.200s", name, redaction.Redacted, out)
+		}
+	}
+}

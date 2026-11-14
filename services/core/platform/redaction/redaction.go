@@ -65,7 +65,7 @@ var numericSuffixes = []string{"_minor", "_count", "_bytes", "_ms", "_s", "_seco
 
 var (
 	runPattern    = regexp.MustCompile(`\p{Nd}(?:[ \-]?\p{Nd})*`)
-	secretPattern = regexp.MustCompile(`(?i)(api[_-]?key|authorization|auth|token|secret|password|passwd|credential|bearer)`)
+	secretPattern = regexp.MustCompile(`(?i)(api[_-]?key|authorization|auth|token|secret|password|passwd|credential|bearer|private[_-]?key|signing[_-]?key|raw[_-]?audio)`)
 	typedIDRe     = regexp.MustCompile(`[a-z]{2,6}_[0-7][0-9A-HJKMNP-TV-Z]{25}`)
 	timestampRe   = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})`)
 )
@@ -252,6 +252,9 @@ func (r *Redactor) redactValue(a slog.Attr, force bool, depth int, budget *int) 
 	}
 	if v.Kind() == slog.KindGroup {
 		group := v.Group()
+		if len(group) > *budget {
+			return slog.String(a.Key, Redacted) // wider than the budget left: replaced once, never expanded member by member (Codex P2 on e095b99)
+		}
 		out := make([]any, len(group))
 		for i, g := range group {
 			out[i] = r.redactNode(g, force, depth+1, budget)
@@ -288,24 +291,36 @@ func (r *Redactor) redactAny(key string, x any, force bool, depth int, budget *i
 	case fmt.Stringer:
 		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(t)))
 	case map[string]string:
+		if len(t) > *budget {
+			return slog.String(key, Redacted)
+		}
 		attrs := make([]any, 0, len(t))
 		for _, k := range sortedKeys(t) {
 			attrs = append(attrs, slog.String(k, t[k]))
 		}
 		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case map[string]any:
+		if len(t) > *budget {
+			return slog.String(key, Redacted)
+		}
 		attrs := make([]any, 0, len(t))
 		for _, k := range sortedKeys(t) {
 			attrs = append(attrs, slog.Any(k, t[k]))
 		}
 		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case []string:
+		if len(t) > *budget {
+			return slog.String(key, Redacted)
+		}
 		attrs := make([]any, len(t))
 		for i, s := range t {
 			attrs[i] = slog.String(fmt.Sprint(i), s)
 		}
 		return r.redactNode(slog.Group(key, attrs...), force, depth+1, budget)
 	case []any:
+		if len(t) > *budget {
+			return slog.String(key, Redacted)
+		}
 		attrs := make([]any, len(t))
 		for i, e := range t {
 			attrs[i] = slog.Any(fmt.Sprint(i), e)
