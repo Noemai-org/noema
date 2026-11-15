@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -23,6 +24,9 @@ const (
 	schemaV    = "2.0"
 	emitter    = "core-trust"
 	timeLayout = "2006-01-02T15:04:05.000Z"
+
+	pgUniqueViolation    = "23505"
+	confirmationEventKey = "confirmation_spend_event_key" // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
 )
 
 // Errors of Write. Callers compare with errors.Is.
@@ -88,6 +92,7 @@ var (
 	packVersionRe = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]+\.[0-9]+(\.[0-9]+)?$`)
 	packRe        = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$`)
 	decisionRe    = regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`)
+	confirmRe     = regexp.MustCompile(`^cfe_[0-9A-Za-z]{2,32}$`)
 )
 
 // Write checks the request, then in tx: appends DECISION_MADE, inserts the signed record, and for each step issues, inserts and records a grant. It never
@@ -167,9 +172,21 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value); err != nil {
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
 	}
+	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
+	// earlier), so a retry never reaches this insert. The unique key is the single-use rule; a second spend is the typed error and the caller rolls back.
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" {
+		if _, err := tx.Exec(ctx, `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id) VALUES ($1, $2, $3)`, r.TenantID, r.ConfirmationEventID, decisionID); err != nil {
+			var pg *pgconn.PgError
+			if errors.As(err, &pg) && pg.Code == pgUniqueViolation && pg.ConstraintName == confirmationEventKey {
+				return Result{}, ErrConfirmationSpent
+			}
+			return Result{}, fmt.Errorf("%sspend the confirmation: %w", errPrefix, err)
+		}
+	}
 	res := Result{Record: rec}
 	for i, s := range r.Steps {
 		s.TenantID, s.CorrelationID, s.DecisionID, s.IntentHash, s.PolicyID = r.TenantID, r.CorrelationID, decisionID, r.IntentHash, r.PolicyID
+		s.ConfirmationEventID = r.ConfirmationEventID // the grant follows the confirmation the decision spent; the caller's own claim on the step is not used
 		g, err := w.Issuer.Issue(d, s)
 		if err != nil {
 			return Result{}, fmt.Errorf("%sgrant %d: %w", errPrefix, i, err)
@@ -202,7 +219,8 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !intentRe.MatchString(r.IntentID), !hashRe.MatchString(string(r.IntentHash)),
-		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID):
+		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID),
+		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID):
 		return decide.Basis{}, "", ErrRequest
 	}
 	d := r.Decision

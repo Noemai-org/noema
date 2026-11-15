@@ -12,6 +12,13 @@
 // is returned and the caller rolls back, so the record, the grants and the events appear together or not at all. A failed append fails the write, so a
 // grant never exists without its event.
 //
+// A given confirmation is spent once (TRU-07 follow-up, migration 0028; REQ-TRU-008, REQ-TRU-009; INV-17): when the request names a confirmation event
+// (Request.ConfirmationEventID) and the decision is an ALLOW whose row is newly written, one confirmation_spend row is inserted right after the Decision Record,
+// in the same transaction. Its unique key (tenant, confirmation event) makes a second decision that names the same confirmation fail with ErrConfirmationSpent,
+// however two evaluations interleave. A retry of the same input returns the stored decision before this insert (A186), so it spends nothing. Every grant
+// follows the confirmation the decision spent: the writer sets it, a step's own claim is not used. A stored decision is returned for the same input whatever
+// confirmation the retry names; that retry spends nothing and gains nothing.
+//
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.
 package recorder
