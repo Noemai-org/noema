@@ -8,6 +8,7 @@ package mapping_test
 // never defaulted (absence is never a negative fact, INV-19); the same input gives the same rows (INV-21); a mapping that is not whole fails at load, not at the first read.
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -27,6 +28,9 @@ const (
 )
 
 var pack = filepath.Join("..", "..", "..", "..", "..", "packs", "fintech")
+
+// expected is the identity and version the caller (the composition, from the pack manifest) expects of the mapping file: Parse refuses any other (the Security Reviewer's blocking finding on noema#589).
+const expected = "fin.map.v1@1"
 
 func ruleSet(t *testing.T) *reconcile.RuleSet {
 	t.Helper()
@@ -73,7 +77,7 @@ func realFile(t *testing.T) []byte {
 
 func load(t *testing.T) *mapping.Mapping {
 	t.Helper()
-	m, err := mapping.Parse(realFile(t), ruleSet(t), sources(t))
+	m, err := mapping.Parse(realFile(t), ruleSet(t), sources(t), expected)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +205,9 @@ func TestOnlyTheThreeEntitiesTheStandInsPortsProvideAreMapped(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if len(rows) == 0 {
+			t.Fatalf("%s gave no row at all: the loop below would pass for the wrong reason", src)
+		}
 		for _, r := range rows {
 			if r.Entity == "settlement" || r.Entity == "reversal" {
 				t.Errorf("%s gave a %s row", src, r.Entity)
@@ -251,13 +258,21 @@ func TestTheSameInputGivesTheSameRows(t *testing.T) {
 
 func TestTheValuesAreTypedEnumValuesOfTheRuleSet(t *testing.T) {
 	m := load(t)
-	rows, _ := m.Rows(ledger, entries(entry("DEBIT", "POSTED")))
+	rows, err := m.Rows(ledger, entries(entry("DEBIT", "POSTED")))
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("rows = %v, err = %v: the loop below would pass for the wrong reason", rows, err)
+	}
+	set := 0
 	for _, r := range rows {
 		for name, v := range r.Fields {
+			set++
 			if v.Kind != predicate.KindEnum {
 				t.Errorf("%s.%s has kind %v, want an enum value", r.Entity, name, v.Kind)
 			}
 		}
+	}
+	if set == 0 {
+		t.Fatal("a posted debit set no field: the loop above checked nothing")
 	}
 }
 
@@ -332,12 +347,12 @@ func TestAMappingThatIsNotWholeIsRefusedAtLoad(t *testing.T) {
 		"a version that is not positive":        func(m map[string]any) { m["version"] = 0 },
 	}
 	for name, change := range bad {
-		if _, err := mapping.Parse(edit(t, change), rs, src); err == nil {
+		if _, err := mapping.Parse(edit(t, change), rs, src, expected); err == nil {
 			t.Errorf("%s: a mapping that is not whole was accepted", name)
 		}
 	}
 	for name, data := range map[string][]byte{"not JSON": []byte("{"), "two documents": append(realFile(t), realFile(t)...), "an array": []byte("[]"), "empty": nil} {
-		if _, err := mapping.Parse(data, rs, src); err == nil {
+		if _, err := mapping.Parse(data, rs, src, expected); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -370,8 +385,56 @@ func TestARepeatedMemberAtAnyDepthIsRefused(t *testing.T) {
 		if data == good {
 			t.Fatalf("%s: the edit did not change the document", name)
 		}
-		if _, err := mapping.Parse([]byte(data), rs, src); err == nil {
+		if _, err := mapping.Parse([]byte(data), rs, src, expected); err == nil {
 			t.Errorf("%s: a repeated member was accepted", name)
 		}
+	}
+}
+
+// --- the mapping is the version the caller expects, SYNTHETIC, and bounded (the Security Reviewer's blocking finding and notes 1 and 3 on noema#589) --------------------------------
+
+func TestAMappingOfAnotherIdentityOrVersionThanTheCallerExpectsIsRefused(t *testing.T) {
+	rs, src := ruleSet(t), sources(t)
+	for _, want := range []string{"fin.map.v1@2", "fin.map.v2@1", "other@1", "fin.map.v1", "@1", "", "fin.map.v1@1 ", " fin.map.v1@1", "fin.map.v1@01"} {
+		if _, err := mapping.Parse(realFile(t), rs, src, want); err == nil {
+			t.Errorf("expected %q: the real file loaded", want)
+		}
+	}
+	for name, change := range map[string]func(m map[string]any){
+		"version 2":                func(m map[string]any) { m["version"] = 2 },
+		"another id":               func(m map[string]any) { m["mapping_id"] = "anything" },
+		"version 2 and another id": func(m map[string]any) { m["version"], m["mapping_id"] = 2, "fin.map.v2" },
+	} {
+		if _, err := mapping.Parse(edit(t, change), rs, src, expected); err == nil {
+			t.Errorf("%s: a file that is not %s loaded", name, expected)
+		}
+	}
+	if m, err := mapping.Parse(realFile(t), rs, src, expected); err != nil || m.ID() != expected {
+		t.Errorf("the expected file does not load: %v", err)
+	}
+}
+
+func TestALabelThatIsNotSyntheticIsRefused(t *testing.T) {
+	rs, src := ruleSet(t), sources(t)
+	for _, label := range []any{"LIVE", "", "synthetic", "SYNTHETIC ", "REAL", nil} {
+		l := label
+		if _, err := mapping.Parse(edit(t, func(m map[string]any) { m["label"] = l }), rs, src, expected); err == nil {
+			t.Errorf("label %v: the file loaded", l)
+		}
+	}
+	if _, err := mapping.Parse(edit(t, func(m map[string]any) { delete(m, "label") }), rs, src, expected); err == nil {
+		t.Error("no label: the file loaded")
+	}
+}
+
+func TestAMappingThatIsTooLargeOrTooDeepIsRefusedBeforeItIsDecoded(t *testing.T) {
+	rs, src := ruleSet(t), sources(t)
+	deep := `{"mapping_id":"fin.map.v1","version":1,"label":"SYNTHETIC","ruleset":"` + rs.ID() + `","note":` + strings.Repeat("[", 5000) + strings.Repeat("]", 5000) + `,"rows":[]}`
+	if _, err := mapping.Parse([]byte(deep), rs, src, expected); err == nil || !strings.Contains(err.Error(), "too deep") {
+		t.Errorf("a document nested 5000 deep: err = %v, want 'too deep'", err)
+	}
+	big := append(realFile(t), bytes.Repeat([]byte(" "), 2<<20)...)
+	if _, err := mapping.Parse(big, rs, src, expected); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("a document of more than 2 MiB: err = %v, want 'too large'", err)
 	}
 }
