@@ -58,6 +58,19 @@ def preflight(frozen: Json, template_digest: str, template_version: int) -> None
     for path, digest in frozen["harness_configs"].items():
         if hashlib.sha256((ROOT / path).read_bytes()).hexdigest() != digest:
             raise PreflightError(f"{path} differs from the frozen one")
+    masking_limits_preflight(frozen.get("masking_limits"))
+
+
+def masking_limits_preflight(limits: Any) -> None:
+    """The masking floor is no longer in the two hashed configurations (re-freeze of 13 Nov 2026, A162): it is the shared `masking-limits.v1`, pinned here by the hash of its pack file and of
+    its schema, so a run whose floor is not the recorded one does not start."""
+    if not isinstance(limits, dict):
+        raise PreflightError("the record pins no masking-limits.v1 (masking_limits is missing)")
+    for file_key, hash_key in (("file", "sha256"), ("schema", "schema_sha256")):
+        if hashlib.sha256((ROOT / limits[file_key]).read_bytes()).hexdigest() != limits[hash_key]:
+            raise PreflightError(f"{limits[file_key]} differs from the frozen one")
+    if json.loads((ROOT / limits["file"]).read_text(encoding="utf-8"))["max_unmasked_digit_run"] != limits["max_unmasked_digit_run"]:
+        raise PreflightError("the masking floor in the pack file is not the recorded one")
 
 
 def pilot_cases(cases: list[Json]) -> list[Json]:
