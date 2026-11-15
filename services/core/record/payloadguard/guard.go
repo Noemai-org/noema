@@ -41,15 +41,16 @@ var digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}\p{Cf}\p{M}.\-/\x{2010}-\x{
 var keyID = regexp.MustCompile(`\A[a-z][a-z0-9-]*\.(?:ed25519|x25519)\.[0-9]{1,4}\z`)
 
 // typedIDPrefixes are the prefixes of the typed IDs of contracts/schemas/common.v1.json (`<prefix>_` and 2 to 32 letters or digits). guard_test.go reads the contract and fails
-// when this list and the contract's ID definitions disagree.
-var typedIDPrefixes = []string{"req", "corr", "ten", "ses", "inv", "int", "cns", "clr", "evr", "evs", "rec", "dec", "cfr", "cfe", "pln", "grt", "idk", "rcp", "ver", "wat", "rrq", "exp", "evt", "recev", "mem", "usr"}
+// when this list and the contract's ID definitions disagree. `idk` is not here: since noema#564 the contract's IdempotencyKeyId is `idk_v1_` and 64 hex, which is matched whole below, so
+// a short `idk_<letters or digits>` is no ID and gets no exemption.
+var typedIDPrefixes = []string{"req", "corr", "ten", "ses", "inv", "int", "cns", "clr", "evr", "evs", "rec", "dec", "cfr", "cfe", "pln", "grt", "rcp", "ver", "wat", "rrq", "exp", "evt", "recev", "mem", "usr"}
 
 // TypedIDPrefixes returns a copy of the prefixes the guard treats as typed IDs.
 func TypedIDPrefixes() []string { return append([]string(nil), typedIDPrefixes...) }
 
 // typedIDs are the typed values of the contracts, whole-string: the typed IDs of contracts/schemas/common.v1.json (a prefix and 2 to 32 letters or digits), the intent
 // reference (`int_...@version`), the content hash (`sha256:` and 64 hex), the keyed hash of the input (`hmac-sha256:` and 64 hex), the idempotency key as PERD 27.2 writes
-// it (`idk_v1_` and 64 hex: common.v1's IdempotencyKeyId allows only 32 characters, which the real key does not fit; see the PR) and the grant nonce of decision-grant.v1
+// it (`idk_v1_` and 64 hex, which common.v1's IdempotencyKeyId says since noema#564) and the grant nonce of decision-grant.v1
 // (`n_` and 4 to 64 hex), and the lower-case UUID that canonical-input.v2 types the client's request ID as (the input gateway records it in INPUT_RECEIVED; common.v1's RequestId
 // is `req_` and up to 32 characters, which that UUID does not fit: see the PR). guard_test.go reads common.v1.json and fails when the typed ID prefixes here and the contract disagree.
 //
