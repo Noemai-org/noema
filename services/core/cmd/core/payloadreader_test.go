@@ -21,7 +21,7 @@ import (
 )
 
 func payloadEnv(dir string) Env {
-	e := envMap{EnvTrustDSNDir: dir}
+	e := envMap{EnvTrustDSNDir: dir, EnvPayloadMaxBytes: "4096"}
 	return Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
 }
 
@@ -87,7 +87,7 @@ func newPayloadWorld(t *testing.T) *payloadWorld {
 	if _, err := db.Migrate(deadline(t), admin, migrations.FS); err != nil {
 		t.Fatal(err)
 	}
-	w := &payloadWorld{r: &trustPayloads{pools: map[string]*pgxpool.Pool{}}, ev: map[string]*pgxpool.Pool{}}
+	w := &payloadWorld{r: &trustPayloads{pools: map[string]*pgxpool.Pool{}, maxBytes: testPayloadMax}, ev: map[string]*pgxpool.Pool{}}
 	for _, tenant := range []string{"ten_aa", "ten_bb"} {
 		if _, err := admin.Exec(deadline(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, 'Synthetic bank')`, tenant); err != nil {
 			t.Fatal(err)
@@ -164,5 +164,59 @@ func TestAnUnusableCallIsRefusedBeforeTheDatabaseIsAsked(t *testing.T) {
 	var nilReader *trustPayloads
 	if _, err := nilReader.Read(deadline(t), "ten_aa", "pay_AA11"); !errors.Is(err, ErrPayloadUnusable) {
 		t.Errorf("a nil reader: err %v, want ErrPayloadUnusable", err)
+	}
+}
+
+// testPayloadMax is the bound the world's reader is built with: a test number, not a policy (AGENT-16: the real one is configuration with no default).
+const testPayloadMax = 256
+
+// Security Reviewer's condition on noema#599 (the read had no byte limit): the bound is configuration with no default. With the directory set and the bound absent, zero,
+// negative or not a number, the reader does not build, and the error names the setting. With the directory unset there is still no reader and no error.
+func TestThePayloadBoundIsConfigurationWithNoDefault(t *testing.T) {
+	dir, _ := dsnDir(t, map[string]string{"ten_aa": synthDSN("trust_rw_aa")})
+	for name, value := range map[string]string{"absent": "", "zero": "0", "negative": "-1", "not a number": "lots", "a decimal": "1.5", "too long": "99999999999999999999"} {
+		e := envMap{EnvTrustDSNDir: dir}
+		if value != "" {
+			e[EnvPayloadMaxBytes] = value
+		}
+		r, closer, err := buildPayloadReader(t.Context(), Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir})
+		if err == nil || r != nil || !strings.Contains(err.Error(), EnvPayloadMaxBytes) {
+			t.Errorf("%s: reader %v, err %v; want no reader and an error naming %s", name, r, err, EnvPayloadMaxBytes)
+		}
+		if closer != nil {
+			closer()
+		}
+	}
+	if r, closer, err := buildPayloadReader(t.Context(), payloadEnv(dir)); err != nil || r == nil || r.maxBytes != 4096 {
+		t.Fatalf("a good setting: reader %v, err %v", r, err)
+	} else {
+		closer()
+	}
+}
+
+// A payload over the bound is not returned and is not read into memory: the answer is ErrPayloadTooLarge, which names no content, and a payload at exactly the bound is
+// returned. The bound is applied in SQL (octet_length of the JSON text), so an oversize row never leaves the database.
+func TestAPayloadOverTheBoundIsRefusedAndOneAtTheBoundIsRead(t *testing.T) {
+	w := newPayloadWorld(t)
+	atBound := `{"v":"` + strings.Repeat("x", testPayloadMax-len(`{"v": ""}`)) + `"}`
+	over := `{"v":"` + strings.Repeat("y", testPayloadMax) + `"}`
+	w.put(t, "ten_aa", "pay_AT11", atBound)
+	w.put(t, "ten_aa", "pay_OV11", over)
+	var n int
+	if err := w.r.pools["ten_aa"].QueryRow(deadline(t), `SELECT octet_length(json::text) FROM evidence_payload WHERE payload_ref = 'pay_AT11'`).Scan(&n); err != nil || n != testPayloadMax {
+		t.Fatalf("the test row at the bound is %d bytes (err %v), want %d", n, err, testPayloadMax)
+	}
+	if got, err := w.r.Read(deadline(t), "ten_aa", "pay_AT11"); err != nil || len(got) == 0 {
+		t.Fatalf("a payload at the bound: %d bytes, err %v", len(got), err)
+	}
+	got, err := w.r.Read(deadline(t), "ten_aa", "pay_OV11")
+	if !errors.Is(err, ErrPayloadTooLarge) || got != nil {
+		t.Fatalf("an oversize payload: %d bytes, err %v; want ErrPayloadTooLarge and nothing", len(got), err)
+	}
+	if strings.Contains(err.Error(), "yyyy") {
+		t.Errorf("the error carries content: %v", err)
+	}
+	if _, err := w.r.Read(deadline(t), "ten_aa", "pay_NONE"); !errors.Is(err, ErrPayloadNotFound) {
+		t.Errorf("a missing reference: %v, want ErrPayloadNotFound (not ErrPayloadTooLarge)", err)
 	}
 }
