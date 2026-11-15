@@ -259,3 +259,42 @@ func TestTwoResumesAtOnceDispatchTheGrantOnce(t *testing.T) {
 		t.Errorf("the Record holds %d GRANT_SPENT for %s; want 1", spent, g)
 	}
 }
+
+// Security Reviewer, note 1 on noema#576 and A216: the dispatch count is derived from the Record by the idempotency key, so a recovery grant for the same write must carry
+// the same key as the first (PERD §27.2: the key is a function of tenant, principal, transaction, action, reason, policy scope and epoch; the epoch changes only when the
+// prior case is verified closed, never on a recovery). The target drops the first create before it commits; the receipt is OUTCOME_UNKNOWN; Outcome verifies by key that
+// the case is absent (NOT_ACHIEVED, not UNKNOWN: the check could read); the run recovers under a second grant, which commits. Two grants, one key, two dispatches counted
+// from the Record under either grant, and the target holds one case.
+func TestRunWriteRecoversAfterAWriteThatNeverCommittedUnderTheSameKey(t *testing.T) {
+	r := newRWRig(t)
+	r.s.bench.loadPlan(t, planWith(t, "fp_runwrite_timeout_before_commit_v1", fault("create_case", "TIMEOUT_BEFORE_COMMIT", map[string]any{"delay_ms": 3500})))
+	res, err := r.run.RunWrite(bg(t), rwSession, rwTurn)
+	if err != nil {
+		t.Fatalf("%v (states %v)", err, r.d.states())
+	}
+	if res.Investigation.State != "COMPLETED" || len(r.d.grants) != 2 {
+		t.Fatalf("final %s, grants %v (states %v); want COMPLETED under two grants", res.Investigation.State, r.d.grants, r.d.states())
+	}
+	if !containsState(r.d.states(), "RECOVERING") {
+		t.Errorf("states %v: want a RECOVERING move between the two dispatches", r.d.states())
+	}
+	received, committed := creates(r.s.bench.commands(t), theKey())
+	if received != 2 || committed != 1 {
+		t.Fatalf("the target received %d creates under the key and committed %d; want 2 and 1 (the first never committed)", received, committed)
+	}
+	for _, g := range r.d.grants {
+		p, err := r.journal.Progress(bg(t), rwSession, rwTurn.InvestigationID, g)
+		if err != nil || !p.GrantSpent || p.KeyDispatches != 2 {
+			t.Errorf("Journal for %s: %+v, %v; want spent and 2 dispatches of the key (both grants share it)", g, p, err)
+		}
+	}
+}
+
+func containsState(states []orchestrator.State, want orchestrator.State) bool {
+	for _, s := range states {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
