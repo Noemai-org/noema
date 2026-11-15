@@ -17,6 +17,7 @@ from fractions import Fraction
 from math import floor
 from typing import Any
 
+from noema_model.understanding.compiler.lexicon import MAX_SURFACE
 from noema_model.understanding.pipeline import MentionProposal, NodeCatalogue, NormalisedSlots, Outcome, PipelineResult, Proposal
 from noema_model.understanding.pipeline.catalogue import SlotInfo
 from noema_model.understanding.resolution import Resolution, ResolutionState
@@ -41,6 +42,22 @@ class Identifiers:
     raw_ref: str
 
 
+MAX_DIGIT_RUN = 4  # the Record guard's limit (noema#536): a stored string holds no run of more than four digits
+_DIGIT_RUN = re.compile(r"\d(?:[ -]?\d)*")  # digits in any script, one space or hyphen allowed between two: the guard's own definition of a run
+
+
+def _longest_digit_run(text: str) -> int:
+    return max((sum(1 for c in run.group() if c.isdecimal()) for run in _DIGIT_RUN.finditer(text)), default=0)
+
+
+def _surface(surface: str, text: str) -> str | None:
+    """The customer's own words, or nothing. A surface form the model proposes enters the object only if it is a span of the text the model was given, is no longer than the lexicon's bound and holds no run of
+    more than four digits (the Record's guard would refuse such a stored string: an unknown outcome for a harmless request, and a way to carry model text into the Record). The model is unreviewed output; this is the boundary."""
+    if not surface or len(surface) > MAX_SURFACE or surface not in text or _longest_digit_run(surface) > MAX_DIGIT_RUN:
+        return None
+    return surface
+
+
 def _basis_points(value: float | Fraction) -> int:
     """Floored, clamped to [0, 10000]. A float is read as its shortest decimal (0.29 is 2900, not 2899)."""
     exact = Fraction(str(value)) if isinstance(value, float) else value
@@ -51,25 +68,28 @@ def _timestamp(moment: Any) -> str:
     return str(moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
 
 
-def _quantity(mention: MentionProposal | None, normalised: NormalisedSlots) -> dict[str, Any] | None:
+def _quantity(mention: MentionProposal | None, normalised: NormalisedSlots, text: str) -> dict[str, Any] | None:
     if mention is None or not mention.present or normalised.amount_minor is None or not normalised.currency:
         return None
     slot: dict[str, Any] = {"type": "Quantity", "value": normalised.amount_minor, "unit": normalised.currency, "status": _RESOLVED, "confidence": _basis_points(mention.confidence)}
-    if mention.surface_form:
-        slot["surface_form"] = mention.surface_form
+    surface = _surface(mention.surface_form, text)
+    if surface is not None:  # the value is the lexicon's; only the quotation is withheld when it is not the customer's bounded words
+        slot["surface_form"] = surface
     return slot
 
 
-def _party(mention: MentionProposal | None) -> dict[str, Any] | None:
-    if mention is None or not mention.present or not mention.surface_form:
+def _party(mention: MentionProposal | None, text: str) -> dict[str, Any] | None:
+    surface = None if mention is None or not mention.present else _surface(mention.surface_form, text)
+    if mention is None or surface is None:
         return None
-    return {"type": "Party", "surface_form": mention.surface_form, "confidence": _basis_points(mention.confidence)}
+    return {"type": "Party", "surface_form": surface, "confidence": _basis_points(mention.confidence)}
 
 
-def _time_ref(mention: MentionProposal | None, normalised: NormalisedSlots) -> dict[str, Any] | None:
-    if mention is None or not mention.present or not mention.surface_form:
+def _time_ref(mention: MentionProposal | None, normalised: NormalisedSlots, text: str) -> dict[str, Any] | None:
+    surface = None if mention is None or not mention.present else _surface(mention.surface_form, text)
+    if mention is None or surface is None:
         return None
-    slot: dict[str, Any] = {"type": "TimeRef", "surface_form": mention.surface_form, "confidence": _basis_points(mention.confidence)}
+    slot: dict[str, Any] = {"type": "TimeRef", "surface_form": surface, "confidence": _basis_points(mention.confidence)}
     if normalised.window is None:
         slot["status"] = _UNRESOLVED
     else:
@@ -96,14 +116,14 @@ def _resource(resolution: Resolution | None) -> dict[str, Any]:
     return slot
 
 
-def _slot(info: SlotInfo, proposal: Proposal, normalised: NormalisedSlots, resolution: Resolution | None) -> dict[str, Any] | None:
+def _slot(info: SlotInfo, proposal: Proposal, normalised: NormalisedSlots, resolution: Resolution | None, text: str) -> dict[str, Any] | None:
     mention = proposal.mentions.get(info.name)
     if info.slot_type == "Quantity":
-        return _quantity(mention, normalised)
+        return _quantity(mention, normalised, text)
     if info.slot_type == "Party":
-        return _party(mention)
+        return _party(mention, text)
     if info.slot_type == "TimeRef":
-        return _time_ref(mention, normalised)
+        return _time_ref(mention, normalised, text)
     if info.slot_type == "Resource":
         return _resource(resolution) if info.candidate_search else None
     if info.slot_type == "Reference":
@@ -112,20 +132,20 @@ def _slot(info: SlotInfo, proposal: Proposal, normalised: NormalisedSlots, resol
     raise ValueError(f"slot type {info.slot_type} is not one the assembler knows")
 
 
-def _slots(result: PipelineResult, catalogue: NodeCatalogue, node_id: str) -> dict[str, Any]:
+def _slots(result: PipelineResult, catalogue: NodeCatalogue, node_id: str, text: str) -> dict[str, Any]:
     info = catalogue.nodes[node_id]
     kinds = [s.slot_type for s in info.slots if s.slot_type in _ONE_PER_NODE]
     if len(kinds) != len(set(kinds)):
         raise ValueError("a node with two slots of one lexicon type cannot be assembled")
     if result.proposal is None or result.normalised is None:
         raise ValueError("a proposed result carries its proposal and its normalised slots")
-    built = {s.name: _slot(s, result.proposal, result.normalised, result.resolution) for s in info.slots}
+    built = {s.name: _slot(s, result.proposal, result.normalised, result.resolution, text) for s in info.slots}
     return {name: slot for name, slot in built.items() if slot is not None}
 
 
-def _node_and_slots(result: PipelineResult, catalogue: NodeCatalogue) -> tuple[str, dict[str, Any]]:
+def _node_and_slots(result: PipelineResult, catalogue: NodeCatalogue, text: str) -> tuple[str, dict[str, Any]]:
     if result.outcome is Outcome.PROPOSED and result.proposal is not None and result.proposal.intent_node is not None:
-        return result.proposal.intent_node, _slots(result, catalogue, result.proposal.intent_node)
+        return result.proposal.intent_node, _slots(result, catalogue, result.proposal.intent_node, text)
     if result.outcome in (Outcome.OUT_OF_SCOPE, Outcome.UNCLEAR):
         return catalogue.out_of_scope_node, {}  # exactly two nodes, never another (the card); an unclear request is read as out of scope with its flag (a default, noema#546)
     raise ValueError("only a proposed, out-of-scope or unclear result is assembled; a rejection is never turned into a proposal (REQ-INT-002)")
@@ -142,7 +162,7 @@ def assemble(canonical_input: Mapping[str, Any], result: PipelineResult, catalog
     pack = _PACK_REF.fullmatch(pack_ref)
     if pack is None:
         raise ValueError("the pack reference is not <vertical>@<x.y.z>")
-    node_id, slots = _node_and_slots(result, catalogue)
+    node_id, slots = _node_and_slots(result, catalogue, str(canonical_input["text"]))
     doc: dict[str, Any] = {
         "schema_version": _SCHEMA_VERSION, "intent_id": ids.intent_id, "version": ids.version, "supersedes": ids.supersedes,
         "tenant_id": str(canonical_input["tenant_id"]), "correlation_id": str(canonical_input["correlation_id"]), "created_at": ids.created_at,

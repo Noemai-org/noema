@@ -97,6 +97,8 @@
 - Regression cases added: a voice request is refused before any provider call; a tenant the core refuses is never a provider failure; the open intent never reaches a provider.
 - Defaults taken (AGENT-02): voice refused; `open_intent` not read; candidate set version 1; accept-all pipeline `Gate` seam (the schema gate follows); identifiers and the candidate set id from a `Minter`.
 - Debt: none. Conflicts raised: none. Open question: noema#580.
+- Security Reviewer's blocking finding (noema#598): the assembler copied the model's surface forms. Now `assemble.py` takes a surface form only if it is non-empty, at most 64 characters (the lexicon's bound), a substring of the canonical text and holds no digit run over four (digits separated by single spaces or hyphens count as one run). A Party or TimeRef slot whose surface fails is left out; a Quantity keeps the lexicon's value and loses only its surface form. Tests first: red at `2bc9992a` and `c9cc7dbd` (the second after the compiler test was corrected, as the first failed on the input gate, not its own assertion); 12 hand mutants on the new code, all killed.
+- Consequence to decide (Architect): a Quantity whose own written amount has five or more digits ("12345") keeps its value and loses its surface form, because the Record's guard would refuse a digit run over four (noema#536). Masking the form instead is the alternative.
 
 ## Pre-work for the next agent
 - Exact next step: the `Minter` and the wiring in `main.py` (after mTLS, noema#555), then the `benchmark/compile_acceptance` runner (noema#546).
