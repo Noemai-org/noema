@@ -14,6 +14,7 @@ import (
 	"context"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,7 +87,10 @@ func (d *rwDoubles) states() []orchestrator.State {
 
 // rwRequests builds the verifier's request for a grant: the receipt the Execution Controller wrote for it and the pack's definition of the outcome. It jumps the clock
 // past the settle window, as the outcome.verify delivery would after it. It is the test's stand-in for the request source the composition will own.
-type rwRequests struct{ s *stack }
+type rwRequests struct {
+	s   *stack
+	seq *atomic.Int64
+}
 
 func (r rwRequests) For(ctx context.Context, tenantID, grantID string) (verifier.Request, error) {
 	var receiptID string
@@ -96,7 +100,10 @@ func (r rwRequests) For(ctx context.Context, tenantID, grantID string) (verifier
 	r.s.clk.jump(time.Duration(r.s.def.SettleWindowSecs+1) * time.Second)
 	req := r.s.request
 	req.ReceiptID = receiptID
-	req.VerificationID = "vrf_" + receiptID
+	// The verification ID is the outbox event's in production; here it is made of letters only, because the Record's payload guard refuses any string holding more than four
+	// digits in a row and an ID built from a receipt's ULID can hold such a run by chance (it did, on the second verification of the recovery test).
+	n := r.seq.Add(1)
+	req.VerificationID = "vrf_rw" + string(rune('a'+n%26)) + string(rune('a'+(n/26)%26))
 	return req, nil
 }
 
@@ -121,7 +128,7 @@ func newRWRig(t *testing.T) *rwRig {
 		orchestrator.Ports{Interpreter: d, Evidence: d, Trust: d, Explainer: d, Recorder: d, Admissions: d},
 		orchestrator.WritePorts{
 			Executor: executorport.Port{Controller: s.ctl, Timeout: time.Minute},
-			Verifier: verifierport.Port{Verifier: s.v, Requests: rwRequests{s: s}},
+			Verifier: verifierport.Port{Verifier: s.v, Requests: rwRequests{s: s, seq: new(atomic.Int64)}},
 			Journal:  jp,
 		}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
 	if err != nil {
