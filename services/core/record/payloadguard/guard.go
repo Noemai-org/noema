@@ -27,17 +27,49 @@ import (
 // Limit is the longest run of digits a payload string may hold.
 const Limit = 4
 
-// Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked"; A154, A194). (A stub: the one definition follows the red run.)
-func Mask(s string) string { return s }
+// Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
+// Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
+// found with displayRun. Masking is idempotent. record/reconstruct serves its facts through this function (A194).
+func Mask(s string) string {
+	return displayRun.ReplaceAllStringFunc(s, func(run string) string {
+		total := 0
+		for _, r := range run {
+			if unicode.IsDigit(r) {
+				total++
+			}
+		}
+		if total <= Limit {
+			return run
+		}
+		hide := total - Limit // digits to hide
+		var out strings.Builder
+		for _, r := range run {
+			if unicode.IsDigit(r) && hide > 0 {
+				out.WriteRune('*')
+				hide--
+				continue
+			}
+			out.WriteRune(r)
+		}
+		return out.String()
+	})
+}
 
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
-// digitRun is a run of digits in any script, with the separators people and programs put inside one number: spaces (also Unicode spaces), dots, hyphens, dashes, slashes, every Unicode
-// format character (soft hyphen, zero-width characters, joiners) and every combining mark ("4111 1111 1111 1111" and "4111-1111-1111-1111" are one run of 16). A comma, an underscore, a colon and a bracket end a run: a
-// code such as "VERSION_CONFLICT_409_412" is not a number. (record/reconstruct joins on the longer set of the leak scanner for what it serves; this guard is for what the core
-// writes, where a false refusal stops a write.)
-var digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}\p{Cf}\p{M}.\-/\x{2010}-\x{2015}\x{2212}]*\p{Nd})*`)
+// baseSeparators is the one set of separators that join the digits of a number in this package: spaces (also Unicode spaces), dots, hyphens, dashes, slashes, every Unicode format
+// character (soft hyphen, zero-width characters, joiners) and every combining mark ("4111 1111 1111 1111" and "4111-1111-1111-1111" are one run of 16). A194: this is the one definition;
+// record/reconstruct masks with Mask below and keeps no regexp of its own.
+const baseSeparators = `\s\p{Zs}\p{Cf}\p{M}.\-/\x{2010}-\x{2015}\x{2212}`
+
+// digitRun is a run of digits in any script joined by the base separators. It is the guard's: a comma, an underscore, a colon and a bracket end a run, because a code such as
+// "VERSION_CONFLICT_409_412" is not a number and a false refusal stops a write.
+var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + baseSeparators + `]*\p{Nd})*`)
+
+// displayRun is the display mask's: the base separators and also an underscore, a bracket and a colon (the leak scanner's longer set, noema#222), because a number split that way is
+// still the number to a reader of what the core serves. It is the stricter of the two, so a string that Mask has masked never holds a run that digitRun finds longer than Limit.
+var displayRun = regexp.MustCompile(`\p{Nd}(?:[` + baseSeparators + `_():]*\p{Nd})*`)
 
 // keyID is the shape of the key ID of a signature (`<identity>.<algorithm>.<version>`, such as core-execution.ed25519.1): the algorithm name holds a run of more than four
 // digits ("ed25519"). It is exempt at a path that ends in /key_id only, and only in this shape, so the name cannot be put inside another string to split a number.
