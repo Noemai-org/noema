@@ -24,6 +24,7 @@ written).
 | `judge.py` | One case: the PERD §48.3 correctness rules, the eleven SoT §38.3 gates (defined in the module docstring), the false-block rule, the diagnostic flags |
 | `scorecard.py` | Tier 0 (all eleven gates, first), Tier 1 (correct terminal handling and the diagnostics), Tier 2 (one point of the safety-autonomy curve), Tier 3 (cost and latency), slices by family and category, the failure list |
 | `stats.py` | Wilson 95% interval, the rule-of-three bound (`3/n`, only on a failure rate with zero failures), nearest-rank percentiles |
+| `rates.py` | The scorecard v3 rate (ruling A190): the frozen `stats.make_rate` plus `exact_upper95`, the exact (Clopper-Pearson) one-sided 95% upper bound on a failure rate (`1 - 0.05^(1/n)` at zero failures; rounded up to six places; null on a rate that is not a failure rate or has no cases). A report, not a gate (AGENT-16). `stats.py` is not edited: the 27 Oct 2026 freeze hashes it |
 | `registry.py` | The capability registry, read from the pack (data), never copied |
 | `report.py` | The human report. Refuses to render without all eleven gates, or when the manifest and scorecard describe different suites. Prints no pass or fail |
 
@@ -54,7 +55,7 @@ written).
 python -m benchmark.scoring ... --results RUN1 --repeat-results RUN2 --repeat-results RUN3 --repeat-results RUN4 --repeat-results RUN5
 ```
 
-Each `--repeat-results` is another run of the same cases with its own run ID; one run counted twice, or a result set mixing run IDs, is refused (exit 2). Real pass^k values need five live model runs; those are not approved. Everything here is tested on SYNTHETIC results only, and the commit of the code under test is not checked by the scorer (the run manifests carry it).
+Declare which model the results are of with `--pinned-kind`, `--pinned-provider`, `--pinned-model-id` and `--pinned-version` (all four or none; a part alone is exit 2). `provenance.json` carries it as `pinned`, or `null` when none was declared; a qualification refuses pass^k evidence with no declared identity or another model's (noema#199, Codex P1). It is a declaration, not authentication: results and provenance are unsigned (DEBT-17). Each `--repeat-results` is another run of the same cases with its own run ID; one run counted twice, or a result set mixing run IDs, is refused (exit 2). Real pass^k values need five live model runs; those are not approved. Everything here is tested on SYNTHETIC results only, and the commit of the code under test is not checked by the scorer (the run manifests carry it).
 
 ## Tests
 

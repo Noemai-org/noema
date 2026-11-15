@@ -6,6 +6,8 @@ Dated decision records for the benchmark's measurement rules: what is measured, 
 
 - `2026-10-27-model-selection.md`: the freeze of the initial OpenAI model comparison (`gpt-6-luna`, `gpt-6.1-terra`): candidates and sources, pins, rate card, corpus, prompt-template and scoring-code hashes, retry policy, the seven gates and how they apply to the corpus, the decision rule, the budget and its guard, key handling, the pilot and the full run, and the decisions D1 to D9 made where the instruction was silent. Its ```` ```json frozen ```` block is machine-read: `benchmark/bakeoff/test_freeze.py` recomputes the corpus and scoring-code hashes and `services/model/tests/test_freeze_record.py` checks the template digest, on every CI run.
 
+- `2026-11-13-harness-masking-refreeze.md`: the re-freeze of the two harness configurations without the `masking` member (ruling A162, `DEC-2026-11-12-harness-masking-refreeze`): the new hashes, the earlier ones kept as superseded, the pin of the shared `masking-limits.v1` (floor 4), and which results were made under floor 8. It amends the frozen block of the 27 Oct record.
+
 ## Constraints
 
 - A record is frozen when merged. Changing a frozen value (the corpus, the scoring code, a gate, the retry policy, the template) needs a new dated record; the tests above fail otherwise.

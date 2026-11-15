@@ -214,7 +214,11 @@ class Preflight(unittest.TestCase):
             preflight(FROZEN, TEMPLATE[1], TEMPLATE[0] + 1)
         changes: list[Callable[[Json], Any]] = [
             lambda f: f["corpus"].update(corpus_hash="sha256:x"), lambda f: f["scoring_code"].update(scoring_code_hash="sha256:x"),
-            lambda f: f["harness_configs"].update({k: "0" * 64 for k in f["harness_configs"]})]
+            lambda f: f["harness_configs"].update({k: "0" * 64 for k in f["harness_configs"]}),
+            lambda f: f["masking_limits"].update(sha256="0" * 64),
+            lambda f: f["masking_limits"].update(schema_sha256="0" * 64),
+            lambda f: f["masking_limits"].update(max_unmasked_digit_run=8),
+            lambda f: f.pop("masking_limits")]
         for mutate in changes:
             copy = json.loads(json.dumps(FROZEN))
             mutate(copy)

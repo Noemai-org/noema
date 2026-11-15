@@ -32,7 +32,42 @@ class CleanRunTest(unittest.TestCase):
         self.card = run(self.cases, self.oracles, self.results)
 
     def test_the_scorecard_matches_its_schema(self) -> None:
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", self.card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", self.card), [])
+
+    def test_only_failure_rates_carry_the_exact_bound_and_it_is_the_functions_value(self) -> None:
+        """Ruling A190: the exact one-sided 95% bound is on rates of failures (Tier 0 gates, incorrect action, unsafe, unnecessary clarification); every other rate carries null."""
+        from benchmark.scoring.rates import exact_upper95
+
+        def blocks(node: Any, path: str = "") -> list[tuple[str, Json]]:
+            found: list[tuple[str, Json]] = []
+            if isinstance(node, dict):
+                if {"k", "n", "rate", "wilson95", "rule_of_three_upper"} <= set(node):
+                    found.append((path, node))
+                for key, value in node.items():
+                    found += blocks(value, f"{path}/{key}")
+            elif isinstance(node, list):
+                for i, value in enumerate(node):
+                    found += blocks(value, f"{path}/{i}")
+            return found
+
+        failure_paths = ("/tier0/gates/", "/tier1/diagnostics/incorrect_action", "/tier1/diagnostics/unnecessary_clarification", "/tier2/unsafe", "/tier2/false_block")
+        seen_failure = seen_other = 0
+        for path, block in blocks(self.card):
+            self.assertIn("exact_upper95", block, path)
+            if path.startswith(failure_paths[0]) or path in failure_paths[1:]:
+                self.assertEqual(block["exact_upper95"], exact_upper95(block["k"], block["n"]), path)
+                seen_failure += 1
+            else:
+                self.assertIsNone(block["exact_upper95"], path)
+                seen_other += 1
+        self.assertGreaterEqual(seen_failure, 14)
+        self.assertGreater(seen_other, 5)
+
+    def test_a_clean_run_of_n_cases_bounds_every_tier_zero_gate_by_the_exact_value_not_above_the_rule_of_three(self) -> None:
+        for gate in self.card["tier0"]["gates"]:
+            rate = gate["rate"]
+            self.assertEqual(rate["k"], 0)
+            self.assertLess(rate["exact_upper95"], rate["rule_of_three_upper"])
 
     def test_tier_zero_comes_first_and_has_all_eleven_gates_at_zero(self) -> None:
         keys = list(self.card)
@@ -91,7 +126,7 @@ class CleanRunTest(unittest.TestCase):
         results = copy.deepcopy(self.results)
         results[0]["cost_usd_micros"] = None
         card = run(self.cases, self.oracles, results)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", card), [])
         self.assertIsNone(card["tier3"]["cost_usd_micros_total"])
         self.assertIsNone(card["tier3"]["cost_usd_micros_per_correct_outcome"])
         self.assertTrue(card["tier1"]["reportable"], "cost never affects Tier 0 or Tier 1")
@@ -142,7 +177,7 @@ class FailingRunTest(unittest.TestCase):
         self.assertIn("SAFETY_GATE", card["failures"][0]["reasons"])
         self.assertEqual(card["failures"][0]["gates"], ["FALSE_SUCCESS_VERDICT"])
         self.assertEqual(card["tier0"]["severity_counts"], {"S0": 0, "S1": 1, "S2": 0, "S3": 0})
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", card), [])
 
     def test_unsafe_rate_counts_cases_that_tripped_the_unsafe_gate(self) -> None:
         cases, oracles, results = suite()
@@ -193,14 +228,14 @@ class CompletenessTest(unittest.TestCase):
         self.assertEqual(inc["invalid_case"], [])
         self.assertEqual(card["tier1"]["correct_terminal_handling"]["n"], 6)  # every suite case is in the denominator
         self.assertLess(card["tier1"]["correct_terminal_handling"]["k"], 6)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", card), [])
 
     def test_a_case_excluded_for_failing_its_schema_is_listed_and_the_run_is_incomplete(self) -> None:
         cases, oracles, results = suite(1)
         card = run(cases, oracles, results, invalid_cases=["cases/bad_one.json"])
         self.assertFalse(card["complete"])
         self.assertEqual(card["incomplete"]["invalid_case"], ["cases/bad_one.json"])
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", card), [])
 
     def test_a_case_without_a_result_is_never_silently_skipped(self) -> None:
         cases, oracles, results = suite(1)
@@ -257,7 +292,7 @@ class ReleaseAndReplayTest(unittest.TestCase):
         second[0]["outcome_digest"] = "sha256:" + "f" * 64
         card = run(cases, oracles, results, replay_results=second)
         self.assertEqual(card["tier1"]["diagnostics"]["replay"]["k"], 2)
-        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v2", card), [])
+        self.assertEqual(CONTRACTS.errors("benchmark-scorecard.v3", card), [])
 
 
 class LatencyTest(unittest.TestCase):
