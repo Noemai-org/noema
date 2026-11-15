@@ -50,6 +50,7 @@ const (
 	ReasonAmbiguityFlag      Reason = "AMBIGUITY_FLAG"
 	ReasonOutcomeNotInNode   Reason = "OUTCOME_NOT_IN_NODE"
 	ReasonSig                Reason = "SIG"
+	ReasonIdentitySetByModel Reason = "IDENTITY_SET_BY_MODEL"
 	ReasonHashUnavailable    Reason = "HASH_UNAVAILABLE" // the object holds a number the intent hash cannot cover (see ErrHashUnavailable)
 	ReasonIdentityNotInOrder Reason = "SESSION_INVALID"  // the session the caller passed is incomplete: a bug of the caller, never the model's
 )
@@ -65,10 +66,13 @@ func (r *Rejection) Error() string {
 	return prefix + "the Intent Object is refused at the gate: " + strings.Join(parts, ", ")
 }
 
-// ErrHashUnavailable is returned inside a Rejection (reason HASH_UNAVAILABLE) when an Intent Object carries a number that is not an integer, for example a
-// slot confidence of 0.91. The core's RFC 8785 form refuses every non-integer number so that no float reaches a hash (platform/crypto), and the Intent
-// Object's `confidence` and `asr_confidence` are ratios in [0, 1]. Which form the intent hash covers is an open conflict (see the PR); until it is decided the
-// gate fails closed and admits no such object.
+// schemaVersion is the intent-object.v3 proposal the model service emits (ruling A173): confidence and asr_confidence are integers in basis points, 0 to 10000, so the
+// canonical form the hash covers has no fraction and the confidence is part of what is signed.
+const schemaVersion = "3.0"
+
+// ErrHashUnavailable is returned inside a Rejection (reason HASH_UNAVAILABLE) when an Intent Object carries a number that is not an integer. Under intent-object.v3 the
+// closed decode refuses a fraction first (a shape error), so this stays only as the fail-closed answer for a number the canonical form cannot cover (platform/crypto refuses
+// every non-integer number so that no float reaches a hash).
 var ErrHashUnavailable = errors.New(prefix + "the intent hash cannot cover a non-integer number")
 
 var (
@@ -143,13 +147,13 @@ func NewGate(maxBytes int, pack PackView) (*Gate, error) {
 // AdmittedIntent is an Intent Object that passed the gate, with the session's identity written over whatever the model service returned and its intent hash.
 // Only Admit makes one (the fields are unexported), so a type other than AdmittedIntent cannot reach Trust (REQ-INT-001 acceptance).
 type AdmittedIntent struct {
-	obj  contracts.IntentObjectV1
+	obj  contracts.IntentObjectV3
 	hash string
 	raw  []byte
 }
 
 // Object is a copy of the admitted object.
-func (a AdmittedIntent) Object() contracts.IntentObjectV1 { return a.obj }
+func (a AdmittedIntent) Object() contracts.IntentObjectV3 { return a.obj }
 
 // Hash is "sha256:" and the SHA-256 of the object's canonical form (RFC 8785), after the identity overwrite.
 func (a AdmittedIntent) Hash() string { return a.hash }
@@ -177,7 +181,7 @@ func (g *Gate) Admit(raw []byte, s Session, correlationID string) (Admission, er
 	if err := wholeDocument(raw); err != nil {
 		return Admission{}, &Rejection{Reasons: []Reason{ReasonNotJSON}}
 	}
-	var o contracts.IntentObjectV1
+	var o contracts.IntentObjectV3
 	if err := json.Unmarshal(raw, &o); err != nil {
 		return Admission{}, &Rejection{Reasons: []Reason{ReasonShape}} // an unknown, repeated, missing or null member, or a wrong type
 	}
@@ -224,11 +228,11 @@ func (r reasonSet) rejection() *Rejection {
 	return &Rejection{Reasons: out}
 }
 
-func (g *Gate) check(o *contracts.IntentObjectV1, correlationID string, r *reasonSet) {
+func (g *Gate) check(o *contracts.IntentObjectV3, correlationID string, r *reasonSet) {
 	if o.Status != contracts.EnumsV1IntentStatusVALIDATED {
 		r.add(ReasonStatus)
 	}
-	if string(o.SchemaVersion) != "1.0" {
+	if string(o.SchemaVersion) != schemaVersion {
 		r.add(ReasonSchemaVersion)
 	}
 	if !intentIDRe.MatchString(string(o.IntentId)) {
@@ -280,9 +284,9 @@ func (g *Gate) check(o *contracts.IntentObjectV1, correlationID string, r *reaso
 		r.add(ReasonSig)
 	}
 	// Ruling A166 item 3: the model's output carries no principal_type and no asserted_by. The contract requires the members, so the model service fills them with the
-	// marker; a model that sends a value anyway, even the session's own, is a shape error.
+	// marker; a model that sends a value anyway, even the session's own, is refused under its own reason (ruling A195), so the Record tells the attempt from a malformed document.
 	if o.Principal.PrincipalType != unsetMarker || o.Principal.AssertedBy != unsetMarker {
-		r.add(ReasonShape)
+		r.add(ReasonIdentitySetByModel)
 	}
 	for _, f := range o.AmbiguityFlags {
 		if !flagRe.MatchString(f) {
@@ -321,7 +325,7 @@ func dup(xs []string) bool {
 	return false
 }
 
-func (g *Gate) checkSource(o *contracts.IntentObjectV1, r *reasonSet) {
+func (g *Gate) checkSource(o *contracts.IntentObjectV3, r *reasonSet) {
 	if o.Source.Mode != contracts.EnumsV1ModeMODE1 {
 		if o.Source.Mode == contracts.EnumsV1ModeMODE2 {
 			r.add(ReasonModeNotEnabled)
@@ -340,12 +344,7 @@ func (g *Gate) checkSource(o *contracts.IntentObjectV1, r *reasonSet) {
 	if o.Source.RawRef == "" || len(o.Source.RawRef) > 256 {
 		r.add(ReasonSource)
 	}
-	if o.Source.AsrConfidence != nil && !ratio(string(*o.Source.AsrConfidence)) {
+	if !basisPointsPtr(o.Source.AsrConfidence) {
 		r.add(ReasonSource)
 	}
-}
-
-func ratio(n string) bool {
-	f, err := strconv.ParseFloat(n, 64)
-	return err == nil && f >= 0 && f <= 1
 }

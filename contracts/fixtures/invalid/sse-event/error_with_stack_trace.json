@@ -1,0 +1,12 @@
+{
+  "event": "error",
+  "schema_version": "1.0",
+  "at": "2026-11-13T14:06:00Z",
+  "error": {
+    "code": "DEPENDENCY_UNAVAILABLE",
+    "message": "x",
+    "retryable": true,
+    "correlation_id": "corr_01J9X3E8F9",
+    "stack_trace": "at core.go:12"
+  }
+}

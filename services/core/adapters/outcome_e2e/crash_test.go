@@ -47,6 +47,9 @@ const (
 	childMiss  = 3 // the child came back from Execute: the point was never reached
 )
 
+// noControllerPoint is a controller.Point that is never reached: a child that kills inside the ledger must not also die at a controller boundary.
+const noControllerPoint controller.Point = -1
+
 // killPoint is one boundary of the shared list. S9 is the RESIST family it belongs to (A40).
 type killPoint struct {
 	name  string
@@ -55,6 +58,10 @@ type killPoint struct {
 	// slice 2: the points after the write. dispatched is true when the target already saw the create when the core dies; lostResponse loads TIMEOUT_AFTER_COMMIT first
 	// (the target commits and the response never arrives); receiptAtKill is true when the receipt had already committed.
 	dispatched, lostResponse, receiptAtKill bool
+	// inTx is a point INSIDE the receipt transaction (ledger.Point, not a controller.Point): the child sets the ledger's Boundary hook, after every write of the receipt and before the
+	// commit, and dies there with the transaction open (noema#506, A30, A40).
+	inTx bool
+	tx   ledger.Point
 }
 
 var killPoints = []killPoint{
@@ -63,6 +70,7 @@ var killPoints = []killPoint{
 	{name: "after dispatch, before the response is classified", point: controller.PointAfterDispatch, s9: "S9.2 after the write, before verify", dispatched: true},
 	{name: "the target commits and the response is lost", point: controller.PointAfterDispatch, s9: "S9.2 after the write, before verify", dispatched: true, lostResponse: true},
 	{name: "after the receipt is built, before its transaction starts", point: controller.PointInCompleteBeforeCommit, s9: "S9.2 after the write, before verify", dispatched: true},
+	{name: "inside the receipt transaction, after its writes and before commit", s9: "S9.2 after the write, before verify", dispatched: true, inTx: true, tx: ledger.PointInCompleteTxBeforeCommit},
 	{name: "after the receipt commits", point: controller.PointAfterComplete, s9: "S9.2 after the write, before verify", dispatched: true, receiptAtKill: true},
 }
 
@@ -102,9 +110,13 @@ func TestCrashChild(t *testing.T) {
 	}
 	dsn, grant := os.Getenv(envDSN), os.Getenv(envGrant)
 	var point controller.Point
+	var txPoint *ledger.Point // set for a point inside the receipt transaction: then no controller point may fire
 	for _, kp := range killPoints {
 		if kp.name == os.Getenv(envPoint) {
 			point = kp.point
+			if kp.inTx {
+				point, txPoint = noControllerPoint, &kp.tx
+			}
 		}
 	}
 	execPool, trustPool := tenantPool(t, dsn, "execution_rw"), tenantPool(t, dsn, "trust_rw")
@@ -121,6 +133,16 @@ func TestCrashChild(t *testing.T) {
 	cases, err := synthetic_tushe.NewCaseClient(os.Getenv(envMockURL), os.Getenv(envMockTok), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if txPoint != nil {
+		want := *txPoint
+		led.Boundary = func(p ledger.Point) error {
+			if p == want {
+				_ = syscall.Kill(syscall.Getpid(), syscall.SIGKILL) // inside Ledger.Complete, every write done and the commit not yet sent: the server rolls the transaction back
+				select {}
+			}
+			return nil
+		}
 	}
 	trust := &trustStandIn{pool: trustPool, keys: execKeys, clk: clk, led: led, plans: map[string]controller.PlanStep{grant: createPlan()}}
 	ctl := &controller.Controller{Clock: clk, Keys: execKeys, Receipts: ring, Grants: led, Bind: trust,
@@ -237,6 +259,19 @@ func TestCrashMatrix(t *testing.T) {
 				t.Fatalf("%s: %d receipts at the kill (%v), want %d", kp.name, len(got), got, wantReceipts)
 			}
 			recordCounts(t, st, kp.name+" at the kill", spends, wantReceipts)
+			if kp.inTx {
+				// The receipt transaction was open with every write done and died before the commit: the server rolled all of it back, so none of the receipt, the idempotency
+				// record's move to RECEIPTED, the outcome.verify outbox event and the RECEIPT Record event is left (RESIST S9.2; Codex P2 on noema#498).
+				for what, q := range map[string]string{
+					"a receipted idempotency record": `SELECT count(*) FROM idempotency_record WHERE last_grant_id = $1 AND status = 'RECEIPTED'`,
+					"an outcome.verify outbox event": `SELECT count(*) FROM outbox_event WHERE topic = 'outcome.verify' AND payload->>'grant_id' = $1`,
+					"an execution receipt":           `SELECT count(*) FROM execution_receipt WHERE grant_id = $1`,
+				} {
+					if n := st.count(t, q, grant); n != 0 {
+						t.Fatalf("%s: %d rows of %s survived the kill inside the receipt transaction, want 0", kp.name, n, what)
+					}
+				}
+			}
 			if kp.lostResponse {
 				lost := false
 				for _, c := range st.bench.commands(t) {
