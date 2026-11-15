@@ -25,6 +25,8 @@ type Request struct {
 	Session       Session
 	CorrelationID string
 	IntentRef     string // `int_<id>@<version>`: the admitted intent and the version the caller means
+	// EvidenceSnapshotID is the sealed evidence snapshot T10 to T12 work from, until T9 (not built yet) seals one itself and this field goes.
+	EvidenceSnapshotID string
 }
 
 // AdmittedIntent is what Trust needs of a stored, admitted Intent Object. The adapter reads it from the intent store and builds it; Trust does not parse the model's text.
@@ -77,11 +79,14 @@ type Authority interface {
 	RoleAllowed(ctx context.Context, intentNode, role string) (bool, error)
 }
 
-// Ports are the adapters the intake needs for T1 to T6. A nil port makes Evaluate refuse to run.
+// Ports are the adapters the intake needs for T1 to T6 and, in ports_t10_t12.go, for T10 to T12. A nil port makes Evaluate refuse to run.
 type Ports struct {
 	Intents      Intents
 	Writes       Writes
 	Capabilities Capabilities
 	Scope        Scope
 	Authority    Authority
+	Reconciler   Reconciler
+	Policies     Policies
+	Clocks       Clocks
 }

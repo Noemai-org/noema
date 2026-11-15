@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/trust/clocks"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
@@ -102,9 +103,25 @@ func (s *spy) RoleAllowed(context.Context, string, string) (bool, error) {
 	return s.roleAllowed, s.hit("Authority.RoleAllowed")
 }
 
+// later stands for the ports of T10 to T12, which these tests never reach: T7 is not built, so the evaluation ends there. If one is called, the step fails closed.
+type later struct{}
+
+func (later) Reconcile(context.Context, string, string) (intake.Reconciliation, error) {
+	return intake.Reconciliation{}, errors.New("not reached")
+}
+func (later) Evaluate(context.Context, intake.PolicyQuery) (intake.PolicyEvaluation, error) {
+	return intake.PolicyEvaluation{}, errors.New("not reached")
+}
+func (later) Applicable(context.Context, intake.ClockQuery) (intake.ClockSet, error) {
+	return intake.ClockSet{}, errors.New("not reached")
+}
+func (later) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake.ClockRouting, error) {
+	return intake.ClockRouting{}, errors.New("not reached")
+}
+
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Reconciler: later{}, Policies: later{}, Clocks: later{}},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}
