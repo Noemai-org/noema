@@ -1,0 +1,7 @@
+{
+  "bad_case_status.json": "enum",
+  "held_out_layer.json": "const",
+  "missing_commit_sha.json": "required",
+  "short_commit_sha.json": "pattern",
+  "unknown_result.json": "enum"
+}
