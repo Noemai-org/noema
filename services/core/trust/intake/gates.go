@@ -7,14 +7,20 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
 
-// evaluation holds what one Evaluate call learns as it goes: the admitted intent T1 read, and the basis builder. It is private to the call and never shared.
+// evaluation holds what one Evaluate call learns as it goes: the admitted intent T1 read, the capability T4 saw, the evaluation's one clock reading (Unix
+// seconds) and the basis builder. It is private to the call and never shared.
 type evaluation struct {
-	svc      *Service
-	req      Request
-	intentID string
-	version  int
-	intent   *AdmittedIntent
-	basis    *decide.BasisBuilder // the set this evaluation reads; T9 records the evidence into it
+	svc        *Service
+	req        Request
+	intentID   string
+	version    int
+	intent     *AdmittedIntent
+	capability *Capability
+	snapshotID string
+	now        int64
+	bb         *decide.BasisBuilder
+	// policyVersions are the policy versions T11 used, kept for the Decision Input (REQ-TRU-007).
+	policyVersions []decide.PolicyVersionRef
 }
 
 func (e *evaluation) steps() decide.Steps {
@@ -29,9 +35,9 @@ func (e *evaluation) steps() decide.Steps {
 		decide.T7TargetResolution - 1:   e.t7,
 		decide.T8BusinessOwnership - 1:  e.t8,
 		decide.T9Evidence - 1:           e.t9,
-		decide.T10Reconciliation - 1:    notBuilt,
-		decide.T11Policy - 1:            notBuilt,
-		decide.T12Clocks - 1:            notBuilt,
+		decide.T10Reconciliation - 1:    e.t10,
+		decide.T11Policy - 1:            e.t11,
+		decide.T12Clocks - 1:            e.t12,
 		decide.T13Confirmation - 1:      notBuilt,
 		decide.T14Plan - 1:              notBuilt,
 		decide.T15DecisionRecorded - 1:  notBuilt,
@@ -117,6 +123,9 @@ func (e *evaluation) t4(ctx context.Context) decide.StepResult {
 	}
 	if present && (!c.Registered || c.Prohibited) {
 		return e.refuse(decide.T4Capability)
+	}
+	if present {
+		e.capability = &c
 	}
 	return decide.Continue()
 }

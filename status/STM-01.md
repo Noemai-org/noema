@@ -86,3 +86,26 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Debt: whole-chain read per lookup (the same as the input gateway's index); owner EL with C2; fix: a keyed read function, a migration.
 - Conflicts raised: none. Found on the way: noema#465 required common.v1's `req_` form for the request ID where the gateway records a UUID (canonical-input.v2); fixed in noema#465 at `186ae004`.
 
+
+### Update 2026-11-14 · the orchestrator's Recorder constructor (the Founder's order of 14 Nov; rulings A202 and A204, relayed, not yet committed)
+- `cmd/core/recorder.go`: `buildRecorder` reads `NOEMA_ORCHESTRATOR_DSN_DIR` (one file per tenant: the tenant's `core-workflows` login), `NOEMA_ORCHESTRATOR_KEY_DIR` (the identity's signing keys, `signing.LoadRing`) and `NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE` (the rotation overlap, no default) and builds one `investigations.Store` per tenant over its own lazily connecting pool, signing as `core-workflows` only, confirming an input through the Record reader. `orchestratorRecorder` implements `orchestrator.Recorder`; a tenant with no store is an error. `recordpools.go`: the directory loader of noema#535 is extracted as `loginPools` and both use it (no behaviour change; its tests ran unchanged).
+- Mutants run locally: no Record reader accepted (killed), a fallback to another tenant's store (killed), a second signer identity (killed). Two survived and are equivalent: dropping the "all three settings or none" check (the missing setting is then named by the next error anyway) and dropping the `< 1` check on the overlap (`signing.LoadRing` refuses an overlap below one).
+- Not done: the plug-in in `main.go` (the composition PR), the Compose secrets and settings (IL), a first-use probe of each login (one follow-up for both the Record reader's pools and these).
+
+### Update 2026-11-14 · the session carries the caller's role (ruling A205, Q5; relayed, not yet committed)
+- `orchestrator.Session` gains `Role string`. The orchestrator interprets no field of it: it hands the session to every port as it received it (tested: `TestTheSessionsRoleReachesEveryPortUnchanged`, `TestASessionWithoutARoleIsPassedOnAsItIs`). An empty role is refused by Trust's technical-authority step (T6, C1), not by the runner. The edge's `Principal.Role` fills it when the conversation route is built (the handler that builds the Session does not exist yet). Red first, then the field.
+
+### Update 2026-11-14 · Security Reviewer's note 1 on noema#560 (EL)
+- `TestTheSessionsRoleReachesEveryPortUnchanged` now records the session each port was called with, by port (admissions, interpreter, evidence, trust, explainer, recorder), and asserts each equals the session given, role included. The first version checked only the shared fake's last-call session, so a Trust port given a stripped session could still pass. Test only; no behaviour change. Mutant killed: the runner passing Trust a session without the role (the test names the trust port).
+- Notes 2 and 3 are not this PR's: where `Role` comes from (the edge's authenticated `Principal.Role`, A195) is read when the conversation handler exists; an empty role is refused by Trust T6, not by the runner.
+
+## Session 2026-11-13 21:15 WAT · STM-01 · the Admissions port adapter (EL)
+
+## Session summary
+- What changed (local branch `feat/STM-01-admissions-adapter`, no PR yet: the work-in-progress limit of AGENTS §3 is exceeded by my open PRs, so it waits for a slot): `orchestrator/portadapters/admissions` (package `admissionsport`): `Port.Lookup` implements `orchestrator.Admissions` over `record/admission.Reader`: it asks for the session's tenant and the turn's reference only, returns the reader's error as it is, and refuses an answer about another tenant (`ErrWrongTenant`).
+- Why: the Admissions port had a reader (noema#497) and no implementation; `cmd/core` cannot plug it in without one. Package place decided on noema#436 (`orchestrator/portadapters/<port>`, so nothing under `evidence/` or `trust/` imports `orchestrator`).
+- Tests (REQ-AUD-001, REQ-SEC-004, INV-12): four tests; five mutants killed (no tenant check, wrong tenant asked, usable checks dropped, error rewritten, request id dropped).
+- Not done, stated: the per-tenant `record_read` pools it needs in `cmd/core` are noema#535; plugging it into `compose.go` is the next PR.
+
+## Pre-work for the next agent
+- Exact next step: open the PR when a slot is free (tests first, red CI), then plug `Port{Reader: &admission.Reader{DBs: records}}` into `Components.Ports.Admissions` once noema#535 is on `main`.

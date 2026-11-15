@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "state": "answered",
+  "last_answer": {
+    "schema_version": "1.0",
+    "found": [
+      "Your transfer of NGN 20,000 ending 4821 was debited."
+    ],
+    "not_known": [],
+    "done": {
+      "summary": "I opened a case with the payments team.",
+      "verified": true
+    },
+    "advice": {
+      "do": [],
+      "do_not": [
+        "Do not send the money again yet."
+      ]
+    },
+    "next": {
+      "what": "The payments team will contact you"
+    },
+    "case_ref_masked": "CMP-…0001"
+  },
+  "case_ref_masked": "CMP-…0001"
+}

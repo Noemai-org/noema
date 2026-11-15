@@ -42,3 +42,7 @@ Updated 2026-11-14. The next piece of the Trust assembly after TRU-02 (noema#567
 ### Pre-work for the next agent
 - Exact next step: after noema#567 merges, merge `main` in.
 - Do not touch: `platform/ceilings` values without a decision record.
+
+## Session 2026-11-15 · TRU-04 · merge of `main` after noema#567 and noema#570 landed
+- What changed: `main` is merged into this branch; #570 (T10 to T12) merged first, so the shared files conflicted (`ports.go`, `intake.go`, `gates.go`, `doc.go`, README, `gates_test.go`). Resolution: the ports and the nil-port check hold all six (Candidates, Ownership, Evidence and Reconciler, Policies, Clocks); the evaluation's basis builder is `bb` everywhere (this PR's `basis` renamed; its tests follow); the `resolved()` of this PR is kept and the T10 copy removed (it also checks the intent's version); the steps table has T7 to T12 built, T13 to T15 `ErrNotBuilt`. The end-of-path test is now "T1 to T12 pass and T13 fails", and the spy answers T10 to T12 so a request can reach it. The T7 to T9 test file's duplicated helper names (`fake`, `stopped`, `tTenant`, `tSnapshot`) are prefixed so both test files build in one package. The order test of #570 now leaves only T13 to T15 unbuilt.
+- Verified: `gofmt`, `go vet`, `go test -race ./trust/... ./platform/ceilings/` and the lint pass on the merged tree. No behaviour changed in either PR's steps.

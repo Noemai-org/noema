@@ -10,8 +10,11 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/trust/clocks"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
+	"github.com/Noemai-org/noema/services/core/trust/policy"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
 // REQ-TRU-002, REQ-TRU-003, REQ-NFR-002, INV-16: T1 to T6 of PERD 23.3 refuse before anything about a target is read, each with the one outcome and the one core reason
@@ -133,9 +136,26 @@ func firstErr(errs ...error) error {
 	return nil
 }
 
+// T10 to T12 answer so that the evaluation goes on: a settled classification that is not frozen, a policy that permits, and no clock. The tests of those steps are in
+// steps_t10_t12_test.go; here they only let a request that passed T1 to T9 reach the step that is not built.
+func (s *spy) Reconcile(context.Context, string, string) (intake.Reconciliation, error) {
+	return intake.Reconciliation{Classification: reconcile.SuccessConfirmed}, s.hit("Reconciler.Reconcile")
+}
+func (s *spy) Evaluate(context.Context, intake.PolicyQuery) (intake.PolicyEvaluation, error) {
+	rule := decide.PolicyRuleVersion{RuleID: "rule_a", PolicyID: "fin.pol", Version: "3.2"}
+	return intake.PolicyEvaluation{Effect: policy.Permit, Rules: []decide.PolicyRuleVersion{rule}, Versions: []decide.PolicyVersionRef{{PolicyID: "fin.pol", Version: "3.2"}},
+		PermitMatched: true}, s.hit("Policies.Evaluate")
+}
+func (s *spy) Applicable(context.Context, intake.ClockQuery) (intake.ClockSet, error) {
+	return intake.ClockSet{}, s.hit("Clocks.Applicable")
+}
+func (s *spy) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake.ClockRouting, error) {
+	return intake.ClockRouting{}, s.hit("Clocks.Route")
+}
+
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}
@@ -231,16 +251,16 @@ func TestAReadContinuesWhenWritesAreDisabled(t *testing.T) {
 	}
 }
 
-// With every port answering well, T1 to T9 pass and the evaluation ends at T10, which is not built: UNKNOWN INTERNAL_ERROR, never ALLOW.
-func TestARequestThatPassesT1ToT9EndsUnknownAtT10BecauseNoLaterStepIsBuilt(t *testing.T) {
+// With every port answering well, T1 to T12 pass and the evaluation ends at T13, which is not built: UNKNOWN INTERNAL_ERROR, never ALLOW.
+func TestARequestThatPassesT1ToT12EndsUnknownAtT13BecauseNoLaterStepIsBuilt(t *testing.T) {
 	res := eval(t, newSpy(), request())
 	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(reasons(res.Decision), []string{"INTERNAL_ERROR"}) {
 		t.Fatalf("decision %s %v, want UNKNOWN INTERNAL_ERROR", res.Decision.Outcome(), reasons(res.Decision))
 	}
-	if len(res.Trace) != 10 || last(res).Step != decide.T10Reconciliation || last(res).Result != decide.StepFailed {
-		t.Fatalf("trace %v, want T1 to T9 passed and T10 failed", res.Trace)
+	if len(res.Trace) != 13 || last(res).Step != decide.T13Confirmation || last(res).Result != decide.StepFailed {
+		t.Fatalf("trace %v, want T1 to T12 passed and T13 failed", res.Trace)
 	}
-	for i := 0; i < 9; i++ {
+	for i := 0; i < 12; i++ {
 		if res.Trace[i].Result != decide.StepPassed {
 			t.Errorf("step %d: %v, want PASSED", i+1, res.Trace[i])
 		}

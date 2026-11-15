@@ -138,7 +138,7 @@ func (e *evaluation) t9(ctx context.Context) decide.StepResult {
 	if err != nil {
 		return decide.FailStep(err)
 	}
-	if e.basis == nil {
+	if e.bb == nil {
 		return decide.FailStep(ErrNoBasis)
 	}
 	if e.req.EvidenceUnavailable {
@@ -164,10 +164,10 @@ func (e *evaluation) t9(ctx context.Context) decide.StepResult {
 	for _, it := range ev.Items {
 		items = append(items, it.Freshness)
 	}
-	if err := e.basis.RecordEvidence(e.req.EvidenceSnapshotID, items); err != nil {
+	if err := e.bb.RecordEvidence(e.req.EvidenceSnapshotID, items); err != nil {
 		return decide.FailStep(err)
 	}
-	if _, err := e.basis.Basis(); err != nil {
+	if _, err := e.bb.Basis(); err != nil {
 		return decide.FailStep(ErrBadEvidence) // what was recorded is not a set the Decision Record can hold
 	}
 	return decide.Continue()

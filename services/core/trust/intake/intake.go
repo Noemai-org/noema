@@ -37,7 +37,7 @@ var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<versio
 
 func (s *Service) configured() error {
 	p := s.Ports
-	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || s.Clock == nil || s.PackVersion == "" {
+	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || s.Clock == nil || s.PackVersion == "" {
 		return ErrConfig
 	}
 	return nil
@@ -64,11 +64,21 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("intake: the intent version: %w", err)
 	}
-	bb, err := decide.NewBasisBuilder(s.PackVersion, s.Clock.Now().Unix())
+	ev, err := s.newEvaluation(r, "int_"+m[intentRefRe.SubexpIndex("id")], version)
 	if err != nil {
-		return Result{}, fmt.Errorf("intake: %w", err)
+		return Result{}, err
 	}
-	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version, basis: bb}
-	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), bb)
+	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), ev.bb)
 	return Result{Decision: d, Trace: trace}, nil
+}
+
+// newEvaluation starts one evaluation: one clock reading, taken once, is the evaluation's time for every step (INV-21), and one basis builder holds what the
+// steps read and evaluate (TRU-13).
+func (s *Service) newEvaluation(r Request, intentID string, version int) (*evaluation, error) {
+	now := s.Clock.Now().Unix()
+	bb, err := decide.NewBasisBuilder(s.PackVersion, now)
+	if err != nil {
+		return nil, fmt.Errorf("intake: %w", err)
+	}
+	return &evaluation{svc: s, req: r, intentID: intentID, version: version, now: now, bb: bb, snapshotID: r.EvidenceSnapshotID}, nil
 }

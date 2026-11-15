@@ -21,16 +21,16 @@ import (
 // Tests name the REQ, INV or EC they prove: REQ-TRU-002, REQ-TRU-003, REQ-AMB-001 to REQ-AMB-004, REQ-CTX-003, REQ-NFR-002, INV-06, INV-16, INV-19, INV-21, INV-23.
 
 const (
-	tTenant    = "ten_synth01"
+	t7Tenant   = "ten_synth01"
 	tPrincipal = "usr_synth01"
-	tSnapshot  = "evs_synth0001"
+	t7Snapshot = "evs_synth0001"
 	tVersion   = 2
 )
 
 var errFake = errors.New("injected fault")
 
-// fake is every T7 to T9 port, recording each call with its arguments.
-type fake struct {
+// f7 is every T7 to T9 port, recording each call with its arguments.
+type f7 struct {
 	calls []string
 	args  []string
 
@@ -44,7 +44,7 @@ type fake struct {
 	failAt, panicAt string
 }
 
-func (f *fake) hit(name, tenantID, other string) error {
+func (f *f7) hit(name, tenantID, other string) error {
 	f.calls = append(f.calls, name)
 	f.args = append(f.args, tenantID+"/"+other)
 	if f.panicAt == name {
@@ -56,21 +56,21 @@ func (f *fake) hit(name, tenantID, other string) error {
 	return nil
 }
 
-func (f *fake) ScopedCandidates(_ context.Context, tenantID, principalID string, _ AdmittedIntent) (TargetCandidates, error) {
+func (f *f7) ScopedCandidates(_ context.Context, tenantID, principalID string, _ AdmittedIntent) (TargetCandidates, error) {
 	if err := f.hit("Candidates.ScopedCandidates", tenantID, principalID); err != nil {
 		return TargetCandidates{}, err
 	}
 	return f.cands, f.candErr
 }
 
-func (f *fake) OwnsTarget(_ context.Context, tenantID, principalID string, _ AdmittedIntent) (bool, error) {
+func (f *f7) OwnsTarget(_ context.Context, tenantID, principalID string, _ AdmittedIntent) (bool, error) {
 	if err := f.hit("Ownership.OwnsTarget", tenantID, principalID); err != nil {
 		return false, err
 	}
 	return f.owned, f.ownErr
 }
 
-func (f *fake) SnapshotFreshness(_ context.Context, tenantID, snapshotID string) (SnapshotEvidence, error) {
+func (f *f7) SnapshotFreshness(_ context.Context, tenantID, snapshotID string) (SnapshotEvidence, error) {
 	if err := f.hit("Evidence.SnapshotFreshness", tenantID, snapshotID); err != nil {
 		return SnapshotEvidence{}, err
 	}
@@ -101,8 +101,8 @@ func twoCandidates() []RankedCandidate {
 	return []RankedCandidate{cand("cand_a", 900, "Transfer A", "08:00"), cand("cand_b", 800, "Transfer B", "09:00")}
 }
 
-func newFake() *fake {
-	return &fake{
+func newFake() *f7 {
+	return &f7{
 		cands: TargetCandidates{Disambiguation: disambiguation(), Ranked: twoCandidates()},
 		owned: true,
 		evid: SnapshotEvidence{Items: []SourceItem{
@@ -119,9 +119,9 @@ func item(id, source string, age, limit int64, status contracts.EnumsV1FactStatu
 	}
 }
 
-type setup func(e *evaluation, f *fake)
+type setup func(e *evaluation, f *f7)
 
-func newEval(t *testing.T, view decide.IntentView, f *fake, tweak setup) *evaluation {
+func newEval(t *testing.T, view decide.IntentView, f *f7, tweak setup) *evaluation {
 	t.Helper()
 	bb, err := decide.NewBasisBuilder("1.0.0", 1_700_000_100)
 	if err != nil {
@@ -129,9 +129,9 @@ func newEval(t *testing.T, view decide.IntentView, f *fake, tweak setup) *evalua
 	}
 	svc := &Service{Ports: Ports{Candidates: f, Ownership: f, Evidence: f}, Clock: clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), PackVersion: "1.0.0"} // SYNTHETIC
 	e := &evaluation{
-		svc: svc, intentID: "int_synth0001", version: tVersion, basis: bb,
-		req: Request{Session: Session{TenantID: tTenant, PrincipalID: tPrincipal, Role: "customer"}, IntentRef: "int_synth0001@2", EvidenceSnapshotID: tSnapshot},
-		intent: &AdmittedIntent{TenantID: tTenant, IntentID: "int_synth0001", Version: tVersion, IntentNode: "fin.payments.exception.investigate", PrincipalID: tPrincipal,
+		svc: svc, intentID: "int_synth0001", version: tVersion, bb: bb,
+		req: Request{Session: Session{TenantID: t7Tenant, PrincipalID: tPrincipal, Role: "customer"}, IntentRef: "int_synth0001@2", EvidenceSnapshotID: t7Snapshot},
+		intent: &AdmittedIntent{TenantID: t7Tenant, IntentID: "int_synth0001", Version: tVersion, IntentNode: "fin.payments.exception.investigate", PrincipalID: tPrincipal,
 			View: view},
 	}
 	if tweak != nil {
@@ -186,8 +186,8 @@ func continued(t *testing.T, name string, d decide.Decision, trace []decide.Trac
 	_ = d
 }
 
-// stopped asserts one terminal decision with its outcome and its one reason code.
-func stopped(t *testing.T, name string, d decide.Decision, trace []decide.TraceEntry, step decide.GateStep, outcome decide.Outcome, reason string) {
+// stopped7 asserts one terminal decision with its outcome and its one reason code.
+func stopped7(t *testing.T, name string, d decide.Decision, trace []decide.TraceEntry, step decide.GateStep, outcome decide.Outcome, reason string) {
 	t.Helper()
 	if d.Outcome() != outcome || !reflect.DeepEqual(codes(d), []string{reason}) {
 		t.Errorf("%s: %s %v, want %s [%s]", name, d.Outcome(), codes(d), outcome, reason)
@@ -228,7 +228,7 @@ func TestT7AnUnresolvedIntentAsksAQuestionAboutTheCandidatesAboveTheFloor(t *tes
 	f := newFake()
 	e := newEval(t, ambiguousView(), f, nil)
 	d, trace := runStep(t, e, decide.T7TargetResolution)
-	stopped(t, "unresolved", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
+	stopped7(t, "unresolved", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
 	q := d.Clarification()
 	if q == nil || !q.AllowNone || len(q.Options) != 2 || q.Options[0].CandidateID != "cand_a" || q.Options[1].CandidateID != "cand_b" {
 		t.Fatalf("clarification %+v, want two options, cand_a then cand_b, with none-of-these allowed", q)
@@ -239,7 +239,7 @@ func TestT7AnUnresolvedIntentAsksAQuestionAboutTheCandidatesAboveTheFloor(t *tes
 	if want := (decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.NotEvaluated}); d.Authority() != want {
 		t.Errorf("authority %+v, want %+v", d.Authority(), want)
 	}
-	if !slices.Equal(f.calls, []string{"Candidates.ScopedCandidates"}) || f.args[0] != tTenant+"/"+tPrincipal {
+	if !slices.Equal(f.calls, []string{"Candidates.ScopedCandidates"}) || f.args[0] != t7Tenant+"/"+tPrincipal {
 		t.Errorf("calls %v %v, want one candidates read scoped to the session's tenant and principal", f.calls, f.args)
 	}
 }
@@ -249,35 +249,35 @@ func TestT7AMaterialFlagMakesTheIntentUnresolvedEvenWithEverySlotResolved(t *tes
 	v := resolvedView()
 	v.MaterialFlags = []string{"AMBIGUOUS_ENTITY"}
 	d, trace := runStep(t, newEval(t, v, f, nil), decide.T7TargetResolution)
-	stopped(t, "material flag", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
+	stopped7(t, "material flag", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
 }
 
 func TestT7NoQuestionIsAskedWhenNothingIsOfferable(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		set  func(f *fake)
+		set  func(f *f7)
 	}{
-		{"more candidates above the floor than the maximum", func(f *fake) {
+		{"more candidates above the floor than the maximum", func(f *f7) {
 			f.cands.Ranked = []RankedCandidate{cand("c1", 990, "T1", "01:00"), cand("c2", 980, "T2", "02:00"), cand("c3", 970, "T3", "03:00"), cand("c4", 960, "T4", "04:00"), cand("c5", 950, "T5", "05:00")}
 		}},
-		{"none above the floor", func(f *fake) {
+		{"none above the floor", func(f *f7) {
 			f.cands.Ranked = []RankedCandidate{cand("c1", 699, "T1", "01:00"), cand("c2", 650, "T2", "02:00")}
 		}},
-		{"no candidates", func(f *fake) { f.cands.Ranked = nil }},
-		{"one candidate above the floor, which needs no question", func(f *fake) {
+		{"no candidates", func(f *f7) { f.cands.Ranked = nil }},
+		{"one candidate above the floor, which needs no question", func(f *f7) {
 			f.cands.Ranked = []RankedCandidate{cand("c1", 900, "T1", "01:00"), cand("c2", 699, "T2", "02:00")}
 		}},
-		{"labels that cannot tell the options apart", func(f *fake) {
+		{"labels that cannot tell the options apart", func(f *f7) {
 			f.cands.Ranked = []RankedCandidate{{Candidate: decide.Candidate{ID: "c1", Display: "Transfer"}, Score: 900}, {Candidate: decide.Candidate{ID: "c2", Display: "Transfer"}, Score: 800}}
 		}},
-		{"a label that would show more digits than the pack allows", func(f *fake) {
+		{"a label that would show more digits than the pack allows", func(f *f7) {
 			f.cands.Ranked = []RankedCandidate{{Candidate: decide.Candidate{ID: "c1", Display: "Account 12345"}, Score: 900}, {Candidate: decide.Candidate{ID: "c2", Display: "Account 67890"}, Score: 800}}
 		}},
 	} {
 		f := newFake()
 		c.set(f)
 		d, trace := runStep(t, newEval(t, ambiguousView(), f, nil), decide.T7TargetResolution)
-		stopped(t, c.name, d, trace, decide.T7TargetResolution, decide.Escalate, "AMBIGUOUS_COUNTERPARTY")
+		stopped7(t, c.name, d, trace, decide.T7TargetResolution, decide.Escalate, "AMBIGUOUS_COUNTERPARTY")
 		if d.Clarification() != nil {
 			t.Errorf("%s: an ESCALATE carries a question", c.name)
 		}
@@ -289,7 +289,7 @@ func TestT7OnlyCandidatesAtOrAboveTheFloorAreOffered(t *testing.T) {
 	f := newFake()
 	f.cands.Ranked = []RankedCandidate{cand("cand_a", 900, "Transfer A", "08:00"), cand("cand_b", 700, "Transfer B", "09:00"), cand("cand_c", 699, "Transfer C", "10:00")}
 	d, trace := runStep(t, newEval(t, ambiguousView(), f, nil), decide.T7TargetResolution)
-	stopped(t, "floor", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
+	stopped7(t, "floor", d, trace, decide.T7TargetResolution, decide.Clarify, "AMBIGUOUS_COUNTERPARTY")
 	var ids []string
 	for _, o := range optionsOf(d) {
 		ids = append(ids, o.CandidateID)
@@ -355,13 +355,13 @@ func TestT7TheDecisionDoesNotDependOnTheOrderOfTheCandidates(t *testing.T) {
 func TestT7AnUnusableAnswerFromThePortIsUnknown(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		set  func(f *fake)
+		set  func(f *f7)
 	}{
-		{"a maximum of zero", func(f *fake) { f.cands.Disambiguation.MaxCandidates = 0 }},
-		{"a negative floor", func(f *fake) { f.cands.Disambiguation.Floor = -1 }},
-		{"a negative digit run", func(f *fake) { f.cands.Disambiguation.MaxDigitRun = -1 }},
-		{"a candidate with no ID", func(f *fake) { f.cands.Ranked = append(f.cands.Ranked, cand("", 800, "Transfer Z", "11:00")) }},
-		{"the same candidate twice", func(f *fake) { f.cands.Ranked = append(f.cands.Ranked, cand("cand_a", 800, "Transfer Z", "11:00")) }},
+		{"a maximum of zero", func(f *f7) { f.cands.Disambiguation.MaxCandidates = 0 }},
+		{"a negative floor", func(f *f7) { f.cands.Disambiguation.Floor = -1 }},
+		{"a negative digit run", func(f *f7) { f.cands.Disambiguation.MaxDigitRun = -1 }},
+		{"a candidate with no ID", func(f *f7) { f.cands.Ranked = append(f.cands.Ranked, cand("", 800, "Transfer Z", "11:00")) }},
+		{"the same candidate twice", func(f *f7) { f.cands.Ranked = append(f.cands.Ranked, cand("cand_a", 800, "Transfer Z", "11:00")) }},
 	} {
 		f := newFake()
 		c.set(f)
@@ -376,12 +376,12 @@ func TestT7AnUnusableAnswerFromThePortIsUnknown(t *testing.T) {
 func TestT7APackValueLooserThanTheCeilingIsRefused(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		set  func(f *fake)
+		set  func(f *f7)
 	}{
-		{"one option above the ceiling", func(f *fake) { f.cands.Disambiguation.MaxCandidates = ceilings.MaxClarificationOptions + 1 }},
-		{"twelve options", func(f *fake) { f.cands.Disambiguation.MaxCandidates = 12 }},
-		{"a digit run one above the ceiling", func(f *fake) { f.cands.Disambiguation.MaxDigitRun = ceilings.MaxLabelDigitRun + 1 }},
-		{"a digit run of twelve", func(f *fake) { f.cands.Disambiguation.MaxDigitRun = 12 }},
+		{"one option above the ceiling", func(f *f7) { f.cands.Disambiguation.MaxCandidates = ceilings.MaxClarificationOptions + 1 }},
+		{"twelve options", func(f *f7) { f.cands.Disambiguation.MaxCandidates = 12 }},
+		{"a digit run one above the ceiling", func(f *f7) { f.cands.Disambiguation.MaxDigitRun = ceilings.MaxLabelDigitRun + 1 }},
+		{"a digit run of twelve", func(f *f7) { f.cands.Disambiguation.MaxDigitRun = 12 }},
 	} {
 		f := newFake()
 		c.set(f)
@@ -393,12 +393,12 @@ func TestT7APackValueLooserThanTheCeilingIsRefused(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name string
-		set  func(f *fake)
+		set  func(f *f7)
 	}{
-		{"options and digits at the ceiling", func(f *fake) {
+		{"options and digits at the ceiling", func(f *f7) {
 			f.cands.Disambiguation.MaxCandidates, f.cands.Disambiguation.MaxDigitRun = ceilings.MaxClarificationOptions, ceilings.MaxLabelDigitRun
 		}},
-		{"stricter than the ceiling", func(f *fake) { f.cands.Disambiguation.MaxCandidates, f.cands.Disambiguation.MaxDigitRun = 2, 0 }},
+		{"stricter than the ceiling", func(f *f7) { f.cands.Disambiguation.MaxCandidates, f.cands.Disambiguation.MaxDigitRun = 2, 0 }},
 	} {
 		f := newFake()
 		c.set(f)
@@ -414,7 +414,7 @@ func TestT7AnIntentViewForAnotherVersionOrNoIntentIsUnknown(t *testing.T) {
 	v.Version = tVersion + 1
 	d, trace := runStep(t, newEval(t, v, newFake(), nil), decide.T7TargetResolution)
 	failed(t, "view of another version", d, trace, decide.T7TargetResolution, decide.StepFailed)
-	d, trace = runStep(t, newEval(t, ambiguousView(), newFake(), func(e *evaluation, _ *fake) { e.intent = nil }), decide.T7TargetResolution)
+	d, trace = runStep(t, newEval(t, ambiguousView(), newFake(), func(e *evaluation, _ *f7) { e.intent = nil }), decide.T7TargetResolution)
 	failed(t, "no intent", d, trace, decide.T7TargetResolution, decide.StepFailed)
 }
 
@@ -448,7 +448,7 @@ func TestT8AnOwnedTargetPassesAfterOneOwnershipRead(t *testing.T) {
 	f := newFake()
 	d, trace := runStep(t, newEval(t, resolvedView(), f, nil), decide.T8BusinessOwnership)
 	continued(t, "owned", d, trace, decide.T8BusinessOwnership)
-	if !slices.Equal(f.calls, []string{"Ownership.OwnsTarget"}) || f.args[0] != tTenant+"/"+tPrincipal {
+	if !slices.Equal(f.calls, []string{"Ownership.OwnsTarget"}) || f.args[0] != t7Tenant+"/"+tPrincipal {
 		t.Errorf("calls %v %v, want one ownership read for the session's tenant and principal", f.calls, f.args)
 	}
 }
@@ -463,7 +463,7 @@ type observed struct {
 	args      []string
 }
 
-func observe(t *testing.T, f *fake) observed {
+func observe(t *testing.T, f *f7) observed {
 	t.Helper()
 	d, trace := runStep(t, newEval(t, resolvedView(), f, nil), decide.T8BusinessOwnership)
 	return observed{d.Outcome(), codes(d), d.Authority(), d.IntentVersion(), trace, f.calls, f.args}
@@ -529,15 +529,15 @@ func TestT9FreshEvidenceIsRecordedOnceFromTheReadAndTheStepContinues(t *testing.
 	e := newEval(t, resolvedView(), f, nil)
 	d, trace := runStep(t, e, decide.T9Evidence)
 	continued(t, "fresh", d, trace, decide.T9Evidence)
-	if !slices.Equal(f.calls, []string{"Evidence.SnapshotFreshness"}) || f.args[0] != tTenant+"/"+tSnapshot {
+	if !slices.Equal(f.calls, []string{"Evidence.SnapshotFreshness"}) || f.args[0] != t7Tenant+"/"+t7Snapshot {
 		t.Errorf("calls %v %v, want one read of the snapshot the request names, for the session's tenant", f.calls, f.args)
 	}
-	b, err := e.basis.Basis()
+	b, err := e.bb.Basis()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.EvidenceSnapshotID != tSnapshot {
-		t.Errorf("recorded snapshot %q, want %q", b.EvidenceSnapshotID, tSnapshot)
+	if b.EvidenceSnapshotID != t7Snapshot {
+		t.Errorf("recorded snapshot %q, want %q", b.EvidenceSnapshotID, t7Snapshot)
 	}
 	var want []decide.Freshness
 	for _, it := range f.evid.Items {
@@ -546,7 +546,7 @@ func TestT9FreshEvidenceIsRecordedOnceFromTheReadAndTheStepContinues(t *testing.
 	if !reflect.DeepEqual(b.EvidenceFreshness, want) {
 		t.Errorf("recorded freshness %+v, want the items the evidence port reported %+v", b.EvidenceFreshness, want)
 	}
-	if err := e.basis.RecordEvidence("evs_other", nil); !errors.Is(err, decide.ErrBasisRecorded) {
+	if err := e.bb.RecordEvidence("evs_other", nil); !errors.Is(err, decide.ErrBasisRecorded) {
 		t.Errorf("a second record: %v, want ErrBasisRecorded (the evidence was recorded once)", err)
 	}
 }
@@ -561,25 +561,25 @@ func TestT9EvidenceAtItsLimitIsFresh(t *testing.T) {
 func TestT9AnUnavailableRequiredSourceEscalatesWithInsufficientEvidence(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		set  func(e *evaluation, f *fake)
+		set  func(e *evaluation, f *f7)
 		read bool
 	}{
-		{"the orchestrator reports an unavailable source", func(e *evaluation, f *fake) { e.req.EvidenceUnavailable = true }, false},
-		{"the orchestrator reports it and names no snapshot", func(e *evaluation, f *fake) { e.req.EvidenceUnavailable, e.req.EvidenceSnapshotID = true, "" }, false},
-		{"the evidence port reports a required source unavailable", func(e *evaluation, f *fake) { f.evid.RequiredUnavailable = true }, true},
-		{"an item is UNAVAILABLE and young", func(e *evaluation, f *fake) {
+		{"the orchestrator reports an unavailable source", func(e *evaluation, f *f7) { e.req.EvidenceUnavailable = true }, false},
+		{"the orchestrator reports it and names no snapshot", func(e *evaluation, f *f7) { e.req.EvidenceUnavailable, e.req.EvidenceSnapshotID = true, "" }, false},
+		{"the evidence port reports a required source unavailable", func(e *evaluation, f *f7) { f.evid.RequiredUnavailable = true }, true},
+		{"an item is UNAVAILABLE and young", func(e *evaluation, f *f7) {
 			f.evid.Items[1] = item("evi_synth0002", "fin.src.switch", 0, 30, contracts.EnumsV1FactStatusUNAVAILABLE)
 		}, true},
 	} {
 		f := newFake()
 		e := newEval(t, resolvedView(), f, c.set)
 		d, trace := runStep(t, e, decide.T9Evidence)
-		stopped(t, c.name, d, trace, decide.T9Evidence, decide.Escalate, "INSUFFICIENT_EVIDENCE")
+		stopped7(t, c.name, d, trace, decide.T9Evidence, decide.Escalate, "INSUFFICIENT_EVIDENCE")
 		if got := len(f.calls) == 1; got != c.read {
 			t.Errorf("%s: calls %v, want a read: %v", c.name, f.calls, c.read)
 		}
-		if b, err := e.basis.Basis(); err != nil || b.EvidenceSnapshotID != "" || len(b.EvidenceFreshness) != 0 {
-			t.Errorf("%s: a stopped step recorded evidence %+v (%v)", c.name, b, err)
+		if b, err := e.bb.Basis(); err != nil || b.EvidenceSnapshotID != "" || len(b.EvidenceFreshness) != 0 {
+			t.Errorf("%s: a stopped7 step recorded evidence %+v (%v)", c.name, b, err)
 		}
 	}
 }
@@ -597,9 +597,9 @@ func TestT9EvidencePastItsLimitEscalatesWithStaleEvidence(t *testing.T) {
 		f.evid.Items = c.items
 		e := newEval(t, resolvedView(), f, nil)
 		d, trace := runStep(t, e, decide.T9Evidence)
-		stopped(t, c.name, d, trace, decide.T9Evidence, decide.Escalate, "STALE_EVIDENCE")
-		if b, _ := e.basis.Basis(); b.EvidenceSnapshotID != "" {
-			t.Errorf("%s: a stopped step recorded evidence", c.name)
+		stopped7(t, c.name, d, trace, decide.T9Evidence, decide.Escalate, "STALE_EVIDENCE")
+		if b, _ := e.bb.Basis(); b.EvidenceSnapshotID != "" {
+			t.Errorf("%s: a stopped7 step recorded evidence", c.name)
 		}
 	}
 }
@@ -612,26 +612,26 @@ func TestT9UnavailableWinsOverStaleInAnyOrder(t *testing.T) {
 		f := newFake()
 		f.evid.Items = items
 		d, trace := runStep(t, newEval(t, resolvedView(), f, nil), decide.T9Evidence)
-		stopped(t, "both", d, trace, decide.T9Evidence, decide.Escalate, "INSUFFICIENT_EVIDENCE")
+		stopped7(t, "both", d, trace, decide.T9Evidence, decide.Escalate, "INSUFFICIENT_EVIDENCE")
 	}
 }
 
 func TestT9EvidenceThatTheRecordCannotHoldOrACallerCannotNameIsUnknown(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		set  func(e *evaluation, f *fake)
+		set  func(e *evaluation, f *f7)
 		read bool
 	}{
-		{"no snapshot and no report that a source is unavailable", func(e *evaluation, f *fake) { e.req.EvidenceSnapshotID = "" }, false},
-		{"a fact status outside the enum", func(e *evaluation, f *fake) { f.evid.Items[0].Status = "FRESH" }, true},
-		{"an empty fact status", func(e *evaluation, f *fake) { f.evid.Items[0].Status = "" }, true},
-		{"a limit of zero", func(e *evaluation, f *fake) {
+		{"no snapshot and no report that a source is unavailable", func(e *evaluation, f *f7) { e.req.EvidenceSnapshotID = "" }, false},
+		{"a fact status outside the enum", func(e *evaluation, f *f7) { f.evid.Items[0].Status = "FRESH" }, true},
+		{"an empty fact status", func(e *evaluation, f *f7) { f.evid.Items[0].Status = "" }, true},
+		{"a limit of zero", func(e *evaluation, f *f7) {
 			f.evid.Items[0] = item("evi_synth0001", "fin.src.ledger", 0, 0, contracts.EnumsV1FactStatusKNOWN)
 		}, true},
-		{"an item with no source", func(e *evaluation, f *fake) { f.evid.Items[0].Freshness.Source = "" }, true},
-		{"a limit set by nobody known", func(e *evaluation, f *fake) { f.evid.Items[0].Freshness.LimitSetBy = "ANYONE" }, true},
-		{"no basis builder", func(e *evaluation, f *fake) { e.basis = nil }, false},
-		{"evidence already recorded for this evaluation", func(e *evaluation, f *fake) { _ = e.basis.RecordEvidence("evs_earlier", nil) }, true},
+		{"an item with no source", func(e *evaluation, f *f7) { f.evid.Items[0].Freshness.Source = "" }, true},
+		{"a limit set by nobody known", func(e *evaluation, f *f7) { f.evid.Items[0].Freshness.LimitSetBy = "ANYONE" }, true},
+		{"no basis builder", func(e *evaluation, f *f7) { e.bb = nil }, false},
+		{"evidence already recorded for this evaluation", func(e *evaluation, f *f7) { _ = e.bb.RecordEvidence("evs_earlier", nil) }, true},
 	} {
 		f := newFake()
 		d, trace := runStep(t, newEval(t, resolvedView(), f, c.set), decide.T9Evidence)
@@ -648,7 +648,7 @@ func TestT9AnErrorOrAPanicFromTheEvidencePortIsUnknownNeverAllow(t *testing.T) {
 	e := newEval(t, resolvedView(), f, nil)
 	d, trace := runStep(t, e, decide.T9Evidence)
 	failed(t, "error", d, trace, decide.T9Evidence, decide.StepFailed)
-	if b, _ := e.basis.Basis(); b.EvidenceSnapshotID != "" {
+	if b, _ := e.bb.Basis(); b.EvidenceSnapshotID != "" {
 		t.Error("an error recorded evidence")
 	}
 	f = newFake()
@@ -669,7 +669,7 @@ func TestT9TheSameInputsGiveTheSameDecisionAndBasis(t *testing.T) {
 		if trace[len(trace)-2].Result != decide.StepPassed {
 			t.Fatalf("trace %v", trace)
 		}
-		dg, err := e.basis.Digest()
+		dg, err := e.bb.Digest()
 		if err != nil {
 			t.Fatal(err)
 		}
