@@ -13,6 +13,7 @@ Produced by `python -m benchmark.bakeoff.score_run`; no API call; the gates are 
 - Corpus hash `sha256:b778c89134f751b58218d95e8c6a87aaa474bfaed430038bc91c22c99bf57c62`: matches the corpus generated here, the run's `cases_version` and its pin.
 - Scoring-code hash `sha256:022d04816085fca073089785a7ef8d98751b4a35ffa73c43939bd2bef629da6f`: matches this checkout and the run's pin.
 - Model pin: `gpt-6-luna` (reported `gpt-6-luna`), harness configuration `ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd`, prompt template digest `b5718411d6bd113efd65f10d349889288c850fd7db1550baa9aa4ca9db9c4556`, retry policy `{"schema_validation_attempts": 1, "transport_retries": 0}`, reasoning effort `medium`, rate card as in the configuration: all match the record.
+- **Made under masking floor 8, and labelled so.** Harness configuration `ee1cde86c9599ac6302374a4286373566f87b04df924bd5f225827323933f9dd` is superseded by the re-freeze of 13 Nov 2026 (ruling A162, `benchmark/decisions/2026-11-13-harness-masking-refreeze.md`): its `masking.account_run_min_digits: 8` was removed and the floor became 4. This run's calls were made under `account_run_min_digits: 8`; the result is not re-scored, not reinterpreted and not mixed with results under the new floor.
 
 ## Counts
 
