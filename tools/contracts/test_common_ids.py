@@ -76,3 +76,29 @@ class ClientRequestId(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WhatTheSchemaLeavesToTheRecordGuard(unittest.TestCase):
+    """The Security Reviewer's asks on noema#564. The schema checks the shape; the letter rule (a body of digits only is no ID) lives in the Record guard (`record/payloadguard`, `bodyHasLetter`)
+    and the gateway, not here. These tests pin that division so nobody moves it by accident: if the schema ever refuses these, the guard's test and this one change together."""
+
+    def test_an_all_digit_body_is_accepted_by_the_schema_and_refused_by_the_guard(self):
+        self.assertTrue(valid("IdempotencyKeyId", "idk_v1_" + "4" * 64))  # guard_test.go: "an idempotency key of digits" is refused
+        self.assertTrue(valid("RequestId", "req_" + "4" * 32))  # guard_test.go: "an all-digit minted request id" is refused
+        self.assertTrue(valid("ClientRequestId", "41111111-1111-1111-1111-111111111111"))  # guard_test.go: "a UUID of digits" is refused
+
+    def test_a_value_with_a_unicode_digit_or_a_trailing_newline_is_not_an_id(self):
+        arabic_four = "٤"  # a decimal digit of another script: [0-9] does not match it
+        for name, definition, value in (
+            ("a key with a Unicode digit", "IdempotencyKeyId", "idk_v1_" + arabic_four * 64),
+            ("a minted request id with a Unicode digit", "RequestId", "req_" + arabic_four * 26),
+            ("a UUID with a Unicode digit", "ClientRequestId", UUID.replace("0", arabic_four, 1)),
+        ):
+            with self.subTest(name):
+                self.assertFalse(valid(definition, value))
+
+    def test_the_generated_python_models_anchor_the_whole_string(self):
+        """The tool layer's jsonschema reads `$` as 'before a trailing newline' too, so the guard against `key + newline` is the generated model: `\\A ... \\Z`."""
+        text = (Path(__file__).resolve().parents[2] / "services" / "model" / "noema_model" / "contracts" / "common_v1.py").read_text(encoding="utf-8")
+        self.assertIn("common.v1.json#$defs/IdempotencyKeyId", text)
+        self.assertIn(r"\\Aidk_v1_[0-9a-f]{64}\\Z", text)
