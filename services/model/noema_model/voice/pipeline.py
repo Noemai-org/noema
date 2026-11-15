@@ -172,6 +172,11 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
 
     The limit: this bounds what the PIPELINE holds. A read that is really stuck (a socket, an executor thread, a timer) is held by the loop or the
     executor, not by this module, and still pins whatever it references until it ends.
+
+    The contract for a source (Codex on #474): `aclose()` must honour cancellation. A close that catches `CancelledError` and carries on cannot be stopped by the
+    pipeline, because nothing in asyncio can end a task that refuses to; after the bound it is cancelled, reported `VOI_AUDIO_CLOSE_ABANDONED` and let go of (removed
+    from `_DEFERRED`), and the task and whatever it references live until it ends on its own. That is an adapter bug, made visible by the report, not a leak this module
+    can close; a process-level isolation boundary (a worker process) is outside this module. The test pins what the pipeline does hold: nothing, once the bound has expired.
     """
     window = hold_s if close_s is None else close_s
     say = report if report is not None else _reporter(None, "uncorrelated")
