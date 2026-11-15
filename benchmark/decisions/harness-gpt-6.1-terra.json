@@ -10,9 +10,6 @@
       "utterance": 2000
     }
   },
-  "masking": {
-    "account_run_min_digits": 8
-  },
   "providers": {
     "openai_terra": {
       "credential_env": "OPENAI_API_KEY",

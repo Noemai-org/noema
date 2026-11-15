@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from benchmark.scoring.judge import Judgement
-from benchmark.scoring.stats import make_rate, percentile
+from benchmark.scoring.rates import make_rate
+from benchmark.scoring.stats import percentile
 
 Json = dict[str, Any]
 

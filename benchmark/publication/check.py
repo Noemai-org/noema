@@ -4,7 +4,7 @@ A publication is a set of CLAIMS plus the DISTRIBUTIONS they sit in. `check` is 
 problem it finds, sorted. It decides nothing about whether a number is good; it enforces that no external number can be stated without its evidence:
 
 - every claim names a run ID that has a scorecard in the bundle, and a JSON pointer to a rate in that scorecard; its k, n, rate and interval must equal the scorecard's;
-- the method is the one the scorer used (Wilson 95%), a zero-failure rate carries the scorer's rule-of-three bound, and every number written in the claim's text is one of the claim's own;
+- the method is the one the scorer used (Wilson 95%), a failure rate carries the scorer's exact one-sided 95% upper bound (`exact_upper95`, ruling A190), and every number written in the claim's text is one of the claim's own;
 - outcomes are judged against the final state of the systems (`ORACLE_FINAL_STATE`), and the Tier 0 status of the run is stated and equals the scorecard's;
 - the run is complete; a run that is not a release result says so in the claim's population; pass^k is publishable only when it was available (exactly five runs);
 - the text avoids the words the release rules forbid (claims.md section 3);
@@ -45,7 +45,7 @@ def resolve(card: Json, ref: str) -> Any:
 
 
 def _is_rate(node: Any) -> bool:
-    return isinstance(node, dict) and {"k", "n", "rate", "wilson95", "rule_of_three_upper"} <= set(node)
+    return isinstance(node, dict) and {"k", "n", "rate", "wilson95", "rule_of_three_upper", "exact_upper95"} <= set(node)
 
 
 def population_for(card: Json) -> str:
@@ -62,8 +62,8 @@ def build_claim(card: Json, claim_id: str, ref: str, text: str) -> Json:
         "id": claim_id, "text": text, "run_id": card["run_id"], "scorecard_ref": ref, "k": rate["k"], "n": rate["n"], "rate": rate["rate"], "ci95": rate["wilson95"],
         "method": METHOD, "population": population_for(card), "outcome_basis": OUTCOME_BASIS, "tier0_all_zero": card["tier0"]["all_zero"],
     }
-    if rate["rule_of_three_upper"] is not None:
-        claim["bound"] = rate["rule_of_three_upper"]
+    if rate["exact_upper95"] is not None:
+        claim["bound"] = rate["exact_upper95"]  # ruling A190: the exact one-sided 95% upper bound, for any number of failures (the rule of three only covered zero)
     return claim
 
 
@@ -135,16 +135,16 @@ def _claim_problems(claim: Json, cards: Mapping[str, Json]) -> list[str]:
     if _is_rate(rate) and claim["scorecard_ref"].startswith("/tier0/") and rate["n"] < HEADLINE_MIN_N:
         out.append(f"claim {cid}: a headline safety claim (Tier 0) needs n of at least {HEADLINE_MIN_N} (ruling A40, METRICS-v1 section 4); run {claim['run_id']} measured it on n = {rate['n']}")
     if not _is_rate(rate):
-        return out + [f"claim {cid}: {claim['scorecard_ref']} is not a rate (k, n, rate, wilson95, rule_of_three_upper)"]
+        return out + [f"claim {cid}: {claim['scorecard_ref']} is not a rate (k, n, rate, wilson95, rule_of_three_upper, exact_upper95: a scorecard v3 rate)"]
     for field, truth in (("k", rate["k"]), ("n", rate["n"]), ("rate", rate["rate"])):
         if claim[field] != truth:
             out.append(f"claim {cid}: {field} {claim[field]!r} does not match the scorecard's {truth!r}")
     if claim["ci95"] != rate["wilson95"]:
         out.append(f"claim {cid}: ci95 {claim['ci95']!r} does not match the scorecard's {rate['wilson95']!r}")
-    if rate["rule_of_three_upper"] is not None and claim.get("bound") != rate["rule_of_three_upper"]:
-        out.append(f"claim {cid}: zero failures in {rate['n']} cases needs its rule-of-three bound {rate['rule_of_three_upper']!r}; the claim has bound {claim.get('bound')!r}")
-    elif rate["rule_of_three_upper"] is None and "bound" in claim:
-        out.append(f"claim {cid}: the scorecard has no rule-of-three bound for this rate (it is not a zero-failure rate), so the claim must not state a bound; it has bound {claim['bound']!r}")
+    if rate["exact_upper95"] is not None and claim.get("bound") != rate["exact_upper95"]:
+        out.append(f"claim {cid}: a failure rate measured on {rate['n']} cases needs its exact one-sided 95% upper bound {rate['exact_upper95']!r} (the scorecard's exact_upper95); the claim has bound {claim.get('bound')!r}")
+    elif rate["exact_upper95"] is None and "bound" in claim:
+        out.append(f"claim {cid}: the scorecard has no exact upper bound for this rate (it is not a rate of failures, or has no cases), so the claim must not state a bound; it has bound {claim['bound']!r}")
     return out + _text_problems(claim)
 
 
