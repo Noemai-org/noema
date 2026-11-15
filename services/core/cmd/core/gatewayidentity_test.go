@@ -106,6 +106,7 @@ func TestNoIdentityIsTakenFromTheBodyOrTheHeaders(t *testing.T) {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/conversations", strings.NewReader(`{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","text":"x"}`))
 	req.Header.Set("Authorization", auth)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Tenant-Id", "tnt_other")
 	req.Header.Set("X-Principal-Id", "prn_2")
 	rec := httptest.NewRecorder()
