@@ -1,5 +1,6 @@
 """The G1 stack workflow (.github/workflows/bench-g1-stack.yml) must score the run and fail on a Tier 0 non-zero (Codex P1 on noema#444; SoT §38.3, INV-22).
 The workflow is not run in a unit test; this reads it, like the other workflow guards, and checks the rules that make its result trustworthy."""
+import json
 import os
 import re
 import shutil
@@ -75,6 +76,22 @@ class G1StackWorkflow(unittest.TestCase):
         result = re.search(r"(?ms)- name: Result.*", self.script)
         assert result
         self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
+
+    def test_the_scorecards_real_statistics_pass_the_scan(self) -> None:
+        # Codex P2 on noema#577: a full run with Tier 0 at zero carries a Wilson bound of 0.011862 and a rule-of-three bound of 0.009375, six-digit runs for the scanner.
+        # This uses the scorer's own function and its own JSON layout, not a copy of the numbers.
+        from benchmark.scoring.stats import make_rate
+        card = json.dumps({"tier0": {"gate": make_rate(0, 320, failure=True), "other": make_rate(150, 320)}}, indent=2)
+        allow = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow"
+        scanner = WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "scorecard.json"
+            f.write_text(card + "\n", encoding="utf-8")
+            self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), "--allow", str(allow), str(f)], capture_output=True, check=False).returncode, 0)
+            self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), str(f)], capture_output=True, check=False).returncode, 1, "without the allow file the statistics are findings")
+            for bad in ('  "account_number": 0.123456,', '  "rate": 12345.5,', '  0.1234567,', '  "note": 0.123456,'):
+                f.write_text(bad + "\n", encoding="utf-8")
+                self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), "--allow", str(allow), str(f)], capture_output=True, check=False).returncode, 1, bad)
 
     def test_the_allow_file_lets_the_scorers_own_metadata_through_and_nothing_else(self) -> None:
         # Codex P2 on noema#591: the score report prints the generator's seed and the latency and cost lines in Markdown, and the scorecard carries aggregate cost and percentiles.
