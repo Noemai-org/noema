@@ -38,7 +38,10 @@ type f13 struct {
 	recReqs []RecordRequest
 	failAt  string
 	panicAt string
-	hasDL   []bool // whether the context of each call had a deadline
+	hasDL   []bool                // whether the context of each call had a deadline
+	caps    map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
+	capErr  error
+	checked []string
 }
 
 func (f *f13) hit(ctx context.Context, name string) error {
@@ -56,6 +59,21 @@ func (f *f13) hit(ctx context.Context, name string) error {
 
 func (f *f13) Status(ctx context.Context, _ AdmittedIntent) (Confirmation, error) {
 	return f.conf, firstErr(f.hit(ctx, "Confirmations.Status"), f.confErr)
+}
+
+func (f *f13) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
+	return Capability{}, false, nil
+}
+
+func (f *f13) Check(ctx context.Context, id string) (Capability, error) {
+	f.checked = append(f.checked, id)
+	if f.panicAt == "Capabilities.Check" {
+		panic("injected panic in Capabilities.Check")
+	}
+	if f.capErr != nil {
+		return Capability{}, f.capErr
+	}
+	return f.caps[id], nil
 }
 
 func (f *f13) Plan(ctx context.Context, r PlanRequest) (Plan, error) {
@@ -101,6 +119,7 @@ func newFake13() *f13 {
 		conf: Confirmation{Status: ConfirmationNotRequired},
 		plan: Plan{Hash: tPlanHash, Steps: []PlanStep{{CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash}}},
 		rec:  RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001"}},
+		caps: map[string]Capability{"fin.cap.create_escalation_case": {ID: "fin.cap.create_escalation_case", Registered: true}, "fin.cap.route_to_internal_owner": {ID: "fin.cap.route_to_internal_owner", Registered: true}},
 	}
 }
 
@@ -128,8 +147,8 @@ func newEval13(t *testing.T, f *f13) *evaluation {
 	t.Helper()
 	view := decide.IntentView{Version: t13Version, RequiredSlots: map[string]decide.SlotStatus{"subject": decide.SlotResolved}}
 	a := AdmittedIntent{TenantID: t13Tenant, IntentID: tIntent, Version: t13Version, IntentNode: "fin.payments.exception.investigate", IntentHash: tHash,
-		CorrelationID: "corr_synth0001", PrincipalID: t13Principal, View: view}
-	svc := &Service{Ports: Ports{Confirmations: f, Planner: f, Recorder: f}, Clock: clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), PackVersion: "1.0.0"}
+		CorrelationID: "corr_synth0001", PrincipalID: t13Principal, TargetRef: "txn_synth0001", View: view}
+	svc := &Service{Ports: Ports{Capabilities: f, Confirmations: f, Planner: f, Recorder: f}, Clock: clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), PackVersion: "1.0.0"}
 	ev := &evaluation{svc: svc, req: Request{Session: Session{TenantID: t13Tenant, PrincipalID: t13Principal, Role: "customer"}, CorrelationID: "corr_synth0001", IntentRef: tIntent + "@2"},
 		intentID: tIntent, version: t13Version, intent: &a, bb: freshBuilder(t, true, true)}
 	ev.late.needsWrite = true
@@ -594,5 +613,107 @@ func TestT13ToT15AreDeterministic(t *testing.T) {
 	}
 	if reqs[0].BasisDigest != reqs[1].BasisDigest || reqs[0].PlanHash != reqs[1].PlanHash || !reflect.DeepEqual(reqs[0].Steps, reqs[1].Steps) {
 		t.Errorf("two record requests differ: %+v / %+v", reqs[0], reqs[1])
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+// T14: the plan is checked against what T4, T8 and T10 found (the Security Reviewer's blocking finding 2 on noema#572)
+
+// writePlan is a write plan of the given steps, with the hash of the form T14 requires.
+func writePlan(steps ...PlanStep) Plan { return Plan{Hash: tPlanHash, Steps: steps} }
+
+func stepOn(capability, target string) PlanStep {
+	return PlanStep{CapabilityID: capability, TargetRef: target, ParamsHash: tHash}
+}
+
+// planRefused: the evaluation ended UNKNOWN PLAN_INVALID at T14 and the Recorder was never called, so no decision and no grant was written.
+func planRefused(t *testing.T, name string, f *f13, res Result) {
+	t.Helper()
+	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(codes13(res.Decision), []string{"PLAN_INVALID"}) || lastTrace(res).Step != decide.T14Plan {
+		t.Errorf("%s: %s %v, trace %v; want UNKNOWN PLAN_INVALID at T14", name, res.Decision.Outcome(), codes13(res.Decision), res.Trace)
+	}
+	if f.called("Recorder.Record") != 0 || res.DecisionID != "" || len(res.GrantIDs) != 0 {
+		t.Errorf("%s: something was recorded: %v %q %v", name, f.calls, res.DecisionID, res.GrantIDs)
+	}
+}
+
+// T4: a plan step whose capability the registry does not know, or knows as prohibited, is never granted, whatever capability the intent named (REQ-CAP-002, INV-05).
+func TestT14AStepWithAnUnregisteredOrProhibitedCapabilityIsRefused(t *testing.T) {
+	for name, c := range map[string]Capability{
+		"unregistered": {ID: "fin.cap.create_escalation_case"},
+		"prohibited":   {ID: "fin.cap.create_escalation_case", Registered: true, Prohibited: true},
+	} {
+		f := newFake13()
+		f.caps["fin.cap.create_escalation_case"] = c
+		res := run13(t, newEval13(t, f))
+		planRefused(t, name, f, res)
+	}
+}
+
+// T8: a step may act on the target the stored intent names, which T8 checked the principal owns, and on no other; a write whose intent names no target has nothing owned to act on.
+func TestT14AStepOnAnotherTargetThanTheOwnedOneIsRefused(t *testing.T) {
+	f := newFake13()
+	f.plan = writePlan(stepOn("fin.cap.create_escalation_case", "txn_synth9999"))
+	planRefused(t, "another target", f, run13(t, newEval13(t, f)))
+
+	f = newFake13()
+	ev := newEval13(t, f)
+	ev.intent.TargetRef = ""
+	planRefused(t, "the intent names no target", f, run13(t, ev))
+}
+
+// T10: on a target frozen for a contradiction, a step's capability must be one the pack allows under the freeze; the intent's own capability is not what counts, the plan's is.
+func TestT14AStepThePackDoesNotAllowUnderTheFreezeIsRefused(t *testing.T) {
+	f := newFake13()
+	ev := newEval13(t, f)
+	ev.frozen, ev.allowedUnderFreeze = true, []string{"fin.cap.route_to_internal_owner"}
+	planRefused(t, "frozen, capability not allowed under the freeze", f, run13(t, ev))
+
+	f = newFake13()
+	ev = newEval13(t, f)
+	ev.frozen, ev.allowedUnderFreeze = true, []string{"fin.cap.create_escalation_case"}
+	if res := run13(t, ev); res.Decision.Outcome() != decide.Allow {
+		t.Errorf("frozen, capability allowed under the freeze: %s %v, want ALLOW", res.Decision.Outcome(), codes13(res.Decision))
+	}
+
+	f = newFake13()
+	ev = newEval13(t, f)
+	ev.frozen = true
+	planRefused(t, "frozen, the pack allows nothing under the freeze", f, run13(t, ev))
+}
+
+// Every step is checked, not only the first, and one bad step among good ones grants nothing: the Recorder is not called, so not even the good steps get a grant.
+func TestT14OneBadStepAmongGoodOnesGrantsNothing(t *testing.T) {
+	f := newFake13()
+	f.plan = writePlan(stepOn("fin.cap.create_escalation_case", "txn_synth0001"), stepOn("fin.cap.route_to_internal_owner", "txn_synth0001"), stepOn("fin.cap.never_registered", "txn_synth0001"))
+	f.rec = RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_a", "grt_b", "grt_c"}}
+	res := run13(t, newEval13(t, f))
+	planRefused(t, "third step unregistered", f, res)
+	if !reflect.DeepEqual(f.checked, []string{"fin.cap.create_escalation_case", "fin.cap.route_to_internal_owner", "fin.cap.never_registered"}) {
+		t.Errorf("the registry was asked about %v, want every step", f.checked)
+	}
+}
+
+// A registry that cannot answer is not a pass: an error or a panic ends UNKNOWN INTERNAL_ERROR, never ALLOW, and nothing is recorded. A read has no step and asks nothing.
+func TestT14ARegistryThatCannotAnswerFailsClosedAndAReadAsksNothing(t *testing.T) {
+	f := newFake13()
+	f.capErr = errInjected
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(codes13(res.Decision), []string{"INTERNAL_ERROR"}) || f.called("Recorder.Record") != 0 {
+		t.Errorf("registry error: %s %v %v", res.Decision.Outcome(), codes13(res.Decision), f.calls)
+	}
+	f = newFake13()
+	f.panicAt = "Capabilities.Check"
+	res = run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Unknown || f.called("Recorder.Record") != 0 {
+		t.Errorf("registry panic: %s %v", res.Decision.Outcome(), f.calls)
+	}
+	f = newFake13()
+	f.plan = Plan{Hash: tPlanHash}
+	ev := newEval13(t, f)
+	ev.late.needsWrite = false
+	f.rec = RecordResult{DecisionID: "dec_synth0001"}
+	if res := run13(t, ev); res.Decision.Outcome() != decide.Allow || len(f.checked) != 0 {
+		t.Errorf("a read: %s, the registry was asked %v", res.Decision.Outcome(), f.checked)
 	}
 }

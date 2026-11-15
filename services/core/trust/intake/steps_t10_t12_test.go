@@ -899,6 +899,7 @@ func (noPorts) LatestVersion(context.Context, string, string) (int, error) { ret
 func (noPorts) Verify(context.Context, AdmittedIntent) error               { return ErrInvalid }
 func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)   { return false, nil }
 func (noPorts) Enabled(context.Context, string) (bool, error)              { return false, nil }
+func (noPorts) Check(context.Context, string) (Capability, error)          { return Capability{}, nil }
 func (noPorts) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
 	return Capability{}, false, nil
 }

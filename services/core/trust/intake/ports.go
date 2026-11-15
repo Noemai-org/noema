@@ -40,7 +40,10 @@ type AdmittedIntent struct {
 	IntentHash    string
 	CorrelationID string
 	PrincipalID   string // the principal the document names: the session's, written by the gate (INV-12)
-	View          decide.IntentView
+	// TargetRef is the target the stored intent names, resolved by the adapter from the intent store (never from the request): the target T8 checks the principal owns and the
+	// only target a plan step may act on. Empty for an intent that names none.
+	TargetRef string
+	View      decide.IntentView
 }
 
 // Intents reads admitted intents. Get returns ErrNotFound for an unknown intent and for another tenant's, the same answer for both.
@@ -69,6 +72,8 @@ type Capability struct {
 // prohibited. present is false when the intent names none.
 type Capabilities interface {
 	Requested(ctx context.Context, a AdmittedIntent) (c Capability, present bool, err error)
+	// Check is the registry's answer for one capability ID: the capabilities of a plan's steps are checked here at T14, one by one, not only the one the intent names.
+	Check(ctx context.Context, capabilityID string) (Capability, error)
 }
 
 // Scope answers T5: is the intent node in scope for the tenant.

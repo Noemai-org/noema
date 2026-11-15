@@ -109,6 +109,9 @@ func (s *spy) NeedsWrite(context.Context, intake.AdmittedIntent) (bool, error) {
 func (s *spy) Enabled(context.Context, string) (bool, error) {
 	return s.enabled, s.hit("Writes.Enabled")
 }
+func (s *spy) Check(_ context.Context, id string) (intake.Capability, error) {
+	return intake.Capability{ID: id, Registered: true}, s.hit("Capabilities.Check")
+}
 func (s *spy) Requested(context.Context, intake.AdmittedIntent) (intake.Capability, bool, error) {
 	return s.capability, s.capPresent, s.hit("Capabilities.Requested")
 }

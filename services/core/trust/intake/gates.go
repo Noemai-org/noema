@@ -22,6 +22,9 @@ type evaluation struct {
 	// policyVersions are the policy versions T11 used, kept for the Decision Input (REQ-TRU-007).
 	policyVersions []decide.PolicyVersionRef
 	late           lateState // what T3 and T13 to T15 learn
+	// frozen and allowedUnderFreeze are what T10 saw: the target carries a contradiction freeze, and the capabilities the pack allows on it. T14 checks the plan against them.
+	frozen             bool
+	allowedUnderFreeze []string
 }
 
 func (e *evaluation) steps() decide.Steps {
