@@ -33,11 +33,18 @@ jobs:
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      # The whole string is checked with `case`, never a line at a time: `grep -Eq '^...$'` passes a value when any ONE of its lines matches, so a run id of `ok`, a newline and anything else
+      # would pass and then reach $GITHUB_OUTPUT and the step summary (Security Reviewer on noema#577); and `printf '%s' ''` has no line at all, so grep rejected the empty default
+      # (Codex P1). An empty run id is allowed: the default g1-stack-gh<run> is used.
       - name: Validate the inputs
         run: |
           set -eu
-          printf '%s' "$GIVEN_RUN_ID" | grep -Eq '^[A-Za-z0-9_.-]{0,64}$' || { echo "run_id must be at most 64 characters of letters, digits, dot, dash and underscore"; exit 2; }
-          printf '%s' "$BENCH_MAX_BODY_BYTES" | grep -Eq '^[1-9][0-9]{0,15}$' || { echo "max_body_bytes must be a positive whole number"; exit 2; }
+          case "$GIVEN_RUN_ID" in *[!A-Za-z0-9_.-]*) echo "run_id may hold only letters, digits, dot, dash and underscore"; exit 2 ;; esac
+          [ "${#GIVEN_RUN_ID}" -le 64 ] || { echo "run_id must be at most 64 characters"; exit 2; }
+          case "$BENCH_MAX_BODY_BYTES" in ''|0*|*[!0-9]*) echo "max_body_bytes must be a positive whole number without a leading zero"; exit 2 ;; esac
+          [ "${#BENCH_MAX_BODY_BYTES}" -le 16 ] || { echo "max_body_bytes has more than 16 digits"; exit 2; }
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: services/core/go.mod
@@ -114,11 +121,22 @@ jobs:
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
           } >> "$GITHUB_STEP_SUMMARY"
+      # A leak scan over every file that is about to be uploaded (Security Reviewer's criterion 8 on noema#436): nothing is uploaded unless it is clean. The allow file lets only named
+      # numeric fields and the scorer's own metadata lines through the digit-run rule (a seed, a cost in micro-dollars, a latency); never a secret.
+      - id: scan
+        name: Leak scan over the uploaded artifacts
+        if: always()
+        run: |
+          set +e
+          mkdir -p benchmark/out/run benchmark/out/score
+          python3 -I tools/ci/leakscan.py --allow tools/ci/g1_leakscan.allow benchmark/out/run benchmark/out/score benchmark/out/mock-case.log benchmark/out/mock-case-collector.err
+          echo "scan=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       - name: Stop the stack
         if: always()
         run: make bench-down
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
+        if: always() && steps.scan.outputs.scan == '0'
         with:
           name: bench-g1-stack-${{ github.run_id }}
           path: |
@@ -131,7 +149,9 @@ jobs:
       - name: Result (only a run that ran, complete, passes)
         env:
           CODE: ${{ steps.run.outputs.code }}
+          SCAN: ${{ steps.scan.outputs.scan }}
         run: |
+          [ "${SCAN:-missing}" = 0 ] || { echo "::error::The leak scan did not pass (exit ${SCAN:-missing}); nothing was uploaded."; exit 1; }
           case "$CODE" in
             0) exit 0 ;;
             3) echo "::error::The run did not run (exit 3, not run: no access). That is not a pass."; exit 1 ;;

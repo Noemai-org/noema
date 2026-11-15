@@ -1,6 +1,11 @@
 """The G1 stack workflow (.github/workflows/bench-g1-stack.yml) must score the run and fail on a Tier 0 non-zero (Codex P1 on noema#444; SoT §38.3, INV-22).
 The workflow is not run in a unit test; this reads it, like the other workflow guards, and checks the rules that make its result trustworthy."""
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -32,10 +37,70 @@ class G1StackWorkflow(unittest.TestCase):
         assert block
         self.assertIn("required: true", block.group(1))
         self.assertNotRegex(block.group(1), r"(?m)^\s+default:")
-        self.assertRegex(self.script, r"grep -Eq '\^\[1-9\]\[0-9\]\{0,15\}\$'")
+        self.assertIn('case "$BENCH_MAX_BODY_BYTES" in', self.script)
 
-    def test_the_run_id_is_validated_before_use(self) -> None:
-        self.assertIn("grep -Eq '^[A-Za-z0-9_.-]{0,64}$'", self.script)
+    def validate(self, run_id: str, body: str) -> int:
+        """Runs the workflow's own 'Validate the inputs' step in bash with these two values."""
+        step = re.search(r"(?ms)- name: Validate the inputs\n\s+run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body}, capture_output=True, check=False).returncode
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation step")
+    def test_the_run_id_and_the_body_limit_are_validated_on_the_whole_string(self) -> None:
+        # Codex P1 and the Security Reviewer on noema#577: grep passed any value with one matching line (a newline injected a $GITHUB_OUTPUT entry) and rejected the empty default.
+        for run_id in ("", "g1-stack-gh12.3_a", "a" * 64):
+            self.assertEqual(self.validate(run_id, "16384"), 0, repr(run_id))
+        for run_id in ("ok\nGITHUB_OUTPUT_INJECTION=1", "ok\n", "\nok", "a b", "a;b", "$(x)", "a" * 65, "x/y", "x\ry"):
+            self.assertEqual(self.validate(run_id, "16384"), 2, repr(run_id))
+        for body in ("1", "16384", "9" * 16):
+            self.assertEqual(self.validate("", body), 0, repr(body))
+        for body in ("", "0", "016384", "16384\n99", "16384\n", "-1", "1.5", "1e3", "9" * 17, "1 2"):
+            self.assertEqual(self.validate("", body), 2, repr(body))
+
+    def test_the_checkout_does_not_keep_the_repository_token(self) -> None:
+        self.assertRegex(self.text, r"uses: actions/checkout@\S+[^\n]*\n\s+with:\n\s+persist-credentials: false")
+
+    def test_the_uploaded_artifacts_are_leak_scanned_first_and_a_failed_scan_fails_the_job(self) -> None:
+        scan = re.search(r"python3 -I tools/ci/leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
+        assert scan
+        scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
+        uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
+        assert uploaded
+        for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
+            self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
+        self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+        self.assertIn("if: always() && steps.scan.outputs.scan == '0'", self.script)
+        self.assertLess(self.script.index("tools/ci/leakscan.py"), self.script.index("actions/upload-artifact"))
+        result = re.search(r"(?ms)- name: Result.*", self.script)
+        assert result
+        self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
+
+    def test_the_allow_file_lets_the_scorers_own_metadata_through_and_nothing_else(self) -> None:
+        # Codex P2 on noema#591: the score report prints the generator's seed and the latency and cost lines in Markdown, and the scorecard carries aggregate cost and percentiles.
+        allow = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow"
+        scanner = WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"
+        good = [
+            "- How they were generated: benchmark-generator 1.3.0, seed 20261020, suite suite-v1 1.0.0.",
+            "- provider cost: 326693 millionths of a US dollar in total; 54448 per correct outcome (rounded down)",
+            "- provider cost: 326693 millionths of a US dollar in total; no correct outcome to divide by",
+            "- latency, all paths (n=320): P50 12000 ms, P95 123456 ms, P99 234567 ms",
+            "- latency, clean_write (n=12): P50 120 ms, P95 12345 ms, P99 23456 ms",
+            '  "seed": 20261103,', '  "cost_usd_micros": 326693,', '  "cost_usd_micros_total": 1234567', '  "cost_usd_micros_per_correct_outcome": 123456,',
+            '  "latency_ms": 12345,', '  "p50_ms": 12000,', '  "p95_ms": 123456,', '  "p99_ms": 234567',
+        ]
+        bad = ["- How they were generated: benchmark-generator 1.3.0, seed 20261020, suite suite-v1 1.0.0. account 1234567890", "- note 123456 here",
+               '  "account_number": 1234567890,', '  "seed_note": "12345678"', "- latency, all paths (n=320): P50 12000 ms, P95 123456 ms, P99 234567 ms and 12345678"]
+        with tempfile.TemporaryDirectory() as tmp:
+            def scan(lines: list[str], use_allow: bool) -> int:
+                f = Path(tmp) / "x.txt"
+                f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                args = [sys.executable, "-I", str(scanner)] + (["--allow", str(allow)] if use_allow else []) + [str(f)]
+                return subprocess.run(args, capture_output=True, check=False).returncode
+            self.assertEqual(scan(good, True), 0)
+            self.assertEqual(scan(good, False), 1, "without the allow file the same lines are findings")
+            for line in bad:
+                self.assertEqual(scan([line], True), 1, line)
 
     def test_the_private_key_and_the_issuer_are_never_uploaded(self) -> None:
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
