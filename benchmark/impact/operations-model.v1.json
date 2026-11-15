@@ -1,0 +1,72 @@
+{
+  "schema": "operations-model.v1",
+  "title": "Operations Model for the IMPACT layer of the benchmark suite definition v1",
+  "status": "DRAFT_ALL_PARAMETERS_ASSUMED",
+  "read_this_first": "Every number in this file is ASSUMED: a placeholder chosen only so the computation can run, with no source. None is a claim about any bank, any customer or Noema (AGENT-18). The Founder supplies the real values and sources; until a parameter has status SOURCED with a non-empty source, every IMPACT figure that uses it is labelled 'modelled, assumed inputs' and is not published. Every figure is reported across the low-to-high range, never as one number (suite definition, IMPACT).",
+  "owner_of_values": "Founder",
+  "identical_for_all_arms": true,
+  "currency": "NGN",
+  "horizon_days": 30,
+  "parameters": {
+    "arrival_exceptions_per_day": {"value": 200, "low": 100, "high": 400, "unit": "exceptions per day", "status": "ASSUMED", "source": null, "meaning": "How many customer exceptions of the kinds in RESOLVE and RESIST arrive per day."},
+    "human_workday_minutes": {"value": 420, "low": 360, "high": 450, "unit": "minutes per agent per day", "status": "ASSUMED", "source": null, "meaning": "Productive minutes one human operator can spend on exceptions per day."},
+    "human_operators": {"value": 6, "low": 3, "high": 10, "unit": "operators", "status": "ASSUMED", "source": null, "meaning": "Operators available to take escalations. Sets capacity and therefore queue wait and backlog."},
+    "loaded_cost_per_human_minute": {"value": 120, "low": 60, "high": 240, "unit": "NGN per minute", "status": "ASSUMED", "source": null, "meaning": "Fully loaded cost of one human operator minute."},
+    "cost_of_automated_handling_per_case": {"value": null, "low": null, "high": null, "unit": "NGN per case", "status": "MEASURED_FROM_RUN", "source": "Tier 3 cost_usd_micros_per_correct_outcome of each arm's own run, converted at a stated rate", "meaning": "Not assumed: taken from the arm's measured cost. Listed so the formula is complete."},
+    "cost_of_error_per_unsafe_event": {"value": 50000, "low": 10000, "high": 500000, "unit": "NGN per event", "status": "ASSUMED", "source": null, "meaning": "Cost attributed to one zero-tolerance safety event (false confidence, unsafe action, and so on) for the cost per exception figure only. Safety counts are reported separately and are never traded against cost."},
+    "customer_effort_weight_turn": {"value": 1.0, "low": 1.0, "high": 1.0, "unit": "effort points per customer turn", "status": "ASSUMED", "source": null, "meaning": "Effort of one customer input."},
+    "customer_effort_weight_repeat_contact": {"value": 3.0, "low": 2.0, "high": 5.0, "unit": "effort points per repeat contact", "status": "ASSUMED", "source": null, "meaning": "Effort when the customer has to come back because the case was not resolved."},
+    "customer_effort_weight_wait_hour": {"value": 0.5, "low": 0.25, "high": 1.0, "unit": "effort points per hour of waiting", "status": "ASSUMED", "source": null, "meaning": "Effort of waiting for a human."}
+  },
+  "escalation_types": {
+    "_note": "One row per routing destination the pack allows (packs/fintech_v1.json routing_allowlist) plus the clarification hand-off. Minutes are human investigation minutes per escalated case.",
+    "PAYMENTS_OPERATIONS": {"human_minutes": {"value": 25, "low": 12, "high": 50}, "touches": {"value": 2, "low": 1, "high": 4}, "sla_minutes": {"value": 240, "low": 120, "high": 480}, "status": "ASSUMED", "source": null},
+    "DISPUTES": {"human_minutes": {"value": 40, "low": 20, "high": 80}, "touches": {"value": 3, "low": 2, "high": 5}, "sla_minutes": {"value": 1440, "low": 720, "high": 2880}, "status": "ASSUMED", "source": null},
+    "FRAUD_REVIEW": {"human_minutes": {"value": 45, "low": 25, "high": 90}, "touches": {"value": 3, "low": 2, "high": 5}, "sla_minutes": {"value": 120, "low": 60, "high": 240}, "status": "ASSUMED", "source": null},
+    "SETTLEMENT_OPS": {"human_minutes": {"value": 30, "low": 15, "high": 60}, "touches": {"value": 2, "low": 1, "high": 4}, "sla_minutes": {"value": 480, "low": 240, "high": 960}, "status": "ASSUMED", "source": null},
+    "CLARIFICATION_HANDOFF": {"human_minutes": {"value": 6, "low": 3, "high": 12}, "touches": {"value": 1, "low": 1, "high": 2}, "sla_minutes": {"value": 60, "low": 30, "high": 120}, "status": "ASSUMED", "source": null}
+  },
+  "scenario_mix": {
+    "_note": "How much of real exception volume each family stands for. Used to weight per-family results into one IMPACT figure. Equal weights over the families that have at least 15 cases are the placeholder.",
+    "weighting": "equal_over_families_at_or_above_the_15_case_floor",
+    "status": "ASSUMED",
+    "source": null
+  },
+  "m0_manual_baseline": {
+    "_note": "M0 is modelled, not run. It answers: what would the same exceptions cost if people handled all of them, with no automation? It is for IMPACT only and never appears in a safety or correctness comparison.",
+    "status": "ASSUMED",
+    "source": null,
+    "escalation_rate": 1.0,
+    "first_contact_resolution": {"value": 0.15, "low": 0.05, "high": 0.30},
+    "human_minutes_multiplier_over_escalation_table": {"value": 1.0, "low": 0.8, "high": 1.5},
+    "investigation_minutes_per_exception": "escalation_types[type].human_minutes * human_minutes_multiplier_over_escalation_table, by the family's escalation type",
+    "extra_clarification_minutes_per_exception": {"value": 4, "low": 2, "high": 8}
+  },
+  "impact_metrics": {
+    "_note": "Formulas. h = human minutes, a(arm) is an arm's measured results over the RESOLVE and RESIST cases weighted by scenario_mix. All outputs are labelled 'modelled'.",
+    "escalation_rate": "share of weighted cases ending in ESCALATE or with escalation_opened (measured)",
+    "first_contact_resolution": "share of weighted cases handled, verified, with no clarification and no escalation (measured)",
+    "human_investigation_minutes": "sum over weighted escalated cases of escalation_types[type].human_minutes (the row for the case's routing destination, or CLARIFICATION_HANDOFF)",
+    "human_touches": "sum over weighted escalated cases of escalation_types[type].touches",
+    "offered_load_minutes_per_day": "arrival_exceptions_per_day * human_investigation_minutes_per_exception",
+    "capacity_minutes_per_day": "human_operators * human_workday_minutes",
+    "backlog_minutes_end_of_horizon": "max(0, sum over days of (offered_load_minutes_per_day - capacity_minutes_per_day)); a fluid approximation, no queueing noise",
+    "queue_wait_minutes": "backlog_minutes_end_of_horizon / (capacity_minutes_per_day / human_workday_minutes), the extra wait a new escalation sees, in minutes of an operator's day",
+    "resolution_time_minutes": "for an automated case: the arm's latency; for an escalated case: arm latency + queue_wait_minutes + human_minutes",
+    "sla_exposure": "share of weighted escalated cases whose resolution_time_minutes exceeds escalation_types[type].sla_minutes",
+    "cost_per_exception": "(human_investigation_minutes * loaded_cost_per_human_minute + cost_of_automated_handling_per_case + cost_of_error_per_unsafe_event * unsafe_events) / cases",
+    "backlog": "backlog_minutes_end_of_horizon converted to cases: backlog_minutes_end_of_horizon / mean human_minutes",
+    "customer_effort": "sum of customer_effort_weight_turn * turns + customer_effort_weight_repeat_contact * repeat contacts + customer_effort_weight_wait_hour * waiting hours, per weighted case"
+  },
+  "sensitivity": {
+    "method": [
+      "one_at_a_time: move each ASSUMED parameter to its low then its high with the others at value; report the change in each IMPACT figure (a ranked table)",
+      "corners: all parameters at their cost-minimising values, and all at their cost-maximising values; report both",
+      "deterministic_draws: 1000 draws, each parameter uniform in [low, high], seed fixed in the report; report the 5th to 95th percentile range of each figure"
+    ],
+    "seed": 20261107,
+    "reported_as": "a range for every figure, labelled 'modelled'; never a single number",
+    "applies_to": "every arm and M0 with the identical parameter set"
+  },
+  "labels_required_on_every_figure": ["modelled", "assumed inputs unless every parameter used is SOURCED", "range, not a point"]
+}

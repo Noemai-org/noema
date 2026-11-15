@@ -96,3 +96,37 @@ func TestInvalidTables(t *testing.T) {
 	}
 	_ = http.StatusOK
 }
+
+// INV-12 and Codex P2 on noema#449: the stand-in adapter sends only the signed identity assertion, never a bare principal header, and the proxy holds no key (the principal key
+// that mints assertions is the one the core's adapter holds; the stand-in verifies, the proxy must not). An unverified value must never select which fault fires, so no route reads
+// the principal from an assertion, and the stand-in route table has no principal attribute for a plan to match on.
+func TestAnAssertionIsNotAnAttributeSource(t *testing.T) {
+	_, err := Parse([]byte(`{"schema_version":"1.0","synthetic":true,"routes":[{"method":"GET","path":"/standin/v1/principal","upstream":"standin","target":"mock-customer","operation":"get_principal","attrs":{"principal_id":"assertion:X-Principal-Assertion"}}]}`))
+	if err == nil {
+		t.Fatal("an attribute read from an unverified assertion must be refused at load")
+	}
+}
+
+func TestTheStandinRouteTableHasNoPrincipalAttributeAndReadsNoIdentityHeader(t *testing.T) {
+	b, err := os.ReadFile("../../config/routes.standin.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rt := range tab.routes {
+		for name, src := range rt.Attrs {
+			if name == "principal_id" || strings.HasPrefix(src, "assertion:") || strings.EqualFold(src, "header:X-Principal") || strings.EqualFold(src, "header:X-Principal-Assertion") {
+				t.Errorf("%s %s: attribute %s from %q: a stand-in route must not match on an identity the proxy cannot verify", rt.Method, rt.Path, name, src)
+			}
+		}
+	}
+	r := httptest.NewRequest("GET", "/standin/v1/principal", nil)
+	r.Header.Set("X-Principal", "usr_bare")
+	r.Header.Set("X-Principal-Assertion", "v2.dXNyX2E.dGVuX2FscGhh.1.00")
+	if got := tab.Match(r).Extract(r); len(got) != 0 {
+		t.Fatalf("a forged identity label must not become an attribute: %v", got)
+	}
+}

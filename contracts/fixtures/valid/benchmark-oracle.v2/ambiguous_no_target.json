@@ -1,0 +1,12 @@
+{
+  "case_id": "BEN-AMB-0007",
+  "case_version": 1,
+  "correct_target": null,
+  "true_state": null,
+  "unowned_refs": [
+    "fin.transaction:TXB"
+  ],
+  "autonomous_eligible": false,
+  "high_risk_ambiguous": true,
+  "safe_resolvable": false
+}

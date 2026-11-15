@@ -33,12 +33,14 @@ type vectors struct {
 		Expected string `json:"expected_idempotency_key"`
 	} `json:"idempotency_key_vectors"`
 	Grants []struct {
-		Name        string         `json:"name"`
-		KeyID       string         `json:"key_id"`
-		SecretHex   string         `json:"secret_hex"`
-		Grant       map[string]any `json:"grant"`
-		ExpectedJCS string         `json:"expected_jcs"`
-		ExpectedSig struct {
+		Name          string            `json:"name"`
+		KeyID         string            `json:"key_id"`
+		SecretHex     string            `json:"secret_hex"`
+		Grant         map[string]any    `json:"grant"`
+		ExpectedJCS   string            `json:"expected_jcs"`
+		DomainLabel   string            `json:"domain_label"`
+		MustNotVerify map[string]string `json:"must_not_verify"`
+		ExpectedSig   struct {
 			KeyID string `json:"key_id"`
 			Value string `json:"value"`
 		} `json:"expected_sig"`
@@ -82,7 +84,8 @@ func TestIdempotencyKeyVectors(t *testing.T) {
 	}
 }
 
-// REQ-TRU-008, REQ-EXE-001: the grant signing vector, and a tampered grant is refused.
+// REQ-TRU-008, REQ-EXE-001: the grant signing vector, and a tampered grant is refused. The signed message is the domain label, a 0x00 byte and the JCS bytes
+// (ruling of 8 Nov 2026 on noema#292); a signature over bare JCS, or under another object type's label, does not verify as a grant.
 func TestGrantSigningVector(t *testing.T) {
 	for _, c := range load(t).Grants {
 		secret, _ := hex.DecodeString(c.SecretHex)
@@ -91,16 +94,31 @@ func TestGrantSigningVector(t *testing.T) {
 		if err != nil || string(canon) != c.ExpectedJCS {
 			t.Fatalf("%s: %s %v", c.Name, canon, err)
 		}
-		sig, _ := ring.SignWith(c.KeyID, canon)
-		if sig != c.ExpectedSig.Value || !ring.VerifyWith(c.KeyID, canon, sig) {
+		if c.DomainLabel != crypto.GrantLabel {
+			t.Fatalf("%s: the vector's label %q is not the grant label %q", c.Name, c.DomainLabel, crypto.GrantLabel)
+		}
+		msg := crypto.GrantSigningMessage(canon)
+		sig, _ := ring.SignWith(c.KeyID, msg)
+		if sig != c.ExpectedSig.Value || !ring.VerifyWith(c.KeyID, msg, sig) {
 			t.Fatalf("%s: signature %s", c.Name, sig)
+		}
+		for name, refused := range c.MustNotVerify {
+			if ring.VerifyWith(c.KeyID, msg, refused) {
+				t.Fatalf("%s: the %s verified as a grant signature", c.Name, name)
+			}
+		}
+		if ring.VerifyWith(c.KeyID, canon, sig) {
+			t.Fatal("a grant signature must not verify over bare JCS")
+		}
+		if ring.VerifyWith(c.KeyID, crypto.ConfirmationRequestSigningMessage(canon), sig) {
+			t.Fatal("a grant signature must not verify as a confirmation-request signature")
 		}
 		c.Grant["plan_step"] = json.Number("3")
 		tampered, _ := crypto.CanonicalJSON(c.Grant)
-		if ring.VerifyWith(c.KeyID, tampered, sig) {
+		if ring.VerifyWith(c.KeyID, crypto.GrantSigningMessage(tampered), sig) {
 			t.Fatal("a tampered grant must not verify")
 		}
-		if ring.VerifyWith("other-key", canon, sig) {
+		if ring.VerifyWith("other-key", msg, sig) {
 			t.Fatal("an unknown key must not verify")
 		}
 	}

@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 275c2245d911208961057a1a52095952c6a21043. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit af3f840d895e251726c4d7e9e013e39bb39934a1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -10,7 +10,7 @@ This file adds no product rules. It adds the working practice for applying the [
 
 - **Noema:** models understand; Noema makes understanding safe to act on, makes the action happen correctly, and proves the outcome (SoT §0.1, item 4).
 - **What we are building now:** the POC, one narrow, hostile workflow. Noema is not its POC (SoT §0.1, item 1).
-- **Dates:** build from Mon 19 Oct to Fri 13 Nov 2026 (re-baselined by DEC-2026-10-16 E3). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
+- **Dates:** build from Mon 19 Oct to Sat 12 Dec 2026, with the demo on Sat 12 Dec at 14:00 (re-baselined by DEC-2026-11-03-demo-date-and-no-scope-cut). If the time box and the safety gates conflict, the gates win and the date moves (SoT §40.2).
 - **The three documents, in order:** the SoT, then the PERD, then the plan. Code comes last.
 - **The one rule:** when in doubt, take the safer reading, write the ambiguity down, and ask (AGENT-20). Never invent.
 
@@ -72,7 +72,7 @@ Run this at the start of every session.
      - no Phase B result counts before G0 passes, and G0 passes only when both halves, G0-T and G0-N, pass (plan §3, DEC-2026-10-16 E4);
      - if G1 failed, week 2 starts with the slice and ambiguity work waits (plan §3.1);
      - no comparison arm starts before G3 passes (SoT §38.5, plan §3.1);
-     - after the code freeze (Wed 11 Nov 12:00 WAT), only the fixes plan §11 allows merge.
+     - after the code freeze (Wed 9 Dec 12:00 WAT), only the fixes plan §11 allows merge.
    - The work-in-progress limit holds: at most 4 open PRs per driving founder, at most 2 of them P0; see the current plan §5.
 
    If any check fails, stop and report.
@@ -141,7 +141,7 @@ From PERD §36.1. The "never use instead" column is that table's rejected altern
 | JSON Schema in `/contracts`, with codegen to Pydantic and Go | Hand-written types per language |
 | React and TypeScript (thin) | Server-rendered templates |
 | GPT, Gemini and Claude behind `providers/` | A single provider with theoretical fallback |
-| Aethex AI, Indigenius and N-ATLAS behind `providers/` | A single vendor |
+| Aethex AI, Indigenius and N-ATLAS behind `providers/` (the rule until the SoT edit of DEC-2026-11-13-voice-provider-intron takes effect). **From that edit (A179, proposed):** Intron Sahara v2.5 behind separate speech-to-text and text-to-speech interfaces under `providers/`, the sole integrated speech provider in the POC | Until the edit: a single vendor. From the edit: integrating Aethex AI, Indigenius or N-ATLAS in the POC |
 | HMAC-SHA-256 grants and confirmations | Per-power asymmetric keys now (deferred to before Phase 2) |
 | mTLS between the services | A shared bearer token |
 | Hypothesis (Python) and a Go property-testing library | Example tests only. The Go library (`pgregory.net/rapid`) is [REC] and needs approval under AGENT-14 |
@@ -375,7 +375,9 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 5. The hand-off report (plan §4.1 step 6).
 6. CONFLICT blocks, if any.
 
-**Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+**Reviews.** Review gates are set by tier (A143, plan §4). **Tier 1** (trust, execution, outcome, record, migrations, identity): Codex READY + SR READY + one independent role review (EL, C1 or C2, not the author) + CI + one Founder approval. **Tier 2** (contracts, packs, benchmark, voice, docs): Codex where A14 applies + one independent reviewer READY (SR counts) + CI + one Founder approval; `.github` and `deploy` still need SR. An agent's report is not acceptance (plan §4.1).
+
+**Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 
 **In the `docs` repository** (carried forward unchanged):
 

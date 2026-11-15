@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -67,7 +69,7 @@ func newPropDB(t *testing.T) *propDB {
 		t.Fatal(err)
 	}
 	clk := clock.NewManual(time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC))
-	return &propDB{t: t, ctx: c, admin: admin, dsn: dsn, pools: map[string]*pgxpool.Pool{}, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+	return &propDB{t: t, ctx: c, admin: admin, dsn: dsn, pools: map[string]*pgxpool.Pool{}, clk: clk, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: recordsig.All(t, admin, "property", nil)}}
 }
 
 // tenant makes a tenant that no other iteration uses, so every iteration starts a fresh chain in the one database.
@@ -108,7 +110,7 @@ func jsonValue(depth int) *rapid.Generator[any] {
 // eventFor draws an event for tenant that Append must accept.
 func eventFor(t *rapid.T, tenant string) chain.Event {
 	typ := rapid.SampledFrom(chain.EventTypes()).Draw(t, "type")
-	by := rapid.SampledFrom(chain.Emitters()).Draw(t, "written_by")
+	by := rapid.SampledFrom(keyedEmitters()).Draw(t, "written_by")
 	actor := by
 	if rapid.Bool().Draw(t, "person") {
 		actor = rapid.SampledFrom(chain.PrincipalKinds()).Draw(t, "kind") + ":" + rapid.StringMatching(principalIDShape).Draw(t, "principal")
@@ -474,4 +476,16 @@ func TestTheTriggerCheckSeesALeakOnAnyIdleConnection(t *testing.T) {
 		}
 		release(held)
 	}
+}
+
+// keyedEmitters are the emitters that hold a signing key (DEC-2026-11-01 D2); the others (the model service and the mocks) cannot append under the default of
+// OD-P-73, which TestAnEmitterWithNoRegisteredKeyCannotAppend pins.
+func keyedEmitters() []string {
+	var out []string
+	for _, e := range chain.Emitters() {
+		if slices.Contains(recordsig.Identities, e) {
+			out = append(out, e)
+		}
+	}
+	return out
 }

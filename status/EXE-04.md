@@ -1,17 +1,8 @@
 # Status · EXE-04 (Session A) · conditional writes; REJECTED_STALE_VERSION voids the grant
 
-Updated 2026-10-29. HELD, blocked by DEBT-01 (below). Plan task EXE-04 (owner C1+AG; REQ-EXE-004; Needs EXE-02 and ENV-05; done when "US-19 passes; oracle shows no write applied").
+Updated 2026-10-29. Plan task EXE-04 (owner C1+AG; REQ-EXE-004; Needs EXE-02 and ENV-05; done when "US-19 passes; oracle shows no write applied").
 
-## State: HELD (founder decision, 29 Oct 2026), blocked by DEBT-01
-
-- **noema#94 and noema#90 are held. Do not merge them, and do not merge `main` into #90.** #94 adds the `SPENT → VOID` transition (migration `0002`) whose guard checks only the *shape* of the signature, so merging it would open **DEBT-01**, a **Tier 0** invariant violation (REQ-OPS-004, AGENTS §14). They merge only after Option B's database verification closes DEBT-01.
-- Heads when held: #94 `b576b32`, #90 `1b9a1ae`. Checks at those heads: all success or skipped (tables on each PR).
-- **Everything below this block describes the held branch `sa/exe-04-stale-version-void` (#90), not `main`.** On `main` today a `SPENT` grant is final (migration `0001`): a stale-version receipt leaves the grant `SPENT`, nothing voids it, and the forged-void path does not exist. The code, the migration, the tests, the `SECURITY_EVENT` and the simulation exist only on the held branches.
-- **DEBT-01** (Tier 0; counted by G3's "every Tier 0 gate at zero") and **DEBT-02** (no human alert; development phase has no alert email and no recipient; deferred to pre-production) are registered in docs#70. The alert behaviour is `DEC-2026-10-29` in docs#72. OD-P-71 is deferred to pre-production. EL means Engineering Leader and SR means Security Reviewer.
-- **Done-when of the plan row** ("US-19 passes; oracle shows no write applied") is met only on the held branch (against the real mock-case, read through the runtime client). EXE-04 is not Done on `main`.
-- To release the hold: Option B's database-side verification (docs record and PERD version, then implementation) closes DEBT-01 with its evidence, and the Founders say so. Then #94 merges, `main` is merged into #90 (the `status/ENV-03.md` and `status/EXE-04.md` files will conflict with this status-only change; keep both sides), and #90 merges.
-
-## State of the held branch
+## State
 
 - Built on branch `sa/exe-04-stale-version-void`, from `main` at `0ddbfe1` (includes #87 and #89). Pull request: noema#90.
 - Already in `main` before this task: every conditional write carries the grant's `target_versions` as the expected version (`controller.go` E9, `bridge/dispatch.go`); the real mock-case refuses a stale token with 409 `VERSION_MISMATCH`; the adapter classifies it as `VERSION_CONFLICT_409_412`; `Classify` maps it to `REJECTED_STALE_VERSION`. What was missing, and is built here: the **void**. A stale-version receipt left the grant spent with no RecoveryRequest to Trust and no `GRANT_VOIDED`.
@@ -143,16 +134,6 @@ Assumption to confirm: receipts only. Grants and confirmations stay HMAC until P
 - Used it for: the D4 code and tests (this PR), docs#69 (the decision-record amendment), docs#70 (DEBT-01), the section above, the check tables on #90, #94 and #97, and the docs-drift run on `main` after #97 ([run 68](https://github.com/Noemai-org/noema/actions/runs/40865302042), success).
 - Evidence: noema#90, noema#94, noema#97, docs#69, docs#70.
 
-### 2026-10-29 (time not recorded) accepted · Relayed by coordinator from founder → Session A
-- Purpose: "the founder's decisions are below ... 1. No PERD bump now ... 2. Development phase: no alert email and no recipient ... 3. DEBT-01 is Tier 0 ... 4. EL means Engineering Leader and SR means Security Reviewer ..." (the full message is in `status/ENV-03.md`).
-- Used it for: docs#70 and docs#72, the report on docs#71, the check tables.
-- Evidence: docs#70, docs#72, noema#94, noema#90.
-
-### 2026-10-29 (time not recorded) accepted · Relayed by coordinator from founder → Session A
-- Purpose: "the founder decides to hold #94 and #90. Do not merge them, and do not merge main into #90 ..." (the full message is in `status/ENV-03.md`).
-- Used it for: the HELD state above, docs#70 (DEBT-01 as an open Tier 0 defect), this status-only pull request.
-- Evidence: this pull request, docs#70.
-
 # Session 2026-10-28 12:45 WAT · EXE-04
 
 ## Session summary
@@ -186,3 +167,14 @@ Assumption to confirm: receipts only. Grants and confirmations stay HMAC until P
 - Open questions (owner): D2 option A, B or C and the owner and date of DEBT-01 (Founders); whether OUT-01 starts now (Founders).
 - Files to read first: `services/core/execution/controller/controller.go` (`completeReceipt`, `rejectReceipt`), `services/core/execution/ledger/receipt_signature_test.go`, the D2 section of this file.
 - Do not touch: `decision_grant_guard` (migration 0002 only); the grants of `execution_rw` on `execution_receipt` (the Controller path needs them); any threshold, TTL or retry budget.
+
+# Session 2026-11-07 14:00 WAT · EXE-04 (noema#90 carried into the DEBT-01 continuation, noema#233)
+
+## Session summary
+- What changed: noema#90 (the refused version voids the spent grant with its receipt, in the same transaction) is merged into this branch. Its own copy of `0002_grant_spent_void.sql` is dropped: the guard is `0013_grant_spent_void.sql` here. Its controller-side HMAC check of the receipt is replaced: the database verifies the Ed25519 signature (migration 0012), the Ledger turns SQLSTATE NS001 into `ErrSignatureRefused`, and the controller appends one SECURITY_EVENT SIGNATURE_INVALID in its own transaction, writes no receipt and leaves the attempt DISPATCHING for the sweeper (DEC-2026-11-01 D12, D13). The two HMAC-era test files are replaced by `execution/e2e/receipt_refused_test.go` (real database, real mock-case, a signer holding an unregistered key).
+- Risks: #90's author is the other account; this is a continuation, nothing was pushed to #90. #90 is superseded by this PR and should be closed when it merges.
+- Tests added: REQ-EXE-004, REQ-SEC-005, INV-03, INV-04, EC-X09.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after docs#117, #214, #229 merge, merge main in; the migration number 0013 follows the noema#183 ledger.

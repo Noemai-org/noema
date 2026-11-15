@@ -109,3 +109,115 @@ Non-blocking item (27 Oct), status 28 Oct: the exception-logging defect is fixed
 | 2026-10-28 (failing-first) | Founder (relayed by the user) | D | The founder requires failing-first CI evidence before merging #93; do not merge. (1) Push only the failing regression test, no fix, to a temporary branch and wait for CI; (2) report the run link, commit SHA and exact failure reason; (3) verify #93's branch holds the same tests and the fix and that the checks at the final head are green; (4) review `evidence/transport.py`, confirm it cannot carry or expose the credential, report and log it as a non-blocking limitation | (1)(2) Commit `766257289d55539db6a7d5733c36f1e03abfbc16` on `evidence/und-02-header-failing-first`, draft PR #95 (CI runs on pull requests only), run https://github.com/Noemai-org/noema/actions/runs/40732002057: `model` failed, 3 failed and 592 passed, the raw `ValueError: Invalid header value b'***'` and `UnicodeEncodeError` escaping instead of a `ProviderError`; #95 closed. (3)(4) see the next entry |
 
 Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/evidence/transport.py` cannot carry or expose a credential today. Its only caller, `EvidenceClient.fetch` (`evidence/client.py` line 202), sends the constant header `content-type: application/json`; the link's identity is the client certificate and key held in the `ssl.SSLContext` (`platform/mtls/__init__.py`), which never enter a header, the URL or the body; its handler maps `URLError` and `OSError` to `CandidateSourceError("the evidence API did not answer")` and the mTLS loader maps its errors to `ConfigError("mTLS material is missing or unusable")`, neither with a header value. A `ValueError` from `putheader` is not caught there, but it could only name the constant header. Limitation: if a later change adds a secret-bearing header to this link, it has the same unmapped-`ValueError` exposure that #93 closes for `providers/llm/transport.py`; that change would need the same fix and test. No change is made now (owner: D; non-blocking).
+
+# Session 2026-11-07 · UND-02 (the Input Gateway; plan row UND-02, the earlier text of this file maps to UND-03 and AMB-01)
+
+## Session summary
+- What changed: `services/model/noema_model/understanding/gateway/` (`gateway.py`, README) and `tests/test_input_gateway.py`. PR: noema#270.
+- Why: plan row UND-02 (REQ-INP-001; Needs CON-03, Done); REQ-INP-002 (identity from the session only).
+- Risks: new code on the model side of the boundary; it only normalises and refuses. A body naming identity or system fields is refused, not ignored.
+- Tests added (REQ-INP-001, REQ-INP-002, REQ-VOI-001, INV-12): every valid contract fixture round-trips, every invalid fixture is refused for its own reason, empty and over-length text (limit counted after NFC), encoding, non-final transcripts, unknown fields at both levels, identity and system fields in the body, channel and voice block, confidences (bool, NaN, infinity, strings), idempotent normalisation and identical bytes (Hypothesis), no text in a refusal, import and clock checks. Written first; red (ImportError) on the first commit.
+- Regression cases added: none (new code). Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: UND-04 (schema gate twice, `intent_hash` over JCS) takes `CanonicalInputV1` from here; core's `INPUT_RECEIVED` event and `request_id` deduplication (REQ-INP-003) are core's.
+- Open questions: none.
+- Files to read first: `services/model/noema_model/understanding/gateway/README.md`.
+- Do not touch: the generated contract models.
+
+# Session 2026-11-10 · UND-02 / VOI-02 · canonical-input.v2 (noema#398)
+
+## Session summary
+- What changed: `contracts/schemas/canonical-input.v2.json` (v1 with `voice.audio_ref` as `string | null`, required key, pattern `^raw_[0-9A-Za-z]{2,32}$`), its valid and invalid fixtures, the INVENTORY row with the AGENT-15 migration note, regenerated Go and Pydantic models, and the Input Gateway moved to v2: it accepts `null`, still requires the key and the other five voice keys, and refuses any non-null `audio_ref` with `AUDIO_REF_NOT_ALLOWED` until a consent-backed retention path exists.
+- Why: CR-2026-11-08-VOI-canonical-input-audio-ref (docs#137, merged; A52); relay issue noema#398 (Voice is blocked on it).
+- Risks, and how they are contained: v1 is untouched; the Gateway is the only producer today and now emits v2; a consumer that dumps a voice input with `exclude_none` loses the required `audio_ref` key (documented in the Gateway README, pinned by a test). The edge's tenant- and session-bound consent check for a non-null reference is core's edge and is NOT built here (stated).
+- Tests added (REQ-INP-001, REQ-VOI-004, AGENT-13): 3 valid and 16 invalid v2 fixtures (red first, commit 4b7fd6e); Gateway tests for null accepted, any non-null refused (red first, commit 74fb985).
+- Regression cases added: the fixtures and tests above.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: Voice's builder emits `audio_ref: null` (noema#193); core's edge refuses non-null v1 and v2 references and checks the tenant- and session-bound `AUDIO_RETAINED{consent_ref}` event when a retention path exists.
+- Open questions (owner): PERD cell "null when the audio was discarded" rides the next PERD version (Steward).
+- Files to read first: `contracts/schemas/canonical-input.v2.json`, `services/model/noema_model/understanding/gateway/gateway.py`.
+- Do not touch: `canonical-input.v1.json`.
+
+# Session 2026-11-12 · UND-02 (core half) · the input gateway writes INPUT_RECEIVED (ruling A161)
+
+## Session summary
+- What changed (PR links): noema#466, `services/core/inputgateway/` (new): `Gateway.Accept` and `Handler`, `RecordRecorder` (core-edge), `RecordIndex` (record_read). Constructors for EL to wire into `compose.go`; nothing is wired by me.
+- Why: ruling A161 (Architect, answering noema#454): the input gateway writes INPUT_RECEIVED as core-edge before anything proceeds; a repeated request id with the same body appends INPUT_DEDUPLICATED and returns the original result; another body is 409 plus SECURITY_EVENT REQUEST_ID_REUSED; the orchestrator gets the recorded event reference with the turn. REQ-INP-001, REQ-INP-002, REQ-INP-003, REQ-AUD-001; INV-11, INV-12.
+- Risks, and how they are contained: the lookup and the append are two steps, so concurrent duplicates are serialised by a lock in the process (tested with eight at once; holds for one core process); a failed append of any of the three events refuses the input and starts nothing (tested for each). The text of an input never enters a Record event, an error or the HTTP error envelope (tested).
+- Tests added (REQ-INP-001/2/3, REQ-AUD-001, EC-E16, INV-12): `inputgateway/gateway_test.go`, ten behaviours on the real Record plus one that builds a reconstruction from it and reads the REQUEST section. Failing first: tests-only commit `b9e3aa12` (the package had no source, so it did not compile).
+- Mutations run by hand, each killed by a named test: append error ignored (M1), dedup dropped (M2), 409 dropped (M3), security event dropped (M4), INPUT_DEDUPLICATED dropped (M5) or its error ignored (M6), turn started before the append (M7), event reference not handed over (M8), lookup ignoring the principal (M9) or the window (M10), no per-key lock (M11), text in the payload (M12), empty locale key written (M13), repeated members allowed (M14), unknown members allowed (M15), channel and request_id keys renamed (M16, M17), the invalid-input error quoting the body (M18), a text field in the security event (M19). Three needed new tests (M10 was a bad mutation first; M13 survived until the no-locale test existed; M18 had no test until `TestNoErrorOrResponseQuotesTheTextOfAnInput`).
+- Debt entries (for the Steward to register, REQ-OPS-004): (1) `RecordIndex` reads the tenant's chain per request, owner C2, expires when a keyed lookup function exists (a migration); (2) the per-request lock is per process, owner C2, expires before a second core process; (3) dedupe scope is the principal, not the session, owner EL with C1 (the session id is not in the Record); (4) a recorded input whose `Start` failed is not resumed, owner EL (STM-01 persistence).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `Config` in `compose.go` (see the README), with the identity mapping of noema#454 item 3.
+- Open questions (owner): whether `Start` should run asynchronously (EL).
+- Files to read first: `services/core/inputgateway/README.md`, `gateway.go`.
+- Do not touch: the event payload keys (`channel`, `locale`, `request_id`): the reconstruction reads them by name.
+
+# Session 2026-11-12 (later) · UND-02 core · rulings A168 and the REC-08 merge
+
+## Session summary
+- What changed: (1) `main` merged in and the test world signs its Record events (`recordsig.All`; REC-08 reached `main` after this branch was cut). (2) Ruling A168 (docs#159, the Codex P1 on this PR): on a retry of a recorded input the gateway appends `INPUT_DEDUPLICATED` and then calls `Start` again for the same recorded input; a failing `Start` is `ErrStart` (503), not an acknowledgement. `Start` is now called on every delivery and must be idempotent per `Turn.Input` (noema#490's `Store.Start` is). `gateway.go`: the dedup branch and `turnOf`; `README.md`; four tests.
+- Failing first: tests-only commit `3328ec6a` (the retry did not call `Start`).
+- Tests added (REQ-INP-003, REQ-AUD-001, EC-E16): `TestARetryAfterAFailedStartCallsStartAgainAndReturnsTheOriginalResult`, `TestARetryWhoseStartFailsAgainIsRefusedAndRecorded`, `TestARetryThatCannotBeRecordedNeverReachesStart`; the dedup and concurrent-redelivery tests now assert two and eight identical turns.
+- Not run locally: the gateway tests run against PostgreSQL with pgsodium, which this machine lacks; CI's `core` is the evidence, so no hand mutation of this change was run (the red-first run is the proof that the retry did not call `Start` before).
+- Debt: item 4 (a recorded input whose `Start` failed is not resumed) is closed for the gateway by A168; the part inside the orchestrator (a run that started and failed) stays EL's.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's `Start` seam in `compose.go` calls `investigations.Store.Start` (noema#490) and then the runner, and treats `created=false` as "already started".
+- Open questions (owner): A169 (the Record lookup binds the turn ID) is noema#465's, EL.
+- Do not touch: `inputgateway/record.go` (the events are unchanged).
+
+# Session 2026-11-12 (later still) · UND-02 core · review P2 on noema#466
+
+- **Finding:** `Handler.fail` minted a second correlation ID for the error body (and fell back to `corr_unavailable`), so the body could disagree with the request's own correlation on the response header.
+- **Fix:** the error body reuses the correlation ID the edge middleware put on the response header, falls back to the edge's own `corr_NONE` when it is absent or malformed (never echoes it), and mints nothing. The success body's `correlation_id` stays the investigation's, minted by the gateway: adopting a client-supplied header as an investigation's chain would let a client choose which chain an input joins.
+- **Tests:** `handler_correlation_test.go` (no database): four failure paths under a simulated middleware, and a missing, malformed and injected header. Red locally before the fix (the body named `corr_unavailable`), then green; three hand mutations (shape check off, empty fallback, header ignored) each red. One push for the round, with the test and the fix together (A176).
+- Debt: none. Conflicts raised: none.
+
+
+# Session 2026-11-12 (evening) · UND-02 core · Security Reviewer's review at ad9c3ffc
+
+- **Findings:** (1) blocking: `voice` was accepted as any object and handed on, including any `audio_ref`; (2) to settle: `input_hash` was a plain sha-256 of the whole body in the Record; (3) a reuse answered 409 even when its `SECURITY_EVENT` append had failed. Notes 4 (the lookup scans the chain; stated debt, item 1) and 5 (each reuse appends a security event, so a session can fill its own chain; a rate limit belongs to the edge, C1) are not changed here.
+- **Fix (1):** `voice` is read (one object, no repeated member). A non-null `audio_ref` is refused with `INPUT_INVALID` and one fixed sentence, whatever it holds and without reading the Record, so another tenant's reference and a reference that exists nowhere get the same answer (CR-2026-11-08, A1: no retention path exists). The body that is hashed and handed on (`Turn.Body`) is the canonical body without `audio_ref`; a null and an absent `audio_ref` are one body. The reviewer's third test (a reference whose consent event is another tenant's) holds by construction rather than by a Record fixture: the refusal reads nothing, and no emitter writes `AUDIO_RETAINED` in the POC. When a retention path exists, the consent-bound check of the CR replaces this refusal and gets its own tests.
+- **Fix (2), my choice, for the reviewer to confirm:** HMAC-SHA-256 of the canonical body under a per-tenant key derived from a core key (`Config.HashKey`, at least 32 bytes, from configuration, no default), recorded as `hmac-sha256:` plus 64 hex digits. The alternative (keeping the plain hash and arguing it is acceptable) fails REQ-SEC-003 for a short text or an account number. **New for EL:** `compose.go` must supply the key from a file-mounted secret (PLT-05); rotating it makes a retry of an older input look new for up to the 24-hour window.
+- **Fix (3):** if the `SECURITY_EVENT` cannot be appended the error is `ErrRecord` (503) and no longer also `ErrRequestIDReused` (409): "Record first" for the answer too.
+- **Tests:** `parse_test.go` (no database): null, absent and invalid `audio_ref` (ten non-null forms, one answer for all), a repeated member in `voice`, null equals absent, the hash is an HMAC, per tenant and per key. `gateway_test.go`: the voice case end to end (400 for four references with identical answers, nothing recorded or started; a null accepted; the turn's body without `audio_ref`; a redelivery without the null deduplicated), the reuse-with-Record-down case (503, no second security event), the `input_hash` form, `New` refusing no key and a 31-byte key. The tests were written first and did not compile (no `canon`, `inputHash`, `HashKey`).
+- **Mutations by hand on the pure part, each red:** non-null check off; `audio_ref` not dropped; repeated-member check off; the tenant left out of the key; a plain sha-256 under the `hmac-sha256:` label; the key not mixed in; an error that quotes the reference; the voice read skipped; the cleaned voice not used. The database-backed tests ran only in CI (no pgsodium here); one push for the round (A176).
+- **Debt:** none new. **Conflicts raised:** none.
+- **Correction at the same head family:** `0a0bce96` failed `core` in `TestARetryThatCannotBeRecordedNeverReachesStart`, an A168 test of mine that still expected the 409 when the reuse event cannot be appended (https://github.com/Noemai-org/noema/actions/runs/43262070521/job/131335730267). I had changed the behaviour (note 3) and updated one test of it but not the other; the database-backed tests cannot run in my sandbox, so I found it in CI. The test now asserts the 503 with the Record down and the 409 with it up. Every other test passed.
+
+# Session 2026-11-13 (late) · UND-02 core · A184: the INPUT_RECEIVED object_ref is core-minted
+
+## Session summary
+- What changed (PR links): the follow-up PR `fix/UND-02-minted-input-ref` (noema#531): `inputgateway/gateway.go` mints the `object_ref` of a new input with its ID source (`req_` and a ULID) before the append and hands it to the recorder (`Received.ObjectRef`); `Ref` gains `ObjectRef`; `record.go` writes it, returns it, and writes a deduplication and a reuse with the **original** input's `object_ref` (read from the Record by `RecordIndex.Find`, which now selects `object_ref`). The old `objectRef(requestID)` (`req_` plus the request id's hex digits) is removed.
+- Why: ruling A184 (Architect, 13 Nov 2026; relayed, not yet committed). The request id is the client's, so up to twelve digits a client chose came back, as written, in an `object_ref`, which the reconstruction serves by its contract pattern, unmasked. Found while reading noema#492.
+- Risks, and how they are contained: the prefix `req` is my reading (PERD §32.3 lists it; no other listed prefix means "an input"); the Architect's text may name another, which changes the prefix, not the design. `object_ref`s written before this change keep the old form; a retry of such an input names that stored value, which is a valid ref.
+- Tests added (REQ-INP-002, REQ-AUD-001, REQ-SEC-003, AGENT-13, EC-E16): `objectref_test.go` (database: a minted ref in the PERD form with none of the client's digits, two inputs two refs, a deduplication and a reuse name the original's, a failed mint appends and starts nothing); `objectref_pure_test.go` (no database: the same at the seams, with mutants). Red first at `b6f2112c`.
+- Mutants run by hand on the pure part, each red: the ref derived from the request id again; the ref not handed to the recorder; a mint failure ignored. The deduplication and reuse naming are covered by the database tests, which run in CI; I mutated them (a new ref instead of the original's) and the pure tests do not see it, as expected.
+- Regression cases added: the tests above. Debt entries: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when A184's text is committed, check the prefix against it. C1's Record append guard (noema#436 reply: "an object_ref is never payload-derived") should add its own test over every writer; this PR covers the gateway only.
+- Files to read first: `inputgateway/gateway.go`, `record.go`, `objectref_test.go`.
+- Do not touch: the migrations.
+
+
+# Session 2026-11-14 11:15 WAT · UND-02 · a request ID of only digits is refused at the door (noema#557)
+
+## Session summary
+- What changed (noema#557): `inputgateway/gateway.go`: a `request_id` that is a lower-case UUID with none of the letters a to f (32 digits) is refused as `ErrInvalidInput` (400) before anything is recorded, minted or started. `record/reconstruct/project_mask_test.go`: a characterization test of what the reconstruction shows for a UUID `request_id` (masked where it holds a run of more than four digits, separators included; as written otherwise).
+- Why: the Founder's order of 13 Nov 2026, item 2; ruling A184 (docs#169, merged). The Record's digit-run rule (noema#536) would refuse such a UUID at the append, after the input was accepted.
+- Risks, and how they are contained: it only refuses more, and earlier. A UUID with a single letter still passes; a long digit run inside it is the append guard's and the Architect's question (no threshold added here, AGENT-16).
+- Tests added (REQ-INP-002, REQ-INP-003; AGENT-13): `requestid_digits_test.go` (red first at `89fa1ce9`: the `core` job failed, run 43587772348; four all-digit UUIDs refused with nothing appended, started or minted; four UUIDs with a letter accepted); the reconstruction pin test (passes today by design). Four mutants of the new check, each killed (removed; letter `f` not counted; letter `a` not counted; inverted).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none here; the digit run inside a one-letter UUID is on noema#536.
+- Files to read first: `inputgateway/gateway.go`, `requestid_digits_test.go`.
+- Do not touch: `record/reconstruct` beyond the pin test (C1's).

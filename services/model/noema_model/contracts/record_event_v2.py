@@ -109,18 +109,18 @@ class RecordEventV2RecordEvent(ContractModel):
     """RecordEventV2RecordEvent Source: record-event.v2.json#$defs/RecordEvent"""
 
     model_config = ConfigDict(extra="forbid")
-    schema_version: Annotated[str, StringConstraints(pattern='^2\\.[0-9]+$')]
+    schema_version: Annotated[str, StringConstraints(pattern='\\A2\\.[0-9]+\\Z')]
     tenant_id: CommonV1TenantId
     correlation_id: CommonV1CorrelationId
     event_id: CommonV1RecordEventId
     seq: CommonV1PositiveInt
     prev_hash: CommonV1Hash
     hash: CommonV1Hash
-    written_by: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
-    actor: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*(:usr_[0-9A-Za-z]{2,32})?$')]
+    written_by: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
+    actor: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*(:usr_[0-9A-Za-z]{2,32})?\\Z')]
     event_type: RecordEventV2RecordEventType
     kind: RecordEventV2SecurityKind | None = Field(default=None)
-    object_ref: Annotated[str, StringConstraints(pattern='^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$')]
+    object_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_[0-9A-Za-z_]{2,64}\\Z')]
     payload_hash: CommonV1Hash
     at: CommonV1Timestamp
     reason: str | None = Field(default=None)

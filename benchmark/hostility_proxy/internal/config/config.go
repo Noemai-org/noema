@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -57,6 +58,9 @@ func Load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 	if c.RoutesFile == "" {
 		return nil, errors.New("HOSTILITY_PROXY_ROUTES_FILE is required")
 	}
+	if !routesFileRE.MatchString(c.RoutesFile) || strings.Contains(c.RoutesFile, "..") {
+		return nil, fmt.Errorf("HOSTILITY_PROXY_ROUTES_FILE is %q: it must be a file name directly inside %s (letters, digits, dot, dash, underscore; no path elements)", c.RoutesFile, RoutesDir)
+	}
 	key, err := readSecret(getenv, readFile, "HOSTILITY_PROXY_NUMBER_KEY_FILE")
 	if err != nil {
 		return nil, err
@@ -70,6 +74,11 @@ func Load(getenv func(string) string, readFile func(string) ([]byte, error)) (*C
 	}
 	return c, nil
 }
+
+// RoutesDir is the one directory Compose mounts for route tables; the proxy reads a table only from directly inside it.
+const RoutesDir = "/etc/hostility-proxy/config"
+
+var routesFileRE = regexp.MustCompile(`^` + regexp.QuoteMeta(RoutesDir) + `/[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func readSecret(getenv func(string) string, readFile func(string) ([]byte, error), env string) (string, error) {
 	path := getenv(env)

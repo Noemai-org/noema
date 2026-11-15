@@ -31,3 +31,10 @@ Updated 2026-11-05. Plan task RCV-01: owner C1; REQ-RCV-001; Needs OUT-01 (merge
 ### Pre-work for the next agent
 - Exact next step: none for this fix.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Update 2026-11-08 (ruling A68, called A6 in the 8 Nov answers; noema follow-up PR)
+- `COMPENSATED` no longer authorises a retry in `CheckRetryOrder`; a Trust CLARIFY or CONFIRM on a recovery still escalates. Both open questions in the earlier note are answered. Test: `TestACompensatedVerdictDoesNotAuthoriseARetry` (red first).
+
+### Authority, updated 2026-11-09
+- The COMPENSATED rule is ruling **A68** in `docs/decisions/DEC-2026-11-08-rulings-a41-onward.md` (docs#140, merged), called A6 in the 8 Nov answers to C1. Codex's P1 at `731eac7` (no committed record) is answered by it; the code, the README and the test comments now cite it.
+- The second sentence of the 8 Nov answer ("CLARIFY or CONFIRM on a recovery escalates") is **not committed** (the Steward's correction on noema#366). This PR does not depend on it: that behaviour already exists on `main` (the recovery README: any Trust outcome other than ALLOW gives ESCALATE).

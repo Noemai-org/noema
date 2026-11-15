@@ -18,14 +18,14 @@ from .reason_catalogue_entry_v1 import ReasonCatalogueEntryV1
 from .trust_profile_v1 import TrustProfileV1
 
 # PackV1ExactNumber. Source: pack.v1.json#$defs/ExactNumber
-PackV1ExactNumber: TypeAlias = Annotated[str, StringConstraints(pattern='^(?:[0-9]{1,18}(?:\\.[0-9]{1,18})?|[0-9]{1,18}/[1-9][0-9]{0,17})$')]
+PackV1ExactNumber: TypeAlias = Annotated[str, StringConstraints(pattern='\\A(?:[0-9]{1,18}(?:\\.[0-9]{1,18})?|[0-9]{1,18}/[1-9][0-9]{0,17})\\Z')]
 
 
 class PackV1UnderstandingLocalesItem(ContractModel):
     """PackV1UnderstandingLocalesItem Source: pack.v1.json#$defs/Understanding/properties/locales/items"""
 
     model_config = ConfigDict(extra="forbid")
-    code: Annotated[str, StringConstraints(pattern='^[a-z]{2,3}(-[A-Z]{2})?$')]
+    code: Annotated[str, StringConstraints(pattern='\\A[a-z]{2,3}(-[A-Z]{2})?\\Z')]
     label: Annotated[str, StringConstraints(min_length=1, max_length=60)]
 
 
@@ -33,7 +33,7 @@ class PackV1UnderstandingProposableFlagsItem(ContractModel):
     """PackV1UnderstandingProposableFlagsItem Source: pack.v1.json#$defs/Understanding/properties/proposable_flags/items"""
 
     model_config = ConfigDict(extra="forbid")
-    flag: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     question: Annotated[str, StringConstraints(min_length=1, max_length=200)]
 
 
@@ -52,9 +52,9 @@ class PackV1UnderstandingStateFlags(ContractModel):
     """The flag each non-resolving ranking state raises. Source: pack.v1.json#$defs/Understanding/properties/state_flags"""
 
     model_config = ConfigDict(extra="forbid")
-    no_candidates_: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] = Field(alias='NO_CANDIDATES')
-    ambiguous_: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] = Field(alias='AMBIGUOUS')
-    too_many_candidates_: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')] = Field(alias='TOO_MANY_CANDIDATES')
+    no_candidates_: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] = Field(alias='NO_CANDIDATES')
+    ambiguous_: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] = Field(alias='AMBIGUOUS')
+    too_many_candidates_: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')] = Field(alias='TOO_MANY_CANDIDATES')
 
 
 class PackV1Policy(ContractModel):
@@ -62,7 +62,7 @@ class PackV1Policy(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     policy_id: CommonV1PackId
-    version: Annotated[str, StringConstraints(pattern='^[0-9]+\\.[0-9]+$')]
+    version: Annotated[str, StringConstraints(pattern='\\A[0-9]+\\.[0-9]+\\Z')]
     rules: list[PolicyRuleV1]
 
 
@@ -84,9 +84,9 @@ class PackV1Understanding(ContractModel):
     ranking: PackV1UnderstandingRanking
     proposable_flags: list[PackV1UnderstandingProposableFlagsItem]
     locales: Annotated[list[PackV1UnderstandingLocalesItem], Field(min_length=1)]
-    material_flags: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]]
-    intent_unclear_flag: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
-    out_of_scope_flag: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    material_flags: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]]
+    intent_unclear_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
+    out_of_scope_flag: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
     state_flags: PackV1UnderstandingStateFlags
 
 
@@ -106,8 +106,8 @@ class PackV1(ContractModel):
     policy: PackV1Policy
     clocks: list[ClockV1]
     reason_catalogue: list[ReasonCatalogueEntryV1]
-    action_graph_files: list[Annotated[str, StringConstraints(pattern='^[a-z0-9_]+(/[a-z0-9_]+)*\\.json$')]] | None = Field(default=None)
-    routing_allowlist: Annotated[list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]], Field(min_length=1)] | None = Field(default=None)
+    action_graph_files: list[Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]+(/[a-z0-9_]+)*\\.json\\Z')]] | None = Field(default=None)
+    routing_allowlist: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
     evidence_descriptors: list[EvidenceDescriptorV1] | None = Field(default=None)
     predicate_variables: dict[str, EvidenceDescriptorV1FieldType] | None = Field(default=None)
     understanding: PackV1Understanding | None = Field(default=None)

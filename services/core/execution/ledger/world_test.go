@@ -3,6 +3,9 @@ package ledger_test
 import (
 	"context"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/execution/signing"
+	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -92,6 +95,12 @@ func (b *binder) LatestIntentHash(_ context.Context, g controller.Grant) (string
 	}
 	return g.IntentHash, nil
 }
+
+// ActivePolicyVersion implements controller.Binder: this world's policy is always at the version its grants name.
+func (b *binder) ActivePolicyVersion(_ context.Context, g controller.Grant) (string, error) {
+	return g.PolicyVersion, nil
+}
+
 func (b *binder) DecisionStillAllowed(context.Context, controller.Grant) (bool, error) {
 	return !b.denied, nil
 }
@@ -129,6 +138,7 @@ type world struct {
 	bind   *binder
 	ctl    *controller.Controller
 	ids    *ids.Generator
+	ring   *signing.Ring
 }
 
 func newWorld(t *testing.T) *world {
@@ -144,13 +154,17 @@ func newWorld(t *testing.T) *world {
 	clk := &tickClock{now: time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)}
 	gen := ids.New(clk, nil)
 	keys := crypto.NewKeyRing(map[string][]byte{keyID: []byte("synthetic-test-key-not-a-secret")})
-	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}}
+	led := &ledger.Ledger{Pool: exec, Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: gen}, RollbackTimeout: time.Minute}
 	params := map[string]any{"transaction_ref": "TX1", "reason_code": "CUSTOMER_DISPUTE_UNRECOGNIZED", "epoch": int64(1)}
 	b := &binder{l: led, params: params, fields: controller.KeyFields{TransactionID: "TX1", LogicalAction: "ESCALATE_CASE", ReasonCode: "CUSTOMER_DISPUTE_UNRECOGNIZED",
 		PolicyScope: "pol_escalate", LogicalResolutionEpoch: "1"}}
 	target := &fakeTarget{admin: admin, answer: controller.TransportResult{Class: controller.TransportAck2xx, ExternalAck: "CASE-1", RawCode: "201"}}
 	w := &world{admin: admin, exec: exec, clk: clk, keys: keys, led: led, target: target, bind: b, ids: gen}
-	w.ctl = &controller.Controller{Clock: clk, Keys: keys, ReceiptKeyID: keyID, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
+	ring := signingtest.Ring(t, 1)
+	signingtest.Register(t, admin, ring)
+	w.ring = ring
+	led.Rec.Signers = recordsig.All(t, admin, "ledger", map[string]chain.Signer{"core-execution": ring})
+	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }
 
@@ -165,8 +179,8 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_%04d", n), DecisionID: "dec_0001", PrincipalID: principal,
 		IntentHash: "sha256:" + fmt.Sprintf("%064d", 1), CapabilityID: capab, TargetRef: "TX1", ParamsHash: ph, EvidenceSetHash: "sha256:" + fmt.Sprintf("%064d", 2),
 		PlanHash: "sha256:" + fmt.Sprintf("%064d", 3), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "case:TX1", Source: "mock-case", VersionToken: "v1"}},
-		PolicyVersion: "pol_escalate@1", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
-		Nonce: fmt.Sprintf("nonce_%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
+		PolicyVersion: "pol_escalate@1.0", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
+		Nonce: fmt.Sprintf("n_ab3%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
 	for _, m := range mutate {
 		m(&g)
 	}
@@ -174,8 +188,12 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := w.keys.SignWith(keyID, canon)
+	sig, err := w.keys.SignWith(keyID, crypto.GrantSigningMessage(canon))
 	if err != nil {
+		t.Fatal(err)
+	}
+	// A grant exists only for a recorded ALLOW decision of its tenant (migration 0012): record the decision first.
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, intent_hash, policy_versions_json, sig_key_id, sig_value) VALUES ($1, $2, $3::jsonb, 'ALLOW', 'sha256:' || repeat('0', 64), '[]', 'k1', 'aa') ON CONFLICT (decision_id) DO NOTHING`, g.DecisionID, g.TenantID, testpg.DecisionDocJSON(g.DecisionID, g.TenantID, g.IntentHash, g.PolicyVersion, g.CorrelationID)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO decision_grant (grant_id, tenant_id, decision_id, nonce, json, policy_id, policy_version, expires_at, sig_key_id, sig_value)

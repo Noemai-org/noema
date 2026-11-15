@@ -156,6 +156,12 @@ def _imports_providers(node: ast.AST) -> list[tuple[str, int]]:
     return found
 
 
+def _speech_module(module: str) -> bool:
+    """True for `providers.speech` or something under it, and for nothing else in the providers package."""
+    parts = module.lstrip(".").split(".")
+    return "providers" in parts and parts[parts.index("providers") + 1:][:1] == ["speech"]
+
+
 def harness_only_providers(root: Path) -> list[Violation]:
     """Only the harness imports the providers package (AGENT-28, PERD §19.1). The providers package's own modules and
     the service's tests are not production importers and are not scanned."""
@@ -164,6 +170,8 @@ def harness_only_providers(root: Path) -> list[Violation]:
         if rel.startswith(f"{MODEL_PKG}/harness/") or rel.startswith(f"{MODEL_PKG}/providers/"):
             continue
         for module, line in _imports_providers(ast.parse(path.read_text())):
+            if rel.startswith(f"{MODEL_PKG}/voice/") and _speech_module(module):
+                continue  # A9: the voice pipeline may import providers.speech, and only that
             out.append(("harness-only-providers", rel, line, f"imports {module}; only noema_model/harness may import providers"))
     return out
 

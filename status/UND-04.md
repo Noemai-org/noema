@@ -1,0 +1,125 @@
+# Status · UND-04 (Core Engineer 2) · the core's side of the schema gate and the intent client
+
+Updated 2026-11-11. Plan task UND-04: REQ-INT-001, REQ-INP-002; allowlist `services/core/understanding/**`. The Python half (`services/model`, the compile endpoint) is separate.
+
+## State: in review (PR on `feat/UND-04-core-schema-gate`)
+
+Built: `services/core/understanding` (gate, slot rules, identity overwrite, intent hash, compile client). Constructors only: EL wires them into `cmd/core/compose.go`.
+
+## Open
+- CONFLICT: the intent hash over a fractional number (see the PR). Fails closed meanwhile.
+- The session fields `authn_ref`, `principal_type`, `asserted_by` are not on the edge's session yet.
+- UND-02's core side (the handler for `POST /v1/conversations`): the Input Gateway already exists in `services/model` (435f9c37, fdc47a6f), and the dedupe of REQ-INP-003 needs a table that no migration has. Asked on a `[WAITING: C2 needs Architect]` issue before any code.
+
+## Messages
+| Date (UTC) | From | To | Purpose | What the receiver used it for |
+|---|---|---|---|---|
+| 2026-11-11 | Architect (A146/A147) | C2 | Start UND-02 and UND-04 as constructors EL wires into compose.go (allowlist `inputgateway/**`, `understanding/**`) | This change (UND-04); UND-02 waits on the question above |
+
+# Session 2026-11-11 16:30 WAT · UND-04
+
+## Session summary
+- What changed (PR links): the UND-04 core PR on `feat/UND-04-core-schema-gate`.
+- Why: REQ-INT-001 (the second schema gate), REQ-INP-002 (identity from the session), the compile client of PERD §39.3.
+- Risks, and how they are contained: no Go JSON Schema validator (AGENT-14), so the closed shape is the generated decode and the rest is explicit rules, each with a test; the hash cannot cover fractions, so the gate refuses them (HASH_UNAVAILABLE) rather than hash by another rule.
+- Tests added (REQ-INT-001, REQ-INP-002, INV-02, INV-12): `understanding/gate_test.go`, `understanding/client_test.go`.
+- Regression cases added: none (new package).
+- Debt entries: none.
+- Conflicts raised: intent hash over JCS versus fractional confidences.
+
+## Pre-work for the next agent
+- Exact next step: decide the hash form; then the edge maps the session fields and wires `Gate` and `Client` into `compose.go`; the caller records PRINCIPAL_OVERRIDE_ATTEMPT from `Admission.Overrides`.
+- Open questions (owner): hash form (Architect); UND-02 core scope (Architect).
+- Files to read first: `services/core/understanding/README.md`, `gate.go`.
+- Do not touch: `platform/crypto` (not on this allowlist).
+
+# Session 2026-11-12 (evening) · UND-04 core · Session.valid() and A163
+
+- **What changed:** `Session.valid()` checked `AssertedBy` with the lower-snake pattern, which refuses a hyphen, so a session asserted by the POC's own identity provider (`noema-poc-idp`) was `SESSION_INVALID` and nothing was admitted. It now uses the contract's `asserted_by` pattern of ruling A163, `^[a-z][a-z0-9_-]*$` (`assertedByRe` in `gate.go`); `principal_type` keeps the lower-snake pattern. README sentence added.
+- **Failing first:** `TestTheAssertedByOfASessionFollowsTheContractsPattern` in its own commit, red locally on `noema-poc-idp` and `a-b_c-9` (SESSION_INVALID); green after the fix. Five accepted forms and ten refused (empty, leading hyphen, digit or underscore, upper case, space, dot, slash, trailing newline, a Unicode hyphen). Mutations by hand, each red: the old pattern back; no `$` anchor; a leading digit allowed; a dot allowed; the check removed.
+- **Stated dependency, not changed here:** the gate still decodes `intent-object.v1`, whose `asserted_by` pattern has no hyphen (the Go types do not model patterns, so nothing in Go refuses it). The admitted object therefore carries a value that the v1 schema would refuse until `intent-object.v2` (noema#480) merges and the gate moves to it. Moving the gate to v2 is a separate change after #480, with the generated models; the same applies to the model service's schema check.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the compile route and core `Interpreter` under A166 (core signs and hashes after the gate), after this merges.
+- Files to read first: `services/core/understanding/gate.go`, `identity.go`.
+
+# Session 2026-11-12 (night) · UND-04 core · the gate follows A166
+
+- **What changed:** (1) `gate.go`: `sig` must be exactly the neutral marker (`unsigned`/`unsigned`) the model service's own gate writes (noema#489), so a signature the model made is `SIG`; (2) `principal_type` and `asserted_by` must be exactly the marker `unset`, otherwise `SHAPE` (the model sends neither, A166 item 3), and `overwrite` no longer reports them, so a normal compile returns no overrides and the caller records no `PRINCIPAL_OVERRIDE_ATTEMPT`; (3) `packview.go`: `NewPackView` reads the gate's `PackView` from `packs/fintech_v1.json` (A166 item 4). The pack has its nodes (`fin.payments.exception.investigate`, `fin.meta.out_of_scope`), so no [OPEN] entry is needed.
+- **Failing first:** `a166_test.go` (3 tests: 7 + 5 refusals) and the changed fixtures were red locally (14 failures); `packview_test.go` did not compile before `NewPackView`. The red state is local only, in one push.
+- **Tests added (REQ-INT-001, REQ-INP-002; INV-02, INV-12, INV-29):** `a166_test.go`, `packview_test.go` (the view from the real pack; the gate over it, admitting the pack's node and refusing a slot, outcome, node or slot type it does not define; 20 refused packs; the view does not share the caller's bytes). `gate_test.go`: the fixture now carries the markers; the identity test varies only tenant, principal id and authn ref.
+- **Mutations by hand, each red:** the old sig rule; `&&` for `||` in the sig rule; each of the two identity markers unchecked; both unchecked; `principal_type` reported as an override again; and on the view: node of another pack, undefined outcome, repeated slot, unknown slot type, repeated outcome, repeated node, repeated outcome definition, no nodes, pack version shape, pack id shape (the last two survived until a case with the nodes agreeing was added), and the copy in `Node` replaced by sharing.
+- **What this does not settle (stated):** the signature itself. A166 item 1 says the core computes the hash and the signature after the gate with the REC-08 emitter signer. The admitted object keeps the marker in `sig`, and the hash covers it, so the stored document stays equal to what the hash covers (noema#471's `verify`). My reading, to be confirmed by the Architect on noema#484: the core's signature is the signed `INTENT_ADMITTED` Record event (it carries `intent_hash` and the emitter signer signs it), not a member of the document. If a separate signature over the intent is meant, it needs a body shape and a domain tag, which the emitter signer does not have today (`SignRecordEvent` signs Record event bodies).
+- **Settled since (merged `main`):** ruling A177 (`DEC-2026-11-12-architect-interim-a177-a178`, docs#163, entry OD-P-86 still [OPEN] for a SoT check) accepts the reading above: the core computes `intent_hash` over the canonical JSON and the signed `INTENT_ADMITTED` Record event is the signature; the object's `sig` stays the unsigned marker. Nothing in this PR changes for it.
+- **Next (not here):** the `Interpreter` (compile, gate, record `INTENT_REJECTED_AT_GATE` or the override, save through noema#471's store) after #471 merges, and the model-service route after noema#489 merges.
+- Debt: none. Conflicts raised: none.
+
+# Session 2026-11-13 · UND-04 core · the Interpreter
+
+- **What changed (PR noema#519):** new package `services/core/understanding/interpreter`: `Interpret` (input, compile, gate, then by what the gate found the Record first and the store last), `RecordRecorder` for `INTENT_REJECTED_AT_GATE` and `SECURITY_EVENT` `PRINCIPAL_OVERRIDE_ATTEMPT`, four ports, classified errors whose messages never print a cause. README.
+- **Failing first:** tests-only commit `9b621841`, `core` red (the package did not exist): https://github.com/Noemai-org/noema/actions/runs/43422188651/job/131874642722
+- **Tests added (REQ-INT-001, REQ-INP-002, REQ-AUD-001; INV-02, INV-12, EC-E16):** `interpreter_test.go` (no database: a normal compile saves with no event of its own; a refusal is recorded first and nothing is saved; a rejection the Record refuses is `ErrRecord`; a real override is recorded by name before the save and the session's identity is saved; an override the Record refuses saves nothing; every model-service failure class; a failed save; incomplete inputs; a malformed session is the caller's bug and records nothing; a cause is reachable and never printed; the constructor), `record_test.go` (the real Record: both events, a refused append stores nothing, another tenant's subject is refused by the database, what the recorder will not write).
+- **Mutations by hand on the pure part, each red:** the rejection record skipped; the override record skipped; the identity branch removed; the actor-suffix check off; the cause printed; the rejection replaced by another error; a wrong hash; the compile failure unclassified; the correlation check off. The database-backed tests ran only in CI (no pgsodium here).
+- **Not here, stated:** the compile route and compiler in the model service, `INTENT_PROPOSED`, the retry meaning of a repeated intent id, `cmd/core` wiring (EL).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL builds `interpreter.Config` in `compose.go` (see the README); the model-service route follows the compiler.
+- Files to read first: `services/core/understanding/interpreter/README.md`, `interpreter.go`.
+
+# Session 2026-11-13 (evening) · UND-04 core · Codex P2 on noema#519: the session is validated in full before the model service is called
+
+## Session summary
+- What changed (PR links): noema#519, one push after Codex's NOT READY at `40509e70`: `understanding/gate.go` exports the gate's own session rule as `Session.Valid()`; `interpreter.validate` uses it instead of checking only that each session field is non-empty.
+- Why: Codex found that a session that was present but malformed (`PrincipalType = "End User"`) reached `Compiler.Compile` first and was refused only later by `Gate.Admit`, so a caller that should already have been refused had its user's input sent to the model service. The documented contract is ErrInput before any call.
+- Tests added (REQ-INP-002, INV-12): `TestAMalformedSessionIsRefusedBeforeTheModelServiceIsCalled` (eight malformed fields; ErrInput and the compiler spy untouched; red first on the previous code, six of the eight cases red, the two principal-id cases were already caught by the actor-suffix check) and `TestTheSessionRuleOfTheCallersIsTheGatesOwn` (`Valid()` is false exactly when `Gate.Admit` refuses the same session as SESSION_INVALID, so the two cannot drift). Mutant: `Valid()` always true is killed by both.
+- Regression cases added: the two tests above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter is wired in `compose.go` by EL; it must pass the session the edge built, which the gate and the Interpreter now judge by one rule.
+- Do not touch: the gate's session regexes without changing `Valid()` and its test together.
+
+# Session 2026-11-13 22:30 WAT · UND-04 core · A195: IDENTITY_SET_BY_MODEL
+
+- **What changed (PR noema#549):** `gate.go`: a model that sends `principal_type` or `asserted_by` of its own is refused as `IDENTITY_SET_BY_MODEL`, not `SHAPE` (ruling A195, relayed and not yet committed here; the Founder's order of 13 Nov 2026, item 4). Same event, same path: the reason travels in `INTENT_REJECTED_AT_GATE`'s `reason_codes` like `SIG`. A document that is malformed in another way stays `SHAPE`; a model-set `sig` stays `SIG`. No metric and no log line (A195).
+- **Failing first:** `a166_test.go`'s seven-case test was committed alone as `854e8735` and failed in the `core` job (run 43508790123); the green push changes only `gate.go`, `README.md` and this file.
+- **Debt:** the entry A195 asks for is on noema#545 for the Steward to register. Conflicts raised: none.
+- **Pre-work for the next agent:** when noema#519 merges, its interpreter test for the rejected-at-gate event may assert the new code for an identity-setting model; the interpreter needs no change (it records `Rejection.Reasons` as they are).
+
+# Session 2026-11-14 16:20 WAT · UND-04 core · the two assertions left over from noema#549
+
+## Session summary
+- What changed: `a166_test.go` only. The seven-case test now also asserts that the refusal does not carry `SHAPE`; a new test asserts that a `principal_type` that is null, a number, an object or a list stays `SHAPE` and is not reported as `IDENTITY_SET_BY_MODEL`.
+- Why: C1's and the Security Reviewer's reads of noema#549 (merged): the claim "the Record can tell the attempt from a malformed document" had no assertion for its second half, and a mutant that added `SHAPE` next to the new reason survived.
+- Risks, and how they are contained: a test-only change; no code in `gate.go` changed.
+- Tests added (REQ-INT-001, REQ-INP-002; INV-12): two assertions. Both mutants are killed: `SHAPE` added alongside the new reason, and the reason put back to `SHAPE`. Run locally (the package has no database test in this selection); CI follows.
+- Regression cases added: the above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none here. The interpreter's own test (noema#519, merged) may assert `IDENTITY_SET_BY_MODEL` in `INTENT_REJECTED_AT_GATE` for a model that sets an identity member.
+- Do not touch: the gate's reason names.
+
+
+# Session 2026-11-14 12:00 WAT · UND-04 core · the core gate decodes intent-object.v3 (noema#561)
+
+## Session summary
+- What changed (noema#561): `understanding/gate.go`, `identity.go`, `slots.go` use the generated `IntentObjectV3` and `IntentSlotV2*` types; `schema_version` must be `3.0`; confidence and ASR confidence are integers in basis points (0 to 10000, ruling A173), part of the canonical form the hash covers; a fraction or an out-of-range value is a shape refusal (not `HASH_UNAVAILABLE`, which stays only as the fail-closed answer for a number the canonical form cannot cover). The unused `ratio` helper is gone.
+- Why: the Founder's order of 14 Nov 2026 ("Core gate and the Interpreter adapter on v3 now"); the model service (noema#544) emits v3, and the core still decoded v1 and refused every proposal.
+- Risks, and how they are contained: nothing is loosened; the confidence is now signed. The gate's reason set is unchanged. The generated v3 types refuse a fraction at the closed decode (the type is `int64`), but **not** an out-of-range integer: `IntentSlotV2BasisPoints` has no range check, so the 0 to 10000 rule is the gate's own (`basisPointsPtr`, `slots.go`) and is the only one. **Corrected after the Security Reviewer's finding at `e9b8923a`:** an earlier version of this note called a mutant that removes the check "equivalent"; it is not, and a Party-slot mutant survived the first tests. `TestEverySlotTypeAndTheASRConfidenceHoldTheRangeOfAConfidence` now pins it for Resource, Quantity, Party, TimeRef and Reference slots and for the ASR confidence, and a mutant per slot type and for the ASR check is killed.
+- Tests added (REQ-INT-001, REQ-INT-002; INV-02, INV-12): fixtures of the gate, interpreter and intent store moved to 3.0 (red first at `c4d79448`); `TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash` (seven refusals, three admissions whose canonical form carries the confidence); `schema version 1.0` and `3.1` are `SCHEMA_VERSION`. Four of five mutants killed.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter adapter (`orchestrator.Interpreter` over the Interpreter, the model-service client and the gate); the derivation of the actor inside the Interpreter from the session (C1's note on noema#519).
+- Files to read first: `understanding/gate.go`, `slots.go`.
+- Do not touch: the generated contracts.
+
+
+# Session 2026-11-14 17:35 WAT · UND-04 core · the Security Reviewer's hold on noema#561 (one push)
+
+- **Should-fix (the hold): done.** The range check is pinned for every slot type and for the ASR confidence (a below-range ASR case is also added to the existing test); the note above is corrected. Mutants, by me: the range check removed from each of the five slot types and from the ASR check, six in all, each killed.
+- **Conflict with `main`: resolved** by merging `main` into the branch (no rebase): `understanding/README.md` (my v3 sentence with main's A195 clause) and this file (both sections kept). `go build`, `go vet` and `go test ./understanding/` pass at the merge.
+- **Note (b), the committed rapid failure file** (`testdata/rapid/TestNoPrincipalOrTenantInTheModelOutputEverSurvives/…-1185.fail`): **kept on purpose.** It is the failing case of the red run, replayed on every run as a regression seed; `main` already carries three such files under `execution/controller/testdata/rapid/`.
+- **Note (a), whether confidence leaves the system:** not changed by this PR. The outward schemas (noema#521) forbid it; the API handler is not in this PR and I did not check it.
+- Debt: none. Conflicts raised: none.

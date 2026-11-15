@@ -44,7 +44,7 @@ class IntentNodeV1Disambiguation(ContractModel):
     strategy: IntentNodeV1DisambiguationStrategy
     auto_resolve_margin: Annotated[int | float, Field(ge=0, le=1)]
     max_candidates_before_escalate: Annotated[int, Field(ge=1)]
-    matcher_ref: Annotated[str, StringConstraints(pattern='^[a-z0-9_]+(/[a-z0-9_]+)*\\.json$')] | None = Field(default=None)
+    matcher_ref: Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]+(/[a-z0-9_]+)*\\.json\\Z')] | None = Field(default=None)
 
 
 class IntentNodeV1SlotsItem(ContractModel):
@@ -56,7 +56,7 @@ class IntentNodeV1SlotsItem(ContractModel):
     required: bool
     resource_kind: CommonV1PackId | None = Field(default=None)
     resolution: IntentNodeV1SlotsItemResolution | None = Field(default=None)
-    vocabulary: Annotated[list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]], Field(min_length=1)] | None = Field(default=None)
+    vocabulary: Annotated[list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]], Field(min_length=1)] | None = Field(default=None)
     references: IntentNodeV1SlotsItemReferences | None = Field(default=None)
 
 
@@ -67,12 +67,12 @@ class IntentNodeV1(ContractModel):
     node_id: CommonV1PackId
     pack: CommonV1Vertical
     pack_version: CommonV1Semver
-    parent: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$')] | None = Field(default=None)
+    parent: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None = Field(default=None)
     display_name: Annotated[str, StringConstraints(min_length=1)]
     slots: list[IntentNodeV1SlotsItem]
     disambiguation: IntentNodeV1Disambiguation | None = Field(default=None)
     lexicon_refs: list[CommonV1PackId] | None = Field(default=None)
-    trust_profile: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$')] | None
+    trust_profile: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')] | None
     outcome_definitions: list[CommonV1PackId]
     examples: list[Annotated[str, StringConstraints(min_length=1)]]
 

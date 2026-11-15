@@ -1,0 +1,11 @@
+[
+  "(?i)\\bmoney is safe\\b",
+  "(?i)\\bfunds? (is|are) safe\\b",
+  "(?i)\\bwill be reversed\\b",
+  "(?i)\\bin \\d+ hours?\\b",
+  "(?i)\\bbank failed\\b",
+  "(?i)\\bresolved\\b",
+  "(?i)\\bfixed\\b",
+  "(?i)\\bdone\\b",
+  "(?i)\\bguarantee"
+]

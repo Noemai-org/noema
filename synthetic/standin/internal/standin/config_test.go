@@ -16,7 +16,7 @@ const (
 
 func env(over map[string]string) (func(string) string, func(string) ([]byte, error)) {
 	vars := map[string]string{"STANDIN_DATA_LISTEN": "10.20.0.5:8093", "STANDIN_CONTROL_LISTEN": "10.30.0.5:8094",
-		"STANDIN_BENCH_TOKEN_FILE": "/run/secrets/bench", "STANDIN_RUNTIME_TOKEN_FILE": "/run/secrets/runtime", "STANDIN_PRINCIPAL_KEY_FILE": "/run/secrets/principal"}
+		"STANDIN_BENCH_TOKEN_FILE": "/run/secrets/bench", "STANDIN_RUNTIME_TOKEN_FILE": "/run/secrets/runtime", "STANDIN_PRINCIPAL_KEY_FILE": "/run/secrets/principal", "STANDIN_TENANT_ID": "ten_alpha"}
 	for k, v := range over {
 		vars[k] = v
 	}

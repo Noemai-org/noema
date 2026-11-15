@@ -18,3 +18,8 @@ python_version = "3.13"
 strict = true
 files = ["."]
 exclude = ["^arms/"]
+
+# benchmark/model_cost/model_app.py imports the model service's package, which the benchmark environment does not install (it runs inside the model container).
+[[tool.mypy.overrides]]
+module = "noema_model.*"
+ignore_missing_imports = true

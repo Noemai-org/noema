@@ -29,7 +29,7 @@ Go rules run in `golint/` with `go/parser` and `go/ast` (standard library, no mo
 | `predicate-purity` | `internal/predicate` imports `trust`, `execution`, `outcome` or `record`, an I/O, clock, network, database or random package, or calls `fmt.Print*` |
 | `candidates-api-shape` | a `*Response` or `*Candidate` type in `evidence/candidates_api` is not a struct, embeds a type, or has a field outside the allowed candidate fields (no free text) |
 | `construct-decision-grant` | `DecisionRecord` is built outside `trust/decide`, or `DecisionGrant` outside `trust/grants` (generated `internal/contracts` and tests exempt) |
-| `harness-only-providers` | the model service imports `providers` anywhere except `harness/` (and `providers/` itself) |
+| `harness-only-providers` | the model service imports `providers` anywhere except `harness/` (and `providers/` itself); `voice/` may import `providers.speech` and nothing else in `providers` (A9) |
 | `pipeline-purity` | `understanding/pipeline` has module-level mutable state, `global`, or imports a database, Temporal, HTTP or agent-framework client |
 
 ## Decisions

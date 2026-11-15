@@ -20,3 +20,17 @@ Updated 2026-11-05. Plan task CAP-01: owner C1+AG; REQ-CAP-003; Needs EXE-01 (me
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
 
 - Known gap, stated: the `b.gen == tk.gen` guard in the fail-closed undo is defence in depth that no test can reach, because nothing can change the state while a HALF_OPEN or CLOSED notification is pending (the mutation that removes it survives).
+
+## Session 2026-11-06 · CAP-01 slice 2a (limits as pack data)
+### Session summary
+- What changed (PR links): the CAP-01 slice 2a pull request on `feat/CAP-01-limits` (STACKED on noema#182): new contract `execution-limits.v1.json`, the pack data `packs/fintech/limits/execution_limits.json`, and package `execution/limits` (`Load`).
+- Why: Architect ruling A3 (docs#117): `MinSamples` 20, `Cooldown` 30 s on the injected clock, one half-open probe; dispatch budget 2 per `tenant_id`+`correlation_id`+`capability`+`target_ref`. The values are pack data (AGENT-16), so the pack needed a place for them.
+- Risks, and how they are contained: the location is my choice (A3 says "pack data" and names no schema). I added a new contract file rather than editing `pack.v1` or `capability-descriptor.v1`, both closed with `additionalProperties: false`, so no existing contract changes meaning and no pack changes. Both Founders approve the new file (AGENT-15). If they prefer the values inside `pack.v1`, that is a v2 bump.
+- Tests added (REQ-CAP-003, REQ-RCV-003): the pack file carries the A3 values; the values come from the document and not from code; 17 refusal cases; the loaded policy builds a breaker. Mutations run and reverted (both caught): the key-order check removed; the one-probe check removed.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: slice 2b, build one `Breaker` per tenant and capability in the Execution Controller before E8 from `limits.Load` and each descriptor's `ParamsOf`; an open circuit gives UNAVAILABLE evidence; record CIRCUIT_STATE_CHANGED through the `Notify` hook.
+- Open questions (owner): the DISPATCH_ATTEMPTED budget counter is RCV-02 (a separate pull request that reads `Limits.DispatchBudget`).
+- Files to read first: `services/core/execution/limits/README.md`, `services/core/execution/breaker/README.md`.
+- Do not touch: noema#94, noema#90 (held, DEBT-01).

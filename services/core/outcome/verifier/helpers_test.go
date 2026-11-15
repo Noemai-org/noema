@@ -184,6 +184,8 @@ type world struct {
 	auth  authenticity
 	v     *verifier.Verifier
 	req   verifier.Request
+	// boundary is the crash harness's hook (TST-05); nil in production and in every test that does not inject a crash.
+	boundary func(verifier.Point) error
 }
 
 // budget is the PERD 29.2 value (3 retries after 1, 3 and 9 s; DEC-2026-10-17): configuration, supplied here as the
@@ -219,7 +221,7 @@ func newWorld(t *testing.T, mutate ...func(*world)) *world {
 func (w *world) build(t *testing.T, pack predicate.Pack) {
 	t.Helper()
 	v, err := verifier.New(verifier.Config{Clock: w.clk, Waiter: w.wait, IDs: ids.New(w.clk, nil), Cases: w.read, Store: w.store, Signer: w.sign,
-		Authenticity: authenticityPort{w.auth}, Scope: pack.Scope, Budget: budget})
+		Authenticity: authenticityPort{w.auth}, Scope: pack.Scope, Budget: budget, Boundary: w.boundary})
 	if err != nil {
 		t.Fatal(err)
 	}

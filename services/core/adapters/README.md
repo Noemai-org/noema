@@ -8,10 +8,11 @@
 
 - `case.go`: the interface `adapters.Case` for `mock-case` (create with idempotency key, route with expected version, get, find) and the shared vocabulary: `WriteResult`, `TransportClass` (same strings as `execution/controller`; a test there keeps them identical), `CaseRecord`, `CaseQuery`, `CasePage`, `ReadError`.
 - `synthetic_tushe/case_client.go`: `CaseClient`, the implementation (see that folder's README).
+- `fin.go`: the read ports of the Tushe-dependent services (`Transactions`, `Ledger`, `Switch`, `Destination`) and the normalised `fin.*` payloads of PERD 34.4 [REC] (ENV-04 slice 1, 6 Nov 2026). Every read takes a `Scope` (tenant and authenticated principal, INV-12). `Validate` refuses a missing field or a value the port does not know as `MALFORMED`; `Unavailable` is a real answer, never an empty one; `CandidatePage.ProvesAbsence` is true only for an empty page marked complete. The field names are the stand-in's reading, not Tushe's; no implementation of these ports talks to Tushe, and no route is mapped (DEC-2026-11-06 A10).
 
 ## What is not built, and why
 
-- Interfaces for `mock-ledger`, `mock-switch`, `mock-destination`, `mock-customer`, `mock-policy`: their payload fields are "fixed when the Tushe OpenAPI is frozen" (PERD §34.4) and the Tushe-dependent work is paused until the Founder confirms. Nothing is guessed.
+- Interfaces for `mock-customer` and `mock-policy`, and the beneficiary and principal-context reads (PERD 34.4 fixes no normalised shape for them): their payload fields are "fixed when the Tushe OpenAPI is frozen" (PERD §34.4) and the Tushe-dependent work is paused until the Founder confirms. Nothing is guessed.
 - `fault-controller` and `fixture-loader`: benchmark-only, never reachable from core or model (PERD §34.2, §34.4, REQ-ENV-002; amendment to §34.1 in a docs pull request). Their clients go under `benchmark/runner/` and `benchmark/fixtures/`, never here.
 - `mock-clock`: a read-only client is added here only when a slice needs it (PERD §64.2 lists clock clients); clock control (`simulate/advance`) stays benchmark-only.
 - Complaint and evidence-attach operations of `mock-case`: next slice.

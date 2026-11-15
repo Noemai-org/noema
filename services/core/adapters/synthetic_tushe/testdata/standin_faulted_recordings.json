@@ -1,0 +1,605 @@
+{
+  "_provenance": {
+    "label": "SYNTHETIC. Faulted exchanges of the Noema-side stand-in (REQ-ENV-005 as amended, task ENV-06).",
+    "method": "The real hostility proxy (benchmark/hostility_proxy, config/routes.standin.json), over a real connection, in front of a response recorded from the real stand-in service (standin_recordings.json), with one fault from a real fault plan (seed 15). Nothing is written by hand.",
+    "regenerate": "NOEMA_RECORD_STANDIN_FAULTED=1 go test ./internal/proxy -run TestStandinFaultedExchanges (from benchmark/hostility_proxy). That test regenerates the file in memory and fails if the committed copy differs."
+  },
+  "exchanges": [
+    {
+      "scenario": "ledger_posted__truncated_body",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026"
+      }
+    },
+    {
+      "scenario": "ledger_posted__invalid_json",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"fin.transaction:TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "ledger_posted__wrong_content_type",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"fin.transaction:TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger_posted__empty_body_success",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "ledger_posted__extra_field",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"entries\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"currency\":\"NGN\",\"entry_id\":\"le_TX1_1\",\"entry_type\":\"DEBIT\",\"posted_at\":\"2026-10-01T07:10:00+01:00\",\"posting_status\":\"POSTED\",\"transaction_ref\":\"fin.transaction:TX1\",\"version\":1}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "ledger_posted__missing_required_field",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "entries"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "ledger_posted__http_503",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 503
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "ledger_posted__http_429",
+      "base": "ledger_posted",
+      "target": "mock-ledger",
+      "operation": "get_entries",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX1/ledger-entries",
+        "query": ""
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__truncated_body",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__invalid_json",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"semantic_status\":\"TIMED_OUT\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__wrong_content_type",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"semantic_status\":\"TIMED_OUT\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__empty_body_success",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "switch_timed_out__extra_field",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"semantic_status\":\"TIMED_OUT\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__missing_required_field",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "semantic_status"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"destination_ack\":false,\"is_terminal\":false,\"raw_code\":\"SYN-91\",\"raw_code_label\":\"SYNTHETIC\",\"raw_payload_hash\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"received_at\":\"2026-10-01T09:10:00+01:00\",\"switch_ref\":\"sw_TX2\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__http_503",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 503
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "switch_timed_out__http_429",
+      "base": "switch_timed_out",
+      "target": "mock-switch",
+      "operation": "get_status",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/switch-status",
+        "query": ""
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "destination_pending__truncated_body",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:0"
+      }
+    },
+    {
+      "scenario": "destination_pending__invalid_json",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false,}"
+      }
+    },
+    {
+      "scenario": "destination_pending__wrong_content_type",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination_pending__empty_body_success",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "destination_pending__extra_field",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"credit_state\":\"PENDING\",\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false,\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "destination_pending__missing_required_field",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "credit_state"
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"effective_at\":\"2026-10-01T09:10:00+01:00\",\"observed_at\":\"2026-10-01T09:40:00+01:00\",\"settlement_state\":\"PENDING\",\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"transaction_ref\":\"fin.transaction:TX2\",\"unavailable\":false}"
+      }
+    },
+    {
+      "scenario": "destination_pending__http_503",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 503
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "destination_pending__http_429",
+      "base": "destination_pending",
+      "target": "mock-destination",
+      "operation": "get_destination_status",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions/fin.transaction:TX2/destination-status",
+        "query": ""
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__truncated_body",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "MALFORMED_RESPONSE",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"d"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__invalid_json",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "INVALID_JSON",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",}"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__wrong_content_type",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "WRONG_CONTENT_TYPE",
+      "params": {
+        "content_type": "text/html"
+      },
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/html",
+        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\"}"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__empty_body_success",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "EMPTY_BODY_SUCCESS",
+      "params": {},
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": ""
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__extra_field",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "add",
+        "field": "unexpected_field"
+      },
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"complete\":true,\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\",\"unexpected_field\":\"synthetic_extra_value\"}"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__missing_required_field",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "SCHEMA_DRIFT",
+      "params": {
+        "change": "remove",
+        "field": "complete"
+      },
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"data_source\":\"stand-in\",\"items\":[{\"account_ref\":\"acc_usr_a\",\"amount_minor\":500000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T09:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX2\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-10-01T07:10:00+01:00\",\"transaction_ref\":\"fin.transaction:TX1\"},{\"account_ref\":\"acc_usr_a\",\"amount_minor\":250000,\"counterparty\":\"ben_0001\",\"currency\":\"NGN\",\"direction\":\"OUTGOING\",\"occurred_at\":\"2026-09-30T23:40:00+01:00\",\"transaction_ref\":\"fin.transaction:TX3\"}],\"synthetic\":true,\"tenant_id\":\"ten_alpha\"}"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__http_503",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "HTTP_5XX",
+      "params": {
+        "status": 503
+      },
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 503,
+        "content_type": "application/json",
+        "body": "{\"error\":\"upstream failure\"}\n"
+      }
+    },
+    {
+      "scenario": "candidates_of_usr_a__http_429",
+      "base": "candidates_of_usr_a",
+      "target": "mock-ledger",
+      "operation": "list_transactions",
+      "effect": "HTTP_429",
+      "params": {
+        "retry_after_seconds": 7
+      },
+      "request": {
+        "path": "/standin/v1/transactions",
+        "query": "account=acc_usr_a"
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "retry_after": "7",
+        "body": "{\"error\":\"too many requests\"}\n"
+      }
+    }
+  ]
+}

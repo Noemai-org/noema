@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "fin",
+  "label": "SYNTHETIC",
+  "circuit_breaker": {
+    "min_samples": 0,
+    "cooldown_s": 30,
+    "half_open_probes": 1
+  },
+  "dispatch_budget": {
+    "max_dispatches": 2,
+    "key": [
+      "tenant_id",
+      "correlation_id",
+      "capability",
+      "target_ref"
+    ]
+  }
+}

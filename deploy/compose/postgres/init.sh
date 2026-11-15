@@ -8,8 +8,38 @@ core_pw="$(cat "$secrets/noema_core_password")"
 temporal_pw="$(cat "$secrets/temporal_password")"
 migrator_pw="$(cat "$secrets/noema_migrator_password")"
 verify_pw="$(cat "$secrets/noema_verify_password")"
+evidence_verify_pw="$(cat "$secrets/evidence_verify_password")"
 tenant_pw="$(cat "$secrets/noema_tenant_login_password")"
-psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" \
+# The evidence recompute's secret is its own: a login that shares another login's secret is that login (Security Reviewer, noema#268).
+for other in "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw"; do
+  [ "$evidence_verify_pw" != "$other" ] || { echo "init: evidence_verify_password equals another login's secret; give it its own" >&2; exit 1; }
+done
+
+# A4 (Architect ruling, 6 Nov 2026): each emitter login has its own file-mounted secret, $secrets/emitter_logins/<tenant>__<emitter>. Checked
+# before anything is created: every file must exist, be non-empty and differ from every other secret, including the other emitter logins'.
+# The shared tenant-login password never opens an emitter login. A refusal names the file, never a value. DEBT-13 extends this to the
+# tenant and power logins before G3 evidence.
+seen="$(printf '%s\n' "$core_pw" "$temporal_pw" "$migrator_pw" "$verify_pw" "$tenant_pw" "$evidence_verify_pw" "$(cat "$secrets/postgres_superuser_password" 2>/dev/null || true)")"
+for tenant in ${NOEMA_TENANTS:-}; do
+  case "$tenant" in
+    ten_[0-9A-Za-z][0-9A-Za-z]*) ;;
+    *) echo "init: '$tenant' is not a tenant ID" >&2; exit 1 ;;
+  esac
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    case "$emitter" in
+      core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
+      '') echo "init: an emitter name is empty" >&2; exit 1 ;;
+      *[!a-z0-9-]*|[!a-z]*) echo "init: '$emitter' is not an emitter name (^[a-z][a-z0-9-]*\$)" >&2; exit 1 ;;
+      *) ;;
+    esac
+    f="$secrets/emitter_logins/${tenant}__${emitter}"
+    [ -f "$f" ] && [ -s "$f" ] || { echo "init: the emitter login ${tenant}__${emitter} has no secret file of its own ($f)" >&2; exit 1; }
+    pw="$(cat "$f")"
+    if printf '%s\n' "$seen" | grep -Fxq -- "$pw"; then echo "init: the secret of the emitter login ${tenant}__${emitter} equals another secret ($f)" >&2; exit 1; fi
+    seen="$(printf '%s\n%s\n' "$seen" "$pw")"
+  done
+done
+psql -v ON_ERROR_STOP=1 -v core_pw="$core_pw" -v temporal_pw="$temporal_pw" -v migrator_pw="$migrator_pw" -v verify_pw="$verify_pw" -v evidence_verify_pw="$evidence_verify_pw" \
   --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 -- The migration role owns the database and, from migration W4 on, the signed tables. It cannot log in; its one login can.
 CREATE ROLE noema_migrator NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
@@ -35,6 +65,9 @@ CREATE ROLE record_verify NOLOGIN;
 CREATE ROLE record_emitter NOLOGIN;
 -- The verification job logs in as this; migration 0006 grants record_verify its privileges.
 CREATE ROLE noema_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'verify_pw' IN ROLE record_verify;
+-- The nightly evidence recompute's login (EVD-03, D9): a member of no role, so it holds only what migration 0020 grants it directly (SELECT on
+-- context_snapshot and evidence_item, with one SELECT policy on each). It is not a power and not noema_verify (the Record verifier).
+CREATE ROLE evidence_verify LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'evidence_verify_pw';
 CREATE DATABASE noema OWNER noema_migrator;
 CREATE DATABASE temporal OWNER temporal;
 CREATE DATABASE temporal_visibility OWNER temporal;
@@ -42,8 +75,24 @@ REVOKE ALL ON DATABASE noema FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 -- The core may connect and nothing more: no CREATE, no TEMPORARY. Rights on tables come from the per-power roles (migrations).
-GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter;
+GRANT CONNECT ON DATABASE noema TO noema_core, trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read, record_verify, record_emitter, evidence_verify;
 \connect noema
+-- DEC-2026-11-01 D10, D10a (EXE-08 slice B, ruling A2): pgsodium verifies Ed25519 signatures in the database; the private keys never are in it. The extension
+-- is created without shared_preload_libraries (no server key management). Its event trigger reads a setting that exists only when the library is preloaded,
+-- so it is disabled here, once, as a superuser, before any Noema migration, and the setting is off. Nothing in its schema is executable by PUBLIC; only
+-- noema_migrator may call the one verification function noema_sig.verify uses. db.Migrate and the core refuse to run if the event trigger is enabled again.
+CREATE EXTENSION pgsodium;
+DO $$ DECLARE r record; BEGIN
+  FOR r IN SELECT e.evtname FROM pg_event_trigger e JOIN pg_depend d ON d.objid = e.oid AND d.deptype = 'e'
+           JOIN pg_extension x ON x.oid = d.refobjid AND x.extname = 'pgsodium' LOOP
+    EXECUTE format('ALTER EVENT TRIGGER %I DISABLE', r.evtname);
+  END LOOP;
+END $$;
+ALTER DATABASE noema SET pgsodium.enable_event_trigger = 'off';
+REVOKE ALL ON SCHEMA pgsodium FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA pgsodium FROM PUBLIC;
+GRANT USAGE ON SCHEMA pgsodium TO noema_migrator;
+GRANT EXECUTE ON FUNCTION pgsodium.crypto_sign_verify_detached(bytea, bytea, bytea) TO noema_migrator;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO noema_core;
 -- Migration 0001 runs ALTER TABLE ... OWNER TO record_append, which PostgreSQL allows only if the new owner can CREATE in the schema
@@ -64,6 +113,25 @@ for tenant in ${NOEMA_TENANTS:-}; do
   for group in trust_rw execution_rw outcome_rw evidence_rw orchestrator_rw record_read; do
     psql -v ON_ERROR_STOP=1 -v role="${group}__${tenant}" -v grp="$group" -v pw="$tenant_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'
 CREATE ROLE :"role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'pw' IN ROLE :"grp";
+SQL
+  done
+done
+
+# One login per tenant and emitter that is not a power (DEBT-07, migration 0011): record_emitter__<tenant>__<emitter>, a member of
+# record_emitter only, which holds the Record append functions and nothing else. The mapping row is added after migration by
+# provision-tenants.sh through provision_emitter_login. NOEMA_EMITTERS lists the emitters; the default is core-edge, the one the edge
+# needs for SESSION_VALIDATED. An emitter without a login (model-service, the adapters; OD-P-73) cannot be written.
+for tenant in ${NOEMA_TENANTS:-}; do
+  for emitter in ${NOEMA_EMITTERS:-core-edge}; do
+    case "$emitter" in
+      core-trust|core-execution|core-outcome|core-evidence|core-workflows) echo "init: '$emitter' is a power's identity" >&2; exit 1 ;;
+      '') echo "init: an emitter name is empty" >&2; exit 1 ;;
+      *[!a-z0-9-]*|[!a-z]*) echo "init: '$emitter' is not an emitter name (^[a-z][a-z0-9-]*\$)" >&2; exit 1 ;;
+      *) ;;
+    esac
+    emitter_pw="$(cat "$secrets/emitter_logins/${tenant}__${emitter}")"
+    psql -v ON_ERROR_STOP=1 -v role="record_emitter__${tenant}__${emitter}" -v pw="$emitter_pw" --username "$POSTGRES_USER" --dbname postgres <<'SQL'
+CREATE ROLE :"role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'pw' IN ROLE record_emitter;
 SQL
   done
 done

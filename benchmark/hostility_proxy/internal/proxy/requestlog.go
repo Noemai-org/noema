@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -34,19 +35,31 @@ type RequestEntry struct {
 	IdempotencyKeySHA string `json:"idempotency_key_sha256,omitempty"`
 }
 
+// generation identifies one life of the log: new at every start and at every reset (A22). A reader that took a baseline compares it
+// and so tells a restart, or a reset refilled by identical calls, from "no new requests". It is random, not derived from the log, and
+// is kept out of the log hash (REQ-ENV-004: the same plan, seed and calls give the same hash).
+func newGeneration() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("hostility proxy: no randomness for the request log generation: " + err.Error()) // the process cannot make a safe claim without it
+	}
+	return hex.EncodeToString(b[:])
+}
+
 type requestLog struct {
-	mu      sync.Mutex
-	limit   int
-	total   int
-	entries []RequestEntry
-	counts  map[string]int
+	mu         sync.Mutex
+	generation string
+	limit      int
+	total      int
+	entries    []RequestEntry
+	counts     map[string]int
 }
 
 func newRequestLog(limit int) *requestLog {
 	if limit <= 0 {
 		limit = defaultRequestLogLimit
 	}
-	return &requestLog{limit: limit, counts: map[string]int{}}
+	return &requestLog{generation: newGeneration(), limit: limit, counts: map[string]int{}}
 }
 
 func routeKey(target, operation string) string { return target + " " + operation }
@@ -67,13 +80,22 @@ func (l *requestLog) reset() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.total, l.entries, l.counts = 0, nil, map[string]int{}
+	l.generation = newGeneration()
+}
+
+// snapshot returns the generation together with the kept entries, the counts and the dropped number, all read under one hold of the lock, so
+// they are one consistent claim: the entries belong to the generation returned with them. Reading them in separate steps would let a reset land
+// in between and pair an old generation with a new log (Codex review of noema#209).
+func (l *requestLog) snapshot(target, operation string) (string, []RequestEntry, map[string]int, int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entries, counts, dropped := l.viewLocked(target, operation)
+	return l.generation, entries, counts, dropped
 }
 
 // view returns the kept entries of one route (all routes when target is empty), the request counts of that route, and how many
 // requests in all were not kept.
-func (l *requestLog) view(target, operation string) ([]RequestEntry, map[string]int, int) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (l *requestLog) viewLocked(target, operation string) ([]RequestEntry, map[string]int, int) {
 	entries := []RequestEntry{}
 	for _, e := range l.entries {
 		if (target == "" || e.Target == target) && (operation == "" || e.Operation == operation) {

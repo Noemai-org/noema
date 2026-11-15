@@ -24,9 +24,9 @@ class IntentObjectV1Principal(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     principal_id: CommonV1PrincipalId
-    principal_type: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*$')]
+    principal_type: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
     authn_ref: CommonV1SessionId
-    asserted_by: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*$')]
+    asserted_by: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*\\Z')]
 
 
 class IntentObjectV1SourceChannel(StrEnum):
@@ -42,7 +42,7 @@ class IntentObjectV1Source(ContractModel):
     model_config = ConfigDict(extra="forbid")
     mode: EnumsV1Mode
     channel: IntentObjectV1SourceChannel
-    locale_detected: list[Annotated[str, StringConstraints(pattern='^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$')]]
+    locale_detected: list[Annotated[str, StringConstraints(pattern='\\A[a-z]{2,3}(-[A-Za-z0-9]{2,8})*\\Z')]]
     asr_confidence: CommonV1Ratio | None
     raw_ref: Annotated[str, StringConstraints(min_length=1)]
 
@@ -63,7 +63,7 @@ class IntentObjectV1(ContractModel):
     pack: IntentObjectV1Pack
     intent_node: CommonV1PackId
     slots: dict[str, IntentSlotV1Slot]
-    ambiguity_flags: list[Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]]
+    ambiguity_flags: list[Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]]
     desired_outcome_refs: list[CommonV1PackId]
     status: EnumsV1IntentStatus
     sig: CommonV1Sig

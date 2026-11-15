@@ -11,6 +11,7 @@
 **Tests.**
 - `TestG2EscalateThroughTheCoreAdapterAgainstMockCase`: create with the idempotency key of PERD §27.2, read back by that key with the version token, route with that token; eight Record events, chain verified, two receipts, two outbox events.
 - A spent create grant executed again writes nothing; a second create for the same transaction and a route bound to a stale token are voided at E7 before any write; with the kill switch on nothing is spent and mock-case receives nothing.
+- `TestG2ARouteRacedByAnotherWriterAfterRevalidationIsRefusedAndTheGrantIsVoided` (US-19, EC-E11, REQ-EXE-004): another writer routes the case after E7; the real mock-case refuses the grant's token, the receipt is `REJECTED_STALE_VERSION`, the grant is void with a RecoveryRequest, the case holds the other writer's queue, and a second execution writes nothing. The check that no write was applied reads the case through the runtime client; the harness holds no handle on mock-case's truth API.
 
 - `proposer_swap_test.go` (execution half of the proposer swap test, `status/ENV-08.md`): reads `synthetic/proposer_swap/` and runs the real escalation for each proposer; the Record events, workflow result and mock-case state must be identical, a refused proposal writes nothing, and controls show that a leak of proposer provenance is noticed. It validates the decision path only, not the unbuilt intake.
 

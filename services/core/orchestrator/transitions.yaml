@@ -3,8 +3,9 @@
 # Restricted YAML: one flow mapping per line, so it can be read without a YAML library.
 # FROZEN is not an investigation state: it is a target-level flag (PERD §22.3, REQ-RES-002).
 # A new turn after COMPLETED or REJECTED starts a new linked investigation; that is not a transition of this one.
-# EXPLAINING_BLOCKED appears in the PERD only as the target of an arrow, with no definition and no exit ("-> fallback"):
-# open decision OD-P-60. Its row is here so every PERD arrow has a row.
+# EXPLAINING_BLOCKED (Founder decision E4 of 7 Nov 2026, closing OD-P-60; PERD v1.21 §28.2) exits through a new DECISION_MADE (ESCALATE), then ESCALATING,
+# under a new Decision Grant. It never returns to EXPLAINING and never reaches ESCALATING without that decision; the guard that checks the new decision and
+# the new grant lives in code, not here (INV-03, AGENT-08).
 version: 1
 source: "PERD §28.2"
 states: [RECEIVED, INTERPRETING, REJECTED_AT_GATE, AWAITING_CLARIFICATION, EVALUATING, AWAITING_CONFIRMATION, WAITING, PLANNED, EXECUTING, AWAITING_VERIFICATION, AWAITING_EXTERNAL_OUTCOME, RECOVERING, BLOCKED_UNKNOWN, ESCALATING, EXPLAINING, EXPLAINING_BLOCKED, COMPLETED, ESCALATED, REJECTED, DORMANT, EXPIRED]
@@ -48,7 +49,8 @@ transitions:
   - {from: EXPLAINING, to: COMPLETED, on: "the disposition that applies"}
   - {from: EXPLAINING, to: ESCALATED, on: "the disposition that applies"}
   - {from: EXPLAINING, to: REJECTED, on: "the disposition that applies"}
-  - {from: EXPLAINING, to: EXPLAINING_BLOCKED, on: "explanation blocked; the PERD names no exit (open decision)"}
+  - {from: EXPLAINING, to: EXPLAINING_BLOCKED, on: "the validator blocks the explanation (REQ-EXP-002)"}
+  - {from: EXPLAINING_BLOCKED, to: ESCALATING, on: "a new DECISION_MADE ESCALATE and a new Decision Grant; never back to EXPLAINING (E4)"}
   - {from: ESCALATED, to: AWAITING_EXTERNAL_OUTCOME, on: "a watch exists"}
   - {from: DORMANT, to: INTERPRETING, on: "resume, with re-reads"}
   - {from: DORMANT, to: EXPIRED, on: "72 hours without a resume"}

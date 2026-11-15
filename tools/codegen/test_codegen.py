@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 
 import generate  # noqa: E402
 import ir  # noqa: E402
+from anchors import fully_anchored  # noqa: E402
 
 
 def schema(**body):
@@ -186,3 +187,71 @@ class CommittedOutput(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Anchors(unittest.TestCase):
+    """A138: a pattern means the whole string. Python's `$` also matches before a final newline; `\\Z` does not."""
+
+    def test_the_leading_caret_and_trailing_dollar_become_whole_string_anchors(self):
+        self.assertEqual(fully_anchored("^raw_[0-9A-Za-z]{2,32}$"), r"\Araw_[0-9A-Za-z]{2,32}\Z")
+
+    def test_every_anchor_of_an_alternation_is_replaced(self):
+        self.assertEqual(fully_anchored("^(a$|b$)"), r"\A(a\Z|b\Z)")
+
+    def test_a_caret_or_dollar_in_a_character_class_or_escaped_is_kept(self):
+        self.assertEqual(fully_anchored(r"^[^\n$]+\$[]^$]$"), r"\A[^\n$]+\$[]^$]\Z")
+
+    def test_the_result_refuses_a_trailing_newline_that_the_dollar_form_accepts(self):
+        import re
+
+        self.assertIsNotNone(re.search("^ab$", "ab\n"))
+        self.assertIsNone(re.search(fully_anchored("^ab$"), "ab\n"))
+        self.assertIsNotNone(re.search(fully_anchored("^ab$"), "ab"))
+
+    def test_text_that_may_hold_a_newline_still_may(self):
+        import re
+
+        self.assertIsNotNone(re.search(fully_anchored(r"^[\s\S]*$"), "a\nb\n"))
+
+
+class TypeScriptOutput(unittest.TestCase):
+    """REQ-UI-001: the TypeScript the UI reads comes from tools/codegen/ts.json, with every contract its roots refer to, and never from a contract kept out of the services."""
+
+    def test_the_roots_and_what_they_refer_to_are_generated_and_nothing_else(self):
+        files = generate.render_all(generate.load_schemas())
+        ts_files = {p for p in files if p.startswith(generate.TS_DIR + "/")}
+        self.assertIn(f"{generate.TS_DIR}/_runtime.ts", ts_files)
+        self.assertIn(f"{generate.TS_DIR}/index.ts", ts_files)
+        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        for r in roots:
+            self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
+        self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
+
+    def test_a_root_that_is_not_a_contract_is_an_error(self):
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["nothing.v1.json"]}), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "nothing.v1.json"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    def test_a_root_kept_out_of_the_services_is_an_error(self):
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["benchmark-case.v1.json"]}), encoding="utf-8")
+            (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "keeps out"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    def test_a_pattern_is_kept_as_written_because_ecma_262_dollar_is_whole_string(self):
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn('new RegExp("^[0-9]+\\\\.[0-9]+$", "u")', files[f"{generate.TS_DIR}/common_v1.ts"])

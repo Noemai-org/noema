@@ -1,0 +1,8 @@
+{
+  "unknown_operation.json": "enum",
+  "canary_literal_instead_of_a_class.json": "enum",
+  "honeypot_with_an_uppercase_id.json": "pattern",
+  "candidate_without_correct.json": "required",
+  "sequence_step_without_dependency.json": "required",
+  "twin_of_a_bad_id.json": "pattern"
+}

@@ -43,7 +43,7 @@ class CandidatesRequestV1(ContractModel):
     tenant_id: CommonV1TenantId
     correlation_id: CommonV1CorrelationId
     principal_ref: CommonV1PrincipalId
-    resource_kind: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*$')]
+    resource_kind: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*\\Z')]
     filters: CandidatesRequestV1Filters
 
 

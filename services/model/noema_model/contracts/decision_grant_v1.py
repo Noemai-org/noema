@@ -35,11 +35,11 @@ class DecisionGrantV1(ContractModel):
     plan_hash: CommonV1Hash
     plan_step: Annotated[int, Field(ge=0, le=9007199254740991)]
     target_versions: list[DecisionGrantV1TargetVersionsItem]
-    policy_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
-    pack_version: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$')]
+    policy_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
+    pack_version: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?\\Z')]
     not_before: CommonV1Timestamp
     expires_at: CommonV1Timestamp
-    nonce: Annotated[str, StringConstraints(pattern='^n_[0-9a-f]{4,64}$')]
+    nonce: Annotated[str, StringConstraints(pattern='\\An_[0-9a-f]{4,64}\\Z')]
     single_use: Literal[True]
     confirmation_event_id: CommonV1ConfirmationEventId | None = Field(default=None)
     sig: CommonV1Sig

@@ -1,0 +1,40 @@
+# Bench startup only (ENV-04 wiring; noema#441; ruling A135): the bench stack's wiring on top of docker-compose.yml and bench-model.yml: the core's settings for reading the
+# Noema-side stand-in through the hostility proxy, and the runner's output directory.
+# NOT included by docker-compose.yml. `make bench-up` adds it with `-f` (after bench-model.yml); `make up`, the dev, ci and demo profiles never do, so nothing here is in any other stack.
+#
+# What it does:
+#   - the hostility proxy loads the stand-in route table (routes.standin.json), so the core's reads of the stand-in pass the proxy and are in its per-route request log
+#     (the source of monetary_calls) and can be faulted by a FaultPlan (AGENT-12);
+#   - the core gets the settings its stand-in read adapter will need: the data URL (the proxy's data side on tushe_net), the tenant, and the file-mounted runtime credential
+#     and principal key. The tenant is the stand-in's own (STANDIN_TENANT_ID): the adapter's assertion names it and an answer for another tenant is refused (A135).
+#   - the core holds only the runtime credential and the principal key, never the bench credential: the key that loads never reads (REQ-ENV-002).
+#
+# Honest status: nothing in the core reads these settings yet. `services/core/cmd/core` serves /healthz and /readyz only, and the read call site (the evidence read inside the
+# investigation, with the Scope built from the authenticated session, INV-12) belongs to the Evidence Layer and the Edge (noema#441). The names below are the contract that
+# call site is to use; until it exists a G1 run ends NOT RUN.
+services:
+  core:
+    environment:
+      NOEMA_STANDIN_URL: "http://hostility-proxy:8080"
+      NOEMA_STANDIN_TENANT_ID: "${STANDIN_TENANT_ID:-ten_alpha}"
+      NOEMA_STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
+      NOEMA_STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+    volumes:
+      - standin_runtime_credential:/run/standin/runtime:ro
+      - standin_principal_key:/run/standin/principal:ro
+    depends_on:
+      hostility-proxy:
+        condition: service_healthy
+      standin:
+        condition: service_healthy
+  hostility-proxy:
+    environment:
+      HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/routes.standin.json
+  # The runner writes the suite, the run and the score into the same directory the model writes its cost files to, and reads the live mock-case log from it.
+  # The invoking user, so the files on the host are theirs. NOEMA_BENCH_* are set by `make bench-up`.
+  bench-runner:
+    user: "${NOEMA_BENCH_UID:?set by make bench-up}:${NOEMA_BENCH_GID:?set by make bench-up}"
+    environment:
+      BENCH_OUT: /bench-out
+    volumes:
+      - ${NOEMA_BENCH_OUT:?set by make bench-up}:/bench-out

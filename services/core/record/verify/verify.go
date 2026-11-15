@@ -24,6 +24,14 @@ const rollbackTimeout = 5 * time.Second
 // (REC-07).
 const BreakHeadMismatch chain.BreakKind = "HEAD_MISMATCH"
 
+// BreakSignature is the break found when an event's signature does not verify (REC-08, REQ-AUD-006): it is missing, not made by the emitter's key, made by a
+// key that is not registered, or over bytes that are not the stored event.
+const BreakSignature chain.BreakKind = "SIGNATURE"
+
+// BreakUntrustedKey is the finding for an event signed under a revoked key at or after the key's compromised_since (DEC-2026-11-01 D5): the signature may be
+// genuine, the key is no longer believed private, and a person must review the event. It is never accepted silently.
+const BreakUntrustedKey chain.BreakKind = "UNTRUSTED_KEY"
+
 // Status is the result of verifying one tenant.
 type Status string
 
@@ -218,6 +226,9 @@ func (v *Verifier) check(ctx context.Context, tenantID string) (*Finding, int64,
 	}
 	if err != nil {
 		return nil, checked, err
+	}
+	if f, err := checkSignatures(ctx, tx, tenantID); f != nil || err != nil {
+		return f, checked, err
 	}
 	f, err := checkHead(ctx, tx, tenantID, checked)
 	return f, checked, err

@@ -101,6 +101,44 @@ class Fintech(unittest.TestCase):
                     self.assertIn(v, {"NONE", "LOW", "HIGH"}, c["capability_id"])
 
 
+class LookupDescriptors(unittest.TestCase):
+    """PCK-04 (REQ-AG-001), Architect's ruling D6 of 5 Nov 2026 (proposed in docs#123): the postcondition of a lookup comes from the source that
+    covers the entity. `beneficiary` is read from fin.src.beneficiary (authoritative for beneficiary_list_and_aliases) and `account` from
+    fin.src.customer (authoritative for customer_identity_and_ownership), ownership only. Neither descriptor declares a balance or a state."""
+    pack = load(FINTECH)
+    descriptors = {d["entity"]: d for d in pack["evidence_descriptors"]}
+    sources = {s["source_id"]: s for s in pack["evidence_sources"]}
+
+    def test_beneficiary_and_account_come_from_the_source_that_covers_them(self):
+        want = {
+            "beneficiary": ("fin.src.beneficiary", "beneficiary_list_and_aliases", {"id": {"type": "Reference"}, "transaction": {"type": "Reference"}}),
+            "account": ("fin.src.customer", "customer_identity_and_ownership", {"id": {"type": "Reference"}, "owner": {"type": "Reference"}}),
+        }
+        for entity, (source, fact, fields) in want.items():
+            self.assertIn(entity, self.descriptors, f"no evidence descriptor for {entity}")
+            d = self.descriptors[entity]
+            self.assertEqual(d["source"], source, f"{entity}: the source that covers it")
+            self.assertIn(fact, self.sources[source]["authoritative_for"], f"{source} is authoritative for {fact}")
+            self.assertEqual(d["fields"], fields, f"{entity}: the declared fields")
+
+    def test_no_descriptor_declares_a_balance_or_a_state(self):
+        for entity in ("beneficiary", "account"):
+            fields = set(self.descriptors[entity]["fields"])
+            self.assertEqual(fields & {"balance", "state", "status"}, set(), f"{entity}: no source covers balance or state (DEBT-12)")
+
+    def test_the_minimal_descriptors_are_marked_in_the_pack_readme(self):
+        text = (PACKS / "README.md").read_text()
+        self.assertIn("minimal; extend when the Tushe worksheet is signed", text)
+
+    def test_the_pack_readme_does_not_contradict_the_sources_the_descriptors_use(self):
+        # Voice review of noema#148: an earlier sentence said no capability names fin.src.beneficiary and fin.src.customer "so the descriptors do not use them".
+        text = (PACKS / "README.md").read_text()
+        self.assertNotIn("so the descriptors do not use them", text)
+        for source, fact in (("fin.src.beneficiary", "beneficiary_list_and_aliases"), ("fin.src.customer", "customer_identity_and_ownership")):
+            self.assertIn(source, text)
+            self.assertIn(fact, text, f"the README names what {source} is authoritative for")
+
+
 class References(unittest.TestCase):
     """Every ID used exists (a subset of what packcheck enforces)."""
 

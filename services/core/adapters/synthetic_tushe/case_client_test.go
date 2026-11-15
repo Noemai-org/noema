@@ -8,14 +8,20 @@ package synthetic_tushe
 // The recordings are SYNTHETIC. The live run against a running mock-case is not part of this file.
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -440,6 +446,50 @@ func TestNoTruthOrControlPath(t *testing.T) {
 			if strings.Contains(s, banned) {
 				t.Errorf("%s contains %q: the runtime adapter must not reach the bench side", f, banned)
 			}
+		}
+	}
+}
+
+// Evidence Layer provenance of a healthy read (issue #390, from Core Engineer 2; INV-19, REQ-CTX-001): a successful read carries the hash of the bytes the adapter
+// RECEIVED, so a record can identify the response and not a re-marshalled copy of it. The bytes are captured on the wire by a proxy in front of the replayed server.
+func TestASuccessfulReadCarriesTheHashOfTheBytesReceived(t *testing.T) {
+	recs := loadRecordings(t)
+	id := caseID(recs)
+	var hits int32
+	for name, call := range map[string]func(c *CaseClient) (string, error){
+		"get_200": func(c *CaseClient) (string, error) {
+			r, err := c.GetCase(deadline(t), "ten_a", id)
+			return r.RawHash, err
+		},
+		"find_by_key_one": func(c *CaseClient) (string, error) {
+			p, err := c.FindCases(deadline(t), adapters.CaseQuery{TenantID: "ten_a", IdempotencyKey: "idk_v1_live01"})
+			return p.RawHash, err
+		},
+	} {
+		up := replay(t, recs[name], &hits)
+		target, _ := url.Parse(up.URL)
+		var wire []byte
+		rp := httputil.NewSingleHostReverseProxy(target)
+		rp.ModifyResponse = func(resp *http.Response) error {
+			b, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+			wire = b
+			resp.Body = io.NopCloser(bytes.NewReader(b))
+			resp.ContentLength = int64(len(b))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(b)))
+			return nil
+		}
+		front := httptest.NewServer(rp)
+		t.Cleanup(front.Close)
+		got, err := call(newClient(t, front))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		sum := sha256.Sum256(wire)
+		if len(wire) == 0 || got != "sha256:"+hex.EncodeToString(sum[:]) {
+			t.Errorf("%s: RawHash %q is not the hash of the %d bytes received", name, got, len(wire))
 		}
 	}
 }

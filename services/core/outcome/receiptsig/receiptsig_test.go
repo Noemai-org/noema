@@ -435,3 +435,48 @@ func reverse(b []byte) []byte {
 	}
 	return out
 }
+
+// Found by the independent validation of the pgsodium spike (docs#117): Go's crypto/ed25519 and OpenSSL accept a signature made under a public key
+// of small order (the identity key with R = identity and S = 0 verifies for any message), where libsodium refuses it. A small-order or
+// non-canonical key must therefore never be trusted by Outcome. The eight small-order points were checked with the RFC 8032 reference
+// arithmetic (8 times each is the identity); the encodings with y at or above p are non-canonical.
+func TestASmallOrderOrNonCanonicalKeyIsNeverTrusted(t *testing.T) {
+	smallOrder := map[string]string{
+		"the identity":          "01" + zeros(31),
+		"the point of order 2":  "ecff" + ffs(29) + "7f",
+		"y = 0, sign 0":         zeros(32),
+		"y = 0, sign 1":         zeros(31) + "80",
+		"order 8 (a), sign 0":   "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05",
+		"order 8 (a), sign 1":   "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85",
+		"order 8 (b), sign 0":   "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a",
+		"order 8 (b), sign 1":   "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa",
+		"identity as y = p + 1": "eeff" + ffs(29) + "7f",
+		"y = p":                 "edff" + ffs(29) + "7f",
+		"y = 2^255 - 1":         ffs(31) + "7f",
+	}
+	f := newFixture(t)
+	for name, enc := range smallOrder {
+		t.Run(name, func(t *testing.T) {
+			pk, err := hex.DecodeString(enc)
+			if err != nil || len(pk) != 32 {
+				t.Fatalf("bad test encoding %q", enc)
+			}
+			// The forgery that works against a lax verifier: R = identity, S = 0, for any message.
+			forged := append(append([]byte{1}, make([]byte, 31)...), make([]byte, 32)...)
+			r := f.receipt(t, keyID, forged)
+			c := receiptsig.Checker{Keys: keyTable{keyID: {Key: pk, Status: receiptsig.Active}}}
+			if got := check(t, c, r); got != verifier.AuthInvalid {
+				t.Fatalf("a receipt under the key %s was %s, want INVALID", name, got)
+			}
+		})
+	}
+}
+
+func zeros(n int) string { return hex.EncodeToString(make([]byte, n)) }
+func ffs(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = 0xff
+	}
+	return hex.EncodeToString(b)
+}

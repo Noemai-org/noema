@@ -26,6 +26,7 @@ from benchmark.bakeoff.live import (  # type: ignore[import-not-found,unused-ign
     OVERHEAD_BYTES, BudgetStopped, HarnessDecider, PinDrift,
 )
 from benchmark.bakeoff.run import DeciderError, DeciderRejected, DeciderUnavailable  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from tests.support import MASKING
 
 MODEL = "gpt-6-luna"
 DATED = "gpt-6-luna-2026-10-20"
@@ -73,7 +74,7 @@ def make(transport: SequenceTransport, *, limit: int = 10_000_000, spent: int = 
         if reported is not None:
             raw["providers"]["alpha"]["reported_model_version"] = reported
         config = load_harness_config(raw)
-        return Harness(config, build_providers(config, transport, {}), ManualClock(), NullTelemetry())
+        return Harness(config, build_providers(config, transport, {}), ManualClock(), NullTelemetry(), masking=MASKING)
 
     decider = HarnessDecider(provider="LIVE", modules=harness_module, build=build, guard=guard, input_micro_per_mtok=RATES[0],
                              output_micro_per_mtok=RATES[1], max_output_tokens=max_out, model_name=MODEL)
@@ -284,6 +285,7 @@ def test_a_partial_cost_is_never_taken_for_the_cost() -> None:
 # --- the frozen harness configurations, through the real loader --------------------------------------------------------
 
 DECISIONS = Path(__file__).resolve().parents[3] / "benchmark" / "decisions"
+PACK_LIMITS = Path(__file__).resolve().parents[3] / "packs" / "fintech" / "limits" / "masking_limits.json"
 
 
 @pytest.mark.parametrize("file,model,cost_for_100_in_20_out", [("harness-gpt-6-luna.json", "gpt-6-luna", 20), ("harness-gpt-6.1-terra.json", "gpt-6.1-terra", 200)])
@@ -294,7 +296,7 @@ def test_each_frozen_configuration_loads_and_drives_a_decider_that_sends_the_fro
     answer = reply([yes_no("amount_missing", "no", 0.1)], model=model)
     transport = SequenceTransport([probe, answer])
     guard = BudgetGuard(limit_micros=2_000_000)
-    decider = build_real_decider("T", str(DECISIONS / file), {"OPENAI_API_KEY": "sk-synthetic-not-a-real-key"}, guard, transport)
+    decider = build_real_decider("T", str(DECISIONS / file), str(PACK_LIMITS), {"OPENAI_API_KEY": "sk-synthetic-not-a-real-key"}, guard, transport)
     decider.ready()
     result = decider.decide(FLAG, "I sent 2k", None)
     sent = transport.sent[1]
@@ -309,5 +311,5 @@ def test_a_frozen_configuration_without_the_key_in_the_environment_does_not_star
     from noema_model.platform.config import ConfigError
 
     with pytest.raises(ConfigError) as caught:
-        build_real_decider("T", str(DECISIONS / "harness-gpt-6-luna.json"), {}, BudgetGuard(limit_micros=1)).ready()
+        build_real_decider("T", str(DECISIONS / "harness-gpt-6-luna.json"), str(PACK_LIMITS), {}, BudgetGuard(limit_micros=1)).ready()
     assert "OPENAI_API_KEY" in str(caught.value)

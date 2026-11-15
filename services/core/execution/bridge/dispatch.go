@@ -13,9 +13,17 @@ import (
 const (
 	CapCreateEscalationCase = "fin.cap.create_escalation_case"
 	CapRouteToInternalOwner = "fin.cap.route_to_internal_owner"
+
+	// The append-only evidence capability of EXE-05 slice 2 (ruling A157).
+	CapRecordInvestigationEvidence = "fin.cap.record_investigation_evidence"
+
+	// CapLogComplaintReference is named only to say that it has no mapping: the pack declares it CONDITIONAL_WRITE on "no complaint for the subject and epoch", and
+	// mock-case's create is keyed by idempotency key alone, so two executions under distinct keys can both pass E7 and write two irreversible regulatory complaints
+	// (the Security Reviewer's P1 on noema#491). Until the target creates conditionally and atomically, neither Dispatch nor Revalidate handles it (AGENT-20).
+	CapLogComplaintReference = "fin.cap.log_complaint_reference"
 )
 
-// Parameter names of the two capabilities (the `input_schema` of their descriptors).
+// Parameter names of the capabilities (the `input_schema` of their descriptors).
 const (
 	paramTransactionRef  = "transaction_ref"
 	paramReasonCode      = "reason_code"
@@ -23,14 +31,20 @@ const (
 	paramEpoch           = "epoch"
 	paramOwnerQueue      = "owner_queue"
 	paramPriority        = "priority"
+	paramCaseID          = "case_id"
+	paramPayload         = "payload"
 )
 
 // CaseDispatcher is the Dispatcher of E9 for mock-case. It makes exactly one adapter call per Dispatch and never
 // retries (REQ-EXE-006): the answer is reported as a transport class and Execution classifies it (REQ-EXE-007).
 // A capability it has no mapping for, a parameter it does not know, and a conditional write sent without an
 // expected version are adapter defects, never calls: there is no callable path for them (REQ-CAP-002, REQ-EXE-004).
+//
+// Records is the evidence half of mock-case. With none, the append-only evidence capability has no mapping and Dispatch makes no call. The complaint capability has no
+// mapping with or without it (see CapLogComplaintReference).
 type CaseDispatcher struct {
-	Case adapters.Case
+	Case    adapters.Case
+	Records adapters.CaseRecords
 }
 
 var _ controller.Dispatcher = CaseDispatcher{}
@@ -55,6 +69,15 @@ func (d CaseDispatcher) Dispatch(ctx context.Context, req controller.DispatchReq
 			return defect(raw)
 		}
 		return fromWrite(d.Case.RouteCase(ctx, in))
+	case CapRecordInvestigationEvidence:
+		if d.Records == nil {
+			return defect("NO_ADAPTER_FOR_CAPABILITY")
+		}
+		in, raw := evidenceInput(req, timeout)
+		if raw != "" {
+			return defect(raw)
+		}
+		return fromWrite(d.Records.AppendEvidence(ctx, in))
 	}
 	return defect("NO_ADAPTER_FOR_CAPABILITY")
 }
@@ -115,4 +138,32 @@ func routeInput(req controller.DispatchRequest, timeout time.Duration) (adapters
 		return adapters.RouteCaseInput{}, "CONDITIONAL_WRITE_WITHOUT_EXPECTED_VERSION"
 	}
 	return adapters.RouteCaseInput{TenantID: req.TenantID, CaseID: req.TargetRef, OwnerQueue: queue, ExpectedVersionToken: req.ExpectedFrom[0].VersionToken, Timeout: timeout}, ""
+}
+
+// targetCase returns the case a record capability acts on: the plan's case_id, which must be the grant's target, so a plan cannot spend a grant for one case on
+// another (INV-03). The second result is the defect code, "" when there is none.
+func targetCase(req controller.DispatchRequest) (string, string) {
+	caseID, ok := strParam(req.Params, paramCaseID)
+	if !ok || req.TargetRef == "" {
+		return "", "MISSING_PARAMETER"
+	}
+	if caseID != req.TargetRef {
+		return "", "TARGET_MISMATCH"
+	}
+	return caseID, ""
+}
+
+func evidenceInput(req controller.DispatchRequest, timeout time.Duration) (adapters.AppendEvidenceInput, string) {
+	if k := unknownParam(req.Params, paramCaseID, paramPayload); k != "" {
+		return adapters.AppendEvidenceInput{}, "UNKNOWN_PARAMETER"
+	}
+	caseID, raw := targetCase(req)
+	if raw != "" {
+		return adapters.AppendEvidenceInput{}, raw
+	}
+	payload, ok := strParam(req.Params, paramPayload)
+	if !ok {
+		return adapters.AppendEvidenceInput{}, "MISSING_PARAMETER"
+	}
+	return adapters.AppendEvidenceInput{IdempotencyKey: req.IdempotencyKey, TenantID: req.TenantID, CaseID: caseID, Payload: payload, Timeout: timeout}, ""
 }

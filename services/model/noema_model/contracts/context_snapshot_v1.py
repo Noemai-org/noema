@@ -13,7 +13,7 @@ class ContextSnapshotV1Reconciliation(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     reconciliation_id: CommonV1ReconciliationId
-    classification: Annotated[str, StringConstraints(pattern='^[A-Z][A-Z0-9_]*$')]
+    classification: Annotated[str, StringConstraints(pattern='\\A[A-Z][A-Z0-9_]*\\Z')]
 
 
 class ContextSnapshotV1(ContractModel):

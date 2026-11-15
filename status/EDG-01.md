@@ -1,0 +1,189 @@
+# Status · EDG-01 (core edge, session slice)
+
+## Session 2026-11-04 · slice 1: the session verifier and middleware
+## Session summary
+- What changed: `services/core/edge/session/{session.go,http.go}` and their tests (new); the `edge` package doc is unchanged.
+- Why: the Architect's order of 4 Nov 2026 (item 2): EDG-01, the smallest slice that lets the benchmark open a session, plus the session provider. G1 path: the public API (US-01, US-06) needs an authenticated session (REQ-API-004).
+- What it does: `Verifier.Verify` checks an ES256 (P-256, SHA-256) JWT: signature against a key chosen by `kid`, audience, tenant (one of the deployment's), expiry, issue time (not in the future), a maximum lifetime (an input, REC 15 min), known roles; the principal is `sub` only. Every failure is one error, `ErrInvalid`. `Middleware` requires `Authorization: Bearer`, answers 401 `UNAUTHENTICATED` (no credential) or `SESSION_INVALID` (anything else, one fixed message, so a forged and an expired token look the same) in the §39.1 envelope with `Noema-Correlation-Id`, and puts the principal in the request context. No new dependency (standard library only).
+- Open (AGENT-02): the claim names are not defined anywhere in the SoT or PERD. Smallest safe default used: `sub`, `aud`, `exp`, `iat`, `tenant_id`, `roles` (`customer`, `operator`, `approver`). Evidence that would invalidate it: the enterprise IdP contract or the benchmark's IdP naming them differently. **The [OPEN] entry is OD-P-74, in docs#107 (regenerated register, not hand-edited).** It stays NON-CANONICAL: this slice is built on the default and is not authority for the claim names; the Architect decides or accepts it. The 15-minute lifetime and the 5-minute freshness for sensitive operations are PERD [REC] and are inputs, not constants here.
+- Risks, and how they are contained: not wired into `cmd/core` yet, because there is no public endpoint to protect (PERD §39.2 lists them; adding a "whoami" route would add an endpoint `/contracts` does not define). Wiring (a public-key file from configuration, the tenant list, the route table) arrives with the first public route. No rate limit, `request_id` deduplication or ops/audit route roles yet (the rest of EDG-01's done-when).
+- Tests added (REQ-SEC-001, REQ-API-004, REQ-API-002, INV-12): 24 kinds of bad token each rejected (forged, flipped bit, swapped payload, alg none, alg HS256, unknown or missing kid, wrong audience, wrong or missing tenant, missing or empty sub, no exp, expired, future, over-long, unknown role, no roles, malformed); exact time boundaries; 20,000 seeded token mutations, none accepted; degenerate signatures (zero, curve order, one); the verifier refuses to start without keys, audience, tenants, lifetime or clock, or with a non-P-256 key; the middleware: 401 shapes, forged and expired indistinguishable, handler not run, correlation ID kept only when well formed, no echo of a hostile header, the principal only from the token. Seen failing first (did not compile). Mutation: 8 of 8 on the verifier (two survived at first and got tests) and 4 of 4 on the middleware caught.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Not built (named)
+- The synthetic IdP and the benchmark's session provider (next PR in this task): a tool that issues these tokens from a private key held outside the core, and `benchmark/runner`'s `DirSessionProvider` replaced or fed by it. Tokens live 15 minutes, so a directory of static files cannot serve a long run.
+- Per-session rate limits, `request_id` deduplication, ops/audit route roles, reconstruction and verification endpoints behind the edge (EDG-01's done-when).
+
+## Pre-work for the next agent
+- Exact next step: the issuer (`synthetic/idp`) and the provider; then wire `session.Middleware` into `cmd/core` with the first public route.
+- Do not touch: `noema#94`, `noema#90`.
+
+## Session 2026-11-04 (later) · slice 2: the synthetic IdP issuer and the benchmark session provider
+## Session summary
+- What changed (same PR as slice 1, noema#156, as separate commits: a dependent change goes in one PR, AGENTS.md §11): `services/core/cmd/synthetic-idp/` (`keygen`, `issue`; not in the core image, which builds `./cmd/core` only); `edge/session/keys.go` (`ParsePublicKeyPEM`, P-256 only; `ParseRole`); `benchmark/runner/env.py` `IdpSessionProvider`; `benchmark/runner/__main__.py` flags `--idp-key`, `--idp-binary`, `--idp-kid`, `--idp-audience` (with `--tenant-id`), refused together with `--tokens-dir`. Decision of the Architect, 4 Nov 2026: OD-P-74 (the claim names) is accepted as written once Codex clears docs#107.
+- Why: tokens live 15 minutes, so the runner's directory of static token files cannot serve a long run; the runner now asks the issuer on demand and reuses a token until 60 s before it expires. A token is a secret: the provider runs the issuer with an empty environment, never passes a principal or role that could be read as a flag, and never puts the issuer's output in an error.
+- Tests added (REQ-SEC-001, REQ-API-004): Go: keygen writes a 0600 private key and a public key the core parses, and never replaces an existing key; an issued token is accepted by the core's `Verifier` with the right principal, tenant, roles and lifetime and expires at its ttl; a token from another key or an unknown kid is rejected; the issuer refuses what the core would refuse (zero or negative ttl, unknown role, empty tenant, principal, audience or kid); nothing secret is printed; `ParsePublicKeyPEM` refuses a P-384 key, a private key, junk, two blocks and trailing bytes. Python: 8 tests of the provider with a stub issuer (arguments, reuse until the margin, separate tokens per principal and role set, failure and timeout as a named gap with no leaked output, missing binary or key, flag-like input refused, empty environment) and one CLI test. Seen failing first (neither compiled or imported). Mutation on the issuer: 5 of 7 caught; one survivor is `O_EXCL` (`keygen` checks for existing files first, so `O_EXCL` is defence against a race; kept), one is a no-op mutation.
+- Not verified here: `mypy --strict` on the benchmark (not installed in this sandbox; CI runs it). The Python benchmark suite's full run was started locally and is reported in the PR.
+
+## What is NOT closed, and what the G1 evidence may not say (Architect, 4 Nov 2026)
+- **"Writer identity enforced" must not be claimed in G1 evidence.** Until a login per non-power emitter exists, a power's login can still write an event as `core-edge`, `core-record`, `admin`, `model-service` or a `mock-*` adapter (DEBT-04's open question Q-DEBT04-1, option (b) decided: a login per such emitter). noema#145 binds the five power emitters to their own power's login (`record_insert_t`); the remaining binding is a migration on top of noema#145's `0004` to `0006`, so it **waits for noema#145 to merge** (no PR is built on another PR's branch). `core-edge` is the one this task needs first, because the edge writes `SESSION_VALIDATED`.
+- The edge is not wired into `cmd/core`; no Record event is written by the edge yet.
+
+## Pre-work for the next agent
+- Exact next step: (1) Codex on docs#107, then on this PR; (2) after noema#145 merges: a migration binding each non-power emitter to its own login (`core-edge` first), with the test that a power login naming it is refused; (3) wire `session.Middleware` into `cmd/core` with the first public route and a configured key file.
+- Do not touch: `noema#94`, `noema#90`.
+
+## Regression found by CI, 4 Nov 2026: a token had two spellings
+- Finding: `TestFuzzedTokensAreNeverAccepted` failed in CI (core, noema#156): 1 of 20,000 mutated tokens was accepted. The test is seeded, but the key and the ECDSA nonce are random, so a run differs from the next. The earlier red `core` check at `66aa1a9`, which passed on re-run, was the same failure, not an infrastructure flake: I wrongly called it a flake.
+- Root cause: Go's lenient base64url decoder ignores the unused trailing bits of a segment's last character. A token whose final signature character was respelled decoded to the same bytes and verified. The principal was the same, so no one else could be impersonated, but one token had many spellings, which defeats any cache or deny list keyed on the token string.
+- Fix: the decoder is `base64.RawURLEncoding.Strict()` for all three segments. Test first (commit "failing test first, a respelled but equivalent token is accepted"): `TestARespelledButEquivalentTokenIsRejected` tries every equivalent respelling of the final character and fails if none exists; it failed on 30 respellings before the fix. The fuzz test plus the regression test pass 40 runs in a row.
+- Lesson (for AGENTS.md section 15 through a PR, not stored elsewhere): a fuzz failure that passes on re-run is a finding until a seed or a cause says otherwise; do not call it a flake.
+
+## Session 2026-11-06 · slice 3a: the identity contract of ruling A1 (docs#115, D7)
+## Session summary
+- What changed (PR links): the EDG-01 slice 3a pull request on `feat/EDG-01-a1-identity`, STACKED on noema#156 (a continuation, not a push to that branch): `edge/session` (verifier, `RequireRole`, `CheckTenant`) and `cmd/synthetic-idp` (`iss`, one role).
+- Why: ruling A1. Issuer `noema-poc-idp`, exact match; `iss` required; exactly one role from customer, ops, approver, audit (`operator` is now `ops`; `audit` is new); header members limited to alg, kid, typ (jwk, jku, x5u, x5c, crit refused); lifetime ceiling 15 minutes and the service does not start above it; an `iat` later than now plus a configured skew is refused; `aud` stays one string; `sub` is bounded (128 bytes, my choice, stated in the PR).
+- Gaps of the Security Reviewer (A1 items 1 to 9): 1, 2, 3, 4, 6 are verifier code with tests; 5 and 7 are `CheckTenant` (the token's tenant must equal the tenant of the database login; ops acts in its own tenant only), which the wiring must call; 8 (no `jti`) is a named residual risk at the 15-minute lifetime; 9 is the ceiling in item 4.
+- Role gate: `RequireRole(ids, roles...)` for ops and audit routes; deny by default; a refused role gets NOT_FOUND_OR_NOT_AUTHORIZED with 404 (REQ-API-002).
+- Tests added (REQ-SEC-001, REQ-API-004, REQ-API-002, REQ-SEC-006, INV-12, INV-21): the new bad tokens (several roles, the same role twice, roles as a string, `operator`, wrong-case role, missing or wrong `iss` in five spellings, `aud` as an array, an over-long `sub`, six header members), the skew boundary, startup refusals (ceiling, negative lifetime, negative skew, skew not below the lifetime), each of the four roles alone, the role gate for the four roles, the gate with no session, `CheckTenant` across tenants. Mutations run and reverted (all caught): `iss` unchecked; several roles allowed; `sub` unbounded; header members unchecked; skew ignored; ceiling unchecked; skew range unchecked; header allowlist reduced to `crit`; role gate allows all; empty matches empty; tenant never checked; refusal as 403.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+- Not touched: `benchmark/runner/env.py` passes one `-role` per role of a case principal. Case principals have one role (`customer`) in the generated cases, but `benchmark/runner/test_idp_session.py` builds a two-role command line against a fake; the issuer now refuses two roles. That is the Integration Lead's path; I did not change it.
+
+## Pre-work for the next agent
+- Exact next step: slice 3b, wire `session.Middleware`, `RequireRole(ops, audit)` and `CheckTenant` in front of the reconstruction and on-demand verification endpoints in `cmd/core`; the login tenant comes from the database's `tenant_login` mapping, never from the request.
+- Open questions (owner): the skew value (Engineering Lead states it in the PR; it is configuration with no default); the `sub` bound of 128 bytes is mine and needs a yes; the benchmark runner's role handling.
+- Files to read first: `services/core/edge/session/session.go`, `docs/decisions/DEC-2026-11-05-architect-rulings.md` (docs#115).
+- Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-06 (later) · slice 3a: Codex rounds, ruling A21, ruling A15
+- A21 (60 s leeway on `exp` and `iat`, pack data, simulated clock): `Config.Skew` now applies to both; the verifier accepts a token until `exp` plus the leeway and an `iat` up to the leeway ahead. The value is not in code: new contract `session-limits.v1.json` (additive; AGENT-15 migration note in `contracts/INVENTORY.md`), data `packs/fintech/limits/session_limits.json` (`clock_skew_s` 60), loader `session.LoadLimits` (typed `SCHEMA_INVALID`, strict, trailing bytes refused, pack ID pattern, range). Tests on the injected clock: exactly the leeway ago is refused, one second inside it is accepted; the same at the `iat` edge. Mutations run and reverted (all caught): no leeway on `exp`; no trailing-byte check; no pack ID check; no range check.
+- Residual risk, restated (A1 item 8): with no `jti` a stolen token works until `exp`; the leeway adds up to 60 s.
+- Codex P3 (sub-second `-ttl`): the issuer now requires a TTL of at least one second (test first, one mutation caught).
+- Ruling A15 (benchmark roles are the four A1 roles; `ops_agent` to `ops`, `viewer` to `customer` when acting or `audit` when read-only) answers Codex's P1 on `benchmark/runner/env.py`: the change is in the benchmark generator's cases (`benchmark/generator/lib_security.py`), not in this PR. It also changes generated case content, so it needs its owner and a suite regeneration; I have not done it.
+- Ruling A20 for slice 3b: `audit` reads only through the tenant-bound Record read functions; `ops` and `audit` have no path to a Record writer.
+
+## Session 2026-11-11 09:00 WAT · slice 3b: the edge composition and the core wiring
+## Session summary
+- What changed (PR links): the EDG-01 slice 3b pull request on `feat/EDG-01-edge-wiring` (opened from main: the slice 3a and 3b parents, noema#156 and noema#198, are merged): `edge.Protected` (session, role gate, body guard, deny by default), `edge/edgetest` (SYNTHETIC tokens for tests), `edge.Load` (six settings, all or none, fail closed; the composition root `cmd/core/compose.go` is EL's, so this PR does not edit `cmd/core`), `make bench-tokens` (`deploy/compose/bench_tokens.sh` and its test; principals and token lifetime are arguments).
+- Why: REQ-API-004 needs every public call behind a verified session in the running core, not only in the package. The order is session, role, body: an unauthenticated caller gets 401 and a wrong-role caller 404 whatever the body says.
+- Risks, and how they are contained: no `/v1` route is registered yet, so the composition is proved with test routes. The six settings have no defaults; with some set `Load` returns an error and the root must not start. The test that cmd/core does not import `record/reconstruct` stays: the reconstruction route is wired by REC-03 with its role list.
+- Tests added (REQ-API-004, REQ-API-002, REQ-SEC-001, INV-12, INV-21, AGENT-16): `edge/edge_test.go` (10), `edge/load_test.go` (7). Mutation check of the new code: guard before role, no catch-all, no session check, no body guard, skew in code, lifetime above the ceiling, tenants, audience, kid, body limit and partial configuration accepted were each caught by a test; audience, kid and body limit survived once and the tests now use values that differ from the helper's.
+- Regression cases added: none. Debt entries: `deploy/compose/test_bench_tokens.sh` is not run by CI (no workflow runs the compose scripts' tests, `test_secrets_local.sh` included); a workflow change needs a Founder.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL plugs `edge.Load` into `cmd/core/compose.go` (slice 3c); the first handler that touches the database (REC-03's reconstruction route) passes its `Route`, lists `ops` and `audit` (ruling A20) and calls `session.CheckTenant(principal, loginTenant)` with its test.
+- Open questions (owner): the names of the six settings are mine; EL to say yes or rename. The body limit value for the deployment (EL, no default). The G1 principal list for `BENCH_PRINCIPALS` (Integration Lead, noema#441).
+- Files to read first: `services/core/edge/edge.go`, `services/core/edge/load.go`.
+- Do not touch: the migration files.
+
+## Session 2026-11-12 · slice 3c part 2: main wires the protected API (EL)
+
+## Session summary
+- What changed: `cmd/core/compose.go` gains `Env`, `Components.Records` (the Record reader), `apiRoutes` and `buildAPI` (`edge.Load` with the route table; none of the session settings is no API, some or wrong is an error, a Record reader without session settings is an error); `compose` and `composeReadiness` take the API as an argument and name `edge chain` and `record reader` when missing; `main.go` builds the API, refuses to start on a configuration error, mounts it under `/v1/` beside the public health routes. The not-yet-wired guard test `no_reconstruction_test.go` is removed in this PR, as its header and the REC-03 note asked.
+- Why: the first running route of the G1 path: `GET /v1/reconstructions/{correlation_id}` for ops and audit, from the token's tenant, behind the verified session and the deny-by-default role gate.
+- Tests added (REQ-API-004, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16): `cmd/core/api_test.go` (no settings is no API; partial settings and a reader without session settings refuse to start; ops and audit reach the handler and the reader is asked for the token's tenant, not the query's; customer, approver, no session, a bad token and an unserved tenant are refused before the reader; an unregistered route is 404; no reader means no route; the route table lists exactly ops and audit; health stays public). Written first (`b92deb55`, did not compile). Eight mutants killed (all roles allowed was first equivalent at the output level because the handler also refuses; the route-table test kills it).
+- Not done, stated: the input gateway (`POST /v1/conversations`, C2, noema#466) and its constructor; the Interpreter, Evidence, Trust, Explainer, Recorder and Admissions constructors; and the **per-tenant Record reader pools**, which need a configuration of logins and secrets that nothing defines (platform/config is empty). With no reader, no route is mounted and `/readyz` names what is missing; the core stays not ready.
+- Debt: none new. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when noema#466 merges, add its handler to `apiRoutes` (roles: customer) and the Admissions/Recorder constructors to `Components`; settle the Record reader's pool configuration (see the PR's AGENT-02 note).
+
+
+## Session 2026-11-12 17:00 WAT · slice 3c part 2, fix round (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `6ad19f11`, blocking finding: `buildAPI` built the reconstruction `Handler` with no `Log`, so `access()` returned silently and no `RECORD_ACCESSED` line was written (REQ-AUD-003). Now `Components.AccessLog` is required whenever `Records` is set (startup error otherwise) and is passed to the handler.
+- Tests added (REQ-AUD-003): `TestARecordReaderWithoutAnAccessLoggerRefusesToStart`; `TestACallThatReachesTheReconstructionHandlerIsLoggedAsRecordAccessed` (one line, the token's tenant, an outcome code). Red first (did not compile: no `AccessLog`).
+- Notes: (2) README of `reconstruct` no longer says "not wired"; the route stays unreachable until a Record reader is configured (OD-P-82), and the removed `no_reconstruction_test.go` guard is stated in the PR. (3) `edge/README.md` reworded.
+- Not done, decided: note (4), the reconstruct handler echoing the path's correlation ID (header, body, access log) as the response ID. After noema#481 the route would carry two IDs and the echoed lookup key can be account-shaped. The fix changes `record/reconstruct` (P0) and needs noema#481 merged; it is a follow-up PR with a failing-first test (EL), not part of this one.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, make the reconstruct handler use `session.CorrelationFromContext` for header, envelope and access log, and name the lookup key as a separate field.
+- Do not touch: the handler's outcome codes.
+
+## Session 2026-11-12 23:15 WAT · slice 3c part 2, fix round 2 (EL)
+
+## Session summary
+- What changed: Security Reviewer NOT READY on `d9f70642`, blocking: the test that a served and each refused call emit `RECORD_ACCESSED` covered one refused outcome only, and `api_test.go` claimed the SERVED outcome was asserted in the reconstruct package, which it was not (my claim was wrong). Added `TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome` in `record/reconstruct` against a real Record: SERVED, a missing correlation, a refused kind of caller and another tenant's caller each write exactly one line with tenant, principal and outcome and no Record content. Corrected the comment.
+- Tests: the new test needs `pgsodium` (the Record append), so it ran in CI only; a mutant (removing the SERVED `access` call) was not run locally for the same reason.
+
+## Pre-work for the next agent
+- Exact next step: after noema#481 merges, the reconstruct handler's path-echoed correlation ID (follow-up PR, failing test first); the first reader PR needs the cross-tenant test for `TenantDBs`.
+
+## Session 2026-11-12 · correlation ID (EL; noema#458, the Security Reviewer's SEC-03 finding)
+
+## Session summary
+- What changed: `session.Middleware` mints the correlation ID and puts it in the request context; `correlationID` (used by the role gate and the body guard) reads it from there and never from the request header; `session.CorrelationFromContext` is new. The existing test that required an incoming ID to be kept now requires it to be ignored.
+- Why: option (a) of the finding: the chain ID is ours, so a caller-supplied `corr_0123456789` (the shape of an account number) is not echoed in the response header or body and does not ride into logs and the Record. Option (b) would need a keyed check nothing else needs; option (c) leaves the response and the Record.
+- Tests added (REQ-SEC-003, AGENT-13, REQ-API-002): `TestACallerSuppliedCorrelationIdIsNeverEchoed` (six supplied values, two refusal paths, header, body and every header value), `TestOneRequestHasOneCorrelationIdThroughTheWholeChain` (the handler, the header, a role refusal and the body agree). Written first; both red on `main` (the first with SR's reproduction, the second did not compile). Mutants killed: no ID put in the context, the context value ignored, the incoming header adopted.
+- Not changed, stated: the reconstruction route sets `Noema-Correlation-Id` to the requested correlation from its path (the resource asked for, checked against the Record, not a header the caller sent).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: `compose.go` mounts routes behind this chain; log lines and Record events for a request take the ID from `session.CorrelationFromContext`.
+
+### Update 2026-11-12 · reviewer P1 on noema#481 (no shared fallback correlation ID)
+- `correlationID` now returns whether a unique valid ID exists; the session check, the role gate and the body guard each refuse (500 INTERNAL_SAFETY_BLOCK, the fixed `corr_NONE` only in that refusal) when none can be minted, so no request continues, writes or logs under a shared ID. Test first: `TestWhenNoCorrelationIdCanBeMintedTheRequestIsRefusedAndNothingRuns` (the source fails, returns a malformed ID, returns one with a newline; with and without a credential). Mutant (the refusal replaced by continuing, in all three layers) killed.
+
+## Session 2026-11-12 10:00 WAT · A149: the three session fields
+## Session summary
+- What changed (PR links): the EDG-01 A149 pull request on `feat/EDG-01-a149-session-fields`, from main: `session.Principal` gains `PrincipalType`, `AssertedBy` and `AuthnRef`, set by `Verify` from the verified token and from nothing else.
+- Why: ruling A149 (DEC-2026-11-12-architect-rulings-a148-a160, relayed until docs#157 merges): the orchestrator copies `principal_type`, `authn_ref` and `asserted_by` into the Intent Object from the session (INV-12).
+- Risks, and how they are contained: a field taken from the request or from a token member the verifier did not check. All three derive from claims that `Verify` has checked (`roles`, `iss`) or from the header `kid` it has matched to a configured key, `sub` and `iat`. `authn_ref` is a hash, never a token or a part of one (test).
+- Tests added (INV-12, AGENT-10, A149): `edge/session/principal_fields_test.go` (5): role to type for all four roles, issuer, hash equal to an independent computation, `kid`, `sub` and `iat` each bound and `exp` not, no token part in the reference. Five mutants (kid unbound, iat unbound, ops not mapped, issuer, length) each killed.
+- Regression cases added: none. Debt entries: none.
+- Conflicts raised: **asserted_by against `intent-object.v1`** (see the PR): the issuer `noema-poc-idp` has hyphens and the contract's `asserted_by` pattern is `^[a-z][a-z0-9_]*$`.
+
+## Pre-work for the next agent
+- Exact next step: the Architect or EL decides the `asserted_by` form (relax the contract pattern with a version bump, AGENT-15, or map `noema-poc-idp` to a contract-valid token); until then the orchestrator must not copy `AssertedBy` into an Intent Object unchecked. `principal_id` has the same kind of gap: the contract wants `usr_...` and the verifier accepts any `sub` up to 128 bytes.
+- Files to read first: `services/core/edge/session/session.go`.
+- Do not touch: the migrations.
+
+## Session 2026-11-12 18:00 WAT · A163: the IdP mints usr_ IDs; the asserted_by conflict is decided
+- What changed (noema#467): `cmd/synthetic-idp issue` accepts only a `-principal` that is a `usr_` ID of the contract (`^usr_[0-9A-Za-z]{2,32}$`, anchored over the whole string), so the `sub` it mints is a valid Intent Object `principal_id` as it stands. The verifier is not changed: it still accepts any `sub` of up to 128 bytes (ruling A1 item 6).
+- Why: ruling A163 (relayed in the Architect's message of 12 Nov, to be committed): widen no verifier; the IdP mints `sub` as `usr_<ULID>`; widening the `asserted_by` pattern is a contract bump, in its own small PR with C2 (AGENT-15). That resolves the CONFLICT block of noema#467 (noema#475): `AssertedBy` stays the issuer, `noema-poc-idp`, and the contract changes to accept it.
+- Tests (INV-12, A163): `TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse` and eight refused shapes in `TestTheIssuerRefusesWhatTheCoreWouldRefuse`; seven mutants of the expression (minimum, maximum, unbounded, no start anchor, case-insensitive prefix, hyphen allowed) were run: all caught, and the end-anchor mutant is equivalent in Go (RE2 `$` does not match before a trailing newline).
+- Pre-work for the next agent: until the `asserted_by` contract bump merges, the orchestrator must not copy `AssertedBy` into an Intent Object unchecked (the validator would refuse `noema-poc-idp`).
+
+# Session 2026-11-13 17:30 WAT · EDG-01 slice 3c, part 3 · the Record reader's per-tenant pools (EL)
+
+## Session summary
+- What changed (PR: the pull request of branch `feat/EDG-01-record-reader-dsn-files`, which replaces noema#532: its tests-only commit held a credential-shaped test literal that the secret scanner flagged, and published history is never rewritten): `cmd/core/recordpools.go` (`buildRecordReader`, `recordPools.For`, `EnvRecordReadDSNDir`), `Env.ReadDir`, `main.go` builds the reader from `NOEMA_RECORD_READ_DSN_DIR` and closes it at shutdown, with the process logger as the access log (`RECORD_ACCESSED` lines).
+- Why: ruling A170 and its Founder-approved interim default for OD-P-82 (relayed, not yet committed): a file-mounted read-only DSN per tenant. Without it the reconstruction route of noema#486 can never be mounted in a deployment.
+- Risks, and how they are contained: a DSN holds a password: no message names a DSN or any part of it (the parse error is dropped, a test checks the text); no fallback to another tenant's pool; a bad directory stops the process; pools connect lazily, so no start-up network dependency.
+- Tests added (REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-13): `cmd/core/recordpools_test.go` (4 tests, ten refused shapes); five mutants killed (fall back to any pool, accept any file name, echo the parse error, no trim, empty directory accepted).
+- Not done, stated: the SSE and investigation routes (no feed, no handler yet); the Compose side (`deploy/compose`, a protected path; IL and a Founder); a ping in `/readyz` for the pools.
+
+## Pre-work for the next agent
+- Exact next step: mount the investigation route (after noema#521) and the SSE route (needs a `Feed` over the investigation table and the Record) in `apiRoutes`, each behind its component.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.
+
+# Session 2026-11-13 16:30 WAT · EDG-01 · the public edge serves only the public areas (noema#505, SEC-04)
+
+## Session summary
+- What changed (PR links): `edge.checkRoute` now denies by default: the first path segment must be a public area (`conversations`, `confirmations`, `investigations`, `reconstructions`, `ops`, `record`, `outcomes`: PERD 39.2 and the matrix rows 8 to 12), and no segment may contain `key` or `rotat` (`notPublic`, `publicAreas` in `edge/edge.go`); `edge/refuse_test.go`; the edge README. The existing edge tests used the placeholder paths `/v1/cases`, `/v1/x` and `/v1/probe`; they now use public areas (a rename of 33 path strings, no assertion changed). The PR number is on noema#505.
+- Why: the Security Reviewer's finding on noema#504 (a draft, red by design at `ec5b44a`): `checkRoute` required only a `/v1/` prefix, a handler and a role, so the public edge accepted routes of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), of any other listener (row 13) and a route that names a key or a rotation (rule 7, D3a). **Design choice, and why:** a deny-list would have to name the other listener's path, and core code and tests may carry no benchmark-aware term (REQ-TST-006; `tools/lint` failed my first version on exactly that), so the edge allow-lists the public areas instead. That is the stronger form (deny by default) and it needs no forbidden word.
+- Risks, and how they are contained: it can only add refusals. A new public area needs a line in `publicAreas` and a matrix row, on purpose. The only route table on `main` or in an open PR is noema#486's `GET /v1/reconstructions/{correlation_id}`, which is a public area; `go test ./cmd/core/` passes. noema#496's route `GET /v1/conversations/{ref}/events` is a public area as well.
+- Tests added (REQ-SEC-001, REQ-API-004, INV-12): `TestThePublicEdgeServesOnlyThePublicAreasAndNoKeyRoute` (17 patterns), `TestTheRefusalOfTheControlPlaneLeavesThePublicRoutesAlone` (the six public routes of PERD 39.2 and the audit read).
+- **Security Reviewer's finding on this PR (head `66068de5`):** my first allow-list was narrower than the matrix: rows 8 to 12 name the public routes `GET /v1/ops/debt`, `GET /v1/ops/alerts`, `GET /v1/record/verify` and `GET /v1/outcomes/{verdict_id}`, whose first segments `ops`, `record` and `outcomes` were refused. They are public areas now (each route stays role-gated), and the Security Reviewer's matrix test file (`edge/authz_matrix_test.go`, from noema#504, by the Security Reviewer) is part of this PR so the allow-list cannot drift from the matrix: all three of its tests pass.
+- Failing first: the Security Reviewer's test failed in noema#504 at `ec5b44a`; locally, before the fix, every refused pattern of this test was accepted (CI red evidence: noema#504's run, and the first commit of this branch, which failed `lint` on the deny-list form).
+
+## Pre-work for the next agent
+- Exact next step: the Security Reviewer re-runs noema#504 (rows 8 to 12 and the refusal) against this change; the admin listener (C-ADMIN) is a separate task.
+- Open questions (owner): the D14 admin route spelling (Engineering Lead, Architect).
+- Files to read first: `edge/edge.go` (`notPublic`), `edge/refuse_test.go`.
+- Do not touch: the matrix `docs/security/control-plane-authz-matrix.md` (docs repo).
+
+
+# Session 2026-11-14 · EDG-01 · review of noema#535 (Security Reviewer, NOT READY at `df92c13e`)
+
+## Session summary
+- What changed (noema#535): `buildRecordReader` refuses a symlink or any non-regular entry (`DirEntry.Type().IsRegular()`), and refuses one login (user, host, port, database) in two tenant files, naming both tenants and never a DSN. The README states the trust boundary. Tests first: `TestOneLoginInTwoTenantFilesIsRefused`, `TestASymlinkIsNotATenantFile` (red at `dd54d121`, fixed in the next commit).
+- Not done, and why (asked, not decided by me): a startup probe per pool (`SELECT session_user`, `record_read` membership only, not a superuser) dials at start and changes the lazy-pool design (Architect); the file mode check (Compose file secrets are 0444 by default, so refusing group or world readable would stop a Compose deployment; IL and the Architect); pool limits, connect and statement timeouts and a `sslmode=disable` refusal (a threshold is not mine to invent, AGENT-16; they travel in the DSN today). Note 4 (`os.Exit` after a deferred close) is harmless at exit and unchanged.
+- Tests added (REQ-SEC-004, REQ-AUD-003, INV-12, AGENT-13): the two above.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect decides the probe, the mode check and the pool limits; implement what they decide.
+- Do not touch: `For` must never return a pool for a tenant it has no file for.

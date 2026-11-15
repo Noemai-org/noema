@@ -284,4 +284,6 @@ type Config struct {
 	Authenticity ReceiptAuthenticity
 	Scope        ip.Scope
 	Budget       ReadBudget
+	// Boundary is called at each step boundary (Points). Production leaves it nil; the crash harness returns ErrCrash (TST-05).
+	Boundary func(Point) error
 }

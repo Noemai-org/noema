@@ -1,0 +1,15 @@
+{
+  "unknown_status.json": "enum",
+  "diagnostic_flag_disagrees_with_mode.json": "const",
+  "forced_schema_not_marked_diagnostic.json": "const",
+  "refused_with_tool_calls.json": "maxItems",
+  "negative_cost.json": "minimum",
+  "missing_usage.json": "required",
+  "label_not_synthetic.json": "const",
+  "unknown_field.json": "additionalProperties",
+  "tool_call_without_name.json": "required",
+  "cost_above_the_interop_bound.json": "maximum",
+  "input_tokens_above_the_interop_bound.json": "maximum",
+  "output_tokens_above_the_interop_bound.json": "maximum",
+  "latency_above_the_interop_bound.json": "maximum"
+}

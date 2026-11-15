@@ -15,3 +15,22 @@
 **Why here.** `import-boundary` and `import-adapters` apply to test files: only `execution`, `evidence` and `adapters` may import the case adapter, and `outcome` may not reach `execution`. The OUT-01 card named `outcome/e2e`; no test there can dispatch, read and verify. Recorded as a deviation in the PR.
 
 **Duplicated on purpose.** `mockcase_test.go` is a copy of the harness of `execution/e2e` with the bench listener kept. A shared test helper is a refactor of its own.
+
+## The crash matrix (TST-05, ruling A30: option B)
+
+`crash_test.go` (Linux only) kills the core with SIGKILL at a named boundary of the controller, in a separate process, so nothing is cleaned up and PostgreSQL rolls the open transaction back. The test re-executes its own binary (`TestCrashChild`); the child attaches to the parent's database through the tenant's own logins, wires the real controller, ledger and case client around the real `mock-case`, and kills itself at the point. The parent then reads the database and the target's own command log (its truth), runs the recovery path, and checks the effect count at every step: never more than one. It runs in the existing `core` job (`go test -race ./...` against PostgreSQL 17.11); no workflow, lint rule or non-test code was added.
+
+**The kill-point list, shared with RESIST S9 (ruling A40).** One list, so the matrix and the benchmark family name the same points:
+
+| Point | Controller boundary | S9 family point | Status |
+|---|---|---|---|
+| before the spend commits | `PointInSpendBeforeCommit` | S9.1 before the write | built (slice 1) |
+| after the spend commits, before dispatch | `PointAfterSpend` | S9.1 before the write | built (slice 1) |
+| after dispatch, before the response is classified | `PointAfterDispatch` | S9.2 after the write, before verify | built (slice 2) |
+| the target commits and the response is lost | FaultPlan `TIMEOUT_AFTER_COMMIT` (the real mock-case fault, the 3500 ms hold against a 1000 ms dispatch timeout), killed at `PointAfterDispatch`; the command log must show `response_suppressed` | S9.2 after the write, before verify | built (slice 2) |
+| after the receipt is built, before its transaction starts | `PointInCompleteBeforeCommit` (the controller has the signed receipt; `Ledger.Complete` has not opened its transaction, so nothing of the receipt is written) | S9.2 after the write, before verify | built (slice 2) |
+| inside the receipt transaction, after its writes and before commit | `ledger.PointInCompleteTxBeforeCommit` (C1, noema#516): the child sets `Ledger.Boundary`, which kills it after the receipt, the idempotency record update, the outbox event and the RECEIPT Record event are written and before the commit; the server rolls the transaction back, so no receipt, no RECEIPT event, no receipted idempotency record and no `outcome.verify` event survive, and recovery writes exactly one OUTCOME_UNKNOWN receipt | S9.2 after the write, before verify | built (noema#506) |
+| after the receipt commits | `PointAfterComplete` | S9.2 after the write, before verify | built (slice 2) |
+| after verify, before the note | no hook yet (Outcome and the explanation have no boundary) | S9.3 after verify, before the note | needs a hook from Core Engineer 2 |
+
+The other nine controller boundaries are not in this list yet; the simulated matrix in `execution/controller` covers all fourteen against a simulated target.

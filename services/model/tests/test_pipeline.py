@@ -37,6 +37,7 @@ from tests.support_pipeline import (
     normaliser,
     pipeline_config,
 )
+from tests.support import MASKING
 
 CONFIG = pipeline_config()
 
@@ -172,7 +173,7 @@ def test_every_provider_failing_is_a_rejection_at_the_gate_and_no_candidate_is_r
     from noema_model.platform.telemetry import InMemoryTelemetry
     from tests.support import ManualClock, make_config
     dead = ScriptedProvider("alpha", [ProviderError(ProviderFailure.UNAVAILABLE, 503)])
-    harness = Harness(make_config(providers=("alpha",)), {"alpha": dead}, ManualClock(), InMemoryTelemetry())
+    harness = Harness(make_config(providers=("alpha",)), {"alpha": dead}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     source = FakeSource((candidate("a"),))
     result = run(run_pipeline(make_input(), CONFIG, harness, source, normaliser, no_errors))
     assert result.outcome is Outcome.REJECTED_AT_GATE and result.gate_errors == ("PROVIDER_UNAVAILABLE",)
@@ -268,7 +269,7 @@ def test_the_locale_hint_routes_every_call_to_the_configured_provider() -> None:
         alpha = ScriptedModel(answers=G_A, mentions=GOOD_MENTIONS)
         beta = ScriptedModel(answers=G_A, mentions=GOOD_MENTIONS, version="model-beta-2026-01-01")
         config = load_harness_config(raw_config(providers=("alpha", "beta"), routes=routes))
-        return Harness(config, {"alpha": alpha, "beta": beta}, ManualClock(), InMemoryTelemetry()), alpha, beta
+        return Harness(config, {"alpha": alpha, "beta": beta}, ManualClock(), InMemoryTelemetry(), masking=MASKING), alpha, beta
 
     harness, alpha, beta = stack()
     yo = run(run_pipeline(make_input(locale_hint="yo"), CONFIG, harness, FakeSource((candidate("a"),)), normaliser, no_errors))

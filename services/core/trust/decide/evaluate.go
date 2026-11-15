@@ -111,6 +111,22 @@ func Evaluate(ctx context.Context, intentVersion int, steps Steps) (Decision, []
 	return internalError(intentVersion), trace
 }
 
+// EvaluateBound is Evaluate for the path that writes a Decision Record: an ALLOW or CONFIRM stands only if its basis is exactly the set the steps
+// recorded in b (TRU-13, REQ-TRU-001, INV-16). A decision whose basis a caller supplied, or took from another evaluation, ends the evaluation in UNKNOWN
+// INTERNAL_ERROR at the step that returned it. With no builder there is nothing to check against, so an ALLOW or CONFIRM is not trusted either.
+func EvaluateBound(ctx context.Context, intentVersion int, steps Steps, b *BasisBuilder) (Decision, []TraceEntry) {
+	d, trace := Evaluate(ctx, intentVersion, steps)
+	if (d.outcome != Allow && d.outcome != Confirm) || len(trace) == 0 {
+		return d, trace
+	}
+	if b == nil || b.Check(d) != nil {
+		last := len(trace) - 1
+		trace[last].Result = StepInvalidResult
+		return internalError(intentVersion), trace
+	}
+	return d, trace
+}
+
 // runStep calls fn and turns a panic into a flag. This is the Trust boundary handler of REQ-TRU-002.
 func runStep(ctx context.Context, fn StepFunc) (res StepResult, panicked bool) {
 	defer func() {

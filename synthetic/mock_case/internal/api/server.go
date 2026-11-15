@@ -46,9 +46,26 @@ type Server struct {
 	sim   *clock.Simulated
 }
 
-// New returns a Server on the wall clock with no fault plan.
+// New returns a Server on the wall clock with no fault plan. With per-tenant credentials configured (Architect ruling R4) the authenticator is scoped; if it
+// cannot be built the server refuses every credential rather than fall back to the unscoped one.
 func New(cfg *config.Config, st *store.Store, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, st: st, engine: faultplan.NewEngine(), auth: auth.New(cfg.RuntimeToken, cfg.BenchToken), log: log, clk: clock.System{}}
+	a := auth.New(cfg.RuntimeToken, cfg.BenchToken)
+	if len(cfg.TenantTokens) > 0 {
+		scoped, err := auth.NewScoped(cfg.RuntimeToken, cfg.BenchToken, cfg.TenantTokens)
+		if err != nil {
+			log.Error("per-tenant credentials are not valid: every credential is refused", "err", err.Error())
+			a = auth.New("", "") // matches nothing: a failed scoping must never leave the unscoped credential open
+		} else {
+			a = scoped
+		}
+	}
+	return &Server{cfg: cfg, st: st, engine: faultplan.NewEngine(), auth: a, log: log, clk: clock.System{}}
+}
+
+// forbidTenant answers a write that names another tenant than the credential's own.
+func (s *Server) forbidTenant(w http.ResponseWriter, r *http.Request) {
+	s.log.Warn("refused", "listener", "case", "reason", "tenant mismatch", "method", r.Method, "path", r.URL.Path, "status", 403)
+	writeErr(w, correlationID(r), newErr(403, "TENANT_MISMATCH", "this credential belongs to another tenant", false))
 }
 
 func (s *Server) now() (time.Time, bool) {

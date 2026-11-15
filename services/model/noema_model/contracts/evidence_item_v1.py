@@ -33,13 +33,13 @@ class EvidenceItemV1(ContractModel):
     read_at: CommonV1Timestamp
     effective_at: CommonV1Timestamp
     freshness_sla_seconds: CommonV1PositiveInt
-    authority_class: Annotated[str, StringConstraints(pattern='^(AUTHORITATIVE_FOR:[a-z][a-z0-9_.]*(,[a-z][a-z0-9_.]*)*|CORROBORATING_FOR:[a-z][a-z0-9_.]*|NONE)$')]
+    authority_class: Annotated[str, StringConstraints(pattern='\\A(AUTHORITATIVE_FOR:[a-z][a-z0-9_.]*(,[a-z][a-z0-9_.]*)*|CORROBORATING_FOR:[a-z][a-z0-9_.]*|NONE)\\Z')]
     resource_scope: CommonV1ResourceRef
     principal_scope: CommonV1PrincipalId
     sensitivity: EnumsV1DataSensitivity
     fact_status: EnumsV1FactStatus
     payload_hash: CommonV1Hash
-    payload_ref: Annotated[str, StringConstraints(pattern='^[a-z]+_[A-Za-z0-9_]{2,64}$')]
+    payload_ref: Annotated[str, StringConstraints(pattern='\\A[a-z]+_[A-Za-z0-9_]{2,64}\\Z')]
 
 
 EvidenceItemV1.model_rebuild()

@@ -3,7 +3,7 @@
 # founder's approval before any step starts and before the key is exposed. The key is the Environment's secret OPENAI_API_KEY; it is
 # passed to one step as an environment variable and is never printed, written to a file or put in an argument.
 # Inputs are passed through the environment, never expanded into the script. Linux runner only. The run spends real money: the budget
-# guard stops it at $2 (pilot) or $25 (full) counting `prior_spent_micros`, the spending of earlier runs of the same cap, read from
+# guard stops it at $2 (pilot) or $25 (full), or at `hard_stop_usd` if that is lower, counting `prior_spent_micros`, the spending of earlier runs of the same cap, read from
 # their printed summaries. Nothing here reads or mounts benchmark-heldout (INV-22).
 name: bench-live
 on:
@@ -18,6 +18,11 @@ on:
         description: "Micro-dollars already spent against the same cap by earlier runs (spent_micros_total of the previous summary); 0 for the first pilot"
         type: string
         required: true
+      hard_stop_usd:
+        description: "Extra hard stop in whole dollars, counted with prior_spent_micros; it can only tighten the phase cap. The UND-05 synthetic run uses 5 (Architect sync of 10 Nov 2026)."
+        type: string
+        required: true
+        default: "5"
 permissions:
   contents: read
 concurrency:
@@ -42,11 +47,13 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PHASE: ${{ inputs.phase }}
           PRIOR: ${{ inputs.prior_spent_micros }}
+          HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
           PYTHONPATH: services/model:.
         run: |
           set -eu
           case "$PRIOR" in ''|*[!0-9]*) echo "prior_spent_micros must be a non-negative integer"; exit 2;; esac
-          /tmp/venv/bin/python -m benchmark.bakeoff.live_run --phase "$PHASE" --prior-spent-micros "$PRIOR" --out out
+          case "$HARD_STOP_USD" in ''|*[!0-9]*|0|0[0-9]*) echo "hard_stop_usd must be a positive whole number of dollars"; exit 2;; esac
+          /tmp/venv/bin/python -m benchmark.bakeoff.live_run --phase "$PHASE" --prior-spent-micros "$PRIOR" --hard-stop-micros "$((HARD_STOP_USD * 1000000))" --out out
       - name: Summary
         if: always()
         run: |

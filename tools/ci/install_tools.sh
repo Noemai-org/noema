@@ -5,7 +5,7 @@ dest="${1:?destination directory}"
 mkdir -p "$dest"
 tmp="$(mktemp -d)"
 fetch() { # name url sha256 member
-  curl -sSL --fail -o "$tmp/$1.tgz" "$2"
+  curl -sSL --fail --retry 5 --retry-all-errors --retry-delay 3 --max-time 120 -o "$tmp/$1.tgz" "$2"
   echo "$3  $tmp/$1.tgz" | sha256sum -c -
   tar -xzf "$tmp/$1.tgz" -C "$dest" "$4"
 }

@@ -1,6 +1,6 @@
 """The model service entry point: Understanding, Explanation and Voice (SoT §35.6).
 
-This serves only the two health endpoints and holds no product logic (PLT-01). It builds the telemetry and the harness from the environment: BENCH_OUT turns on bench cost files, NOEMA_MODEL_HARNESS_CONFIG names the harness configuration, and /readyz is ready only once the harness is built. No request endpoint exists yet.
+This serves only the two health endpoints and holds no product logic (PLT-01). It builds the telemetry and the harness: NOEMA_MODEL_HARNESS_CONFIG names the harness configuration, and /readyz is ready only once the harness is built. The service reads no benchmark variable: the bench stack hands in its own cost-file telemetry from outside (benchmark/model_cost, Architect's ruling A55). No request endpoint exists yet.
 """
 
 import os
@@ -11,28 +11,35 @@ from fastapi.responses import JSONResponse
 
 from noema_model.harness import assemble_harness
 from noema_model.platform.clock import SystemClock
-from noema_model.platform.telemetry import NullTelemetry, OtelTelemetry, Telemetry, cost_files_from_environment
+from noema_model.platform.telemetry import NullTelemetry, OtelTelemetry, Telemetry
+from noema_model.understanding.compiler import CompileService
+from noema_model.understanding.compiler.route import register as register_compile_route
 
 Readiness = Callable[[], tuple[bool, str]]
 
 
-def build_telemetry(environ: Mapping[str, str]) -> Telemetry:
-    """The service's telemetry. When BENCH_OUT is set (the bench override of the compose stack sets it, nothing else does),
-    each model call's record is also written to $BENCH_OUT/cost/ (REQ-NFR-007); otherwise no file is written."""
-    return cost_files_from_environment(OtelTelemetry(NullTelemetry()), environ)
+def build_telemetry() -> Telemetry:
+    """The service's own telemetry. It reads no environment variable and writes no file; a bench run hands in different telemetry through
+    create_app(telemetry=...) from benchmark/model_cost (REQ-NFR-007)."""
+    return OtelTelemetry(NullTelemetry())
 
 
 def create_app(
-    check: Readiness | None = None, telemetry: Telemetry | None = None, environ: Mapping[str, str] | None = None
+    check: Readiness | None = None,
+    telemetry: Telemetry | None = None,
+    environ: Mapping[str, str] | None = None,
+    compile_service: CompileService | None = None,
 ) -> FastAPI:
     """Build the app. /healthz says the process is alive; /readyz says it can serve: by default, that the harness was built
     from its mounted configuration (NOEMA_MODEL_HARNESS_CONFIG), and if not, why. The telemetry and the harness are kept on
     app.state for the request path, which does not exist yet (no endpoint is defined here)."""
     env = os.environ if environ is None else environ
     app = FastAPI(title="noema-model", docs_url=None, redoc_url=None, openapi_url=None)
-    app.state.telemetry = telemetry if telemetry is not None else build_telemetry(env)
+    app.state.telemetry = telemetry if telemetry is not None else build_telemetry()
     assembly = assemble_harness(env, SystemClock(), app.state.telemetry)
     app.state.harness = assembly.harness
+    app.state.compile_service = compile_service  # None until the compiler is wired: the compile route then answers 503 (UND-05)
+    register_compile_route(app)
     readiness: Readiness = check if check is not None else (lambda: (assembly.harness is not None, assembly.reason))
 
     @app.get("/healthz")

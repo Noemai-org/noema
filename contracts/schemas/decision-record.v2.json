@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/decision-record.v2.json",
+  "title": "Decision Record",
+  "description": "SoT §43.2 and PERD REQ-TRU-001. Produced by Trust; exactly one of seven outcomes. Written durably before any grant (SoT §48). Rules carried by the schema: CLARIFY carries a clarification and no other outcome does; WAIT carries reevaluate_at and no other outcome does; every outcome except ALLOW names at least one reason code; an ALLOW requires all three authority layers at PASS (DEC-2026-10-18; FAIL or NOT_EVALUATED on any layer makes it invalid, fail-closed). The fail-closed evaluation order, evidence freshness and policy precedence are Trust's behaviour, not the schema's. tenant_id and correlation_id are carried because SoT §43 requires them on every object. Version 2 (rulings A5 and A13, 6 Nov 2026): schema_version is major 2, and `sig` is HMAC-SHA-256 with the grant keys (`sig.key_id` names the key) over the domain label `noema/decision-record/v2`, one 0x00 byte, and the RFC 8785 (JCS) form of the record without `sig.value` (the key_id stays in the signed bytes, so a signature cannot be re-attributed to another key). The bound fields are intent_id, correlation_id, policy_version (policy_id@version), issued_at, expires_at (both on the simulated clock) and key_id; a record missing any is invalid. A v1 record does not validate as v2.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "description": "Contract version of this record: major 2. v1 records carry major 1 and are not valid here.",
+      "type": "string",
+      "pattern": "^2\\.[0-9]+$"
+    },
+    "tenant_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/TenantId"
+    },
+    "correlation_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"
+    },
+    "decision_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/DecisionId"
+    },
+    "intent_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/IntentId"
+    },
+    "intent_hash": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Hash"
+    },
+    "disposition_decision_id": {
+      "description": "Set on an action decision to name the ESCALATE disposition decision it serves (SOT-C-04, REQ-TRU-010). No grant ever comes from a non-ALLOW record.",
+      "oneOf": [
+        {
+          "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/DecisionId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outcome": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DecisionOutcome"
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "description": "Tier 1: a core code (closed list). Tier 2: a pack code <vertical>.reason.<name> from the pack's catalogue. A pack code can never equal a core code, because core codes are upper-case. Whether a pack code is in the catalogue and in the pack's namespace is checked by core and packcheck.",
+        "oneOf": [
+          {
+            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/CoreReasonCode"
+          },
+          {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*$"
+          }
+        ]
+      },
+      "uniqueItems": true
+    },
+    "authority": {
+      "type": "object",
+      "properties": {
+        "technical": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/AuthorityResult"
+        },
+        "policy": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/AuthorityResult"
+        },
+        "business": {
+          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/AuthorityResult"
+        }
+      },
+      "required": [
+        "technical",
+        "policy",
+        "business"
+      ],
+      "additionalProperties": false
+    },
+    "evidence_snapshot_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SnapshotId"
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "pack_version": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*@[0-9]+\\.[0-9]+(\\.[0-9]+)?$"
+    },
+    "evidence_freshness": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId"
+          },
+          "age_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "effective_limit_seconds": {
+            "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PositiveInt"
+          },
+          "limit_set_by": {
+            "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/LimitSetBy"
+          }
+        },
+        "required": [
+          "source",
+          "age_seconds",
+          "effective_limit_seconds",
+          "limit_set_by"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "clarification": {
+      "$ref": "https://contracts.noema.invalid/clarification.v1.json"
+    },
+    "reevaluate_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "evaluated_at": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "issued_at": {
+      "description": "When Trust issued this record, on the simulated clock (ruling A13). Signed.",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "expires_at": {
+      "description": "When this record stops being usable, on the simulated clock (ruling A13). Signed.",
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"
+    },
+    "sig": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Sig"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tenant_id",
+    "correlation_id",
+    "decision_id",
+    "intent_id",
+    "intent_hash",
+    "outcome",
+    "reason_codes",
+    "authority",
+    "evidence_snapshot_id",
+    "policy_version",
+    "pack_version",
+    "evidence_freshness",
+    "evaluated_at",
+    "issued_at",
+    "expires_at",
+    "sig"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "CLARIFY"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "clarification"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "clarification"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "WAIT"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reevaluate_at"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "reevaluate_at"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "enum": [
+              "CLARIFY",
+              "CONFIRM",
+              "WAIT",
+              "ESCALATE",
+              "REJECT",
+              "UNKNOWN"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason_codes": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": {
+            "const": "ALLOW"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "authority": {
+            "properties": {
+              "technical": {
+                "const": "PASS"
+              },
+              "policy": {
+                "const": "PASS"
+              },
+              "business": {
+                "const": "PASS"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

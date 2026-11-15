@@ -27,6 +27,8 @@ It models **shape**: objects, arrays, maps, enums, constants, references, nullab
 - Go: on decode, an unknown member is refused where the schema is closed, a required member must be present, a member that may not be null is not null, no member repeats, and an enum or constant holds one of its values. A required array encodes as `[]`, never `null`. A member that is optional and nullable is an `Opt[T]` so absent and `null` stay distinct. A scalar union, and the constant `null`, are checked on decode and kept as the bytes received.
 - Python: strict models (no coercion: `"1"` is not an integer, `1.0` is not an integer), `extra="forbid"` where the schema is closed, patterns, lengths and bounds that a type can hold. Validate JSON text (`Model.from_json`, `validator_for(T).validate_json`), not dictionaries.
 
+Patterns in the Python models are emitted whole-string anchored (`\A...\Z`, `anchors.py`; A138): Python's `$` also matches before a final newline, which JSON Schema's and Go's `$` do not, so a plain `^...$` would accept `"ab\n"`. The contract validator (`tools/contracts/validate.py`) applies the same rule to the `pattern` keyword.
+
 It does **not** model validation: patterns and bounds in Go, and every conditional rule (`if`/`then`/`else`, `not`, `oneOf` constraints, `contains`) in both. The JSON Schema validator owns those, at every boundary.
 
 The generator never guesses. A keyword it does not know, or a combination it does not model, is an error that names the schema and the path (`ir.GenerationError`).
@@ -36,7 +38,7 @@ The generator never guesses. A keyword it does not know, or a combination it doe
 `tools/codegen/excluded.json` is the one list, read by the generator and by both test suites.
 
 - `benchmark-*`, `arm-manifest`, `fault-plan` (every version): owned by the benchmark runner and the synthetic environment. The core and the model service hold no benchmark, oracle or fault-plan type (INV-22, REQ-TST-006).
-- Go only: `memory-observation.v1`. It has a required member `benchmark_case_id` (AGENT-23), and the architecture lint (`benchmark-branch`) refuses that term in core Go source. The Python model is generated. Open question in the pull request.
+- Go only: `memory-observation.v1` is not generated. It has a required member `benchmark_case_id` (AGENT-23), and the architecture lint (`benchmark-branch`) refuses that term in core Go source. It is superseded by `memory-observation.v2` (Founder decision D10, 7 Nov 2026), whose member is `provenance_ref` and which is generated for Go and Python. The Python model of v1 is generated.
 - An enum value that contains a term the lint refuses (`benchmark-runner` in `record-event.v3` `Emitter`) is carried as data in `enum_values_gen.json`, as `record/chain` does with `actors.json`.
 
 ## Tests

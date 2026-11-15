@@ -8,7 +8,7 @@
   "fault-plan"
  ],
  "go_only": {
-  "reason": "memory-observation.v1 has a required member benchmark_case_id (AGENT-23), and the architecture lint (benchmark-branch, tools/lint/golint/terms.go) refuses that term in core Go source. The lint is not weakened for a generated mirror without a founder decision, and nothing in the core uses this contract yet (MEM-03, MEM-04). The Python model is generated.",
+  "reason": "memory-observation.v1 has a required member benchmark_case_id (AGENT-23), and the architecture lint (benchmark-branch, tools/lint/golint/terms.go) refuses that term in core Go source. v1 is superseded by memory-observation.v2 (Founder decision D10, 7 Nov 2026), whose member is provenance_ref and which is generated for Go; v1 stays Go-excluded and nothing uses it. The Python model is generated.",
   "names": [
    "memory-observation.v1"
   ]

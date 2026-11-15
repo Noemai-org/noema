@@ -20,7 +20,7 @@ class ReasonCatalogueEntryV1(ContractModel):
     """One pack reason code (DEC-2026-10-16 money-and-value-lists §2.3). The code is <vertical>.reason.<name>, so it can never equal an upper-case core code. packcheck also rejects a code outside the pack's own namespace. Source: reason-catalogue-entry.v1.json"""
 
     model_config = ConfigDict(extra="forbid")
-    code: Annotated[str, StringConstraints(pattern='^[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*$')]
+    code: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*\\.reason\\.[a-z][a-z0-9_]*\\Z')]
     meaning: Annotated[str, StringConstraints(min_length=1)]
     produced_by: ReasonCatalogueEntryV1ProducedBy
 

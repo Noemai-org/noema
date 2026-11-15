@@ -137,14 +137,14 @@ func (s *Server) getRequests(w http.ResponseWriter, r *http.Request) {
 		controlJSON(w, 400, map[string]any{"error": "operation needs a target"})
 		return
 	}
-	entries, counts, dropped := s.reqlog.view(target, operation)
+	generation, entries, counts, dropped := s.reqlog.snapshot(target, operation)
 	hash, err := hashRequests(entries)
 	if err != nil {
 		s.opt.Log.Error("request log could not be hashed", "err", err.Error())
 		controlJSON(w, 500, map[string]any{"error": "the request log could not be hashed"})
 		return
 	}
-	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "entries": entries, "counts": counts, "dropped": dropped, "log_hash": hash})
+	controlJSON(w, 200, map[string]any{"clock_source": "SYNTHETIC", "entries": entries, "counts": counts, "dropped": dropped, "log_hash": hash, "generation": generation})
 }
 
 func (s *Server) getStats(w http.ResponseWriter, _ *http.Request) {

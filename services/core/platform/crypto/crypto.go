@@ -258,3 +258,27 @@ func refuseFloats(v reflect.Value) error {
 	}
 	return nil
 }
+
+// Domain separation (ruling of 8 Nov 2026 on noema#292). One HMAC key signs grants and confirmation requests (SoT §47.4), so each object type signs its
+// own label, a 0x00 byte, then its JCS bytes. Without the label, a document that is valid JCS for one type could be signed by one signer and verified as
+// the other. A signature over bare JCS is never a valid grant or confirmation signature.
+const (
+	GrantLabel               = "noema/decision-grant/v1"
+	ConfirmationRequestLabel = "noema/confirmation-request/v1"
+)
+
+// SigningMessage returns label, a 0x00 byte, then canon: the bytes an HMAC covers for that object type.
+func SigningMessage(label string, canon []byte) []byte {
+	msg := make([]byte, 0, len(label)+1+len(canon))
+	msg = append(msg, label...)
+	msg = append(msg, 0x00)
+	return append(msg, canon...)
+}
+
+// GrantSigningMessage is the message a Decision Grant's signature covers: the grant's JCS bytes without its sig, under GrantLabel.
+func GrantSigningMessage(canon []byte) []byte { return SigningMessage(GrantLabel, canon) }
+
+// ConfirmationRequestSigningMessage is the message a confirmation request's signature covers, under ConfirmationRequestLabel.
+func ConfirmationRequestSigningMessage(canon []byte) []byte {
+	return SigningMessage(ConfirmationRequestLabel, canon)
+}

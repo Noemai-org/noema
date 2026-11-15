@@ -5,6 +5,7 @@ from typing import Any
 
 from .counters import CounterUnavailable, DeclaredAbsent, Mark, RecordGovernance, RefusalLog, Unavailable
 from .effects import effects_since
+from .proxy_log import ProxyRouteLog
 from .truth import MockCaseTruth
 
 Json = dict[str, Any]
@@ -15,11 +16,12 @@ class Baseline:
     state: Json
     command_seq: int
     refusal_mark: Mark
+    monetary_mark: Mark | None = None
 
 
 class OracleClient:
     def __init__(self, truth: MockCaseTruth, *, refusal_log: RefusalLog | None, governance: RecordGovernance,
-                 monetary: DeclaredAbsent | Unavailable) -> None:
+                 monetary: DeclaredAbsent | Unavailable | ProxyRouteLog) -> None:
         self.truth, self.refusal_log, self.governance, self.monetary = truth, refusal_log, governance, monetary
 
     def _refusals(self) -> RefusalLog:
@@ -30,18 +32,24 @@ class OracleClient:
     def baseline(self) -> Baseline:
         """Taken after the fixture is loaded and before the first input: everything seeded so far is not an effect of the case."""
         mark = self._refusals().mark()
+        monetary_mark = self.monetary.mark() if isinstance(self.monetary, ProxyRouteLog) else None
         commands = self.truth.commands()
-        return Baseline(self.truth.state(), commands[-1]["seq"] if commands else 0, mark)
+        return Baseline(self.truth.state(), commands[-1]["seq"] if commands else 0, mark, monetary_mark)
 
     def readout(self, baseline: Baseline, record_events: list[Json] | None) -> Json:
         """The `environment` block of a case result (benchmark-case-result.v2.json)."""
         accesses = self._refusals().since(baseline.refusal_mark)
         governance = self.governance.count(record_events)
-        monetary = self.monetary.value()
+        monetary = self.monetary.since(baseline.monetary_mark) if isinstance(self.monetary, ProxyRouteLog) and baseline.monetary_mark is not None else (
+            self.monetary.value() if not isinstance(self.monetary, ProxyRouteLog) else self._no_monetary_mark())
         after = self.truth.state()
         commands = self.truth.commands(after_seq=baseline.command_seq)
         return {"effects": effects_since(baseline.state, after, commands), "oracle_accesses_by_runtime": accesses,
                 "model_governance_changes": governance, "monetary_calls": monetary}
+
+    @staticmethod
+    def _no_monetary_mark() -> int:
+        raise CounterUnavailable("monetary_calls", "no baseline was taken for the proxy's request log")
 
     def missing_sources(self) -> list[str]:
         """The counters that have no source, as `name: reason`. A run cannot start while any is missing."""
