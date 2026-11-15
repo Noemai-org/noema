@@ -73,6 +73,10 @@ func (e *evaluation) t1(ctx context.Context) decide.StepResult {
 	if a.TenantID != s.TenantID || a.IntentID != e.intentID || a.Version != e.version {
 		return e.refuse(decide.T1AdmittedIntent)
 	}
+	// The intent was admitted under one correlation; a request under another is not this intent's request (A226). An empty correlation never matches.
+	if e.req.CorrelationID == "" || a.CorrelationID != e.req.CorrelationID {
+		return e.refuse(decide.T1AdmittedIntent)
+	}
 	latest, err := e.svc.Ports.Intents.LatestVersion(ctx, s.TenantID, e.intentID)
 	if err != nil {
 		return decide.FailStep(err)

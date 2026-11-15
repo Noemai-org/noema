@@ -73,11 +73,11 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 // goesOnUnmapped reports whether a classification the pack maps to nothing lets the evaluation go on. Only the classifications that name a settled, understood state do;
 // a contradiction, an unknown outcome, a possible duplicate, an uncertain event order, insufficient evidence and a value that is not a classification at all stop it, so
 // the pack may add escalations and is never the only thing between a contradiction and an ALLOW (INV-16, REQ-RES-001; the Security Reviewer's blocking finding on
-// noema#570). The split of the twelve into these two sets is accepted by ruling A218 (relayed: not on `docs` main yet).
+// noema#570). The split of the twelve into these two sets is accepted by ruling A218, refined by A225: a Partial classification is unsettled and fails closed (both relayed: not on `docs` main yet).
 func goesOnUnmapped(c reconcile.Classification) bool {
 	switch c {
 	case reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
-		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial:
+		reconcile.SettlementPending, reconcile.ReversalPending:
 		return true
 	}
 	return false
