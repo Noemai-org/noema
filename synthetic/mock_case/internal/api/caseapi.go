@@ -293,6 +293,15 @@ func (s *Server) parseCreateComplaint(w http.ResponseWriter, r *http.Request) (*
 	if e != nil {
 		return nil, e
 	}
+	// `If-None-Match: *` makes the create conditional on the case having no complaint yet, atomically (ruling A185, noema#522). Without it the earlier behaviour stands.
+	conditional := false
+	switch inm := r.Header.Get("If-None-Match"); inm {
+	case "":
+	case "*":
+		conditional = true
+	default:
+		return nil, badRequest("If-None-Match", "only * is supported: create only if absent")
+	}
 	var b struct {
 		TenantID string `json:"tenant_id"`
 	}
@@ -309,7 +318,11 @@ func (s *Server) parseCreateComplaint(w http.ResponseWriter, r *http.Request) (*
 	return &opCall{
 		attrs: map[string]string{"tenant_id": b.TenantID, "case_id": id, "idempotency_key": key}, tenant: b.TenantID, caseID: id, key: key,
 		run: func(ctx context.Context, cmd store.Cmd, _ *faultplan.Effect) reply {
-			c, oc, err := s.st.CreateComplaint(ctx, cmd, b.TenantID, id, key)
+			create := s.st.CreateComplaint
+			if conditional {
+				create = s.st.CreateComplaintIfNone
+			}
+			c, oc, err := create(ctx, cmd, b.TenantID, id, key)
 			if err != nil {
 				return s.dbFailure(cmd.Operation, err)
 			}
