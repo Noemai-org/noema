@@ -86,3 +86,19 @@
 - Open questions (owner): noema#580 (who sets `intent_id`, `created_at`, `raw_ref`; Architect, EL).
 - Files to read first: `compiler/README.md`, `compiler/packconfig.py`, `packs/fintech/understanding.md`.
 - Do not touch: the generated contracts; the pack's numbers.
+
+# Session 2026-11-15 · UND-05 · the compiler (compile slice 5)
+
+## Session summary
+- What changed (PR to follow, after noema#581 and noema#584 merge): `understanding/compiler/compiler.py` (`PipelineCompiler`, `TenantScopeMismatch`, the `Minter` protocol), `tests/test_compile_compiler.py` (22 tests), the compiler README, this note.
+- Why: the Founder's order of 14 Nov 2026 ("Compiler joining the assembler, pack loader and lexicon"). The route had no `Compiler` behind it.
+- Risks, and how they are contained: it is untrusted-output code and `CompileService` still holds its bytes to the schema gate (the tests run it behind a real `CompileService` and `SchemaGate`); no identity from text or from the model; no provider call outside the harness; not wired in `main.py` (mTLS, noema#555).
+- Tests added (REQ-INT-001, REQ-INT-002, REQ-INT-003, REQ-INT-005; INV-01, INV-02, INV-12, INV-21, AGENT-09): 22; 17 hand mutants on `compiler.py`, all killed (one needed a test that the provider sees the canonical text verbatim).
+- Regression cases added: a voice request is refused before any provider call; a tenant the core refuses is never a provider failure; the open intent never reaches a provider.
+- Defaults taken (AGENT-02): voice refused; `open_intent` not read; candidate set version 1; accept-all pipeline `Gate` seam (the schema gate follows); identifiers and the candidate set id from a `Minter`.
+- Debt: none. Conflicts raised: none. Open question: noema#580.
+
+## Pre-work for the next agent
+- Exact next step: the `Minter` and the wiring in `main.py` (after mTLS, noema#555), then the `benchmark/compile_acceptance` runner (noema#546).
+- Files to read first: `compiler/README.md`, `compiler/compiler.py`.
+- Do not touch: the generated contracts; the pack's numbers.
