@@ -18,7 +18,7 @@ The correlation ids come from `correlations.json`, which the runner writes into 
 import argparse
 import json
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +75,19 @@ def _expect(error: Exception, want: tuple[int, str]) -> Json:
     return {"status": None, "code": None, "ok": False, "detail": type(error).__name__}
 
 
-def _record_problems(body: Json, tenant: str, principal: str, correlation_id: str) -> list[str]:
+KIND_OF_ROLE = {"customer": "customer", "ops": "operator", "audit": "auditor"}  # the generator's roles and the Record's principal kinds (A149: ops is operator, audit is auditor)
+
+
+def _kinds(roles: Sequence[str]) -> tuple[str, ...]:
+    unknown = [r for r in roles if r not in KIND_OF_ROLE]
+    if unknown:
+        raise NotRun(f"a case's principal has a role with no known principal kind: {unknown}")
+    return tuple(KIND_OF_ROLE[r] for r in roles)
+
+
+def _record_problems(body: Json, tenant: str, principal: str, correlation_id: str, kinds: Sequence[str] = ("customer",)) -> list[str]:
+    """`kinds` are the principal kinds of the case's own roles (a customer case: customer; an ops case: operator; an audit case: auditor): the Record must carry the principal's own
+    action as `<kind>:<principal>` and no action of that kind by anyone else."""
     problems: list[str] = []
     if body.get("tenant_id") != tenant:
         problems.append("the reconstruction's tenant is not the token's")
@@ -84,29 +96,33 @@ def _record_problems(body: Json, tenant: str, principal: str, correlation_id: st
     events = body.get("events")
     if not isinstance(events, list) or not events:
         return problems + ["the reconstruction carries no events"]
-    customers = 0
+    own = 0
     for event in events:
         if event.get("tenant_id") != tenant:
             problems.append(f"event {event.get('event_id')} is of another tenant")
         actor = str(event.get("actor", ""))
-        if actor.startswith("customer:"):
-            customers += 1
-            if actor != f"customer:{principal}":
-                problems.append(f"event {event.get('event_id')} names a customer other than the token's principal")
-    if customers == 0:
-        problems.append("no event carries the principal's own action (customer:<id>)")
+        if any(actor.startswith(f"{kind}:") for kind in kinds):
+            if actor in {f"{kind}:{principal}" for kind in kinds}:
+                own += 1
+            else:
+                problems.append(f"event {event.get('event_id')} names a {actor.split(':')[0]} other than the token's principal")
+    if own == 0:
+        problems.append(f"no event carries the principal's own action ({' or '.join(f'{k}:<id>' for k in kinds)})")
     return problems
 
 
-def negative_probes(base_url: str, issue: Callable[[str, str, str], str], cases: list[tuple[str, str, str]], tenant: str, other_tenant: str, *, timeout: float = 10.0) -> Json:
-    """`cases` are (case_id, principal_id, correlation_id). `issue(tenant, principal, role)` returns a session token."""
+def negative_probes(base_url: str, issue: Callable[[str, str, str], str], cases: list[tuple[str, str, str]], tenant: str, other_tenant: str, *, timeout: float = 10.0,
+                    roles: Mapping[str, Sequence[str]] | None = None) -> Json:
+    """`cases` are (case_id, principal_id, correlation_id). `issue(tenant, principal, role)` returns a session token. `roles` maps a case id to the roles of its principal (the case's
+    `principal.roles`); a case not in it is a customer case."""
     rows: list[Json] = []
+    kinds = {case_id: _kinds((roles or {}).get(case_id, ("customer",))) for case_id, _, _ in cases}  # before any request: an unknown role is NOT RUN, not a failed row
     for case_id, principal, correlation in cases:
         path = ROUTE.format(correlation)
         row: Json = {"case_id": case_id, "principal_id": principal, "correlation_id": correlation}
         try:
             body, _ = JsonClient(base_url, token=issue(tenant, principal, ALLOWED_ROLE), timeout=timeout).request("GET", path)
-            problems = _record_problems(body, tenant, principal, correlation)
+            problems = _record_problems(body, tenant, principal, correlation, kinds[case_id])
             row["control"] = {"status": 200, "ok": not problems, "problems": problems}
         except (HttpError, TransportError) as error:
             row["control"] = _expect(error, (200, ""))
@@ -173,7 +189,7 @@ def main(argv: list[str] | None = None) -> int:
         for provider in sessions.values():
             if provider.unavailable_reason:
                 raise NotRun(provider.unavailable_reason)
-        doc = negative_probes(a.api_url, lambda tenant, principal, role: sessions[tenant].token_for(principal, [role]), wanted, a.tenant_id, a.other_tenant_id)
+        doc = negative_probes(a.api_url, lambda tenant, principal, role: sessions[tenant].token_for(principal, [role]), wanted, a.tenant_id, a.other_tenant_id, roles={cid: by_case[cid]["principal"]["roles"] for cid, _, _ in wanted})
         _write(a.out, "negative-probes.json", doc)
         bad = [r["case_id"] for r in doc["cases"] if not r["ok"]]
         print(f"negative probes: {'MET' if doc['met'] else 'NOT MET'} for {len(doc['cases'])} cases" + (f"; failing: {', '.join(bad)}" if bad else ""))

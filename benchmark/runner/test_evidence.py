@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from benchmark.runner import evidence
-from benchmark.runner.evidence import fault_plan_evidence, main, negative_probes
+from benchmark.runner.evidence import NotRun, fault_plan_evidence, main, negative_probes
 
 Json = dict[str, Any]
 
@@ -58,6 +58,7 @@ class FakeEdge(BaseHTTPRequestHandler):
     list, and the reconstruction otherwise. Tokens here are 'tenant|principal|role'. `mode` bends it to prove each check can fail."""
 
     mode = "edge"
+    kind = "customer"  # the principal kind of the Record actor the fake edge returns
     served_tenant = "ten_alpha"
 
     def log_message(self, *args: Any) -> None:
@@ -83,7 +84,7 @@ class FakeEdge(BaseHTTPRequestHandler):
             return self._send(401, {"error": {"code": "SESSION_INVALID", "message": "The session is not valid."}})
         if role not in ("ops", "audit") and mode != "serves-wrong-role":
             return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": "Not found."}})
-        events = [{"event_id": "e1", "tenant_id": "ten_other" if mode == "other-tenant-event" else tenant, "actor": "core-trust" if mode == "no-customer" else f"customer:{principal}"}]
+        events = [{"event_id": "e1", "tenant_id": "ten_other" if mode == "other-tenant-event" else tenant, "actor": "core-trust" if mode == "no-customer" else f"{FakeEdge.kind}:{principal}"}]
         if mode == "other-customer":
             events.append({"event_id": "e2", "tenant_id": tenant, "actor": "customer:usr_someone_else"})
         self._send(200, {"tenant_id": tenant, "correlation_id": corr, "events": [] if mode == "empty" else events})
@@ -92,6 +93,7 @@ class FakeEdge(BaseHTTPRequestHandler):
 class Probes(unittest.TestCase):
     def setUp(self) -> None:
         FakeEdge.mode = "edge"
+        FakeEdge.kind = "customer"
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), FakeEdge)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -111,6 +113,21 @@ class Probes(unittest.TestCase):
         for row in doc["cases"]:
             self.assertEqual((row["control"]["status"], row["wrong_role"]["status"], row["wrong_role"]["code"], row["foreign_tenant"]["status"], row["foreign_tenant"]["code"]),
                              (200, 404, "NOT_FOUND_OR_NOT_AUTHORIZED", 401, "SESSION_INVALID"))
+
+    def test_a_staff_case_is_checked_against_its_own_principal_kind(self) -> None:
+        # Codex P2 on noema#591: the generated suite has ops and audit principals (their Record actors are operator:<id> and auditor:<id>), which a customer-only check rejected.
+        for role, kind in (("ops", "operator"), ("audit", "auditor")):
+            with self.subTest(role):
+                FakeEdge.kind = kind
+                roles = {c[0]: [role] for c in self.cases}
+                self.assertTrue(negative_probes(self.url, lambda tenant, principal, r: f"{tenant}|{principal}|{r}", self.cases, "ten_alpha", "ten_other", roles=roles)["met"])
+                self.assertFalse(self.run_probes()["met"], "the same Record does not satisfy a customer case")
+                FakeEdge.kind = "customer"
+                self.assertFalse(negative_probes(self.url, lambda tenant, principal, r: f"{tenant}|{principal}|{r}", self.cases, "ten_alpha", "ten_other", roles=roles)["met"], "a customer action does not satisfy a staff case")
+
+    def test_a_role_with_no_known_principal_kind_is_not_run(self) -> None:
+        with self.assertRaises(NotRun):
+            negative_probes(self.url, lambda *a: "x|y|z", self.cases, "ten_alpha", "ten_other", roles={self.cases[0][0]: ["wizard"]})
 
     def test_each_check_can_fail(self) -> None:
         for mode in ("serves-wrong-role", "serves-foreign-tenant", "unmounted", "other-tenant-event", "no-customer", "other-customer", "empty"):

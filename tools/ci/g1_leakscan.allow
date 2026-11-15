@@ -7,3 +7,5 @@
 ^- How they were generated: [A-Za-z0-9_. -]+, seed [0-9]+, suite [A-Za-z0-9_.-]+ [A-Za-z0-9_.-]+\.$
 ^- provider cost: [0-9]+ millionths of a US dollar in total; ([0-9]+ per correct outcome \(rounded down\)|no correct outcome to divide by)$
 ^- latency, [A-Za-z0-9_. -]+ \(n=[0-9]+\): P50 [0-9]+ ms, P95 [0-9]+ ms, P99 [0-9]+ ms$
+^\s*"(rate|rule_of_three_upper)":\s*[01]\.[0-9]{1,6},?\s*$
+^\s*[01]\.[0-9]{1,6},?\s*$
