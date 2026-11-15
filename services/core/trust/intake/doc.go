@@ -4,11 +4,12 @@
 // capability registry, the pack, the evidence layer, the planner) is reached through the small interfaces of ports.go, so Trust imports none of those packages (INV-01,
 // SoT 51). The composition root supplies the adapters.
 //
-// Implements: REQ-TRU-001, REQ-TRU-002, REQ-TRU-003 (T1 to T6), REQ-TRU-008 and REQ-TRU-009 (T13 to T15: the confirmation, the plan, the Decision Record and then the
-// grants, through the Recorder port), REQ-NFR-002. Steps that are not built yet fail closed: UNKNOWN INTERNAL_ERROR, never ALLOW.
+// Implements: REQ-TRU-001, REQ-TRU-002, REQ-TRU-003 (T1 to T6 and T8 here), REQ-AMB-001 to REQ-AMB-004 (T7), REQ-CTX-003 (T9), REQ-RES-001 and REQ-RES-002 (T10), REQ-TRU-004 (T11),
+// REQ-TRU-006 (T12), REQ-TRU-008 and REQ-TRU-009 (T13 to T15: the confirmation, the plan, the Decision Record and then the grants, through the Recorder port), REQ-NFR-002.
+// Every step T1 to T15 is built; T15 is the only step that can end in ALLOW.
 //
-// May import: trust/decide, internal/contracts, platform/clock, the standard library.
+// May import: trust/decide, trust/clocks, trust/policy, trust/reconcile, internal/contracts, platform/clock, the standard library.
 //
 // Must never: import execution, outcome, evidence, understanding, orchestrator or any provider or model package; read the wall clock (platform/clock only); read anything
-// about a target before T7 (REQ-TRU-002: refuse before read); decide on a float; choose a threshold, which is pack data (REQ-OPS-003).
+// about a target before T7 (REQ-TRU-002: refuse before read), and then only through the three ports of ports_t7_t9.go; decide on a float; choose a threshold, which is pack data (REQ-OPS-003).
 package intake

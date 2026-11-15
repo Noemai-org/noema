@@ -41,14 +41,14 @@ var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<versio
 
 func (s *Service) configured() error {
 	p := s.Ports
-	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Confirmations == nil || p.Planner == nil || p.Recorder == nil || s.Clock == nil || s.PackVersion == "" {
+	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || p.Confirmations == nil || p.Planner == nil || p.Recorder == nil || s.Clock == nil || s.PackVersion == "" {
 		return ErrConfig
 	}
 	return nil
 }
 
 // Evaluate runs T1 to T15 for r in the fixed order of PERD 23.3 and returns the one decision with its trace (REQ-TRU-002). A malformed intent reference is REJECT
-// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T7 to T12 are not built yet.
+// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T1 to T15 are built; T15 is the only step that can end in ALLOW.
 func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err := s.configured(); err != nil {
 		return Result{}, err
@@ -68,20 +68,30 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("intake: the intent version: %w", err)
 	}
-	bb, err := decide.NewBasisBuilder(s.PackVersion, s.Clock.Now().Unix())
+	ev, err := s.newEvaluation(r, "int_"+m[intentRefRe.SubexpIndex("id")], version)
 	if err != nil {
-		return Result{}, fmt.Errorf("intake: %w", err)
+		return Result{}, err
 	}
-	ev := &evaluation{svc: s, req: r, intentID: "int_" + m[intentRefRe.SubexpIndex("id")], version: version, basis: bb}
 	return ev.run(ctx, ev.steps()), nil
 }
 
 // run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
-	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.basis)
+	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
 	res := Result{Decision: d, Trace: trace}
 	if d.Outcome() == decide.Allow {
 		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
 	}
 	return res
+}
+
+// newEvaluation starts one evaluation: one clock reading, taken once, is the evaluation's time for every step (INV-21), and one basis builder holds what the
+// steps read and evaluate (TRU-13).
+func (s *Service) newEvaluation(r Request, intentID string, version int) (*evaluation, error) {
+	now := s.Clock.Now().Unix()
+	bb, err := decide.NewBasisBuilder(s.PackVersion, now)
+	if err != nil {
+		return nil, fmt.Errorf("intake: %w", err)
+	}
+	return &evaluation{svc: s, req: r, intentID: intentID, version: version, now: now, bb: bb, snapshotID: r.EvidenceSnapshotID}, nil
 }

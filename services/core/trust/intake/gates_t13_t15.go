@@ -13,7 +13,6 @@ var (
 	errNoIntent   = errors.New("intake: no admitted intent was read")
 	errNoBasis    = errors.New("intake: there is no evaluated set to build the decision on")
 	errUnresolved = errors.New("intake: the intent is not resolved, so no CONFIRM or ALLOW can be built")
-	errAnswer     = errors.New("intake: a port answered with something that is not an answer")
 )
 
 var (
@@ -37,23 +36,12 @@ func passed() decide.Authority {
 	return decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass}
 }
 
-func (e *evaluation) resolved() (decide.ResolvedIntent, error) {
-	if e.intent == nil {
-		return decide.ResolvedIntent{}, errNoIntent
-	}
-	r, ok := decide.Admit(e.intent.View).Resolved()
-	if !ok {
-		return decide.ResolvedIntent{}, errUnresolved
-	}
-	return r, nil
-}
-
 // withBasis gives d the evaluated set of this call as its basis: from the builder, never from a caller (TRU-13).
 func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
-	if e.basis == nil {
+	if e.bb == nil {
 		return decide.Decision{}, errNoBasis
 	}
-	return e.basis.Attach(d)
+	return e.bb.Attach(d)
 }
 
 // t13: the trust profile's approver confirmation. Required and not resolved: CONFIRM, which rests on the evaluated set. Required and resolved (a valid ACCEPT that the
@@ -161,7 +149,7 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	if d, err = e.withBasis(d); err != nil {
 		return decide.FailStep(err)
 	}
-	digest, err := e.basis.Digest()
+	digest, err := e.bb.Digest()
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -171,7 +159,7 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 		steps = append(steps, RecordStep{PlanStep: int64(i), CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: s.ParamsHash})
 	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.basis, BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb, BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
 		ConfirmationEventID: e.late.confirmationID})
 	if err != nil {
 		return decide.FailStep(err)

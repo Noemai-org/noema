@@ -1,0 +1,11 @@
+{
+  "event": "error",
+  "schema_version": "1.0",
+  "at": "2026-11-13T14:06:00Z",
+  "error": {
+    "code": "DEPENDENCY_UNAVAILABLE",
+    "message": "The service is not available. Please try again.",
+    "retryable": true,
+    "correlation_id": "corr_01J9X3E8F9"
+  }
+}

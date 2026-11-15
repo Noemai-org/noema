@@ -29,7 +29,7 @@ func TestAnIdentityMemberTheModelServiceLeftUnsetIsTheSessionsAndIsNotAnOverride
 	}
 }
 
-func TestAnIdentityMemberTheModelSetAnywayIsRefusedAsAShapeError(t *testing.T) {
+func TestAnIdentityMemberTheModelSetAnywayIsRefusedUnderItsOwnReason(t *testing.T) {
 	for name, set := range map[string]func(p map[string]any){
 		"principal_type, another value":     func(p map[string]any) { p["principal_type"] = "operator" },
 		"principal_type, the session's":     func(p map[string]any) { p["principal_type"] = session.PrincipalType },
@@ -40,8 +40,23 @@ func TestAnIdentityMemberTheModelSetAnywayIsRefusedAsAShapeError(t *testing.T) {
 		"principal_type, empty":             func(p map[string]any) { p["principal_type"] = "" },
 	} {
 		_, err := gate(t).Admit(raw(t, func(m map[string]any) { set(m["principal"].(map[string]any)) }), session, corr)
-		if err == nil || !has(reasons(t, err), understanding.ReasonShape) {
-			t.Errorf("%s: %v, want a SHAPE refusal", name, err)
+		if err == nil || !has(reasons(t, err), understanding.ReasonIdentitySetByModel) {
+			t.Errorf("%s: %v, want an IDENTITY_SET_BY_MODEL refusal (ruling A195)", name, err)
+			continue
+		}
+		if has(reasons(t, err), understanding.ReasonShape) {
+			t.Errorf("%s: the refusal also carries SHAPE; the attempt must be told apart from a malformed document (ruling A195)", name)
+		}
+	}
+}
+
+// Ruling A195: only a value the model SET is the new reason. A member that is null or not a string is a malformed document: the closed decode refuses it first, as SHAPE,
+// and it is not reported as an identity attempt.
+func TestAnIdentityMemberThatIsNullOrNotAStringStaysAShapeError(t *testing.T) {
+	for name, value := range map[string]any{"null": nil, "a number": 7, "an object": map[string]any{}, "a list": []any{}} {
+		_, err := gate(t).Admit(raw(t, func(m map[string]any) { m["principal"].(map[string]any)["principal_type"] = value }), session, corr)
+		if err == nil || !has(reasons(t, err), understanding.ReasonShape) || has(reasons(t, err), understanding.ReasonIdentitySetByModel) {
+			t.Errorf("principal_type %s: %v, want SHAPE and not IDENTITY_SET_BY_MODEL", name, err)
 		}
 	}
 }

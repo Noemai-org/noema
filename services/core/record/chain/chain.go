@@ -13,6 +13,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 )
 
 const (
@@ -103,6 +104,12 @@ func (a *Appender) Append(ctx context.Context, tx pgx.Tx, ev Event) (Stored, err
 	payloadHash, payloadJSON, err := payloadOf(ev.Payload)
 	if err != nil {
 		return Stored{}, err
+	}
+	if js, ok := payloadJSON.(string); ok {
+		// A184: no payload string holds a run of more than four digits unless it is a typed ID, a timestamp or a content hash (the guard names the path, never the value).
+		if err := payloadguard.Check([]byte(js)); err != nil {
+			return Stored{}, fmt.Errorf("%spayload: %w", errPrefix, err)
+		}
 	}
 	id, err := a.IDs.ID("recev")
 	if err != nil {

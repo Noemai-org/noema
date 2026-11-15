@@ -13,7 +13,7 @@ import (
 
 // overwrite writes the session's identity over the object (REQ-INP-002: the principal and tenant come only from the session, whatever the model service
 // returned) and returns the names of the members that differed. Names only, never values (AGENT-13).
-func overwrite(o *contracts.IntentObjectV1, s Session) []string {
+func overwrite(o *contracts.IntentObjectV3, s Session) []string {
 	var changed []string
 	set := func(name, was, now string) {
 		if was != now {
@@ -25,14 +25,14 @@ func overwrite(o *contracts.IntentObjectV1, s Session) []string {
 	set("authn_ref", string(o.Principal.AuthnRef), s.AuthnRef)
 	// principal_type and asserted_by are the session's alone (ruling A166, item 3): the gate has already refused any value the model sent, so there is no override to report.
 	o.TenantId = contracts.CommonV1TenantId(s.TenantID)
-	o.Principal = contracts.IntentObjectV1Principal{PrincipalId: contracts.CommonV1PrincipalId(s.PrincipalID), PrincipalType: s.PrincipalType,
+	o.Principal = contracts.IntentObjectV3Principal{PrincipalId: contracts.CommonV1PrincipalId(s.PrincipalID), PrincipalType: s.PrincipalType,
 		AuthnRef: contracts.CommonV1SessionId(s.AuthnRef), AssertedBy: s.AssertedBy}
 	return changed
 }
 
 // canonical is the RFC 8785 form of the object. platform/crypto refuses every non-integer number, so an object that carries a slot confidence or an ASR
 // confidence has no canonical form here and the gate refuses it (ErrHashUnavailable); see the PR for the conflict.
-func canonical(o contracts.IntentObjectV1) ([]byte, error) {
+func canonical(o contracts.IntentObjectV3) ([]byte, error) {
 	raw, err := json.Marshal(o)
 	if err != nil {
 		return nil, fmt.Errorf("%wmarshal: %v", ErrHashUnavailable, err)

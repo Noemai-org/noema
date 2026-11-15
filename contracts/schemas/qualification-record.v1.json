@@ -1,0 +1,337 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/qualification-record.v1.json",
+  "title": "Model qualification record (v1)",
+  "description": "UND-13, REQ-INT-006 (model-drift canary; DEC-2026-10-31 D25), ruling A17 of 6 Nov 2026. The record that lets a model or speech provider version be used: made from the scorecard of a qualification run that includes pass^k (exactly five runs, REQ-BEN-009) and from the drift run record (qualification-run.v1). Interim QUALIFIED means all of: the run is complete, every Tier 0 gate is at zero, the drift check result is PASS, and pass^k is not below the bar, where the bar is the pinned baseline's own pass^k (a first qualification, with no baseline, uses the Founder-set floor; the Founders dropped the earlier \"higher of\" wording on 8 Nov 2026). With neither, there is no bar and the verdict is NOT_QUALIFIED: a first qualification waits for a Founder-set floor (the floor is pack data set by a decision record, named in `bar.floor_source`). `decision_record` names the decision record that holds the qualification. The verdict is always recomputable from the other members, and a QUALIFIED verdict they do not support is invalid. `version` is a dated or numbered version, never an alias such as latest. The reference implementation is benchmark/qualification/record.py. SYNTHETIC in tests (AGENT-25).",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "qualification-record.v1"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "llm",
+        "speech"
+      ]
+    },
+    "provider": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "n_cases": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "tier0_all_zero": {
+      "type": "boolean"
+    },
+    "pass_k": {
+      "$ref": "#/$defs/PassK"
+    },
+    "scorecard_sha256": {
+      "$ref": "#/$defs/Sha256"
+    },
+    "drift": {
+      "$ref": "#/$defs/Drift"
+    },
+    "bar": {
+      "$ref": "#/$defs/Bar"
+    },
+    "decision_record": {
+      "type": "string",
+      "minLength": 1
+    },
+    "qualified_on": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "QUALIFIED",
+        "NOT_QUALIFIED"
+      ]
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "runs": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/Run"
+      },
+      "description": "The runs the record rests on, the primary run first (its digest is `scorecard_sha256`). Exactly five when pass^k is available. `complete` and `tier0_all_zero` of the record are the conjunction over these."
+    },
+    "context_sha256": {
+      "description": "The digest of the scoring context (cases, oracles and pack) the five pass^k runs were scored in, taken from the run provenance; null when pass^k was not available. A re-qualification is held to a baseline only if both were scored in the same context, and on at least as many cases (C2 on noema#199).",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
+    },
+    "pass_k_cases_sha256": {
+      "description": "The digest of the understanding-dependent cases the five pass^k runs were scored on, from the run provenance; for a QUALIFIED record it equals `drift.cases_sha256`, the subset the drift canary ran on, so scores on another set cannot qualify the model. Null when pass^k was not available.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/Sha256"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "kind",
+    "provider",
+    "model_id",
+    "version",
+    "run_id",
+    "n_cases",
+    "complete",
+    "tier0_all_zero",
+    "pass_k",
+    "scorecard_sha256",
+    "context_sha256",
+    "pass_k_cases_sha256",
+    "drift",
+    "bar",
+    "decision_record",
+    "qualified_on",
+    "verdict",
+    "reasons",
+    "runs"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "Fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "Rate": {
+      "type": "object",
+      "properties": {
+        "k": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "rate": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Fraction"
+            }
+          ]
+        }
+      },
+      "required": [
+        "k",
+        "n",
+        "rate"
+      ],
+      "additionalProperties": false
+    },
+    "PassK": {
+      "type": "object",
+      "properties": {
+        "k_required": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "runs_supplied": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "available": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rate": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Rate"
+            }
+          ]
+        },
+        "failing_cases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "k_required",
+        "runs_supplied",
+        "available",
+        "reason",
+        "rate",
+        "failing_cases"
+      ],
+      "additionalProperties": false
+    },
+    "Drift": {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "DRIFT",
+            "PROVIDER_UNAVAILABLE"
+          ]
+        },
+        "run_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "subset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cases_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "baseline_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "result",
+        "run_sha256",
+        "subset_id",
+        "cases_sha256",
+        "baseline_version"
+      ],
+      "additionalProperties": false
+    },
+    "Bar": {
+      "type": "object",
+      "properties": {
+        "baseline_pass_k": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Fraction"
+            }
+          ]
+        },
+        "floor": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Fraction"
+            }
+          ]
+        },
+        "floor_source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "baseline_record_sha256": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Sha256"
+            }
+          ],
+          "description": "The digest of the QUALIFIED record of the pinned baseline version that `baseline_pass_k` came from. Set exactly when `baseline_pass_k` is set. The lookup re-reads that record and requires it to be QUALIFIED, for the same kind, provider and model, for the version the drift run compared against, and equal in value (SR on noema#199, N1)."
+        }
+      },
+      "required": [
+        "baseline_pass_k",
+        "floor",
+        "floor_source",
+        "baseline_record_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "Run": {
+      "type": "object",
+      "description": "One of the runs a record rests on: its run id, the digest of its scorecard and its two verdict flags. pass^k needs exactly five (REQ-BEN-009); Tier 0 and completeness hold in every one (SR on noema#199, N2).",
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "scorecard_sha256": {
+          "$ref": "#/$defs/Sha256"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "tier0_all_zero": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "run_id",
+        "scorecard_sha256",
+        "complete",
+        "tier0_all_zero"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
