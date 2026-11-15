@@ -110,6 +110,7 @@ func NewDatabase(t testing.TB) (*pgxpool.Pool, string) {
 		defer a.Close()
 		_, _ = a.Exec(c, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
+	scanAtEnd(t, dsn)
 	return pool, dsn
 }
 
