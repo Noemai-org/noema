@@ -26,14 +26,11 @@ import (
 
 var errMapping = errors.New("evidence mapping")
 
-// The two bounds are structural, not policy: a mapping file is a few kilobytes of pack data, and nothing in it nests deeper than the rows' fields. They stop a file that is not one from being
-// decoded (a document of megabytes, or one nested thousands deep) before the decoder meets it.
-const (
-	maxBytes = 1 << 20
-	maxDepth = 32
-)
+// Limits bound a document before it is decoded: a mapping file is a few kilobytes of pack data, and a file that is megabytes long or nested thousands deep is not one. The numbers come from the
+// caller (platform/config, AGENT-16); this package holds none (lint: threshold-literal). A limit that is not positive refuses to load, so a zero value never means "unbounded".
+type Limits struct{ MaxBytes, MaxDepth int }
 
-// label is the only label a mapping carries in the POC: every pack is SYNTHETIC (AGENT-25), and a file that says otherwise is not one this build was written for.
+// label is the only label// label is the only label a mapping carries in the POC: every pack is SYNTHETIC (AGENT-25), and a file that says otherwise is not one this build was written for.
 const label = "SYNTHETIC"
 
 type fieldSpec struct {
@@ -83,11 +80,14 @@ func (m *Mapping) RuleSet() string { return m.ruleset }
 
 // Parse loads a mapping. rs is the rule set it must have been written for; sources are the ids of the pack's evidence sources. Anything missing, repeated, unknown or out of
 // the rule set's vocabulary is an error: the pack is refused, never half-loaded.
-func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string) (*Mapping, error) {
-	if len(data) > maxBytes {
+func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string, limits Limits) (*Mapping, error) {
+	if limits.MaxBytes < 1 || limits.MaxDepth < 1 {
+		return nil, fmt.Errorf("%w: the limits must be positive", errMapping)
+	}
+	if len(data) > limits.MaxBytes {
 		return nil, fmt.Errorf("%w: the document is too large", errMapping)
 	}
-	if err := noRepeatedMember(data); err != nil {
+	if err := noRepeatedMember(data, limits.MaxDepth); err != nil {
 		return nil, err
 	}
 	var f file
@@ -249,7 +249,7 @@ func evaluate(s fieldSpec, payload map[string]any) (string, bool) {
 }
 
 // noRepeatedMember refuses a JSON object that names a member twice at any depth: the standard decoder keeps the last one silently, and a pack file must mean one thing.
-func noRepeatedMember(data []byte) error {
+func noRepeatedMember(data []byte, maxDepth int) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	var walk func(depth int) error
 	walk = func(depth int) error {
