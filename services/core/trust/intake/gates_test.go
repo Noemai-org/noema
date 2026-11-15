@@ -4,18 +4,22 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/clocks"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
+	"github.com/Noemai-org/noema/services/core/trust/policy"
+	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
 
 // REQ-TRU-002, REQ-TRU-003, REQ-NFR-002, INV-16: T1 to T6 of PERD 23.3 refuse before anything about a target is read, each with the one outcome and the one core reason
-// code the step owns, and every other way a step can go (an error, a panic) ends in UNKNOWN, never ALLOW. Steps T7 to T15 are not built in this PR, so a request that passes
-// T1 to T6 ends in UNKNOWN INTERNAL_ERROR at T7: the intake cannot allow anything yet.
+// code the step owns, and every other way a step can go (an error, a panic) ends in UNKNOWN, never ALLOW. Steps T10 to T15 are not built yet, so a request that passes
+// T1 to T9 ends in UNKNOWN INTERNAL_ERROR at T10: the intake cannot allow anything yet. T7 to T9 are tested step by step in t7_t9_test.go.
 
 const (
 	tenant    = "ten_synth01"
@@ -38,6 +42,11 @@ type spy struct {
 	capPresent  bool
 	inScope     bool
 	roleAllowed bool
+	candidates  intake.TargetCandidates
+	candErr     error
+	owned       bool
+	ownErr      error
+	evidence    intake.SnapshotEvidence
 	// faults: the method named here returns an error or panics
 	failAt  string
 	panicAt string
@@ -48,6 +57,11 @@ func newSpy() *spy {
 		intent: intake.AdmittedIntent{TenantID: tenant, IntentID: "int_synth0001", Version: 2, IntentNode: node, IntentHash: "sha256:" + hex64(), CorrelationID: "corr_synth0001",
 			PrincipalID: principal, View: decide.IntentView{Version: 2}},
 		latest: 2, enabled: true, capability: intake.Capability{ID: "fin.cap.lookup_transaction", Registered: true}, capPresent: true, inScope: true, roleAllowed: true,
+		owned: true,
+		evidence: intake.SnapshotEvidence{Items: []intake.SourceItem{{
+			Freshness: decide.Freshness{EvidenceID: "evi_synth0001", EffectiveAt: 1_700_000_000, Source: "fin.src.ledger", AgeSeconds: 10, EffectiveLimitSeconds: 60, LimitSetBy: decide.LimitBySource},
+			Status:    contracts.EnumsV1FactStatusKNOWN,
+		}}},
 	}
 }
 
@@ -103,32 +117,53 @@ func (s *spy) RoleAllowed(context.Context, string, string) (bool, error) {
 	return s.roleAllowed, s.hit("Authority.RoleAllowed")
 }
 
-// later stands for the ports of T10 to T12, which these tests never reach: T7 is not built, so the evaluation ends there. If one is called, the step fails closed.
-type later struct{}
+func (s *spy) ScopedCandidates(context.Context, string, string, intake.AdmittedIntent) (intake.TargetCandidates, error) {
+	return s.candidates, firstErr(s.hit("Candidates.ScopedCandidates"), s.candErr)
+}
+func (s *spy) OwnsTarget(context.Context, string, string, intake.AdmittedIntent) (bool, error) {
+	return s.owned, firstErr(s.hit("Ownership.OwnsTarget"), s.ownErr)
+}
+func (s *spy) SnapshotFreshness(context.Context, string, string) (intake.SnapshotEvidence, error) {
+	return s.evidence, s.hit("Evidence.SnapshotFreshness")
+}
 
-func (later) Reconcile(context.Context, string, string) (intake.Reconciliation, error) {
-	return intake.Reconciliation{}, errors.New("not reached")
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
-func (later) Evaluate(context.Context, intake.PolicyQuery) (intake.PolicyEvaluation, error) {
-	return intake.PolicyEvaluation{}, errors.New("not reached")
+
+// T10 to T12 answer so that the evaluation goes on: a settled classification that is not frozen, a policy that permits, and no clock. The tests of those steps are in
+// steps_t10_t12_test.go; here they only let a request that passed T1 to T9 reach the step that is not built.
+func (s *spy) Reconcile(context.Context, string, string) (intake.Reconciliation, error) {
+	return intake.Reconciliation{Classification: reconcile.SuccessConfirmed}, s.hit("Reconciler.Reconcile")
 }
-func (later) Applicable(context.Context, intake.ClockQuery) (intake.ClockSet, error) {
-	return intake.ClockSet{}, errors.New("not reached")
+func (s *spy) Evaluate(context.Context, intake.PolicyQuery) (intake.PolicyEvaluation, error) {
+	rule := decide.PolicyRuleVersion{RuleID: "rule_a", PolicyID: "fin.pol", Version: "3.2"}
+	return intake.PolicyEvaluation{Effect: policy.Permit, Rules: []decide.PolicyRuleVersion{rule}, Versions: []decide.PolicyVersionRef{{PolicyID: "fin.pol", Version: "3.2"}},
+		PermitMatched: true}, s.hit("Policies.Evaluate")
 }
-func (later) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake.ClockRouting, error) {
-	return intake.ClockRouting{}, errors.New("not reached")
+func (s *spy) Applicable(context.Context, intake.ClockQuery) (intake.ClockSet, error) {
+	return intake.ClockSet{}, s.hit("Clocks.Applicable")
+}
+func (s *spy) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake.ClockRouting, error) {
+	return intake.ClockRouting{}, s.hit("Clocks.Route")
 }
 
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Reconciler: later{}, Policies: later{}, Clocks: later{}},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}
 }
 
 func request() intake.Request {
-	return intake.Request{Session: intake.Session{TenantID: tenant, PrincipalID: principal, Role: "customer"}, CorrelationID: "corr_synth0001", IntentRef: intentRef}
+	return intake.Request{Session: intake.Session{TenantID: tenant, PrincipalID: principal, Role: "customer"}, CorrelationID: "corr_synth0001", IntentRef: intentRef,
+		EvidenceSnapshotID: "evs_synth0001"}
 }
 
 func ctx(t *testing.T) context.Context {
@@ -216,16 +251,16 @@ func TestAReadContinuesWhenWritesAreDisabled(t *testing.T) {
 	}
 }
 
-// With every port answering well, T1 to T6 pass and the evaluation ends at T7, which is not built: UNKNOWN INTERNAL_ERROR, never ALLOW.
-func TestARequestThatPassesT1ToT6EndsUnknownAtT7BecauseNoLaterStepIsBuilt(t *testing.T) {
+// With every port answering well, T1 to T12 pass and the evaluation ends at T13, which is not built: UNKNOWN INTERNAL_ERROR, never ALLOW.
+func TestARequestThatPassesT1ToT12EndsUnknownAtT13BecauseNoLaterStepIsBuilt(t *testing.T) {
 	res := eval(t, newSpy(), request())
 	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(reasons(res.Decision), []string{"INTERNAL_ERROR"}) {
 		t.Fatalf("decision %s %v, want UNKNOWN INTERNAL_ERROR", res.Decision.Outcome(), reasons(res.Decision))
 	}
-	if len(res.Trace) != 7 || last(res).Step != decide.T7TargetResolution || last(res).Result != decide.StepFailed {
-		t.Fatalf("trace %v, want T1 to T6 passed and T7 failed", res.Trace)
+	if len(res.Trace) != 13 || last(res).Step != decide.T13Confirmation || last(res).Result != decide.StepFailed {
+		t.Fatalf("trace %v, want T1 to T12 passed and T13 failed", res.Trace)
 	}
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 12; i++ {
 		if res.Trace[i].Result != decide.StepPassed {
 			t.Errorf("step %d: %v, want PASSED", i+1, res.Trace[i])
 		}
@@ -260,16 +295,23 @@ func TestARefusalStopsBeforeTheLaterPortsAreCalled(t *testing.T) {
 // Fault injection (TRU-02, REQ-NFR-002, INV-16): at every port, an error and a panic end the evaluation in UNKNOWN, never ALLOW; and when the fault is at a port, the
 // evaluation never reports a step after it as passed.
 func TestAnErrorOrAPanicAtAnyPortIsUnknownNeverAllow(t *testing.T) {
-	for _, method := range []string{"Intents.Get", "Intents.LatestVersion", "Intents.Verify", "Writes.NeedsWrite", "Writes.Enabled", "Capabilities.Requested", "Scope.InScope", "Authority.RoleAllowed"} {
+	for _, method := range []string{"Intents.Get", "Intents.LatestVersion", "Intents.Verify", "Writes.NeedsWrite", "Writes.Enabled", "Capabilities.Requested", "Scope.InScope", "Authority.RoleAllowed",
+		"Candidates.ScopedCandidates", "Ownership.OwnsTarget", "Evidence.SnapshotFreshness"} {
 		for _, mode := range []string{"error", "panic"} {
 			s := newSpy()
 			s.needsWrite = true // so that T3 reads the switch
+			if method == "Candidates.ScopedCandidates" {
+				s.intent.View.RequiredSlots = map[string]decide.SlotStatus{"counterparty": decide.SlotAmbiguous} // so that T7 reads the candidates
+			}
 			if mode == "error" {
 				s.failAt = method
 			} else {
 				s.panicAt = method
 			}
 			res := eval(t, s, request())
+			if !slices.Contains(s.calls, method) {
+				t.Fatalf("%s %s: the port was never reached, so the fault proved nothing; calls %v", method, mode, s.calls)
+			}
 			if res.Decision.Outcome() == decide.Allow {
 				t.Fatalf("%s %s: ALLOW", method, mode)
 			}

@@ -14,24 +14,10 @@ import (
 // Errors of T10 to T12. None is a decision: the evaluation turns each into UNKNOWN INTERNAL_ERROR at the step (INV-16).
 var (
 	errNotReady   = errors.New("intake: the step ran before the evaluation held what it needs")
-	errUnresolved = errors.New("intake: the intent is not resolved, and this step has no decision for an unresolved intent")
 	errNoSnapshot = errors.New("intake: there is no sealed evidence snapshot to reconcile")
 	errNoMapping  = errors.New("intake: the target is frozen for this capability and the pack maps nothing to escalate with")
 	errAnswer     = errors.New("intake: a port gave an answer the step cannot use")
 )
-
-// resolved is the intent as a resolved intent. T10 to T12 come after T7, which clarifies or escalates an intent that is not resolved; one that reaches them
-// anyway is a defect, and these steps have no decision for it.
-func (e *evaluation) resolved() (decide.ResolvedIntent, error) {
-	if e.intent == nil {
-		return decide.ResolvedIntent{}, errNotReady
-	}
-	r, ok := decide.Admit(e.intent.View).Resolved()
-	if !ok {
-		return decide.ResolvedIntent{}, errUnresolved
-	}
-	return r, nil
-}
 
 // packReason makes the reason code `<vertical>.reason.<name>` a pack gave (T10 and T12 take nothing else from a pack, and core codes are never a pack's to give).
 func packReason(code string) (decide.ReasonCode, error) {

@@ -854,8 +854,9 @@ func TestT12IsDeterministic(t *testing.T) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wiring
 
-// T10 to T12 are in the fixed order's table, not notBuilt: the steps the evaluation runs call their ports. T7 to T9 and T13 to T15 are still not built.
-func TestTheEvaluationOrderRunsT10ToT12AndLeavesTheRestNotBuilt(t *testing.T) {
+// T10 to T12 are in the fixed order's table, not notBuilt: the steps the evaluation runs call their ports. T7 to T9 are wired and tested in t7_t9_test.go; T13 to T15 are
+// still not built.
+func TestTheEvaluationOrderRunsT10ToT12AndLeavesT13ToT15NotBuilt(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.SuccessConfirmed}, pol: decided(policy.Permit, ""), set: ClockSet{AtRisk: quarterOf}}
 	ev := newEv(t, f)
 	steps := ev.steps()
@@ -867,7 +868,7 @@ func TestTheEvaluationOrderRunsT10ToT12AndLeavesTheRestNotBuilt(t *testing.T) {
 			t.Errorf("%v: %s was not called: the step is not wired", step, port)
 		}
 	}
-	for _, step := range []decide.GateStep{decide.T7TargetResolution, decide.T8BusinessOwnership, decide.T9Evidence, decide.T13Confirmation, decide.T14Plan, decide.T15DecisionRecorded} {
+	for _, step := range []decide.GateStep{decide.T13Confirmation, decide.T14Plan, decide.T15DecisionRecorded} {
 		if err := steps[step-1](ctx).Err(); !errors.Is(err, ErrNotBuilt) {
 			t.Errorf("%v: %v, want ErrNotBuilt", step, err)
 		}
@@ -909,8 +910,17 @@ func (noPorts) Requested(context.Context, AdmittedIntent) (Capability, bool, err
 }
 func (noPorts) InScope(context.Context, string, string) (bool, error)     { return false, nil }
 func (noPorts) RoleAllowed(context.Context, string, string) (bool, error) { return false, nil }
+func (noPorts) ScopedCandidates(context.Context, string, string, AdmittedIntent) (TargetCandidates, error) {
+	return TargetCandidates{}, nil
+}
+func (noPorts) OwnsTarget(context.Context, string, string, AdmittedIntent) (bool, error) {
+	return false, nil
+}
+func (noPorts) SnapshotFreshness(context.Context, string, string) (SnapshotEvidence, error) {
+	return SnapshotEvidence{}, nil
+}
 
 func configuredService(f *fake) *Service {
 	n := noPorts{}
-	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Reconciler: f, Policies: f, Clocks: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 }
