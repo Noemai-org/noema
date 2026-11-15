@@ -1,13 +1,17 @@
 // Local contract server, not the core. Synthetic fixture data only; no live services.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { networkInterfaces } from "node:os";
 
 async function fixture(path) {
   return readFile(new URL(`../../contracts/fixtures/valid/${path}.json`, import.meta.url), "utf8");
 }
 
-export async function startContractServer({ socketPath, scenario }) {
+export async function startContractServer({ socketPath, loopback = false, scenario }) {
   if (!["normal", "error", "drop"].includes(scenario)) throw new Error("Unknown test scenario");
+  if (Boolean(socketPath) === loopback) throw new Error("Choose exactly one local transport");
+  const local = loopback ? Object.values(networkInterfaces()).flat().find((item) => item?.internal && item.family === "IPv4") : null;
+  if (loopback && !local) throw new Error("No local IPv4 interface");
   const [investigation, progress, unavailable, notFound] = await Promise.all([
     fixture("investigation-response/understanding"), fixture("sse-event/progress"),
     fixture("errors.v3/dependency_unavailable_retryable"), fixture("errors.v3/not_found_or_not_authorized"),
@@ -33,7 +37,8 @@ export async function startContractServer({ socketPath, scenario }) {
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(socketPath, resolve);
+    if (loopback) server.listen(0, local.address, resolve);
+    else server.listen(socketPath, resolve);
   });
   return server;
 }

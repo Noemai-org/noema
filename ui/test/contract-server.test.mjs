@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { startContractServer } from "../test-support/contract-server.mjs";
 
@@ -56,4 +56,17 @@ test("REQ-UI-001: real 5xx and stream close are observable", async () => {
   await withServer("drop", async (socket) => {
     await assert.rejects(get(socket, "/v1/conversations/conv_synthetic/events"));
   });
+});
+
+test("REQ-UI-001: browser transport binds only a local interface", async () => {
+  const server = await startContractServer({ loopback: true, scenario: "normal" });
+  try {
+    const address = server.address();
+    assert.equal(typeof address, "object");
+    const local = Object.values(networkInterfaces()).flat().find((item) => item?.address === address.address);
+    assert.equal(local?.internal, true);
+    const response = await fetch(`http://${address.address}:${address.port}/v1/investigations/inv_synthetic`);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).state, "understanding");
+  } finally { await new Promise((resolve, reject) => server.close((err) => err ? reject(err) : resolve())); }
 });
