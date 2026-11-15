@@ -77,21 +77,42 @@ class G1StackWorkflow(unittest.TestCase):
         assert result
         self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
 
-    def test_the_scorecards_real_statistics_pass_the_scan(self) -> None:
-        # Codex P2 on noema#577: a full run with Tier 0 at zero carries a Wilson bound of 0.011862 and a rule-of-three bound of 0.009375, six-digit runs for the scanner.
-        # This uses the scorer's own function and its own JSON layout, not a copy of the numbers.
-        from benchmark.scoring.stats import make_rate
-        card = json.dumps({"tier0": {"gate": make_rate(0, 320, failure=True), "other": make_rate(150, 320)}}, indent=2)
+    def scan(self, target: Path, use_allow: bool = True) -> int:
         allow = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow"
         scanner = WORKFLOW.parents[2] / "tools" / "ci" / "leakscan.py"
+        args = [sys.executable, "-I", str(scanner)] + (["--allow", str(allow)] if use_allow else []) + [str(target)]
+        return subprocess.run(args, capture_output=True, check=False).returncode
+
+    def test_the_scorers_real_output_passes_the_scan(self) -> None:
+        # Codex P2 on noema#577 (the Wilson and rule-of-three bounds) and C2's read (exact_upper95 and the mean): the scan must pass what the scorer's own CLI writes, not numbers copied
+        # into the test. This runs the CLI on the scorer's own fixture with four repeat runs (so pass^k is present) and scans scorecard.json and report.md.
+        from benchmark.scoring.test_cli import run_cli, write_repeat, write_tree
+
         with tempfile.TemporaryDirectory() as tmp:
-            f = Path(tmp) / "scorecard.json"
-            f.write_text(card + "\n", encoding="utf-8")
-            self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), "--allow", str(allow), str(f)], capture_output=True, check=False).returncode, 0)
-            self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), str(f)], capture_output=True, check=False).returncode, 1, "without the allow file the statistics are findings")
-            for bad in ('  "account_number": 0.123456,', '  "rate": 12345.5,', '  0.1234567,', '  "note": 0.123456,'):
+            root = Path(tmp)
+            write_tree(root)
+            extra: list[str] = []
+            for i in range(2, 6):
+                extra += ["--repeat-results", str(write_repeat(root, f"r{i}", f"run_{i}"))]
+            code, _ = run_cli(root, root / "out", *extra)
+            self.assertEqual(code, 0)
+            self.assertEqual(self.scan(root / "out"), 0)
+            self.assertEqual(self.scan(root / "out", use_allow=False), 1, "without the allow file the statistics are findings")
+
+    def test_the_scorers_decimal_fields_pass_in_every_shape_it_can_write(self) -> None:
+        # The fixture's numbers are small; these lines are built by the scorer's own functions for a full run (n = 320, k = 0), and by its own formats for a mean that does not terminate.
+        from benchmark.scoring.rates import make_rate
+
+        card = json.dumps({"gate": make_rate(0, 320, failure=True), "rate": make_rate(150, 320), "turns": {"n": 3, "mean": round(4 / 3, 6), "median": 1, "p90": 2, "max": 2}}, indent=2)
+        report = "- turns to resolution (customer turns, cases auto-resolved correctly): n = 3; mean 1.333333, median 1, 90th percentile 2, maximum 2"
+        with tempfile.TemporaryDirectory() as tmp:
+            f = Path(tmp) / "x.txt"
+            f.write_text(card + "\n" + report + "\n", encoding="utf-8")
+            self.assertEqual(self.scan(f), 0)
+            for bad in ('  "account_number": 0.123456,', '  "rate": 12345.5,', '  0.1234567,', '  "note": 0.123456,', '  "seed": 1234567890123456,', '  "latency_ms": 1234567890,',
+                        '  "cost_usd_micros": 12345678901,', "- turns to resolution (customer turns, cases auto-resolved correctly): n = 3; mean 1.333333, median 1, 90th percentile 2, maximum 2 acct 1234567"):
                 f.write_text(bad + "\n", encoding="utf-8")
-                self.assertEqual(subprocess.run([sys.executable, "-I", str(scanner), "--allow", str(allow), str(f)], capture_output=True, check=False).returncode, 1, bad)
+                self.assertEqual(self.scan(f), 1, bad)
 
     def test_the_allow_file_lets_the_scorers_own_metadata_through_and_nothing_else(self) -> None:
         # Codex P2 on noema#591: the score report prints the generator's seed and the latency and cost lines in Markdown, and the scorecard carries aggregate cost and percentiles.
@@ -127,6 +148,18 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertNotIn("idp", path)
             self.assertNotIn("private", path)
             self.assertNotEqual(path.rstrip("/"), "benchmark/out", "the whole output directory holds the issuer and the private key")
+
+    def test_the_core_and_the_token_script_name_the_key_id_and_audience_the_same_way(self) -> None:
+        # C2 and Codex on noema#577: the core read NOEMA_BENCH_KID and NOEMA_BENCH_AUDIENCE while bench_tokens.sh read BENCH_KID and BENCH_AUDIENCE, so a changed value made the issuer
+        # sign for one audience and the core expect another. One name on both sides, one default on both sides, and the workflow's runner flags carry the same defaults.
+        compose = (WORKFLOW.parents[2] / "deploy" / "compose" / "bench-stack.yml").read_text()
+        script = (WORKFLOW.parents[2] / "deploy" / "compose" / "bench_tokens.sh").read_text()
+        for setting, variable, flag in (("NOEMA_SESSION_KID", "BENCH_KID", "--idp-kid"), ("NOEMA_SESSION_AUDIENCE", "BENCH_AUDIENCE", "--idp-audience")):
+            in_compose = re.search(setting + r': "\$\{([A-Z_]+):-([A-Za-z0-9_.-]+)\}"', compose)
+            in_script = re.search(r'="\$\{(' + variable + r'):-([A-Za-z0-9_.-]+)\}"', script)
+            assert in_compose and in_script, setting
+            self.assertEqual(in_compose.groups(), in_script.groups(), setting)
+            self.assertRegex(self.script, flag + " " + re.escape(in_script.group(2)) + r"(?=\s|$)")
 
     def test_the_run_is_scored_by_the_scorer_in_the_runner_container(self) -> None:
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.scoring")

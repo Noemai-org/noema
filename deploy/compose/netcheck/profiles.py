@@ -124,7 +124,11 @@ def check(cfg, profile):
             # The synthetic IdP's material (benchmark/out/idp): the core holds the PUBLIC key and nothing else of it; the private key and the issuer binary are read by the runner only, so no
             # other service may mount anything of that directory (a session token the core could mint would be an identity the core invents, INV-12).
             idp_src = str(vol.get("source", "")).replace("\\", "/")
-            if "/idp/" in idp_src or idp_src.endswith("/idp"):
+            # The output directory itself, or a folder above it, holds the idp folder too (SR on noema#577, note b): the runner's own mount of /bench-out names the directory, and any
+            # other service mounting it or a parent of it would get the private key without the path containing "/idp".
+            out_roots = [str(v.get("source", "")).replace("\\", "/") for sv in cfg["services"].values() for v in (sv.get("volumes") or []) if v.get("target") == "/bench-out"]
+            holds_idp = any(root and (idp_src == root or root.startswith(idp_src.rstrip("/") + "/")) for root in out_roots) and bool(idp_src) and vol.get("type") == "bind"
+            if "/idp/" in idp_src or idp_src.endswith("/idp") or holds_idp:
                 if not (name == "core" and idp_src.endswith("/idp/key/public.pem")) and name != "bench-runner":
                     bad.append(f"{profile}: {name} mounts {idp_src} from the synthetic IdP's directory; only the core's public key and the runner may (the private key and the issuer stay with the runner)")
             if name == "model":
@@ -194,6 +198,8 @@ def self_test(configs):
         "the core mounts the stand-in bench credential": ("bench", lambda c: c["services"]["core"].setdefault("volumes", []).append({"source": "standin_bench_credential", "target": "/x"})),
         "the model mounts the mock-case bench credential": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"source": "mock_case_bench_credential", "target": "/x"})),
         "the core mounts the IdP's private key": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/private.pem", "target": "/run/idp/private.pem"})),
+        "the core mounts the whole bench output directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out", "target": "/run/out"})),
+        "the stand-in mounts a folder above the bench output": ("bench", lambda c: c["services"]["standin"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp", "target": "/x"})),
         "the core mounts the IdP directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp", "target": "/run/idp-all"})),
         "the model mounts the issuer binary": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/synthetic-idp", "target": "/usr/local/bin/synthetic-idp"})),
         "the stand-in mounts the IdP public key": ("bench", lambda c: c["services"]["standin"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/public.pem", "target": "/x"})),
