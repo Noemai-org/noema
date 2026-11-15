@@ -287,3 +287,65 @@ def test_the_same_inputs_give_the_same_bytes() -> None:
     second = assemble(CANONICAL, compile_result(g_a(), (ref_candidate("a"),)), CONFIG.catalogue, "fin@1.0.0", IDS)
     assert first == second
     assert datetime.fromisoformat(IDS.created_at.replace("Z", "+00:00")).tzinfo is not None  # the clock is the request's, not the process's
+
+
+# --- the model's words are bounded and checked before they enter the object (the Security Reviewer's blocking finding on noema#598) --------------------------------------------------
+# A surface form is the customer's own words: a span of the text the model was given, no longer than the lexicon's bound, with no digit run over four (the Record's guard, noema#536 and
+# noema#600, would refuse such a string in a stored intent: an unknown outcome for a harmless request, and a way to push model text into the Record). The assembler is the boundary.
+
+def _assembled(text: str, mentions: dict[str, Any]) -> dict[str, Any]:
+    """The slots of a G-A compile whose utterance is `text` and whose model proposes `mentions` (a hostile model: the lexicon reads what the text holds, the model's spans are its own)."""
+    canonical = {**CANONICAL, "text": text}
+    harness, _ = harness_for(g_a(mentions=mentions))
+    result = run(run_pipeline(make_input(text, candidate_set_id="cns_test1"), CONFIG, harness, FakeSource((ref_candidate("a"),)), normaliser, no_errors))
+    return build(result, canonical)["slots"]  # type: ignore[no-any-return]
+
+
+def _mention(surface: str, **over: Any) -> dict[str, Any]:
+    return {"present": True, "surface_form": surface, "proposed_value": "x", "confidence": 0.9, **over}
+
+
+GOOD = "Wetin happen to the 20k wey I send Tunde this morning?"
+HOSTILE = {
+    "a span the text does not hold": "somebody else entirely",
+    "longer than the lexicon's bound": "x" * 65,
+    "a digit run over four (sixteen digits)": "4111 1111 1111 1111",
+    "a digit run of five": "12345",
+    "a digit run joined by hyphens": "1-2-3-4-5",
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_party_surface_form_that_is_not_the_customers_bounded_words_is_never_copied(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD  # the span is in the text for every case but the first, so only one rule fails at a time
+    slots = _assembled(text, {**GOOD_MENTIONS, "counterparty": _mention(surface)})
+    assert "counterparty" not in slots and surface not in json.dumps(slots)
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_time_surface_form_that_is_not_the_customers_bounded_words_is_never_copied(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD
+    slots = _assembled(text, {**GOOD_MENTIONS, "when": _mention(surface)})
+    assert "when" not in slots and surface not in json.dumps(slots)
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_quantity_keeps_the_lexicons_value_but_never_a_surface_form_that_is_not_the_customers_bounded_words(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD
+    slots = _assembled(text, {**GOOD_MENTIONS, "amount": _mention("20k") | {"surface_form": surface}})
+    amount = slots.get("amount")
+    assert amount is None or ("surface_form" not in amount and surface not in json.dumps(slots))
+
+
+def test_good_surface_forms_pass_unchanged() -> None:
+    slots = _assembled(GOOD, GOOD_MENTIONS)
+    assert (slots["amount"]["surface_form"], slots["counterparty"]["surface_form"], slots["when"]["surface_form"]) == ("20k", "Tunde", "this morning")
+
+
+def test_a_surface_form_of_exactly_the_bound_and_a_digit_run_of_exactly_four_are_accepted() -> None:
+    name = "N" * 64
+    slots = _assembled(f"{GOOD} {name} 1234", {**GOOD_MENTIONS, "counterparty": _mention(name), "when": _mention("1234")})
+    assert slots["counterparty"]["surface_form"] == name and slots["when"]["surface_form"] == "1234"
