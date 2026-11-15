@@ -442,11 +442,30 @@ func TestAMappingThatIsTooLargeOrTooDeepIsRefusedBeforeItIsDecoded(t *testing.T)
 	}
 }
 
-func TestLimitsThatAreNotPositiveRefuseToLoad(t *testing.T) {
+func TestLimitsThatAreNotPositiveRefuseToLoadAndSaySo(t *testing.T) {
 	rs, src := ruleSet(t), sources(t)
 	for _, l := range []mapping.Limits{{}, {MaxBytes: 1 << 20}, {MaxDepth: 32}, {MaxBytes: -1, MaxDepth: 32}, {MaxBytes: 1 << 20, MaxDepth: -1}} {
-		if _, err := mapping.Parse(realFile(t), rs, src, expected, l); err == nil {
-			t.Errorf("limits %+v: the file loaded", l)
+		// Another bound would also refuse most of these, so the message is what shows the limits themselves were checked.
+		if _, err := mapping.Parse(realFile(t), rs, src, expected, l); err == nil || !strings.Contains(err.Error(), "limits must be positive") {
+			t.Errorf("limits %+v: err = %v, want 'limits must be positive'", l, err)
 		}
+	}
+}
+
+func TestTheLimitsAreTheCallersAndNotAFixedNumber(t *testing.T) {
+	rs, src := ruleSet(t), sources(t)
+	real := realFile(t)
+	if _, err := mapping.Parse(real, rs, src, expected, mapping.Limits{MaxBytes: len(real), MaxDepth: 32}); err != nil {
+		t.Errorf("a file exactly as long as MaxBytes: %v", err)
+	}
+	if _, err := mapping.Parse(real, rs, src, expected, mapping.Limits{MaxBytes: len(real) - 1, MaxDepth: 32}); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("a file one byte over MaxBytes: err = %v", err)
+	}
+	// The real file nests six levels deep (the document, rows, a row, its fields, a field, its map): six is accepted and five is refused, so the bound is exact.
+	if _, err := mapping.Parse(real, rs, src, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 5}); err == nil || !strings.Contains(err.Error(), "too deep") {
+		t.Errorf("the real file under MaxDepth 5: err = %v, want 'too deep'", err)
+	}
+	if _, err := mapping.Parse(real, rs, src, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 6}); err != nil {
+		t.Errorf("the real file under MaxDepth 6: %v", err)
 	}
 }
