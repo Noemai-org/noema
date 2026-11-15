@@ -153,3 +153,7 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 
 ## Pre-work for the next agent
 - Exact next step: open the PR when a slot is free (tests first, red CI), then plug `Port{Reader: &admission.Reader{DBs: records}}` into `Components.Ports.Admissions` once noema#535 is on `main`.
+
+### Update 2026-11-15 · A224: COMPENSATED stops the run like UNKNOWN (EL)
+- **Ruling A224 (relayed, Founder-approved interim, not yet committed): COMPENSATED stops the run like UNKNOWN.** A COMPENSATED verdict (the write happened and was then undone) is recorded as RECOVERING and the run stops with the new `ErrCompensated`; nothing is executed again and Trust is not asked again, because a new grant could apply the write a second time (INV-07, AGENT-08). It used to take the recovery path with NOT_ACHIEVED and PARTIALLY_ACHIEVED; those two still recover under a new grant (PARTIALLY_ACHIEVED as built, with its test, A216).
+- Tests: `TestAnUnknownOrACompensatedVerdictStopsInRecoveringAndNeverDispatchesAgain` (both verdicts; RECOVERING recorded after AWAITING_VERIFICATION; one execute, one decision, one evidence read); the recovery test no longer lists COMPENSATED. Red locally first (COMPENSATED recovered: 2 executes and ErrRecoveryBudgetSpent). Two mutants killed: COMPENSATED back on the recovery path; ErrOutcomeUnknown returned for it.

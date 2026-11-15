@@ -32,8 +32,8 @@ func NewWriteRunner(m *Machine, p Ports, w WritePorts, cfg WriteConfig) (*WriteR
 }
 
 // RunWrite runs a turn whose decision may write. It takes the same path as RunRead to EVALUATING; an ALLOW that writes then walks PLANNED, EXECUTING and
-// AWAITING_VERIFICATION. A verdict of ACHIEVED explains and completes; PENDING_EXTERNAL waits for the outcome; UNKNOWN is recorded as RECOVERING and the run stops
-// with ErrOutcomeUnknown (a new grant could apply the same write twice, INV-07); any other verdict goes to RECOVERING and back to EVALUATING, where Trust decides
+// AWAITING_VERIFICATION. A verdict of ACHIEVED explains and completes; PENDING_EXTERNAL waits for the outcome; UNKNOWN and COMPENSATED are recorded as RECOVERING and the run stops
+// with ErrOutcomeUnknown or ErrCompensated (a new grant could apply the same write twice, INV-07, A224); any other verdict goes to RECOVERING and back to EVALUATING, where Trust decides
 // again on a fresh evidence snapshot and issues a new grant (INV-17, AGENT-08). Before Trust is asked again the runner counts the dispatches of the logical key from the Record (the Journal) and stops with
 // ErrRecoveryBudgetSpent at the configured limit, PERD's 2 per key (A216); a limit it was not given is no limit at all, so there is none by default. A grant is never dispatched
 // twice. Every move is recorded before the run goes on (PERD 32.4, EC-E16).
@@ -230,13 +230,17 @@ func (u *wrun) verify(d Decision) (Result, error) {
 		return u.explain(d)
 	case contracts.EnumsV1VerdictPENDINGEXTERNAL:
 		return u.finish("AWAITING_EXTERNAL_OUTCOME")
-	case contracts.EnumsV1VerdictUNKNOWN:
-		// The check by key could not tell whether the write happened. A new grant could apply it twice, so the run is recorded as RECOVERING and stops here.
+	case contracts.EnumsV1VerdictUNKNOWN, contracts.EnumsV1VerdictCOMPENSATED:
+		// UNKNOWN: the check by key could not tell whether the write happened. COMPENSATED (A224, relayed): the write happened and was then undone. In both a new grant
+		// could apply the write a second time, so the run is recorded as RECOVERING and stops here.
 		if err := u.move("RECOVERING"); err != nil {
 			return u.result(""), err
 		}
+		if v == contracts.EnumsV1VerdictCOMPENSATED {
+			return u.result(""), ErrCompensated
+		}
 		return u.result(""), ErrOutcomeUnknown
-	case contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED, contracts.EnumsV1VerdictCOMPENSATED:
+	case contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED:
 		if err := u.move("RECOVERING"); err != nil {
 			return u.result(""), err
 		}

@@ -192,7 +192,7 @@ func TestALostReplyIsVerifiedByKeyAndNeverDispatchedASecondTime(t *testing.T) {
 // Test 3 (US-06, PERD 28.2): NOT_ACHIEVED and UNKNOWN take AWAITING_VERIFICATION to RECOVERING, then EVALUATING under a fresh evidence snapshot and a fresh
 // decision (a new grant). The first grant is never executed again (AGENT-08). PENDING_EXTERNAL waits for the outcome instead.
 func TestAVerdictOtherThanAchievedRecoversUnderAFreshSnapshotAndANewGrant(t *testing.T) {
-	for _, v := range []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED, contracts.EnumsV1VerdictCOMPENSATED} {
+	for _, v := range []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED} {
 		t.Run(string(v), func(t *testing.T) {
 			w := newWfakes()
 			w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
@@ -480,16 +480,21 @@ func TestAnExecutorThatCannotSayWhatHappenedStopsTheRunWithoutRecordingExecuting
 
 // Security Reviewer, blocking 1 on noema#576 (INV-07, AGENT-07, AGENT-08): when the check by key could not tell whether the write happened, a new grant could apply
 // the same write twice. An UNKNOWN verdict is recorded as RECOVERING and the run stops there: nothing is executed again, no new decision is asked for, and the
-// caller gets ErrOutcomeUnknown. (A NOT_ACHIEVED verdict is different: the first write is known not to have happened.)
-func TestAnUnknownVerdictStopsInRecoveringAndNeverDispatchesAgain(t *testing.T) {
-	w := newWfakes()
-	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictUNKNOWN}
-	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
-	if !errors.Is(err, orchestrator.ErrOutcomeUnknown) || res.Investigation.State != "RECOVERING" || w.nExec != 1 || w.nDecide != 1 || count(w.calls, "evidence") != 1 {
-		t.Fatalf("err %v, final %s, executes %d, decisions %d, evidence reads %d; want ErrOutcomeUnknown, RECOVERING, 1, 1, 1", err, res.Investigation.State, w.nExec, w.nDecide, count(w.calls, "evidence"))
-	}
-	if !containsInOrder(states(w.changes), "AWAITING_VERIFICATION", "RECOVERING") {
-		t.Errorf("states %v: want RECOVERING recorded after AWAITING_VERIFICATION", states(w.changes))
+// caller gets ErrOutcomeUnknown. (A NOT_ACHIEVED verdict is different: the first write is known not to have happened.) A224: COMPENSATED stops the same way.
+func TestAnUnknownOrACompensatedVerdictStopsInRecoveringAndNeverDispatchesAgain(t *testing.T) {
+	// A224 (relayed): COMPENSATED stops the run like UNKNOWN. The write happened and was then undone, so a new grant could apply it a second time.
+	for v, want := range map[contracts.EnumsV1Verdict]error{contracts.EnumsV1VerdictUNKNOWN: orchestrator.ErrOutcomeUnknown, contracts.EnumsV1VerdictCOMPENSATED: orchestrator.ErrCompensated} {
+		t.Run(string(v), func(t *testing.T) {
+			w := newWfakes()
+			w.verdicts = []contracts.EnumsV1Verdict{v}
+			res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+			if !errors.Is(err, want) || res.Investigation.State != "RECOVERING" || w.nExec != 1 || w.nDecide != 1 || count(w.calls, "evidence") != 1 {
+				t.Fatalf("err %v, final %s, executes %d, decisions %d, evidence reads %d; want %v, RECOVERING, 1, 1, 1", err, res.Investigation.State, w.nExec, w.nDecide, count(w.calls, "evidence"), want)
+			}
+			if !containsInOrder(states(w.changes), "AWAITING_VERIFICATION", "RECOVERING") {
+				t.Errorf("states %v: want RECOVERING recorded after AWAITING_VERIFICATION", states(w.changes))
+			}
+		})
 	}
 }
 
