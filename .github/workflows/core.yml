@@ -106,6 +106,9 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
+      - name: TEN-02 results with their seeds (G0-N, ENV-14)
+        working-directory: services/core
+        run: go test -count=1 -run '^TestTEN02' -v ./outcome/verifier/ ./trust/decide/
       - name: Build the core image
         run: docker build -t noema-core:ci services/core
 
