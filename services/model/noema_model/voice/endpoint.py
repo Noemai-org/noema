@@ -79,7 +79,7 @@ class EndpointDetector:
 
 
 class AudioSource(Protocol):
-    """An async stream of audio that can be closed. Async generators satisfy it."""
+    """An async stream of audio that can be closed. Async generators satisfy it. It must support weak references (an async generator does; a class with `__slots__` needs a `__weakref__` slot): the pipeline holds a source weakly when it retries a close."""
 
     def __aiter__(self) -> AsyncIterator[AudioChunk]: ...
 

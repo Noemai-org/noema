@@ -166,7 +166,7 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
 
     The wait has a second bound, `hold_s`. If the read is still running then, the pipeline stops waiting and does three things: it logs
     `VOI_AUDIO_READ_ABANDONED` once; it tries to close the source now, bounded by `close_s` (default `hold_s`), because closing is what interrupts a stuck read
-    on a real source; and it leaves a callback on the read that holds the source only weakly (or, for a source that cannot be weakly referenced, strongly for one more bounded window), so that if that close failed, the read later ends
+    on a real source; and it leaves a callback on the read that holds the source only weakly, so that if that close failed, the read later ends
     and the source is still alive, it is closed then. The pipeline therefore pins nothing for the life of the process, repeated calls do not accumulate,
     and a source is not left open just because its read was slow (Security Reviewer and Codex on #474).
 
@@ -187,30 +187,17 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
             return  # it ended in time: start() has run or is queued, and nothing was abandoned
         read.remove_done_callback(start)
         say(READ_ABANDONED)
-        # How the retry finds the source later without the pipeline pinning it. A source that can be weakly referenced is held weakly. One that cannot (`__slots__`
-        # without `__weakref__`; AudioSource does not require it) is held strongly in a box that is emptied when the retry window ends or the retry is no longer
-        # needed, so it is retried, and never held for ever (Codex P2 on #474).
-        box: list[AudioSource] = []
-        try:
-            weak: "weakref.ReferenceType[AudioSource] | None" = weakref.ref(audio)
-        except TypeError:
-            weak = None
-            box.append(audio)
-            asyncio.get_running_loop().call_later(window + hold_s, box.clear)
+        # How the retry finds the source later without the pipeline pinning it: weakly. `transcribe_utterance` refuses a source that cannot be weakly referenced before it
+        # does anything else, so every source that reaches here can be (Codex on #474: a strong reference held for a window loses the retry when the read ends after it).
+        weak = weakref.ref(audio)
         state = {"over": False, "failed": False, "retried": False}
-
-        def source() -> AudioSource | None:
-            if weak is not None:
-                return weak()
-            return box[0] if box else None
 
         def retry_if_needed(_: "asyncio.Future[Any]") -> None:
             # Called when the read ends and when the close at the abandon ends, in whichever order: the retry needs both to have happened (Codex P2 on #474).
             if state["retried"] or not read.done() or not state["over"]:
                 return
             state["retried"] = True
-            target = source() if state["failed"] else None
-            box.clear()  # whatever happens next, the pipeline keeps no strong reference to the source after this
+            target = weak() if state["failed"] else None
             if target is not None:
                 _begin_close(target, window, say)  # once: the read has ended, so the source can now be closed
 
@@ -224,6 +211,15 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
 
     timer = asyncio.get_running_loop().call_later(hold_s, abandon)
     read.add_done_callback(start)
+
+
+async def _close_refused(audio: AudioSource, bound_s: float) -> None:
+    """A source refused at the boundary is still released: closed within the bound, a failure or a stall of that close ignored (the caller gets the TypeError)."""
+    closing = asyncio.ensure_future(audio.aclose())
+    closing.add_done_callback(_mark_retrieved)
+    await asyncio.wait({closing}, timeout=bound_s)
+    if not closing.done():
+        closing.cancel()
 
 
 async def transcribe_utterance(
@@ -243,8 +239,17 @@ async def transcribe_utterance(
     Cleanup is bounded separately by `cleanup_s` (default: `deadline_s`), and a read that still runs after that is waited for `hold_s` more (default: ten times `cleanup_s`) and then abandoned and logged: a provider that stalls while closing, or while it
     is being cancelled, cannot hold the result back or keep the audio source open. The audio source is released whatever
     happens, including when the provider refuses before it returns a stream.
+
+    `audio` must support weak references (an async generator, or a class with a `__dict__` or `__weakref__` slot): the retry of a close that failed while a read still
+    ran finds the source weakly, so the pipeline never pins it. A source that does not is refused with `TypeError` before anything starts, and is still closed, within
+    `cleanup_s`, because the call owns it (Codex on #474).
     """
     bound_s = deadline_s if cleanup_s is None else cleanup_s
+    try:
+        weakref.ref(audio)
+    except TypeError:
+        await _close_refused(audio, deadline_s if cleanup_s is None else cleanup_s)
+        raise TypeError("the audio source must support weak references (a class with __slots__ needs a __weakref__ slot)") from None
     hold = 10 * bound_s if hold_s is None else hold_s  # how long a deferred close waits for a read that outlived the bound before it is abandoned
     gate = _Gate()
     lease = _AudioLease(audio)

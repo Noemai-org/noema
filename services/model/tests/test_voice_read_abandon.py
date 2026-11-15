@@ -323,21 +323,6 @@ class SuppressesCancellationOnClose(EndsLateAndRefusesCloseWhileReading):
                 continue
 
 
-def test_a_source_that_cannot_be_weakly_referenced_still_gets_its_retry_after_the_read_ends() -> None:
-    source = Slotted()
-    with pytest.raises(TypeError):
-        weakref.ref(source)  # the precondition of the case
-
-    async def scenario() -> None:
-        with pytest.raises(ProviderError):
-            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.2, on_partial=lambda _: None)
-        await asyncio.sleep(1.0)  # the abandon at ~0.3 s closes too early (the read is running); the read ends at ~0.45 s, inside the 0.25 s retry window that follows
-
-    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
-    assert source.closed  # Codex P2: with no weak reference the retry had no source to close, and the microphone stayed open
-    assert source.calls == 2  # one retry, not a loop
-
-
 def test_a_close_that_suppresses_cancellation_is_not_held_by_the_pipeline_for_ever(caplog: pytest.LogCaptureFixture) -> None:
     from noema_model.voice import pipeline
 
