@@ -68,6 +68,7 @@ type Candidates interface {
 // A target that does not exist and a target the principal does not own are the same answer (REQ-TRU-003): the adapter returns owned=false or ErrNotFound for either, and Trust
 // treats the two identically.
 type Ownership interface {
+	// OwnsTarget checks the target the stored intent names (AdmittedIntent.TargetRef), for the session's principal; T14 then lets a plan step act on that target and no other.
 	OwnsTarget(ctx context.Context, tenantID, principalID string, a AdmittedIntent) (owned bool, err error)
 }
 

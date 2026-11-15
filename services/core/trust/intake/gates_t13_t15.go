@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"slices"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -97,6 +98,13 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	case !e.wellFormed(p):
 		return e.planInvalid()
 	}
+	agrees, err := e.planAgrees(ctx, p)
+	switch {
+	case err != nil:
+		return decide.FailStep(err)
+	case !agrees:
+		return e.planInvalid()
+	}
 	p.Steps = append([]PlanStep(nil), p.Steps...)
 	e.late.plan = &p
 	return decide.Continue()
@@ -113,6 +121,30 @@ func (e *evaluation) wellFormed(p Plan) bool {
 		}
 	}
 	return true
+}
+
+// planAgrees checks every step of the plan against what the earlier steps found, so that a plan the Planner built can never grant more than T4, T8 and T10 let through (the Security
+// Reviewer's blocking finding 2 on noema#572): the step's capability is registered and not prohibited (T4, asked of the registry for each step, not only for the capability the
+// intent names); its target is the one the stored intent names, which T8 checked the principal owns (a write whose intent names none has nothing owned to act on); and on a
+// target frozen for a contradiction (T10) its capability is one the pack allows under the freeze. A plan that disagrees is PLAN_INVALID and nothing is recorded; a registry
+// that cannot answer is an error, never a pass.
+func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
+	for _, s := range p.Steps {
+		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID)
+		if err != nil {
+			return false, err
+		}
+		if !c.Registered || c.Prohibited {
+			return false, nil
+		}
+		if e.intent.TargetRef == "" || s.TargetRef != e.intent.TargetRef {
+			return false, nil
+		}
+		if e.frozen && !slices.Contains(e.allowedUnderFreeze, s.CapabilityID) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (e *evaluation) planInvalid() decide.StepResult {

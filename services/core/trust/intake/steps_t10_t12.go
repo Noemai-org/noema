@@ -55,6 +55,7 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 	if rec.Classification == "" {
 		return decide.FailStep(errAnswer)
 	}
+	e.frozen, e.allowedUnderFreeze = rec.Frozen, append([]string(nil), rec.AllowedUnderFreeze...) // T14 checks the plan's capabilities against the freeze
 	if rec.EscalateReason == "" {
 		// Nothing maps this classification to an escalation. A frozen target goes on only with a capability the pack allows under the freeze; an intent that names none has
 		// nothing that says what it may do (its plan's capabilities are checked against the freeze again at T14). Any other target goes on only on a settled classification.

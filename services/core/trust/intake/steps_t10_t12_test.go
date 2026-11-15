@@ -340,6 +340,27 @@ func TestT10AFrozenTargetWithNoNamedCapabilityAndNoPackMappingFailsClosed(t *tes
 	failedClosed(t, "frozen, no capability named, no mapping", d, trace, decide.T10Reconciliation)
 }
 
+// What T10 saw of the freeze is kept for T14, which checks the plan's capabilities against it (the Security Reviewer's blocking finding 2 on noema#572): the evaluation holds
+// the frozen flag and a copy of the capabilities the pack allows under the freeze; an unfrozen target keeps nothing.
+func TestT10KeepsTheFreezeForTheCheckOfThePlan(t *testing.T) {
+	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}, EscalateReason: tPackCode}}
+	ev := newEv(t, f)
+	run(t, ev.withCapability(tCreateCap), decide.T10Reconciliation)
+	if !ev.frozen || !reflect.DeepEqual(ev.allowedUnderFreeze, []string{tCreateCap}) {
+		t.Errorf("frozen %v, allowed %v; want the freeze T10 saw", ev.frozen, ev.allowedUnderFreeze)
+	}
+	f.rec.AllowedUnderFreeze[0] = "fin.cap.changed_after"
+	if ev.allowedUnderFreeze[0] != tCreateCap {
+		t.Error("the evaluation shares the port's slice: a later change by the adapter would change what T14 checks")
+	}
+	g := &fake{rec: Reconciliation{Classification: reconcile.SuccessConfirmed}}
+	ev = newEv(t, g)
+	run(t, ev, decide.T10Reconciliation)
+	if ev.frozen || len(ev.allowedUnderFreeze) != 0 {
+		t.Errorf("an unfrozen target kept a freeze: %v %v", ev.frozen, ev.allowedUnderFreeze)
+	}
+}
+
 // INV-16, REQ-NFR-002: everything else is UNKNOWN, never ALLOW and never a guess.
 func TestT10FailsClosedOnAnErrorAPanicAndAnInvalidAnswer(t *testing.T) {
 	good := Reconciliation{Classification: reconcile.SuccessConfirmed}
