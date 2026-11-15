@@ -152,7 +152,10 @@ func TestAnUnusableCallIsRefusedBeforeTheDatabaseIsAsked(t *testing.T) {
 			_, e := w.r.Read(deadline(t), "ten_aa", "pay_AA11\x00")
 			return e
 		},
-		"an over-long reference": func() error { _, e := w.r.Read(deadline(t), "ten_aa", "pay_"+strings.Repeat("A", 200)); return e },
+		"a reference with a quote":                 func() error { _, e := w.r.Read(deadline(t), "ten_aa", "pay_AA11'--"); return e },
+		"a reference with a slash":                 func() error { _, e := w.r.Read(deadline(t), "ten_aa", "../pay_AA11"); return e },
+		"a reference that starts with a separator": func() error { _, e := w.r.Read(deadline(t), "ten_aa", "_pay"); return e },
+		"an over-long reference":                   func() error { _, e := w.r.Read(deadline(t), "ten_aa", "pay_"+strings.Repeat("A", 200)); return e },
 	} {
 		if err := call(); !errors.Is(err, ErrPayloadUnusable) {
 			t.Errorf("%s: err %v, want ErrPayloadUnusable", name, err)
