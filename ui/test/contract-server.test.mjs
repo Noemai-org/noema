@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { request } from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startContractServer } from "../test-support/contract-server.mjs";
@@ -36,10 +36,14 @@ test("REQ-API-001: local contract server returns investigation and SSE fixtures"
   await withServer("normal", async (socket) => {
     const state = await get(socket, "/v1/investigations/inv_synthetic");
     assert.equal(state.status, 200);
-    assert.equal(JSON.parse(state.body).state, "understanding");
+    const expected = JSON.parse(await readFile(new URL("../../contracts/fixtures/valid/investigation-response/understanding.json", import.meta.url), "utf8"));
+    assert.deepEqual(JSON.parse(state.body), expected);
     const events = await get(socket, "/v1/conversations/conv_synthetic/events");
     assert.match(events.headers["content-type"], /^text\/event-stream/u);
     assert.match(events.body, /^event: progress\ndata: /u);
+    const payload = JSON.parse(events.body.split("\n")[1].slice("data: ".length));
+    const progress = JSON.parse(await readFile(new URL("../../contracts/fixtures/valid/sse-event/progress.json", import.meta.url), "utf8"));
+    assert.deepEqual(payload, progress);
   });
 });
 
