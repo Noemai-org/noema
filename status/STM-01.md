@@ -124,3 +124,18 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): the answer shape and the minting of `investigation_id` and `conversation_ref` (Architect, noema#601).
 - Files to read first: `inputgateway/README.md` ("For EL"), `cmd/core/compose.go`, `cmd/core/gatewayidentity.go`.
 - Do not touch: `inputgateway/` (not on this allowlist).
+
+# Session 2026-11-15 · the PayloadReader over the Trust login (EL)
+
+## Session summary
+- What changed (noema#599): `cmd/core/payloadreader.go` (`buildPayloadReader`, `trustPayloads.Read`, `EnvTrustDSNDir`, `ErrNoPayloadPool`, `ErrPayloadNotFound`, `ErrPayloadUnusable`) and its tests. It reads `evidence_payload.json` by `(tenant_id, payload_ref)` as the tenant's own `trust_rw` login, over the same directory loader as the Record reader and the Recorder (A170, A202).
+- Why: ruling A228 (relayed, Founder-approved interim, not yet committed) and noema#596: C2's Reconciler classifies evidence items from their recorded payloads and takes a `PayloadReader` port; the composition implements it. `layer.Item` already carries `PayloadRef`.
+- Risks, and how they are contained: a cross-tenant read (the database's row-level security through `evidence_login_tenant` decides, and the code never hands out another tenant's pool: a crossed pool and another tenant's reference both read as absent, tested against real PostgreSQL); an unbounded or injected reference (a plain-reference shape and a length bound before the database is asked; the query is parameterised); a DSN in a message (none: the driver error is replaced by a fixed one).
+- Tests added (REQ-CTX-001, REQ-SEC-004, INV-12, AGENT-13): none set; one pool per tenant file and a missing tenant has none; a bad directory refuses to start and never echoes a DSN; a payload read by its reference; another tenant's payload absent, also through a crossed pool; an unknown reference absent; ten unusable calls refused first. Red first at `735c75e2` (does not compile). Mutants killed: a fallback to any pool, no deadline check, the tenant shape unchecked, the reference length unchecked, the reference shape unchecked, "not found" returned as another error. **One equivalent survivor, documented:** dropping `tenant_id` from the query's WHERE changes nothing (row-level security already binds it); the parameter is kept as defence in depth.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2's Reconciler takes a `PayloadReader` port with this signature (noema#596); the composition passes `*trustPayloads`; IL adds the `NOEMA_TRUST_DSN_DIR` setting and the per-tenant `trust_rw` DSN files to Compose.
+- Open questions (owner): where the DSN files are provisioned (IL, `deploy/compose` is protected; OQ-09).
+- Files to read first: `cmd/core/payloadreader.go`, `cmd/core/recordpools.go` (`loginPools`).
+- Do not touch: `loginPools` without the three callers' tests.
