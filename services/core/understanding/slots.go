@@ -9,10 +9,10 @@ import (
 )
 
 // checkSlots holds each slot to the node and to the slot contract (intent-slot.v1): a slot the node does not name is refused, a slot of another type than the
-// node says is refused, and the contract's rules that a Go type cannot carry (RESOLVED if and only if there is a resolved_ref, a ratio in [0, 1], a non-negative
+// node says is refused, and the contract's rules that a Go type cannot carry (RESOLVED if and only if there is a resolved_ref, a confidence of 0 to 10000 basis points, a non-negative
 // integer amount in range, a currency or a pack unit, a window of two instants) are checked here. The shape (closed, no repeated member) was
 // checked when the object was decoded.
-func (g *Gate) checkSlots(o *contracts.IntentObjectV1, node Node, known bool, r *reasonSet) {
+func (g *Gate) checkSlots(o *contracts.IntentObjectV3, node Node, known bool, r *reasonSet) {
 	names := make([]string, 0, len(o.Slots))
 	for n := range o.Slots {
 		names = append(names, n)
@@ -51,8 +51,8 @@ func (g *Gate) checkSlots(o *contracts.IntentObjectV1, node Node, known bool, r 
 func slotValid(typ string, raw json.RawMessage) bool {
 	switch typ {
 	case "Resource":
-		var s contracts.IntentSlotV1ResourceSlot
-		if json.Unmarshal(raw, &s) != nil || s.Type != "Resource" || !statusOK(string(s.Status)) || !ratioPtr(s.Confidence) {
+		var s contracts.IntentSlotV2ResourceSlot
+		if json.Unmarshal(raw, &s) != nil || s.Type != "Resource" || !statusOK(string(s.Status)) || !basisPointsPtr(s.Confidence) {
 			return false
 		}
 		if s.CandidatesRef.Set && !s.CandidatesRef.Null && !candidateSetRe.MatchString(string(s.CandidatesRef.Value)) {
@@ -64,24 +64,24 @@ func slotValid(typ string, raw json.RawMessage) bool {
 		}
 		return !resolved || resourceRefRe.MatchString(string(*s.ResolvedRef))
 	case "Quantity":
-		var s contracts.IntentSlotV1QuantitySlot
-		if json.Unmarshal(raw, &s) != nil || s.Type != "Quantity" || !statusPtrOK(s.Status) || !ratioPtr(s.Confidence) {
+		var s contracts.IntentSlotV2QuantitySlot
+		if json.Unmarshal(raw, &s) != nil || s.Type != "Quantity" || !statusPtrOK(s.Status) || !basisPointsPtr(s.Confidence) {
 			return false
 		}
 		unit := string(s.Unit)
 		return int64(s.Value) >= 0 && int64(s.Value) <= maxSafeInt && (unit == "NGN" || packUnitRe.MatchString(unit))
 	case "Party":
-		var s contracts.IntentSlotV1PartySlot
-		return json.Unmarshal(raw, &s) == nil && s.Type == "Party" && s.SurfaceForm != "" && statusPtrOK(s.Status) && ratioPtr(s.Confidence)
+		var s contracts.IntentSlotV2PartySlot
+		return json.Unmarshal(raw, &s) == nil && s.Type == "Party" && s.SurfaceForm != "" && statusPtrOK(s.Status) && basisPointsPtr(s.Confidence)
 	case "TimeRef":
-		var s contracts.IntentSlotV1TimeRefSlot
-		if json.Unmarshal(raw, &s) != nil || s.Type != "TimeRef" || s.SurfaceForm == "" || !statusPtrOK(s.Status) || !ratioPtr(s.Confidence) {
+		var s contracts.IntentSlotV2TimeRefSlot
+		if json.Unmarshal(raw, &s) != nil || s.Type != "TimeRef" || s.SurfaceForm == "" || !statusPtrOK(s.Status) || !basisPointsPtr(s.Confidence) {
 			return false
 		}
 		return windowOK(s)
 	case "Reference":
-		var s contracts.IntentSlotV1ReferenceSlot
-		return json.Unmarshal(raw, &s) == nil && s.Type == "Reference" && s.Value != "" && statusPtrOK(s.Status) && ratioPtr(s.Confidence)
+		var s contracts.IntentSlotV2ReferenceSlot
+		return json.Unmarshal(raw, &s) == nil && s.Type == "Reference" && s.Value != "" && statusPtrOK(s.Status) && basisPointsPtr(s.Confidence)
 	}
 	return false
 }
@@ -90,11 +90,16 @@ func statusOK(s string) bool {
 	return s == "RESOLVED" || s == "UNRESOLVED" || s == "AMBIGUOUS" || s == "ABSENT"
 }
 
-func statusPtrOK(s *contracts.IntentSlotV1SlotStatus) bool { return s == nil || statusOK(string(*s)) }
+func statusPtrOK(s *contracts.IntentSlotV2SlotStatus) bool { return s == nil || statusOK(string(*s)) }
 
-func ratioPtr(n *contracts.CommonV1Ratio) bool { return n == nil || ratio(string(*n)) }
+// maxBasisPoints is 100 percent in basis points (ruling A173).
+const maxBasisPoints = 10000
 
-func windowOK(s contracts.IntentSlotV1TimeRefSlot) bool {
+func basisPointsPtr(n *contracts.IntentSlotV2BasisPoints) bool {
+	return n == nil || (*n >= 0 && *n <= maxBasisPoints)
+}
+
+func windowOK(s contracts.IntentSlotV2TimeRefSlot) bool {
 	if s.Window == nil {
 		return true
 	}
