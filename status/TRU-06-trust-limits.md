@@ -26,3 +26,16 @@ Date: 2026-11-14 · Owner: Core Engineer 1 (C1), prepared by a helper session; u
 - Open questions (owner): whether GOV-06 adopts 7000 and 2500 (Founders); the integer comparison for AT_RISK (remaining strictly under the share of the duration, `remaining * 10000 < duration * at_risk_bp`) is for the clock task to write and test.
 - Files to read first: `services/core/platform/trustlimits/README.md`, `contracts/schemas/trust-limits.v1.json`.
 - Do not touch: `contracts/schemas/intent-slot.v2.json`, the pack's intent-node `disambiguation` values.
+
+# Session 2026-11-15 · TRU-06 round for the Security Reviewer's re-read (noema#574, 06f99565)
+
+## Session summary
+- What changed (PR links): noema#574. (blocking 1) 0 is refused for both limits, by the loader and by the schema (`minimum: 1`; two new invalid fixtures `floor_zero` and `at_risk_zero`); (blocking 2) the accessors return `(int, error)` and refuse with `ErrNotLoaded` on a Limits that was not loaded; (note 3) `Label()` exposes SYNTHETIC or VALIDATED; (note 4) `Load` takes the pack it loads for and refuses a document of another pack; (note 6) `Error()` is the reason only, the decode cause stays behind `Unwrap`.
+- Why: the Security Reviewer's re-read: a pack file could switch both safety limits off and still report `Loaded()`, and the zero value of `Limits` was the most permissive value.
+- Risks, and how they are contained: 1 basis point is nearly off too; the least safe value is a ruling and needs the Architect (README, "Open"). No caller exists yet, so the signature changes break nothing. The generated models are unchanged (a sibling `minimum` next to `$ref` is a validator rule; the models were regenerated and are byte-identical).
+- Tests added (REQ-AMB-003, REQ-TRU-006, AGENT-16): zero refused; the zero Limits refuses; pack pin; label; error text; the two new fixtures. Seen failing first (CI red at `bba4d567`).
+- Regression cases added: `floor_zero.json`, `at_risk_zero.json`. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Trust steps read the limits with the error checked; the Architect rules the least safe values (then `platform/ceilings` carries them and `Load` refuses below them).
+- Note 5 (Trust refuses to start without the pack) cannot be tested before a Trust step reads the limits.

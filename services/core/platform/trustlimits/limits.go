@@ -1,10 +1,10 @@
 // Package trustlimits reads the two provisional limits the Trust steps use, from the pack's trust-limits.v1 document: the ambiguity absolute floor and the clock AT_RISK threshold
 // (TRU-06, REQ-AMB-003, REQ-TRU-006, AGENT-16; Architect ruling A205 Q1). Both are integer basis points (0 to 10000, A166). Both values are NON-CANONICAL until GOV-06 adopts them.
-// There is no default: a document that is not exactly the contract is an error, and the zero Limits reports that it is not loaded.
+// There is no default: a document that is not exactly the contract is an error, and the zero Limits is not loaded and its accessors refuse.
 //
 // May import: the standard library and internal/contracts.
 //
-// Must never: hold a threshold of its own, default a missing member, use a float, return a value with an error, or read the clock.
+// Must never: hold a threshold of its own, default a missing member, use a float, return a limit of a document it refused, quote the document in an error text, or read the clock.
 package trustlimits
 
 import (
@@ -15,9 +15,11 @@ import (
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
-// Both members are BasisPoints in trust-limits.v1: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints). The generated type does not check values, so Load does.
+// Both members are BasisPoints in trust-limits.v1: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints), and here from 1: 0 is refused, because a floor of 0
+// passes every candidate and an AT_RISK threshold of 0 means a clock is never AT_RISK, so a pack could switch a safety limit off (Security Reviewer on noema#574). The
+// generated type does not check values, so Load does. Which least value is safe is a ruling (the Architect); until it is made the only structural refusal is "off".
 const (
-	minBasisPoints = 0
+	minBasisPoints = 1
 	maxBasisPoints = 10000
 )
 
@@ -30,12 +32,8 @@ type Error struct {
 	Err    error
 }
 
-func (e *Error) Error() string {
-	if e.Err != nil {
-		return "trustlimits: " + e.Reason + ": " + e.Err.Error()
-	}
-	return "trustlimits: " + e.Reason
-}
+// Error is the reason only: a decode cause quotes the bad value, and an error text may be shown outside; the cause stays reachable through Unwrap.
+func (e *Error) Error() string { return "trustlimits: " + e.Reason }
 
 // Unwrap keeps the decode cause for errors.Is and errors.As.
 func (e *Error) Unwrap() error { return e.Err }
@@ -45,28 +43,42 @@ func refuse(reason string, cause error) *Error { return &Error{Reason: reason, E
 // Limits is the loaded document. Its zero value is not loaded.
 type Limits struct {
 	floor, atRisk int
+	label         string
 	loaded        bool
 }
 
 // ErrNotLoaded is returned by an accessor of a Limits that did not come from Load.
 var ErrNotLoaded = errors.New("trustlimits: the limits are not loaded")
 
-// Label is the document's label (SYNTHETIC or VALIDATED); empty when not loaded.
-func (l Limits) Label() string { return "" }
+// Label is the document's label (SYNTHETIC or VALIDATED): the values are provisional and NON-CANONICAL while it is SYNTHETIC (A205 Q1). Empty when not loaded.
+func (l Limits) Label() string { return l.label }
 
 // Loaded reports whether the Limits came from Load.
 func (l Limits) Loaded() bool { return l.loaded }
 
-// AmbiguityAbsoluteFloorBP is the least top score, in basis points, at which the auto-resolve rule may resolve (PERD v1.23 line 1772). It is 0 when not loaded; check Loaded first.
-func (l Limits) AmbiguityAbsoluteFloorBP() (int, error) { return l.floor, nil }
+// AmbiguityAbsoluteFloorBP is the least top score, in basis points, at which the auto-resolve rule may resolve (PERD v1.23 line 1772). A Limits that was not loaded
+// returns ErrNotLoaded, never a value: a zero would be the most permissive floor.
+func (l Limits) AmbiguityAbsoluteFloorBP() (int, error) {
+	if !l.loaded {
+		return 0, ErrNotLoaded
+	}
+	return l.floor, nil
+}
 
-// ClockAtRiskRemainingBP is the share of a clock's duration, in basis points, under which the clock is AT_RISK (PERD v1.23 line 2134). It is 0 when not loaded; check Loaded first.
-func (l Limits) ClockAtRiskRemainingBP() (int, error) { return l.atRisk, nil }
+// ClockAtRiskRemainingBP is the share of a clock's duration, in basis points, under which the clock is AT_RISK (PERD v1.23 line 2134). A Limits that was not loaded
+// returns ErrNotLoaded, never a value: a zero would mean a clock is never AT_RISK.
+func (l Limits) ClockAtRiskRemainingBP() (int, error) {
+	if !l.loaded {
+		return 0, ErrNotLoaded
+	}
+	return l.atRisk, nil
+}
 
 // packIDShape is the pattern of pack_id in trust-limits.v1.json. The generated type does not check patterns, so Load does (\z, not $).
 var packIDShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\z`)
 
-// Load reads one trust-limits.v1 document. Any deviation from the contract is a *Error and the returned Limits is the zero value.
+// Load reads one trust-limits.v1 document for the pack named by wantPackID (the pack the caller is loading for, never taken from the document). Any deviation from the
+// contract, a document of another pack included, is a *Error and the returned Limits is the zero value.
 func Load(r io.Reader, wantPackID string) (Limits, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxDocumentBytes+1))
 	if err != nil {
@@ -82,6 +94,9 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if !packIDShape.MatchString(d.PackId) {
 		return Limits{}, refuse("pack_id does not match the contract", nil)
 	}
+	if !packIDShape.MatchString(wantPackID) || d.PackId != wantPackID {
+		return Limits{}, refuse("the document is not the one of the pack asked for", nil)
+	}
 	floor, err := basisPoints("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp))
 	if err != nil {
 		return Limits{}, err
@@ -90,12 +105,12 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if err != nil {
 		return Limits{}, err
 	}
-	return Limits{floor: floor, atRisk: atRisk, loaded: true}, nil
+	return Limits{floor: floor, atRisk: atRisk, label: string(d.Label), loaded: true}, nil
 }
 
 func basisPoints(member string, v int64) (int, error) {
 	if v < minBasisPoints || v > maxBasisPoints {
-		return 0, refuse(member+" is outside basis points (an integer from 0 to 10000)", nil)
+		return 0, refuse(member+" is outside 1 to 10000 basis points (0 would switch the check off)", nil)
 	}
 	return int(v), nil
 }
