@@ -6,8 +6,9 @@ must produce each one exactly. Generated layer only: a held-out or partner case 
 """
 
 import asyncio
+import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import pytest
@@ -215,6 +216,78 @@ def test_a_subset_whose_contents_no_longer_match_its_header_is_refused_before_an
         with pytest.raises(ValueError, match="subset"):
             canary(Spy(), subset=subset)
         assert asked == [], f"{name}: a provider was called"
+
+
+def _digest_of(document: Any) -> str:
+    return "sha256:" + hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _subset_with(change: Callable[[dict[str, Any]], Any], *, rehash: bool = True) -> tuple[dict[str, Any], dict[str, Any]]:
+    """A subset (and the baseline taken on it) after `change`, with the digest recomputed so only the one rule under test is broken: the benchmark module's `subset_problems`
+    refuses each of these, and the canary must agree (noema#199 at its merge)."""
+    subset: dict[str, Any] = json.loads(json.dumps(SUBSET))
+    baseline: dict[str, Any] = json.loads(json.dumps(BASELINE))
+    change(subset)
+    if rehash:
+        subset["cases_sha256"] = _digest_of(subset["cases"])
+    baseline["cases_sha256"], baseline["subset_id"] = subset.get("cases_sha256", SUBSET["cases_sha256"]), subset.get("subset_id", SUBSET["subset_id"])
+    return subset, baseline
+
+
+def test_a_subset_the_benchmark_module_refuses_is_refused_by_the_canary_before_any_call() -> None:
+    asked: list[str] = []
+
+    class Spy:
+        async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+            asked.append(str(case.get("case_id")))
+            return CaseAnswer(slots={}, answered_by=PINNED["version"])
+
+    def not_an_object(s: dict[str, Any]) -> None:
+        s["cases"][0] = "x"
+
+    def ids_resorted(s: dict[str, Any]) -> None:
+        s["cases"].reverse()
+        s["case_ids"].reverse()
+
+    refused: dict[str, Callable[[dict[str, Any]], Any]] = {
+        "another schema": lambda s: s.update(schema="qualification-subset.v2"),
+        "no schema": lambda s: s.pop("schema"),
+        "a subset id with surrounding space": lambda s: s.update(subset_id=" qs-synthetic "),
+        "an empty subset id": lambda s: s.update(subset_id=""),
+        "a subset id that is not a string": lambda s: s.update(subset_id=7),
+        "n_cases a float equal to the count": lambda s: s.update(n_cases=float(len(s["cases"]))),
+        "n_cases a bool": lambda s: s.update(n_cases=True),
+        "a case with no case id": lambda s: s["cases"][0].pop("case_id"),
+        "a case id that is not a string": lambda s: s["cases"][0].update(case_id=5),
+        "a case document that is not an object": not_an_object,
+        "cases not a list": lambda s: s.update(cases={}),
+        "case ids that are not sorted": ids_resorted,
+        "a case twice": lambda s: (s["cases"].append(json.loads(json.dumps(s["cases"][-1]))), s["case_ids"].append(s["case_ids"][-1]), s.update(n_cases=len(s["cases"]))),
+        "no layer": lambda s: s.pop("layer"),
+        "no cases_sha256": lambda s: s.pop("cases_sha256"),
+    }
+    for name, change in refused.items():
+        rehash = name not in {"no cases_sha256", "cases not a list", "a case document that is not an object"}
+        subset, baseline = _subset_with(change, rehash=rehash)
+        with pytest.raises(ValueError):
+            canary(Spy(), subset=subset, baseline=baseline)
+        assert asked == [], f"{name}: a provider was called"
+
+
+def test_a_baseline_with_a_member_missing_is_refused_before_any_call_not_after_the_last() -> None:
+    asked: list[str] = []
+
+    class Spy:
+        async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+            asked.append(case["case_id"])
+            return CaseAnswer(slots={}, answered_by=PINNED["version"])
+
+    for member in ("subset_id", "cases_sha256", "pinned", "commit_sha", "cases"):
+        broken = json.loads(json.dumps(BASELINE))
+        broken.pop(member)
+        with pytest.raises(ValueError, match="baseline"):
+            canary(Spy(), baseline=broken)
+        assert asked == [], f"a baseline with no {member}: a provider was called"
 
 
 def test_a_baseline_that_does_not_cover_exactly_the_subset_is_refused() -> None:

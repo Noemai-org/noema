@@ -48,6 +48,8 @@ def test_records_are_read_from_a_directory_and_an_empty_directory_qualifies_noth
     q = GOLDEN["records"]["q"]
     assert check_model(load_records(tmp_path), q["provider"], q["model_id"], q["version"], "llm")
     (tmp_path / "r.json").write_text(json.dumps(q))
+    assert check_model(load_records(tmp_path), q["provider"], q["model_id"], q["version"], "llm")  # the bar names a baseline record, which must be in the directory too
+    (tmp_path / "baseline.json").write_text(json.dumps(GOLDEN["records"]["baseline"]))
     assert check_model(load_records(tmp_path), q["provider"], q["model_id"], q["version"], "llm") == []
 
 
@@ -69,6 +71,7 @@ def test_a_missing_records_directory_is_unreadable_not_empty(tmp_path: Path) -> 
 def test_require_qualified_names_every_refused_provider_not_only_the_first(tmp_path: Path) -> None:
     q = GOLDEN["records"]["q"]
     (tmp_path / "q.json").write_text(json.dumps(q))
+    (tmp_path / "baseline.json").write_text(json.dumps(GOLDEN["records"]["baseline"]))
     wanted = [
         ("llm", q["provider"], q["model_id"], q["version"]),
         ("llm", q["provider"], q["model_id"], "latest"),

@@ -17,12 +17,13 @@ from tests.support import FIXTURES
 GOLDEN: dict[str, Any] = json.loads((FIXTURES / "qualification" / "gate_golden.json").read_text())
 QUALIFIED = next(c for c in GOLDEN["lookups"] if c["name"] == "qualified")
 BASE: dict[str, Any] = copy.deepcopy(GOLDEN["records"][QUALIFIED["records"][0]])
+BASELINE: dict[str, Any] = GOLDEN["records"]["baseline"]  # the bar of the base record names it by digest: a lookup without it refuses, so every case here carries it
 WHO = (QUALIFIED["provider"], QUALIFIED["model_id"], QUALIFIED["version"], QUALIFIED["kind"])
 BAD_RATIOS: list[Any] = [math.nan, math.inf, -math.inf, True, False, "0.99", None, [], {}, 1.01, -0.01]
 
 
 def lookup(record: dict[str, Any]) -> list[str]:
-    return check_model([record], *WHO)
+    return check_model([record, BASELINE], *WHO)
 
 
 def test_the_base_record_is_allowed() -> None:
