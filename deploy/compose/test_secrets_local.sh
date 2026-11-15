@@ -39,4 +39,13 @@ rm "$work/secrets/tls/model-health.key"
 ( cd "$work" && sh secrets_local.sh >/dev/null )
 cmp -s "$work/model.key.first" "$work/secrets/tls/model.key" && fail "an incomplete mTLS set was not made again as a whole"
 openssl verify -CAfile "$work/secrets/tls/ca.crt" "$work/secrets/tls/model.crt" "$work/secrets/tls/core-client.crt" "$work/secrets/tls/model-health.crt" >/dev/null 2>&1 || fail "the certificates are not signed by the CA"
+# A relative target directory works (Codex P1 on noema#568): the files land under it, the CA key is not left behind and no work area remains.
+rel="$(mktemp -d)"
+( cd "$rel" && sh "$here/tls_local.sh" certs >/dev/null ) || fail "tls_local.sh failed with a relative directory"
+for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key; do
+  [ -s "$rel/certs/$f" ] || fail "a relative directory: certs/$f was not made"
+done
+[ ! -e "$rel/certs/ca.key" ] || fail "a relative directory: the CA's private key was left behind"
+[ -z "$(find "$rel" -name 'ca.key' -o -name '.work.*' | head -n 1)" ] || fail "a relative directory: a work area or a CA key remains"
+rm -rf "$rel"
 echo "secrets_local.sh: ok"

@@ -14,6 +14,10 @@ set -eu
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"
 here="$(cd "$(dirname "$0")" && pwd)"
 dir="${1:-$here/secrets/tls}"
+# An absolute path, made before anything changes directory: the work area below is entered with cd, and a relative target would then point inside it (Codex P1 on noema#568: the
+# copy failed and the trap left the CA's private key behind in the work area).
+mkdir -p "$dir"
+dir="$(cd "$dir" && pwd)"
 files="ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key"
 complete=1
 for f in $files; do
@@ -24,8 +28,8 @@ if [ "$complete" -eq 1 ]; then
 fi
 command -v openssl >/dev/null || { echo "tls_local.sh: openssl is required to make the local mTLS material" >&2; exit 2; }
 umask 077
-mkdir -p "$dir"
-chmod 755 "$dir"
+# The directory can be entered but not listed by other users (the containers run as unprivileged users that are not the owner and read the files by name).
+chmod 711 "$dir"
 rm -f $(for f in $files; do printf '%s ' "$dir/$f"; done)
 # The work area is inside the target directory and openssl is given only relative names from there, so no path is ever translated between a POSIX shell and a native openssl.
 work="$dir/.work.$$"
@@ -60,6 +64,8 @@ for n in model core-client model-health; do
   cp "$n.key" "$dir/$n.key"
 done
 cd "$dir"
-# The containers run as unprivileged users that are not the owner of these bind-mounted files, so they are readable, like the other local secret files (OD-P-22): the folder is git-ignored
-# and holds throwaway synthetic material.
+# The containers run as unprivileged users (uid 10001 in the model image) that are not the owner of these bind-mounted files, so the keys must be readable by others, like the other
+# local secret files (OD-P-22). That is the known limit of a bind mount: the folder is git-ignored, cannot be listed by other users (mode 711), and holds throwaway SYNTHETIC material
+# for a local or CI stack whose CA key is deleted above. A mode of 0600 would need the containers to run as the invoking user, or a one-shot step that writes into a volume owned
+# by them; neither is built here (noema#568, Security Reviewer's note c).
 chmod 644 "$dir"/*.crt "$dir"/*.key

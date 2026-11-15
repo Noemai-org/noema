@@ -146,6 +146,9 @@ services:
       NOEMA_MODEL_TLS_CA_FILE: /run/tls/ca.crt
       NOEMA_MODEL_TLS_CERT_FILE: /run/tls/core-client.crt
       NOEMA_MODEL_TLS_KEY_FILE: /run/tls/core-client.key
+      # The largest answer the core's client reads from the model service, in bytes: no default in the core (AGENT-16), so it is set here. 65536 is the value the Founders gave on
+      # 15 Nov 2026 (relayed, not yet in a decision record); the core refuses to build its client without it.
+      NOEMA_MODEL_MAX_RESPONSE_BYTES: "65536"
     secrets: [noema_core_password]
     volumes:
       - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro

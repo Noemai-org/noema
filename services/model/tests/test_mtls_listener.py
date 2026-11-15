@@ -118,7 +118,6 @@ def test_the_image_sets_the_tls_options_that_require_a_client_certificate() -> N
     for key in ("UVICORN_SSL_CERTFILE", "UVICORN_SSL_KEYFILE", "UVICORN_SSL_CA_CERTS"):
         assert env.get(key, "").startswith("/run/tls/"), f"{key} must name a file under /run/tls (file-mounted, never in the image)"
     text = DOCKERFILE.read_text()
-    assert "--ssl-cert-reqs" not in text or "UVICORN_SSL_CERT_REQS" in text
     assert re.search(r"(?m)^COPY .*\.(crt|key|pem)", text) is None, "no certificate or key may be copied into the image"
 
 
@@ -152,3 +151,20 @@ def test_there_is_no_plain_http_listener(listener: int) -> None:
             conn.getresponse().read()
     finally:
         conn.close()
+
+
+def test_the_service_does_not_start_when_its_certificate_files_are_missing(tmp_path: Path) -> None:
+    """The README says uvicorn refuses to start without the mounted files, so the service fails closed instead of serving plain HTTP (Security Reviewer's note d on noema#568)."""
+    env = {**os.environ, **dockerfile_env()}
+    for key in ("UVICORN_SSL_CERTFILE", "UVICORN_SSL_KEYFILE", "UVICORN_SSL_CA_CERTS"):
+        env[key] = str(tmp_path / "does-not-exist")
+    port = free_port()
+    proc = subprocess.run(
+        [sys.executable, "-m", "uvicorn", "noema_model.main:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=SERVICE, env=env, capture_output=True, timeout=60, check=False,
+    )
+    assert proc.returncode != 0, "uvicorn started without its certificate files"
+    with socket.socket() as s:
+        s.settimeout(0.3)
+        assert s.connect_ex(("127.0.0.1", port)) != 0, "something listens on the port although the service failed to start"
+
