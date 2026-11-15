@@ -70,6 +70,26 @@ class CompileWorkflow(unittest.TestCase):
         self.assertIn("Understanding: compile acceptance on synthetic golden examples, recorded live output", self.code)
         self.assertNotRegex(self.code, r"continue-on-error")
 
+    def test_the_dry_run_fails_when_its_runner_fails(self) -> None:
+        # Codex P2 on noema#569: `cmd | tee file` is a successful step under `set -eu` when cmd fails, so the paid job could proceed without a cost. pipefail makes the pipeline fail.
+        dry = job_block(self.code, "dry-run")
+        self.assertIn("set -euo pipefail", dry)
+        self.assertNotRegex(dry, r"(?m)^\s+set -eu$")
+
+    def test_the_manifest_reaches_the_step_summary_only_after_a_clean_scan(self) -> None:
+        # Codex P1 and the Security Reviewer's blocking 2 on noema#569: the summary is public like the artifact.
+        summary = re.search(r"(?ms)- name: Summary.*?(?=^      - name:)", self.code)
+        assert summary
+        cats = [line for line in summary.group(0).splitlines() if "manifest.json" in line and "cat " in line]
+        self.assertEqual(len(cats), 1)
+        self.assertIn('[ "$SCAN" = 0 ]', cats[0])
+
+    def test_the_checkouts_do_not_keep_the_repository_token(self) -> None:
+        # The run job holds the provider key and runs repository code: no stored token in .git/config (Security Reviewer's should-fix on noema#569).
+        checkouts = re.findall(r"uses: actions/checkout@\S+[^\n]*\n\s+with:\n\s+persist-credentials: false", self.code)
+        self.assertEqual(len(checkouts), len(re.findall(r"uses: actions/checkout@", self.code)))
+        self.assertEqual(len(checkouts), 2)
+
     def test_actions_are_pinned_by_commit_and_nothing_reads_the_heldout_set(self) -> None:
         for use in re.findall(r"uses: (\S+)", self.code):
             self.assertRegex(use, r"^[\w./-]+@[0-9a-f]{40}$", use)

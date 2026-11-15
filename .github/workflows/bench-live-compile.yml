@@ -55,6 +55,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
@@ -72,7 +74,7 @@ jobs:
           GITHUB_RUN: ${{ github.run_id }}
           PYTHONPATH: services/model:.
         run: |
-          set -eu
+          set -euo pipefail
           run_id="${GIVEN_RUN_ID:-compile-gh$GITHUB_RUN}"
           printf '%s' "$run_id" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' || { echo "run_id must match ^[A-Za-z0-9_.-]{1,64}$"; exit 2; }
           printf '%s' "$PACK_REF" | grep -Eq '^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$' || { echo "pack_ref must look like fin@1.0.0"; exit 2; }
@@ -91,6 +93,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
@@ -159,7 +163,9 @@ jobs:
               *) echo "Failed with exit code $CODE (2: bad input)." ;;
             esac
             case "$SCAN" in 0) echo "Leak scan: clean." ;; *) echo "**Leak scan did not pass (exit $SCAN): nothing is uploaded.**" ;; esac
-            [ -f out/compile-acceptance/recordings/manifest.json ] && { echo; echo '```json'; cat out/compile-acceptance/recordings/manifest.json; echo '```'; }
+            # The manifest is published only after a clean scan: the summary is public like the artifact, and a scan that found something must not leave the finding's text there.
+            if [ "$SCAN" = 0 ] && [ -f out/compile-acceptance/recordings/manifest.json ]; then echo; echo '```json'; cat out/compile-acceptance/recordings/manifest.json; echo '```'; fi
+            if [ "$SCAN" != 0 ]; then echo "The manifest and the recordings are not shown: the leak scan did not pass."; fi
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the recordings and the run record (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'
