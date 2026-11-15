@@ -360,3 +360,20 @@ def test_a_close_that_suppresses_cancellation_is_not_held_by_the_pipeline_for_ev
 
 
 CLOSE_ABANDONED_CODE = "VOI_AUDIO_CLOSE_ABANDONED"
+
+
+# ---- Codex on #474 at 26063034: weak-referenceability is a condition of the source, enforced at the boundary, not worked around with a timed strong reference ----
+
+
+def test_a_source_that_cannot_be_weakly_referenced_is_refused_at_the_boundary_and_still_closed() -> None:
+    source = Slotted()
+    with pytest.raises(TypeError, match="weak"):
+        weakref.ref(source)  # the precondition of the case
+
+    async def scenario() -> None:
+        with pytest.raises(TypeError, match="weak reference"):
+            await transcribe_utterance(Reader(), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.1, on_partial=lambda _: None)
+
+    run(asyncio.wait_for(scenario(), timeout=GUARD_S))
+    assert source.closed  # the call owns the source: it is released although it was refused
+    assert source.calls == 1  # and never read, so never retried
