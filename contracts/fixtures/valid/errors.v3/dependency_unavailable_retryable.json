@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "DEPENDENCY_UNAVAILABLE",
+    "message": "The service is not available. Please try again.",
+    "retryable": true,
+    "correlation_id": "corr_4c21f9"
+  }
+}

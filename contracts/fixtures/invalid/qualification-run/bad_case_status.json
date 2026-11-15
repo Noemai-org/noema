@@ -1,0 +1,67 @@
+{
+  "answered_versions": [
+    "2026-11-01"
+  ],
+  "baseline": {
+    "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+    "pinned": {
+      "kind": "llm",
+      "model_id": "decision-model-a",
+      "provider": "openai",
+      "version": "2026-10-15"
+    },
+    "sha256": "sha256:cc0694ef1a316f645b85d53b82c545b89ec9d7b356ad4d2c7f493aa637d8d10e"
+  },
+  "cases": [
+    {
+      "answered_by": "2026-11-01",
+      "case_id": "BEN-AMB-0001",
+      "differing_slots": [],
+      "expected_sha256": "sha256:47565c8c64471bd8874ac2b5670949289d00e5553fe7c65a2681a6b433df4e0e",
+      "observed_sha256": "sha256:47565c8c64471bd8874ac2b5670949289d00e5553fe7c65a2681a6b433df4e0e",
+      "status": "MAYBE",
+      "version_mismatch": false
+    },
+    {
+      "answered_by": "2026-11-01",
+      "case_id": "BEN-AMB-0002",
+      "differing_slots": [],
+      "expected_sha256": "sha256:7cad07a5d3f711c280db01336e3a53316db3ac32e5b26b43e2fac7e02f11c083",
+      "observed_sha256": "sha256:7cad07a5d3f711c280db01336e3a53316db3ac32e5b26b43e2fac7e02f11c083",
+      "status": "MATCH",
+      "version_mismatch": false
+    },
+    {
+      "answered_by": "2026-11-01",
+      "case_id": "BEN-CLEAN-0001",
+      "differing_slots": [],
+      "expected_sha256": "sha256:6eee790c205e53b2ad75e7eb90d2512553d79e28886dc4c0ac092761e5f42051",
+      "observed_sha256": "sha256:6eee790c205e53b2ad75e7eb90d2512553d79e28886dc4c0ac092761e5f42051",
+      "status": "MATCH",
+      "version_mismatch": false
+    },
+    {
+      "answered_by": "2026-11-01",
+      "case_id": "BEN-CLEAN-0002",
+      "differing_slots": [],
+      "expected_sha256": "sha256:1b18f3209c0ac5c85c22c168b8e8f6ab80f7f1ca3e9580eeac09a3d2a30ebe2e",
+      "observed_sha256": "sha256:1b18f3209c0ac5c85c22c168b8e8f6ab80f7f1ca3e9580eeac09a3d2a30ebe2e",
+      "status": "MATCH",
+      "version_mismatch": false
+    }
+  ],
+  "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+  "commit_sha": "0123456789abcdef0123456789abcdef01234567",
+  "layer": "GENERATED",
+  "n_cases": 4,
+  "pinned": {
+    "kind": "llm",
+    "model_id": "decision-model-a",
+    "provider": "openai",
+    "version": "2026-11-01"
+  },
+  "recorded_on": "2026-11-06",
+  "result": "PASS",
+  "schema": "qualification-run.v1",
+  "subset_id": "qs-test"
+}

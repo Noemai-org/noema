@@ -1,0 +1,20 @@
+{
+  "account_number_in_found.json": "pattern",
+  "arabic_indic_digits_in_found.json": "pattern",
+  "bracketed_digits_in_found.json": "pattern",
+  "case_ref_unmasked.json": "pattern",
+  "confidence_member.json": "additionalProperties",
+  "dot_separated_digits_in_found.json": "pattern",
+  "fullwidth_digits_in_found.json": "pattern",
+  "missing_next.json": "required",
+  "newline_separated_digits_in_found.json": "pattern",
+  "no_break_space_and_dash_digits_in_found.json": "pattern",
+  "reason_codes_member.json": "additionalProperties",
+  "separated_digits_in_found.json": "pattern",
+  "several_separators_between_digits_in_found.json": "pattern",
+  "slash_separated_digits_in_found.json": "pattern",
+  "soft_hyphen_digits_in_found.json": "pattern",
+  "tab_separated_digits_in_found.json": "pattern",
+  "too_many_found.json": "maxItems",
+  "verified_not_boolean.json": "type"
+}
