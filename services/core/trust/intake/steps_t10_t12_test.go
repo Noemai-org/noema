@@ -235,7 +235,7 @@ func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
 // SR blocking finding on noema#570 (INV-16, REQ-RES-001, "unknown means refuse or hand to the team"): a classification that says the state is contradictory, the outcome
 // is unknown, a duplicate is possible, the event order is uncertain or the evidence is insufficient, or a value that is not a classification at all, never goes on just
 // because the pack mapped nothing. The pack may add escalations; it is not the only thing between a contradiction and an ALLOW. The step fails closed (UNKNOWN).
-// This is the provisional safer reading (AGENT-20) of which classifications may go on unmapped; the Architect confirms or changes the two sets.
+// The split into the two sets is accepted by ruling A218 (relayed: not on docs main yet).
 func TestT10AClassificationThatMustNotGoOnFailsClosedWhenThePackMapsNothing(t *testing.T) {
 	for _, c := range []reconcile.Classification{reconcile.ContradictoryState, reconcile.ExecutionOutcomeUnknown, reconcile.PossibleDuplicate, reconcile.EventOrderUncertain,
 		reconcile.InsufficientEvidence, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
