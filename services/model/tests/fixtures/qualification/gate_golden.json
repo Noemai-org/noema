@@ -334,6 +334,62 @@
   },
   {
    "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): pass_k.rate.rate 0.905 is not k/n rounded (0.904762 for k=38, n=42)"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "q_three_places",
+   "provider": "openai",
+   "records": [
+    "q_three_places",
+    "baseline"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: drift/result: 'MAYBE' is not one of ['PASS', 'DRIFT', 'PROVIDER_UNAVAILABLE']"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "nq_drift_result_unknown",
+   "provider": "openai",
+   "records": [
+    "nq_drift_result_unknown",
+    "baseline"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: runs: [{'run_id': 'run_report', 'scorecard_sha256': 'sha256:77ef47c10de46e03e36fb5d28519408668aa36f55ce56994e3dcb9d6eeaac354', 'complete': True, 'tier0_all_zero': Fal"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "nq_six_runs_pass_k_unavailable",
+   "provider": "openai",
+   "records": [
+    "nq_six_runs_pass_k_unavailable",
+    "baseline"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: pass_k/rate: {'k': 36, 'n': 40, 'rate': 1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000; pass_k.rate.rate 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 must be a finite number between 0 and 1; pass_k.rate.rate 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 is not k/n rounded (0.9 for k=36, n=40); verdict is QUALIFIED but the pass^k rate 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 is not a finite number between 0 and 1"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "rate_huge_int",
+   "provider": "openai",
+   "records": [
+    "rate_huge_int",
+    "baseline"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
     "openai/decision-model-a@2026-11-01: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): record is missing context_sha256, pass_k_cases_sha256, runs"
    ],
    "kind": null,
@@ -823,6 +879,44 @@
    "version": "2026-11-01"
   },
   {
+   "expected": [],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "six_places_rate_is_accepted",
+   "provider": "openai",
+   "records": [
+    "q_six_places",
+    "baseline"
+   ],
+   "version": "2026-11-01"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-10-15: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: bar/floor: 1000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000; bar.floor 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 must be a finite number between 0 and 1; verdict is QUALIFIED but the pass^k bar 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 is not a finite number between 0 and 1"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "floor_huge_int",
+   "provider": "openai",
+   "records": [
+    "floor_huge_int"
+   ],
+   "version": "2026-10-15"
+  },
+  {
+   "expected": [
+    "openai/decision-model-a@2026-10-15: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): contract: bar/floor: True is not valid under any of the given schemas; bar.floor True must be a finite number between 0 and 1; verdict is QUALIFIED but the pass^k bar True is not a finite number between 0 and 1"
+   ],
+   "kind": null,
+   "model_id": "decision-model-a",
+   "name": "first_floor_is_a_bool_qualified",
+   "provider": "openai",
+   "records": [
+    "first_floor_is_a_bool_qualified"
+   ],
+   "version": "2026-10-15"
+  },
+  {
    "expected": [
     "openai/decision-model-a@2026-10-15: an invalid qualification record exists for this identity, so the lookup refuses (fail closed): bar.floor and bar.floor_source come together: a Founder-set floor names the decision record that set it, and a source with no floor is meaningless"
    ],
@@ -931,7 +1025,7 @@
   },
   {
    "expected": [
-    "openai/decision-model-a@2026-11-01: the bar of the latest record cannot be trusted, so the lookup refuses (fail closed): the baseline record sha256:75055cdb1394900c94ba97fe9c06689d95f8607760db137803df36e6982d312a is invalid: verdict is QUALIFIED but this is a re-qualification (the drift run compares the version with another version) and it has no baseline pass^k: the first-qualification floor is for a first qualification only (A43 of DEC-2026-11-08-rulings-a41-onward)"
+    "openai/decision-model-a@2026-11-01: the bar of the latest record cannot be trusted, so the lookup refuses (fail closed): the baseline record is for version 2026-09-01, not the version the drift run compared against (2026-10-15)"
    ],
    "kind": null,
    "model_id": "decision-model-a",
@@ -1776,7 +1870,7 @@
    "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
    "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
    "drift": {
-    "baseline_version": "2026-10-15",
+    "baseline_version": "2026-09-01",
     "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
     "result": "PASS",
     "run_sha256": "sha256:6541eb75f4071083e8d06b9188ac11aa36315bc2d98831bf4f2a32047c153aa3",
@@ -2848,6 +2942,83 @@
    "verdict": "QUALIFIED",
    "version": "2026-10-15"
   },
+  "first_floor_is_a_bool_qualified": {
+   "bar": {
+    "baseline_pass_k": null,
+    "baseline_record_sha256": null,
+    "floor": true,
+    "floor_source": "DEC-2026-11-08-floor"
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:6541eb75f4071083e8d06b9188ac11aa36315bc2d98831bf4f2a32047c153aa3",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 40,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 40,
+     "n": 40,
+     "rate": 1.0
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:a7812b139d66f2c0e765377d36bc21a8c29a86b302c575c2bcfa851c160e1c46",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:c314141c44038854ab8fa3b3ad601a31dadbeb5a24740a22dab2231b8c1a599a",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:6f826c152be8088bca28bb9f60b503a0fb6b90f1b3cc292e86c61342759b11cc",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:8862fc18212205d89f19fef798a842b32a8872fa22b28815ff4db1e6b796179d",
+     "tier0_all_zero": true
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-10-15"
+  },
   "first_under_40_cases_qualified": {
    "bar": {
     "baseline_pass_k": null,
@@ -3008,6 +3179,83 @@
     "baseline_record_sha256": null,
     "floor": 0.9,
     "floor_source": "  "
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:6541eb75f4071083e8d06b9188ac11aa36315bc2d98831bf4f2a32047c153aa3",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 40,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 36,
+     "n": 40,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:a7812b139d66f2c0e765377d36bc21a8c29a86b302c575c2bcfa851c160e1c46",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:c314141c44038854ab8fa3b3ad601a31dadbeb5a24740a22dab2231b8c1a599a",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:6f826c152be8088bca28bb9f60b503a0fb6b90f1b3cc292e86c61342759b11cc",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:8862fc18212205d89f19fef798a842b32a8872fa22b28815ff4db1e6b796179d",
+     "tier0_all_zero": true
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-10-15"
+  },
+  "floor_huge_int": {
+   "bar": {
+    "baseline_pass_k": null,
+    "baseline_record_sha256": null,
+    "floor": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000,
+    "floor_source": "DEC-2026-11-08-floor"
    },
    "complete": true,
    "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
@@ -3401,6 +3649,90 @@
    "verdict": "NOT_QUALIFIED",
    "version": "2026-11-01"
   },
+  "nq_drift_result_unknown": {
+   "bar": {
+    "baseline_pass_k": 0.9,
+    "baseline_record_sha256": "sha256:c3d3b5142a4ef626979f95e88bc10f540b3c602b77674057de43716c36b82dee",
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "MAYBE",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 40,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 36,
+     "n": 40,
+     "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-07",
+   "reasons": [
+    "run run_report: a Tier 0 gate is not at zero",
+    "run run_repeat_2: a Tier 0 gate is not at zero",
+    "run run_repeat_3: a Tier 0 gate is not at zero",
+    "run run_repeat_4: a Tier 0 gate is not at zero",
+    "run run_repeat_5: a Tier 0 gate is not at zero",
+    "a Tier 0 gate is not at zero"
+   ],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:77ef47c10de46e03e36fb5d28519408668aa36f55ce56994e3dcb9d6eeaac354",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:304ae8324f034f04e26b094c4d5e7f87bf9f53cf34caeef62b2a2c0cc07eae4d",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:9d346282c7471fd89174524af7a7c26b9f4f3e87139b0c71d260028b3c2bc446",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:bf5bf2b3169b388bb365334b663eedb54d4e6c4f1495f672eb59e1f1fce5ad94",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:0ef4f87c0778957c9298d6274e0d99f33519763ce8489297648e0efa566bb5d3",
+     "tier0_all_zero": false
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:77ef47c10de46e03e36fb5d28519408668aa36f55ce56994e3dcb9d6eeaac354",
+   "tier0_all_zero": false,
+   "verdict": "NOT_QUALIFIED",
+   "version": "2026-11-01"
+  },
   "nq_early": {
    "bar": {
     "baseline_pass_k": 0.9,
@@ -3476,6 +3808,92 @@
      "complete": true,
      "run_id": "run_repeat_5",
      "scorecard_sha256": "sha256:0ef4f87c0778957c9298d6274e0d99f33519763ce8489297648e0efa566bb5d3",
+     "tier0_all_zero": false
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:77ef47c10de46e03e36fb5d28519408668aa36f55ce56994e3dcb9d6eeaac354",
+   "tier0_all_zero": false,
+   "verdict": "NOT_QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "nq_six_runs_pass_k_unavailable": {
+   "bar": {
+    "baseline_pass_k": 0.9,
+    "baseline_record_sha256": "sha256:c3d3b5142a4ef626979f95e88bc10f540b3c602b77674057de43716c36b82dee",
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 40,
+   "pass_k": {
+    "available": false,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": null,
+    "reason": "not run",
+    "runs_supplied": 1
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-07",
+   "reasons": [
+    "run run_report: a Tier 0 gate is not at zero",
+    "run run_repeat_2: a Tier 0 gate is not at zero",
+    "run run_repeat_3: a Tier 0 gate is not at zero",
+    "run run_repeat_4: a Tier 0 gate is not at zero",
+    "run run_repeat_5: a Tier 0 gate is not at zero",
+    "a Tier 0 gate is not at zero"
+   ],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:77ef47c10de46e03e36fb5d28519408668aa36f55ce56994e3dcb9d6eeaac354",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:304ae8324f034f04e26b094c4d5e7f87bf9f53cf34caeef62b2a2c0cc07eae4d",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:9d346282c7471fd89174524af7a7c26b9f4f3e87139b0c71d260028b3c2bc446",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:bf5bf2b3169b388bb365334b663eedb54d4e6c4f1495f672eb59e1f1fce5ad94",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:0ef4f87c0778957c9298d6274e0d99f33519763ce8489297648e0efa566bb5d3",
+     "tier0_all_zero": false
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_6",
+     "scorecard_sha256": "sha256:304ae8324f034f04e26b094c4d5e7f87bf9f53cf34caeef62b2a2c0cc07eae4d",
      "tier0_all_zero": false
     }
    ],
@@ -4299,7 +4717,7 @@
   "q_baseline_other_version": {
    "bar": {
     "baseline_pass_k": 0.9,
-    "baseline_record_sha256": "sha256:75055cdb1394900c94ba97fe9c06689d95f8607760db137803df36e6982d312a",
+    "baseline_record_sha256": "sha256:41a2ca0daf3f0f59ba1f601215276277faf1b44597aaa76768f9eaf1e09026b0",
     "floor": null,
     "floor_source": null
    },
@@ -4758,6 +5176,160 @@
    "verdict": "QUALIFIED",
    "version": "2026-11-01"
   },
+  "q_six_places": {
+   "bar": {
+    "baseline_pass_k": 0.9,
+    "baseline_record_sha256": "sha256:c3d3b5142a4ef626979f95e88bc10f540b3c602b77674057de43716c36b82dee",
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 42,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 38,
+     "n": 42,
+     "rate": 0.904762
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:8443b106e68281a9e040bf51f67bdb7d0fedeeffb030546507aee4f94e327735",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:896dc7f2f8ec4e49c6d7d636657104d10915a5b1386d076b344ffc13e38e1e83",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:24f170f2e94217212270bf03660e0bce39698bfc36d0c982ae6943383c771414",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:9f0c319f75f4a0e79bd39a1ff6108b9cc45a919a6af0a1de62dd82eeeff778d9",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:e53af9fb7eb13066dd10942a808a5b6f1f90c95a6c5d1e649c5d4696f26db395",
+     "tier0_all_zero": true
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:8443b106e68281a9e040bf51f67bdb7d0fedeeffb030546507aee4f94e327735",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "q_three_places": {
+   "bar": {
+    "baseline_pass_k": 0.9,
+    "baseline_record_sha256": "sha256:c3d3b5142a4ef626979f95e88bc10f540b3c602b77674057de43716c36b82dee",
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 42,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 38,
+     "n": 42,
+     "rate": 0.905
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:8443b106e68281a9e040bf51f67bdb7d0fedeeffb030546507aee4f94e327735",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:896dc7f2f8ec4e49c6d7d636657104d10915a5b1386d076b344ffc13e38e1e83",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:24f170f2e94217212270bf03660e0bce39698bfc36d0c982ae6943383c771414",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:9f0c319f75f4a0e79bd39a1ff6108b9cc45a919a6af0a1de62dd82eeeff778d9",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:e53af9fb7eb13066dd10942a808a5b6f1f90c95a6c5d1e649c5d4696f26db395",
+     "tier0_all_zero": true
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:8443b106e68281a9e040bf51f67bdb7d0fedeeffb030546507aee4f94e327735",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
   "rate_bool_count": {
    "bar": {
     "baseline_pass_k": 0.9,
@@ -4943,6 +5515,83 @@
      "k": 36,
      "n": 40,
      "rate": 0.9
+    },
+    "reason": null,
+    "runs_supplied": 5
+   },
+   "pass_k_cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+   "provider": "openai",
+   "qualified_on": "2026-11-06",
+   "reasons": [],
+   "run_id": "run_report",
+   "runs": [
+    {
+     "complete": true,
+     "run_id": "run_report",
+     "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_2",
+     "scorecard_sha256": "sha256:a7812b139d66f2c0e765377d36bc21a8c29a86b302c575c2bcfa851c160e1c46",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_3",
+     "scorecard_sha256": "sha256:c314141c44038854ab8fa3b3ad601a31dadbeb5a24740a22dab2231b8c1a599a",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_4",
+     "scorecard_sha256": "sha256:6f826c152be8088bca28bb9f60b503a0fb6b90f1b3cc292e86c61342759b11cc",
+     "tier0_all_zero": true
+    },
+    {
+     "complete": true,
+     "run_id": "run_repeat_5",
+     "scorecard_sha256": "sha256:8862fc18212205d89f19fef798a842b32a8872fa22b28815ff4db1e6b796179d",
+     "tier0_all_zero": true
+    }
+   ],
+   "schema": "qualification-record.v1",
+   "scorecard_sha256": "sha256:b49aab0d73c37d81c9d25dadf161d49e8751d54b0973d63af5e00683cb07ce2e",
+   "tier0_all_zero": true,
+   "verdict": "QUALIFIED",
+   "version": "2026-11-01"
+  },
+  "rate_huge_int": {
+   "bar": {
+    "baseline_pass_k": 0.9,
+    "baseline_record_sha256": "sha256:c3d3b5142a4ef626979f95e88bc10f540b3c602b77674057de43716c36b82dee",
+    "floor": null,
+    "floor_source": null
+   },
+   "complete": true,
+   "context_sha256": "sha256:ba3f20275e9ee07c9d38332669c87563d6944b9ca22d11cca2f2f42648b0db08",
+   "decision_record": "DEC-2026-11-06-qualify-decision-model-a",
+   "drift": {
+    "baseline_version": "2026-10-15",
+    "cases_sha256": "sha256:dd852131f6266c992222b61f0b8f62af83afce2efdcf9917efd06c5cede74036",
+    "result": "PASS",
+    "run_sha256": "sha256:8ba253e487ca88d64fe738d1e63ebeb48aad7989b926a32d3770137e017cc8ba",
+    "subset_id": "qs-test"
+   },
+   "kind": "llm",
+   "model_id": "decision-model-a",
+   "n_cases": 40,
+   "pass_k": {
+    "available": true,
+    "failing_cases": [
+     "BEN-1-0001"
+    ],
+    "k_required": 5,
+    "rate": {
+     "k": 36,
+     "n": 40,
+     "rate": 10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
     },
     "reason": null,
     "runs_supplied": 5

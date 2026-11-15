@@ -20,6 +20,7 @@ from typing import Any, Protocol
 from noema_model.qualification.gate import KINDS, is_pinned
 
 RUN_SCHEMA = "qualification-run.v1"
+SUBSET_SCHEMA = "qualification-subset.v1"
 LAYER = "GENERATED"
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
@@ -93,21 +94,60 @@ def _result(statuses: list[str]) -> str:
     return "PROVIDER_UNAVAILABLE" if "UNAVAILABLE" in statuses else "PASS"
 
 
+def _subset_problems(subset: Mapping[str, Any]) -> list[str]:
+    """Why a loaded subset is not the one the benchmark module's `select_subset` would build from its own case documents (`subset_problems`, noema#199 at its merge). A shortened `case_ids` and
+    `n_cases` under the original `cases` and `cases_sha256` would otherwise let a one-case PASS carry the full subset's digest. The ids, the count, the case documents and the recomputed digest
+    must agree. Not checked here: that each case is understanding-dependent (the benchmark's own family list decides it, and the model service does not hold that list): the subset is selected
+    by the benchmark module, and this check only refuses a subset that is not what was selected."""
+    missing = [f for f in ("schema", "subset_id", "layer", "n_cases", "case_ids", "cases_sha256", "cases") if f not in subset]
+    if missing:
+        return [f"the subset is missing {', '.join(missing)}"]
+    out: list[str] = []
+    if subset["schema"] != SUBSET_SCHEMA:
+        out.append(f"subset schema must be {SUBSET_SCHEMA}, not {subset['schema']!r}")
+    if subset["layer"] != LAYER:
+        out.append(f"subset layer must be {LAYER}, not {subset['layer']!r}")
+    if not isinstance(subset["subset_id"], str) or not subset["subset_id"] or subset["subset_id"] != subset["subset_id"].strip():
+        out.append("subset_id must be a non-empty string without surrounding space")
+    docs, ids = subset["cases"], subset["case_ids"]
+    if not isinstance(docs, list) or not isinstance(ids, list) or not all(isinstance(c, Mapping) for c in docs):
+        return out + ["subset cases and case_ids must be lists, and every case a document"]
+    doc_ids = [c.get("case_id") for c in docs]
+    if not all(isinstance(i, str) and i for i in doc_ids):
+        out.append("every case document needs a non-empty string case_id")
+    out += [f"case {i!r} appears twice in the subset's case documents" for i in sorted({x for x in doc_ids if isinstance(x, str) and doc_ids.count(x) > 1})]
+    if ids != doc_ids:
+        out.append("case_ids are not the ids of the case documents, in order: a subset's id list must be exactly the documents it carries")
+    if ids != sorted(ids, key=str):
+        out.append("case_ids are not sorted")
+    if type(subset["n_cases"]) is not int or subset["n_cases"] != len(docs):
+        out.append(f"n_cases is {subset['n_cases']!r} but the subset carries {len(docs)} case documents")
+    if subset["cases_sha256"] != _digest(docs):
+        out.append("cases_sha256 is not the digest of the subset's case documents: the digest, the documents and the id list must agree")
+    return out
+
+
 def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: Mapping[str, Any]) -> None:
-    if subset.get("layer") != LAYER or any(c.get("suite_layer") != LAYER for c in subset["cases"]):
+    cases = subset.get("cases")
+    if subset.get("layer") != LAYER or (isinstance(cases, list) and any(isinstance(c, Mapping) and c.get("suite_layer") != LAYER for c in cases)):
         raise ValueError("the subset holds a case outside the GENERATED layer; held-out and partner cases never reach the model service (INV-22)")
-    cases = subset["cases"]
-    if not cases:
+    if isinstance(cases, list) and not cases:
         raise ValueError("the subset is empty: an empty qualification suite is not a clean canary")
-    ids = [c["case_id"] for c in cases]
-    if subset["case_ids"] != ids or ids != sorted(ids) or len(set(ids)) != len(ids) or subset["n_cases"] != len(cases) or subset["cases_sha256"] != _digest(cases):
-        raise ValueError("the subset does not match its own header (case_ids, n_cases or cases_sha256): it was truncated or edited")
+    problems = _subset_problems(subset)
+    if problems:
+        raise ValueError("the subset is not consistent: " + "; ".join(problems))
+    ids = [c["case_id"] for c in subset["cases"]]
+    absent = [m for m in ("subset_id", "cases_sha256", "pinned", "commit_sha", "cases") if m not in baseline]
+    if absent:
+        raise ValueError(f"the baseline is missing {', '.join(absent)}")
+    if not isinstance(baseline["pinned"], Mapping) or not isinstance(baseline["cases"], Mapping) or not all(isinstance(baseline["pinned"].get(n), str) for n in ("kind", "provider", "model_id", "version")):
+        raise ValueError("the baseline's pinned identity and cases must be objects, and the identity must name a kind, provider, model and version")
     if set(baseline["cases"]) != set(ids):
         raise ValueError("the baseline does not cover exactly the cases of the subset")
     if not is_pinned(baseline["pinned"].get("version")):
         raise ValueError("the baseline does not name a pinned version (a floating alias is not a baseline)")
     for case_id, entry in baseline["cases"].items():
-        if not isinstance(entry.get("slots"), dict) or entry.get("slots_sha256") != _digest(entry["slots"]):
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("slots"), dict) or entry.get("slots_sha256") != _digest(entry["slots"]):
             raise ValueError(f"the baseline for {case_id} does not match its own slots_sha256: it was edited or truncated")
     if baseline["subset_id"] != subset["subset_id"] or baseline["cases_sha256"] != subset["cases_sha256"]:
         raise ValueError("the baseline was taken on a different subset than this one (subset_id or cases_sha256 differ)")

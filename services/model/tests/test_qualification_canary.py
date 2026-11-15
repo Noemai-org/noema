@@ -242,6 +242,10 @@ def test_a_subset_the_benchmark_module_refuses_is_refused_by_the_canary_before_a
             asked.append(str(case.get("case_id")))
             return CaseAnswer(slots={}, answered_by=PINNED["version"])
 
+    def empty_id(s: dict[str, Any]) -> None:
+        s["cases"][0]["case_id"] = ""
+        s["case_ids"][0] = ""
+
     def not_an_object(s: dict[str, Any]) -> None:
         s["cases"][0] = "x"
 
@@ -259,6 +263,7 @@ def test_a_subset_the_benchmark_module_refuses_is_refused_by_the_canary_before_a
         "n_cases a bool": lambda s: s.update(n_cases=True),
         "a case with no case id": lambda s: s["cases"][0].pop("case_id"),
         "a case id that is not a string": lambda s: s["cases"][0].update(case_id=5),
+        "a case id that is the empty string in the documents and the id list": empty_id,
         "a case document that is not an object": not_an_object,
         "cases not a list": lambda s: s.update(cases={}),
         "case ids that are not sorted": ids_resorted,
@@ -269,7 +274,7 @@ def test_a_subset_the_benchmark_module_refuses_is_refused_by_the_canary_before_a
     for name, change in refused.items():
         rehash = name not in {"no cases_sha256", "cases not a list", "a case document that is not an object"}
         subset, baseline = _subset_with(change, rehash=rehash)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="INV-22|the subset is not consistent"):  # the subset's own check, not a later one that happens to refuse the baseline
             canary(Spy(), subset=subset, baseline=baseline)
         assert asked == [], f"{name}: a provider was called"
 

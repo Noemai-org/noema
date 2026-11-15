@@ -29,3 +29,19 @@
 - Tests added (REQ-INT-006, AGENT-28): `tests/test_qualification_gate_malformed.py` (eleven bad rates, ten bad floors and baselines, trailing newline, four unhashable or non-string reasons) and the canary deadline cases. Red first (commit 89af9249).
 - Not done: the same weakness is said to exist in the benchmark module (noema#199, Benchmark Owner's code): reported by relay issue. Wiring `require_qualified` into start-up is the next slice. Per-case reasons for UNAVAILABLE are a later change.
 - Debt entries: none. Conflicts raised: none.
+
+# Session 2026-11-15 · UND-13 (C2 half) · the port to the final record of noema#199
+
+## Session summary
+- What changed (PR noema#215): `gate.py` and `canary.py` follow `benchmark/qualification/record.py` and `run.py` as merged in noema#199 (see the README of `noema_model/qualification`). The golden fixture `gate_golden.json` was regenerated from the benchmark module's own `build_record` and `check_model` (84 lookups over 82 SYNTHETIC records; the old fixture had 24 over 14).
+- Why: noema#199 added `runs`, the `floor`/`floor_source` pair, the baseline lineage by digest, the 40-case minimum, the scoring context, `pass_k_cases_sha256`, and the rate rules; the gate here mirrored the older A17 record.
+- Risks, and how they are contained: the contract is checked by hand (no validator, AGENT-14); the differential test and 40 hand mutants (all killed, one equivalent) hold the two modules together; stricter than the schema only where a float is not an integer.
+- Tests added (REQ-INT-006, AGENT-28, REQ-BEN-009): the golden differential (84 lookups), the canary's subset and baseline consistency tests.
+- Regression cases added: a revoking record of an invalid kind still refuses; an A17-shaped record (no `runs`) refuses; a bar whose baseline record is missing, invalid, another model or version, or measured in another context refuses.
+- Debt: not ported: the understanding-dependent check of subset cases (the benchmark's family list is not in this service).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: wire `require_qualified` and `run_canary` into the service's start-up (the rest of UND-13's done-when); records live in `benchmark/qualification/records/`.
+- Files to read first: `noema_model/qualification/README.md`, `gate.py`.
+- Do not touch: `benchmark/qualification/records/` (CODEOWNERS).
