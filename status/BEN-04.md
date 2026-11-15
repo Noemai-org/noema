@@ -52,13 +52,13 @@ noema-casegen 1.3.3 seed 20261020: 320 cases written to <out2> (manifest sha256:
 
 ## The twelve kinds the BEN-04 row names, mapped to what the generator has
 
-The mapping is **mine** (archetype names are the goal prefix of each case); a deciding reviewer should confirm each row, especially the third and sixth, where the plan's wording and the archetype names are not identical.
+The mapping is **mine** (archetype names are the goal prefix of each case); a deciding reviewer should confirm each row. Corrected after C2's read: row 3 holds only the two `tmo near timeout` archetypes (2 cases), so no case is counted under two kinds in rows 3 and 6; the plan's "switch timeout" is thinly covered (2 cases) and the deciders should say whether that is enough. The other rows were not re-read by a second reader.
 
 | BEN-04 kind | Archetypes used | Cases | First ids |
 |---|---|---|---|
 | two Tundes | amb two name; amb three similar names | 4 | BEN-AMB-0001, BEN-AMB-0019, BEN-AMB-0002 |
 | duplicate amount and recipient | amb three same amount; state possible duplicate | 4 | BEN-AMB-0003, BEN-AMB-0021, BEN-STATE-0008 |
-| switch timeout | state switch failed credited; tmo near timeout after; tmo near timeout before | 5 | BEN-STATE-0002, BEN-STATE-0022, BEN-STATE-0042 |
+| switch timeout | tmo near timeout after; tmo near timeout before | 2 | (the two `tmo near timeout` archetypes; "state switch failed credited" is a contradiction, not a timeout, and is row 6's only, per C2's read) |
 | unowned transaction | auth unowned transaction; auth other by name | 4 | BEN-AUTH-0001, BEN-AUTH-0020, BEN-AUTH-0002 |
 | timeout after commit | tmo commit then drop; tmo 5xx after commit; tmo dropped response | 6 | BEN-TMO-0001, BEN-TMO-0018, BEN-TMO-0005 |
 | contradictory destination credit | state failed debit credited; state switch failed credited; amb contradiction | 9 | BEN-DUP-1007, BEN-STATE-0003, BEN-STATE-0023 |
