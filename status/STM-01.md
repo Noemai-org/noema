@@ -87,6 +87,11 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Conflicts raised: none. Found on the way: noema#465 required common.v1's `req_` form for the request ID where the gateway records a UUID (canonical-input.v2); fixed in noema#465 at `186ae004`.
 
 
+### Update 2026-11-14 · the orchestrator's Recorder constructor (the Founder's order of 14 Nov; rulings A202 and A204, relayed, not yet committed)
+- `cmd/core/recorder.go`: `buildRecorder` reads `NOEMA_ORCHESTRATOR_DSN_DIR` (one file per tenant: the tenant's `core-workflows` login), `NOEMA_ORCHESTRATOR_KEY_DIR` (the identity's signing keys, `signing.LoadRing`) and `NOEMA_ORCHESTRATOR_KEY_MAX_ACTIVE` (the rotation overlap, no default) and builds one `investigations.Store` per tenant over its own lazily connecting pool, signing as `core-workflows` only, confirming an input through the Record reader. `orchestratorRecorder` implements `orchestrator.Recorder`; a tenant with no store is an error. `recordpools.go`: the directory loader of noema#535 is extracted as `loginPools` and both use it (no behaviour change; its tests ran unchanged).
+- Mutants run locally: no Record reader accepted (killed), a fallback to another tenant's store (killed), a second signer identity (killed). Two survived and are equivalent: dropping the "all three settings or none" check (the missing setting is then named by the next error anyway) and dropping the `< 1` check on the overlap (`signing.LoadRing` refuses an overlap below one).
+- Not done: the plug-in in `main.go` (the composition PR), the Compose secrets and settings (IL), a first-use probe of each login (one follow-up for both the Record reader's pools and these).
+
 ### Update 2026-11-14 · the session carries the caller's role (ruling A205, Q5; relayed, not yet committed)
 - `orchestrator.Session` gains `Role string`. The orchestrator interprets no field of it: it hands the session to every port as it received it (tested: `TestTheSessionsRoleReachesEveryPortUnchanged`, `TestASessionWithoutARoleIsPassedOnAsItIs`). An empty role is refused by Trust's technical-authority step (T6, C1), not by the runner. The edge's `Principal.Role` fills it when the conversation route is built (the handler that builds the Session does not exist yet). Red first, then the field.
 
