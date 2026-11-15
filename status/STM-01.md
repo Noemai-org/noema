@@ -110,6 +110,21 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 ## Pre-work for the next agent
 - Exact next step: open the PR when a slot is free (tests first, red CI), then plug `Port{Reader: &admission.Reader{DBs: records}}` into `Components.Ports.Admissions` once noema#535 is on `main`.
 
+# Session 2026-11-15 · the Input Gateway's identity from the verified session (EL, noema#602)
+
+## Session summary
+- What changed (noema#602): `cmd/core/gatewayidentity.go` (`gatewayIdentity`, `rolesCustomer`) and its tests. The gateway's `Identity` is made in one place from the verified session in the request context: the token's tenant, its subject, the customer kind and the session's `AuthnRef`. No session, no identity.
+- Why: the composition root must give `inputgateway` an identity that comes from the session and nothing else (INV-12, AGENT-10). The route is **not** mounted: what `POST /v1/conversations` answers conflicts between PERD 39.2 (`{investigation_id, conversation_ref, state, stream_url}`) and the gateway (`{correlation_id, input_event_id, input_seq, deduplicated}`); CONFLICT DETECTED on noema#601, and the safer reading applies meanwhile (not mounted, `/readyz` names it).
+- Risks, and how they are contained: a wrong identity member would put another tenant's or principal's name on a Record event. Contained by tests through the real edge chain (a signed token): the identity is the session's; a second tenant's token gives that tenant; a body naming a tenant is refused; headers naming one are ignored; only a customer reaches a customer-gated route. Five mutants killed (session reference blanked; an empty identity accepted for no session; ops added to the customer roles; the kind hard-coded; the tenant hard-coded).
+- Tests added (REQ-API-004, REQ-INP-001, INV-12, AGENT-10): five. Red first at `c2d7f632` (does not compile). One test case (`TestNoIdentityIsTakenFromTheBodyOrTheHeaders`, second request) lacked a `Content-Type` header and was refused by the body guard for that reason; fixed in the fix push, with the test file change disclosed in the PR.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: noema#601.
+
+## Pre-work for the next agent
+- Exact next step: the Architect answers noema#601; then mount `POST /v1/conversations` with `gateway.Handler(gatewayIdentity)` behind `rolesCustomer`, with the answer shape decided there. The Gateway's own configuration (hash key file, window, `RecordRecorder` over the core-edge login pool, `RecordIndex` over the record_read pool, the `Start` seam) is a separate PR.
+- Open questions (owner): the answer shape and the minting of `investigation_id` and `conversation_ref` (Architect, noema#601).
+- Files to read first: `inputgateway/README.md` ("For EL"), `cmd/core/compose.go`, `cmd/core/gatewayidentity.go`.
+- Do not touch: `inputgateway/` (not on this allowlist).
+
 # Session 2026-11-15 · the PayloadReader over the Trust login (EL)
 
 ## Session summary
