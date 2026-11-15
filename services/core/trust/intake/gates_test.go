@@ -60,7 +60,7 @@ func newSpy() *spy {
 			PrincipalID: principal, View: decide.IntentView{Version: 2}},
 		latest: 2, enabled: true, capability: intake.Capability{ID: "fin.cap.lookup_transaction", Registered: true}, capPresent: true, inScope: true, roleAllowed: true,
 		owned: true,
-		evidence: intake.SnapshotEvidence{Items: []intake.SourceItem{{
+		evidence: intake.SnapshotEvidence{IntentID: "int_synth0001", IntentVersion: 2, Items: []intake.SourceItem{{
 			Freshness: decide.Freshness{EvidenceID: "evi_synth0001", EffectiveAt: 1_700_000_000, Source: "fin.src.ledger", AgeSeconds: 10, EffectiveLimitSeconds: 60, LimitSetBy: decide.LimitBySource},
 			Status:    contracts.EnumsV1FactStatusKNOWN,
 		}}},
@@ -242,6 +242,20 @@ func TestEveryGateStepRefusesWithItsOwnOutcomeAndReasonCode(t *testing.T) {
 		want(t, c.name, res, c.outcome, c.reason, c.step)
 		if res.Decision.Outcome() == decide.Reject && c.step >= decide.T6TechnicalAuthority && res.Decision.Authority().Technical != decide.Fail {
 			t.Errorf("%s: the technical layer is %v, want FAIL", c.name, res.Decision.Authority().Technical)
+		}
+	}
+}
+
+// A226 (carried from the Security Reviewer's note on noema#567): the request's correlation ID must be the stored intent's. An intent admitted under another correlation is not this
+// request's intent: T1 refuses it as every other intent that is not the caller's (REJECT INTENT_INVALID), and nothing after T1 is reached. An empty correlation is the same refusal.
+func TestT1ARequestWhoseCorrelationIsNotTheIntentsIsRefused(t *testing.T) {
+	for name, corr := range map[string]string{"another correlation": "corr_other0001", "none": ""} {
+		s := newSpy()
+		r := request()
+		r.CorrelationID = corr
+		res := eval(t, s, r)
+		if res.Decision.Outcome() != decide.Reject || !reflect.DeepEqual(reasons(res.Decision), []string{"INTENT_INVALID"}) || last(res).Step != decide.T1AdmittedIntent {
+			t.Errorf("%s: %s %v, trace %v; want REJECT INTENT_INVALID at T1", name, res.Decision.Outcome(), reasons(res.Decision), res.Trace)
 		}
 	}
 }

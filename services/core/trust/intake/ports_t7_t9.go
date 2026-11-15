@@ -81,6 +81,10 @@ type SourceItem struct {
 // SnapshotEvidence is what the Evidence port reports for a sealed snapshot. It is the state after the Evidence Layer's refresh attempt (REQ-CTX-003: a refresh that fails makes
 // the fact UNAVAILABLE), so an item still past its limit is one that could not be refreshed.
 type SnapshotEvidence struct {
+	// IntentID and IntentVersion name the intent the snapshot was sealed for. T9 refuses a snapshot that is not this evaluation's intent's: a snapshot is not interchangeable between
+	// intents (A226).
+	IntentID      string
+	IntentVersion int
 	// Items holds one entry per required source item.
 	Items []SourceItem
 	// RequiredUnavailable is true when a required source could not be read at all.

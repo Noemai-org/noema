@@ -225,7 +225,7 @@ func TestT10AsksTheReconcilerAboutTheTenantAndTheSealedSnapshot(t *testing.T) {
 // A classification that names a settled, understood state and that the pack maps to nothing lets the evaluation go on.
 func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
 	for _, c := range []reconcile.Classification{reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
-		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial} {
+		reconcile.SettlementPending, reconcile.ReversalPending} {
 		f := &fake{rec: Reconciliation{Classification: c}}
 		_, trace := run(t, newEv(t, f), decide.T10Reconciliation)
 		wentOn(t, string(c), trace, decide.T10Reconciliation)
@@ -238,7 +238,7 @@ func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
 // The split into the two sets is accepted by ruling A218 (relayed: not on docs main yet).
 func TestT10AClassificationThatMustNotGoOnFailsClosedWhenThePackMapsNothing(t *testing.T) {
 	for _, c := range []reconcile.Classification{reconcile.ContradictoryState, reconcile.ExecutionOutcomeUnknown, reconcile.PossibleDuplicate, reconcile.EventOrderUncertain,
-		reconcile.InsufficientEvidence, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
+		reconcile.InsufficientEvidence, reconcile.Partial, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
 		for name, ev := range map[string]func(*evaluation) *evaluation{
 			"no capability named":       func(e *evaluation) *evaluation { return e },
 			"a write capability named":  func(e *evaluation) *evaluation { return e.withCapability(tWriteCap) },
@@ -265,7 +265,7 @@ func TestT10EveryDeclaredClassificationIsEitherSettledOrStopsWhenUnmapped(t *tes
 }
 
 // stopsWhenUnmapped is the other half of the table, written out again here and not read from the step.
-var stopsWhenUnmapped = map[string]bool{"CONTRADICTORY_STATE": true, "EXECUTION_OUTCOME_UNKNOWN": true, "POSSIBLE_DUPLICATE": true, "EVENT_ORDER_UNCERTAIN": true, "INSUFFICIENT_EVIDENCE": true}
+var stopsWhenUnmapped = map[string]bool{"CONTRADICTORY_STATE": true, "EXECUTION_OUTCOME_UNKNOWN": true, "POSSIBLE_DUPLICATE": true, "EVENT_ORDER_UNCERTAIN": true, "INSUFFICIENT_EVIDENCE": true, "PARTIAL": true}
 
 // declaredClassifications reads the Classification constants out of reconcile/types.go.
 func declaredClassifications(t *testing.T) []string {
