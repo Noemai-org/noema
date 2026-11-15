@@ -26,6 +26,16 @@ import (
 
 var errMapping = errors.New("evidence mapping")
 
+// The two bounds are structural, not policy: a mapping file is a few kilobytes of pack data, and nothing in it nests deeper than the rows' fields. They stop a file that is not one from being
+// decoded (a document of megabytes, or one nested thousands deep) before the decoder meets it.
+const (
+	maxBytes = 1 << 20
+	maxDepth = 32
+)
+
+// label is the only label a mapping carries in the POC: every pack is SYNTHETIC (AGENT-25), and a file that says otherwise is not one this build was written for.
+const label = "SYNTHETIC"
+
 type fieldSpec struct {
 	Path  string            `json:"path"`
 	Map   map[string]string `json:"map"`
@@ -73,7 +83,10 @@ func (m *Mapping) RuleSet() string { return m.ruleset }
 
 // Parse loads a mapping. rs is the rule set it must have been written for; sources are the ids of the pack's evidence sources. Anything missing, repeated, unknown or out of
 // the rule set's vocabulary is an error: the pack is refused, never half-loaded.
-func Parse(data []byte, rs *reconcile.RuleSet, sources []string) (*Mapping, error) {
+func Parse(data []byte, rs *reconcile.RuleSet, sources []string, expected string) (*Mapping, error) {
+	if len(data) > maxBytes {
+		return nil, fmt.Errorf("%w: the document is too large", errMapping)
+	}
 	if err := noRepeatedMember(data); err != nil {
 		return nil, err
 	}
@@ -88,6 +101,12 @@ func Parse(data []byte, rs *reconcile.RuleSet, sources []string) (*Mapping, erro
 	}
 	if f.MappingID == "" || f.Version < 1 || len(f.Rows) == 0 {
 		return nil, fmt.Errorf("%w: needs a mapping_id, a positive version and rows", errMapping)
+	}
+	if f.Label != label {
+		return nil, fmt.Errorf("%w: the label must be %s", errMapping, label)
+	}
+	if got := f.MappingID + "@" + strconv.Itoa(f.Version); got != expected {
+		return nil, fmt.Errorf("%w: the file is %q, not %q as the caller expects", errMapping, got, expected)
 	}
 	if f.Ruleset != rs.ID() {
 		return nil, fmt.Errorf("%w: written for rule set %q, not %q", errMapping, f.Ruleset, rs.ID())
@@ -232,8 +251,11 @@ func evaluate(s fieldSpec, payload map[string]any) (string, bool) {
 // noRepeatedMember refuses a JSON object that names a member twice at any depth: the standard decoder keeps the last one silently, and a pack file must mean one thing.
 func noRepeatedMember(data []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
-	var walk func() error
-	walk = func() error {
+	var walk func(depth int) error
+	walk = func(depth int) error {
+		if depth > maxDepth {
+			return fmt.Errorf("%w: the document is nested too deep", errMapping)
+		}
 		tok, err := dec.Token()
 		if err != nil {
 			return err
@@ -252,13 +274,13 @@ func noRepeatedMember(data []byte) error {
 						return fmt.Errorf("%w: the member %q is repeated", errMapping, key)
 					}
 					seen[key] = true
-					if err := walk(); err != nil {
+					if err := walk(depth + 1); err != nil {
 						return err
 					}
 				}
 			} else {
 				for dec.More() {
-					if err := walk(); err != nil {
+					if err := walk(depth + 1); err != nil {
 						return err
 					}
 				}
@@ -268,7 +290,7 @@ func noRepeatedMember(data []byte) error {
 		}
 		return nil
 	}
-	if err := walk(); err != nil {
+	if err := walk(0); err != nil {
 		if errors.Is(err, errMapping) {
 			return err
 		}
