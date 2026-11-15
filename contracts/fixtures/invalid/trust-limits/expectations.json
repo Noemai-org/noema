@@ -16,5 +16,7 @@
   "pack_id_trailing_newline.json": "pattern",
   "pack_id_leading_digit.json": "pattern",
   "label_not_allowed.json": "enum",
-  "schema_version_2.json": "enum"
+  "schema_version_2.json": "enum",
+  "floor_zero.json": "minimum",
+  "at_risk_zero.json": "minimum"
 }

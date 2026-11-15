@@ -26,7 +26,7 @@ func doc(floor, atRisk string) string {
 
 func mustRefuse(t *testing.T, name, text string) {
 	t.Helper()
-	l, err := trustlimits.Load(strings.NewReader(text))
+	l, err := trustlimits.Load(strings.NewReader(text), "fin")
 	if err == nil {
 		t.Errorf("%s was accepted", name)
 		return
@@ -35,8 +35,14 @@ func mustRefuse(t *testing.T, name, text string) {
 	if !errors.As(err, &le) {
 		t.Errorf("%s: error %T is not a *trustlimits.Error", name, err)
 	}
-	if l.Loaded() || l.AmbiguityAbsoluteFloorBP() != 0 || l.ClockAtRiskRemainingBP() != 0 {
-		t.Errorf("%s: an error came with a value", name)
+	if l.Loaded() {
+		t.Errorf("%s: an error came with a loaded value", name)
+	}
+	if v, err := l.AmbiguityAbsoluteFloorBP(); err == nil || v != 0 {
+		t.Errorf("%s: the floor of a refused document is %d, %v; want 0 and an error", name, v, err)
+	}
+	if v, err := l.ClockAtRiskRemainingBP(); err == nil || v != 0 {
+		t.Errorf("%s: the AT_RISK limit of a refused document is %d, %v; want 0 and an error", name, v, err)
 	}
 }
 
@@ -47,26 +53,30 @@ func TestThePacksFileLoadsToSevenThousandAndTwentyFiveHundred(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	l, err := trustlimits.Load(f)
+	l, err := trustlimits.Load(f, "fin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !l.Loaded() || l.AmbiguityAbsoluteFloorBP() != 7000 || l.ClockAtRiskRemainingBP() != 2500 {
-		t.Fatalf("floor %d, at-risk %d, loaded %v; want 7000, 2500, true", l.AmbiguityAbsoluteFloorBP(), l.ClockAtRiskRemainingBP(), l.Loaded())
+	floor, ferr := l.AmbiguityAbsoluteFloorBP()
+	atRisk, aerr := l.ClockAtRiskRemainingBP()
+	if !l.Loaded() || ferr != nil || aerr != nil || floor != 7000 || atRisk != 2500 {
+		t.Fatalf("floor %d (%v), at-risk %d (%v), loaded %v; want 7000, 2500, true", floor, ferr, atRisk, aerr, l.Loaded())
 	}
 }
 
 // A value is never a constant of the loader: other documents give other values.
 func TestTheValuesComeFromTheDocument(t *testing.T) {
-	for _, c := range [][2]int{{6500, 3000}, {0, 0}, {10000, 10000}, {1, 9999}} {
-		l, err := trustlimits.Load(strings.NewReader(doc(strconv.Itoa(c[0]), strconv.Itoa(c[1]))))
-		if err != nil || l.AmbiguityAbsoluteFloorBP() != c[0] || l.ClockAtRiskRemainingBP() != c[1] {
-			t.Errorf("%v: got %d, %d, %v", c, l.AmbiguityAbsoluteFloorBP(), l.ClockAtRiskRemainingBP(), err)
+	for _, c := range [][2]int{{6500, 3000}, {10000, 10000}, {1, 9999}} {
+		l, err := trustlimits.Load(strings.NewReader(doc(strconv.Itoa(c[0]), strconv.Itoa(c[1]))), "fin")
+		floor, _ := l.AmbiguityAbsoluteFloorBP()
+		atRisk, _ := l.ClockAtRiskRemainingBP()
+		if err != nil || floor != c[0] || atRisk != c[1] {
+			t.Errorf("%v: got %d, %d, %v", c, floor, atRisk, err)
 		}
 	}
 }
 
-// Basis points run 0 to 10000 (BasisPoints, A166): nothing outside is a limit.
+// Basis points run 0 to 10000 (BasisPoints, A166): nothing outside is a limit, and 0 is not one either (see TestZeroSwitchesNeitherLimitOff).
 func TestAValueOutsideZeroToTenThousandIsRefused(t *testing.T) {
 	for _, v := range []string{"10001", "-1", "100000", "9223372036854775807", "99999999999999999999"} {
 		mustRefuse(t, "floor "+v, doc(v, "2500"))
@@ -82,7 +92,7 @@ func TestAValueThatIsNotAWholeNumberIsRefused(t *testing.T) {
 	}
 }
 
-// No default: a missing member is refused, not read as 0 (0 is a legal value).
+// No default: a missing member is refused, not read as 0 (0 is not a legal value either).
 func TestAMissingMemberIsRefusedAndNeverDefaulted(t *testing.T) {
 	head := `{"schema_version":"1.0","pack_id":"fin","label":"SYNTHETIC"`
 	mustRefuse(t, "no floor", head+`,"clock_at_risk_remaining_bp":2500}`)
@@ -121,15 +131,72 @@ func TestNotExactlyOneObjectIsRefused(t *testing.T) {
 	for name, text := range map[string]string{"empty": "", "blank": "  ", "null": "null", "array": "[" + d + "]", "two documents": d + d, "trailing junk": d + " x", "truncated": d[:len(d)-1]} {
 		mustRefuse(t, name, text)
 	}
-	if l, err := trustlimits.Load(strings.NewReader(d + "\n")); err != nil || !l.Loaded() {
+	if l, err := trustlimits.Load(strings.NewReader(d+"\n"), "fin"); err != nil || !l.Loaded() {
 		t.Errorf("a trailing newline is not trailing content: %v", err)
 	}
 }
 
-func TestTheZeroLimitsIsNotLoaded(t *testing.T) {
+// Security Reviewer on noema#574, blocking 2: the zero value of Limits must not be the most permissive limit. Its accessors refuse, so a Trust step that forgets to
+// ask Loaded() cannot read 0 as a floor or a threshold (AGENT-16, REQ-AMB-003, REQ-TRU-006).
+func TestTheZeroLimitsIsNotLoadedAndItsAccessorsRefuse(t *testing.T) {
 	var l trustlimits.Limits
 	if l.Loaded() {
 		t.Fatal("the zero Limits reports it is loaded")
+	}
+	if v, err := l.AmbiguityAbsoluteFloorBP(); !errors.Is(err, trustlimits.ErrNotLoaded) || v != 0 {
+		t.Errorf("floor of the zero Limits: %d, %v; want 0 and ErrNotLoaded", v, err)
+	}
+	if v, err := l.ClockAtRiskRemainingBP(); !errors.Is(err, trustlimits.ErrNotLoaded) || v != 0 {
+		t.Errorf("AT_RISK limit of the zero Limits: %d, %v; want 0 and ErrNotLoaded", v, err)
+	}
+}
+
+// Security Reviewer on noema#574, blocking 1: a pack may make a limit stricter than the ruling's value but not switch it off. A floor of 0 passes every candidate and an
+// AT_RISK threshold of 0 means a clock is never AT_RISK, so 0 is refused for each member, by the loader and by the schema (the same two invalid fixtures).
+func TestZeroSwitchesNeitherLimitOff(t *testing.T) {
+	mustRefuse(t, "floor 0", doc("0", "2500"))
+	mustRefuse(t, "at-risk 0", doc("7000", "0"))
+	mustRefuse(t, "both 0", doc("0", "0"))
+}
+
+// The pack's identity is pinned (Security Reviewer, note 4): a document for another pack, and a call that names no pack, are refused.
+func TestThePackIDIsPinned(t *testing.T) {
+	if _, err := trustlimits.Load(strings.NewReader(doc("7000", "2500")), "other"); err == nil {
+		t.Error("a document of pack fin was accepted for pack other")
+	}
+	if _, err := trustlimits.Load(strings.NewReader(doc("7000", "2500")), ""); err == nil {
+		t.Error("a call naming no pack was accepted")
+	}
+}
+
+// Provisional is data, not prose (Security Reviewer, note 3): the label the document carries is exposed, and a consumer or a report can say the values are SYNTHETIC.
+func TestTheLabelIsExposed(t *testing.T) {
+	l, err := trustlimits.Load(strings.NewReader(doc("7000", "2500")), "fin")
+	if err != nil || l.Label() != "SYNTHETIC" {
+		t.Errorf("label %q, %v; want SYNTHETIC", l.Label(), err)
+	}
+	v := strings.Replace(doc("7000", "2500"), "SYNTHETIC", "VALIDATED", 1)
+	if l, err := trustlimits.Load(strings.NewReader(v), "fin"); err != nil || l.Label() != "VALIDATED" {
+		t.Errorf("label %q, %v; want VALIDATED", l.Label(), err)
+	}
+	var zero trustlimits.Limits
+	if zero.Label() != "" {
+		t.Errorf("the zero Limits has label %q", zero.Label())
+	}
+}
+
+// Security Reviewer, note 6: the text of an error carries no part of the document (a decode cause quotes the bad value); the cause stays reachable with errors.Is and As.
+func TestTheErrorTextCarriesNoPartOfTheDocument(t *testing.T) {
+	_, err := trustlimits.Load(strings.NewReader(strings.Replace(doc("7000", "2500"), "SYNTHETIC", "QUOTEDVALUE", 1)), "fin")
+	if err == nil {
+		t.Fatal("a label that is not allowed was accepted")
+	}
+	if strings.Contains(err.Error(), "QUOTEDVALUE") {
+		t.Errorf("the error text quotes the document: %q", err.Error())
+	}
+	var le *trustlimits.Error
+	if !errors.As(err, &le) || le.Err == nil {
+		t.Errorf("the decode cause is not kept for errors.As: %v", err)
 	}
 }
 
@@ -145,7 +212,7 @@ func TestTheLoaderAgreesWithTheContractFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := trustlimits.Load(strings.NewReader(string(b))); err != nil {
+		if _, err := trustlimits.Load(strings.NewReader(string(b)), "fin"); err != nil {
 			t.Errorf("%s: %v", filepath.Base(p), err)
 		}
 	}

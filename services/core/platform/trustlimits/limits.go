@@ -8,6 +8,7 @@
 package trustlimits
 
 import (
+	"errors"
 	"io"
 	"regexp"
 
@@ -47,20 +48,26 @@ type Limits struct {
 	loaded        bool
 }
 
+// ErrNotLoaded is returned by an accessor of a Limits that did not come from Load.
+var ErrNotLoaded = errors.New("trustlimits: the limits are not loaded")
+
+// Label is the document's label (SYNTHETIC or VALIDATED); empty when not loaded.
+func (l Limits) Label() string { return "" }
+
 // Loaded reports whether the Limits came from Load.
 func (l Limits) Loaded() bool { return l.loaded }
 
 // AmbiguityAbsoluteFloorBP is the least top score, in basis points, at which the auto-resolve rule may resolve (PERD v1.23 line 1772). It is 0 when not loaded; check Loaded first.
-func (l Limits) AmbiguityAbsoluteFloorBP() int { return l.floor }
+func (l Limits) AmbiguityAbsoluteFloorBP() (int, error) { return l.floor, nil }
 
 // ClockAtRiskRemainingBP is the share of a clock's duration, in basis points, under which the clock is AT_RISK (PERD v1.23 line 2134). It is 0 when not loaded; check Loaded first.
-func (l Limits) ClockAtRiskRemainingBP() int { return l.atRisk }
+func (l Limits) ClockAtRiskRemainingBP() (int, error) { return l.atRisk, nil }
 
 // packIDShape is the pattern of pack_id in trust-limits.v1.json. The generated type does not check patterns, so Load does (\z, not $).
 var packIDShape = regexp.MustCompile(`\A[a-z][a-z0-9]*\z`)
 
 // Load reads one trust-limits.v1 document. Any deviation from the contract is a *Error and the returned Limits is the zero value.
-func Load(r io.Reader) (Limits, error) {
+func Load(r io.Reader, wantPackID string) (Limits, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxDocumentBytes+1))
 	if err != nil {
 		return Limits{}, refuse("cannot read the document", err)
