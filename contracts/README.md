@@ -80,9 +80,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
 - **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
 
+## Qualification record and run record (6 Nov 2026)
+
+`schemas/qualification-run.v1.json` and `schemas/qualification-record.v1.json` are new (UND-13, REQ-INT-006, ruling A17). Neither edits an existing schema. Migration note: none, since both are new contracts at major 1; see `INVENTORY.md`. The reference implementation, the CLI and the rules for the lookup are in `benchmark/qualification/`; its records live in `benchmark/qualification/records/`. Fixtures: `fixtures/{valid,invalid}/qualification-run` and `qualification-record`, generated from the reference implementation by the tests' own builders.
+
 ## Case contract v2, a draft (7 Nov 2026)
 
 `schemas/benchmark-case.v2.json`, `benchmark-oracle.v2.json`, `benchmark-fixture.v2.json` and `benchmark-arm-case.v1.json` are drafts for the PERD §48.1 amendment (ruling A27). Nothing uses them yet and no existing schema is edited. Migration note: see `INVENTORY.md`. The arm case is the only view of a case an arm is shown. Fixtures: `fixtures/{valid,invalid}/benchmark-case.v2`, `benchmark-oracle.v2`, `benchmark-fixture.v2`, `benchmark-arm-case`.
+
 ## Neutral arm result (7 Nov 2026)
 
 `schemas/benchmark-arm-result.v1.json` is new (BEN-16, benchmark suite definition v1). It edits no existing schema. Migration note: none, since it is a new contract at major 1; see `INVENTORY.md`. It carries the seven fields every arm must produce and no Noema internals. Fixtures: `fixtures/{valid,invalid}/benchmark-arm-result`.
