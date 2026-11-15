@@ -42,6 +42,9 @@ func TestEachTrustFileIsOneTenantsPoolAndAMissingTenantHasNone(t *testing.T) {
 		t.Fatalf("got %v, %v", r, err)
 	}
 	defer closer()
+	if r.pools["ten_aa"] == nil || r.pools["ten_bb"] == nil || r.pools["ten_aa"] == r.pools["ten_bb"] {
+		t.Errorf("each tenant's file must give that tenant its own pool: %v", r.pools)
+	}
 	if _, err := r.Read(deadline(t), "ten_cc", "pay_AA11"); !errors.Is(err, ErrNoPayloadPool) {
 		t.Errorf("a tenant with no file: err %v, want ErrNoPayloadPool", err)
 	}
@@ -63,6 +66,9 @@ func TestABadTrustDSNDirectoryRefusesToStartAndNeverEchoesAnyDSN(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), synthPassword) || strings.Contains(err.Error(), "postgres://") {
 				t.Errorf("the error carries a DSN: %v", err)
+			}
+			if !strings.Contains(err.Error(), EnvTrustDSNDir) && !strings.Contains(err.Error(), "ten_") {
+				t.Errorf("the error names neither the setting nor a tenant: %v", err)
 			}
 		})
 	}
@@ -122,14 +128,14 @@ func TestThePayloadOfATenantIsReadByItsReference(t *testing.T) {
 
 // INV-12, REQ-SEC-004: a reference of another tenant reads as absent through this tenant's login (row-level security), and asking tenant B's name through tenant A's pool
 // finds nothing either: the tenant argument is never the thing that isolates.
-func TestAnotherTenantsPayloadIsAbsentNeverReadable(t *testing.T) {
+func TestAnotherTenantsPayloadIsAbsentNeverReadableAndRowLevelSecurityNotTheTenantClauseIsWhatEnforcesIt(t *testing.T) {
 	w := newPayloadWorld(t)
 	w.put(t, "ten_bb", "pay_BB22", `{"secret": "other tenant"}`)
 	if _, err := w.r.Read(deadline(t), "ten_aa", "pay_BB22"); !errors.Is(err, ErrPayloadNotFound) {
 		t.Errorf("tenant A reading tenant B's reference: err %v, want ErrPayloadNotFound", err)
 	}
 	// A pool of tenant A used for tenant B's name: the world must never do this, and if it does the database still shows nothing.
-	crossed := &trustPayloads{pools: map[string]*pgxpool.Pool{"ten_bb": w.r.pools["ten_aa"]}}
+	crossed := &trustPayloads{pools: map[string]*pgxpool.Pool{"ten_bb": w.r.pools["ten_aa"]}, maxBytes: testPayloadMax}
 	if b, err := crossed.Read(deadline(t), "ten_bb", "pay_BB22"); !errors.Is(err, ErrPayloadNotFound) {
 		t.Errorf("tenant A's login asked for tenant B's payload: %s, %v; want ErrPayloadNotFound", b, err)
 	}
