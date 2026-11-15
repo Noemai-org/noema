@@ -27,6 +27,9 @@ import (
 // Limit is the longest run of digits a payload string may hold.
 const Limit = 4
 
+// Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked"; A154, A194). (A stub: the one definition follows the red run.)
+func Mask(s string) string { return s }
+
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
