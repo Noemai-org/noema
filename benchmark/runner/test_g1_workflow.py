@@ -35,7 +35,8 @@ class G1StackWorkflow(unittest.TestCase):
         scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
         assert scan
         scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
-        self.assertIn("$GITHUB_STEP_SUMMARY", scan.group(1))
+        self.assertIn("benchmark/out/summary.md", scan.group(1))
+        self.assertNotIn("$GITHUB_STEP_SUMMARY", scan.group(1), "that variable names a different file in each step (Codex P2 on noema#591)")
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
         for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
@@ -47,9 +48,20 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertLess(self.script.index("tools/ci/g1_leakscan.py"), self.script.index("actions/upload-artifact"))
         self.assertLess(self.script.index("name: Summary"), self.script.index("tools/ci/g1_leakscan.py"), "the step summary is scanned after it is written")
 
-    def test_the_leak_scan_allow_file_names_only_three_integer_fields(self) -> None:
-        allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().split()
-        self.assertEqual(sorted(allow), sorted([r'^\s*"seed":\s*[0-9]+,?\s*$', r'^\s*"cost_usd_micros":\s*[0-9]+,?\s*$', r'^\s*"latency_ms":\s*[0-9]+,?\s*$']))
+    def test_the_step_summary_is_published_only_after_a_clean_scan(self) -> None:
+        publish = re.search(r"(?ms)- name: Publish the step summary.*?(?=^      - name:)", self.script)
+        assert publish
+        self.assertIn('[ "${SCAN:-missing}" = 0 ]', publish.group(0))
+        self.assertLess(self.script.index("tools/ci/g1_leakscan.py"), self.script.index("name: Publish the step summary"))
+        self.assertEqual(self.script.count("cat benchmark/out/summary.md"), 1)
+        self.assertNotRegex(self.script.split("name: Publish the step summary")[0], r">>\s*\"\$GITHUB_STEP_SUMMARY\"")
+
+    def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
+        allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
+        self.assertEqual(len([l for l in allow if l.strip()]), 9)
+        for line in allow:
+            if line.strip():
+                self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
 
     def test_the_run_is_scored_by_the_scorer_in_the_runner_container(self) -> None:
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.scoring")

@@ -124,9 +124,11 @@ jobs:
             echo "Criterion 6, the recorded FaultPlans (id, seed, producer per case): exit ${FAULT_PLANS:-missing} (0 is met). Criterion 9, one negative probe of each kind per case: exit ${PROBES:-missing} (0 is met)."
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
-          } >> "$GITHUB_STEP_SUMMARY"
-      # Criterion 8: a leak scan over every artifact the run produced, the step summary included, with a canary planted where the scanner must find it. A scanner that finds nothing is
-      # NOT RUN, never clean. The allow file lets only the named integer fields through the digit-run rule (a seed, a cost in micro-dollars, a latency): no other exception.
+          } > benchmark/out/summary.md
+      # The summary is written to a file of the workflow's own, not to $GITHUB_STEP_SUMMARY: that variable names a different file in every step, so a scan step would read its own empty
+      # one (Codex P2 on noema#591). The file is scanned with the artifacts and published to the step summary only if the scan is clean (the summary is public like the artifacts).
+      # Criterion 8: a leak scan over every artifact the run produced, the summary included, with a canary planted where the scanner must find it. A scanner that finds nothing is
+      # NOT RUN, never clean. The allow file lets only named numeric fields and the scorer's own metadata lines through the digit-run rule: no other exception.
       - id: scan
         name: Leak scan over every artifact, with a planted canary (criterion 8)
         if: always()
@@ -134,7 +136,7 @@ jobs:
           set +e
           mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs
           python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" \
-            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err "$GITHUB_STEP_SUMMARY"
+            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           echo "scan=$?" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Stop the stack
@@ -154,6 +156,16 @@ jobs:
             benchmark/out/mock-case-collector.err
           if-no-files-found: warn
           retention-days: 30
+      - name: Publish the step summary (only if the leak scan is clean)
+        if: always()
+        env:
+          SCAN: ${{ steps.scan.outputs.scan }}
+        run: |
+          if [ "${SCAN:-missing}" = 0 ] && [ -f benchmark/out/summary.md ]; then
+            cat benchmark/out/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The step summary is not shown: the leak scan did not pass (exit ${SCAN:-missing})." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Result (only a run that ran, complete, scored, with the evidence met and a clean leak scan, passes)
         env:
           CODE: ${{ steps.run.outputs.code }}
