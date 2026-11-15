@@ -22,7 +22,7 @@ func NewWriteRunner(m *Machine, p Ports, w WritePorts, cfg WriteConfig) (*WriteR
 	if err != nil {
 		return nil, err
 	}
-	if w.Executor == nil || w.Verifier == nil || w.Journal == nil {
+	if w.Executor == nil || w.Verifier == nil || w.Journal == nil || w.Bindings == nil {
 		return nil, fmt.Errorf("%w: a write port is missing", ErrNotWired)
 	}
 	if cfg.MaxDispatchesPerKey < 1 {
@@ -92,7 +92,7 @@ func (w *WriteRunner) admit(ctx context.Context, s Session, t Turn) error {
 // state is ErrNotResumable. A Journal that cannot be read stops the run before anything is dispatched.
 func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv Investigation, d Decision) (Result, error) {
 	// The caller's inputs are not trusted: the turn must be this tenant's recorded input, the stored projection this turn's investigation, and the decision must name
-	// one plain grant and the intent it was made on. (Loading the decision itself from the Record is the Trust adapter's work, noted on noema#576.)
+	// one plain grant and the intent it was made on. Bindings then proves the decision, grant and intent against what Trust recorded.
 	if err := w.admit(ctx, s, t); err != nil {
 		return Result{}, err
 	}
@@ -104,6 +104,10 @@ func (w *WriteRunner) ResumeWrite(ctx context.Context, s Session, t Turn, inv In
 	}
 	if d.IntentRef == "" {
 		return Result{}, ErrBadTurn
+	}
+	// The decision and the grant are the caller's: before anything is read, moved or dispatched, the Trust side proves they are this turn's (Codex P1 on noema#576).
+	if err := w.w.Bindings.Bound(ctx, s, Binding{CorrelationID: t.CorrelationID, DecisionID: d.ID, GrantID: d.GrantIDs[0], IntentRef: d.IntentRef}); err != nil {
+		return Result{Investigation: inv}, fmt.Errorf("orchestrator: bindings: %w", err)
 	}
 	u := &wrun{run: run{ctx: ctx, r: w.Runner, s: s, inv: inv}, w: w}
 	switch inv.State {

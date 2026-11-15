@@ -138,6 +138,21 @@ type Journal interface {
 	Progress(ctx context.Context, s Session, investigationID, grantID string) (Progress, error)
 }
 
+// Binding is what ResumeWrite is told by its caller and must not take on trust: the turn's correlation, the decision, its one grant and the intent it was made on.
+type Binding struct {
+	CorrelationID string
+	DecisionID    string
+	GrantID       string
+	IntentRef     string
+}
+
+// Bindings proves a Binding against what Trust recorded, as the session's tenant and principal (Codex P1 on noema#576; INV-03, INV-12). It returns nil only when the decision is
+// a recorded ALLOW of the tenant, the grant is one of that decision's grants and names this correlation and the session's principal, and the intent reference is the one the
+// decision was made on. ErrNotBound is the refusal; any other error means it could not tell. The Trust adapter implements it over Trust's own decision and grant records.
+type Bindings interface {
+	Bound(ctx context.Context, s Session, b Binding) error
+}
+
 // PERDMaxDispatchesPerKey is the adopted recovery budget: at most 2 dispatches per logical key (PERD v1.23 §30.2 and REQ-RCV-003, [ADOPTED DEC-2026-10-17], OD-P-32;
 // AGENT-16: an agent never changes it). The composition passes it to NewWriteRunner; the runner has no number of its own.
 const PERDMaxDispatchesPerKey = 2
@@ -150,6 +165,7 @@ type WritePorts struct {
 	Executor Executor
 	Verifier Verifier
 	Journal  Journal
+	Bindings Bindings
 }
 
 // Ports is every service the runner needs. NewRunner refuses a Ports with any of them missing.
@@ -165,6 +181,9 @@ type Ports struct {
 // Errors of the runner. Callers compare with errors.Is.
 var (
 	// ErrNotWired is returned by NewRunner for a missing machine, table or port: a runner that cannot do everything does nothing.
+	// ErrNotBound is the refusal of Bindings: the decision, the grant or the intent a resume was given does not belong to this turn. Nothing is executed or verified.
+	ErrNotBound = errors.New("orchestrator: the decision, grant or intent is not bound to this turn")
+
 	ErrNotWired = errors.New("orchestrator: the runner is not fully wired")
 	// ErrNoSession is returned for a session without a tenant or a principal.
 	ErrNoSession = errors.New("orchestrator: the session has no tenant or no principal")
