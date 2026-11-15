@@ -349,3 +349,5 @@ def test_a_surface_form_of_exactly_the_bound_and_a_digit_run_of_exactly_four_are
     name = "N" * 64
     slots = _assembled(f"{GOOD} {name} 1234", {**GOOD_MENTIONS, "counterparty": _mention(name), "when": _mention("1234")})
     assert slots["counterparty"]["surface_form"] == name and slots["when"]["surface_form"] == "1234"
+    joined = "1 2-3 4"  # four digits written with separators: a run of four, not of seven
+    assert _assembled(f"{GOOD} {joined}", {**GOOD_MENTIONS, "when": _mention(joined)})["when"]["surface_form"] == joined
