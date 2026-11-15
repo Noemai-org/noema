@@ -35,3 +35,20 @@
 - **Finding 1 (mTLS on the model listener): not fixable in this PR.** It needs `services/model/Dockerfile` and `deploy/compose` (IL's, protected). Tracked on noema#555; stated in `compiler/README.md` as the first precondition before any PR sets `compile_service` in `main.py`. The route compiles nothing until then.
 - **Notes 3 to 6:** recorded as preconditions in `compiler/README.md`; none is reachable while no compiler is wired.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-14 15:50 WAT · UND-05 · the pack loader (compiler slice 3, noema#582)
+
+## Session summary
+- What changed (PR noema#582): `understanding/compiler/packconfig.py` (`load_pipeline_config`), `tests/test_pipeline_config_loader.py`, the compiler README.
+- Why: the Founder's order of 14 Nov 2026 ("then the compiler"). `PipelineConfig` was built only in `tests/support_pipeline.py`; nothing read the pack in production.
+- Risks, and how they are contained: no value is written in code or defaulted (AGENT-16); a pack that is not whole fails at load. The yes threshold of a native decision model stays unset. A matcher reference outside the pack's folder is refused. Nothing is wired.
+- Tests added (REQ-AMB-002, REQ-AMB-003, REQ-INT-005; INV-14, INV-21, AGENT-16): 44, red first (run 43606750507, `model` failed at collection with `ModuleNotFoundError`). Nineteen hand mutations: sixteen killed, three survive and are equivalent (a bool, a negative margin and a limit of 0 are each refused again downstream by `RankingConfig`, so the loader's own check is a second line).
+- Regression cases added: a margin or a limit written in `understanding.ranking` is refused (one source only); a matcher file that is a symlink out of the pack folder is refused.
+- Debt entries: none. Conflicts raised: none.
+- Defaults taken (stated in the PR): a JSON number for the margin is read as its shortest decimal; exactly one candidate node is allowed.
+
+## Pre-work for the next agent
+- Exact next step: the minimal lexicon (pack data, `[synthetic seed]`) and `Normalise`, then the `Compiler`, then `benchmark/compile_acceptance` (plan on noema#546).
+- Open questions (owner): noema#580 (who sets `intent_id`, `created_at`, `raw_ref`; Architect, EL).
+- Files to read first: `compiler/README.md`, `compiler/packconfig.py`, `packs/fintech/understanding.md`.
+- Do not touch: the generated contracts; the pack's numbers.
