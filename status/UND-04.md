@@ -86,3 +86,27 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Failing first:** `a166_test.go`'s seven-case test was committed alone as `854e8735` and failed in the `core` job (run 43508790123); the green push changes only `gate.go`, `README.md` and this file.
 - **Debt:** the entry A195 asks for is on noema#545 for the Steward to register. Conflicts raised: none.
 - **Pre-work for the next agent:** when noema#519 merges, its interpreter test for the rejected-at-gate event may assert the new code for an identity-setting model; the interpreter needs no change (it records `Rejection.Reasons` as they are).
+
+
+# Session 2026-11-14 12:00 WAT · UND-04 core · the core gate decodes intent-object.v3 (noema#561)
+
+## Session summary
+- What changed (noema#561): `understanding/gate.go`, `identity.go`, `slots.go` use the generated `IntentObjectV3` and `IntentSlotV2*` types; `schema_version` must be `3.0`; confidence and ASR confidence are integers in basis points (0 to 10000, ruling A173), part of the canonical form the hash covers; a fraction or an out-of-range value is a shape refusal (not `HASH_UNAVAILABLE`, which stays only as the fail-closed answer for a number the canonical form cannot cover). The unused `ratio` helper is gone.
+- Why: the Founder's order of 14 Nov 2026 ("Core gate and the Interpreter adapter on v3 now"); the model service (noema#544) emits v3, and the core still decoded v1 and refused every proposal.
+- Risks, and how they are contained: nothing is loosened; the confidence is now signed. The gate's reason set is unchanged. The generated v3 types refuse a fraction at the closed decode (the type is `int64`), but **not** an out-of-range integer: `IntentSlotV2BasisPoints` has no range check, so the 0 to 10000 rule is the gate's own (`basisPointsPtr`, `slots.go`) and is the only one. **Corrected after the Security Reviewer's finding at `e9b8923a`:** an earlier version of this note called a mutant that removes the check "equivalent"; it is not, and a Party-slot mutant survived the first tests. `TestEverySlotTypeAndTheASRConfidenceHoldTheRangeOfAConfidence` now pins it for Resource, Quantity, Party, TimeRef and Reference slots and for the ASR confidence, and a mutant per slot type and for the ASR check is killed.
+- Tests added (REQ-INT-001, REQ-INT-002; INV-02, INV-12): fixtures of the gate, interpreter and intent store moved to 3.0 (red first at `c4d79448`); `TestAConfidenceIsAnIntegerNumberOfBasisPointsAndIsCoveredByTheHash` (seven refusals, three admissions whose canonical form carries the confidence); `schema version 1.0` and `3.1` are `SCHEMA_VERSION`. Four of five mutants killed.
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Interpreter adapter (`orchestrator.Interpreter` over the Interpreter, the model-service client and the gate); the derivation of the actor inside the Interpreter from the session (C1's note on noema#519).
+- Files to read first: `understanding/gate.go`, `slots.go`.
+- Do not touch: the generated contracts.
+
+
+# Session 2026-11-14 17:35 WAT · UND-04 core · the Security Reviewer's hold on noema#561 (one push)
+
+- **Should-fix (the hold): done.** The range check is pinned for every slot type and for the ASR confidence (a below-range ASR case is also added to the existing test); the note above is corrected. Mutants, by me: the range check removed from each of the five slot types and from the ASR check, six in all, each killed.
+- **Conflict with `main`: resolved** by merging `main` into the branch (no rebase): `understanding/README.md` (my v3 sentence with main's A195 clause) and this file (both sections kept). `go build`, `go vet` and `go test ./understanding/` pass at the merge.
+- **Note (b), the committed rapid failure file** (`testdata/rapid/TestNoPrincipalOrTenantInTheModelOutputEverSurvives/…-1185.fail`): **kept on purpose.** It is the failing case of the red run, replayed on every run as a regression seed; `main` already carries three such files under `execution/controller/testdata/rapid/`.
+- **Note (a), whether confidence leaves the system:** not changed by this PR. The outward schemas (noema#521) forbid it; the API handler is not in this PR and I did not check it.
+- Debt: none. Conflicts raised: none.

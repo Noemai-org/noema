@@ -78,7 +78,7 @@ func (s *spySaver) Save(_ context.Context, a string, x intentstore.Admitted) (in
 // proposal is what the model service's gate returns: the markers where the model has nothing to say.
 func proposal(mutate func(m map[string]any)) []byte {
 	m := map[string]any{
-		"schema_version": "1.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": session.TenantID, "correlation_id": corr,
+		"schema_version": "3.0", "intent_id": "int_01J9X3", "version": 1, "supersedes": nil, "tenant_id": session.TenantID, "correlation_id": corr,
 		"created_at":  "2026-10-01T09:47:03Z",
 		"principal":   map[string]any{"principal_id": session.PrincipalID, "principal_type": "unset", "authn_ref": session.AuthnRef, "asserted_by": "unset"},
 		"source":      map[string]any{"mode": "MODE_1", "channel": "text", "locale_detected": []any{"en-NG"}, "asr_confidence": nil, "raw_ref": "raw_01J9X3"},
