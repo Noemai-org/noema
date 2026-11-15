@@ -12,6 +12,7 @@ package outcomee2e_test
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -130,6 +131,7 @@ func newRWRig(t *testing.T) *rwRig {
 			Executor: executorport.Port{Controller: s.ctl, Timeout: time.Minute},
 			Verifier: verifierport.Port{Verifier: s.v, Requests: rwRequests{s: s, seq: new(atomic.Int64)}},
 			Journal:  jp,
+			Bindings: rwBindings{s: s},
 		}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
 	if err != nil {
 		t.Fatal(err)
@@ -304,4 +306,40 @@ func containsState(states []orchestrator.State, want orchestrator.State) bool {
 		}
 	}
 	return false
+}
+
+// rwBindings is the test's stand-in for the Trust adapter's Bindings (Codex P1 on noema#576): it asks the stand-in's own decision storage, as the Trust adapter will ask
+// Trust's, whether the decision is a recorded ALLOW of the tenant, the grant is one of that decision, and the grant names this correlation and this principal.
+type rwBindings struct{ s *stack }
+
+func (b rwBindings) Bound(ctx context.Context, s orchestrator.Session, bind orchestrator.Binding) error {
+	var n int
+	err := b.s.admin.QueryRow(ctx, `SELECT count(*) FROM decision_grant g JOIN decision_record d ON d.tenant_id = g.tenant_id AND d.decision_id = g.decision_id
+		WHERE g.tenant_id = $1 AND g.grant_id = $2 AND g.decision_id = $3 AND d.outcome = 'ALLOW' AND g.json ->> 'correlation_id' = $4 AND g.json ->> 'principal_id' = $5`,
+		s.TenantID, bind.GrantID, bind.DecisionID, bind.CorrelationID, s.PrincipalID).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return orchestrator.ErrNotBound
+	}
+	return nil
+}
+
+// Codex P1 on noema#576, on the real stack: a grant that exists in the tenant and is unspent, offered with a decision it does not belong to, is refused by the binding
+// before the Executor or the Journal is reached, and the write is never dispatched.
+func TestResumeWriteRefusesAGrantOfAnotherDecisionOnTheRealStack(t *testing.T) {
+	r := newRWRig(t)
+	g, err := r.d.s.trust.issueCreate(bg(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := orchestrator.Investigation{ID: rwTurn.InvestigationID, State: "PLANNED", Version: 3}
+	_, err = r.run.ResumeWrite(bg(t), rwSession, rwTurn, inv, orchestrator.Decision{ID: "dec_other", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{g}, IntentRef: intentRef})
+	if !errors.Is(err, orchestrator.ErrNotBound) {
+		t.Fatalf("err %v, want ErrNotBound", err)
+	}
+	if n := r.d.s.count(t, `SELECT count(*) FROM grant_spend WHERE grant_id = $1`, g); n != 0 {
+		t.Fatalf("the grant was spent %d times", n)
+	}
 }

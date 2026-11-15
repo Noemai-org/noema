@@ -29,6 +29,8 @@ type wfakes struct {
 	verdicts  []contracts.EnumsV1Verdict
 	progress  orchestrator.Progress
 	journalEr error
+	bindErr   error                  // what Bindings answers: nil is "bound"
+	bindings  []orchestrator.Binding // every question asked of Bindings, in order
 
 	sessions map[string]orchestrator.Session // the session each write port was called with (the fakes of the read path keep only the last)
 
@@ -105,6 +107,13 @@ func (w *wfakes) Progress(_ context.Context, s orchestrator.Session, _, grantID 
 	return p, w.journalEr
 }
 
+// Bound plays the Trust adapter's Bindings (A204, Codex P1 on noema#576): it records what it was asked and answers bindErr.
+func (w *wfakes) Bound(_ context.Context, s orchestrator.Session, b orchestrator.Binding) error {
+	w.note("bindings", s)
+	w.bindings = append(w.bindings, b)
+	return w.bindErr
+}
+
 func writeDecision(grantIDs ...string) orchestrator.Decision {
 	return orchestrator.Decision{ID: "dec_AA11", Outcome: contracts.EnumsV1DecisionOutcomeALLOW, Read: false, GrantIDs: grantIDs, IntentRef: "int_AA11"}
 }
@@ -117,7 +126,7 @@ func newWrite(t *testing.T, w *wfakes) *orchestrator.WriteRunner {
 	}
 	r, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab},
 		orchestrator.Ports{Interpreter: w.fakes, Evidence: w, Trust: w, Explainer: w.fakes, Recorder: w.fakes, Admissions: w.fakes},
-		orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
+		orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w, Bindings: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +336,7 @@ func TestAWriteRunnerWithoutADispatchLimitDoesNotBuild(t *testing.T) {
 	}
 	ports := orchestrator.Ports{Interpreter: w.fakes, Evidence: w, Trust: w, Explainer: w.fakes, Recorder: w.fakes, Admissions: w.fakes}
 	for _, n := range []int{0, -1} {
-		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: n}); !errors.Is(err, orchestrator.ErrNotWired) {
+		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, orchestrator.WritePorts{Executor: w, Verifier: w, Journal: w, Bindings: w}, orchestrator.WriteConfig{MaxDispatchesPerKey: n}); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("limit %d: err %v, want ErrNotWired", n, err)
 		}
 	}
@@ -434,9 +443,10 @@ func TestAWriteRunnerWithAMissingWritePortDoesNotBuild(t *testing.T) {
 	}
 	ports := orchestrator.Ports{Interpreter: w.fakes, Evidence: w, Trust: w, Explainer: w.fakes, Recorder: w.fakes, Admissions: w.fakes}
 	for name, wp := range map[string]orchestrator.WritePorts{
-		"no executor": {Verifier: w, Journal: w},
-		"no verifier": {Executor: w, Journal: w},
-		"no journal":  {Executor: w, Verifier: w},
+		"no executor": {Verifier: w, Journal: w, Bindings: w},
+		"no verifier": {Executor: w, Journal: w, Bindings: w},
+		"no journal":  {Executor: w, Verifier: w, Bindings: w},
+		"no bindings": {Executor: w, Verifier: w, Journal: w},
 	} {
 		if _, err := orchestrator.NewWriteRunner(&orchestrator.Machine{Table: tab}, ports, wp, orchestrator.WriteConfig{MaxDispatchesPerKey: orchestrator.PERDMaxDispatchesPerKey}); !errors.Is(err, orchestrator.ErrNotWired) {
 			t.Errorf("%s: err %v, want ErrNotWired", name, err)
@@ -573,5 +583,56 @@ func TestTheWritePortsReceiveTheSessionOfTheRun(t *testing.T) {
 		if got := w.sessions[port]; got != sess {
 			t.Errorf("the %s port saw %+v, want %+v", port, got, sess)
 		}
+	}
+}
+
+// Codex P1 on noema#576 (A204, INV-03, INV-12, AGENT-08): ResumeWrite takes the decision from its caller, so before it does anything it asks Bindings whether this decision,
+// this grant and this intent belong to this turn: the turn's correlation, the session's tenant and principal. A grant of another same-tenant decision, or a substituted
+// decision, never reaches Execute or Verify, and no state move is recorded for it.
+func TestAResumeWithADecisionOrGrantNotBoundToTheTurnDoesNothing(t *testing.T) {
+	for _, state := range []orchestrator.State{"PLANNED", "EXECUTING", "AWAITING_VERIFICATION"} {
+		t.Run(string(state), func(t *testing.T) {
+			w := newWfakes()
+			w.bindErr = orchestrator.ErrNotBound
+			inv := orchestrator.Investigation{ID: turn.InvestigationID, State: state, Version: 5}
+			res, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_ZZ99"))
+			if !errors.Is(err, orchestrator.ErrNotBound) {
+				t.Fatalf("err %v, want ErrNotBound", err)
+			}
+			if w.nExec != 0 || w.nVerify != 0 || count(w.calls, "journal:grt_ZZ99") != 0 {
+				t.Fatalf("calls %v: nothing may be executed, verified or read for an unbound grant", w.calls)
+			}
+			if res.Investigation.State != state || res.Investigation.Version != 5 {
+				t.Errorf("the projection moved to %s v%d for an unbound decision", res.Investigation.State, res.Investigation.Version)
+			}
+		})
+	}
+}
+
+// What Bindings is asked: the turn's correlation, the decision's ID, the one grant and the intent reference, as the session. Nothing else is trusted from the caller.
+func TestAResumeAsksBindingsWithTheTurnsCorrelationTheDecisionTheGrantAndTheIntent(t *testing.T) {
+	w := newWfakes()
+	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictACHIEVED}
+	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "AWAITING_VERIFICATION", Version: 5}
+	if _, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11")); err != nil {
+		t.Fatal(err)
+	}
+	want := orchestrator.Binding{CorrelationID: turn.CorrelationID, DecisionID: "dec_AA11", GrantID: "grt_AA11", IntentRef: "int_AA11"}
+	if len(w.bindings) != 1 || w.bindings[0] != want {
+		t.Fatalf("bindings asked %+v, want exactly %+v", w.bindings, want)
+	}
+	if w.sessions["bindings"] != sess {
+		t.Errorf("bindings was asked as %+v, want the session of the run %+v", w.sessions["bindings"], sess)
+	}
+}
+
+// A Bindings that cannot say (an error that is not a refusal) stops the resume before anything runs: no answer, no action.
+func TestAResumeWithBindingsThatCannotAnswerExecutesNothing(t *testing.T) {
+	w := newWfakes()
+	w.bindErr = errors.New("synthetic bindings failure")
+	inv := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
+	_, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"))
+	if err == nil || errors.Is(err, orchestrator.ErrNotBound) || w.nExec != 0 || w.nVerify != 0 {
+		t.Fatalf("err %v, executes %d, verifies %d; want an error that is not ErrNotBound and no action", err, w.nExec, w.nVerify)
 	}
 }
