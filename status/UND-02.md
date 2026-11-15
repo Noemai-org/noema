@@ -207,3 +207,17 @@ Non-blocking limitation (28 Oct): `providers`-free evidence link `noema_model/ev
 - Files to read first: `inputgateway/gateway.go`, `record.go`, `objectref_test.go`.
 - Do not touch: the migrations.
 
+
+# Session 2026-11-14 11:15 WAT · UND-02 · a request ID of only digits is refused at the door (noema#557)
+
+## Session summary
+- What changed (noema#557): `inputgateway/gateway.go`: a `request_id` that is a lower-case UUID with none of the letters a to f (32 digits) is refused as `ErrInvalidInput` (400) before anything is recorded, minted or started. `record/reconstruct/project_mask_test.go`: a characterization test of what the reconstruction shows for a UUID `request_id` (masked where it holds a run of more than four digits, separators included; as written otherwise).
+- Why: the Founder's order of 13 Nov 2026, item 2; ruling A184 (docs#169, merged). The Record's digit-run rule (noema#536) would refuse such a UUID at the append, after the input was accepted.
+- Risks, and how they are contained: it only refuses more, and earlier. A UUID with a single letter still passes; a long digit run inside it is the append guard's and the Architect's question (no threshold added here, AGENT-16).
+- Tests added (REQ-INP-002, REQ-INP-003; AGENT-13): `requestid_digits_test.go` (red first at `89fa1ce9`: the `core` job failed, run 43587772348; four all-digit UUIDs refused with nothing appended, started or minted; four UUIDs with a letter accepted); the reconstruction pin test (passes today by design). Four mutants of the new check, each killed (removed; letter `f` not counted; letter `a` not counted; inverted).
+- Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none here; the digit run inside a one-letter UUID is on noema#536.
+- Files to read first: `inputgateway/gateway.go`, `requestid_digits_test.go`.
+- Do not touch: `record/reconstruct` beyond the pin test (C1's).
