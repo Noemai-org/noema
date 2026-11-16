@@ -243,6 +243,20 @@ class TypeScriptOutput(unittest.TestCase):
         self.assertIn("keyPattern?: RegExp", files[f"{generate.TS_DIR}/_runtime.ts"])
         self.assertRegex(files[f"{generate.TS_DIR}/reconstruction_v3.ts"], r"mapOf\([^\n]*, PATTERN_\d+\)")
 
+    def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
+        # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
+        # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
+        files = generate.render_all(generate.load_schemas())
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "index.ts"))}
+        defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
+        roots = {"parse" + m for f, text in files.items() if f == f"{generate.TS_DIR}/index.ts" for m in re.findall(r"import \{ parse(\w+) \}", text)}
+        every = "\n".join(ts.values())
+        for fn, f in sorted(defined.items()):
+            uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
+            self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
+        self.assertNotIn("CoreReasonCode", "".join(ts.values()))
+        self.assertIn("parseEnumsV1DecisionOutcome", defined)  # reconstruction.v3 uses it, so it stays
+
     def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
         # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
         # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.

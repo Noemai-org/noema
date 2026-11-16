@@ -106,3 +106,34 @@ test("an integer is a whole JSON number, a number is finite, a boolean is a bool
   assert.throws(() => oneOfLit("C", "$", ["A", "B"]), ContractError);
   assert.equal(int(2, "$", { minimum: 1, maximum: 3 }), 2);
 });
+
+// REQ-UI-001, INV-02 (the Security Reviewer's blocking finding on noema#615). The digit class of the public text patterns holds astral-plane digits
+// (mathematical, Adlam, segmented): they match only under the `u` flag, so a generator change that dropped the flag for one pattern would let a long run of
+// them through. The fixtures hold none, so these cases run the generated parsers on them.
+const ASTRAL_RUNS = {
+  mathematical: "\u{1D7CF}\u{1D7D0}\u{1D7D1}\u{1D7D2}\u{1D7D3}",   // MATHEMATICAL DOUBLE-STRUCK DIGIT ONE to FIVE
+  adlam: "\u{1E950}\u{1E951}\u{1E952}\u{1E953}\u{1E954}",          // ADLAM DIGIT ZERO to FOUR
+  segmented: "\u{1FBF0}\u{1FBF1}\u{1FBF2}\u{1FBF3}\u{1FBF4}",      // SEGMENTED DIGIT ZERO to FOUR
+};
+const FOUR_ASTRAL = "\u{1D7CF}\u{1D7D0}\u{1D7D1}\u{1D7D2}";
+const read = (rel) => JSON.parse(readFileSync(join(FIXTURES, rel), "utf8"));
+const withMessage = (text) => { const d = read("valid/errors.v3/dependency_unavailable_retryable.json"); d.error.message = text; return d; };
+const withDetail = (text) => { const d = read("valid/errors.v3/input_invalid_with_details.json"); d.error.details[0].issue = text; return d; };
+const withFound = (text) => { const d = read("valid/customer-answer/not_yet_known.json"); d.found = [text]; return d; };
+const SURFACES = { "errors.v3 message": [withMessage, "errors.v3"], "errors.v3 details issue": [withDetail, "errors.v3"], "customer-answer found": [withFound, "customer-answer.v1"] };
+
+for (const [surface, [build, root]] of Object.entries(SURFACES)) {
+  for (const [kind, run] of Object.entries(ASTRAL_RUNS)) {
+    test(`${surface}: a run of five ${kind} digits is refused (REQ-UI-001, INV-02)`, () => {
+      assert.throws(() => PARSERS[root](build(`Reference ${run} please`)), ContractError);
+    });
+  }
+  test(`${surface}: an astral run split by the core's separators is refused (REQ-UI-001, INV-02)`, () => {
+    const split = [...ASTRAL_RUNS.mathematical].join(" - ");
+    assert.throws(() => PARSERS[root](build(`Reference ${split} please`)), ContractError);
+  });
+  test(`${surface}: four astral digits pass, and so does text with none (positive control)`, () => {
+    assert.doesNotThrow(() => PARSERS[root](build(`Reference ${FOUR_ASTRAL} please`)));
+    assert.doesNotThrow(() => PARSERS[root](build("Reference only")));
+  });
+}
