@@ -121,6 +121,16 @@ class _Repeated(Exception):
     """A member named twice in one object."""
 
 
+_NULLABLE_SLOT_MEMBERS = frozenset({"candidates_ref"})  # contracts/schemas/intent-slot.v2.json: the one slot member that may be null
+
+
+def _null_slot_member(slots: Any) -> bool:
+    """True when a slot of the proposal sets a member to null that the contract does not allow to be null."""
+    if not isinstance(slots, dict):
+        return False
+    return any(isinstance(slot, dict) and any(value is None and name not in _NULLABLE_SLOT_MEMBERS for name, value in slot.items()) for slot in slots.values())
+
+
 def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for key, value in pairs:
@@ -178,6 +188,8 @@ class SchemaGate:
             if "principal_type" in principal or "asserted_by" in principal:
                 return _refuse(Reason.SHAPE)  # A166: only the core sets them, from the session; a model that sends them is a shape error
             doc["principal"] = {**principal, "principal_type": UNSET, "asserted_by": UNSET}
+        if _null_slot_member(doc.get("slots")):
+            return _refuse(Reason.SHAPE)  # the generated model reads every optional member as nullable; the contract makes only `candidates_ref` of a Resource slot so (INV-02)
         try:
             obj = IntentObjectV3.from_json(json.dumps(doc, allow_nan=False))
         except (ValidationError, ValueError, RecursionError):
