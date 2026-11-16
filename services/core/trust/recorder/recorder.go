@@ -42,6 +42,8 @@ var (
 	// ErrDecisionConflict is returned when a decision is already stored for the same input tuple and the new evaluation disagrees with it (INV-21: the same input
 	// gives the same decision). Nothing is written and nothing of either decision is returned; the error carries no content of the decision.
 	ErrDecisionConflict = errors.New(errPrefix + "the stored decision for this input does not agree with the new evaluation")
+	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
+	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
@@ -73,8 +75,9 @@ type Request struct {
 	PolicyID              string // which policy the record and the grants bind when the basis names several; may be empty with one
 	Decision              decide.Decision
 	Evaluated             *decide.BasisBuilder
-	ConfirmationEventID   string        // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
-	Steps                 []grants.Step // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
+	ConfirmationPlanHash  contracts.CommonV1Hash // the plan hash the confirmation was given for (A230); the writer refuses an ALLOW whose steps carry another
+	ConfirmationEventID   string                 // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
+	Steps                 []grants.Step          // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
 }
 
 // Result is what was written.

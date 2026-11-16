@@ -26,6 +26,9 @@ func allowWith(t *testing.T, snapshot, event string) recorder.Request {
 	b := evaluatedWith(t, snapshot, "3.1")
 	r := request(t, decision(t, decide.Allow, b), b, step(t))
 	r.ConfirmationEventID = event
+	if event != "" {
+		r.ConfirmationPlanHash = h(4) // the plan hash of step(t): the confirmation was given for the plan T14 built
+	}
 	return r
 }
 
@@ -230,7 +233,7 @@ func TestTheSpendIsInsertOnlyScopedToItsTenantAndNamesOnlyAnAllow(t *testing.T) 
 		t.Fatalf("%d spends remain after the refused changes, want 1", n)
 	}
 	// a spend naming a decision that is not an ALLOW is refused by the database, whoever writes it
-	_, err = w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id) VALUES ($1, 'cfe_01OTHER', $2)`, tenant, string(refused.Record.DecisionId))
+	_, err = w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ($1, 'cfe_01OTHER', $2, $3)`, tenant, string(refused.Record.DecisionId), string(h(4)))
 	var pg *pgconn.PgError
 	if !errors.As(err, &pg) {
 		t.Fatalf("a spend for a REJECT decision: err %v, want a database refusal", err)
@@ -248,10 +251,89 @@ func TestTheSpendIsInsertOnlyScopedToItsTenantAndNamesOnlyAnAllow(t *testing.T) 
 		t.Errorf("ten_bb's Trust login sees %d of ten_aa's spends", seen)
 	}
 	// and ten_aa's login cannot write a spend for ten_bb
-	if _, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id) VALUES ('ten_bb', 'cfe_01OTHER', $1)`, string(allowed.Record.DecisionId)); err == nil {
+	if _, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ('ten_bb', 'cfe_01OTHER', $1, $2)`, string(allowed.Record.DecisionId), string(h(4))); err == nil {
 		t.Error("ten_aa's login wrote a spend for ten_bb")
 	}
 	if n := w.count(t, `SELECT count(*) FROM confirmation_spend WHERE tenant_id = 'ten_bb'`); n != 0 {
 		t.Errorf("%d spends exist for ten_bb", n)
+	}
+}
+
+// A233 (interim): a retry of the same input that names a different confirmation than the stored decision followed is refused as a typed conflict (INV-21: the same input gives the
+// same decision), not returned as if nothing differed. The stored decision stays, and nothing is spent or written.
+func TestARetryNamingAnotherConfirmationThanTheStoredDecisionIsATypedConflict(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
+		t.Fatal(err)
+	}
+	eventsBefore := w.events(t)
+	for name, event := range map[string]string{"another confirmation": "cfe_01OTHER", "none": ""} {
+		_, err := w.write(t, allowWith(t, "evs_01ABC", event), true)
+		if !errors.Is(err, recorder.ErrDecisionConflict) {
+			t.Errorf("a retry naming %s: err %v, want ErrDecisionConflict", name, err)
+		}
+	}
+	if n := w.spends(t); n != 1 {
+		t.Errorf("%d spends, want 1", n)
+	}
+	if n := w.count(t, `SELECT count(*) FROM decision_record`); n != 1 {
+		t.Errorf("%d decision records, want 1", n)
+	}
+	if after := w.events(t); len(after) != len(eventsBefore) {
+		t.Errorf("the Record gained events from a refused retry: before %v, after %v", eventsBefore, after)
+	}
+	// a stored refusal that named a confirmation (it spends none) is returned for its own retry, as before
+	b := evaluatedWith(t, "evs_05GHI", "3.1")
+	refusal := request(t, decision(t, decide.Reject, b), b)
+	refusal.ConfirmationEventID = "cfe_01REFUSED"
+	first, err := w.write(t, refusal, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := w.write(t, refusal, true); err != nil || again.Record.DecisionId != first.Record.DecisionId {
+		t.Errorf("the retry of a stored refusal: %v", err)
+	}
+}
+
+// A230 (interim): the writer refuses an ALLOW whose confirmation was given for another plan than the one T14 built. Nothing is written, so no spend, no record, no grant.
+func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
+	w := newWorld(t)
+	for name, mutate := range map[string]func(*recorder.Request){
+		"another plan hash": func(r *recorder.Request) { r.ConfirmationPlanHash = h(9) },
+		"no plan hash":      func(r *recorder.Request) { r.ConfirmationPlanHash = "" },
+		"malformed hash":    func(r *recorder.Request) { r.ConfirmationPlanHash = "sha256:abc" },
+		"a second step of another plan": func(r *recorder.Request) {
+			second := step(t)
+			second.PlanHash, second.PlanStep = h(5), 2
+			r.Steps = append(r.Steps, second)
+		},
+		"no steps (a confirmation is for a write)": func(r *recorder.Request) { r.Steps = nil },
+	} {
+		r := allowWith(t, "evs_01ABC", given)
+		mutate(&r)
+		if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrConfirmationPlanMismatch) {
+			t.Errorf("%s: err %v, want ErrConfirmationPlanMismatch", name, err)
+		}
+	}
+	w.nothingRemains(t, "a confirmation given for another plan")
+	if n := w.spends(t); n != 0 {
+		t.Errorf("%d spends remain", n)
+	}
+	// a plan hash with no confirmation is a malformed request
+	r := allowWith(t, "evs_01ABC", "")
+	r.ConfirmationPlanHash = h(4)
+	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrRequest) {
+		t.Errorf("a plan hash with no confirmation: err %v, want ErrRequest", err)
+	}
+	// the matching plan is accepted, and the spend records the plan the confirmation was given for
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
+		t.Fatalf("the matching plan: %v", err)
+	}
+	var plan string
+	if err := w.admin.QueryRow(ctx(t), `SELECT plan_hash FROM confirmation_spend WHERE tenant_id = $1`, tenant).Scan(&plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan != string(h(4)) {
+		t.Errorf("the spend names plan %q, want %q", plan, h(4))
 	}
 }
