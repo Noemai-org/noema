@@ -47,9 +47,9 @@ Step 5 of the matrix proves it: a listener on the host stands for an address out
 
 | Provider | Allowed from | To | Where the host comes from | Where the key comes from |
 |---|---|---|---|---|
-| Intron Sahara v2.5 (speech-to-text and text-to-speech; A179) | the model service only (its `provider_egress` address), nothing else | HTTPS, TCP 443, the one host of `INTRON_API_BASE_URL` | the deployment's settings (the name is in `.env.example`; the value is given by the Founder and written only into the firewall rule and the Environment) | `INTRON_API_KEY`, in the `bench-live` Environment (required reviewer), read by the model service only (INV-29); no key for it exists in the core's, the UI's or any CI environment |
+| Intron Sahara v2.5 (speech-to-text and text-to-speech; A179) | the model service only (its `provider_egress` address), nothing else | HTTPS, TCP 443, the one host of `INTRON_API_BASE_URL` | the deployment's settings (the name is in `.env.example`; the value is given by the Founder and written only into the firewall rule and the Environment) | a 0600 file the deployment mounts into the model service, named by `INTRON_API_KEY_FILE` (A249); only the model service reads it (INV-29); there is no environment variable for the key, and `netcheck/profiles.py` fails any profile where another service has that setting or a mount named for it, or where any service carries the key as a variable |
 
-The entry opens nothing until the Founder gives the host and the key. Until Intron's data terms are in writing (A180), only synthetic audio goes to it. The same rule applies to any later provider: a named setting for its host, a named secret for its key, one row here.
+The entry opens nothing until the Founder gives the host and the key. Until Intron's data terms are in writing (A180), only synthetic audio goes to it. The same rule applies to any later provider: a named setting for its host, a key file named by a `*_FILE` setting, one row here.
 
 ## mTLS between the core and the model service (noema#555)
 

@@ -50,16 +50,18 @@ class Cases(unittest.TestCase):
         self.assertEqual(len(run("x: ${{ secrets.K }}\n", "# K=\n")), 1)
 
     def test_the_intron_key_and_endpoint_slot_are_named_and_empty(self):
-        # A179: Intron Sahara v2.5 is the speech provider. The vendor register left its key name open; the name is INTRON_API_KEY (the pattern of AETHEX_API_KEY). The provider's
+        # A179: Intron Sahara v2.5 is the speech provider. The vendor register left its key name open; the setting is INTRON_API_KEY_FILE, a path (A249; the pattern of AETHEX_API_KEY). The provider's
         # endpoint is a setting the deployment gives, so it has a NAME here and no value: no key and no hostname in the repository.
         values = {}
         for line in (ROOT / ".env.example").read_text().splitlines():
             m = c.LINE.match(line.strip())
             if m:
                 values[m.group(1)] = line.split("=", 1)[1].strip()
-        for name in ("INTRON_API_KEY", "INTRON_API_BASE_URL"):
+        for name in ("INTRON_API_KEY_FILE", "INTRON_API_BASE_URL"):
             self.assertIn(name, values, f"{name} is not named in .env.example")
             self.assertEqual(values[name], "", f"{name} must have no value in the repository")
+        # A249: the key comes only from a file mount. There is no environment-variable name for it, so nothing can be written that reads it from the environment.
+        self.assertNotIn("INTRON_API_KEY", values)
 
     def test_no_file_of_the_repository_names_an_intron_endpoint(self):
         import os
