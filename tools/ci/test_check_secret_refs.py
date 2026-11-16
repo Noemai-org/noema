@@ -49,6 +49,42 @@ class Cases(unittest.TestCase):
     def test_a_value_in_the_example_does_not_count_as_a_name_line_with_a_space(self):
         self.assertEqual(len(run("x: ${{ secrets.K }}\n", "# K=\n")), 1)
 
+    def test_the_intron_key_and_endpoint_slot_are_named_and_empty(self):
+        # A179: Intron Sahara v2.5 is the speech provider. The vendor register left its key name open; the name is INTRON_API_KEY (the pattern of AETHEX_API_KEY). The provider's
+        # endpoint is a setting the deployment gives, so it has a NAME here and no value: no key and no hostname in the repository.
+        values = {}
+        for line in (ROOT / ".env.example").read_text().splitlines():
+            m = c.LINE.match(line.strip())
+            if m:
+                values[m.group(1)] = line.split("=", 1)[1].strip()
+        for name in ("INTRON_API_KEY", "INTRON_API_BASE_URL"):
+            self.assertIn(name, values, f"{name} is not named in .env.example")
+            self.assertEqual(values[name], "", f"{name} must have no value in the repository")
+
+    def test_no_file_of_the_repository_names_an_intron_endpoint(self):
+        import os
+        import re
+
+        endpoint = re.compile(r"(?i)https?://[^\s\"'<>)]*intron|\bintron[a-z0-9-]*\.(?:com|ai|io|net|org|co|africa|ng)\b")
+        skip = {".git", "node_modules", "__pycache__", ".venv"}
+        found = []
+        for base, dirs, files in os.walk(ROOT):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for f in files:
+                path = Path(base) / f
+                if path.suffix in {".png", ".jpg", ".gif", ".pdf", ".ico", ".woff", ".woff2", ".gz", ".zip", ".pyc", ".exe"} or path.stat().st_size > 2_000_000:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+                if path.name == "test_check_secret_refs.py":
+                    continue
+                for number, line in enumerate(text.splitlines(), 1):
+                    if endpoint.search(line):
+                        found.append(f"{path.relative_to(ROOT)}:{number}")
+        self.assertEqual(found, [], "a hostname or URL of the speech provider is in the repository: it belongs in the deployment's settings")
+
     def test_the_real_repository_passes(self):
         self.assertEqual(c.violations(ROOT / ".github/workflows", ROOT / ".env.example"), [])
 
