@@ -37,7 +37,10 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
           # G0-N (ENV-14): the TEN-06 result with its seed, printed as a TEN_RESULT line (a second, verbose run of that test only), so the gate record can quote it.
-          go test -count=1 -run '^TestTEN06' -v ./internal/proxy/
+          # The line is checked, not only printed: a renamed test would make -run match nothing and still pass (Security Reviewer's note 3 on noema#578).
+          go test -count=1 -run '^TestTEN06' -v ./internal/proxy/ > "$RUNNER_TEMP/ten06.txt"
+          cat "$RUNNER_TEMP/ten06.txt"
+          grep -Eq 'TEN_RESULT id=TEN-06 seed=[0-9]+ families=5 pass=true$' "$RUNNER_TEMP/ten06.txt"
           go build ./...
       - if: steps.changed.outputs.run == 'true'
         run: docker build -t noema-hostility-proxy:ci benchmark/hostility_proxy

@@ -172,3 +172,37 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): A154 and core-minted ULIDs (Architect); errors.v2 against v3 codes in the gateway (SR note 2, Architect).
 - Files to read first: `cmd/core/conversations.go`, `inputgateway/handler.go`.
 - Do not touch: `inputgateway` (merged).
+
+# Session 2026-11-16 · main builds its Components in one place (EL, noema#614)
+
+## Session summary
+- What changed (noema#614): `buildComponents` in `cmd/core/compose.go` builds the Record reader, the Admissions port over it (`admissionsport.Port{Reader: &admission.Reader{DBs: records}}`) and the orchestrator's Recorder, and returns them with one closer; `main.go` calls it instead of building the Record reader alone.
+- Why: the Founder's order of 16 Nov (relayed, not yet committed): compose.go, route mounting, the Trust adapter. Of these only what is merged can be plugged: the Admissions adapter (noema#558) and the Recorder (noema#562). The rest is blocked, below.
+- Risks, and how they are contained: a partly built composition. Contained by the unchanged `missing()` check: the Interpreter, Evidence, Trust and Explainer ports stay nil, so `/readyz` names the first and `compose` refuses; nothing is exposed that was not before. A bad setting is an error that names it, with no component built and every opened pool closed.
+- Tests added (REQ-STM-001, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16): four. Red first at `fc0e4a5a` (does not compile). Three mutants killed (the Admissions plug removed; the Recorder plug removed; Admissions built when there is no Record reader).
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none new.
+
+## What is blocked, stated (the rest of the Founder's order of 16 Nov)
+- **Route mounting:** `POST /v1/conversations` waits on the Architect's answer on noema#601 (PERD 39.2 and the gateway answer differently). The identity function and the role list are merged (noema#602). The events route needs a `Feed` that nothing builds.
+- **The Trust adapter (`Trust.Decide`):** T13 to T15 are not on `main` (noema#572 is open: its blocking finding 1, the confirmation bound to the plan, waits on the single-use spend of noema#603 and the answers to Q-A to Q-C); without T15 there is no recorded decision or grant to return. It also implements `Bindings` for the write path (noema#576).
+- **The Interpreter adapter** (C2, noema#565), **the Reconciler** (C2, noema#596; the payload reader noema#599 and its size bound noema#606), **the facts source** (EL, after noema#586 and noema#595 are approved).
+
+## Pre-work for the next agent
+- Exact next step: when noema#572 and noema#603 merge, build the Trust adapter tests first (the adapter takes the session, the intent reference and the evidence reference to `intake.Service.Evaluate`, maps its result to `orchestrator.Decision`, and implements `Bindings`); plug each merged adapter into `buildComponents` as it lands.
+- Files to read first: `cmd/core/compose.go`, `trust/intake/intake.go`, `orchestrator/ports.go`.
+- Do not touch: `inputgateway/`, the Trust packages (C1's).
+
+# Session 2026-11-15 · the payload read has a byte bound (EL, noema#606)
+
+## Session summary
+- What changed (noema#606): `NOEMA_PAYLOAD_MAX_BYTES` (required whenever `NOEMA_TRUST_DSN_DIR` is set; a positive whole number; no default) and `trustPayloads.Read` bounded in SQL: the query returns the JSON text's `octet_length` and the document only when it is within the bound; over it the answer is `ErrPayloadTooLarge`, which names no content. A payload at exactly the bound is read.
+- Why: the Security Reviewer's READY on noema#599 carried one condition: bound the read before the Reconciler (noema#596) wires it in.
+- Risks, and how they are contained: a reader with no bound would pull an arbitrarily large row into memory. Contained by the SQL bound (the row never leaves the database) and by the required, default-free setting. **The number is not set here**: no approved value exists (AGENT-16); the Architect or a Founder gives it and IL sets it in Compose.
+- Tests added (REQ-CTX-001, REQ-SEC-004, AGENT-16): the bound is configuration with no default (six bad values refuse, one good value builds); an oversize payload is refused and one at the bound is read (real PostgreSQL); a missing reference is not reported as too large. Red first at `663b46fc` (does not compile). Three mutants killed (the size check removed, the SQL bound disabled with the size check made `>=`, a zero accepted). The Security Reviewer's smaller notes on noema#599 are carried: the comment says "as the database returns it"; each tenant's own pool is asserted; the bad-directory test checks the error names the setting or a tenant; the test that depends on row-level security says so in its name.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect or a Founder gives the bound and its source; IL adds `NOEMA_PAYLOAD_MAX_BYTES` to the core service in Compose (a protected path). C2's Reconciler (noema#596) then wires the reader in; the tenant it passes must come from the session, and the reference must be bound to the evidence item and its hash (the Security Reviewer's notes 1 and 3 on noema#599).
+- Open questions (owner): the number (Architect or a Founder).
+- Files to read first: `cmd/core/payloadreader.go`.
+- Do not touch: `loginPools` without its three callers' tests.
