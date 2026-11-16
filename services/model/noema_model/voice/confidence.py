@@ -13,8 +13,10 @@ slot is decided by the gateway that aligns the final transcript to the slot text
 
 import math
 from collections.abc import Sequence
+from fractions import Fraction
 
 MISSING_CONFIDENCE = 0.0
+BASIS_POINTS = 10000
 
 
 class InvalidConfidence(ValueError):
@@ -33,6 +35,13 @@ def slot_confidence(token_confidences: Sequence[float | None]) -> float:
     if not token_confidences:
         return MISSING_CONFIDENCE
     return min(MISSING_CONFIDENCE if value is None else value for value in token_confidences)
+
+
+def asr_confidence_basis_points(token_confidences: Sequence[float | None]) -> int:
+    """The utterance's ASR confidence as the Intent Object carries it (`source.asr_confidence`): the minimum over the tokens, a missing token (or no tokens) counting as 0
+    (ruling A228, consistent with A191 and `slot_confidence`), in integer basis points floored the way ruling A173 floors every confidence, so it never claims more than
+    the provider did. A float is read as its shortest decimal (0.29 is 2900, not 2899). Raises InvalidConfidence for a present value that is not a finite ratio."""
+    return math.floor(Fraction(str(slot_confidence(token_confidences))) * BASIS_POINTS)
 
 
 def is_low_confidence(confidence: float, threshold: float) -> bool:
