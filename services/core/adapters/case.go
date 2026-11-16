@@ -24,7 +24,7 @@ const (
 	ClassAck2xx          TransportClass = "ACK_2XX"
 	ClassVersionConflict TransportClass = "VERSION_CONFLICT_409_412"
 	ClassDuplicate409    TransportClass = "DUPLICATE_409_SAME_KEY"
-	// ClassDuplicateCreate: the target refused a create conditional on absence because it already holds a case (or, for a complaint, a complaint for the case) for the
+	// ClassDuplicateCreate: the target refused a create conditional on absence because it already holds a case for the
 	// subject and epoch under another key (mock-case: 412 PRECONDITION_FAILED). Same string as the error code DUPLICATE_CREATE.
 	ClassDuplicateCreate TransportClass = "DUPLICATE_CREATE"
 	ClassRejected4xx     TransportClass = "REJECTED_4XX"
@@ -55,8 +55,7 @@ type WriteResult struct {
 	// ExistingCaseID is set on a refused create-if-absent: the case the target already holds for the subject and epoch.
 	// It is a name to read back, never this write's result.
 	ExistingCaseID string
-	// ExistingComplaintRef is set on a refused conditional complaint create (ClassDuplicateCreate): the complaint the target already holds for the case.
-	// It is a name to read back, never this write's result.
+	// ExistingComplaintRef is set on a refused conditional complaint log: the complaint the target already holds for the case. A name to read back, never this write's result.
 	ExistingComplaintRef string
 	// RetryAfter is the target's Retry-After on a 429, if it sent one.
 	RetryAfter time.Duration
@@ -208,8 +207,7 @@ type AppendEvidenceInput struct {
 	Timeout        time.Duration
 }
 
-// LogComplaintInput is one keyed log of a complaint reference on a case, conditional on the case having no complaint (If-None-Match: *, A185). It carries no text: the
-// target starts its SYNTHETIC clock. Every field is required.
+// LogComplaintInput is one keyed log of a complaint reference on a case. It carries no text: the target starts its SYNTHETIC clock. Every field is required.
 type LogComplaintInput struct {
 	IdempotencyKey string
 	TenantID       string

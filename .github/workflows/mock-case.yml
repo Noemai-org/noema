@@ -51,6 +51,12 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go test -race -count=1 ./...
+          # G0-N (ENV-14): the TEN-03 and TEN-04 results with their seeds, printed as TEN_RESULT lines (a second, verbose run of those two tests only), so the gate record can quote them.
+          # The lines are checked, not only printed: a renamed test would make -run match nothing and still pass (Security Reviewer's note 3 on noema#578).
+          go test -count=1 -run '^TestTEN0[34]' -v ./internal/api/ > "$RUNNER_TEMP/ten.txt"
+          cat "$RUNNER_TEMP/ten.txt"
+          grep -Eq 'TEN_RESULT id=TEN-03 seed=none pass=true$' "$RUNNER_TEMP/ten.txt"
+          grep -Eq 'TEN_RESULT id=TEN-04 seed=[0-9]+ pass=true$' "$RUNNER_TEMP/ten.txt"
           go build ./...
       - if: steps.changed.outputs.run == 'true'
         run: docker build -t noema-mock-case:ci synthetic/mock_case

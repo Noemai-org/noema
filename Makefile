@@ -161,11 +161,16 @@ model-bench-up:
 # The full bench stack for a G1 run (ENV-04 wiring): the bench profile with the model's cost files (bench-model.yml) and the stand-in wiring plus the runner's output
 # directory (bench-stack.yml). The runner is a container on bench_net and edge_net (services/bench-runner.yml); the workflow runs the suite in it.
 BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench
-BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g)
+# BENCH_MAX_BODY_BYTES has no default: the body limit is not an approved number, so a person gives it. bench-up refuses without it and makes the synthetic IdP first (bench-tokens), because
+# the core mounts its public key. Compose interpolates the variable for every command, so bench-down gets a placeholder when none is given (it uses no value).
+BENCH_TENANT ?= ten_alpha
+BENCH_ENV = NOEMA_BENCH_OUT=$(abspath $(BENCH_OUT)) NOEMA_BENCH_UID=$$(id -u) NOEMA_BENCH_GID=$$(id -g) NOEMA_BENCH_MAX_BODY_BYTES=$(or $(BENCH_MAX_BODY_BYTES),1) STANDIN_TENANT_ID=$(BENCH_TENANT)
 .PHONY: bench-up bench-down
 bench-up:
+	@test -n "$(BENCH_MAX_BODY_BYTES)" || { echo "bench-up: BENCH_MAX_BODY_BYTES is required (no default: the body limit is not an approved number)" >&2; exit 2; }
 	deploy/compose/secrets_local.sh
 	mkdir -p $(BENCH_OUT)/cost
+	BENCH_TENANT="$(BENCH_TENANT)" BENCH_MAX_BODY_BYTES="$(BENCH_MAX_BODY_BYTES)" $(MAKE) bench-tokens
 	$(BENCH_ENV) $(BENCH_COMPOSE) up -d --build --wait
 
 bench-down:
