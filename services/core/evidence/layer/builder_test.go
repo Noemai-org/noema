@@ -99,6 +99,26 @@ func TestBuilderPersistsThePayloadTheItemAndTheRecordEvent(t *testing.T) {
 	}
 }
 
+// REQ-CTX-001, REQ-RES-001: the item says which source it came from and when it was read, effective and fresh until, exactly as the row stored them, so the
+// Reconciler needs no second read of evidence_item (noema#596). The same four values are checked against the stored row, never against the inputs alone.
+func TestTheItemCarriesTheSourceAndTheTimesTheBuilderStored(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadOK)
+	item, err := b.Record(ctx(t), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Source != "fin.src.core_ledger" || !item.ReadAt.Equal(readAt) || !item.EffectiveAt.Equal(readAt.Add(-time.Minute)) || item.FreshnessSLASeconds != 300 {
+		t.Fatalf("item = %+v, want the source, the read time, the effective time and 300 seconds", item)
+	}
+	stored := w.rows(t, `SELECT source || ' ' || read_at::text || ' ' || effective_at::text || ' ' || freshness_sla_seconds::text FROM evidence_item WHERE evidence_id = $1`, item.EvidenceID)
+	want := "fin.src.core_ledger 2026-11-05 09:00:00+00 2026-11-05 08:59:00+00 300"
+	if len(stored) != 1 || stored[0] != want {
+		t.Fatalf("stored row = %v, want %q: the item must say what was stored", stored, want)
+	}
+}
+
 // REQ-CTX-002, INV-19: the status written is the one AssignStatus gives, and a failed or empty read never becomes a negative fact.
 func TestBuilderWritesTheStatusOfEachReadClass(t *testing.T) {
 	cases := map[layer.ReadClass]string{
