@@ -187,3 +187,16 @@
 ## Pre-work for the next agent
 - Exact next step: the Architect decides the probe, the mode check and the pool limits; implement what they decide.
 - Do not touch: `For` must never return a pool for a tenant it has no file for.
+
+# Session 2026-11-16 · EDG-01 · the Input Gateway emits errors.v3 (EL, A2 as relayed)
+
+## Session summary
+- What changed: `inputgateway/handler.go` names the errors.v3 types and codes instead of errors.v2 (the wire bytes are the same: the envelopes have the same members). Test: `errors_v3_test.go` reads the handler's source and fails on any errors.v2 type and on a missing v3 code. Red at the first push; one fix push after the red run.
+- Why: the Architect's A2 (relayed, not yet committed): public routes emit errors.v3; the gateway moves in a separate EL PR.
+- Risks, and how they are contained: none on the wire; the existing handler tests (which need the Record, CI only) assert the same statuses and codes.
+- Tests added (REQ-API-001, AGENT-15): the source test. Regression cases: the same. Debt: the edge's own session errors (`edge/session/http.go`) and noema#617's `failStart` still use errors.v2; each is the next small change (the edge is C1's path; #617 after it merges).
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the same move for `edge/session` (needs the owner's go-ahead) and for `cmd/core/conversations.go` once noema#617 merges.
+- Files to read first: `inputgateway/handler.go`. Do not touch: the contracts.
