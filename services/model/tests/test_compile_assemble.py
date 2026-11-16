@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from noema_model.understanding.compiler.assemble import Identifiers, assemble
+from noema_model.understanding.compiler.assemble import Identifiers, _longest_digit_run, assemble
 from noema_model.understanding.gate import Context, Node, SchemaGate
 from noema_model.understanding.pipeline import NodeCatalogue, NormalisedSlots, Outcome, run_pipeline
 from noema_model.understanding.resolution import Candidate
@@ -328,6 +328,23 @@ HOSTILE = {
     "digits joined by an underscore": "1_2_3_4_5",
     "digits joined by brackets": "12(34)5",
     "digits joined by colons": "1:2:3:4:5",
+    # The core's `separators` of noema#600 (A194, A231; head 75beb587): every kind of space (\p{Z}), every dash (Pd), every bracket (Ps, Pe), the middle dots and the full-width forms.
+    "digits joined by an Armenian hyphen (Pd)": "1234\u058a5678",
+    "digits joined by a two-em dash (Pd)": "1234\u2e3a5678",
+    "digits joined by square brackets (Ps, Pe)": "1234[5678]",
+    "digits joined by a curly bracket (Ps)": "1234{5678",
+    "digits joined by round brackets": "(4111)(1111)5",
+    "digits joined by a corner bracket (Ps)": "1234\u300c5678",
+    "digits joined by a middle dot": "1234\u00b75678",
+    "digits joined by a katakana middle dot": "1234\u30fb5678",
+    "digits joined by a full-width dot": "1234\uff0e5678",
+    "digits joined by a full-width slash": "1234\uff0f5678",
+    "digits joined by a full-width colon": "1234\uff1a5678",
+    "digits joined by a full-width low line": "1234\uff3f5678",
+    "digits joined by a vertical tab": "1234\x0b5678",
+    "digits joined by a next-line character": "1234\x855678",
+    "digits joined by a line separator (Zl)": "1234\u20285678",
+    "digits joined by a paragraph separator (Zp)": "1234\u20295678",
     "arabic-indic digits": "\u0661\u0662\u0663\u0664\u0665",
     "full-width digits": "\uff11\uff12\uff13\uff14\uff15",
 }
@@ -370,3 +387,9 @@ def test_a_surface_form_of_exactly_the_bound_and_a_digit_run_of_exactly_four_are
     assert slots["counterparty"]["surface_form"] == name and slots["when"]["surface_form"] == "1234"
     joined = "1 2-3 4"  # four digits written with separators: a run of four, not of seven
     assert _assembled(f"{GOOD} {joined}", {**GOOD_MENTIONS, "when": _mention(joined)})["when"]["surface_form"] == joined
+
+
+@pytest.mark.parametrize("text", ["1234,5678", "1234+5678", "1234\u20165678", "1234a5678", "1234\u00d75678"])
+def test_a_character_the_core_does_not_join_digits_with_ends_a_run(text: str) -> None:
+    """The comma (so `20,000,000` is groups of three), a plus, a double vertical line, a letter and a multiplication sign end a run in the core's `separators`; the check follows the core in both directions."""
+    assert _longest_digit_run(text) == 4
