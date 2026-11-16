@@ -7,6 +7,8 @@ package answer_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -91,6 +93,8 @@ func TestTheCaseReferenceIsPresentOnlyAfterCaseOpenedIsAchieved(t *testing.T) {
 		"case_opened NOT_ACHIEVED":        {v(caseOpened, contracts.EnumsV1VerdictNOTACHIEVED)},
 		"case_opened PENDING_EXTERNAL":    {v(caseOpened, contracts.EnumsV1VerdictPENDINGEXTERNAL)},
 		"case_opened ACHIEVED and FAILED": {v(caseOpened, achieved), v(caseOpened, contracts.EnumsV1VerdictNOTACHIEVED)},
+		"case_opened PARTIALLY_ACHIEVED":  {v(caseOpened, contracts.EnumsV1VerdictPARTIALLYACHIEVED)},
+		"case_opened COMPENSATED":         {v(caseOpened, contracts.EnumsV1VerdictCOMPENSATED)},
 	}
 	for name, vs := range cases {
 		in.Verdicts = vs
@@ -215,5 +219,57 @@ func TestTheWireFormHasTheSixPartsAndNothingElse(t *testing.T) {
 	var round contracts.CustomerAnswerV1
 	if err := json.Unmarshal(raw, &round); err != nil {
 		t.Errorf("the contract's own parser refuses the built answer: %v", err)
+	}
+}
+
+// SR on #618, note 1: an outcome that is not ACHIEVED must say so. A verdict that is not ACHIEVED with no not_known item is refused, whatever the summary says (an UNKNOWN outcome
+// is never told to the customer as done); with an item it builds, and `verified` stays false.
+func TestAVerdictThatIsNotAchievedNeedsANotKnownItem(t *testing.T) {
+	for _, r := range others {
+		in := base()
+		in.NotKnown = nil
+		in.Verdicts = []answer.Verdict{v(caseOpened, r)}
+		if _, err := answer.Build(in); err == nil {
+			t.Errorf("%s with no not_known item was accepted", r)
+		}
+		in.Verdicts = []answer.Verdict{v(statusOnly, achieved), v(caseOpened, r)}
+		if _, err := answer.Build(in); err == nil {
+			t.Errorf("ACHIEVED next to %s with no not_known item was accepted", r)
+		}
+		in.NotKnown = base().NotKnown
+		a, err := answer.Build(in)
+		if err != nil || a.Done.Verified {
+			t.Errorf("%s with an item: verified %v, err %v; want built and not verified", r, a.Done.Verified, err)
+		}
+	}
+	in := base()
+	in.NotKnown = nil
+	in.Verdicts = []answer.Verdict{v(caseOpened, achieved)}
+	if a, err := answer.Build(in); err != nil || !a.Done.Verified {
+		t.Errorf("all ACHIEVED needs no not_known item: %v, %v", a.Done.Verified, err)
+	}
+}
+
+// SR on #618, note 3: the contract's own invalid case references (customer-answer.v1 and investigation-response.v1 fixtures) are refused by Build, even after an ACHIEVED verdict.
+func TestTheContractsInvalidCaseReferencesAreRefused(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "..", "contracts", "fixtures", "invalid")
+	files := []string{"customer-answer/case_ref_unmasked.json", "investigation-response/case_ref_unmasked.json", "investigation-response/case_ref_without_a_mask.json", "investigation-response/case_ref_year_and_last_four.json"}
+	for _, f := range files {
+		raw, err := os.ReadFile(filepath.Join(root, f))
+		if err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		var fx struct {
+			Ref string `json:"case_ref_masked"`
+		}
+		if err := json.Unmarshal(raw, &fx); err != nil || fx.Ref == "" {
+			t.Fatalf("%s: no case_ref_masked (%v)", f, err)
+		}
+		in := base()
+		in.Verdicts = []answer.Verdict{v(caseOpened, achieved)}
+		in.CaseRefMasked = fx.Ref
+		if _, err := answer.Build(in); err == nil {
+			t.Errorf("%s: %q was accepted", f, fx.Ref)
+		}
 	}
 }
