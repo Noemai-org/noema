@@ -7,6 +7,7 @@ package recorder_test
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -205,16 +206,26 @@ func TestAMalformedConfirmationEventIDIsRefusedBeforeAnythingIsWritten(t *testin
 	}
 }
 
-// The spend is insert-only for every role, the table is scoped to the login's tenant, and a spend can name only an ALLOW decision of its own tenant.
-func TestTheSpendIsInsertOnlyScopedToItsTenantAndNamesOnlyAnAllow(t *testing.T) {
-	w := newWorld(t)
-	allowed, err := w.write(t, allowWith(t, "evs_01ABC", given), true)
-	if err != nil {
-		t.Fatal(err)
+// pgRefusal is the SQLSTATE and the message of a database refusal; the test fails when err is not one.
+func pgRefusal(t *testing.T, what string, err error) (string, string) {
+	t.Helper()
+	var pg *pgconn.PgError
+	if !errors.As(err, &pg) {
+		t.Fatalf("%s: err %v, want a database refusal", what, err)
 	}
-	b := evaluatedWith(t, "evs_02XYZ", "3.1")
-	refused, err := w.write(t, request(t, decision(t, decide.Reject, b), b), true)
-	if err != nil {
+	return pg.Code, pg.Message
+}
+
+const (
+	sqlstateIntegrity  = "23000" // integrity_constraint_violation
+	sqlstatePrivilege  = "42501" // insufficient_privilege
+	insertSpendOfOther = `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ($1, 'cfe_01OTHER', $2, $3)`
+)
+
+// The spend is insert-only. The administrator is refused by the trigger itself (reject_mutation says so); the Trust login is refused by its privileges (it has SELECT and INSERT only).
+func TestTheSpendIsInsertOnly(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
 		t.Fatal(err)
 	}
 	for name, stmt := range map[string]string{
@@ -222,26 +233,83 @@ func TestTheSpendIsInsertOnlyScopedToItsTenantAndNamesOnlyAnAllow(t *testing.T) 
 		"delete":   `DELETE FROM confirmation_spend`,
 		"truncate": `TRUNCATE confirmation_spend`,
 	} {
-		if _, err := w.admin.Exec(ctx(t), stmt); err == nil {
-			t.Errorf("%s by the administrator was not refused", name)
+		_, err := w.admin.Exec(ctx(t), stmt)
+		if code, msg := pgRefusal(t, name+" by the administrator", err); code != sqlstateIntegrity || !strings.Contains(msg, "insert-only") {
+			t.Errorf("%s by the administrator: %s %q, want %s from the insert-only trigger", name, code, msg, sqlstateIntegrity)
 		}
-		if _, err := w.trust.Exec(ctx(t), stmt); err == nil {
-			t.Errorf("%s by the Trust login was not refused", name)
+		_, err = w.trust.Exec(ctx(t), stmt)
+		if code, _ := pgRefusal(t, name+" by the Trust login", err); code != sqlstatePrivilege {
+			t.Errorf("%s by the Trust login: %s, want %s (no privilege)", name, code, sqlstatePrivilege)
 		}
 	}
 	if n := w.spends(t); n != 1 {
-		t.Fatalf("%d spends remain after the refused changes, want 1", n)
+		t.Errorf("%d spends remain after the refused changes, want 1", n)
 	}
-	// a spend naming a decision that is not an ALLOW is refused by the database, whoever writes it
-	_, err = w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ($1, 'cfe_01OTHER', $2, $3)`, tenant, string(refused.Record.DecisionId), string(h(4)))
-	var pg *pgconn.PgError
-	if !errors.As(err, &pg) {
-		t.Fatalf("a spend for a REJECT decision: err %v, want a database refusal", err)
+}
+
+// Only a recorded ALLOW can be spent: a spend that names a REJECT decision is refused by the requires-allow trigger, with its own code and message.
+func TestASpendCanNameOnlyARecordedAllowDecision(t *testing.T) {
+	w := newWorld(t)
+	b := evaluatedWith(t, "evs_02XYZ", "3.1")
+	refused, err := w.write(t, request(t, decision(t, decide.Reject, b), b), true)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// another tenant's login sees none of this tenant's spends
+	_, err = w.trust.Exec(ctx(t), insertSpendOfOther, tenant, string(refused.Record.DecisionId), string(h(4)))
+	if code, msg := pgRefusal(t, "a spend for a REJECT decision", err); code != sqlstateIntegrity || !strings.Contains(msg, "not a recorded ALLOW decision") {
+		t.Errorf("a spend for a REJECT decision: %s %q, want %s from the requires-allow trigger", code, msg, sqlstateIntegrity)
+	}
+	if _, err := w.trust.Exec(ctx(t), insertSpendOfOther, tenant, "dec_01NOSUCH", string(h(4))); err == nil {
+		t.Error("a spend for a decision that does not exist was accepted")
+	}
+	if n := w.spends(t); n != 0 {
+		t.Errorf("%d spends exist, want 0", n)
+	}
+}
+
+// The tenant binding, each layer on its own (Security Reviewer on noema#603): the requires-allow trigger would also refuse ten_aa's login writing for ten_bb (the decision is
+// ten_aa's), so it is switched off in turn, the way a hand-written or mistaken change could, and the guard and then row-level security must each refuse by themselves.
+func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *testing.T) {
+	w := newWorld(t)
+	allowed, err := w.write(t, allowWith(t, "evs_01ABC", given), true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_bb', 'B')`); err != nil {
 		t.Fatal(err)
 	}
+	forTenantBB := func() error {
+		_, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ('ten_bb', 'cfe_01OTHER', $1, $2)`, string(allowed.Record.DecisionId), string(h(4)))
+		return err
+	}
+	switchTrigger := func(name, state string) {
+		t.Helper()
+		if _, err := w.admin.Exec(ctx(t), `ALTER TABLE confirmation_spend `+state+` TRIGGER `+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 1. nothing is switched off: refused (by whichever layer is first)
+	if err := forTenantBB(); err == nil {
+		t.Fatal("ten_aa's login wrote a spend for ten_bb")
+	}
+	// 2. the requires-allow trigger off: the tenant guard refuses, by its own message
+	switchTrigger("confirmation_spend_requires_allow", "DISABLE")
+	code, msg := pgRefusal(t, "the tenant guard", forTenantBB())
+	if code != sqlstatePrivilege || !strings.Contains(msg, "may not spend confirmations for tenant ten_bb") {
+		t.Errorf("with the requires-allow trigger off: %s %q, want %s from the tenant guard", code, msg, sqlstatePrivilege)
+	}
+	// 3. the guard off too: row-level security refuses, by its own message
+	switchTrigger("confirmation_spend_tenant_guard", "DISABLE")
+	code, msg = pgRefusal(t, "row-level security", forTenantBB())
+	if code != sqlstatePrivilege || !strings.Contains(msg, "row-level security") {
+		t.Errorf("with the guard off too: %s %q, want %s from row-level security", code, msg, sqlstatePrivilege)
+	}
+	switchTrigger("confirmation_spend_tenant_guard", "ENABLE")
+	switchTrigger("confirmation_spend_requires_allow", "ENABLE")
+	if n := w.count(t, `SELECT count(*) FROM confirmation_spend WHERE tenant_id = 'ten_bb'`); n != 0 {
+		t.Errorf("%d spends exist for ten_bb", n)
+	}
+	// ten_bb's own login sees none of ten_aa's spends
 	other := newTenantTrust(t, w, "ten_bb")
 	var seen int
 	if err := other.QueryRow(ctx(t), `SELECT count(*) FROM confirmation_spend`).Scan(&seen); err != nil {
@@ -249,13 +317,6 @@ func TestTheSpendIsInsertOnlyScopedToItsTenantAndNamesOnlyAnAllow(t *testing.T) 
 	}
 	if seen != 0 {
 		t.Errorf("ten_bb's Trust login sees %d of ten_aa's spends", seen)
-	}
-	// and ten_aa's login cannot write a spend for ten_bb
-	if _, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ('ten_bb', 'cfe_01OTHER', $1, $2)`, string(allowed.Record.DecisionId), string(h(4))); err == nil {
-		t.Error("ten_aa's login wrote a spend for ten_bb")
-	}
-	if n := w.count(t, `SELECT count(*) FROM confirmation_spend WHERE tenant_id = 'ten_bb'`); n != 0 {
-		t.Errorf("%d spends exist for ten_bb", n)
 	}
 }
 
