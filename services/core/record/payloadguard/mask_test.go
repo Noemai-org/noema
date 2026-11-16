@@ -7,6 +7,8 @@ package payloadguard_test
 import (
 	"encoding/json"
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"unicode"
@@ -102,48 +104,78 @@ func TestTheGuardRefusesANumberSplitByAnySeparatorOfTheWideSet(t *testing.T) {
 	}
 }
 
-// A231, the one exemption: an UPPER_SNAKE reason-code token with at most 6 digits in all and at most 3 in a group. VERSION_CONFLICT_409_412 is the core's own code and must
-// pass; the same shape carrying a card number must not.
-func TestTheOneExemptionIsAShortUpperSnakeReasonCode(t *testing.T) {
-	accepted := []string{"VERSION_CONFLICT_409_412", "CONFLICT_409_412", "NO_ADAPTER_FOR_CAPABILITY", "HTTP_503", "ERR_1_2_3_4_5_6", "ABC_123_456",
-		// the receipt's raw_status is the transport result, then a colon and a raw code when there is one (execution/ledger/complete.go): the Record stores these
-		"VERSION_CONFLICT_409_412:409", "DUPLICATE_CREATE:412:PRECONDITION_FAILED", "OUTCOME_UNKNOWN", "REJECTED_4XX:404", "CONFLICT_409_412:409:CONFLICT"}
-	refused := []string{
-		"X_4111_1111_1111_1111",         // a card number behind a prefix
-		"X_411_111_111_111",             // groups of three, but twelve digits in all
-		"ABC_123_456_7",                 // seven digits in all
-		"CONFLICT_4094_412",             // a group of four
-		"CODE41111_X",                   // a group that holds five digits (four digits alone are within the limit and need no exemption)
-		"conflict_409_412",              // not UPPER_SNAKE
-		"Conflict_409_412",              // not UPPER_SNAKE
-		"409_412",                       // no letter: not a code
-		"_CONFLICT_409_412",             // does not start with a letter
-		"CONFLICT_409_412 4111111111",   // more than the token
-		"CONFLICT__409_412",             // an empty group
-		"CONFLICT_409_412_",             // a trailing underscore
-		"CONFLICT-409-412",              // not snake case
-		"X_4111:1111:1111:1111",         // a number behind a code, split by colons
-		"A:411:111:111:111",             // more raw-code parts than a receipt has
-		"VERSION_CONFLICT_409_412:4094", // a raw code of four digits
-		"CONFLICT_409_412:409:412",      // ten digits or more in all
-		"ABC_123_456:789:123",           // twelve digits
-		"CONFLICT_409_412:",             // an empty raw code
-		"CONFLICT_409_412:abc",          // a raw code that is not a status or an UPPER_SNAKE word
-	}
-	for _, s := range accepted {
-		raw, _ := json.Marshal(map[string]string{"code": s})
-		if err := payloadguard.Check(raw); err != nil {
-			t.Errorf("%q was refused: %v", s, err)
+// A231 as narrowed by Codex's P1 and the Security Reviewer on noema#600: the one exemption is the transport class a RECEIPT carries, at its two exact payload paths and for its finite
+// vocabulary only. VERSION_CONFLICT_409_412 (six digits) is the core's own class and its receipt must be written; the same string, or any string shaped like a code, at another path
+// is refused, so no nine-digit identifier can travel as a "code".
+func TestTheOneExemptionIsTheReceiptsTransportClassAtItsTwoPathsOnly(t *testing.T) {
+	check := func(path, value string) error {
+		raw, err := json.Marshal(map[string]string{strings.TrimPrefix(path, "/"): value})
+		if err != nil {
+			t.Fatal(err)
 		}
-		if got := payloadguard.Mask(s); got != s {
-			t.Errorf("Mask(%q) = %q: an exempt code is shown whole", s, got)
+		return payloadguard.Check(raw)
+	}
+	accepted := map[string][]string{
+		"/transport_result": {"VERSION_CONFLICT_409_412", "DUPLICATE_CREATE", "TIMEOUT", "NO_RESPONSE", "REJECTED_4XX", "ACK_2XX"},
+		"/raw_status":       {"VERSION_CONFLICT_409_412:409", "DUPLICATE_CREATE:412:PRECONDITION_FAILED", "TIMEOUT", "REJECTED_4XX:404", "VERSION_CONFLICT_409_412:409:CONFLICT"},
+	}
+	for path, values := range accepted {
+		for _, v := range values {
+			if err := check(path, v); err != nil {
+				t.Errorf("%q at %s was refused: %v", v, path, err)
+			}
 		}
 	}
-	for _, s := range refused {
-		raw, _ := json.Marshal(map[string]string{"code": s})
-		if err := payloadguard.Check(raw); err == nil {
-			t.Errorf("%q was accepted", s)
+	// the same strings anywhere else are refused (Codex's P1: a code-shaped string must not bypass the guard on an unrelated field)
+	for _, path := range []string{"/note", "/reason", "/raw_code", "/status", "/transport_result_x", "/event_transport_result"} {
+		for _, v := range []string{"VERSION_CONFLICT_409_412", "VERSION_CONFLICT_409_412:409", "ABC_123_456", "X_123_456_789"} {
+			if err := check(path, v); err == nil {
+				t.Errorf("%q at %s was accepted", v, path)
+			}
 		}
+	}
+	// nested: not the receipt's own top-level member
+	raw, _ := json.Marshal(map[string]any{"detail": map[string]string{"raw_status": "VERSION_CONFLICT_409_412:409"}})
+	if err := payloadguard.Check(raw); err == nil {
+		t.Error("a nested raw_status was accepted")
+	}
+	// at the two paths, only the vocabulary and the shapes of the raw code: a number cannot ride in them
+	refusedAtRawStatus := []string{
+		"X_411_111_111_111", "ABC_123_456_789", "X:123:456", "A:411:111:111:111", "VERSION_CONFLICT_409_412:4094", "VERSION_CONFLICT_409_412:409:412",
+		"VERSION_CONFLICT_409_412:", "VERSION_CONFLICT_409_412:abc", "VERSION_CONFLICT_409_412:409:411:111", "version_conflict_409_412:409", "VERSION_CONFLICT_409_412 4111111111",
+		"VERSION_CONFLICT_409_412:409:412:123", "CONFLICT_409_412:409", "4111111111111111", "TIMEOUT:123456789",
+	}
+	for _, v := range refusedAtRawStatus {
+		if err := check("/raw_status", v); err == nil {
+			t.Errorf("%q at /raw_status was accepted", v)
+		}
+	}
+	for _, v := range []string{"X_4111_1111_1111_1111", "CONFLICT_409_412", "ABC_123_456", "version_conflict_409_412", "VERSION_CONFLICT_409_412:409"} {
+		if err := check("/transport_result", v); err == nil {
+			t.Errorf("%q at /transport_result was accepted", v)
+		}
+	}
+}
+
+// The vocabulary the guard keeps is the controller's TransportClass constants, read from the source (record/ imports no execution package): a class added there with digits fails here.
+func TestTheTransportClassesAreTheControllersConstants(t *testing.T) {
+	src, err := os.ReadFile("../../execution/controller/types.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	re := regexp.MustCompile(`(?m)^\s*Transport[A-Za-z0-9]+\s+TransportClass\s*=\s*"([A-Z0-9_]+)"`)
+	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+		want = append(want, m[1])
+	}
+	if len(want) < 9 {
+		t.Fatalf("only %d TransportClass constants found in the controller", len(want))
+	}
+	got := payloadguard.TransportClasses()
+	sort.Strings(want)
+	sort.Strings(got)
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("the guard's transport classes %v are not the controller's %v", got, want)
 	}
 }
 

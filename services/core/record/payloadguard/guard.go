@@ -427,3 +427,6 @@ func normalForm(s string) string {
 	}
 	return b.String()
 }
+
+// TransportClasses is the finite vocabulary of the controller's transport classes the guard exempts at the receipt's paths (stub).
+func TransportClasses() []string { return nil }
