@@ -22,5 +22,7 @@ jobs:
         store: [seaweedfs, silo]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Run A1 to A7 on ${{ matrix.store }}
         run: deploy/spike/anchor-store/run.sh ${{ matrix.store }}
