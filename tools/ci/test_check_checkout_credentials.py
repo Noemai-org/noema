@@ -132,6 +132,60 @@ class Refuses(unittest.TestCase):
         self.assertIn("cannot be read", found[0])
 
 
+KEY_LINE = "          persist-credentials: false\n"
+WITH_BLOCK = "        with:\n" + KEY_LINE
+
+
+class QuotedKeys(unittest.TestCase):
+    """YAML allows a quoted key: `"persist-credentials": false` is the same document as the bare one (Codex P2 on noema#622). A check that reads only bare keys would call a quoted
+    `true` safe, so every key the check reads is read in both spellings, and the refusals below are the cases that matter."""
+
+    @staticmethod
+    def quote(text: str, *names: str, mark: str = '"') -> str:
+        for name in names:
+            text = text.replace(f"{name}:", f"{mark}{name}{mark}:")
+        return text
+
+    def test_a_quoted_key_with_false_passes(self) -> None:
+        for mark in ('"', "'"):
+            with self.subTest(mark=mark):
+                self.assertEqual(run({"workflows/t.yml": self.quote(GOOD, "persist-credentials", mark=mark)}), [])
+
+    def test_a_quoted_with_key_passes(self) -> None:
+        self.assertEqual(run({"workflows/t.yml": self.quote(GOOD, "with")}), [])
+
+    def test_a_quoted_uses_key_is_still_a_checkout(self) -> None:
+        bad = GOOD.replace("      - uses:", '      - "uses":').replace(WITH_BLOCK, "")
+        found = run({"workflows/t.yml": bad})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("workflows/t.yml:7", found[0])
+
+    def test_a_quoted_key_with_true_is_refused(self) -> None:
+        for mark in ('"', "'"):
+            with self.subTest(mark=mark):
+                text = self.quote(GOOD, "persist-credentials", mark=mark).replace("false", "true")
+                found = run({"workflows/t.yml": text})
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("persist-credentials", found[0])
+
+    def test_a_quoted_key_that_is_a_comment_does_not_count(self) -> None:
+        text = GOOD.replace(KEY_LINE, '          # "persist-credentials": false\n          fetch-depth: 0\n')
+        self.assertEqual(len(run({"workflows/t.yml": text})), 1)
+
+    def test_a_quoted_key_in_another_step_does_not_count(self) -> None:
+        text = f"""jobs:
+  j:
+    steps:
+      - uses: {PIN}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          "persist-credentials": false
+"""
+        found = run({"workflows/t.yml": text})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("workflows/t.yml:4", found[0])
+
+
 class ThisRepository(unittest.TestCase):
     def test_every_checkout_of_this_repository_sets_it(self) -> None:
         github = Path(__file__).resolve().parents[2] / ".github"

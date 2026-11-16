@@ -17,9 +17,9 @@ import sys
 from pathlib import Path
 
 SUFFIXES = {".yml", ".yaml"}
-USES = re.compile(r"^(?P<indent>\s*)(?P<dash>-\s+)?uses:\s*['\"]?actions/checkout@")
+USES = re.compile(r"^(?P<indent>\s*)(?P<dash>-\s+)?['\"]?uses['\"]?:\s*['\"]?actions/checkout@")
 DASH = re.compile(r"^(?P<indent>\s*)-\s")
-KEY = re.compile(r"^(?P<indent>\s*)(?P<key>[A-Za-z0-9_-]+):(?P<rest>.*)$")
+KEY = re.compile(r"^(?P<indent>\s*)(?P<q>['\"]?)(?P<key>[A-Za-z0-9_-]+)(?P=q):(?P<rest>.*)$")  # a key may be quoted: `"persist-credentials": false` is the same YAML
 FALSE = re.compile(r"^\s*false\s*(#.*)?$")
 
 
