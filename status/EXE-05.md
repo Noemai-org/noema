@@ -64,3 +64,14 @@ Updated 2026-11-12. Plan task EXE-05: owner C1+AG; REQ-EXE-003, REQ-EXE-007, REQ
 - Exact next step: the Outcome predicates for `complaint_logged` (OUT-02, C2) decide ACHIEVED; a receipt says only "acknowledged".
 - Do not touch: the migrations.
 
+
+## Session 2026-11-16 · EXE-09: the Security Reviewer's notes on noema#588 (a lost reply; the string match)
+### Session summary
+- What changed (PR links): noema#588. `execution/e2e/records_lost_reply_test.go` (new): the real mock-case commits the complaint and drops the reply (a FaultPlan `create_complaint` `TIMEOUT_AFTER_COMMIT`, loaded through the test-only bench client): the receipt is OUTCOME_UNKNOWN with no acknowledgement and the complaint exists; the spent grant presented again writes nothing; a new grant for another key is voided at E7 (`STATE_CHANGED`) because the case now shows its complaint; with E7 made blind the target refuses it (412, `DUPLICATE_CREATE`, no acknowledgement). One complaint throughout. `execution/e2e/records_test.go`: `runAll` retries a refused spend by the database's code (`spendDidNotCommit`: 40001, 40P01, 23505, the codes `execution/ledger/spend.go` retries on) instead of the wording "did not commit".
+- Why: the Security Reviewer's notes 1 and 3 on noema#588 (the "the store commits, then the reply is lost" case had no test; the string match was fragile).
+- Risks, and how they are contained: tests only, no production code; the lost-reply case holds the mock-case connection for the fault's delay, so the test takes about seven seconds.
+- Tests added (REQ-EXE-003, REQ-EXE-006, INV-03, INV-04, INV-07, AGENT-07, AGENT-08): the lost-reply case. It passes on the current code by design; with the `If-None-Match: *` header removed from the complaint create the blind-E7 step fails (a second complaint is acknowledged). The concurrent tests were run twice with the new helper; only code 40001 was observed.
+- Regression cases added: the above. Debt entries: none. Conflicts raised: none.
+### Pre-work for the next agent
+- Exact next step: OUT-02 predicates for `complaint_logged` (C2).
+- Do not touch: the migrations.

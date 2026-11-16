@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/adapters"
 	"github.com/Noemai-org/noema/services/core/execution/bridge"
@@ -190,7 +192,7 @@ func runAll(t *testing.T, st *stack, grants []string) []controller.Outcome {
 					outs[i] = out
 					return
 				}
-				if !strings.Contains(err.Error(), "did not commit") || a == attempts {
+				if !spendDidNotCommit(err) || a == attempts {
 					t.Errorf("grant %s, presentation %d: %v", grants[i], a, err)
 					return
 				}
@@ -200,6 +202,21 @@ func runAll(t *testing.T, st *stack, grants []string) []controller.Outcome {
 	}
 	wg.Wait()
 	return outs
+}
+
+// spendDidNotCommit says whether the ledger refused a spend in the way its documentation calls "nothing was spent, the caller may try again": by the database's own code
+// (a serialisation failure, a deadlock or a unique violation), never by the wording of the error (the Security Reviewer's note 3 on noema#588). The codes are the ones
+// execution/ledger/spend.go retries on; the run observed only 40001.
+func spendDidNotCommit(err error) bool {
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) {
+		return false
+	}
+	switch pe.Code {
+	case "40001", "40P01", "23505":
+		return true
+	}
+	return false
 }
 
 func complaintGrants(t *testing.T, st *stack, caseID string, n int) []string {
