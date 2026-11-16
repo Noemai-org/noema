@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/Noemai-org/noema/services/core/execution/signing"
 	"github.com/Noemai-org/noema/services/core/execution/signing/signingtest"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"sync"
 	"testing"
 	"time"
@@ -162,6 +163,7 @@ func newWorld(t *testing.T) *world {
 	ring := signingtest.Ring(t, 1)
 	signingtest.Register(t, admin, ring)
 	w.ring = ring
+	led.Rec.Signers = recordsig.All(t, admin, "ledger", map[string]chain.Signer{"core-execution": ring})
 	w.ctl = &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: b, Reval: reval{pass: true}, Ledger: led, Out: target, IDs: gen}
 	return w
 }
@@ -178,7 +180,7 @@ func (w *world) issue(t *testing.T, n int, mutate ...func(*controller.Grant)) co
 		IntentHash: "sha256:" + fmt.Sprintf("%064d", 1), CapabilityID: capab, TargetRef: "TX1", ParamsHash: ph, EvidenceSetHash: "sha256:" + fmt.Sprintf("%064d", 2),
 		PlanHash: "sha256:" + fmt.Sprintf("%064d", 3), PlanStep: 1, TargetVersions: []controller.TargetVersion{{ResourceRef: "case:TX1", Source: "mock-case", VersionToken: "v1"}},
 		PolicyVersion: "pol_escalate@1.0", PackVersion: "fin@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
-		Nonce: fmt.Sprintf("nonce_%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
+		Nonce: fmt.Sprintf("n_ab3%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: corr}
 	for _, m := range mutate {
 		m(&g)
 	}

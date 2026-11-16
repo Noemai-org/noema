@@ -19,3 +19,51 @@ Updated 2026-11-06. Plan task RCV-02: owner C1+AG; REQ-RCV-003, REQ-RCV-002; Nee
 - Open questions (owner): the enforcement location above (Architect).
 - Files to read first: `services/core/execution/recovery/README.md`.
 - Do not touch: noema#94, noema#90 (held, DEBT-01).
+
+## Session 2026-11-12 14:00 WAT · slice 2: the budget is enforced by the database (ruling A153)
+### Session summary
+- What changed (PR links): the RCV-02 slice 2 pull request on `feat/RCV-02-budget-in-db`, from main: migration `0023_dispatch_budget.sql` (`dispatch_budget_count`, `grant_spend_budget_guard`, the trigger `grant_spend_budget`); `Ledger.Spend` maps the new SQLSTATE `NS002` to `SpendResult.BudgetSpent`; `controller.Outcome.BudgetSpent`.
+- Why: ruling A153 (DEC-2026-11-12-architect-rulings-a148-a160, relayed until docs#157 merges): RCV-02 enforcement lives in the database; key = tenant, correlation, capability, target; counting `DISPATCH_ATTEMPTED`; C1, migration 0023. Slice 1 (noema#196) gave the gate in Go; this is the open decision of that slice's note, decided.
+- Design: the guard is on the insert into `grant_spend`, not on the `DISPATCH_ATTEMPTED` insert. A first version refused any `DISPATCH_ATTEMPTED` event with no readable key; it broke 14 tests of `record/chain` and `record/reconstruct` (property tests and golden fixtures that append key-less events) and was dropped. What must be impossible is a third spend, and that is what the guard refuses.
+- Ceiling: the database holds 2 (A3; A62: the pack may lower it, never raise it above 2). A lower pack value is the Go gate's.
+- Risks, and how they are contained: a miscounted key lets a third dispatch through. Seven mutants of the migration (budget 3, no tenant filter, no correlation filter, no target filter, no capability filter, unreadable events not counted, unreadable grant allowed, off by one) are each killed by a named test. The merge of this branch with the open migration PRs #261 (0018), #263 (0019), #268 (0020) and #272 (0021) was run in a scratch tree: no conflict, and `platform/db` and `execution/ledger` pass.
+- Tests added (REQ-RCV-003, INV-03, AGENT-08, A3, A62, A153): `execution/ledger/budget_test.go` (7): the third spend refused with nothing written and the grant still ISSUED, each key's own budget, only the key's own dispatches count (another target, correlation, capability, tenant), unreadable earlier dispatches count against the correlation, an unreadable grant is refused, a direct insert into `grant_spend` is refused, 8 concurrent Executes never dispatch more than twice.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none.
+- Not done, and why: no void reason and no event for the refusal. GRANT_VOIDED reasons and SECURITY_EVENT kinds are closed lists of `record-event.v3`, so `BUDGET_SPENT` would be a contract change (AGENT-15). The grant stays ISSUED (it expires), `Outcome.BudgetSpent` tells the caller to escalate, and the database refuses the same grant again each time. The Architect decides whether to add the reason and a kind.
+- Not done: US-16 (the end-to-end recovery story) needs the Temporal recovery workflow.
+
+### Pre-work for the next agent
+- Exact next step: the caller of `Execute` escalates on `Outcome.BudgetSpent` (the workflow of RCV-02/RCV-03); the Architect's decision on a `BUDGET_SPENT` void reason and a `SECURITY_EVENT` kind (a `record-event` contract version, AGENT-15).
+- Open questions (Architect): the void reason and event kind above; migration number 0023 waits for 0022 (A151, noema#410) in the A113 order.
+- Files to read first: `services/core/migrations/0023_dispatch_budget.sql`, `services/core/execution/ledger/spend.go`.
+- Do not touch: `migrations/README.md` (A145).
+
+## Session 2026-11-12 16:00 WAT · RCV-02: the migration number and the void reason are settled
+### Session summary
+- What changed (PR links): noema#472: the header comment of `0023_dispatch_budget.sql` (no statement changed) and this note.
+- Why: ruling A167 (docs#159) made C1's table on noema#183 the migration ledger: 0023 stays with this PR and does not wait for 0022, which the table reserves for the evidence-set binding (A164 already said the budget does not wait). The void reason: A164 (no new event kind, no new void reason) applies, which the code already follows (a refused dispatch leaves the grant ISSUED, `BudgetSpent` is a result, not a void).
+- Risks: none; a comment-only change in an unmerged migration.
+- Tests added: none. Regression cases: none. Debt entries: none. Conflicts raised: none.
+
+### Pre-work for the next agent
+- Exact next step: the Security Reviewer re-reads `218edc95`'s successor for the two points of its NOT READY (migration order, void reason); both are answered by A167 and A164.
+- Do not touch: the trigger and the definer function.
+
+### Addendum 2026-11-12 17:00 WAT · RCV-02: 0023 hands the definer function to record_append the way 0019 does
+- What changed: `0023_dispatch_budget.sql`: `GRANT CREATE ON SCHEMA public TO record_append` before and `REVOKE CREATE ... FROM record_append` after `ALTER FUNCTION dispatch_budget_count ... OWNER TO record_append`.
+- Why: the new `compose-scripts` check (DEBT-16, noema#257, on `main` today) runs `deploy/compose/postgres/test_init.sh` on PostgreSQL 17.11 with a migrator that is not a superuser, and failed at `0023_dispatch_budget.sql:48: permission denied for schema public`. `ALTER ... OWNER TO` needs CREATE on the schema for the new owner (PostgreSQL 15 and later). Every Go test of mine ran with the superuser migrator, so none could see it. Reproduced locally with PostgreSQL 16 (`PG_BIN=... sh deploy/compose/postgres/test_init.sh`, same error), fixed, and the script now passes.
+- Lesson for the next migration author: run `deploy/compose/postgres/test_init.sh` before you push a migration that changes an owner; the superuser test databases do not prove a migrator's privileges.
+
+### Addendum 2026-11-12 23:00 WAT · RCV-02: the rule no longer depends on the isolation level (Security Reviewer, blocking finding on noema#472)
+- Finding: the count read the Record without a lock, so under READ COMMITTED two spends of two grants of one key could each count one and both commit (the SERIALIZABLE of `Spend` hid it; a direct insert by `execution_rw` had the hole).
+- Fix: the guard takes `pg_advisory_xact_lock(hashtextextended(tenant, correlation, capability, target))` before it counts; the second spend waits for the first to commit and then counts the Record with the first's event in it. Under SERIALIZABLE (what `Spend` uses) the serialisation check still refuses a commit on a stale count.
+- Test, failing first (run locally before the fix, red: "a second spend of the key passed while the first was in flight"): `TestTwoSpendsOfOneKeyCannotBothPassUnderReadCommitted`, a direct-insert pair under READ COMMITTED with the first spend's event appended and not yet committed. Mutants: the lock removed, and the lock taken after the count (the second counts one, passes after the wait): each caught.
+- Note 2 (an Execution login can append `DISPATCH_ATTEMPTED` events to burn a key's budget): accepted as a stated limit, unchanged by this fix; a debt entry is for the Steward to file (docs), proposed text: "an `execution_rw` login can exhaust a key's dispatch budget by appending DISPATCH_ATTEMPTED events of that key; the cure is a payload-shape check on the event, which the Record accepts from many writers today". Not filed here: the debt register is in the docs repository.
+- Note 3 (the caller escalates a `BudgetSpent`): `Outcome.BudgetSpent` is the signal and no caller consumes it yet; the consumer is EXE-06 and the Recovery workflow (RCV-02 slice 3). Not claimed here.
+- Not verified by the Security Reviewer and not claimed: other roles' INSERT on `grant_spend` (the table's grants are unchanged here), and that `Migrate` accepts the 0022 gap (tested: `migration_order_test.go`).
+
+## Session 2026-11-13 (C1): Security Reviewer's notes on #472 at `7dc97789`
+- Note 1, done: the guard refuses a spend under REPEATABLE READ (SQLSTATE 0A000), because that level keeps the snapshot of its first statement and could count a stale budget after the wait. `TestASpendUnderRepeatableReadIsRefusedBecauseItsSnapshotCouldBeStale` (red first: the spend passed). READ COMMITTED is proved by `TestTwoSpendsOfOneKeyCannotBothPassUnderReadCommitted`; `Spend` runs SERIALIZABLE.
+- Note 2 (an Execution login can burn a key's budget by appending DISPATCH_ATTEMPTED events directly): recorded debt, no code. The text is for the Steward's register: "an `execution_rw` signer can use up a key's own budget; it cannot dispatch anything. Owner C1. Closes when the append is guarded by the same rule."
+- Note 3: `Outcome.BudgetSpent` is the signal; nothing in the POC escalates on it yet, because the recovery workflow (Temporal, US-16) is not built. The controller test asserts the signal.
+

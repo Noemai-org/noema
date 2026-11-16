@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -37,7 +38,7 @@ func newBuilder(t *testing.T, w *world, tenant string, failAppend bool) (*layer.
 	clk := clock.NewManual(readAt.Add(time.Minute))
 	gen := ids.New(clk, nil)
 	rec := &failingIDs{inner: gen, fail: failAppend}
-	return &layer.Builder{Pool: w.evidence(t, tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: rec}}, rec
+	return &layer.Builder{Pool: w.evidence(t, tenant), Clock: clk, IDs: gen, RollbackTimeout: 5 * time.Second, Rec: &chain.Appender{Clock: clk, IDs: rec, Signers: recordsig.For(t, w.admin, "layer", nil, "core-evidence")}}, rec
 }
 
 func observation(tenant string, class layer.ReadClass) layer.Observation {

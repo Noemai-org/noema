@@ -37,6 +37,7 @@ from noema_model.understanding.pipeline import Outcome, PipelineResult, run_pipe
 from noema_model.understanding.resolution import Candidate, ResolutionState
 from tests.support import ManualClock, raw_config
 from tests.support_pipeline import PACK, T0, FakeSource, make_input, no_errors, normaliser, pipeline_config
+from tests.support import MASKING
 
 ROOT = Path(__file__).resolve().parents[3]
 CANNED = Path(__file__).parent / "fixtures" / "proposer_swap" / "canned_outputs.json"
@@ -156,7 +157,7 @@ def _harness(provider_name: str, kind: str, provider: Any) -> Harness:
     raw["providers"][provider_name]["kind"] = kind
     if kind == "openai_responses":
         raw["providers"][provider_name]["reasoning_effort"] = "medium"
-    return Harness(load_harness_config(raw), {provider_name: provider}, ManualClock(), InMemoryTelemetry())
+    return Harness(load_harness_config(raw), {provider_name: provider}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
 
 
 def propose(proposer: str, scenario: str, table: Mapping[str, Mapping[str, Any]] | None = None) -> Proposed:

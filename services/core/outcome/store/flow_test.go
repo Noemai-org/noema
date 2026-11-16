@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"os"
 	"sync"
@@ -116,7 +117,7 @@ func newFlowOn(t *testing.T, auth verifier.Authenticity, failAppend int32, pool 
 	if failAppend > 0 {
 		recIDs = &failingIDs{inner: gen, n: failAppend}
 	}
-	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs}, RollbackTimeout: 5 * time.Second}
+	st := &store.Store{Pool: pool(w, t), Clock: clk, IDs: gen, Rec: &chain.Appender{Clock: clk, IDs: recIDs, Signers: recordsig.For(t, w.admin, "flow", nil, "core-outcome")}, RollbackTimeout: 5 * time.Second}
 	pg := &pages{byKey: []verifier.CasePage{done(theCase("OPEN"))}, byTx: []verifier.CasePage{done(theCase("OPEN"))}}
 	keys := crypto.NewKeyRing(map[string][]byte{"k_out": []byte("synthetic-test-key-not-a-secret")})
 	build := func(store verifier.Store) *verifier.Verifier {

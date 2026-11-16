@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 601bbc39935e1ede87e904cd2436eca4818e942e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit af3f840d895e251726c4d7e9e013e39bb39934a1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -141,7 +141,7 @@ From PERD §36.1. The "never use instead" column is that table's rejected altern
 | JSON Schema in `/contracts`, with codegen to Pydantic and Go | Hand-written types per language |
 | React and TypeScript (thin) | Server-rendered templates |
 | GPT, Gemini and Claude behind `providers/` | A single provider with theoretical fallback |
-| Aethex AI, Indigenius and N-ATLAS behind `providers/` | A single vendor |
+| Aethex AI, Indigenius and N-ATLAS behind `providers/` (the rule until the SoT edit of DEC-2026-11-13-voice-provider-intron takes effect). **From that edit (A179, proposed):** Intron Sahara v2.5 behind separate speech-to-text and text-to-speech interfaces under `providers/`, the sole integrated speech provider in the POC | Until the edit: a single vendor. From the edit: integrating Aethex AI, Indigenius or N-ATLAS in the POC |
 | HMAC-SHA-256 grants and confirmations | Per-power asymmetric keys now (deferred to before Phase 2) |
 | mTLS between the services | A shared bearer token |
 | Hypothesis (Python) and a Go property-testing library | Example tests only. The Go library (`pgregory.net/rapid`) is [REC] and needs approval under AGENT-14 |
@@ -375,7 +375,7 @@ The sources are SoT §47, PERD §41 and §42, and the threat-to-test map in [`do
 5. The hand-off report (plan §4.1 step 6).
 6. CONFLICT blocks, if any.
 
-**Reviews.** P0-path PRs need two human reviews: EL plus C1 or C2 (plan §4). An agent's report is not acceptance (plan §4.1).
+**Reviews.** Review gates are set by tier (A143, plan §4). **Tier 1** (trust, execution, outcome, record, migrations, identity): Codex READY + SR READY + one independent role review (EL, C1 or C2, not the author) + CI + one Founder approval. **Tier 2** (contracts, packs, benchmark, voice, docs): Codex where A14 applies + one independent reviewer READY (SR counts) + CI + one Founder approval; `.github` and `deploy` still need SR. An agent's report is not acceptance (plan §4.1).
 
 **Approval and merge.** One approval from a Founder who did not author or drive the pull request is enough to merge any pull request in `docs` or `noema`, whatever paths it changes (A111, [DEC-2026-11-09-one-founder-approval](docs/decisions/DEC-2026-11-09-one-founder-approval.md)). The other gates above and in plan §13.1 are unchanged.
 

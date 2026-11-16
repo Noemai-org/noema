@@ -16,11 +16,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
 
 const (
 	hashPrefix   = "sha256:"
-	maxDigitRun  = 4 // PERD 31.2 check 4: no unmasked digit run longer than 4
 	templatePath = "%s.json"
 )
 
@@ -29,8 +29,18 @@ var ErrNoTemplate = errors.New("explanation: no template")
 
 type entry struct{ text, version string }
 
-// Templates are the loaded pack templates: locale, then "<outcome_id>/<classification>".
-type Templates struct{ byLocale map[string]map[string]entry }
+// Templates are the loaded pack templates: locale, then "<outcome_id>/<classification>". They also carry the pack's masking limit, the longest unmasked digit run, which
+// Validate reads for check 4 (SEC-03); the number lives in the pack's masking-limits.v1 document and nowhere in code.
+type Templates struct {
+	byLocale map[string]map[string]entry
+	masking  masking.Limits
+}
+
+// WithMaskingLimits returns the templates with the pack's masking limit. Without it, Validate blocks every text: it never uses a number of its own.
+func (t Templates) WithMaskingLimits(l masking.Limits) Templates {
+	t.masking = l
+	return t
+}
 
 // LoadTemplates reads <dir>/<locale>.json for each locale. A missing file, a file that is not a JSON object of strings, or an empty text is an error.
 func LoadTemplates(dir string, locales []string) (Templates, error) {
@@ -50,6 +60,9 @@ func LoadTemplates(dir string, locales []string) (Templates, error) {
 		for key, text := range doc {
 			if strings.TrimSpace(text) == "" {
 				return Templates{}, fmt.Errorf("explanation: the %s template for %s is empty", loc, key)
+			}
+			if err := checkSlots(text); err != nil {
+				return Templates{}, fmt.Errorf("explanation: the %s template for %s: %w", loc, key, err)
 			}
 			m[key] = entry{text: text, version: version}
 		}
@@ -106,12 +119,14 @@ type Claim struct {
 	TemplateID string
 }
 
-// Rendered is the renderer's answer: the text, what binds it, and which template and version it came from.
+// Rendered is the renderer's answer: the text, what binds it, and which template and version it came from. FactIDs lists the facts that filled the template's
+// slots, in slot order (empty for a template with no slot).
 type Rendered struct {
 	Text            string
 	Claims          []Claim
 	TemplateID      string
 	TemplateVersion string
+	FactIDs         []string
 }
 
 // Fallback renders the pack template for the facts' locale, outcome and classification. The whole text is one template-bound claim.
@@ -123,7 +138,11 @@ func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
 		return Rendered{}, fmt.Errorf("%w for %s/%s", ErrNoTemplate, locale, key)
 	}
 	id := locale + "/" + key
-	return Rendered{Text: e.text, TemplateID: id, TemplateVersion: e.version, Claims: []Claim{{Span: e.text, TemplateID: id}}}, nil
+	text, used, err := expand(e.text, f)
+	if err != nil {
+		return Rendered{}, err
+	}
+	return Rendered{Text: text, TemplateID: id, TemplateVersion: e.version, FactIDs: used, Claims: []Claim{{Span: text, TemplateID: id}}}, nil
 }
 
 var (
@@ -189,7 +208,7 @@ func (t Templates) vocabulary(locale string) map[string]bool {
 
 // Validate runs the four checks of PERD 31.2 and the forbidden-claim patterns (pack data, passed in). It returns every problem; none means the text may be shown.
 // 1. every sentence is covered by a claim bound to a fact of the input or to the rendered template; 2. every figure, time or masked identifier in the text appears in
-// the facts; 3. no forbidden pattern matches; 4. no unmasked digit run longer than 4.
+// the facts; 3. no forbidden pattern matches; 4. no unmasked digit run longer than the pack's masking limit (4 in the fintech pack, PERD 31.2).
 func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden []string) []string {
 	var out []string
 	known := map[string]bool{}
@@ -220,8 +239,22 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 				out = append(out, fmt.Sprintf("claim %d: template %q is not the one the input facts select (%q)", i, c.TemplateID, want))
 				continue
 			}
-			if text, ok := t.text(c.TemplateID); !ok || !strings.Contains(text, c.Span) {
+			text, ok := t.text(c.TemplateID)
+			if !ok {
 				out = append(out, fmt.Sprintf("claim %d: its span is not the text of template %q", i, c.TemplateID))
+				continue
+			}
+			filled, _, err := expand(text, f)
+			if err != nil {
+				out = append(out, fmt.Sprintf("claim %d: template %q cannot be filled from the input facts: %v", i, c.TemplateID, err))
+				continue
+			}
+			if !strings.Contains(filled, c.Span) {
+				out = append(out, fmt.Sprintf("claim %d: its span is not the text of template %q filled from the input facts", i, c.TemplateID))
+				continue
+			}
+			if version, _ := t.version(c.TemplateID); r.TemplateVersion != version {
+				out = append(out, fmt.Sprintf("claim %d: the render's template version %q is not the loaded version of template %q", i, r.TemplateVersion, c.TemplateID))
 				continue
 			}
 		case len(c.FactIDs) > 0:
@@ -258,7 +291,7 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 	}
 	allowed := figureSet(factStrings(f))
 	for _, fig := range figure.FindAllString(r.Text, -1) {
-		if !allowed[normalFigure(fig)] && !coveredByTemplateOnly(t, r, fig) {
+		if !allowed[normalFigure(fig)] && !coveredByTemplateOnly(t, r, f, fig) {
 			out = append(out, fmt.Sprintf("check 2: %q is not a figure of the facts", fig))
 		}
 	}
@@ -286,18 +319,28 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 			out = append(out, fmt.Sprintf("check 3: matches the forbidden pattern %q", p))
 		}
 	}
+	if strings.ContainsAny(r.Text, "{}") {
+		out = append(out, "check 2: the text holds a brace, so a placeholder was not filled or a value was injected")
+	}
+	if !t.masking.Loaded() {
+		return append(out, "check 4: the masking limit is not loaded")
+	}
 	for _, run := range digitRun.FindAllString(r.Text, -1) {
-		if utf8.RuneCountInString(run) > maxDigitRun {
-			out = append(out, fmt.Sprintf("check 4: an unmasked digit run of %d", len(run)))
+		if n := utf8.RuneCountInString(run); n > t.masking.MaxUnmaskedRun() {
+			out = append(out, fmt.Sprintf("check 4: an unmasked digit run of %d", n))
 		}
 	}
 	return out
 }
 
 // coveredByTemplateOnly reports whether a figure sits only inside spans bound to the rendered template: pack text is reviewed data and not a model's claim.
-func coveredByTemplateOnly(t Templates, r Rendered, fig string) bool {
+func coveredByTemplateOnly(t Templates, r Rendered, f contracts.ExplanationFactsV2, fig string) bool {
 	for _, c := range r.Claims {
-		if want, ok := t.text(c.TemplateID); ok && c.TemplateID == r.TemplateID && strings.Contains(want, c.Span) && strings.Contains(c.Span, fig) {
+		text, ok := t.text(c.TemplateID)
+		if !ok || c.TemplateID != r.TemplateID {
+			continue
+		}
+		if want, _, err := expand(text, f); err == nil && strings.Contains(want, c.Span) && strings.Contains(c.Span, fig) {
 			return true
 		}
 	}
@@ -314,6 +357,17 @@ func (t Templates) text(id string) (string, bool) {
 	return e.text, found
 }
 
+// version finds the version (the digest of the locale file it was loaded from) for an ID of the same form. Validate asks it only after text has found the ID, so a
+// loaded version is never empty there.
+func (t Templates) version(id string) (string, bool) {
+	locale, key, ok := strings.Cut(id, "/")
+	if !ok {
+		return "", false
+	}
+	e, found := t.byLocale[locale][key]
+	return e.version, found
+}
+
 func sentences(text string) []string {
 	var out []string
 	last := 0
@@ -326,5 +380,15 @@ func sentences(text string) []string {
 	if s := strings.TrimSpace(text[last:]); s != "" {
 		out = append(out, s)
 	}
+	return out
+}
+
+// Locales lists the locales that have templates loaded, sorted.
+func (t Templates) Locales() []string {
+	var out []string
+	for l := range t.byLocale {
+		out = append(out, l)
+	}
+	sort.Strings(out)
 	return out
 }

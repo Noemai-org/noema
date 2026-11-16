@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -59,8 +60,9 @@ func TestProvisionEmitterLoginBindsALoginToOneEmitterInOneTenant(t *testing.T) {
 		if err := tx.QueryRow(ctx(t), `SELECT seq, hash FROM record_lock_head_t()`).Scan(&seq, &head); err != nil {
 			t.Fatalf("lock head: %v", err)
 		}
-		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_z', $1, $2, $3, $4, 'SESSION_VALIDATED', 'ses_1', 'sha256:p', 'corr_1', now(), '3.0', $4, jsonb_build_object('tenant_id', $5::text), NULL)`,
-			seq+1, head, hashOf("7"), emitter, bodyTenant)
+		// Signed since REC-08 (noema#263): the emitter's SYNTHETIC key signs the exact bytes of the body; an emitter with no key sends no signature and is refused by the
+		// checks that come before the trigger.
+		err = w.signedInsert(t, tx, "recev_z", seq+1, head, hashOf("7"), emitter, bodyTenant, time.Date(2026, 11, 3, 9, 0, 0, 0, time.UTC)) // SYNTHETIC; a whole millisecond, as the body carries it
 		return err
 	}
 	if err := insert("core-edge", "ten_a"); err != nil {

@@ -23,7 +23,33 @@ from typing import Any, Dict, List, Optional, Tuple
 # envelope, and then only with a value shape, not a key.
 ERROR_KEYS = {"error", "code", "status", "request_id", "type"}
 _TOKEN = re.compile(r"^[A-Za-z][A-Za-z0-9_.:-]{0,63}$")
-_DIGIT_RUN = re.compile(r"[0-9]{6,}")
+# The longest digit run an error field may carry is the pack's masking-limits.v1 value (SEC-03, PERD line 4428), the one file the core and the model service read. No number here.
+MASKING_LIMITS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "packs", "fintech", "limits", "masking_limits.json")
+_LIMIT_FIELDS = {"schema_version", "pack_id", "label", "max_unmasked_digit_run"}
+
+
+def max_unmasked_digit_run(path: str) -> int:
+    """Reads masking-limits.v1 from path. Anything that is not exactly the contract is a ValueError; there is no default."""
+    with open(path, encoding="utf-8") as f:
+        doc = json.load(f)
+    if not isinstance(doc, dict) or set(doc) != _LIMIT_FIELDS or doc["schema_version"] != "1.0" or doc["label"] not in ("SYNTHETIC", "VALIDATED"):
+        raise ValueError("masking limits: the file is not exactly masking-limits.v1")
+    if not isinstance(doc["pack_id"], str) or not re.match(r"\A[a-z][a-z0-9]*\Z", doc["pack_id"]):
+        raise ValueError("masking limits: pack_id does not match the contract")
+    value = doc["max_unmasked_digit_run"]
+    if type(value) is not int or value != 4:  # the contract's const (A154 as corrected)
+        raise ValueError("masking limits: max_unmasked_digit_run is not the contract's value")
+    return value
+
+
+def digit_run_pattern(max_unmasked: int) -> "re.Pattern[str]":
+    """Matches a run of digits longer than max_unmasked."""
+    return re.compile("[0-9]{%d,}" % (max_unmasked + 1))
+
+
+def _digit_run() -> "re.Pattern[str]":
+    """The pattern of a digit run longer than the file's value, read when it is used so that the file is the only source."""
+    return digit_run_pattern(max_unmasked_digit_run(MASKING_LIMITS_FILE))
 EXPECTED_STATUS: Optional[int] = None  # set to an int when Tushe documents the refusal status
 MAX_BODY = 1024
 
@@ -51,7 +77,7 @@ def judge(status: int, body: str) -> Tuple[bool, str]:
     for k, v in doc.items():
         if k == "status" and isinstance(v, int) and not isinstance(v, bool) and 400 <= v <= 499:
             continue
-        if not isinstance(v, str) or not _TOKEN.match(v) or _DIGIT_RUN.search(v):
+        if not isinstance(v, str) or not _TOKEN.match(v) or _digit_run().search(v):
             return False, "field %s is not a short code token" % k
     return True, "refused with an error envelope"
 

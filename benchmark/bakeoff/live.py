@@ -189,9 +189,10 @@ class HarnessDecider:
         return str(result.call.attempts[-1].model_version_reported)
 
 
-def build_real_decider(label: str, config_path: str, environ: dict[str, str], guard: BudgetGuard, transport: Any = None) -> HarnessDecider:
+def build_real_decider(label: str, config_path: str, masking_limits_path: str, environ: dict[str, str], guard: BudgetGuard, transport: Any = None) -> HarnessDecider:
     """A decider on the real harness for one harness configuration file (the one NOEMA_MODEL_HARNESS_CONFIG would name). The model
-    ID, the rate card, `reasoning.effort`, `max_output_tokens` and the key's variable name are the file's; none is set here.
+    ID, the rate card, `reasoning.effort`, `max_output_tokens` and the key's variable name are the file's; none is set here. The longest unmasked digit run is the pack's
+    masking-limits.v1 value (`masking_limits_path`), the one the core reads; the frozen file's old `masking` member is ignored (A162).
     `transport` is for tests; a live run uses the service's own HTTPS transport."""
     import copy
     from importlib import import_module
@@ -211,6 +212,7 @@ def build_real_decider(label: str, config_path: str, environ: dict[str, str], gu
         YesNoAnswer=harness.YesNoAnswer, Option=harness.Option, ABSTAIN=decide_types.ABSTAIN, template_digest=templates.DECIDE_V2.digest,
         template_version=templates.DECIDE_V2.version,
     )
+    masking_limits = import_module("noema_model.platform.masking").load_limits_file(Path(masking_limits_path))
     raw = json.loads(Path(config_path).read_text(encoding="utf-8"))
     config = harness.load_harness_config(raw)
     (name, provider), = config.providers.items()
@@ -224,7 +226,7 @@ def build_real_decider(label: str, config_path: str, environ: dict[str, str], gu
         if reported is not None:
             body["providers"][name]["reported_model_version"] = reported
         loaded = harness.load_harness_config(body)
-        return harness.Harness(loaded, harness.build_providers(loaded, use, environ), clock.SystemClock(), telemetry.NullTelemetry())
+        return harness.Harness(loaded, harness.build_providers(loaded, use, environ), clock.SystemClock(), telemetry.NullTelemetry(), masking=masking_limits)
 
     decider = HarnessDecider(provider=label, modules=modules, build=build, guard=guard, input_micro_per_mtok=provider.rate.input_micro_per_mtok,
                              output_micro_per_mtok=provider.rate.output_micro_per_mtok, max_output_tokens=provider.max_output_tokens,

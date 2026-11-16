@@ -89,7 +89,6 @@ class Route:
 
 @dataclass(frozen=True, slots=True)
 class HarnessConfig:
-    account_run_min_digits: int
     data_limits: DataLimits
     breaker: BreakerConfig
     providers: Mapping[str, ProviderConfig]
@@ -192,11 +191,9 @@ def _names(raw: Any, providers: Mapping[str, ProviderConfig], where: str) -> tup
 
 def load_harness_config(raw: Any) -> HarnessConfig:
     src = require_mapping(raw, "config")
+    # A162 (option A): the longest unmasked digit run is the pack's masking-limits.v1 value, given to the Harness, not a number of this file. The old `masking` member of the
+    # frozen configurations is accepted and ignored until the re-freeze removes it; a follow-up makes the loader refuse it.
     reject_unknown(src, frozenset({"masking", "data_limits", "breaker", "providers", "routes"}), "config")
-
-    masking = require_mapping(src.get("masking"), "masking")
-    reject_unknown(masking, frozenset({"account_run_min_digits"}), "masking")
-    min_digits = require_int(masking, "account_run_min_digits", "masking", minimum=5)
 
     limits = require_mapping(src.get("data_limits"), "data_limits")
     reject_unknown(limits, frozenset({"default_max_chars", "overrides"}), "data_limits")
@@ -230,7 +227,6 @@ def load_harness_config(raw: Any) -> HarnessConfig:
         )
 
     return HarnessConfig(
-        account_run_min_digits=min_digits,
         data_limits=DataLimits(
             default_max_chars=require_int(limits, "default_max_chars", "data_limits", minimum=1),
             overrides=MappingProxyType(overrides),

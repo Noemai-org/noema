@@ -29,7 +29,6 @@ def test_a_valid_config_loads() -> None:
     [
         lambda r: r.pop("breaker"),
         lambda r: r["breaker"].pop("cooldown_ms"),
-        lambda r: r["masking"].pop("account_run_min_digits"),
         lambda r: r.update(surprise=1),
         lambda r: r["providers"]["alpha"].update(surprise=1),
         lambda r: r["providers"]["alpha"].pop("timeout_ms"),

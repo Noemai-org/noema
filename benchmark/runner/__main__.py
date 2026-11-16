@@ -4,6 +4,7 @@ Exit 0: every case completed. 1: the run is incomplete (an ERROR or an excluded 
 3: not run, no access (a required part of the environment is missing); the run manifest says which and nothing was faked."""
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,27 @@ def _commit() -> str | None:
     return sha if len(sha) == 40 else None
 
 
+def service_credentials(args: argparse.Namespace) -> tuple[Path | None, Path | None]:
+    """The bench credential file for the stand-in and for the hostility proxy: each one's own, else the shared `--bench-credential-file`."""
+    return args.standin_credential_file or args.bench_credential_file, args.proxy_credential_file or args.bench_credential_file
+
+
+CASE_ID = re.compile(r"^BEN-[A-Z]{2,5}-[0-9]{4,6}$")
+
+
+def only_ids(only: list[str] | None, only_file: Path | None) -> set[str] | None:
+    """The case ids to run: `--only` ids and the ids in `--only-file` (one per line, blanks ignored). None means every case. A malformed id is refused."""
+    ids = set(only or [])
+    if only_file is not None:
+        ids |= {line.strip() for line in only_file.read_text(encoding="utf-8").splitlines() if line.strip()}
+    bad = sorted(i for i in ids if not CASE_ID.match(i))
+    if bad:
+        raise ValueError(f"not a case id: {', '.join(bad[:3])}")
+    if (only or only_file is not None) and not ids:
+        raise ValueError("the explicit case selection contains no case id (an empty or blank --only-file): refusing to run zero cases and call it complete")
+    return ids if (only or only_file is not None) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="benchmark.runner", description=__doc__)
     p.add_argument("--suite", type=Path, required=True, help="a suite root written by `python -m benchmark.generator generate`")
@@ -50,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--admin-token-file", type=Path)
     p.add_argument("--bench-url", default="http://mock-case:8091", help="mock-case's bench listener (bench_net)")
     p.add_argument("--bench-credential-file", type=Path, help="the bench credential, a file (never an argument value)")
+    p.add_argument("--standin-credential-file", type=Path, help="the stand-in's own bench credential (default: --bench-credential-file); each oracle-side service generates its own")
+    p.add_argument("--proxy-credential-file", type=Path, help="the hostility proxy's own bench credential (default: --bench-credential-file)")
     p.add_argument("--mock-case-log", type=Path, help="mock-case's JSON log, captured with `docker compose logs --no-log-prefix mock-case`")
     p.add_argument("--cost-dir", type=Path, help="the model service's bench cost files, $BENCH_OUT/cost (REQ-NFR-007); without it cost is not available")
     p.add_argument("--model-writer", help="the Record `written_by` name of the model service")
@@ -58,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--tenant-id", help="the tenant the admin API addresses, for kill_switch events")
     p.add_argument("--provider", action="append", default=[], help="a model provider used in this run (repeatable)")
     p.add_argument("--only", action="append", help="run only this case id (repeatable)")
+    p.add_argument("--only-file", type=Path, help="run only the case ids in this file, one per line (BEN-29)")
     p.add_argument("--standin-url", help="the Noema-side stand-in for the Tushe-held data (bench_net); with the bench credential it provides the fixture loader. Evidence from such a run is labelled stand-in")
     p.add_argument("--commit-sha", default=None)
     p.add_argument("--support", action="store_true", help="print which cases this build can run and what stops the rest, then exit")
@@ -82,31 +107,37 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     sessions: SessionProvider = (IdpSessionProvider(args.idp_binary, args.idp_key, kid=args.idp_kid, audience=args.idp_audience, tenant_id=args.tenant_id)
                                  if any(idp) else DirSessionProvider(args.tokens_dir or Path("/nonexistent-token-dir")))
+    try:
+        selected = only_ids(args.only, args.only_file)
+    except ValueError as error:
+        print(f"refused: {error}")
+        return 2
     if args.support:
         found = support_report(suite)
         print(f"{found['runnable']} of {found['total']} cases can run now ({found['blocked']} blocked; {found['without_faults_or_events']} need no fault and no event)")
         for reason, count in found["blocked_by"].items():
             print(f"  {count:4d}  {reason}")
         return 0
-    if args.standin_url and not args.bench_credential_file:
-        print("--standin-url needs --bench-credential-file: the stand-in's control route takes the bench credential, and without it the fixture loader would silently be missing")
+    standin_credential, proxy_credential = service_credentials(args)
+    if args.standin_url and not standin_credential:
+        print("--standin-url needs --bench-credential-file (or --standin-credential-file): the stand-in's control route takes a bench credential, and without it the fixture loader would silently be missing")
         return 2
-    if args.proxy_url and not args.bench_credential_file:
-        print("--proxy-url needs --bench-credential-file: the proxy's request log takes the bench credential, and without it monetary_calls would silently have no source")
+    if args.proxy_url and not proxy_credential:
+        print("--proxy-url needs --bench-credential-file (or --proxy-credential-file): the proxy's request log takes a bench credential, and without it monetary_calls would silently have no source")
         return 2
     credential = read_secret(args.bench_credential_file) if args.bench_credential_file else ""
-    if args.proxy_url and args.bench_credential_file:
-        monetary: Any = ProxyRouteLog(args.proxy_url, args.bench_credential_file)
+    if args.proxy_url and proxy_credential:
+        monetary: Any = ProxyRouteLog(args.proxy_url, proxy_credential)
     else:
         monetary = DeclaredAbsent("monetary_calls", args.declare_no_monetary_route) if args.declare_no_monetary_route else Unavailable(
             "monetary_calls", "no source: pass --proxy-url (the proxy's request log) or declare no monetary route with a reason")
     oracle = OracleClient(MockCaseTruth(args.bench_url, credential or "unset"), refusal_log=RefusalLog(args.mock_case_log) if args.mock_case_log else None,
                           governance=RecordGovernance(args.model_writer), monetary=monetary)
     env = RunEnv(api=PublicApi(args.api_url), control=MockCaseControl(args.bench_url, credential or "unset"), oracle=oracle,
-                 fixtures=StandInFixtureLoader(args.standin_url, args.bench_credential_file) if args.standin_url and args.bench_credential_file else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
+                 fixtures=StandInFixtureLoader(args.standin_url, standin_credential) if args.standin_url and standin_credential else UnavailableFixtureLoader(NO_LOADER), sessions=sessions, run_id=args.run_id,
                  admin_token=read_secret(args.admin_token_file) if args.admin_token_file else None, tenant_id=args.tenant_id, costs=CostFiles(args.cost_dir))
     summary = run_suite(env, suite, args.out, commit_sha=args.commit_sha or _commit(), providers=args.provider, suite_manifest_bytes=manifest_bytes,
-                        only=set(args.only) if args.only else None)
+                        only=selected)
     counts = summary["counts"]
     if summary["status"] == "NOT_RUN":
         print(f"not run: {summary['not_run_reason']}")

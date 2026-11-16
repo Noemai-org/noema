@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,7 +38,11 @@ type world struct {
 	dsn   string
 }
 
-func newWorld(t *testing.T, tenants ...string) *world {
+func newWorld(t *testing.T, tenants ...string) *world { return newWorldKeys(t, true, tenants...) }
+
+// newWorldKeys is newWorld; withKeys registers a SYNTHETIC key for every signing identity and gives the appender the signers. The signature matrix
+// (signed_events_test.go) registers its own keys, so it passes false.
+func newWorldKeys(t *testing.T, withKeys bool, tenants ...string) *world {
 	t.Helper()
 	admin, dsn := testpg.NewDatabase(t)
 	if _, err := db.Migrate(ctx(t), admin, migrations.FS); err != nil {
@@ -53,7 +58,11 @@ func newWorld(t *testing.T, tenants ...string) *world {
 		pools[id] = testpg.TenantLogin(t, admin, dsn, "execution_rw", id)
 	}
 	clk := clock.NewManual(time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC))
-	return &world{admin: admin, pools: pools, dsn: dsn, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil)}}
+	var signers map[string]chain.Signer
+	if withKeys {
+		signers = recordsig.All(t, admin, "chain", nil)
+	}
+	return &world{admin: admin, pools: pools, dsn: dsn, app: &chain.Appender{Clock: clk, IDs: ids.New(clk, nil), Signers: signers}}
 }
 
 // pool is the connection pool that logs in as the tenant's execution login.
@@ -221,7 +230,7 @@ func TestRecordInsertRefusesAnEventThatDoesNotExtendTheHead(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_X1',$1,$2,'sha256:h','core-execution','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'3.0','core-execution','{"tenant_id":"ten_aa"}'::jsonb,NULL)`, s, prev)
+		_, err = tx.Exec(ctx(t), `SELECT record_insert_t('recev_X1',$1,$2,'sha256:h','core-execution','GRANT_SPENT','grt_1','sha256:p','corr_abc123',now(),'3.0','core-execution','{"tenant_id":"ten_aa"}'::jsonb,NULL,'core-execution.ed25519.1','00','\\x00'::bytea)`, s, prev)
 		if err != nil {
 			_, _ = tx.Exec(ctx(t), `ROLLBACK TO SAVEPOINT s`)
 		}

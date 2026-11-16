@@ -43,7 +43,7 @@ def build(scripts: dict[str, list[Any]], **cfg: Any) -> tuple[Harness, dict[str,
     config = make_config(providers=tuple(scripts), **cfg)
     providers = {n: ScriptedProvider(n, steps) for n, steps in scripts.items()}
     clock, telemetry = ManualClock(), InMemoryTelemetry()
-    return Harness(config, providers, clock, telemetry), providers, clock, telemetry
+    return Harness(config, providers, clock, telemetry, masking=MASKING), providers, clock, telemetry
 
 
 def request(fields: dict[str, str] | None = None, locale: str | None = None, output: type[BaseModel] = Out) -> GenerateRequest[Any]:
@@ -94,7 +94,7 @@ def test_a_fractional_rate_is_rounded_up_so_cost_is_never_understated() -> None:
     raw = raw_config(providers=("alpha",))
     raw["providers"]["alpha"]["rate"]["input_micro_per_mtok"] = 1_500_000
     providers = {"alpha": ScriptedProvider("alpha", [good("alpha", tokens=(1, 1))])}
-    h = Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry())
+    h = Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     assert run(h.generate(request())).call.cost_micro == 2 + 15  # 1.5 rounds up to 2
 
 
@@ -226,7 +226,7 @@ def test_the_locale_route_overrides_the_default_order() -> None:
     routes = {"slot_values": {"default": ["alpha", "beta"], "by_locale": {"yo": ["beta"]}}}
     config = make_config(routes=routes)
     providers = {"alpha": ScriptedProvider("alpha", [good("alpha")]), "beta": ScriptedProvider("beta", [good("beta")])}
-    h = Harness(config, providers, ManualClock(), InMemoryTelemetry())
+    h = Harness(config, providers, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     assert run(h.generate(request(locale="yo"))).call.provider == "beta"
     assert run(h.generate(request(locale="pcm"))).call.provider == "alpha"
     assert run(h.generate(request(locale=None))).call.provider == "alpha"
@@ -236,7 +236,7 @@ def test_switching_the_default_provider_is_a_configuration_change_only() -> None
     for order, expected in ((["alpha", "beta"], "alpha"), (["beta", "alpha"], "beta")):
         config = make_config(routes={"slot_values": {"default": order, "by_locale": {}}})
         providers = {"alpha": ScriptedProvider("alpha", [good("alpha")]), "beta": ScriptedProvider("beta", [good("beta")])}
-        assert run(Harness(config, providers, ManualClock(), InMemoryTelemetry()).generate(request())).call.provider == expected
+        assert run(Harness(config, providers, ManualClock(), InMemoryTelemetry(), masking=MASKING).generate(request())).call.provider == expected
 
 
 def test_generate_cannot_borrow_a_decide_route() -> None:
@@ -379,13 +379,14 @@ def test_the_credential_and_reasoning_never_reach_a_record_or_telemetry() -> Non
 
 def test_harness_refuses_to_start_without_an_adapter_for_a_configured_provider() -> None:
     with pytest.raises(ValueError):
-        Harness(load_harness_config(raw_config()), {}, ManualClock(), InMemoryTelemetry())
+        Harness(load_harness_config(raw_config()), {}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
 
 
 # --- generated corpus (T5: the harness rejects every malformed provider output) ---------------------------------------
 
 from hypothesis import HealthCheck, given, settings  # noqa: E402
 from hypothesis import strategies as st  # noqa: E402
+from tests.support import MASKING
 
 JSON_VALUES = st.recursive(
     st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False, allow_infinity=False) | st.text(max_size=12),
@@ -419,7 +420,7 @@ def two_rate_harness(steps: dict[str, list[Any]], *, beta_currency: str = "USD",
     else:
         raw["providers"]["beta"].pop("rate")
     providers = {n: ScriptedProvider(n, s) for n, s in steps.items()}
-    return Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry())
+    return Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry(), masking=MASKING)
 
 
 def test_every_attempt_carries_its_tokens_its_price_and_its_cost() -> None:

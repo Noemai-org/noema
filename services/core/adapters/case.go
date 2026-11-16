@@ -59,6 +59,9 @@ type WriteResult struct {
 	RetryAfter time.Duration
 	// Case is the case the target returned, when it returned one.
 	Case *CaseRecord
+	// Evidence is the attachment the target returned for an evidence append; Complaint is the complaint it returned for a complaint log.
+	Evidence  *EvidenceRecord
+	Complaint *ComplaintRecord
 }
 
 // CaseRecord is the normalised fin.case payload (PERD 34.4, [REC]) plus the fields the pack reads
@@ -165,4 +168,87 @@ type Case interface {
 	GetCase(ctx context.Context, tenantID, caseID string) (CaseRecord, error)
 	// FindCases reads a scoped page with its completeness marker.
 	FindCases(ctx context.Context, q CaseQuery) (CasePage, error)
+}
+
+// EvidenceRecord is the normalised fin.evidence_attachment payload (PERD 34.4). PayloadHash is the target's SHA-256 of the exact bytes of Payload. Payload is caller text, stored and echoed
+// back as written: the caller keeps account data and personal identifiers out of it (a reference or a digest, not a number; AGENT-13), and whoever logs or records it masks it.
+type EvidenceRecord struct {
+	AttachmentID   string
+	CaseID         string
+	PayloadHash    string
+	IdempotencyKey string
+	AttachedAt     string // the target's clock, RFC 3339 (SYNTHETIC in the POC)
+	TenantID       string
+	Payload        string
+	// RawHash is "sha256:" and the hex SHA-256 of the response bytes received, set on a read.
+	RawHash string
+}
+
+// ComplaintRecord is the normalised complaint payload. ClockStartedAt is the target's SYNTHETIC regulatory clock; nothing here can change it.
+type ComplaintRecord struct {
+	ComplaintRef   string
+	CaseID         string
+	IdempotencyKey string
+	LoggedAt       string
+	ClockStartedAt string
+	TenantID       string
+	RawHash        string
+}
+
+// AppendEvidenceInput is one keyed append of an attachment to a case. Payload is sent as the exact bytes to be hashed; the target stores it and the
+// client sends its SHA-256 beside it. Every field is required.
+type AppendEvidenceInput struct {
+	IdempotencyKey string
+	TenantID       string
+	CaseID         string
+	Payload        string
+	Timeout        time.Duration
+}
+
+// LogComplaintInput is one keyed log of a complaint reference on a case. It carries no text: the target starts its SYNTHETIC clock. Every field is required.
+type LogComplaintInput struct {
+	IdempotencyKey string
+	TenantID       string
+	CaseID         string
+	Timeout        time.Duration
+}
+
+// RecordQuery is a scoped find of evidence or complaints: a tenant and exactly one of an idempotency key or a case. There is no global search.
+type RecordQuery struct {
+	TenantID       string
+	IdempotencyKey string
+	CaseID         string
+	Limit          int
+	Cursor         string
+}
+
+// EvidencePage and ComplaintPage are pages with the explicit completeness marker, as CasePage.
+type EvidencePage struct {
+	Items      []EvidenceRecord
+	Complete   bool
+	NextCursor string
+	RawHash    string
+}
+
+type ComplaintPage struct {
+	Items      []ComplaintRecord
+	Complete   bool
+	NextCursor string
+	RawHash    string
+}
+
+// CaseRecords is the evidence and complaint half of the logical service mock-case (EXE-05, ruling A157). Both writes are keyed appends: a replay of
+// the same key and payload is the original, the same key with another payload is a collision. Neither can change or delete anything, move a clock or
+// close a case: there is no method for it (BD-08, REQ-ENV-002). A write is never retried inside the adapter (REQ-EXE-006).
+type CaseRecords interface {
+	// AppendEvidence appends one attachment to a case of the tenant.
+	AppendEvidence(ctx context.Context, in AppendEvidenceInput) WriteResult
+	// LogComplaint logs one complaint reference on a case of the tenant.
+	LogComplaint(ctx context.Context, in LogComplaintInput) WriteResult
+	// GetEvidence and GetComplaint read one record by the target's own ID, in the tenant's scope.
+	GetEvidence(ctx context.Context, tenantID, attachmentID string) (EvidenceRecord, error)
+	GetComplaint(ctx context.Context, tenantID, complaintRef string) (ComplaintRecord, error)
+	// FindEvidence and FindComplaints read a scoped page with its completeness marker.
+	FindEvidence(ctx context.Context, q RecordQuery) (EvidencePage, error)
+	FindComplaints(ctx context.Context, q RecordQuery) (ComplaintPage, error)
 }

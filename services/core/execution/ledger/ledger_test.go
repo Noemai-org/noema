@@ -237,7 +237,7 @@ func TestCrashAfterSpendIsSweptToOutcomeUnknownWithoutADispatch(t *testing.T) {
 func TestAFailedRecordAppendFailsTheSpend(t *testing.T) {
 	w := newWorld(t)
 	g := w.issue(t, 1)
-	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
+	w.led.Rec = &chain.Appender{Clock: w.clk, IDs: failingIDs{after: 1, real: w.ids, n: new(int)}, Signers: w.led.Rec.Signers} // REVALIDATION_PASSED succeeds, GRANT_SPENT's append fails
 	_, err := w.ctl.Execute(ctx(t), tenant, g.GrantID)
 	if err == nil {
 		t.Fatal("Execute succeeded although the Record could not be written")
@@ -489,5 +489,19 @@ func TestDispatchAttemptedCarriesTheBudgetKey(t *testing.T) {
 		WHERE event_type = 'DISPATCH_ATTEMPTED' AND payload::jsonb->>'capability' = '%s' AND payload::jsonb->>'target_ref' = '%s'`, g.CapabilityID, g.TargetRef))
 	if n != 1 {
 		t.Fatalf("DISPATCH_ATTEMPTED events carrying capability %q and target_ref %q: %d, want 1", g.CapabilityID, g.TargetRef, n)
+	}
+}
+
+// Ruling A117 (the Architect, 10 Nov 2026): DISPATCH_ATTEMPTED names the capability once, as "capability" (the execution-limits budget key). The reconstruction
+// reads that key and outputs it as capability_id; the event carries no second name for it. REQ-RCV-003, REQ-AUD-003.
+func TestDispatchAttemptedNamesTheCapabilityOnlyAsCapability(t *testing.T) {
+	w := newWorld(t)
+	g := w.issue(t, 1)
+	mustExecute(t, w, g.GrantID)
+	if n := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'DISPATCH_ATTEMPTED' AND payload::jsonb ? 'capability_id'`); n != 0 {
+		t.Fatalf("%d DISPATCH_ATTEMPTED events carry a capability_id key, want none (A117)", n)
+	}
+	if n := w.count(t, `SELECT count(*) FROM record_event WHERE event_type = 'DISPATCH_ATTEMPTED' AND payload::jsonb ? 'capability'`); n != 1 {
+		t.Fatalf("%d DISPATCH_ATTEMPTED events carry a capability key, want 1", n)
 	}
 }

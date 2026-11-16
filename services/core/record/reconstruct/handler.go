@@ -35,7 +35,7 @@ type Caller struct {
 	Roles     []string
 }
 
-// Authorizer authenticates a request. EDG-01 supplies the real one when it wires this handler into cmd/core.
+// Authorizer authenticates a request. SessionAuthorizer is the one the running core uses; DenyAll is the default.
 type Authorizer interface {
 	Authenticate(r *http.Request) (Caller, error)
 }
@@ -43,7 +43,8 @@ type Authorizer interface {
 // ErrUnauthenticated is what DenyAll returns for every request.
 var ErrUnauthenticated = errors.New("reconstruct: no authenticated session")
 
-// DenyAll is the default Authorizer: it refuses every request. Nothing reaches the Record until EDG-01 replaces it.
+// DenyAll is the default Authorizer: it refuses every request. Nothing reaches the Record until the composition root gives the handler a
+// SessionAuthorizer.
 type DenyAll struct{}
 
 // Authenticate refuses.
@@ -61,7 +62,8 @@ type TenantDBs interface {
 	For(tenantID string) (TxBeginner, error)
 }
 
-// Handler serves REQ-AUD-003. It is not wired into cmd/core (EDG-01 does that, approved escalation E2 of REC-03).
+// Handler serves REQ-AUD-003. It is wired into cmd/core by the composition root (EL, EDG-01 slice 3c), behind the session check and the ops and audit
+// role gate, with SessionAuthorizer.
 type Handler struct {
 	DBs     TenantDBs  // one pool per tenant; every connection logs in as that tenant's record_read login (DEBT-04)
 	Auth    Authorizer // nil means DenyAll

@@ -1,0 +1,23 @@
+{
+  "schema": "benchmark-arm-case.v1",
+  "case_ref": "arm_0123456789abcdef",
+  "received_at": "2026-11-07T09:00:00Z",
+  "channel": "text",
+  "principal": {
+    "principal_id": "usr_synth_014",
+    "roles": [
+      "ops_agent"
+    ]
+  },
+  "utterances": [
+    {
+      "turn": 1,
+      "text": "Wetin happen to the 20k wey I send Tunde this morning?"
+    }
+  ],
+  "permitted_capabilities": [
+    "fin.cap.lookup_transaction",
+    "fin.cap.create_escalation_case"
+  ],
+  "fixture_ref": "fx_arm_0123456789abcdef"
+}

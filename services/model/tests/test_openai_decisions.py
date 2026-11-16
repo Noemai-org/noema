@@ -48,6 +48,7 @@ from noema_model.providers.llm.base import (
 )
 from noema_model.providers.llm.openai_decisions import MAX_CHOICES, MAX_QUESTIONS, OpenAIDecisions
 from tests.support import FIXTURES, ManualClock, RecordingTransport, ScriptedProvider, raw_config, reply, run, timeout_error
+from tests.support import MASKING
 
 PINNED = "gpt-6-luna"
 PROVIDERS = FIXTURES / "providers"
@@ -258,7 +259,7 @@ def stack(native_steps: list[Any], llm_steps: list[Any] | None = None, *, route:
             raw["routes"][key] = {"default": list(route), "by_locale": {}}
     dm = ScriptedDecisionModel("dm", native_steps, accepting)
     gpt = ScriptedProvider("gpt", llm_steps or [reply({"answers": []}, version="model-gpt-2026-01-01")])
-    harness = Harness(load_harness_config(raw), {"dm": dm, "gpt": gpt}, ManualClock(), InMemoryTelemetry())
+    harness = Harness(load_harness_config(raw), {"dm": dm, "gpt": gpt}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     return harness, dm, gpt
 
 
@@ -371,7 +372,7 @@ def test_generate_never_uses_a_decision_model() -> None:
     raw["routes"]["slot_values"] = {"default": ["dm", "gpt"], "by_locale": {}}
     dm = ScriptedDecisionModel("dm", [native_reply()])
     gpt = ScriptedProvider("gpt", [reply({"surface": "20k"}, version="model-gpt-2026-01-01")])
-    harness = Harness(load_harness_config(raw), {"dm": dm, "gpt": gpt}, ManualClock(), InMemoryTelemetry())
+    harness = Harness(load_harness_config(raw), {"dm": dm, "gpt": gpt}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     result = run(harness.generate(GenerateRequest("slot_values", PromptTemplate("t", 1, "S", "I"), {"utterance": "x"}, Out, None, "corr_test")))
     assert result.value.surface == "20k" and dm.calls == [] and result.call.attempts[0].outcome is AttemptOutcome.UNSUPPORTED
 
@@ -521,7 +522,7 @@ def pipeline_run(*, native: bool, probability: float = 0.9, threshold: Any = "ke
             if key.startswith("decide."):
                 raw["routes"][key] = {"default": ["dm", "alpha"], "by_locale": {}}
         providers["dm"] = stub
-    harness = Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry())
+    harness = Harness(load_harness_config(raw), providers, ManualClock(), InMemoryTelemetry(), masking=MASKING)
     config = pipeline_config() if threshold == "keep" else replace(pipeline_config(), native_yes_threshold=threshold)
     result = run(run_pipeline(make_input(), config, harness, FakeSource((candidate("a"),)), normaliser, no_errors))
     return result, stub, llm
@@ -592,9 +593,9 @@ def test_the_adapter_and_harness_over_a_real_socket_read_the_documentation_respo
         config = load_harness_config(raw)
         dm_cfg = config.providers["dm"]
         local = ProviderConfig(**{**{f: getattr(dm_cfg, f) for f in dm_cfg.__slots__}, "endpoint": f"http://127.0.0.1:{server.server_address[1]}"})
-        config = type(config)(config.account_run_min_digits, config.data_limits, config.breaker, {**config.providers, "dm": local}, config.routes)
+        config = type(config)(config.data_limits, config.breaker, {**config.providers, "dm": local}, config.routes)
         decisions = OpenAIDecisions("dm", AdapterSettings(local.endpoint, "CRED", None, 500, 65536), UrllibTransport(pool_size=2, allow_loopback_http=True))
-        harness = Harness(config, {"dm": decisions, "gpt": ScriptedProvider("gpt", [timeout_error()])}, ManualClock(), InMemoryTelemetry())
+        harness = Harness(config, {"dm": decisions, "gpt": ScriptedProvider("gpt", [timeout_error()])}, ManualClock(), InMemoryTelemetry(), masking=MASKING)
         result = decide(harness, FLAG, CHOICE, state={"utterance": "The package arrived with a broken screen."})
         assert result.answers[0] == YesNoAnswer("multiple_intents", None, 0.95)
         assert result.answers[1] == ChoiceAnswer("node", "o0", {"o0": 0.9, ABSTAIN: 0.1}, 0.93)

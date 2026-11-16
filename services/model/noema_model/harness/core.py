@@ -50,6 +50,7 @@ from noema_model.harness.errors import HarnessRejection, Reason
 from noema_model.harness.fields import RenderedField, clean, data_block, render_fields
 from noema_model.harness.templates import DECIDE_V2, PromptTemplate
 from noema_model.platform.clock import Clock
+from noema_model.platform.masking import MaskingLimits
 from noema_model.platform.redaction import Redactor
 from noema_model.platform.telemetry import COST_EVENT, Telemetry
 from noema_model.providers.llm.base import (
@@ -182,6 +183,8 @@ class Harness:
         providers: Mapping[str, LLMProvider | DecisionProvider],
         clock: Clock,
         telemetry: Telemetry,
+        *,
+        masking: MaskingLimits,
     ) -> None:
         missing = set(config.providers) - set(providers)
         if missing:
@@ -190,7 +193,7 @@ class Harness:
         self._providers = providers
         self._clock = clock
         self._telemetry = telemetry
-        self._redactor = Redactor(config.account_run_min_digits)
+        self._redactor = Redactor.from_limits(masking)  # the one source the core reads too (masking-limits.v1)
         self._breakers = {
             name: Breaker(config.breaker.failure_threshold, config.breaker.cooldown_ms) for name in config.providers
         }

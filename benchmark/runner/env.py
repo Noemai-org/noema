@@ -66,6 +66,8 @@ class DirSessionProvider:
 
 _PRINCIPAL = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.:@-]*$")
 _ROLE = re.compile(r"^[a-z_]+$")
+# The roles the issuer accepts, exactly one per token (ruling A1; ruling A152). Mirrors the `Role` constants of `services/core/edge/session/session.go`; a test reads that file and fails if the two differ.
+ISSUER_ROLES = frozenset({"customer", "ops", "approver", "audit"})
 
 
 class IdpSessionProvider:
@@ -93,6 +95,11 @@ class IdpSessionProvider:
     def token_for(self, principal_id: str, roles: list[str]) -> str:
         if not _PRINCIPAL.match(principal_id) or not roles or not all(_ROLE.match(r) for r in roles):
             raise EnvironmentUnavailable(self.component, "a principal or role is not in the form the issuer accepts")
+        unknown = sorted(set(roles) - ISSUER_ROLES)
+        if unknown:
+            raise EnvironmentUnavailable(self.component, f"role {', '.join(unknown)} is not one the issuer accepts ({', '.join(sorted(ISSUER_ROLES))}; ruling A152): refused before the issuer is called")
+        if len(set(roles)) != 1:
+            raise EnvironmentUnavailable(self.component, "a session carries exactly one role (ruling A1): refused before the issuer is called")
         key = (principal_id, tuple(sorted(set(roles))))
         cached = self._cache.get(key)
         if cached and self._now() < cached[1] - self.refresh_margin_s:

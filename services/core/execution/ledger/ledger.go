@@ -48,6 +48,8 @@ type Ledger struct {
 	// RollbackTimeout bounds the rollback of a failed transaction after the caller's context has ended (ruling A24). It comes from configuration and
 	// has no default: a Ledger without one refuses to start a transaction.
 	RollbackTimeout time.Duration
+	// Boundary is called at each boundary inside a transaction (see Point). Production leaves it nil; the crash harness returns ErrCrash.
+	Boundary func(Point) error
 }
 
 var (
@@ -178,8 +180,15 @@ func (l *Ledger) Append(ctx context.Context, tenantID string, events ...controll
 			switch {
 			case e.Payload != nil:
 				payload = e.Payload
-			case e.Detail != "":
-				payload = map[string]any{"detail": e.Detail}
+			case e.Detail != "" || e.PolicyVersion != "":
+				p := map[string]any{}
+				if e.Detail != "" {
+					p["detail"] = e.Detail
+				}
+				if e.PolicyVersion != "" {
+					p["policy_version"] = e.PolicyVersion
+				}
+				payload = p
 			}
 			if err := l.record(ctx, tx, tenantID, corr, e.GrantID, e.Type, e.Kind, "", payload); err != nil {
 				return err

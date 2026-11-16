@@ -44,3 +44,19 @@ Date: 2026-11-07 · Owner: Integration Lead role agent (A10: the stand-in and th
 - Architect: A, B or C on #223 (TST-05); the assertion v2 question in row 8; whether the three [OPEN] entries may start with my proposed defaults.
 - Benchmark Owner: `benchmark-fixture.v2` for row 9 (schema owner); the coverage table must show rows 4 and the stand-in side of S1 as "not applicable", not "pass".
 - Core Engineer 2: an Outcome crash hook for the third S9 point.
+# Session 2026-11-13 21:00 WAT · ENV-05 (Repo Steward, hotfix for a flaky proxy test)
+
+## Session summary
+- What changed (PR links): `TestRequestLogRecordsARouteThatIsNotInTheTable` in `benchmark/hostility_proxy/internal/proxy/request_log_test.go` used the query value `abc` and then failed if the request log contained `abc`. The log carries a random 32-hex-digit generation ID, so about one run in a hundred matched by chance. `main` went red on `hostility-proxy` after the merge of noema#272 (which does not touch this package). The marker is now `zq-query-marker`, and a test proves it cannot be made of hex digits.
+- Why: main red (A129 hotfix).
+- Risks, and how they are contained: test-only change; the assertion is not weakened (it still fails if the query string is logged); the earlier marker could only fail by chance.
+- Tests added (REQ, INV, US or EC IDs): `TestTheQueryMarkerCannotAppearInTheLogByChance` (REQ-ENV-005, REQ-TST-004). Reproduction: `go test -count=400` on `main` failed repeatedly, showing a `generation` ID that contained `abc`; with the fix 2,500 runs pass.
+- Regression cases added: the marker test above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: none.
+- Open questions (owner): none.
+- Files to read first: `benchmark/hostility_proxy/internal/proxy/request_log_test.go`.
+- Do not touch: the assertion itself (it must keep failing if the query string is logged).

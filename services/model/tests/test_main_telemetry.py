@@ -13,6 +13,7 @@ from noema_model.main import build_telemetry, create_app
 from noema_model.platform.telemetry import COST_EVENT, InMemoryTelemetry
 from tests.support import ManualClock, ScriptedProvider, make_config, run
 from tests.test_harness_call import good, request
+from tests.support import MASKING
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -26,7 +27,7 @@ def bench_module(name: str):  # type: ignore[no-untyped-def]
 
 
 def one_call(telemetry) -> object:  # type: ignore[no-untyped-def]
-    harness = Harness(make_config(providers=("alpha",)), {"alpha": ScriptedProvider("alpha", [good("alpha")])}, ManualClock(), telemetry)
+    harness = Harness(make_config(providers=("alpha",)), {"alpha": ScriptedProvider("alpha", [good("alpha")])}, ManualClock(), telemetry, masking=MASKING)
     return run(harness.generate(request())).call
 
 
@@ -72,7 +73,10 @@ def test_the_bench_compose_override_mounts_benchmark_output_and_the_writer_code_
     text = (REPO / "deploy" / "compose" / "bench-model.yml").read_text()
     live = [line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     volumes = [line.strip() for line in live if line.lstrip().startswith("- ") and ":" in line]
-    assert volumes == ["- ${NOEMA_BENCH_OUT:?set by make bench-model-up}:/bench-out", "- ../../benchmark/model_cost:/bench/model_cost:ro"]
+    # Only the cost directory is shared with the model, never the whole output directory: the runner writes the generated suite and its oracle documents beside it, and the model
+    # must not be able to read the expected outcomes or change the files the scorer reads (INV-22; Codex P1 on noema#444).
+    assert volumes == ["- ${NOEMA_BENCH_OUT:?set by make bench-model-up}/cost:/bench-out/cost", "- ../../benchmark/model_cost:/bench/model_cost:ro"]
+    assert not any(line.endswith(":/bench-out") for line in volumes)
     assert not any("held" in line.lower() for line in live)
     assert any("model_cost.model_app:app" in line for line in live)
 
@@ -83,7 +87,8 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
     from tests.support import raw_config
 
-    from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL
+    from noema_model.harness.assemble import ENV_CONFIG, ENV_LLM_POOL, ENV_MASKING_LIMITS
+    from tests.support import MASKING_FILE
 
     bare = create_app(environ={})
     assert bare.state.harness is None
@@ -93,12 +98,12 @@ def test_readyz_follows_the_harness_configuration(tmp_path: Path) -> None:
 
     path = tmp_path / "harness.json"
     path.write_text(json.dumps(raw_config(providers=("alpha",))))
-    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2"})
+    ready = create_app(environ={ENV_CONFIG: str(path), ENV_LLM_POOL: "2", ENV_MASKING_LIMITS: MASKING_FILE})
     assert isinstance(ready.state.harness, Harness)
     assert TestClient(ready).get("/readyz").status_code == 200
 
     path.write_text("{}")
-    broken = create_app(environ={ENV_CONFIG: str(path)})
+    broken = create_app(environ={ENV_CONFIG: str(path), ENV_MASKING_LIMITS: MASKING_FILE})
     assert broken.state.harness is None and TestClient(broken).get("/readyz").status_code == 503
 
 

@@ -33,12 +33,17 @@ import (
 type CaseClient struct {
 	base  string
 	token string
-	http  *http.Client
+	http  *http.Client // reads
+	write *http.Client // writes: no connection reuse, so the transport has nothing to replay a keyed POST on (REQ-EXE-006)
 }
 
 var _ adapters.Case = (*CaseClient)(nil)
 
 const maxBody = 1 << 20
+
+// maxEvidencePayload is the largest evidence payload the adapter sends: the target echoes the payload in its acknowledgement, a JSON-escaped byte is at most six, and the client reads
+// at most maxBody of the answer, so a payload over this could make a write that landed look unknown. It is the adapter's own response bound, not a policy threshold.
+const maxEvidencePayload = maxBody / 8
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,39}$`)
 
@@ -67,7 +72,26 @@ func NewCaseClient(baseURL, tokenFile string, httpClient *http.Client) (*CaseCli
 	}
 	hc := *httpClient
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &CaseClient{base: strings.TrimRight(baseURL, "/"), token: token, http: &hc}, nil
+	return &CaseClient{base: strings.TrimRight(baseURL, "/"), token: token, http: &hc, write: noReuse(&hc)}, nil
+}
+
+// noReuse is the client of the writes: a copy whose transport opens a connection for each request and keeps none. Go's net/http sends a request again, on its own, when a reused
+// keep-alive connection fails before any byte of the answer and the request is replayable, and a POST that carries an Idempotency-Key is (Request.isReplayable): so "one request per
+// write, never retried" (REQ-EXE-006, AGENT-08) would be false below the adapter. With no connection to reuse there is nothing to replay on. A caller-supplied RoundTripper that is
+// not an *http.Transport is the caller's and is used as it is.
+func noReuse(hc *http.Client) *http.Client {
+	w := *hc
+	switch t := hc.Transport.(type) {
+	case nil:
+		base := http.DefaultTransport.(*http.Transport).Clone()
+		base.DisableKeepAlives = true
+		w.Transport = base
+	case *http.Transport:
+		c := t.Clone()
+		c.DisableKeepAlives = true
+		w.Transport = c
+	}
+	return &w
 }
 
 // wire shapes (synthetic/mock_case/internal/api/openapi.json). Unknown fields are refused: schema drift
@@ -295,7 +319,11 @@ func (c *CaseClient) send(ctx context.Context, method, path string, query url.Va
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
-	res, err := c.http.Do(req)
+	client := c.http
+	if method != http.MethodGet {
+		client = c.write // every write, keyed or not, goes through the client that reuses no connection
+	}
+	res, err := client.Do(req)
 	if err != nil {
 		return 0, nil, nil, err
 	}
