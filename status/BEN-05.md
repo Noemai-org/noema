@@ -54,4 +54,4 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Open questions (owner): SR items 6, 8 and 9 (FaultPlan record, leak scan with a planted canary, negative probes) were not found in `bench-g1-stack.yml` at noema#444 `9f3e2ce8` (IL to confirm or add).
 - Files to read first: `benchmark/suites/G1-EVIDENCE-PACKAGE.md`.
 - Do not touch: the gate conditions; they are the gate record's.
-
+- 2026-11-16: the template is updated after the Security Reviewer's three requests (prose not code-enforced; an explicit `--- PASS` line per property test; item 11 names every excluded case), EL's corrections (item 9 follows ruling A220: wrong role 404, foreign tenant 401, and a 401 is not the isolation proof; noema#601 blocks mounting `POST /v1/conversations`; the worker registration is the composition PR, not noema#576; the Reconciler is not built) and Voice's note (the compiler is noema#598; #581, #582 and #584 are merged).
