@@ -105,21 +105,30 @@ func TestTheGuardRefusesANumberSplitByAnySeparatorOfTheWideSet(t *testing.T) {
 // A231, the one exemption: an UPPER_SNAKE reason-code token with at most 6 digits in all and at most 3 in a group. VERSION_CONFLICT_409_412 is the core's own code and must
 // pass; the same shape carrying a card number must not.
 func TestTheOneExemptionIsAShortUpperSnakeReasonCode(t *testing.T) {
-	accepted := []string{"VERSION_CONFLICT_409_412", "CONFLICT_409_412", "NO_ADAPTER_FOR_CAPABILITY", "HTTP_503", "ERR_1_2_3_4_5_6", "ABC_123_456"}
+	accepted := []string{"VERSION_CONFLICT_409_412", "CONFLICT_409_412", "NO_ADAPTER_FOR_CAPABILITY", "HTTP_503", "ERR_1_2_3_4_5_6", "ABC_123_456",
+		// the receipt's raw_status is the transport result, then a colon and a raw code when there is one (execution/ledger/complete.go): the Record stores these
+		"VERSION_CONFLICT_409_412:409", "DUPLICATE_CREATE:412:PRECONDITION_FAILED", "OUTCOME_UNKNOWN", "REJECTED_4XX:404", "CONFLICT_409_412:409:CONFLICT"}
 	refused := []string{
-		"X_4111_1111_1111_1111",       // a card number behind a prefix
-		"X_411_111_111_111",           // groups of three, but twelve digits in all
-		"ABC_123_456_7",               // seven digits in all
-		"CONFLICT_4094_412",           // a group of four
-		"CODE4111_X",                  // a group that holds four digits
-		"conflict_409_412",            // not UPPER_SNAKE
-		"Conflict_409_412",            // not UPPER_SNAKE
-		"409_412",                     // no letter: not a code
-		"_CONFLICT_409_412",           // does not start with a letter
-		"CONFLICT_409_412 4111111111", // more than the token
-		"CONFLICT__409_412",           // an empty group
-		"CONFLICT_409_412_",           // a trailing underscore
-		"CONFLICT-409-412",            // not snake case
+		"X_4111_1111_1111_1111",         // a card number behind a prefix
+		"X_411_111_111_111",             // groups of three, but twelve digits in all
+		"ABC_123_456_7",                 // seven digits in all
+		"CONFLICT_4094_412",             // a group of four
+		"CODE41111_X",                   // a group that holds five digits (four digits alone are within the limit and need no exemption)
+		"conflict_409_412",              // not UPPER_SNAKE
+		"Conflict_409_412",              // not UPPER_SNAKE
+		"409_412",                       // no letter: not a code
+		"_CONFLICT_409_412",             // does not start with a letter
+		"CONFLICT_409_412 4111111111",   // more than the token
+		"CONFLICT__409_412",             // an empty group
+		"CONFLICT_409_412_",             // a trailing underscore
+		"CONFLICT-409-412",              // not snake case
+		"X_4111:1111:1111:1111",         // a number behind a code, split by colons
+		"A:411:111:111:111",             // more raw-code parts than a receipt has
+		"VERSION_CONFLICT_409_412:4094", // a raw code of four digits
+		"CONFLICT_409_412:409:412",      // ten digits or more in all
+		"ABC_123_456:789:123",           // twelve digits
+		"CONFLICT_409_412:",             // an empty raw code
+		"CONFLICT_409_412:abc",          // a raw code that is not a status or an UPPER_SNAKE word
 	}
 	for _, s := range accepted {
 		raw, _ := json.Marshal(map[string]string{"code": s})

@@ -29,9 +29,13 @@ const Limit = 4
 
 // Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
 // Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
-// found with displayRun. Masking is idempotent. record/reconstruct serves its facts through this function (A194).
+// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. A string that is as a whole the one exempt shape, a short UPPER_SNAKE
+// reason code (isReasonCode), is returned unchanged, as the guard accepts it. Masking is idempotent. record/reconstruct serves its facts through this function (A194).
 func Mask(s string) string {
-	return displayRun.ReplaceAllStringFunc(s, func(run string) string {
+	if isReasonCode(s) {
+		return s
+	}
+	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
 		total := 0
 		for _, r := range run {
 			if unicode.IsDigit(r) {
@@ -58,18 +62,87 @@ func Mask(s string) string {
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
-// baseSeparators is the one set of separators that join the digits of a number in this package: spaces (also Unicode spaces), dots, hyphens, dashes, slashes, every Unicode format
-// character (soft hyphen, zero-width characters, joiners) and every combining mark ("4111 1111 1111 1111" and "4111-1111-1111-1111" are one run of 16). A194: this is the one definition;
-// record/reconstruct masks with Mask below and keeps no regexp of its own.
-const baseSeparators = `\s\p{Zs}\p{Cf}\p{M}.\-/\x{2010}-\x{2015}\x{2212}`
+// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the next-line character
+// and the line and paragraph separators (\p{Z}); every dash (\p{Pd}) and the minus sign; every bracket (\p{Ps}, \p{Pe}); the dot, the slash, the colon and the underscore, with their
+// full-width forms and the middle dots; every Unicode format character (soft hyphen, zero-width characters, joiners) and every combining mark. "4111 1111 1111 1111",
+// "4111-1111-1111-1111", "4111_1111_1111_1111" and "(4111)(1111)(1111)(1111)" are each one run of 16. A comma is not in it, so an amount such as "20,000,000" is not one run. The guard
+// and the display mask use this set and no other; the earlier guard left out the underscore, the colon and the brackets so that a code such as VERSION_CONFLICT_409_412 was not
+// refused, and A231 replaced that with the one exemption of isReasonCode.
+const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
 
-// digitRun is a run of digits in any script joined by the base separators. It is the guard's: a comma, an underscore, a colon and a bracket end a run, because a code such as
-// "VERSION_CONFLICT_409_412" is not a number and a false refusal stops a write.
-var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + baseSeparators + `]*\p{Nd})*`)
+// digitRun is a run of digits in any script joined by the separators. It is the one definition: Check refuses by it and Mask masks by it.
+var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
 
-// displayRun is the display mask's: the base separators and also an underscore, a bracket and a colon (the leak scanner's longer set, noema#222), because a number split that way is
-// still the number to a reader of what the core serves. It is the stricter of the two, so a string that Mask has masked never holds a run that digitRun finds longer than Limit.
-var displayRun = regexp.MustCompile(`\p{Nd}(?:[` + baseSeparators + `_():]*\p{Nd})*`)
+// The one exemption of the guard besides the typed values below (A231, interim): a reason code written UPPER_SNAKE, whole-string, with at most maxCodeDigits digits in all and at most
+// maxCodeGroupDigits in a group. VERSION_CONFLICT_409_412 (six digits, groups of three) is the core's own code and passes; the same shape carrying a number (X_4111_1111_1111_1111,
+// X_411_111_111_111) does not.
+//
+// **A deviation the Architect must confirm (AGENT-02, noema#600).** The Record does not store the bare code: the receipt event's raw_status is `<transport result>[:<raw code>]`
+// (execution/ledger/complete.go; outcome/receiptsig), for example `VERSION_CONFLICT_409_412:409` (nine digits) or `DUPLICATE_CREATE:412:PRECONDITION_FAILED`. The bare shape of A231 would
+// refuse the receipt of every version conflict, after the write was dispatched (record/chain TestAppendAcceptsWhatTheRuleExempts). So the exemption also takes up to two raw-code
+// parts after the code, each separated by a colon and each either one to three digits or an UPPER_SNAKE word with no digit, and counts the digits of the whole at no more than
+// maxCompositeDigits (the code's six and one status of three). A number cannot hide in it: more than nine digits, a group of four, or a third part is refused.
+const (
+	maxCodeDigits      = 6
+	maxCodeGroupDigits = 3
+	maxCompositeDigits = 9
+	maxRawCodeParts    = 2
+)
+
+// upperSnakeDigits reports whether s is UPPER_SNAKE (groups of capital letters and digits joined by single underscores, the first character a letter, no group with more than
+// maxCodeGroupDigits digits), and how many digits it holds.
+func upperSnakeDigits(s string) (int, bool) {
+	if s == "" || s[0] < 'A' || s[0] > 'Z' {
+		return 0, false
+	}
+	total := 0
+	for _, group := range strings.Split(s, "_") {
+		if group == "" {
+			return 0, false
+		}
+		digits := 0
+		for i := 0; i < len(group); i++ {
+			switch c := group[i]; {
+			case c >= 'A' && c <= 'Z':
+			case c >= '0' && c <= '9':
+				digits++
+			default:
+				return 0, false
+			}
+		}
+		if digits > maxCodeGroupDigits {
+			return 0, false
+		}
+		total += digits
+	}
+	return total, true
+}
+
+// isReasonCode reports whether s is, as a whole, an UPPER_SNAKE reason code of A231, optionally followed by raw-code parts (see the deviation above).
+func isReasonCode(s string) bool {
+	parts := strings.Split(s, ":")
+	if len(parts) > 1+maxRawCodeParts {
+		return false
+	}
+	total, ok := upperSnakeDigits(parts[0])
+	if !ok || (len(parts) == 1 && total > maxCodeDigits) || total > maxCodeDigits {
+		return false
+	}
+	for _, p := range parts[1:] {
+		if p != "" && p[0] >= '0' && p[0] <= '9' {
+			if len(p) > maxCodeGroupDigits || strings.Trim(p, "0123456789") != "" {
+				return false
+			}
+			total += len(p)
+			continue
+		}
+		digits, ok := upperSnakeDigits(p)
+		if !ok || digits != 0 {
+			return false
+		}
+	}
+	return total <= maxCompositeDigits
+}
 
 // keyID is the shape of the key ID of a signature (`<identity>.<algorithm>.<version>`, such as core-execution.ed25519.1): the algorithm name holds a run of more than four
 // digits ("ed25519"). It is exempt at a path that ends in /key_id only, and only in this shape, so the name cannot be put inside another string to split a number.
@@ -229,8 +302,8 @@ func longestRun(s string) int {
 // audit and ops surfaces only, never on the customer overlay or in an arm.
 var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
-// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the value of a signature at /sig/value or the
-// target's acknowledgement reference at /external_ack.
+// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, a short UPPER_SNAKE reason code (A231), the value of a
+// signature at /sig/value or the target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
 	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
 		return true
@@ -245,7 +318,7 @@ func exempt(path, s string) bool {
 			}
 		}
 	}
-	return isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s)
+	return isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s) || isReasonCode(s)
 }
 
 // isRFC3339 is true for a timestamp in RFC 3339 form (a date, a "T", a time and an offset or Z), with or without fractional seconds.
