@@ -69,6 +69,12 @@ type Item struct {
 	PayloadRef  string
 	PayloadHash string
 	Status      contracts.EnumsV1FactStatus
+	// Source, ReadAt, EffectiveAt and FreshnessSLASeconds are what the builder stored in the same row (source, read_at, effective_at, freshness_sla_seconds), so a
+	// consumer such as the Reconciler needs no second read of the item (noema#596).
+	Source              string
+	ReadAt              time.Time
+	EffectiveAt         time.Time
+	FreshnessSLASeconds int64
 }
 
 // Builder turns an Observation into a stored evidence item (REQ-CTX-001). Its Pool must be the tenant's own evidence login: the
@@ -133,7 +139,8 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return Item{}, fmt.Errorf("%scommit %s: %w", builderPrefix, evidenceID, err)
 	}
-	return Item{EvidenceID: evidenceID, PayloadRef: ref, PayloadHash: hash, Status: status}, nil
+	return Item{EvidenceID: evidenceID, PayloadRef: ref, PayloadHash: hash, Status: status, Source: o.Source, ReadAt: o.Read.ReadAt, EffectiveAt: o.EffectiveAt,
+		FreshnessSLASeconds: sla}, nil
 }
 
 // row is what Record computed before it opens the transaction.
