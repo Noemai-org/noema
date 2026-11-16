@@ -18,5 +18,8 @@
   "label_not_allowed.json": "enum",
   "schema_version_2.json": "enum",
   "floor_zero.json": "minimum",
-  "at_risk_zero.json": "minimum"
+  "at_risk_zero.json": "minimum",
+  "floor_below_7000.json": "minimum",
+  "at_risk_below_1000.json": "minimum",
+  "at_risk_above_5000.json": "maximum"
 }

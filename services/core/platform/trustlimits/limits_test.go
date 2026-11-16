@@ -66,7 +66,7 @@ func TestThePacksFileLoadsToSevenThousandAndTwentyFiveHundred(t *testing.T) {
 
 // A value is never a constant of the loader: other documents give other values.
 func TestTheValuesComeFromTheDocument(t *testing.T) {
-	for _, c := range [][2]int{{6500, 3000}, {10000, 10000}, {1, 9999}} {
+	for _, c := range [][2]int{{7000, 1000}, {7500, 3000}, {10000, 5000}} {
 		l, err := trustlimits.Load(strings.NewReader(doc(strconv.Itoa(c[0]), strconv.Itoa(c[1]))), "fin")
 		floor, _ := l.AmbiguityAbsoluteFloorBP()
 		atRisk, _ := l.ClockAtRiskRemainingBP()
@@ -148,6 +148,22 @@ func TestTheZeroLimitsIsNotLoadedAndItsAccessorsRefuse(t *testing.T) {
 	}
 	if v, err := l.ClockAtRiskRemainingBP(); !errors.Is(err, trustlimits.ErrNotLoaded) || v != 0 {
 		t.Errorf("AT_RISK limit of the zero Limits: %d, %v; want 0 and ErrNotLoaded", v, err)
+	}
+}
+
+// A233 (interim): the ambiguity floor is at least 7000 (a pack may only tighten it) and the AT_RISK share is between 1000 and 5000 basis points. One below, one above
+// and the edges are tested for each; both limits stay provisional until GOV-06 adopts them.
+func TestTheBoundsOfA233AreEnforced(t *testing.T) {
+	for _, v := range []string{"1", "6999"} {
+		mustRefuse(t, "floor "+v, doc(v, "2500"))
+	}
+	for _, v := range []string{"1", "999", "5001", "10000"} {
+		mustRefuse(t, "at-risk "+v, doc("7000", v))
+	}
+	for _, c := range [][2]string{{"7000", "1000"}, {"7000", "5000"}, {"10000", "2500"}} {
+		if _, err := trustlimits.Load(strings.NewReader(doc(c[0], c[1])), "fin"); err != nil {
+			t.Errorf("%v is inside the bounds and was refused: %v", c, err)
+		}
 	}
 }
 
