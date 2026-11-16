@@ -10,11 +10,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
+	"github.com/Noemai-org/noema/services/core/record/chain"
+	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
@@ -39,6 +42,48 @@ func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
 	return testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", tenantID)
 }
 
+// policyVersion is the policy the writer binds for evaluatedWith(t, _, "3.1") and request(): the bound policy of the grant.
+const policyVersion = "fin.pol@3.1"
+
+// validBinding is the binding of the one step of allowWith, as the confirmation store computes it when it creates the request (SoT 43.2a, trust/confirm).
+func validBinding() confirm.BindingInput {
+	return confirm.BindingInput{PrincipalID: "usr_88213", IntentHash: string(h(1)), CapabilityID: capability, TargetRef: target, ParamsHash: string(h(2)),
+		EvidenceSetHash: string(h(3)), PlanHash: string(h(4)), PolicyVersion: policyVersion}
+}
+
+func bindingHashOf(t *testing.T, in confirm.BindingInput) string {
+	t.Helper()
+	b, err := confirm.BindingHash(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// recordConfirmation records, through the supported path and as the given Trust login, an accepted confirmation that resolved to a fresh evaluation.
+func recordConfirmation(t *testing.T, pool *pgxpool.Pool, tenantID, event string, in confirm.BindingInput, expires time.Time) error {
+	t.Helper()
+	tx, err := pool.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = recorder.RecordConfirmation(ctx(t), tx, recorder.Confirmation{TenantID: tenantID, EventID: event, RequestID: "cfr_" + strings.TrimPrefix(event, "cfe_"),
+		BindingHash: bindingHashOf(t, in), AcceptedAt: time.Now().Add(-time.Minute), ExpiresAt: expires})
+	if err != nil {
+		_ = tx.Rollback(ctx(t))
+		return err
+	}
+	return tx.Commit(ctx(t))
+}
+
+// confirmed records a valid, unexpired confirmation of ten_aa for the binding of allowWith.
+func (w *world) confirmed(t *testing.T, event string) {
+	t.Helper()
+	if err := recordConfirmation(t, w.trust, tenant, event, validBinding(), time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("recording the confirmation %s: %v", event, err)
+	}
+}
+
 func (w *world) spends(t *testing.T) int {
 	t.Helper()
 	return w.count(t, `SELECT count(*) FROM confirmation_spend`)
@@ -47,6 +92,7 @@ func (w *world) spends(t *testing.T) int {
 // The confirmation is spent by the decision it authorised, in the same transaction, and the grant names it.
 func TestAGivenConfirmationIsSpentByTheDecisionItAuthorisedAndTheGrantNamesIt(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	res, err := w.write(t, allowWith(t, "evs_01ABC", given), true)
 	if err != nil {
 		t.Fatal(err)
@@ -64,12 +110,122 @@ func TestAGivenConfirmationIsSpentByTheDecisionItAuthorisedAndTheGrantNamesIt(t 
 	if len(res.Grants) != 1 || res.Grants[0].ConfirmationEventId == nil || string(*res.Grants[0].ConfirmationEventId) != given {
 		t.Errorf("the grant does not follow the confirmation: %+v", res.Grants)
 	}
+	var bound string
+	if err := w.admin.QueryRow(ctx(t), `SELECT binding_hash FROM confirmation_spend WHERE tenant_id = $1`, tenant).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if want := bindingHashOf(t, validBinding()); bound != want {
+		t.Errorf("the spend records binding %q, want %q", bound, want)
+	}
+}
+
+// The tamper-evident chain shows the spend (Security Reviewer on noema#603): DECISION_MADE names the confirmation event and the binding it was spent against, and GRANT_ISSUED names the
+// event its grant follows. PERD 32.2 has no spend event type, so the spend rides on these two events of the same transaction; an ALLOW with no confirmation carries neither member.
+func TestTheRecordShowsWhichConfirmationADecisionSpent(t *testing.T) {
+	w := newWorld(t)
+	w.confirmed(t, given)
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.write(t, allowWith(t, "evs_02XYZ", ""), true); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := chain.ReadChain(ctx(t), w.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var withEvent, withoutEvent int
+	for _, r := range rows {
+		if r.Payload == nil || (r.EventType != "DECISION_MADE" && r.EventType != "GRANT_ISSUED") {
+			continue
+		}
+		has := strings.Contains(*r.Payload, `"confirmation_event_id":"`+given+`"`)
+		if r.EventType == "DECISION_MADE" && has != strings.Contains(*r.Payload, `"confirmation_binding_hash":"`+bindingHashOf(t, validBinding())+`"`) {
+			t.Errorf("DECISION_MADE names the event and the binding together or not at all: %s", *r.Payload)
+		}
+		if has {
+			withEvent++
+		} else {
+			withoutEvent++
+			if strings.Contains(*r.Payload, "confirmation_") {
+				t.Errorf("an event of a decision with no confirmation names one: %s", *r.Payload)
+			}
+		}
+	}
+	if withEvent != 2 || withoutEvent != 2 {
+		t.Errorf("%d events name the confirmation and %d do not; want 2 (DECISION_MADE and GRANT_ISSUED) and 2 of the other decision", withEvent, withoutEvent)
+	}
+}
+
+// The writer checks the confirmation against the database (Security Reviewer on noema#603, noema#572 blocking 1): it must exist for this tenant, must not have expired by the
+// database's clock, and must have been given for exactly this action: the eight values of SoT 43.2a. Anything else is ErrConfirmationNotValid and nothing is written.
+func TestAConfirmationThatDoesNotExistIsExpiredOrWasGivenForAnotherActionIsRefused(t *testing.T) {
+	w := newWorld(t)
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_bb', 'B')`); err != nil {
+		t.Fatal(err)
+	}
+	trustBB := newTenantTrust(t, w, "ten_bb")
+	expect := func(name, event string) {
+		t.Helper()
+		if _, err := w.write(t, allowWith(t, "evs_01ABC", event), true); !errors.Is(err, recorder.ErrConfirmationNotValid) {
+			t.Errorf("%s: err %v, want ErrConfirmationNotValid", name, err)
+		}
+	}
+	// one that was never recorded
+	expect("a confirmation that does not exist", "cfe_01NOSUCH")
+	// one that another tenant recorded
+	if err := recordConfirmation(t, trustBB, "ten_bb", "cfe_01OFBB", validBinding(), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	expect("another tenant's confirmation", "cfe_01OFBB")
+	// one that expired (by the database's clock, not the caller's)
+	if err := recordConfirmation(t, w.trust, tenant, "cfe_01OLD", validBinding(), time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	expect("an expired confirmation", "cfe_01OLD")
+	// one given for another action: each of the eight bound values changed in turn
+	for name, mutate := range map[string]func(*confirm.BindingInput){
+		"another principal":  func(b *confirm.BindingInput) { b.PrincipalID = "usr_99999" },
+		"another intent":     func(b *confirm.BindingInput) { b.IntentHash = string(h(7)) },
+		"another capability": func(b *confirm.BindingInput) { b.CapabilityID = "fin.cap.lookup_transaction" },
+		"another target":     func(b *confirm.BindingInput) { b.TargetRef = "fin.transaction:TX00001" },
+		"other parameters":   func(b *confirm.BindingInput) { b.ParamsHash = string(h(8)) },
+		"other evidence":     func(b *confirm.BindingInput) { b.EvidenceSetHash = string(h(9)) },
+		"another plan":       func(b *confirm.BindingInput) { b.PlanHash = string(h(10)) },
+		"another policy":     func(b *confirm.BindingInput) { b.PolicyVersion = "fin.pol@9.9" },
+	} {
+		b := validBinding()
+		mutate(&b)
+		event := "cfe_01" + strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(name, " ", ""), "other", "oth"))
+		if err := recordConfirmation(t, w.trust, tenant, event, b, time.Now().Add(time.Hour)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		expect(name, event)
+	}
+	w.nothingRemains(t, "a confirmation that is not valid for this action")
+	if n := w.spends(t); n != 0 {
+		t.Errorf("%d spends remain", n)
+	}
+	// a confirmation approves one action: a plan with two steps cannot follow one
+	w.confirmed(t, given)
+	r := allowWith(t, "evs_01ABC", given)
+	second := step(t)
+	second.PlanStep = 2
+	r.Steps = append(r.Steps, second)
+	if _, err := w.write(t, r, true); !errors.Is(err, recorder.ErrConfirmationPlanMismatch) {
+		t.Errorf("two steps after one confirmation: err %v, want ErrConfirmationPlanMismatch", err)
+	}
+	// and the valid one still works, once
+	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
+		t.Fatalf("the valid confirmation: %v", err)
+	}
 }
 
 // A second decision (another snapshot, so another input) that names the same confirmation is refused with the typed error, and nothing of it remains: no
 // record, no grant, no spend, no event.
 func TestASecondDecisionThatNamesTheSameConfirmationIsRefusedAndLeavesNothing(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +251,7 @@ func TestASecondDecisionThatNamesTheSameConfirmationIsRefusedAndLeavesNothing(t 
 // Two evaluations of two inputs race for one confirmation: exactly one ALLOW commits and the other gets ErrConfirmationSpent (INV-17, real PostgreSQL).
 func TestTwoDecisionsRacingForOneConfirmationLeaveExactlyOneAllow(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	type result struct{ err error }
 	start := make(chan struct{})
 	out := make(chan result, 2)
@@ -149,6 +306,7 @@ func TestTwoDecisionsRacingForOneConfirmationLeaveExactlyOneAllow(t *testing.T) 
 // A186: a retry of the same input returns the stored decision. It must not meet the spend's unique key, and the count stays 1.
 func TestARetryOfTheSameInputReturnsTheStoredDecisionAndSpendsNothingMore(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	first, err := w.write(t, allowWith(t, "evs_01ABC", given), true)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +326,7 @@ func TestARetryOfTheSameInputReturnsTheStoredDecisionAndSpendsNothingMore(t *tes
 // Only an ALLOW spends a confirmation, and only when it names one: a refusal that names a confirmation leaves it unspent, an ALLOW without one writes no spend.
 func TestAConfirmationIsSpentOnlyByAnAllowThatNamesIt(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	b := evaluatedWith(t, "evs_01ABC", "3.1")
 	refusal := request(t, decision(t, decide.Reject, b), b)
 	refusal.ConfirmationEventID = given
@@ -219,12 +378,13 @@ func pgRefusal(t *testing.T, what string, err error) (string, string) {
 const (
 	sqlstateIntegrity  = "23000" // integrity_constraint_violation
 	sqlstatePrivilege  = "42501" // insufficient_privilege
-	insertSpendOfOther = `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ($1, 'cfe_01OTHER', $2, $3)`
+	insertSpendOfOther = `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash, binding_hash) VALUES ($1, 'cfe_01OTHER', $2, $3, $4)`
 )
 
 // The spend is insert-only. The administrator is refused by the trigger itself (reject_mutation says so); the Trust login is refused by its privileges (it has SELECT and INSERT only).
 func TestTheSpendIsInsertOnly(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +415,7 @@ func TestASpendCanNameOnlyARecordedAllowDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = w.trust.Exec(ctx(t), insertSpendOfOther, tenant, string(refused.Record.DecisionId), string(h(4)))
+	_, err = w.trust.Exec(ctx(t), insertSpendOfOther, tenant, string(refused.Record.DecisionId), string(h(4)), bindingHashOf(t, validBinding()))
 	if code, msg := pgRefusal(t, "a spend for a REJECT decision", err); code != sqlstateIntegrity || !strings.Contains(msg, "not a recorded ALLOW decision") {
 		t.Errorf("a spend for a REJECT decision: %s %q, want %s from the requires-allow trigger", code, msg, sqlstateIntegrity)
 	}
@@ -271,6 +431,7 @@ func TestASpendCanNameOnlyARecordedAllowDecision(t *testing.T) {
 // ten_aa's), so it is switched off in turn, the way a hand-written or mistaken change could, and the guard and then row-level security must each refuse by themselves.
 func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	allowed, err := w.write(t, allowWith(t, "evs_01ABC", given), true)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +440,7 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 		t.Fatal(err)
 	}
 	forTenantBB := func() error {
-		_, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ('ten_bb', 'cfe_01OTHER', $1, $2)`, string(allowed.Record.DecisionId), string(h(4)))
+		_, err := w.trust.Exec(ctx(t), `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash, binding_hash) VALUES ('ten_bb', 'cfe_01OTHER', $1, $2, $3)`, string(allowed.Record.DecisionId), string(h(4)), bindingHashOf(t, validBinding()))
 		return err
 	}
 	switchTrigger := func(name, state string) {
@@ -294,6 +455,7 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 	}
 	// 2. the requires-allow trigger off: the tenant guard refuses, by its own message
 	switchTrigger("confirmation_spend_requires_allow", "DISABLE")
+	switchTrigger("confirmation_spend_requires_confirmation", "DISABLE")
 	code, msg := pgRefusal(t, "the tenant guard", forTenantBB())
 	if code != sqlstatePrivilege || !strings.Contains(msg, "may not spend confirmations for tenant ten_bb") {
 		t.Errorf("with the requires-allow trigger off: %s %q, want %s from the tenant guard", code, msg, sqlstatePrivilege)
@@ -305,6 +467,7 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 		t.Errorf("with the guard off too: %s %q, want %s from row-level security", code, msg, sqlstatePrivilege)
 	}
 	switchTrigger("confirmation_spend_tenant_guard", "ENABLE")
+	switchTrigger("confirmation_spend_requires_confirmation", "ENABLE")
 	switchTrigger("confirmation_spend_requires_allow", "ENABLE")
 	if n := w.count(t, `SELECT count(*) FROM confirmation_spend WHERE tenant_id = 'ten_bb'`); n != 0 {
 		t.Errorf("%d spends exist for ten_bb", n)
@@ -324,6 +487,7 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 // same decision), not returned as if nothing differed. The stored decision stays, and nothing is spent or written.
 func TestARetryNamingAnotherConfirmationThanTheStoredDecisionIsATypedConflict(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	if _, err := w.write(t, allowWith(t, "evs_01ABC", given), true); err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +523,7 @@ func TestARetryNamingAnotherConfirmationThanTheStoredDecisionIsATypedConflict(t 
 // A230 (interim): the writer refuses an ALLOW whose confirmation was given for another plan than the one T14 built. Nothing is written, so no spend, no record, no grant.
 func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
 	w := newWorld(t)
+	w.confirmed(t, given)
 	for name, mutate := range map[string]func(*recorder.Request){
 		"another plan hash": func(r *recorder.Request) { r.ConfirmationPlanHash = h(9) },
 		"no plan hash":      func(r *recorder.Request) { r.ConfirmationPlanHash = "" },

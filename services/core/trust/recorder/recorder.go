@@ -42,6 +42,9 @@ var (
 	// ErrDecisionConflict is returned when a decision is already stored for the same input tuple and the new evaluation disagrees with it (INV-21: the same input
 	// gives the same decision). Nothing is written and nothing of either decision is returned; the error carries no content of the decision.
 	ErrDecisionConflict = errors.New(errPrefix + "the stored decision for this input does not agree with the new evaluation")
+	// ErrConfirmationNotValid is returned when the confirmation an ALLOW names does not exist for the tenant, has expired by the database's clock, or was given for another action than
+	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer (stub).
+	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
