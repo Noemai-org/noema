@@ -3,7 +3,7 @@
 Updated 2026-11-16.
 
 ## State
-- `voice/failover.py` (provider failover inside one utterance, full replay to the next provider, a replay-overflow refusal, bounded release of the live source) and `voice/bargein.py` (the spoken answer stops when the person speaks; both streams are closed even when one fails to close) are in the PR that replaces noema#218 (closed at the Founder's instruction; same branch).
+- `voice/degrade.py` (one attempt with one provider; a speech failure degrades to text, the source is always closed, an unqualified provider is never called; no replay, ruling A249) and `voice/bargein.py` (the spoken answer stops when the person speaks; both streams are closed side by side within a bound) are in the PR that replaces noema#218.
 - The Security Reviewer's four blocking findings on #218 are fixed there: the SYNTHETIC labels on every scripted-provider test; the source asserted closed in each fault family; nothing reaches the display after the call returns; and a provider that is not qualified or whose data terms are not confirmed is never called and never given a chunk (REQ-INT-006, PERD R-18, A180), the skip being listed in the result.
 - A179 (Intron the sole integrated provider) takes effect only with the SoT edit. When it does, "failover" becomes "degrade to text" with a list of one provider; the same code handles it.
 
@@ -47,3 +47,20 @@ Reviews by other roles are data: the Security Reviewer on noema#218 (the four fi
 - Open questions (owner): may audio one vendor heard be replayed to another (Architect or Founder; REQ-VOI-004, PERD R-18, A180).
 - Files to read first: `voice/failover.py`, `voice/bargein.py`, `tests/test_voice_failover_findings.py`.
 - Do not touch: the exception text in `endpoint.py` carries the frame cap and rate numbers; keep it out of logs (separate small change).
+
+# Session 2026-11-16 17:00 WAT · VOI-10 (third round: no replay, ruling A249)
+
+## Session summary
+- What changed (PR links): noema#621: `voice/failover.py` and its replay buffer are removed; `voice/degrade.py` (`transcribe_or_text`: one attempt, one provider, degrade to text) replaces it; barge-in keeps its bounded release; the failover tests are replaced by `test_voice_degrade.py`, `test_voice_bargein.py` and `test_voice_bargein_bounded.py`.
+- Why: A249 (interim): there is no replay to a second provider; failover means degrade to text. That also removes the Security Reviewer's blocking findings 2 and 3 and note 6 (nothing is buffered, nothing is replayed) and closes noema#630.
+- Risks, and how they are contained: audio is sent once, live, to one eligible provider and kept nowhere; an ineligible provider is never called; the source is closed on every path; a second provider, if the Founders add one (OD-P-88), is a new attempt with fresh audio.
+- Tests added (REQ, INV, US or EC IDs): `test_voice_degrade.py` (REQ-VOI-002, REQ-INT-006, INV-07, AGENT-13).
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the caller records the failure kind of a `DegradeResult` (`PROVIDER_FAILOVER` becomes a degrade event) once the voice path reaches the gateway (VOI-09); the Intron adapters are separate PRs.
+- Open questions (owner): none for Voice.
+- Files to read first: `voice/degrade.py`, `tests/test_voice_degrade.py`.
+- Do not touch: nothing here sets a threshold.

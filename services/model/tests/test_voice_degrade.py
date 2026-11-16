@@ -90,7 +90,7 @@ def test_a_provider_that_answers_gives_the_utterance_and_no_offer_of_text() -> N
     source = mic()
     result = go(Fake((final(),)), source)
     assert result.utterance is not None and result.utterance.text == "send ten"
-    assert not result.offer_text and result.failure is None and not result.skipped and not result.release_failed
+    assert not result.offer_text and result.failure is None and not result.skipped
     assert source.closed
 
 
@@ -120,8 +120,9 @@ def test_a_second_attempt_does_not_exist_so_no_audio_is_replayed() -> None:
     import noema_model.voice.degrade as degrade
 
     assert not hasattr(degrade, "allow_replay") and not hasattr(degrade, "_ReplayBuffer")
-    with pytest.raises(ImportError):
-        import noema_model.voice.failover  # noqa: F401
+    import importlib.util
+
+    assert importlib.util.find_spec("noema_model.voice.failover") is None  # the replaying module is gone, not merely unused
 
 
 INELIGIBLE = [
@@ -171,7 +172,7 @@ def test_cleanup_after_the_call_is_reported_with_the_correlation_id_and_a_fixed_
     source = Source([chunk(0, 500)])
 
     async def call() -> DegradeResult:
-        result = await transcribe_or_text(Fake(hang=True), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.05, on_partial=lambda _: None,  # type: ignore[arg-type]
+        result = await transcribe_or_text(Fake(hang=True), REQUEST, source, deadline_s=0.05, cleanup_s=0.05, hold_s=0.05, on_partial=lambda _: None,
                                           telemetry=telemetry, correlation_id="corr-d")
         await asyncio.sleep(0.3)
         return result
