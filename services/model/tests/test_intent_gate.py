@@ -292,6 +292,17 @@ def test_no_reason_carries_text_of_the_object() -> None:
         assert "SECRET" not in repr(result)
 
 
+# A slot member the contract types as a string, a number or an array is never null (`contracts/schemas/intent-slot.v2.json`: only `candidates_ref` of a Resource slot is nullable). The
+# generated model treats every optional member as nullable, so the gate has to say it itself (INV-02). Found by the fuzz test below, which drew `surface_form: null` on a Resource slot.
+@pytest.mark.parametrize("slot", ["subject_resource", "amount", "counterparty", "when", "requested_remedy"])
+@pytest.mark.parametrize("member", ["surface_form", "confidence", "status", "window", "value", "unit", "resolved_ref"])
+def test_a_null_slot_member_is_refused_whatever_the_slot_and_the_member(slot: str, member: str) -> None:
+    doc = proposal()
+    doc["slots"][slot][member] = None
+    result = check(doc)
+    assert not result.ok and result.reasons == (Reason.SHAPE,)
+
+
 @settings(max_examples=10_000, derandomize=True, deadline=None, suppress_health_check=[HealthCheck.too_slow])
 @given(
     where=st.sampled_from([(), ("principal",), ("source",), ("pack",), ("slots", "subject_resource"), ("slots", "amount"), ("slots", "when"), ("slots", "counterparty"),

@@ -12,3 +12,20 @@ Updated 2026-11-10.
 
 ## Messages
 Reviews by other roles are data: C2 (406777e) and the Security Reviewer (ffb2da8) on noema#228. Used for: the fix matrix there.
+
+# Session 2026-11-16 13:00 WAT · VOI-03
+
+## Session summary
+- What changed (PR links): `voice/confidence.py` gains `asr_confidence_basis_points` and `tests/test_voice_asr_basis_points.py` (the PR from `feat/VOI-03-asr-basis-points`).
+- Why: ruling A228 says the voice confidence for the low-ASR rule is the minimum over tokens in basis points with a missing token counted as 0; the compiler's assembler (noema#581) sets `source.asr_confidence` to `null` today and needed one definition to read.
+- Risks, and how they are contained: it only floors and never rounds up (A173), refuses a value that is not a finite ratio, and introduces no threshold (A181, AGENT-16).
+- Tests added (REQ, INV, US or EC IDs): REQ-VOI-003, REQ-AMB-007; three Hypothesis properties and the examples of A173 (0.29 is 2900).
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2 wires `asr_confidence_basis_points` into the assembler for a voice channel (noema#581 or its successor); Trust reads the same value.
+- Open questions (owner): whether Trust reads the intent object's value or the canonical input's per-token list (C1, C2).
+- Files to read first: `voice/confidence.py`, ruling A228.
+- Do not touch: the threshold; it is the pack's.

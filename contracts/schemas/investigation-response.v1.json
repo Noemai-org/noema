@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/investigation-response.v1.json",
+  "title": "Investigation response",
+  "description": "PERD §39.2: the response of GET /v1/investigations/{investigation_id}, the current state for the overlay: {state, last_answer, case_ref_masked?}, with schema_version (PERD §39.1: bodies carry it). 'state' is one of six public stages (ruling A187: the client never receives the 21 internal investigation states of PERD §28.2; the core maps its states to these, and the plain-language strings are the frontend owner's). 'last_answer' is absent until a final answer exists. 'case_ref_masked' is shown only after case_opened is ACHIEVED and shows at most four digits in all, of any script (A187, A154). New in this contract set; no earlier contract changes (AGENT-15).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
+    },
+    "state": {
+      "$ref": "#/$defs/PublicStage"
+    },
+    "last_answer": {
+      "$ref": "https://contracts.noema.invalid/customer-answer.v1.json"
+    },
+    "case_ref_masked": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?=[\\s\\S]*[*•…])(?:[^0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){0,4}[^0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]*$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "state"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "PublicStage": {
+      "description": "Where the investigation stands, in six values the customer can be told (rulings A187, A207, A211). understanding: reading the request. needs_input: a question waits for the customer. needs_confirmation: a confirmation waits for the customer. working: records are being read and compared, an approved action is being carried out and verified, or a bounded condition is awaited. answered: the investigation has ended; the final text, if any, is last_answer, and answered says nothing about success. unavailable: Noema cannot go on now, because a person has the case or a source cannot be read. The core owns the mapping from its internal states; the frontend owns the plain-language string of each value.",
+      "type": "string",
+      "enum": [
+        "understanding",
+        "needs_input",
+        "needs_confirmation",
+        "working",
+        "answered",
+        "unavailable"
+      ]
+    }
+  }
+}
