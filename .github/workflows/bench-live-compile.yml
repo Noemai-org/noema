@@ -76,8 +76,9 @@ jobs:
         run: |
           set -euo pipefail
           run_id="${GIVEN_RUN_ID:-compile-gh$GITHUB_RUN}"
-          printf '%s' "$run_id" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' || { echo "run_id must match ^[A-Za-z0-9_.-]{1,64}$"; exit 2; }
-          printf '%s' "$PACK_REF" | grep -Eq '^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$' || { echo "pack_ref must look like fin@1.0.0"; exit 2; }
+          # `[[ =~ ]]` matches the WHOLE string; `grep -Eq '^...$'` passes a value when any ONE of its lines matches, so a value with a newline got through (the same flaw as noema#577).
+          [[ "$run_id" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || { echo "run_id must match ^[A-Za-z0-9_.-]{1,64}$"; exit 2; }
+          [[ "$PACK_REF" =~ ^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "pack_ref must look like fin@1.0.0"; exit 2; }
           case "$PROVIDER" in openai) ;; *) echo "provider must be openai"; exit 2;; esac
           case "$PRIOR" in ''|*[!0-9]*) echo "prior_spent_micros must be a non-negative integer"; exit 2;; esac
           [ "$PRIOR" -ge 326693 ] || { echo "prior_spent_micros must be at least 326693 (already spent, noema#338): a run may not start with an unknown spend"; exit 2; }
@@ -116,12 +117,15 @@ jobs:
         run: |
           set -u
           run_id="${GIVEN_RUN_ID:-compile-gh$GITHUB_RUN}"
+          # Every input is checked on the whole string (`[[ =~ ]]` and `case`, never `grep` a line at a time), and a run id that fails is never written to $GITHUB_OUTPUT.
+          valid=1
+          [[ "$run_id" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || valid=0
+          [[ "$PACK_REF" =~ ^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$ ]] || valid=0
+          [ "$PROVIDER" = openai ] || valid=0
+          case "$PRIOR" in ''|*[!0-9]*) valid=0 ;; *) [ "${#PRIOR}" -le 15 ] && [ "$PRIOR" -ge 326693 ] || valid=0 ;; esac
+          case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) valid=0 ;; esac
           code=2
-          if printf '%s' "$run_id" | grep -Eq '^[A-Za-z0-9_.-]{1,64}$' \
-             && printf '%s' "$PACK_REF" | grep -Eq '^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$' \
-             && [ "$PROVIDER" = openai ] \
-             && printf '%s' "$PRIOR" | grep -Eq '^[0-9]+$' && [ "$PRIOR" -ge 326693 ] \
-             && printf '%s' "$HARD_STOP_USD" | grep -Eq '^[1-5]$'; then
+          if [ "$valid" = 1 ]; then
             mkdir -p out
             set +e
             /tmp/venv/bin/python -m benchmark.compile_acceptance --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
@@ -129,6 +133,7 @@ jobs:
             set -e
           else
             echo "an input is not valid; nothing was called"
+            run_id=invalid
           fi
           echo "code=$code" >> "$GITHUB_OUTPUT"
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"

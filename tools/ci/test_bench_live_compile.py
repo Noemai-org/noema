@@ -1,6 +1,9 @@
 """The compile-acceptance workflow (.github/workflows/bench-live-compile.yml; noema#546, ruling A198) spends real money and holds a provider key, so its rules are pinned.
 Read as text, like the other workflow guards. The workflow is not run here."""
+import os
 import re
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -51,7 +54,7 @@ class CompileWorkflow(unittest.TestCase):
                 self.assertRegex(line, r"^\s+[A-Z_]+: \$\{\{ inputs\.[a-z_]+ \}\}$", f"an input is expanded outside env: {line.strip()}")
 
     def test_the_spend_is_bounded_and_the_inputs_are_validated(self) -> None:
-        for fragment in ("326693", "grep -Eq '^[A-Za-z0-9_.-]{1,64}$'", "1|2|3|4|5", "openai", "--hard-stop-usd", "--prior-spent-micros"):
+        for fragment in ("326693", "[[ \"$run_id\" =~ ^[A-Za-z0-9_.-]{1,64}$ ]]", "1|2|3|4|5", "openai", "--hard-stop-usd", "--prior-spent-micros"):
             self.assertIn(fragment, self.code, fragment)
         self.assertNotRegex(self.code, r"hard_stop_usd\s*\*|HARD_STOP_USD \* ")  # the runner takes whole dollars; no arithmetic that could widen it here
 
@@ -89,6 +92,46 @@ class CompileWorkflow(unittest.TestCase):
         checkouts = re.findall(r"uses: actions/checkout@\S+[^\n]*\n\s+with:\n\s+persist-credentials: false", self.code)
         self.assertEqual(len(checkouts), len(re.findall(r"uses: actions/checkout@", self.code)))
         self.assertEqual(len(checkouts), 2)
+
+    GOOD = {"PROVIDER": "openai", "PACK_REF": "fin@1.0.0", "PRIOR": "326693", "HARD_STOP_USD": "5", "GIVEN_RUN_ID": "", "GITHUB_RUN": "42"}
+
+    def validation(self, job: str, stop: str) -> str:
+        """The workflow's own input checks: the step's script from its first line up to the line that starts the call (`stop`), so the tests run the real text, not a copy."""
+        block = job_block(self.text, job)
+        steps = [m for m in re.findall(r"(?ms)^        run: \|\n(.*?)(?=^      - |\Z)", block) if "run_id=" in m]
+        assert len(steps) == 1
+        lines = [line[10:] for line in steps[0].splitlines()]
+        return "\n".join(lines[: next(i for i, line in enumerate(lines) if line.startswith(stop))])
+
+    def run_bash(self, script: str, **env: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), **self.GOOD, **env}, capture_output=True, text=True, check=False)
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation text")
+    def test_the_dry_run_checks_every_input_on_the_whole_string(self) -> None:
+        # noema#569 (the flaw of noema#577): grep matches a line at a time, so a value with a newline passed. The real validation text of the dry-run job runs here.
+        script = self.validation("dry-run", "mkdir -p out")
+        self.assertEqual(self.run_bash(script).returncode, 0)
+        for env in ({"GIVEN_RUN_ID": "g1.run-2_x"}, {"GIVEN_RUN_ID": "a" * 64}):
+            self.assertEqual(self.run_bash(script, **env).returncode, 0, env)
+        bad = [{"GIVEN_RUN_ID": v} for v in ("ok\nINJECT=1", "ok\n", "\nok", "a b", "a;b", "x/y", "a" * 65)]
+        bad += [{"PACK_REF": v} for v in ("fin@1.0.0\nx", "fin@1.0.0\n", "Fin@1.0.0", "fin@1.0", "fin@1.0.0 ")]
+        bad += [{"PRIOR": v} for v in ("326693\nx", "326692", "", "-1", "1e6")] + [{"HARD_STOP_USD": v} for v in ("5\nx", "6", "0", "", "05")] + [{"PROVIDER": v} for v in ("openai\nx", "gemini")]
+        for env in bad:
+            self.assertEqual(self.run_bash(script, **env).returncode, 2, env)
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation text")
+    def test_the_run_job_checks_the_same_way_and_never_writes_a_bad_run_id_to_the_output(self) -> None:
+        script = self.validation("run", "code=2") + '\ncode=2\nif [ "$valid" = 1 ]; then echo VALID; else run_id=invalid; fi\necho "run_id=$run_id"\n'
+        good = self.run_bash(script)
+        self.assertEqual((good.returncode, good.stdout.split()), (0, ["VALID", "run_id=compile-gh42"]), good.stderr)
+        bad = [{"GIVEN_RUN_ID": v} for v in ("ok\nINJECT=1", "ok\n", "a b", "a" * 65)]
+        bad += [{"PACK_REF": v} for v in ("fin@1.0.0\nx", "fin@1.0")] + [{"PRIOR": v} for v in ("326693\nx", "326692", "", "1" * 16)] + [{"HARD_STOP_USD": v} for v in ("5\nx", "6", "")]
+        bad += [{"PROVIDER": v} for v in ("openai\nx", "gemini")]
+        for env in bad:
+            r = self.run_bash(script, **env)
+            self.assertEqual(r.stdout.split(), ["run_id=invalid"], (env, r.stdout, r.stderr))
+        self.assertRegex(job_block(self.code, "run"), r"(?s)run_id=invalid.*?echo \"run_id=\$run_id\" >> \"\$GITHUB_OUTPUT\"")
+        self.assertNotIn("grep -Eq", self.code)
 
     def test_actions_are_pinned_by_commit_and_nothing_reads_the_heldout_set(self) -> None:
         for use in re.findall(r"uses: (\S+)", self.code):
