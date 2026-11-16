@@ -236,6 +236,13 @@ class TypeScriptOutput(unittest.TestCase):
             self.assertIn(r, roots, f"{r} is not a root of ts.json")
             self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", files)
 
+    def test_a_map_whose_keys_have_a_pattern_refuses_a_key_that_does_not_match(self):
+        # reconstruction.v3 facts: propertyNames { pattern } with additionalProperties. The TypeScript parser must refuse a key outside the pattern, as the validator does
+        # (the front end read an invalid fixture, fact_key_not_snake_case, as valid before this).
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn("keyPattern?: RegExp", files[f"{generate.TS_DIR}/_runtime.ts"])
+        self.assertRegex(files[f"{generate.TS_DIR}/reconstruction_v3.ts"], r"mapOf\([^\n]*, PATTERN_\d+\)")
+
     def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
         # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
         # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.

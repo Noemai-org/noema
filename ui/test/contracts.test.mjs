@@ -15,8 +15,9 @@ const BOUNDS = new Set(["pattern", "minLength", "maxLength", "minimum", "maximum
 // The invalid fixtures the generated types must refuse for their shape, derived from the validator (tools/codegen/shape_refusals.py).
 const SHAPE = JSON.parse(readFileSync(fileURLToPath(new URL("../../tools/codegen/shape_refusals.json", import.meta.url)), "utf8"));
 // Invalid fixtures whose bound sits under an if/then rule, so a parser cannot hold it:
-//   clarification: minItems 2 applies only in ATTRIBUTE mode; noema-resolution: minItems 1 applies only when verified is true.
-const CONDITIONAL = new Set(["clarification/attribute_mode_one_option.json", "noema-resolution/verified_with_no_verdicts.json"]);
+//   clarification: minItems 2 applies only in ATTRIBUTE mode; noema-resolution: minItems 1 applies only when verified is true;
+//   reconstruction.v3: the EXPLANATION section's items need a claim text of at least one character, a bound that sits in that section's allOf (a fact key of the section), not in the shape.
+const CONDITIONAL = new Set(["clarification/attribute_mode_one_option.json", "noema-resolution/verified_with_no_verdicts.json", "reconstruction.v3/claim_text_empty.json"]);
 
 // The fixture folder of a contract: <name> for v1, <name>.v<major> for a later major (tools/contracts/validate.py).
 const folder = (name) => name.replace(/\.v1$/, "");

@@ -105,7 +105,8 @@ class Ts:
             return f"arr({v}, {p}, (x, q) => {item}{', {' + ', '.join(opts) + '}' if opts else ''})"
         if isinstance(t, ir.MapOf):
             item = self.pexpr(t.value, "x", "q", use, pats)
-            return f"mapOf({v}, {p}, (x, q) => {item})"
+            key = f", {self.pat(t.key_pattern, pats)}" if t.key_pattern else ""
+            return f"mapOf({v}, {p}, (x, q) => {item}{key})"
         if isinstance(t, ir.Union):
             alts = ", ".join(f"(x, q) => {self.pexpr(a, 'x', 'q', use, pats)}" for a in t.alts)
             # The union names its own type: without it TypeScript infers T from the first alternative and refuses the others (a oneOf of different object shapes).
@@ -264,10 +265,13 @@ export function arr<T>(v: unknown, p: string, item: (x: unknown, q: string) => T
   return v.map((x, i) => item(x, `${p}[${i}]`));
 }
 
-export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T): Record<string, T> {
+export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T, keyPattern?: RegExp): Record<string, T> {
   const o = obj(v, p);
   const out: Record<string, T> = {};
-  for (const k of Object.keys(o)) Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  for (const k of Object.keys(o)) {
+    if (keyPattern !== undefined && !keyPattern.test(k)) fail(p, "has a key that is not in the form the contract allows");
+    Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  }
   return out;
 }
 

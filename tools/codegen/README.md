@@ -15,6 +15,7 @@ The generator is Python standard library only and needs `gofmt` (Go toolchain) t
 |---|---|---|
 | Go types | `services/core/internal/contracts/*_gen.go` | one file per schema, `runtime_gen.go`, `registry_gen.go`, `enum_values_gen.json` |
 | Pydantic v2 models | `services/model/noema_model/contracts/*.py` | one module per schema, `_base.py`, `registry.py`, `__init__.py` |
+| TypeScript types and parsers | `ui/src/contract_types/*.ts` | only the contracts named as roots in `tools/codegen/ts.json` (the ones the UI reads, REQ-UI-001) and what they refer to; a contract in `excluded.json` is never a root and never reached (the benchmark scorecard refers to the benchmark case, so it stays out, INV-22). A parser also holds what a type system cannot: patterns (whole-string), string lengths in code points, number and list bounds, `oneOf` (exactly one alternative: `union<T>`), and a map's key pattern (`propertyNames.pattern`). Conditional rules (`if`/`then`, a bound under an `allOf` of a section) stay with the validator; `ui/test/contracts.test.mjs` lists the fixtures a parser cannot hold. |
 
 Both are committed. A hand edit, an added file, a missing file or a stale schema makes `make codegen-check` fail (`generate.check`). Hand-written files allowed beside the generated Go: `doc.go`, `README.md` and `*_test.go`. Beside the Python: `README.md`.
 

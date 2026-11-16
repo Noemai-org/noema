@@ -64,6 +64,7 @@ class Arr:
 class MapOf:
     value: Any
     nullable: bool = False
+    key_pattern: str | None = None  # propertyNames.pattern: the TypeScript parser refuses a key that does not match (the types of Go and Python hold no key rule)
 
 
 @dataclass
@@ -276,7 +277,9 @@ class Builder:
         else:
             extra = Prim("any")
         if not props:
-            return Obj([], None, nullable) if extra is None else MapOf(extra, nullable)
+            names = n.get("propertyNames")
+            key_pattern = names.get("pattern") if isinstance(names, dict) else None
+            return Obj([], None, nullable) if extra is None else MapOf(extra, nullable, key_pattern)
         required = set(n.get("required", []))
         fields = [Field_(p, self.node(v, f"{path}/properties/{p}", hint + pascal(p)), p in required) for p, v in props.items()]
         return Obj(fields, extra, nullable)

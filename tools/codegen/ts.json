@@ -5,9 +5,11 @@
     "confirmation-request.v1.json",
     "customer-answer.v1.json",
     "errors.v2.json",
+    "errors.v3.json",
     "investigation-response.v1.json",
     "noema-resolution.v1.json",
     "overlay-card.v1.json",
+    "reconstruction.v3.json",
     "sse-event.v1.json"
   ]
 }
