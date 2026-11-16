@@ -58,7 +58,7 @@ var original = map[string]any{"entries": []any{map[string]any{"entry_type": "DEB
 
 func item(t *testing.T, payload map[string]any) layer.Item {
 	t.Helper()
-	return layer.Item{EvidenceID: "evr_AAAAAAAAAAAAAAAAAAAAAAAAAA", PayloadRef: "pay_BBBBBBBBBBBBBBBBBBBBBBBBBB", PayloadHash: sealed(t, payload), Status: "KNOWN", Source: "fin.src.core_ledger"}
+	return layer.Item{EvidenceID: "evr_AAAAAAAAAAAAAAAAAAAAAAAAAA", PayloadRef: "pay_BBBBBBBBBBBBBBBBBBBBBBBBBB", PayloadHash: sealed(t, payload), Status: "KNOWN"}
 }
 
 // jsonbText is what PostgreSQL's jsonb gives back for the same value: other key order, spaces after the colons and commas.
