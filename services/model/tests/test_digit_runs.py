@@ -62,4 +62,4 @@ def test_the_spans_are_the_digit_to_digit_extent_of_each_run() -> None:
 
 
 def test_the_assembler_uses_this_definition_and_no_other() -> None:
-    assert assemble.longest_digit_run is longest_digit_run
+    assert getattr(assemble, "longest_digit_run") is longest_digit_run  # noqa: B009 - the name is imported, not re-exported

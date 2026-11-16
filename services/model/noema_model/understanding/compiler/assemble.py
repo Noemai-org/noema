@@ -9,7 +9,6 @@ floored to integer basis points (ruling A173), so it never claims more than the 
 """
 
 import json
-import unicodedata
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -18,6 +17,8 @@ from fractions import Fraction
 from math import floor
 from typing import Any
 
+from noema_model.platform.masking import CONTRACT_VALUE
+from noema_model.platform.redaction.digit_runs import longest_digit_run
 from noema_model.understanding.compiler.lexicon import MAX_SURFACE
 from noema_model.understanding.pipeline import MentionProposal, NodeCatalogue, NormalisedSlots, Outcome, PipelineResult, Proposal
 from noema_model.understanding.pipeline.catalogue import SlotInfo
@@ -43,37 +44,11 @@ class Identifiers:
     raw_ref: str
 
 
-MAX_DIGIT_RUN = 4  # the Record guard's limit (noema#536): a stored string holds no run of more than four digits
-# The separators that join digits into one number. The core's one definition is `separators` in `record/payloadguard` (noema#600; A194 and A231, interim): every kind of space (Z, and
-# the vertical tab and the next-line character), every dash (Pd), every bracket (Ps and Pe), every format character (Cf: soft hyphen, zero-width characters, joiners), every combining
-# mark (M), the dot, hyphen, slash, colon and underscore, the minus sign, the middle dot U+00B7 and the katakana middle dot U+30FB, and the full-width dot, slash, colon and low line.
-# This check is the union of that set, of the guard that is on `main` today (which has the dashes U+2010 to U+2015 and no Pd, Ps or Pe as such) and of the contracts' public-API
-# pattern, so it is never looser than any of them: a quotation the Record would refuse is dropped here. A comma ends a run (`20,000,000`), and so does a plus sign, a letter and a
-# multiplication sign. When noema#600 merges its `separators` is the one source and this set follows it.
-_EXTRA_SEPARATORS = frozenset(".-/_:\u2212\u00b7\u30fb\uff0e\uff0f\uff1a\uff3f\x0b\x85") | {chr(c) for c in range(0x2010, 0x2016)}
-_SEPARATOR_CATEGORIES = frozenset({"Zs", "Zl", "Zp", "Cf", "Mn", "Mc", "Me", "Pd", "Ps", "Pe"})
-
-
-def _is_separator(char: str) -> bool:
-    return char.isspace() or char in _EXTRA_SEPARATORS or unicodedata.category(char) in _SEPARATOR_CATEGORIES
-
-
-def _longest_digit_run(text: str) -> int:
-    """The most digits (a Unicode decimal digit, in any script) one run holds, a run being digits joined by any number of separators (the guard's `digitRun`)."""
-    longest = current = 0
-    for char in text:
-        if unicodedata.category(char) == "Nd":
-            current += 1
-            longest = max(longest, current)
-        elif not _is_separator(char):
-            current = 0
-    return longest
-
-
+MAX_DIGIT_RUN = CONTRACT_VALUE  # the Record guard's limit (noema#536), the one value masking-limits.v1 admits: a stored string holds no run of more than four digits
 def _surface(surface: str, text: str) -> str | None:
     """The customer's own words, or nothing. A surface form the model proposes enters the object only if it is a span of the text the model was given, is no longer than the lexicon's bound and holds no run of
     more than four digits (the Record's guard would refuse such a stored string: an unknown outcome for a harmless request, and a way to carry model text into the Record). The model is unreviewed output; this is the boundary."""
-    if not surface or len(surface) > MAX_SURFACE or surface not in text or _longest_digit_run(surface) > MAX_DIGIT_RUN:
+    if not surface or len(surface) > MAX_SURFACE or surface not in text or longest_digit_run(surface) > MAX_DIGIT_RUN:
         return None
     return surface
 

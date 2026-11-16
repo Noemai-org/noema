@@ -13,7 +13,8 @@ from typing import Any
 
 import pytest
 
-from noema_model.understanding.compiler.assemble import Identifiers, _longest_digit_run, assemble
+from noema_model.platform.redaction.digit_runs import longest_digit_run
+from noema_model.understanding.compiler.assemble import Identifiers, assemble
 from noema_model.understanding.gate import Context, Node, SchemaGate
 from noema_model.understanding.pipeline import NodeCatalogue, NormalisedSlots, Outcome, run_pipeline
 from noema_model.understanding.resolution import Candidate
@@ -392,4 +393,4 @@ def test_a_surface_form_of_exactly_the_bound_and_a_digit_run_of_exactly_four_are
 @pytest.mark.parametrize("text", ["1234,5678", "1234+5678", "1234\u20165678", "1234a5678", "1234\u00d75678"])
 def test_a_character_the_core_does_not_join_digits_with_ends_a_run(text: str) -> None:
     """The comma (so `20,000,000` is groups of three), a plus, a double vertical line, a letter and a multiplication sign end a run in the core's `separators`; the check follows the core in both directions."""
-    assert _longest_digit_run(text) == 4
+    assert longest_digit_run(text) == 4
