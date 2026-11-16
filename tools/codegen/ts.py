@@ -33,6 +33,22 @@ class Ts:
         self.built = built
         self.all: dict[str, ir.Named] = {n: nm for b in built.values() for n, nm in b.named.items()}
         self.module_of = {n: module_name(nm.schema) for n, nm in self.all.items()}
+        self.keep: set[str] | None = None  # when set, only these named types are emitted (see reachable)
+
+    def reachable(self, root_names: list[str]) -> set[str]:
+        """The named types the roots use, directly or through another: what the bundle holds. A shared contract file (enums.v1) is read in part, never whole, so a definition no root
+        reaches (the core reason codes) does not reach the client bundle (REQ-UI-001, INV-02)."""
+        seen: set[str] = set()
+        todo = list(root_names)
+        while todo:
+            n = todo.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            use: set[str] = set()
+            self.named(self.all[n], use, [])
+            todo.extend(use)
+        return seen
 
     # -- type expressions -------------------------------------------------------------------------------------------------
     def tname(self, t: Any, use: set[str]) -> str:
@@ -153,8 +169,9 @@ class Ts:
         mod = module_name(b.file)
         use: set[str] = set()
         pats: list[str] = []
-        parts = [self.named(nm, use, pats) for nm in b.named.values()]
-        mine = set(b.named)
+        named = {n: nm for n, nm in b.named.items() if self.keep is None or n in self.keep}
+        parts = [self.named(nm, use, pats) for nm in named.values()]
+        mine = set(named)
         imports: dict[str, list[str]] = {}
         for name in sorted(use - mine):
             imports.setdefault(self.module_of[name], []).append(name)

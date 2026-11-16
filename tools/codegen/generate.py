@@ -113,7 +113,8 @@ def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str,
     if hidden:
         raise ir.GenerationError(f"ts.json reaches {hidden}, which tools/codegen/excluded.json keeps out of the services")
     t = ts.Ts({f: every[f] for f in sorted(needed)})
-    files = {f"{TS_DIR}/{py.module_name(f)}.ts": t.render_schema(every[f]) for f in sorted(needed)}
+    t.keep = t.reachable([every[r].root.name for r in roots])
+    files = {f"{TS_DIR}/{py.module_name(f)}.ts": t.render_schema(every[f]) for f in sorted(needed) if set(every[f].named) & t.keep}
     files[f"{TS_DIR}/_runtime.ts"] = ts.RUNTIME
     files[f"{TS_DIR}/index.ts"] = t.render_index(roots)
     return files

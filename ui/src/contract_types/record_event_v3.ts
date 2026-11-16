@@ -13,32 +13,11 @@ export function parseRecordEventV3Emitter(v: unknown, p: string = "$"): RecordEv
   return oneOfLit(v, p, ["core-edge", "core-trust", "core-execution", "core-outcome", "core-record", "core-evidence", "core-workflows", "model-service", "benchmark-runner", "admin", "mock-ledger", "mock-switch", "mock-destination", "mock-customer", "mock-policy", "mock-case", "mock-clock"] as const);
 }
 
-/** RecordEventV3GrantVoidReason, generated from record-event.v3.json#$defs/GrantVoidReason. Why a grant was voided; carried by GRANT_VOIDED only. Nine distinct values, one per reason PERD §27.1 and REQ-EXE-003 name for a void grant; an unknown value is rejected. None of them is a Record event type. v1 listed... */
-export type RecordEventV3GrantVoidReason = "INTENT_SUPERSEDED" | "STATE_CHANGED" | "POLICY_SUPERSEDED" | "SIGNATURE_INVALID" | "EXPIRED" | "BINDING_MISMATCH" | "WRITES_DISABLED" | "REVALIDATION_UNAVAILABLE" | "REJECTED_STALE_VERSION";
-
-export function parseRecordEventV3GrantVoidReason(v: unknown, p: string = "$"): RecordEventV3GrantVoidReason {
-  return oneOfLit(v, p, ["INTENT_SUPERSEDED", "STATE_CHANGED", "POLICY_SUPERSEDED", "SIGNATURE_INVALID", "EXPIRED", "BINDING_MISMATCH", "WRITES_DISABLED", "REVALIDATION_UNAVAILABLE", "REJECTED_STALE_VERSION"] as const);
-}
-
 /** RecordEventV3Principal, generated from record-event.v3.json#$defs/Principal. The authenticated principal the event was written for (PERD v1.17 §32.1): <kind>:<id>, where <id> is the session token's sub (REQ-SEC-001, INV-12) and never holds a colon; or the emitter's service identity when no aut... */
 export type RecordEventV3Principal = string | RecordEventV3Emitter;
 
 export function parseRecordEventV3Principal(v: unknown, p: string = "$"): RecordEventV3Principal {
   return union<RecordEventV3Principal>(v, p, [(x, q) => str(x, q, {pattern: PATTERN_0}), (x, q) => parseRecordEventV3Emitter(x, q)]);
-}
-
-/** RecordEventV3PrincipalKind, generated from record-event.v3.json#$defs/PrincipalKind. A principal kind (PERD v1.17 §32.1): customer (§7, REQ-SEC-001), operator (§7, REQ-SEC-001), approver (REQ-SEC-001, §38.2), auditor (§7, REQ-AUD-003), regulator (§7), admin (§41.1). service is not a principal kind. Th... */
-export type RecordEventV3PrincipalKind = "customer" | "operator" | "approver" | "auditor" | "regulator" | "admin";
-
-export function parseRecordEventV3PrincipalKind(v: unknown, p: string = "$"): RecordEventV3PrincipalKind {
-  return oneOfLit(v, p, ["customer", "operator", "approver", "auditor", "regulator", "admin"] as const);
-}
-
-/** RecordEventV3ProviderFailoverReason, generated from record-event.v3.json#$defs/ProviderFailoverReason. Why the Intent Compiler failed over to the next provider; carried by PROVIDER_FAILOVER only (PERD v1.12 REQ-INT-002, DEC-2026-10-21-int-002-refusal-failover). PROVIDER_ERROR: the provider returned an error. TIMEOUT: i... */
-export type RecordEventV3ProviderFailoverReason = "PROVIDER_ERROR" | "TIMEOUT" | "REFUSED_REPLY";
-
-export function parseRecordEventV3ProviderFailoverReason(v: unknown, p: string = "$"): RecordEventV3ProviderFailoverReason {
-  return oneOfLit(v, p, ["PROVIDER_ERROR", "TIMEOUT", "REFUSED_REPLY"] as const);
 }
 
 /** RecordEventV3RecordEvent, generated from record-event.v3.json#$defs/RecordEvent. */

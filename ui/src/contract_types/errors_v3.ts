@@ -60,20 +60,6 @@ export function parseErrorsV3ErrorEnvelope(v: unknown, p: string = "$"): ErrorsV
   };
 }
 
-/** ErrorsV3NonRetryableErrorCode, generated from errors.v3.json#$defs/NonRetryableErrorCode. Every decision or reason code, every validation error and every authorization error, and every other code. The identical request would fail the same way, or the caller must change something first. */
-export type ErrorsV3NonRetryableErrorCode = "INPUT_INVALID" | "SCHEMA_INVALID" | "UNKNOWN_ENUM_VALUE" | "SESSION_INVALID" | "UNAUTHENTICATED" | "NOT_FOUND_OR_NOT_AUTHORIZED" | "REQUEST_ID_REUSED" | "AMBIGUOUS_TARGET" | "STALE_CANDIDATE_SET" | "EVIDENCE_STALE" | "CONTRADICTORY_STATE" | "POLICY_STALE" | "GRANT_INVALID" | "GRANT_EXPIRED" | "GRANT_ALREADY_SPENT" | "CONFIRMATION_EXPIRED" | "CONFIRMATION_BINDING_MISMATCH" | "APPROVER_NOT_ELIGIBLE" | "CAPABILITY_PROHIBITED" | "CAPABILITY_NOT_REGISTERED" | "IDEMPOTENCY_CONFLICT" | "DUPLICATE_CREATE" | "REJECTED_STALE_VERSION" | "OUTCOME_UNKNOWN" | "POSTCONDITION_UNVERIFIED" | "RECORD_INTEGRITY_FAILURE" | "WRITES_DISABLED" | "CALLBACK_DELIVERY_FAILED" | "INTERNAL_SAFETY_BLOCK";
-
-export function parseErrorsV3NonRetryableErrorCode(v: unknown, p: string = "$"): ErrorsV3NonRetryableErrorCode {
-  return oneOfLit(v, p, ["INPUT_INVALID", "SCHEMA_INVALID", "UNKNOWN_ENUM_VALUE", "SESSION_INVALID", "UNAUTHENTICATED", "NOT_FOUND_OR_NOT_AUTHORIZED", "REQUEST_ID_REUSED", "AMBIGUOUS_TARGET", "STALE_CANDIDATE_SET", "EVIDENCE_STALE", "CONTRADICTORY_STATE", "POLICY_STALE", "GRANT_INVALID", "GRANT_EXPIRED", "GRANT_ALREADY_SPENT", "CONFIRMATION_EXPIRED", "CONFIRMATION_BINDING_MISMATCH", "APPROVER_NOT_ELIGIBLE", "CAPABILITY_PROHIBITED", "CAPABILITY_NOT_REGISTERED", "IDEMPOTENCY_CONFLICT", "DUPLICATE_CREATE", "REJECTED_STALE_VERSION", "OUTCOME_UNKNOWN", "POSTCONDITION_UNVERIFIED", "RECORD_INTEGRITY_FAILURE", "WRITES_DISABLED", "CALLBACK_DELIVERY_FAILED", "INTERNAL_SAFETY_BLOCK"] as const);
-}
-
-/** ErrorsV3RetryableErrorCode, generated from errors.v3.json#$defs/RetryableErrorCode. Retryable only if sending the identical request again can succeed with no change by the caller (transient: unavailable, timeout, rate-limited, dependency down). */
-export type ErrorsV3RetryableErrorCode = "EVIDENCE_UNAVAILABLE" | "TARGET_RATE_LIMITED" | "TARGET_TIMEOUT" | "PROVIDER_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
-
-export function parseErrorsV3RetryableErrorCode(v: unknown, p: string = "$"): ErrorsV3RetryableErrorCode {
-  return oneOfLit(v, p, ["EVIDENCE_UNAVAILABLE", "TARGET_RATE_LIMITED", "TARGET_TIMEOUT", "PROVIDER_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"] as const);
-}
-
 /** ErrorsV3, generated from errors.v3.json. v3: errors.v2.json for the public edge and the SSE error event (ruling A187; AGENT-15). Three changes, and errors.v2.json is unchanged: (1) TENANT_SCOPE_MISMATCH is not a public code, so a client never sees it next to... */
 export type ErrorsV3 = ErrorsV3ErrorEnvelope;
 

@@ -87,3 +87,19 @@ Found mechanically (member-name overlap of every hand-written Go struct and Pyth
 - Open questions (owner): C1 and the frontend owner accept the target and the path; whether the parsers should also refuse conditional rules (Architect).
 - Files to read first: `tools/codegen/ts.py`, `ui/src/contract_types/README.md`, `ui/test/contracts.test.mjs`.
 - Do not touch: `ui/src/contract_types/**` by hand.
+
+# Session 2026-11-16 12:40 WAT · CON-03 (the Security Reviewer's re-read of noema#615, round 2)
+
+## Session summary
+- What changed (noema#615): `ui/test/contracts.test.mjs`: the generated parsers of `errors.v3` (message and details issue) and `customer-answer.v1` (found) are run on runs of five astral-plane digits (mathematical, Adlam, segmented), on an astral run split by the core's separators, and on four astral digits as the positive control. `tools/codegen/ts.py` and `generate.py`: only the named types a root reaches are emitted (`Ts.reachable`), so `EnumsV1CoreReasonCode` and the other unused definitions of `enums.v1`, `common.v1`, `errors.v2/v3` and `record-event.v3` are no longer in the bundle; `ui/src/contract_types/` regenerated.
+- Why: the Security Reviewer's blocking finding (no test showed the browser parser refuses an astral digit run; the fixtures hold none) and note 3 (internal reason-code names in the bundle).
+- Risks, and how they are contained: a parser of a definition the UI does not use is gone; `tsc` in `ui/` and the codegen tests fail if a root needs one that is missing.
+- Tests added (REQ-UI-001, INV-02): 15 UI cases; `test_the_front_end_bundle_holds_only_what_a_root_reaches` (every emitted parser is a root's or is called by another; no `CoreReasonCode`). Seen failing first: the reachability test at `31a5f757` (CI `codegen-diff`; the UI job passed). The astral cases pass on the current generator by design; they were checked with a mutant (a digit class without the mathematical and Adlam ranges): nine of them fail. A pattern without the `u` flag does not load at all (a range of surrogates is out of order), so that mutant fails the whole suite.
+- Regression cases added: the astral cases above.
+- Debt entries: none. Conflicts raised: none.
+- Not done, for the contracts' owner (Security Reviewer notes 1, 2, 4) and the Architect (the audience of `reconstruction.v3`): free-text members of `reconstruction.v3` without a digit pattern, no `maxItems` on its lists, the narrower public digit pattern.
+
+## Pre-work for the next agent
+- Exact next step: the scorecard view contract (Benchmark Owner), then a root for it.
+- Files to read first: `tools/codegen/ts.py` (`reachable`), `ui/test/contracts.test.mjs`.
+- Do not touch: `ui/src/contract_types/**` by hand.

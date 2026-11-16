@@ -255,7 +255,7 @@ class TypeScriptOutput(unittest.TestCase):
             uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
             self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
         self.assertNotIn("CoreReasonCode", "".join(ts.values()))
-        self.assertIn("parseEnumsV1DecisionOutcome", defined)  # reconstruction.v3 uses it, so it stays
+        self.assertIn("parseEnumsV1Verdict", defined)  # noema-resolution.v1 uses it, so it stays
 
     def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
         # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
