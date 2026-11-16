@@ -97,7 +97,7 @@ class _ReplayBuffer:
             pending.cancel()
             await asyncio.wait({pending}, timeout=bound_s)
             if not pending.done():
-                close_when_read_ends(pending, self._source)
+                close_when_read_ends(pending, self._source, bound_s)
                 return True
         closing = asyncio.ensure_future(self._source.aclose())
         closing.add_done_callback(_mark_retrieved)
