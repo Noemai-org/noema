@@ -352,3 +352,28 @@ def test_a_timeout_that_is_not_a_positive_finite_number_is_refused_before_any_ca
 
     with pytest.raises(ValueError, match="timeout_s"):
         canary(Never(), timeout_s=bad)
+
+
+# The Voice Engineer's independent read of noema#215 (note 1, a defect; note 2): `$` accepts a trailing newline, so `^[0-9a-f]{40}$` with `.match` took a 40-hex string followed by "\n"; and the
+# baseline's own commit_sha went into the run record unchecked. A commit SHA is exactly 40 lower-case hex characters, whole string, in the run and in the baseline.
+BAD_SHAS: list[Any] = [GOLDEN["commit_sha"] + "\n", "\n" + GOLDEN["commit_sha"], GOLDEN["commit_sha"] + " ", GOLDEN["commit_sha"].upper(), GOLDEN["commit_sha"][:39], GOLDEN["commit_sha"] + "0", "",
+                       None, 40, b"0" * 40]
+
+
+class Never:
+    async def ask(self, case: Mapping[str, Any]) -> CaseAnswer | None:
+        raise AssertionError("the asker was called")
+
+
+@pytest.mark.parametrize("bad", BAD_SHAS, ids=repr)
+def test_a_run_commit_sha_that_is_not_exactly_forty_lowercase_hex_is_refused_before_any_call(bad: Any) -> None:
+    with pytest.raises(ValueError, match="commit_sha"):
+        canary(Never(), commit_sha=bad)
+
+
+@pytest.mark.parametrize("bad", BAD_SHAS, ids=repr)
+def test_a_baseline_commit_sha_that_is_not_exactly_forty_lowercase_hex_is_refused_before_any_call(bad: Any) -> None:
+    broken = json.loads(json.dumps(BASELINE))
+    broken["commit_sha"] = bad
+    with pytest.raises(ValueError, match="baseline"):
+        canary(Never(), baseline=broken)
