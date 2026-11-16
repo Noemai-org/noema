@@ -25,6 +25,9 @@ func (l *linter) astRules() {
 		l.termRules(f)
 		l.crossServiceRule(f)
 		l.buildTagRule(f)
+		if !f.test {
+			l.crashHookRule(f)
+		}
 		if decisionAreas[f.area] && !f.test {
 			l.thresholdRule(f)
 		}
@@ -162,4 +165,43 @@ func (l *linter) thresholdRule(f *srcFile) {
 		}
 		return true
 	})
+}
+
+// crashHookName is the field the crash-point matrix uses to stop a transaction or a step at a named point (execution/ledger, execution/controller, outcome/verifier). Production
+// leaves it nil: a hook that is set in a running service lets a caller choose where the process "dies".
+const crashHookName = "Boundary"
+
+// crashHookRule: the crash hook is installed in test files only (INV-03, INV-07; noema#553). Reading, calling or declaring it is how it works and is not flagged; an assignment or a
+// composite-literal key that sets it to anything but nil, in a file that is not a _test.go file, is.
+func (l *linter) crashHookRule(f *srcFile) {
+	for _, pos := range crashHookSites(f.file) {
+		l.add("crash-hook", f, pos, "the crash hook %q is installed in non-test code; only _test.go files may set it", crashHookName)
+	}
+}
+
+// crashHookSites returns the positions where the file sets a field named Boundary to something other than nil.
+func crashHookSites(file *ast.File) []token.Pos {
+	var out []token.Pos
+	isNil := func(e ast.Expr) bool { return identName(e) == "nil" }
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			for i, lhs := range v.Lhs {
+				sel, ok := lhs.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != crashHookName {
+					continue
+				}
+				if len(v.Lhs) == len(v.Rhs) && isNil(v.Rhs[i]) {
+					continue
+				}
+				out = append(out, sel.Pos())
+			}
+		case *ast.KeyValueExpr:
+			if identName(v.Key) == crashHookName && !isNil(v.Value) {
+				out = append(out, v.Pos())
+			}
+		}
+		return true
+	})
+	return out
 }
