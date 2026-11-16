@@ -130,12 +130,17 @@ func TestAReferenceThatIsNotMaskedIsRefused(t *testing.T) {
 // Every text member is held to the contract: no run of five digits (any script), the length bounds, and the list bounds. A refusal is an error, never a masked guess.
 func TestATextThatBreaksTheContractIsRefused(t *testing.T) {
 	bads := map[string]func(*answer.Input){
-		"a digit run in found":            func(i *answer.Input) { i.Found = []string{"Your account 123456789 was debited."} },
-		"digits joined by spaces":         func(i *answer.Input) { i.Summary = "We opened case 1234 5678 for you." },
-		"arabic-indic digits":             func(i *answer.Input) { i.Next = "Call ٠١٢٣٤٥٦٧٨٩ today." },
-		"an empty summary":                func(i *answer.Input) { i.Summary = "" },
-		"a summary over 300":              func(i *answer.Input) { i.Summary = strings.Repeat("a", 301) },
-		"nine found items":                func(i *answer.Input) { i.Found = make([]string, 9); for k := range i.Found { i.Found[k] = "x" } },
+		"a digit run in found":    func(i *answer.Input) { i.Found = []string{"Your account 123456789 was debited."} },
+		"digits joined by spaces": func(i *answer.Input) { i.Summary = "We opened case 1234 5678 for you." },
+		"arabic-indic digits":     func(i *answer.Input) { i.Next = "Call ٠١٢٣٤٥٦٧٨٩ today." },
+		"an empty summary":        func(i *answer.Input) { i.Summary = "" },
+		"a summary over 300":      func(i *answer.Input) { i.Summary = strings.Repeat("a", 301) },
+		"nine found items": func(i *answer.Input) {
+			i.Found = make([]string, 9)
+			for k := range i.Found {
+				i.Found[k] = "x"
+			}
+		},
 		"an empty found item":             func(i *answer.Input) { i.Found = []string{""} },
 		"a not-known item with no reason": func(i *answer.Input) { i.NotKnown = []answer.NotKnown{{What: "x"}} },
 		"an empty next":                   func(i *answer.Input) { i.Next = "" },
@@ -149,6 +154,30 @@ func TestATextThatBreaksTheContractIsRefused(t *testing.T) {
 	}
 	if _, err := answer.Build(base()); err != nil {
 		t.Fatalf("the good input: %v", err)
+	}
+}
+
+// A verdict with no outcome ID must never count as the case-opened outcome when none is configured (an empty ID equals an empty ID).
+func TestAnEmptyOutcomeIDIsNeverTheCaseOpenedOutcome(t *testing.T) {
+	in := base()
+	in.CaseOpenedOutcomeID, in.CaseRefMasked = "", maskedRef
+	in.Verdicts = []answer.Verdict{v("", achieved)}
+	if a, err := answer.Build(in); err != nil || a.CaseRefMasked != nil {
+		t.Errorf("case ref %v, err %v; want none", a.CaseRefMasked, err)
+	}
+}
+
+// "At most four digits in all": digits that are not next to each other still count, so a reference with five separated digits is refused although no run is long.
+func TestAMaskedReferenceShowsAtMostFourDigitsInAll(t *testing.T) {
+	in := base()
+	in.Verdicts = []answer.Verdict{v(caseOpened, achieved)}
+	in.CaseRefMasked = "CMP-1…A2B3C4D5"
+	if _, err := answer.Build(in); err == nil {
+		t.Error("five digits in all were accepted")
+	}
+	in.CaseRefMasked = "CMP-1…A2B3C4D"
+	if _, err := answer.Build(in); err != nil {
+		t.Errorf("four digits in all were refused: %v", err)
 	}
 }
 
