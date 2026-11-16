@@ -6,6 +6,7 @@ package recorder_test
 // tenant logins, the real hash chain, as in recorder_test.go. All data is SYNTHETIC.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -437,8 +438,10 @@ func TestASpendCanNameOnlyARecordedAllowDecision(t *testing.T) {
 	if code, msg := pgRefusal(t, "a spend for a REJECT decision", err); code != sqlstateIntegrity || !strings.Contains(msg, "not a recorded ALLOW decision") {
 		t.Errorf("a spend for a REJECT decision: %s %q, want %s from the requires-allow trigger", code, msg, sqlstateIntegrity)
 	}
-	if _, err := w.trust.Exec(ctx(t), insertSpendOfOther, tenant, "dec_01NOSUCH", string(h(4))); err == nil {
-		t.Error("a spend for a decision that does not exist was accepted")
+	// the same four arguments as above (pgx refuses a call with fewer than the statement has placeholders, on the client, before any trigger runs: the first form of this case passed whatever the database did)
+	_, err = w.trust.Exec(ctx(t), insertSpendOfOther, tenant, "dec_01NOSUCH", string(h(4)), bindingHashOf(t, validBinding()))
+	if code, msg := pgRefusal(t, "a spend for a decision that does not exist", err); code != sqlstateIntegrity || !strings.Contains(msg, "not a recorded ALLOW decision") {
+		t.Errorf("a spend for a decision that does not exist: %s %q, want %s from the requires-allow trigger", code, msg, sqlstateIntegrity)
 	}
 	if n := w.spends(t); n != 0 {
 		t.Errorf("%d spends exist, want 0", n)
@@ -467,6 +470,14 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 			t.Fatal(err)
 		}
 	}
+	// a failure part-way must not leave a trigger off for a test that shares the database (Security Reviewer, note 6): every trigger is switched on again when the test ends
+	t.Cleanup(func() {
+		for _, name := range []string{"confirmation_spend_tenant_guard", "confirmation_spend_requires_confirmation", "confirmation_spend_requires_allow"} {
+			if _, err := w.admin.Exec(context.Background(), `ALTER TABLE confirmation_spend ENABLE TRIGGER `+name); err != nil {
+				t.Errorf("switching %s back on: %v", name, err)
+			}
+		}
+	})
 	// 1. nothing is switched off: refused (by whichever layer is first)
 	if err := forTenantBB(); err == nil {
 		t.Fatal("ten_aa's login wrote a spend for ten_bb")

@@ -21,6 +21,9 @@
 // ErrConfirmationPlanMismatch before anything is written (A230, interim). A retry of the same input returns the stored decision before this insert (A186) when it names the confirmation the
 // stored ALLOW spent (or none, as it did): another is ErrDecisionConflict (A233, interim). PERD 32.2 has no spend event type, so the Record shows the spend on two events of the same
 // transaction: DECISION_MADE names confirmation_event_id and confirmation_binding_hash, GRANT_ISSUED names confirmation_event_id; a decision with no confirmation carries neither.
+// What the database does NOT enforce (Security Reviewer, noema#603 note 1): that an ALLOW for a profile that requires a confirmation carries one. An ALLOW with an empty ConfirmationEventID
+// writes no spend and is not checked here; that rule is the intake's (T13, which stops with CONFIRM when the profile requires one) and the Recorder adapter's, and a composition test of the two
+// owes the case "confirmation required, none named, ALLOW refused" (EL's adapter, with noema#572).
 //
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.
