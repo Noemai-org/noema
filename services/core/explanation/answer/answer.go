@@ -70,6 +70,16 @@ func Verified(vs []Verdict) bool {
 	return true
 }
 
+// allAchieved is true when no verdict is anything but ACHIEVED. With no verdict it is true: there is no outcome to be unsure of, and `done.verified` is false by A237.
+func allAchieved(vs []Verdict) bool {
+	for _, v := range vs {
+		if v.Result != contracts.EnumsV1VerdictACHIEVED {
+			return false
+		}
+	}
+	return true
+}
+
 // caseOpenedAchieved is true when the outcome has at least one verdict and every verdict of it is ACHIEVED. With no outcome ID configured it is false.
 func caseOpenedAchieved(vs []Verdict, outcomeID string) bool {
 	if outcomeID == "" {
@@ -84,7 +94,7 @@ func caseOpenedAchieved(vs []Verdict, outcomeID string) bool {
 	return Verified(of)
 }
 
-// Build makes the answer, or refuses with ErrAnswer.
+// Build makes the answer, or refuses with ErrAnswer. An outcome that is not ACHIEVED must be said: any such verdict needs at least one not_known item (SR on #618).
 func Build(in Input) (contracts.CustomerAnswerV1, error) {
 	a := contracts.CustomerAnswerV1{
 		SchemaVersion: schemaVersion,
@@ -99,6 +109,9 @@ func Build(in Input) (contracts.CustomerAnswerV1, error) {
 	if in.CaseRefMasked != "" && caseOpenedAchieved(in.Verdicts, in.CaseOpenedOutcomeID) {
 		ref := in.CaseRefMasked
 		a.CaseRefMasked = &ref
+	}
+	if !allAchieved(in.Verdicts) && len(a.NotKnown) == 0 {
+		return contracts.CustomerAnswerV1{}, fmt.Errorf("%w: a verdict that is not ACHIEVED needs a not_known item", ErrAnswer)
 	}
 	if err := check(a); err != nil {
 		return contracts.CustomerAnswerV1{}, err

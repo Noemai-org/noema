@@ -18,3 +18,20 @@ The sources of `found`, `not_known`, `advice` and `next` and the call site: noth
 - Exact next step: the investigation route builds `last_answer` with `answer.Build` from the Record's verdicts (`VERDICT` events of the correlation, outcome ID from the event) and the case reference from the RECEIPT's `external_ack`, masked; pass the pack's case-opened outcome ID.
 - Files to read first: `explanation/answer/answer.go`, `contracts/schemas/customer-answer.v1.json`.
 - Do not touch: `internal/contracts` (generated).
+
+# Session 2026-11-16 13:45 WAT · EXP-01 (SR READY with notes on noema#618)
+
+## Session summary
+- What changed (PR links): noema#618. `Build` refuses a verdict that is not ACHIEVED when there is no `not_known` item (SR note 1: an unknown outcome must say so). Red first: `TestAVerdictThatIsNotAchievedNeedsANotKnownItem`. The case-reference table now lists PARTIALLY_ACHIEVED and COMPENSATED; `TestTheContractsInvalidCaseReferencesAreRefused` runs the contract's invalid fixtures (customer-answer `case_ref_unmasked`; investigation-response `case_ref_unmasked`, `case_ref_without_a_mask`, `case_ref_year_and_last_four`) through `Build` (it passed at once: the check already refuses them).
+- Why: SR notes 1 and 3. Note 2 (templates only, never model text) is for the call site: the investigation-route PR must pass template-explainer output only, and SR will check it there.
+- Risks, and how they are contained: a caller with a non-ACHIEVED verdict and no not_known item now gets an error and no answer (fail closed).
+- Tests added (REQ, INV, US or EC IDs): REQ-EXP-001, REQ-EXP-002, REQ-SEC-003, INV-13.
+- Regression cases added: the two above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the investigation route calls `Build` with the verdicts of the Record and the pack's case-opened outcome ID; it must hold the template-only caller.
+- Open questions (owner): none.
+- Files to read first: `services/core/explanation/answer/answer.go`.
+- Do not touch: the contract.
