@@ -31,8 +31,8 @@ func TestARunOfFiveDigitsInAStringIsRefusedAndARunOfFourIsNot(t *testing.T) {
 		`{"a":"4111-1111"}`:                              true,
 		`{"a":"4111.1111"}`:                              true,
 		`{"a":"4111/1111"}`:                              true,
-		`{"a":"4111_1111"}`:                              false, // an underscore ends a run: a code is not a number
-		`{"a":"409:412:409"}`:                            false,
+		`{"a":"4111_1111"}`:                              true, // A231: the guard joins across an underscore, a colon and a bracket, as the display mask does
+		`{"a":"409:412:409"}`:                            true,
 		`{"a":"20,000,000"}`:                             false, // a comma ends a run
 		`{"a":"٤١١١١"}`:                                  true,  // Arabic-Indic digits
 		`{"a":"４１１１１"}`:                                  true,  // full-width digits
