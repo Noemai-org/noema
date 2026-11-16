@@ -139,3 +139,19 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): where the DSN files are provisioned (IL, `deploy/compose` is protected; OQ-09).
 - Files to read first: `cmd/core/payloadreader.go`, `cmd/core/recordpools.go` (`loginPools`).
 - Do not touch: `loginPools` without the three callers' tests.
+
+# Session 2026-11-16 · POST /v1/conversations answers the PERD shape plus the correlation ID (EL, noema#617)
+
+## Session summary
+- What changed (noema#617): `cmd/core/conversations.go` (`startConversation`, `investigationIDOf`) and the mount in `compose.go` (`Components.Gateway`; `POST /v1/conversations` behind the verified session and the customer role gate, only with a gateway). On 200 and 202 the gateway's answer becomes `{investigation_id, conversation_ref, state, stream_url, correlation_id}`; every other response is the gateway's, unchanged.
+- Why: ruling A234 (interim, docs#187, relayed, not yet committed), which closes noema#601: `investigation_id` is `inv_` and the ULID of the core-minted correlation ID (a retry gets the original correlation ID, A168, so the same value); `state` is `understanding`.
+- **The contract prefix of `conversation_ref` (checked, as A234 asks):** PERD 32.3 has no `conv` prefix, and `canonical-input.v2` types `conversation_ref` as `common.v1`'s `InvestigationId` (`^inv_`). So `conversation_ref` equals `investigation_id`. If the Architect wants a distinct prefix it is a contract change (AGENT-15), not a route change.
+- Risks, and how they are contained: a wrong or guessed identifier on the public API. Contained by deriving from the correlation ID alone and refusing (500, internal envelope, no detail) a correlation ID that is not `corr_` and a ULID; by the exact member set (nothing internal leaves); by passing every error through unchanged.
+- **Found while testing:** the edge's own test tenant (`tnt_a`) is not a tenant in the Record's form (`ten_...`), so the gateway refuses its identity (`SESSION_INVALID`, fail closed). Not a product defect (a deployment's tenants are `ten_...`), but a deployment that lists a tenant in `NOEMA_SESSION_TENANTS` that is not in that form would answer 401 to everyone; the test uses `ten_aa`. The red commit had used the edge's test tenant and failed for that reason as well as for the missing code; fixed in the fix push.
+- Tests added (REQ-API-001, REQ-INP-001 to REQ-INP-003, INV-12): seven, red first at `7c89bb5c` (does not compile). Seven mutants killed (the ref changed; errors rewritten; the state changed; ops added to the roles; the ULID rule loosened; an internal member added; the derivation guessed instead of refused).
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none new (noema#601 closed by A234).
+
+## Pre-work for the next agent
+- Exact next step: the Gateway's production construction (hash key file, deduplication window, the core-edge and record-read pools, the `Start` seam over the composed runner, late-bound so the gateway answers 503 until the runner is composed); then the investigation route and the events route (the read model from the Record, with A237's answer builder).
+- Files to read first: `cmd/core/conversations.go`, `inputgateway/README.md` ("For EL").
+- Do not touch: `inputgateway/`.

@@ -24,6 +24,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
+// convTenant is a tenant in the Record's form (ten_...): the edge's own test tenant (tnt_a) is not one, and the gateway refuses an identity it cannot record (fail closed).
+const convTenant = "ten_aa"
+
 const (
 	aRequestID = "3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b"
 	aULID      = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -93,6 +96,7 @@ func conversationAPI(t *testing.T, iss *edgetest.Issuer, c Components) http.Hand
 	clk := clock.NewManual(apiEpoch)
 	e := sessionEnv(t, iss)
 	e[edge.EnvMaxBody] = "16384"
+	e[edge.EnvTenants] = convTenant
 	h, err := buildAPI(c, Env{Getenv: e.get, ReadFile: os.ReadFile}, clk, ids.New(clk, nil))
 	if err != nil || h == nil {
 		t.Fatalf("buildAPI: %v, %v", h, err)
@@ -118,7 +122,7 @@ func TestAnAcceptedInputAnswersThePERDShapePlusTheCorrelationID(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	m := &memGateway{prior: map[string]inputgateway.Prior{}}
 	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
-	rec := post(h, bearer(iss, session.RoleCustomer, edgetest.Tenant), startBody(aRequestID, "where is my money"))
+	rec := post(h, bearer(iss, session.RoleCustomer, convTenant), startBody(aRequestID, "where is my money"))
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -145,7 +149,7 @@ func TestARetryOfTheSameInputGetsTheSameInvestigation(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	m := &memGateway{prior: map[string]inputgateway.Prior{}}
 	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
-	auth := bearer(iss, session.RoleCustomer, edgetest.Tenant)
+	auth := bearer(iss, session.RoleCustomer, convTenant)
 	first := post(h, auth, startBody(aRequestID, "where is my money"))
 	retry := post(h, auth, startBody(aRequestID, "where is my money"))
 	if first.Code != http.StatusAccepted || retry.Code != http.StatusOK {
@@ -168,7 +172,7 @@ func TestAnErrorPassesThroughUnchanged(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	m := &memGateway{prior: map[string]inputgateway.Prior{}}
 	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
-	auth := bearer(iss, session.RoleCustomer, edgetest.Tenant)
+	auth := bearer(iss, session.RoleCustomer, convTenant)
 	bad := post(h, auth, `{"request_id":"nope","channel":"text","text":"x"}`)
 	if bad.Code != http.StatusBadRequest || !strings.Contains(bad.Body.String(), "INPUT_INVALID") || strings.Contains(bad.Body.String(), "investigation_id") {
 		t.Errorf("an invalid body: %d %s", bad.Code, bad.Body.String())
@@ -186,7 +190,7 @@ func TestTheRouteIsMountedForACustomerAndOnlyWithAGateway(t *testing.T) {
 	m := &memGateway{prior: map[string]inputgateway.Prior{}}
 	with := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
 	for _, role := range []session.Role{session.RoleOps, session.RoleAudit, session.RoleApprover} {
-		if rec := post(with, bearer(iss, role, edgetest.Tenant), startBody(aRequestID, "x")); rec.Code != http.StatusNotFound {
+		if rec := post(with, bearer(iss, role, convTenant), startBody(aRequestID, "x")); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", role, rec.Code)
 		}
 	}
@@ -198,7 +202,7 @@ func TestTheRouteIsMountedForACustomerAndOnlyWithAGateway(t *testing.T) {
 	}
 	// no gateway: no route (the Record reader makes the API buildable, as the reconstruction route does)
 	without := conversationAPI(t, iss, Components{Records: &failingDBs{}, AccessLog: discardLog()})
-	if rec := post(without, bearer(iss, session.RoleCustomer, edgetest.Tenant), startBody(aRequestID, "x")); rec.Code != http.StatusNotFound {
+	if rec := post(without, bearer(iss, session.RoleCustomer, convTenant), startBody(aRequestID, "x")); rec.Code != http.StatusNotFound {
 		t.Errorf("no gateway: %d, want 404", rec.Code)
 	}
 }
@@ -208,12 +212,12 @@ func TestTheTurnNamesTheSessionsTenantAndPrincipal(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	m := &memGateway{prior: map[string]inputgateway.Prior{}}
 	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
-	post(h, bearer(iss, session.RoleCustomer, edgetest.Tenant), startBody(aRequestID, "where is my money"))
+	post(h, bearer(iss, session.RoleCustomer, convTenant), startBody(aRequestID, "where is my money"))
 	if len(m.started) != 1 {
 		t.Fatalf("%d turns", len(m.started))
 	}
 	id := m.started[0].Identity
-	if id.TenantID != edgetest.Tenant || id.PrincipalID != "prn_1" || id.PrincipalKind != "customer" {
+	if id.TenantID != convTenant || id.PrincipalID != "prn_1" || id.PrincipalKind != "customer" {
 		t.Errorf("identity %+v", id)
 	}
 }
@@ -228,4 +232,30 @@ func TestTheInvestigationIDIsInvAndTheULIDOfTheCorrelationID(t *testing.T) {
 			t.Errorf("%q gave %q: want an error", bad, got)
 		}
 	}
+}
+
+// A correlation ID that is not corr_ and a ULID is never turned into an investigation: the input was accepted, but the answer is the internal error envelope (no detail), and none of
+// the success members.
+func TestACorrelationIDThatIsNotAULIDIsAnErrorNeverAGuess(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	m := &memGateway{prior: map[string]inputgateway.Prior{}}
+	clk := clock.NewManual(apiEpoch)
+	g, err := inputgateway.New(inputgateway.Config{Recorder: m, Index: m, Start: m.start, IDs: oddCorrelationIDs{ids.New(clk, nil)}, MaxBody: 16384, HashKey: []byte(strings.Repeat("k", 32))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := conversationAPI(t, iss, Components{Gateway: g})
+	rec := post(h, bearer(iss, session.RoleCustomer, convTenant), startBody(aRequestID, "x"))
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") || strings.Contains(rec.Body.String(), "investigation_id") || strings.Contains(rec.Body.String(), "corr_ABC") {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+}
+
+type oddCorrelationIDs struct{ inner session.IDs }
+
+func (o oddCorrelationIDs) ID(prefix string) (string, error) {
+	if prefix == "corr" {
+		return "corr_ABC", nil
+	}
+	return o.inner.ID(prefix)
 }
