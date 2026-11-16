@@ -24,8 +24,10 @@ ALLOW_WRITE = {
     ("main-merge-audit.yml", "issues"): "opens the governance issue for an unreviewed merge to main",
 }
 VALUES = {"read", "write", "none"}
-PERMISSIONS = re.compile(r"^(?P<indent>[ ]*)permissions:[ ]*(?P<rest>.*)$")
-ENTRY = re.compile(r"^(?P<indent>[ ]*)(?P<key>[A-Za-z0-9_-]+):[ ]*(?P<value>[^#\s]*)[ ]*(#.*)?$")
+# A key may be quoted ("permissions": and "packages": write are the same YAML as the bare spellings; Codex P2 on noema#629), so both patterns read both.
+PERMISSIONS = re.compile(r"^(?P<indent>[ ]*)['\"]?permissions['\"]?:[ ]*(?P<rest>.*)$")
+ENTRY = re.compile(r"^(?P<indent>[ ]*)(?P<q>['\"]?)(?P<key>[A-Za-z0-9_-]+)(?P=q):[ ]*(?P<value>[^#\s]*)[ ]*(#.*)?$")
+UNSUPPORTED = "unsupported syntax"
 
 
 def code(line: str) -> str:
@@ -53,6 +55,9 @@ def blocks(lines: list[str]) -> list[tuple[int, int, str, dict[str, tuple[str, i
                 item = ENTRY.match(text)
                 if item:
                     entries[item.group("key")] = (item.group("value"), follow + 1)
+                else:
+                    # A line this reader does not understand (a flow mapping, an anchor, a merge key, a list) must not be skipped: it could carry a write. Fail closed.
+                    entries[f"line {follow + 1}"] = (UNSUPPORTED, follow + 1)
         found.append((index + 1, indent, rest, entries))
     return found
 
@@ -70,7 +75,9 @@ def scan(name: str, text: str) -> tuple[list[str], set[tuple[str, str]]]:
         if scalar and scalar != "{}":
             problems.append(f"{name}:{number}: {where} `permissions: {scalar}` must be a mapping of read, write or none (or `{{}}`)")
         for permission, (value, entry_line) in entries.items():
-            if value not in VALUES:
+            if value == UNSUPPORTED:
+                problems.append(f"{name}:{entry_line}: a line of a permissions block that this check does not understand (a flow mapping, an anchor, a list): write plain `name: read` lines")
+            elif value not in VALUES:
                 problems.append(f"{name}:{entry_line}: `{permission}: {value}` is not read, write or none")
             elif value == "write":
                 if (name, permission) in ALLOW_WRITE:

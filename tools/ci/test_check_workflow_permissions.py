@@ -157,6 +157,44 @@ class unittest_allow:
         check.ALLOW_WRITE.update(self.saved)
 
 
+class QuotedAndUnsupportedSyntax(unittest.TestCase):
+    """YAML allows quoted keys, and a block this reader cannot parse must not be skipped (Codex P2 on noema#629): quoted spellings are read, and an unrecognised line inside a
+    permissions block is refused (fail closed)."""
+
+    def test_a_quoted_write_is_the_same_as_a_bare_one(self) -> None:
+        for mark in ('"', "'"):
+            with self.subTest(mark=mark):
+                text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + f"  {mark}packages{mark}: write" + chr(10))
+                only(run({"t.yml": text}), "packages: write", "ALLOW_WRITE")
+
+    def test_a_quoted_read_passes(self) -> None:
+        text = GOOD.replace("  contents: read" + chr(10), '  "contents": read' + chr(10) + "  'pull-requests': read" + chr(10))
+        self.assertEqual(run({"t.yml": text}), [])
+
+    def test_a_quoted_top_level_block_is_found(self) -> None:
+        self.assertEqual(run({"t.yml": GOOD.replace("permissions:", '"permissions":')}), [])
+
+    def test_a_quoted_job_level_block_is_read(self) -> None:
+        text = GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + '    "permissions":' + chr(10) + '      "actions": write' + chr(10))
+        only(run({"t.yml": text}), "actions: write")
+
+    def test_a_quoted_top_level_block_with_contents_write_is_refused(self) -> None:
+        found = run({"t.yml": GOOD.replace("permissions:", '"permissions":').replace("contents: read", '"contents": write')})
+        self.assertTrue(any("top-level `contents` must be read or none" in item for item in found), found)
+
+    def test_a_line_the_check_does_not_understand_is_refused(self) -> None:
+        for line in ("  <<: *wide", "  - contents", "  {packages: write}", "  ? packages"):
+            with self.subTest(line=line):
+                text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + line + chr(10))
+                found = run({"t.yml": text})
+                self.assertEqual(len(found), 1, found)
+                self.assertIn("does not understand", found[0])
+
+    def test_a_flow_mapping_on_the_key_line_is_still_refused(self) -> None:
+        found = run({"t.yml": GOOD.replace("permissions:" + chr(10) + "  contents: read" + chr(10), "permissions: {packages: write}" + chr(10))})
+        self.assertTrue(any("must be a mapping" in item for item in found), found)
+
+
 class ThisRepository(unittest.TestCase):
     workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
