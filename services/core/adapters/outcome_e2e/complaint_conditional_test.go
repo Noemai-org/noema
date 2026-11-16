@@ -30,7 +30,7 @@ func TestAConditionalComplaintIsLoggedOnceOnTheRealMockCase(t *testing.T) {
 	}
 	caseID := made.Case.CaseID
 	log := func(key string) adapters.WriteResult {
-		return c.LogComplaint(ctx, adapters.LogComplaintInput{IdempotencyKey: key, TenantID: "ten_a", CaseID: caseID, Timeout: 5 * time.Second, IfNone: true})
+		return c.LogComplaint(ctx, adapters.LogComplaintInput{IdempotencyKey: key, TenantID: "ten_a", CaseID: caseID, Timeout: 5 * time.Second})
 	}
 
 	first := log("cm-1")
@@ -69,7 +69,7 @@ func TestEightConcurrentConditionalComplaintsLogExactlyOneOnTheRealMockCase(t *t
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			results[i] = c.LogComplaint(ctx, adapters.LogComplaintInput{IdempotencyKey: fmt.Sprintf("race-%d", i), TenantID: "ten_a", CaseID: made.Case.CaseID, Timeout: 10 * time.Second, IfNone: true})
+			results[i] = c.LogComplaint(ctx, adapters.LogComplaintInput{IdempotencyKey: fmt.Sprintf("race-%d", i), TenantID: "ten_a", CaseID: made.Case.CaseID, Timeout: 10 * time.Second})
 		}(i)
 	}
 	wg.Wait()

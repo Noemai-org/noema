@@ -213,9 +213,6 @@ type LogComplaintInput struct {
 	TenantID       string
 	CaseID         string
 	Timeout        time.Duration
-	// IfNone makes the log conditional on the case having no complaint reference yet (the precondition of log_complaint_reference, "no complaint for the subject and epoch",
-	// where a case is the subject and epoch; Architect ruling A185). The target enforces it atomically; a refusal is ClassDuplicateCreate with ExistingComplaintRef.
-	IfNone bool
 }
 
 // RecordQuery is a scoped find of evidence or complaints: a tenant and exactly one of an idempotency key or a case. There is no global search.

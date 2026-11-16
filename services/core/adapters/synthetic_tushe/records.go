@@ -133,17 +133,15 @@ func classifyEvidence(status int, h http.Header, raw []byte, in adapters.AppendE
 	})
 }
 
-// complaintHeaders is the idempotency key and, for a conditional log, the precondition "create only if absent".
+// complaintHeaders is the idempotency key and the precondition "create only if absent", always: a complaint reference is made only when the case has none (the precondition of
+// log_complaint_reference, "no complaint for the subject and epoch", where a case is the subject and epoch; Architect rulings A185 and A229). There is no unconditional log, so a
+// caller cannot forget the precondition. The target enforces it atomically; a refusal is ClassDuplicateCreate with ExistingComplaintRef.
 func complaintHeaders(in adapters.LogComplaintInput) map[string]string {
-	h := map[string]string{"Idempotency-Key": in.IdempotencyKey}
-	if in.IfNone {
-		h["If-None-Match"] = "*"
-	}
-	return h
+	return map[string]string{"Idempotency-Key": in.IdempotencyKey, "If-None-Match": "*"}
 }
 
 func classifyComplaint(status int, h http.Header, raw []byte, in adapters.LogComplaintInput) adapters.WriteResult {
-	if in.IfNone && status == http.StatusPreconditionFailed {
+	if status == http.StatusPreconditionFailed {
 		// The log was conditional on the case having no complaint, and the target holds one that another key made. That is a business rejection (E10), not a stale version: a
 		// create has no version token. It has the class of every refused create-if-absent (the error code DUPLICATE_CREATE of errors.v2.json, D6). The complaint that exists is
 		// named, never adopted as this write's result.

@@ -27,7 +27,7 @@ func complaintServer(t *testing.T, status int, body string, seen *http.Header) *
 }
 
 func conditional(key string) adapters.LogComplaintInput {
-	return adapters.LogComplaintInput{IdempotencyKey: key, TenantID: "ten_a", CaseID: "case_1", Timeout: 2 * time.Second, IfNone: true}
+	return adapters.LogComplaintInput{IdempotencyKey: key, TenantID: "ten_a", CaseID: "case_1", Timeout: 2 * time.Second}
 }
 
 const refused412 = `{"error":{"code":"PRECONDITION_FAILED","message":"a complaint reference already exists for this case: the create was conditional on there being none","retryable":false,` +
@@ -42,14 +42,13 @@ func TestAConditionalComplaintSendsIfNoneMatch(t *testing.T) {
 	}
 }
 
-func TestAnUnconditionalComplaintSendsNoPrecondition(t *testing.T) {
+func TestEveryComplaintLogSendsIfNoneMatch(t *testing.T) {
+	// A229: there is no unconditional log. A complaint reference is created only if the case has none, whatever the caller does, so a caller cannot forget the precondition.
 	var seen http.Header
 	cli := newClient(t, complaintServer(t, 412, refused412, &seen))
-	in := conditional("k1")
-	in.IfNone = false
-	cli.LogComplaint(deadline(t), in)
-	if _, sent := seen["If-None-Match"]; sent {
-		t.Fatalf("an unconditional complaint must not send If-None-Match: %v", seen)
+	cli.LogComplaint(deadline(t), adapters.LogComplaintInput{IdempotencyKey: "k1", TenantID: "ten_a", CaseID: "case_1", Timeout: 2 * time.Second})
+	if seen.Get("If-None-Match") != "*" {
+		t.Fatalf("a complaint log must always send If-None-Match: *, headers sent: %v", seen)
 	}
 }
 
