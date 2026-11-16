@@ -227,6 +227,32 @@ class TypeScriptOutput(unittest.TestCase):
             self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
         self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
 
+    def test_the_front_end_reads_the_four_public_contracts_the_errors_and_the_reconstruction(self):
+        # REQ-UI-001, REQ-API-001: the roots the UI reads. errors.v3 (the public error envelope) and reconstruction.v3 (the case view) are roots in their own right, not only
+        # dependencies of another root, so the front end can import them by name.
+        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        files = generate.render_all(generate.load_schemas())
+        for r in ("customer-answer.v1.json", "investigation-response.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json", "reconstruction.v3.json"):
+            self.assertIn(r, roots, f"{r} is not a root of ts.json")
+            self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", files)
+
+    def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
+        # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
+        # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.
+        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        self.assertNotIn("benchmark-scorecard.v3.json", roots)
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["benchmark-scorecard.v3.json"]}), encoding="utf-8")
+            (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "keeps out"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
     def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
         # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first
         # alternative, so `tsc` refused the second one. The parser names the union's own type: `union<T>(...)`.
