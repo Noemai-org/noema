@@ -6,6 +6,7 @@ package recorder_test
 // tenant logins, the real hash chain, as in recorder_test.go. All data is SYNTHETIC.
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
@@ -41,6 +43,10 @@ func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
 	t.Helper()
 	return testpg.TenantLogin(t, w.admin, w.dsn, "trust_rw", tenantID)
 }
+
+// realNow is the database's wall clock as the test sees it: the expiry check of a confirmation is made by the database (statement_timestamp), so a confirmation's times are real ones. It goes
+// through platform/clock, the one place that reads the system clock (lint [clock]).
+func realNow() time.Time { return clock.System{}.Now() }
 
 // policyVersion is the policy the writer binds for evaluatedWith(t, _, "3.1") and request(): the bound policy of the grant.
 const policyVersion = "fin.pol@3.1"
@@ -68,7 +74,7 @@ func recordConfirmation(t *testing.T, pool *pgxpool.Pool, tenantID, event string
 		t.Fatal(err)
 	}
 	err = recorder.RecordConfirmation(ctx(t), tx, recorder.Confirmation{TenantID: tenantID, EventID: event, RequestID: "cfr_" + strings.TrimPrefix(event, "cfe_"),
-		BindingHash: bindingHashOf(t, in), AcceptedAt: time.Now().Add(-time.Minute), ExpiresAt: expires})
+		BindingHash: bindingHashOf(t, in), AcceptedAt: realNow().Add(-time.Minute), ExpiresAt: expires})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		return err
@@ -79,7 +85,7 @@ func recordConfirmation(t *testing.T, pool *pgxpool.Pool, tenantID, event string
 // confirmed records a valid, unexpired confirmation of ten_aa for the binding of allowWith.
 func (w *world) confirmed(t *testing.T, event string) {
 	t.Helper()
-	if err := recordConfirmation(t, w.trust, tenant, event, validBinding(), time.Now().Add(time.Hour)); err != nil {
+	if err := recordConfirmation(t, w.trust, tenant, event, validBinding(), realNow().Add(time.Hour)); err != nil {
 		t.Fatalf("recording the confirmation %s: %v", event, err)
 	}
 }
@@ -139,16 +145,28 @@ func TestTheRecordShowsWhichConfirmationADecisionSpent(t *testing.T) {
 		if r.Payload == nil || (r.EventType != "DECISION_MADE" && r.EventType != "GRANT_ISSUED") {
 			continue
 		}
-		has := strings.Contains(*r.Payload, `"confirmation_event_id":"`+given+`"`)
-		if r.EventType == "DECISION_MADE" && has != strings.Contains(*r.Payload, `"confirmation_binding_hash":"`+bindingHashOf(t, validBinding())+`"`) {
-			t.Errorf("DECISION_MADE names the event and the binding together or not at all: %s", *r.Payload)
+		var p map[string]any
+		if err := json.Unmarshal([]byte(*r.Payload), &p); err != nil {
+			t.Fatal(err)
 		}
-		if has {
+		event, hasEvent := p["confirmation_event_id"]
+		binding, hasBinding := p["confirmation_binding_hash"]
+		switch {
+		case hasEvent:
 			withEvent++
-		} else {
+			if event != given {
+				t.Errorf("%s names confirmation %v, want %s", r.EventType, event, given)
+			}
+			if r.EventType == "DECISION_MADE" && binding != bindingHashOf(t, validBinding()) {
+				t.Errorf("DECISION_MADE names binding %v, want %s", binding, bindingHashOf(t, validBinding()))
+			}
+			if r.EventType == "GRANT_ISSUED" && hasBinding {
+				t.Errorf("GRANT_ISSUED names a binding: %s", *r.Payload)
+			}
+		default:
 			withoutEvent++
-			if strings.Contains(*r.Payload, "confirmation_") {
-				t.Errorf("an event of a decision with no confirmation names one: %s", *r.Payload)
+			if hasBinding {
+				t.Errorf("an event of a decision with no confirmation names a binding: %s", *r.Payload)
 			}
 		}
 	}
@@ -174,12 +192,12 @@ func TestAConfirmationThatDoesNotExistIsExpiredOrWasGivenForAnotherActionIsRefus
 	// one that was never recorded
 	expect("a confirmation that does not exist", "cfe_01NOSUCH")
 	// one that another tenant recorded
-	if err := recordConfirmation(t, trustBB, "ten_bb", "cfe_01OFBB", validBinding(), time.Now().Add(time.Hour)); err != nil {
+	if err := recordConfirmation(t, trustBB, "ten_bb", "cfe_01OFBB", validBinding(), realNow().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	expect("another tenant's confirmation", "cfe_01OFBB")
 	// one that expired (by the database's clock, not the caller's)
-	if err := recordConfirmation(t, w.trust, tenant, "cfe_01OLD", validBinding(), time.Now().Add(-time.Second)); err != nil {
+	if err := recordConfirmation(t, w.trust, tenant, "cfe_01OLD", validBinding(), realNow().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	expect("an expired confirmation", "cfe_01OLD")
@@ -197,7 +215,7 @@ func TestAConfirmationThatDoesNotExistIsExpiredOrWasGivenForAnotherActionIsRefus
 		b := validBinding()
 		mutate(&b)
 		event := "cfe_01" + strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(name, " ", ""), "other", "oth"))
-		if err := recordConfirmation(t, w.trust, tenant, event, b, time.Now().Add(time.Hour)); err != nil {
+		if err := recordConfirmation(t, w.trust, tenant, event, b, realNow().Add(time.Hour)); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 		expect(name, event)
@@ -457,7 +475,7 @@ func TestTheTenantBindingIsEnforcedByTheGuardAndByRowSecurityEachOnItsOwn(t *tes
 	switchTrigger("confirmation_spend_requires_allow", "DISABLE")
 	switchTrigger("confirmation_spend_requires_confirmation", "DISABLE")
 	code, msg := pgRefusal(t, "the tenant guard", forTenantBB())
-	if code != sqlstatePrivilege || !strings.Contains(msg, "may not spend confirmations for tenant ten_bb") {
+	if code != sqlstatePrivilege || !strings.Contains(msg, "may not write for tenant ten_bb") {
 		t.Errorf("with the requires-allow trigger off: %s %q, want %s from the tenant guard", code, msg, sqlstatePrivilege)
 	}
 	// 3. the guard off too: row-level security refuses, by its own message

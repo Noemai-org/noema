@@ -16,7 +16,7 @@ import (
 func TestRecordConfirmationRefusesWhatIsNotInTheContractsForm(t *testing.T) {
 	w := newWorld(t)
 	good := recorder.Confirmation{TenantID: tenant, EventID: "cfe_01FORM", RequestID: "cfr_01FORM", BindingHash: bindingHashOf(t, validBinding()),
-		AcceptedAt: time.Now().Add(-time.Minute), ExpiresAt: time.Now().Add(time.Hour)}
+		AcceptedAt: realNow().Add(-time.Minute), ExpiresAt: realNow().Add(time.Hour)}
 	for name, mutate := range map[string]func(*recorder.Confirmation){
 		"a tenant that is not a tenant ID": func(c *recorder.Confirmation) { c.TenantID = "aa" },
 		"an event ID of another kind":      func(c *recorder.Confirmation) { c.EventID = "evt_01FORM" },
@@ -49,8 +49,23 @@ func TestRecordConfirmationRefusesWhatIsNotInTheContractsForm(t *testing.T) {
 func TestAConfirmationIsRecordedOnceAndIsInsertOnly(t *testing.T) {
 	w := newWorld(t)
 	w.confirmed(t, given)
-	if err := recordConfirmation(t, w.trust, tenant, given, validBinding(), time.Now().Add(time.Hour)); err == nil {
+	if err := recordConfirmation(t, w.trust, tenant, given, validBinding(), realNow().Add(time.Hour)); err == nil {
 		t.Error("the same confirmation event was recorded twice")
+	}
+	// a request is answered once: another event for the same request is refused
+	b := validBinding()
+	if err := recordConfirmation(t, w.trust, tenant, "cfe_01SECOND", b, realNow().Add(time.Hour)); err != nil {
+		t.Fatalf("a confirmation of another request: %v", err)
+	}
+	dup := recorder.Confirmation{TenantID: tenant, EventID: "cfe_01THIRD", RequestID: "cfr_" + strings.TrimPrefix(given, "cfe_"), BindingHash: bindingHashOf(t, b), AcceptedAt: realNow().Add(-time.Minute), ExpiresAt: realNow().Add(time.Hour)}
+	tx, err := w.trust.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = recorder.RecordConfirmation(ctx(t), tx, dup)
+	_ = tx.Rollback(ctx(t))
+	if err == nil {
+		t.Error("a second answer to the same request was recorded")
 	}
 	for name, stmt := range map[string]string{
 		"update":   `UPDATE confirmation_resolution SET expires_at = expires_at + interval '1 day'`,
@@ -66,8 +81,8 @@ func TestAConfirmationIsRecordedOnceAndIsInsertOnly(t *testing.T) {
 			t.Errorf("%s by the Trust login: %s, want %s (no privilege)", name, code, sqlstatePrivilege)
 		}
 	}
-	if n := w.count(t, `SELECT count(*) FROM confirmation_resolution`); n != 1 {
-		t.Errorf("%d confirmations remain after the refused changes, want 1", n)
+	if n := w.count(t, `SELECT count(*) FROM confirmation_resolution`); n != 2 {
+		t.Errorf("%d confirmations remain after the refused changes, want 2", n)
 	}
 }
 
@@ -79,7 +94,7 @@ func TestARecordedConfirmationIsScopedToItsTenantByTheGuardAndByRowSecurityEachO
 		t.Fatal(err)
 	}
 	forTenantBB := func() error {
-		return recordConfirmation(t, w.trust, "ten_bb", "cfe_01FORBB", validBinding(), time.Now().Add(time.Hour))
+		return recordConfirmation(t, w.trust, "ten_bb", "cfe_01FORBB", validBinding(), realNow().Add(time.Hour))
 	}
 	switchGuard := func(state string) {
 		t.Helper()
