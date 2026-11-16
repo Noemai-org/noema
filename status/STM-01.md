@@ -163,3 +163,33 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - **Fix:** a new write port `Bindings.Bound(ctx, session, Binding{CorrelationID, DecisionID, GrantID, IntentRef}) error`, required by `NewWriteRunner` and asked first in `ResumeWrite`. `ErrNotBound` is the refusal; any other error stops the resume. Nothing is read from the Journal, moved, executed or verified before it answers. The real implementation is the Trust adapter's (it reads Trust's decision and grant records); the real-stack tests use the stand-in's decision storage.
 - **Tests (INV-03, INV-12, AGENT-08):** red at `6a4f02c6` (does not compile): an unbound decision does nothing in PLANNED, EXECUTING and AWAITING_VERIFICATION (no Execute, Verify, Journal read or move); Bindings is asked with exactly the turn's correlation, the decision, the grant and the intent, as the session; a Bindings that cannot answer stops the resume; a missing Bindings does not build; real stack: an unspent grant offered with another decision is refused and never spent. Four mutants killed (the call skipped; the correlation blanked; the intent blanked; the error swallowed).
 - **Not done, stated:** the stored projection's state and version are still the caller's (the persistence slice, STM-01 slice 2); the binding proves the decision, grant and intent belong to this turn, not that the state is the latest. Debt for the Steward.
+
+# Session 2026-11-15 · the Input Gateway's identity from the verified session (EL, noema#602)
+
+## Session summary
+- What changed (noema#602): `cmd/core/gatewayidentity.go` (`gatewayIdentity`, `rolesCustomer`) and its tests. The gateway's `Identity` is made in one place from the verified session in the request context: the token's tenant, its subject, the customer kind and the session's `AuthnRef`. No session, no identity.
+- Why: the composition root must give `inputgateway` an identity that comes from the session and nothing else (INV-12, AGENT-10). The route is **not** mounted: what `POST /v1/conversations` answers conflicts between PERD 39.2 (`{investigation_id, conversation_ref, state, stream_url}`) and the gateway (`{correlation_id, input_event_id, input_seq, deduplicated}`); CONFLICT DETECTED on noema#601, and the safer reading applies meanwhile (not mounted, `/readyz` names it).
+- Risks, and how they are contained: a wrong identity member would put another tenant's or principal's name on a Record event. Contained by tests through the real edge chain (a signed token): the identity is the session's; a second tenant's token gives that tenant; a body naming a tenant is refused; headers naming one are ignored; only a customer reaches a customer-gated route. Five mutants killed (session reference blanked; an empty identity accepted for no session; ops added to the customer roles; the kind hard-coded; the tenant hard-coded).
+- Tests added (REQ-API-004, REQ-INP-001, INV-12, AGENT-10): five. Red first at `c2d7f632` (does not compile). One test case (`TestNoIdentityIsTakenFromTheBodyOrTheHeaders`, second request) lacked a `Content-Type` header and was refused by the body guard for that reason; fixed in the fix push, with the test file change disclosed in the PR.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: noema#601.
+
+## Pre-work for the next agent
+- Exact next step: the Architect answers noema#601; then mount `POST /v1/conversations` with `gateway.Handler(gatewayIdentity)` behind `rolesCustomer`, with the answer shape decided there. The Gateway's own configuration (hash key file, window, `RecordRecorder` over the core-edge login pool, `RecordIndex` over the record_read pool, the `Start` seam) is a separate PR.
+- Open questions (owner): the answer shape and the minting of `investigation_id` and `conversation_ref` (Architect, noema#601).
+- Files to read first: `inputgateway/README.md` ("For EL"), `cmd/core/compose.go`, `cmd/core/gatewayidentity.go`.
+- Do not touch: `inputgateway/` (not on this allowlist).
+
+# Session 2026-11-15 · the PayloadReader over the Trust login (EL)
+
+## Session summary
+- What changed (noema#599): `cmd/core/payloadreader.go` (`buildPayloadReader`, `trustPayloads.Read`, `EnvTrustDSNDir`, `ErrNoPayloadPool`, `ErrPayloadNotFound`, `ErrPayloadUnusable`) and its tests. It reads `evidence_payload.json` by `(tenant_id, payload_ref)` as the tenant's own `trust_rw` login, over the same directory loader as the Record reader and the Recorder (A170, A202).
+- Why: ruling A228 (relayed, Founder-approved interim, not yet committed) and noema#596: C2's Reconciler classifies evidence items from their recorded payloads and takes a `PayloadReader` port; the composition implements it. `layer.Item` already carries `PayloadRef`.
+- Risks, and how they are contained: a cross-tenant read (the database's row-level security through `evidence_login_tenant` decides, and the code never hands out another tenant's pool: a crossed pool and another tenant's reference both read as absent, tested against real PostgreSQL); an unbounded or injected reference (a plain-reference shape and a length bound before the database is asked; the query is parameterised); a DSN in a message (none: the driver error is replaced by a fixed one).
+- Tests added (REQ-CTX-001, REQ-SEC-004, INV-12, AGENT-13): none set; one pool per tenant file and a missing tenant has none; a bad directory refuses to start and never echoes a DSN; a payload read by its reference; another tenant's payload absent, also through a crossed pool; an unknown reference absent; ten unusable calls refused first. Red first at `735c75e2` (does not compile). Mutants killed: a fallback to any pool, no deadline check, the tenant shape unchecked, the reference length unchecked, the reference shape unchecked, "not found" returned as another error. **One equivalent survivor, documented:** dropping `tenant_id` from the query's WHERE changes nothing (row-level security already binds it); the parameter is kept as defence in depth.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: C2's Reconciler takes a `PayloadReader` port with this signature (noema#596); the composition passes `*trustPayloads`; IL adds the `NOEMA_TRUST_DSN_DIR` setting and the per-tenant `trust_rw` DSN files to Compose.
+- Open questions (owner): where the DSN files are provisioned (IL, `deploy/compose` is protected; OQ-09).
+- Files to read first: `cmd/core/payloadreader.go`, `cmd/core/recordpools.go` (`loginPools`).
+- Do not touch: `loginPools` without the three callers' tests.
