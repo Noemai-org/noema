@@ -35,7 +35,9 @@ class G1Leakscan(unittest.TestCase):
     def test_a_clean_set_passes_after_the_scanner_proved_it_can_see(self) -> None:
         code, text = run(["--workdir", str(self.work), str(self.art)])
         self.assertEqual(code, 0, text)
-        self.assertIn("the planted canary was found", text)
+        self.assertIn("every planted kind was found", text)
+        for kind in ("canary", "account_number", "card_number", "named_secret_value", "jwt", "bearer_token"):
+            self.assertIn(kind, text)
 
     def test_a_digit_run_of_five_or_more_fails(self) -> None:
         (self.art / "b.log").write_text("amount 123456 here\n", encoding="utf-8")
@@ -77,6 +79,31 @@ class G1Leakscan(unittest.TestCase):
         code, text = run(["--scanner", str(blind), "--workdir", str(self.work), str(self.art)])
         self.assertEqual(code, 3, text)
         self.assertIn("NOT RUN", text)
+
+    def test_a_scanner_with_one_broken_rule_is_not_run(self) -> None:
+        # Security Reviewer's condition on noema#591: a canary alone proves the scanner runs, not that its rules work. Each wrapper is the real scanner with the findings of ONE kind
+        # removed from its output, as if that rule were broken; the probe must refuse it.
+        real = HERE / "leakscan.py"
+        for kind in ("canary", "account_number", "card_number", "named_secret_value", "jwt", "bearer_token"):
+            with self.subTest(kind):
+                wrapper = self.root / f"broken_{kind}.py"
+                wrapper.write_text(
+                    "import subprocess, sys\n"
+                    f"r = subprocess.run([sys.executable, '-I', {str(real)!r}, *sys.argv[1:]], capture_output=True, text=True)\n"
+                    f"print(chr(10).join(l for l in (r.stdout + r.stderr).splitlines() if {kind!r} not in l))\n"
+                    "sys.exit(r.returncode)\n", encoding="utf-8")
+                code, text = run(["--scanner", str(wrapper), "--workdir", str(self.root / f"w_{kind}"), str(self.art)])
+                self.assertEqual(code, 3, text)
+                self.assertIn(kind, text.split("not reported:")[1])
+
+    def test_the_planted_values_are_fresh_and_of_the_right_shape(self) -> None:
+        a, b = g1_leakscan.planted_values("CANARY-x"), g1_leakscan.planted_values("CANARY-x")
+        self.assertNotEqual(a, b)
+        self.assertRegex(a["account_number"], r"\d{10}$")
+        digits = a["card_number"].split()[-1]
+        self.assertEqual(len(digits), 16)
+        total = sum(sum(divmod(int(c) * 2, 10)) if i % 2 == 1 else int(c) for i, c in enumerate(reversed(digits)))
+        self.assertEqual(total % 10, 0, "a Luhn-valid number")
 
     def test_a_scanner_that_fails_without_naming_a_canary_is_not_run(self) -> None:
         noisy = self.root / "noisy.py"

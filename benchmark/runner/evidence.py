@@ -17,6 +17,7 @@ Two commands, each writing one JSON file under --out and exiting 0 (met), 1 (a c
 The correlation ids come from `correlations.json`, which the runner writes into its run directory. SYNTHETIC (AGENT-25)."""
 import argparse
 import json
+import secrets
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -71,7 +72,7 @@ def fault_plan_evidence(suite: Any, only: set[str] | None) -> Json:
 
 def _expect(error: Exception, want: tuple[int, str]) -> Json:
     if isinstance(error, HttpError):
-        return {"status": error.status, "code": error.code, "ok": (error.status, error.code) == want}
+        return {"status": error.status, "code": error.code, "message": error.message, "ok": (error.status, error.code) == want}
     return {"status": None, "code": None, "ok": False, "detail": type(error).__name__}
 
 
@@ -132,7 +133,20 @@ def negative_probes(base_url: str, issue: Callable[[str, str, str], str], cases:
                 row[label] = {"status": 200, "code": None, "ok": False, "detail": "the request was served"}
             except (HttpError, TransportError) as error:
                 row[label] = _expect(error, want)
-        row["ok"] = all(row[k]["ok"] for k in ("control", "wrong_role", "foreign_tenant"))
+        # A correlation that does not exist, asked by an allowed role, must be answered exactly as a wrong role is: the same status, code and message. If it differed, the refusal would tell
+        # a caller whether a reconstruction exists (an oracle); this is the "no oracle" half of the Security Reviewer's criterion 9 (condition 2 on noema#591).
+        unknown = "corr_" + secrets.token_hex(13)
+        try:
+            JsonClient(base_url, token=issue(tenant, principal, ALLOWED_ROLE), timeout=timeout).request("GET", ROUTE.format(unknown))
+            row["unknown_correlation"] = {"status": 200, "code": None, "ok": False, "detail": "a correlation that does not exist was served"}
+        except (HttpError, TransportError) as error:
+            got = _expect(error, NOT_FOUND)
+            same = all(got.get(k) == row["wrong_role"].get(k) for k in ("status", "code", "message"))
+            got["ok"] = got["ok"] and same
+            if not same:
+                got["detail"] = "the answer differs from the wrong-role answer"
+            row["unknown_correlation"] = got
+        row["ok"] = all(row[k]["ok"] for k in ("control", "wrong_role", "foreign_tenant", "unknown_correlation"))
         rows.append(row)
     return {"met": bool(rows) and all(r["ok"] for r in rows), "cases": rows}
 

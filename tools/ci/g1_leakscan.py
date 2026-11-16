@@ -3,7 +3,9 @@
 
 A scan that finds nothing must not be read as clean: it may be blind. So this plants one canary where the scanner must find it, and only then trusts the scan of the artifacts:
   1. a fresh canary (`CANARY-` and 24 hex characters) is made and written to a canary file and to a planted file, both under a work directory that is never one of the scanned paths;
-  2. the probe: leakscan over the planted file must FAIL and name a canary. If it does not, the scanner is blind and the result is NOT RUN (exit 3), never a pass;
+  2. the probe: leakscan over the planted files must FAIL, and must report EACH KIND that was planted: the canary, a ten-digit account number, a Luhn-valid card number, a secret-shaped
+     value (`api_key=...`), a JWT-shaped value and a bearer token (Security Reviewer's condition on noema#591: a canary alone proves the scanner runs, not that its rules work). A kind that
+     is not reported means a rule is broken, and the result is NOT RUN (exit 3), never a pass. The probe uses the same scanner, flags and allow file as the real scan;
   3. the real scan: leakscan with the same canary file over every artifact path: zero findings, which also means no digit run of 5 or more anywhere (leakscan's own rule) and the canary
      nowhere in the artifacts. A scan that looked at nothing (leakscan exit 2) is NOT RUN as well.
 It never prints a found value (leakscan prints only file, line, kind, length and a fingerprint) and never prints the canary. The criterion has no exceptions beyond the allow file, which lets a line through the digit-run rule only (never secrets or the canary); the workflow passes tools/ci/g1_leakscan.allow, which names three integer fields.
@@ -25,6 +27,29 @@ def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None
     return done.returncode, (done.stdout + done.stderr).strip()
 
 
+def _luhn_complete(body: str) -> str:
+    """`body` plus the check digit that makes it Luhn-valid."""
+    total = 0
+    for i, ch in enumerate(reversed(body)):
+        d = int(ch) * 2 if i % 2 == 0 else int(ch)
+        total += d - 9 if d > 9 else d
+    return body + str((10 - total % 10) % 10)
+
+
+def planted_values(canary: str) -> dict[str, str]:
+    """One line per kind the real scan must be able to report, each with a fresh random value. Keys are leakscan's own kind names."""
+    ten = str(secrets.randbelow(9 * 10**9) + 10**9)
+    card = _luhn_complete("4" + "".join(secrets.choice("0123456789") for _ in range(14)))
+    return {
+        "canary": f"a planted line that carries {canary} so that the scanner must find it",
+        "account_number": f"planted account {ten}",
+        "card_number": f"planted card {card}",
+        "named_secret_value": f"api_key={secrets.token_hex(10)}",
+        "jwt": "planted token eyJ" + secrets.token_hex(6) + "." + secrets.token_hex(6) + "." + secrets.token_hex(6),
+        "bearer_token": "Authorization: Bearer " + secrets.token_hex(12),
+    }
+
+
 def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = None) -> int:
     for path in paths:
         if workdir == path or workdir in path.parents or path in workdir.parents:
@@ -35,12 +60,15 @@ def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = No
     planted.mkdir(parents=True, exist_ok=True)
     canary_file = workdir / "canary.txt"
     canary_file.write_text(canary + "\n", encoding="utf-8")
-    (planted / "planted.txt").write_text(f"a planted line that carries {canary} so that the scanner must find it\n", encoding="utf-8")
+    plants = planted_values(canary)
+    for kind, line in plants.items():
+        (planted / f"planted-{kind}.txt").write_text(line + "\n", encoding="utf-8")
     code, text = scan(scanner, canary_file, [planted], allow)
-    if code != 1 or "canary" not in text or canary in text:
-        print(f"NOT RUN: the scanner did not find the planted canary (exit {code}); a scan that finds nothing cannot be read as clean")
+    missing = [kind for kind in plants if not any(f"planted-{kind}.txt" in row and (kind in row or (kind == "canary" and "canary" in row)) for row in text.splitlines())]
+    if code != 1 or missing or canary in text:
+        print(f"NOT RUN: the scanner did not report every planted kind (exit {code}; not reported: {', '.join(missing) or 'none'}); a scan that finds nothing, or whose rules are broken, cannot be read as clean")
         return 3
-    print("probe: the planted canary was found (the scanner can see)")
+    print(f"probe: every planted kind was found ({', '.join(plants)}): the scanner can see")
     code, text = scan(scanner, canary_file, paths, allow)
     if canary in text:
         print("refused: the scanner printed the canary")

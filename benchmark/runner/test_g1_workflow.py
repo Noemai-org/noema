@@ -104,6 +104,17 @@ class G1StackWorkflow(unittest.TestCase):
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
 
+    def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
+        # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model
+        # log would fail the scan of an otherwise clean run. The workflow captures the model's log; the bench overlay must start it without the access log.
+        captured = re.search(r"for svc in ([a-z -]+); do", self.script)
+        assert captured
+        self.assertIn("model", captured.group(1).split())
+        overlay = (WORKFLOW.parents[2] / "deploy" / "compose" / "bench-model.yml").read_text()
+        entrypoint = re.search(r"entrypoint: \[(.*?)\]", overlay)
+        assert entrypoint
+        self.assertIn('"--no-access-log"', entrypoint.group(1))
+
     def test_the_run_is_scored_by_the_scorer_in_the_runner_container(self) -> None:
         self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.scoring")
         for flag in ("--cases", "--oracles", "--results", "--pack packs/fintech_v1.json", "--manifest", "--run-id", "--out"):

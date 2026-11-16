@@ -60,6 +60,7 @@ class FakeEdge(BaseHTTPRequestHandler):
     mode = "edge"
     kind = "customer"  # the principal kind of the Record actor the fake edge returns
     served_tenant = "ten_alpha"
+    known = {"corr_a1", "corr_b2"}  # the reconstructions that exist; any other correlation is unknown
 
     def log_message(self, *args: Any) -> None:
         pass
@@ -82,6 +83,9 @@ class FakeEdge(BaseHTTPRequestHandler):
             return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": "Not found."}})
         if tenant != self.served_tenant and mode != "serves-foreign-tenant":
             return self._send(401, {"error": {"code": "SESSION_INVALID", "message": "The session is not valid."}})
+        if corr not in self.known and mode != "serves-unknown":
+            msg = "No such reconstruction." if mode == "reveals-unknown" else "Not found."
+            return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": msg}})
         if role not in ("ops", "audit") and mode != "serves-wrong-role":
             return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": "Not found."}})
         events = [{"event_id": "e1", "tenant_id": "ten_other" if mode == "other-tenant-event" else tenant, "actor": "core-trust" if mode == "no-customer" else f"{FakeEdge.kind}:{principal}"}]
@@ -130,7 +134,7 @@ class Probes(unittest.TestCase):
             negative_probes(self.url, lambda *a: "x|y|z", self.cases, "ten_alpha", "ten_other", roles={self.cases[0][0]: ["wizard"]})
 
     def test_each_check_can_fail(self) -> None:
-        for mode in ("serves-wrong-role", "serves-foreign-tenant", "unmounted", "other-tenant-event", "no-customer", "other-customer", "empty"):
+        for mode in ("serves-wrong-role", "serves-foreign-tenant", "unmounted", "other-tenant-event", "no-customer", "other-customer", "empty", "reveals-unknown", "serves-unknown"):
             with self.subTest(mode):
                 FakeEdge.mode = mode
                 self.assertFalse(self.run_probes()["met"], mode)

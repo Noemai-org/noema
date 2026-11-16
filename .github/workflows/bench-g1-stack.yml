@@ -125,6 +125,10 @@ jobs:
             [ -f benchmark/out/run/run-manifest.json ] && { echo; echo '```json'; cat benchmark/out/run/run-manifest.json; echo '```'; }
             [ -f benchmark/out/score/scorecard.json ] && { echo; echo '```json'; cat benchmark/out/score/scorecard.json; echo '```'; }
           } > benchmark/out/summary.md
+      # The stack stops before the scan, so nothing is still writing to the files that are scanned and uploaded (Security Reviewer's note on noema#591).
+      - name: Stop the stack
+        if: always()
+        run: make bench-down
       # The summary is written to a file of the workflow's own, not to $GITHUB_STEP_SUMMARY: that variable names a different file in every step, so a scan step would read its own empty
       # one (Codex P2 on noema#591). The file is scanned with the artifacts and published to the step summary only if the scan is clean (the summary is public like the artifacts).
       # Criterion 8: a leak scan over every artifact the run produced, the summary included, with a canary planted where the scanner must find it. A scanner that finds nothing is
@@ -139,9 +143,6 @@ jobs:
             benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           echo "scan=$?" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Stop the stack
-        if: always()
-        run: make bench-down
       - name: Upload the artifacts (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
