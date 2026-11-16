@@ -77,3 +77,18 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Blocking (the principal boundary): fixed.** `Read` now requires the stored intent to name exactly the session's principal (`principal.principal_id`); an intent of another principal, of another tenant, or one that names no provable principal (no member, not text, empty, wrong case, not JSON) answers as a missing intent (`intentstore.ErrNotFound`), before any read, classify or seal. `ErrTenant` stays for a session of another tenant than the adapter's. Failing first: three tests at `5cd70576` (the `core` job failed, run 43586400411). Four mutants of the new code were run: three killed; "an empty principal accepted" survived and is equivalent (the session's principal is never empty: `ErrNoSession` is checked first).
 - **Note 4:** migration 0020 checks the shape of `reconciliation_id` (`^rec_...`) and `reconciliation_classification` (`^[A-Z][A-Z0-9_]*$`) and not a closed set; the adapter now refuses an answer that is not of those shapes (`ErrIncomplete`); the closed set stays the Reconciler's contract. **Notes 3 and 5:** stated in the README (who bounds what; the caller maps every error to one answer and never returns `err.Error()`). The cross-tenant and cross-principal test over Postgres belongs to the first real wiring.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-15 11:00 WAT · ENV-04 · the G1 stack workflow's session tokens and leak scan (IL, noema#577)
+
+## Session summary
+- What changed (PR noema#577): the stack workflow makes a throw-away synthetic key pair with the Edge's issuer (`make bench-tokens`), mounts the PUBLIC key in the core only, and issues each principal's token in the runner; the inputs are validated on the whole string; every uploaded file is leak-scanned with an allow file of 13 anchored patterns and nothing is uploaded unless the scan is clean; the core and the token script name the key id and audience the same way (`BENCH_KID`, `BENCH_AUDIENCE`); netcheck refuses any other service that mounts the bench output directory or a folder above it.
+- Why: the Founders' order of 15 Nov (G1 session tokens, noema#436 row 2) and the Security Reviewer's, C2's and Codex's reads of noema#577.
+- Risks, and how they are contained: the stack itself has not been run (no Docker here); the first real run is the G1 dispatch. The allow file exempts only named numeric fields and the scorer's own metadata lines, each anchored to the whole line and at most 9 digits; the scan cannot scope an allow pattern to a path, which is accepted risk (noted on noema#591).
+- Tests added: 16 tests in `benchmark/runner/test_g1_workflow.py` (the validation step is run in bash against 13 good and bad values; the scorer's own CLI output is scanned; each allow pattern and each guard has a mutation that fails a test).
+- Regression cases added: none beyond the tests. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: merge noema#577 before noema#591 (both edit the workflow, its test and the allow file); then merge `main` into noema#591 and keep its fuller scan.
+- Open questions (owner): the concurrency group is single-flight (`bench-g1-stack`); the Security Reviewer asks for one ruling (Architect or Founders).
+- Files to read first: `.github/workflows/bench-g1-stack.yml`, `tools/ci/g1_leakscan.allow`, `benchmark/runner/test_g1_workflow.py`.
+- Do not touch: the private key path and the issuer binary (runner only).
