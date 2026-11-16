@@ -1,0 +1,26 @@
+import { test as base, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { readFile } from "node:fs/promises";
+
+// Synthetic UI only. Axe and its rules run locally; no external script or host.
+const test = base.extend({
+  page: async ({ page }, use) => {
+    try { await use(page); } finally {
+      const scanner = await readFile("build/js/privacy.js", "utf8");
+      const findings = await page.evaluate(async (source) => {
+        const url = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+        try { return (await import(url)).scanDom(document.body); }
+        finally { URL.revokeObjectURL(url); }
+      }, scanner);
+      expect(findings).toEqual([]);
+    }
+  },
+});
+
+test("REQ-UI-001: the customer overlay has no automated WCAG A/AA violations", async ({ page }) => {
+  const markup = await readFile("dist/index.html", "utf8");
+  await page.setContent(markup);
+  await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
+  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
+  expect(result.violations).toEqual([]);
+});
