@@ -24,10 +24,11 @@ var (
 
 // lateState is what T3 and T13 to T15 learn as the call goes. It is private to one call.
 type lateState struct {
-	needsWrite     bool         // T3: the request leads to a write
-	plan           *Plan        // T14: the validated plan
-	confirmationID string       // T13: the event of the confirmation the ALLOW follows
-	recorded       RecordResult // T15: what the Recorder wrote
+	needsWrite           bool         // T3: the request leads to a write
+	plan                 *Plan        // T14: the validated plan
+	confirmationID       string       // T13: the event of the confirmation the ALLOW follows
+	confirmationPlanHash string       // T13: the plan hash that confirmation was given for (A230)
+	recorded             RecordResult // T15: what the Recorder wrote
 }
 
 // passed is the authority of a decision built at T13 to T15. Steps run in the fixed order and stop at the first terminal result, so the technical layer (T6), the business
@@ -59,10 +60,10 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	case ConfirmationNotRequired:
 		return decide.Continue()
 	case ConfirmationGiven:
-		if c.EventID == "" {
+		if c.EventID == "" || !hashRe.MatchString(c.PlanHash) {
 			return decide.FailStep(errAnswer)
 		}
-		e.late.confirmationID = c.EventID
+		e.late.confirmationID, e.late.confirmationPlanHash = c.EventID, c.PlanHash
 		return decide.Continue()
 	case ConfirmationPending:
 		r, err := e.resolved()
@@ -103,6 +104,11 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	case err != nil:
 		return decide.FailStep(err)
 	case !agrees:
+		return e.planInvalid()
+	}
+	if e.late.confirmationID != "" && e.late.confirmationPlanHash != p.Hash {
+		// A230 (interim): a confirmation was given for ONE plan. The plan built now is another, so the confirmation does not authorise it. T14's stop set is empty (PERD 23.3), so
+		// this is a plan that disagrees with what was approved: UNKNOWN PLAN_INVALID, nothing recorded. The writer refuses the same mismatch as the last line of defence.
 		return e.planInvalid()
 	}
 	p.Steps = append([]PlanStep(nil), p.Steps...)
@@ -192,7 +198,7 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
 		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb, BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
-		ConfirmationEventID: e.late.confirmationID})
+		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash})
 	if err != nil {
 		return decide.FailStep(err)
 	}

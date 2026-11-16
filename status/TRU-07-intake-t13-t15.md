@@ -44,3 +44,17 @@ Updated 2026-11-14. The Trust intake's last three steps (the G1 card of noema#43
 - Rulings: A225 and A226 are interim (docs#182, not merged); the Steward's reading is that A226's notes go into this PR because noema#567 and #571 have merged.
 - **Not done here, and why:** A225 first bullet (reads continue on a frozen target; only writes are refused, as a typed refusal) and second bullet (T12 escalates by itself when the pack's routing omits a breached clock). Both need a reason code for an ESCALATE or REJECT that no pack supplied, and the core reason enum is closed (17 codes, `contracts/state-registry.md`) with none that fits. The question and my default are on this PR.
 - Adapter contract (EL, C2): the Evidence adapter sets `SnapshotEvidence.IntentID` and `IntentVersion` from the snapshot's record (never from the request); the intent adapter's `AdmittedIntent.CorrelationID` is the correlation the intent was admitted under.
+
+# Session 2026-11-16 · TRU-07 intake: A230, the confirmation is bound to the plan (noema#572)
+
+## Session summary
+- What changed (PR links): noema#572. `Confirmation.PlanHash` (the plan hash a Given confirmation was given for) and `RecordRequest.ConfirmationPlanHash`. T13: a Given answer without a well-formed plan hash is UNKNOWN (fail closed). T14: if the plan it builds has another hash than the confirmation's, UNKNOWN `PLAN_INVALID`, nothing recorded. T15 hands the confirmation's plan hash to the Recorder; the writer (noema#603) refuses the same mismatch as the last line of defence and spends the confirmation once.
+- Why: A230 (interim, relayed): the writer refuses an ALLOW whose confirmation's plan hash differs from the plan T14 built; single use is noema#603. This is the Security Reviewer's blocking 1 on this PR, in the shape the Architect ruled.
+- A correction of mine: my red push expected CONFIRM at T14 for a confirmation given for another plan (the Q-B default). PERD 23.3 gives T14 an empty stop set, so the decision engine allows only UNKNOWN there; the test and the code say UNKNOWN `PLAN_INVALID`. CONFIRM-again on a changed plan would need the check at T13, before the plan exists, and is not ruled.
+- Risks, and how they are contained: the confirmation store's adapter (EL) must return the plan hash the request was created for; without it every Given answer is UNKNOWN (safe). A230 is interim until docs#185 merges.
+- Tests added (REQ-TRU-009, INV-17, INV-25): `TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded`, `TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown`, and the Recorder request carries the plan hash; seen failing first (local, then CI red at `61e0ea59`).
+- Not done: the role check per plan step, the `Dispatches.Count` step after T14 and the A225 bullets 1 and 2 (the reason-code question is not answered), and the Security Reviewer's notes 3 to 7 of A226 (still carried).
+
+## Pre-work for the next agent
+- Exact next step: EL's confirmation adapter returns `PlanHash`; the Recorder adapter passes `ConfirmationPlanHash` and `ConfirmationEventID` to `recorder.Request`, and maps `recorder.ErrConfirmationSpent`, `ErrConfirmationPlanMismatch` and `ErrDecisionConflict` to UNKNOWN (never ALLOW).
+

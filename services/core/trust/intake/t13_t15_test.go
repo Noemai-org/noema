@@ -271,23 +271,14 @@ func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 	}
 }
 
-// A230 (interim), REQ-TRU-009, INV-25: a confirmation was given for ONE plan. If the plan T14 built is another, the confirmation does not authorise it: CONFIRM again, nothing
-// recorded. (The writer refuses the same mismatch as the last line of defence, noema#603.)
-func TestT14AConfirmationGivenForAnotherPlanIsConfirmAgainAndNothingIsRecorded(t *testing.T) {
+// A230 (interim), REQ-TRU-009, INV-25: a confirmation was given for ONE plan. If the plan T14 built is another, the confirmation does not authorise it. T14's stop set is empty
+// (PERD 23.3), so the plan that disagrees with what was approved is UNKNOWN PLAN_INVALID, nothing recorded. (The writer refuses the same mismatch as the last line of
+// defence, noema#603.)
+func TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded(t *testing.T) {
 	f := newFake13()
 	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
-	ev := newEval13(t, f)
-	res := run13(t, ev)
-	d := res.Decision
-	if d.Outcome() != decide.Confirm {
-		t.Fatalf("outcome %s %v, want CONFIRM", d.Outcome(), codes13(d))
-	}
-	if got := lastTrace(res); got.Step != decide.T14Plan || got.Result != decide.StepTerminal {
-		t.Errorf("trace ends %v, want T14 terminal", got)
-	}
-	if err := ev.bb.Check(d); err != nil {
-		t.Errorf("the CONFIRM's basis is not the evaluated set: %v", err)
-	}
+	res := run13(t, newEval13(t, f))
+	wantUnknown(t, "a confirmation for another plan", res, "PLAN_INVALID", decide.T14Plan, decide.StepTerminal)
 	if f.called("Recorder.Record") != 0 {
 		t.Errorf("the recorder was called after a confirmation for another plan: %v", f.calls)
 	}
