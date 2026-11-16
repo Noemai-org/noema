@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -221,7 +222,7 @@ func planDoc(source, faults, clock string) string {
 	if clock != "" {
 		clock = `,"clock":` + clock
 	}
-	return `{"fault_plan_id":"fp_test","scenario_id":"SCN-TEST","seed":42,"deterministic":true,"source":"` + source + `","faults":[` + faults + `]` + clock + `}`
+	return `{"fault_plan_id":"fp_test","scenario_id":"SCN-TEST","seed":` + strconv.Itoa(ten06Seed) + `,"deterministic":true,"source":"` + source + `","faults":[` + faults + `]` + clock + `}`
 }
 
 func fault(target, op, effect, match, params string) string {
