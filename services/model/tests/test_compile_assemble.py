@@ -312,6 +312,24 @@ HOSTILE = {
     "a digit run over four (sixteen digits)": "4111 1111 1111 1111",
     "a digit run of five": "12345",
     "a digit run joined by hyphens": "1-2-3-4-5",
+    # The separators of the core's guard (record/payloadguard `digitRun`, noema#536, and the display mask's extra set of noema#600): any number of them, in any script, joins digits into one run.
+    "digits joined by dots": "4111.1111.1111.1111",
+    "digits joined by slashes": "4111/1111/1111/1111",
+    "digits joined by a tab": "4111\t1111\t1111\t1111",
+    "digits joined by a newline": "4111\n1111\n1111\n1111",
+    "digits joined by no-break spaces": "4111\u00a01111\u00a01111\u00a01111",
+    "digits joined by en dashes": "4111\u20131111\u20131111\u20131111",
+    "digits joined by the minus sign": "1\u22122\u22123\u22124\u22125",
+    "digits joined by soft hyphens": "4111\u00ad1111\u00ad1111\u00ad1111",
+    "digits joined by zero-width joiners": "1\u200d2\u200d3\u200d4\u200d5",
+    "digits joined by a combining mark": "1\u03012\u03013\u03014\u03015",
+    "digits joined by several separators": "1234 - 5",
+    "digits joined by two spaces": "1  2  3  4  5",
+    "digits joined by an underscore": "1_2_3_4_5",
+    "digits joined by brackets": "12(34)5",
+    "digits joined by colons": "1:2:3:4:5",
+    "arabic-indic digits": "\u0661\u0662\u0663\u0664\u0665",
+    "full-width digits": "\uff11\uff12\uff13\uff14\uff15",
 }
 
 
@@ -337,7 +355,8 @@ def test_a_quantity_keeps_the_lexicons_value_but_never_a_surface_form_that_is_no
     text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD
     slots = _assembled(text, {**GOOD_MENTIONS, "amount": _mention("20k") | {"surface_form": surface}})
     amount = slots.get("amount")
-    assert amount is None or ("surface_form" not in amount and surface not in json.dumps(slots))
+    assert amount is not None and "value" in amount, "the lexicon's value stays; only the quotation is withheld"
+    assert "surface_form" not in amount and surface not in json.dumps(slots)
 
 
 def test_good_surface_forms_pass_unchanged() -> None:
