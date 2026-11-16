@@ -44,14 +44,18 @@ class Identifiers:
 
 
 MAX_DIGIT_RUN = 4  # the Record guard's limit (noema#536): a stored string holds no run of more than four digits
-# The separators that join digits into one number, taken from the core's `record/payloadguard` (noema#536; the one definition of noema#600): any whitespace, a space of any script (Zs), a
-# format character (Cf: soft hyphen, zero-width characters, joiners), a combining mark (M), a dot, a hyphen, a slash, the dashes U+2010 to U+2015 and the minus sign U+2212. The display mask
-# of the same package also joins across an underscore, a bracket and a colon; this is the stricter of the two, so a quotation the guard would let through but the mask would not is dropped.
-_EXTRA_SEPARATORS = frozenset(".-/_():\u2212") | {chr(c) for c in range(0x2010, 0x2016)}
+# The separators that join digits into one number. The core's one definition is `separators` in `record/payloadguard` (noema#600; A194 and A231, interim): every kind of space (Z, and
+# the vertical tab and the next-line character), every dash (Pd), every bracket (Ps and Pe), every format character (Cf: soft hyphen, zero-width characters, joiners), every combining
+# mark (M), the dot, hyphen, slash, colon and underscore, the minus sign, the middle dot U+00B7 and the katakana middle dot U+30FB, and the full-width dot, slash, colon and low line.
+# This check is the union of that set, of the guard that is on `main` today (which has the dashes U+2010 to U+2015 and no Pd, Ps or Pe as such) and of the contracts' public-API
+# pattern, so it is never looser than any of them: a quotation the Record would refuse is dropped here. A comma ends a run (`20,000,000`), and so does a plus sign, a letter and a
+# multiplication sign. When noema#600 merges its `separators` is the one source and this set follows it.
+_EXTRA_SEPARATORS = frozenset(".-/_:\u2212\u00b7\u30fb\uff0e\uff0f\uff1a\uff3f\x0b\x85") | {chr(c) for c in range(0x2010, 0x2016)}
+_SEPARATOR_CATEGORIES = frozenset({"Zs", "Zl", "Zp", "Cf", "Mn", "Mc", "Me", "Pd", "Ps", "Pe"})
 
 
 def _is_separator(char: str) -> bool:
-    return char.isspace() or char in _EXTRA_SEPARATORS or unicodedata.category(char) in ("Zs", "Cf", "Mn", "Mc", "Me")
+    return char.isspace() or char in _EXTRA_SEPARATORS or unicodedata.category(char) in _SEPARATOR_CATEGORIES
 
 
 def _longest_digit_run(text: str) -> int:
