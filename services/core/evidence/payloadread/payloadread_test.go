@@ -213,7 +213,7 @@ func TestAReaderWithNoPayloadSourceIsRefusedAndNeverPanics(t *testing.T) {
 func TestTheHashCheckAgreesWithTheBuildersHashOverGeneratedPayloads(t *testing.T) {
 	rng := rand.New(rand.NewSource(20261116)) // #nosec G404 - a test seed, not a secret
 	for i := 0; i < 300; i++ {
-		payload := generate(rng, 3).(map[string]any)
+		payload := map[string]any{"root": generate(rng, 3)} // an object whatever the generator returns at the top
 		canon, err := crypto.CanonicalJSON(payload)
 		if err != nil {
 			t.Fatal(err)
