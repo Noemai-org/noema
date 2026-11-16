@@ -29,12 +29,10 @@ const Limit = 4
 
 // Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
 // Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
-// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. A string that is as a whole the one exempt shape, a short UPPER_SNAKE
-// reason code (isReasonCode), is returned unchanged, as the guard accepts it. Masking is idempotent. record/reconstruct serves its facts through this function (A194).
+// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path and so no exemption: a transport class that holds
+// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). Masking is idempotent. record/reconstruct serves its facts
+// through this function (A194).
 func Mask(s string) string {
-	if isReasonCode(s) {
-		return s
-	}
 	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
 		total := 0
 		for _, r := range run {
@@ -73,75 +71,78 @@ const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}
 // digitRun is a run of digits in any script joined by the separators. It is the one definition: Check refuses by it and Mask masks by it.
 var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
 
-// The one exemption of the guard besides the typed values below (A231, interim): a reason code written UPPER_SNAKE, whole-string, with at most maxCodeDigits digits in all and at most
-// maxCodeGroupDigits in a group. VERSION_CONFLICT_409_412 (six digits, groups of three) is the core's own code and passes; the same shape carrying a number (X_4111_1111_1111_1111,
-// X_411_111_111_111) does not.
-//
-// **A deviation the Architect must confirm (AGENT-02, noema#600).** The Record does not store the bare code: the receipt event's raw_status is `<transport result>[:<raw code>]`
-// (execution/ledger/complete.go; outcome/receiptsig), for example `VERSION_CONFLICT_409_412:409` (nine digits) or `DUPLICATE_CREATE:412:PRECONDITION_FAILED`. The bare shape of A231 would
-// refuse the receipt of every version conflict, after the write was dispatched (record/chain TestAppendAcceptsWhatTheRuleExempts). So the exemption also takes up to two raw-code
-// parts after the code, each separated by a colon and each either one to three digits or an UPPER_SNAKE word with no digit, and counts the digits of the whole at no more than
-// maxCompositeDigits (the code's six and one status of three). A number cannot hide in it: more than nine digits, a group of four, or a third part is refused.
+// The one exemption of this rule besides the typed values below (A231, interim; narrowed by the Security Reviewer's and Codex's P1 on noema#600): the transport class a receipt carries.
+// The Record's receipt event stores `transport_result` (one transport class of the adapter, a finite vocabulary) and `raw_status`, which is that class, then a colon and a raw code
+// when there is one (execution/ledger/complete.go; outcome/receiptsig). One class, VERSION_CONFLICT_409_412, holds six digits, which the guard would otherwise refuse: the receipt
+// of every version conflict, after the write was dispatched. The exemption is **at those two exact paths of the payload and for those exact values only**: `/transport_result` must
+// be a class of transportClasses, `/raw_status` a class followed by at most maxRawCodeParts parts, each one to three digits or an UPPER_SNAKE word with no digit, and no more than
+// maxRawStatusDigits digits in all. The same string at any other path is refused, whatever its shape (a nine-digit identifier cannot be carried as a "code"). A deviation from A231 as
+// written (a whole-string UPPER_SNAKE shape anywhere), in the safer direction: the Architect is asked to confirm it on the PR.
 const (
-	maxCodeDigits      = 6
-	maxCodeGroupDigits = 3
-	maxCompositeDigits = 9
 	maxRawCodeParts    = 2
+	maxRawStatusDigits = 9
+	maxRawCodeDigits   = 3
+
+	pathTransportResult = "/transport_result"
+	pathRawStatus       = "/raw_status"
 )
 
-// upperSnakeDigits reports whether s is UPPER_SNAKE (groups of capital letters and digits joined by single underscores, the first character a letter, no group with more than
-// maxCodeGroupDigits digits), and how many digits it holds.
-func upperSnakeDigits(s string) (int, bool) {
-	if s == "" || s[0] < 'A' || s[0] > 'Z' {
-		return 0, false
-	}
-	total := 0
-	for _, group := range strings.Split(s, "_") {
-		if group == "" {
-			return 0, false
-		}
-		digits := 0
-		for i := 0; i < len(group); i++ {
-			switch c := group[i]; {
-			case c >= 'A' && c <= 'Z':
-			case c >= '0' && c <= '9':
-				digits++
-			default:
-				return 0, false
-			}
-		}
-		if digits > maxCodeGroupDigits {
-			return 0, false
-		}
-		total += digits
-	}
-	return total, true
+// transportClasses is the finite vocabulary of execution/controller TransportClass (PERD 27.1, E10); guard_test.go reads that file and fails when the two disagree. record/ imports
+// no execution package, so the list is kept here.
+var transportClasses = map[string]bool{
+	"ACK_2XX": true, "VERSION_CONFLICT_409_412": true, "DUPLICATE_409_SAME_KEY": true, "DUPLICATE_CREATE": true, "REJECTED_4XX": true,
+	"TIMEOUT": true, "CONNECTION_RESET": true, "SERVER_5XX": true, "NO_RESPONSE": true, "ADAPTER_NON_RETRYABLE_DEFECT": true,
 }
 
-// isReasonCode reports whether s is, as a whole, an UPPER_SNAKE reason code of A231, optionally followed by raw-code parts (see the deviation above).
-func isReasonCode(s string) bool {
-	parts := strings.Split(s, ":")
-	if len(parts) > 1+maxRawCodeParts {
-		return false
-	}
-	total, ok := upperSnakeDigits(parts[0])
-	if !ok || (len(parts) == 1 && total > maxCodeDigits) || total > maxCodeDigits {
-		return false
-	}
-	for _, p := range parts[1:] {
-		if p != "" && p[0] >= '0' && p[0] <= '9' {
-			if len(p) > maxCodeGroupDigits || strings.Trim(p, "0123456789") != "" {
+// isReceiptTransportValue reports whether s is exempt at path: the class itself at /transport_result, or the class and its raw-code parts at /raw_status.
+func isReceiptTransportValue(path, s string) bool {
+	switch path {
+	case pathTransportResult:
+		return transportClasses[s]
+	case pathRawStatus:
+		parts := strings.Split(s, ":")
+		if len(parts) > 1+maxRawCodeParts || !transportClasses[parts[0]] {
+			return false
+		}
+		total := countDigits(parts[0])
+		for _, p := range parts[1:] {
+			switch {
+			case p != "" && strings.Trim(p, "0123456789") == "":
+				if len(p) > maxRawCodeDigits {
+					return false
+				}
+				total += len(p)
+			case isUpperSnakeWord(p):
+			default:
 				return false
 			}
-			total += len(p)
-			continue
 		}
-		digits, ok := upperSnakeDigits(p)
-		if !ok || digits != 0 {
+		return total <= maxRawStatusDigits
+	}
+	return false
+}
+
+func countDigits(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			n++
+		}
+	}
+	return n
+}
+
+// isUpperSnakeWord is a raw code that is a word: capital letters and single underscores, no digit (PRECONDITION_FAILED).
+func isUpperSnakeWord(s string) bool {
+	if s == "" || s[0] == '_' || s[len(s)-1] == '_' || strings.Contains(s, "__") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= 'A' && c <= 'Z') && c != '_' {
 			return false
 		}
 	}
-	return total <= maxCompositeDigits
+	return true
 }
 
 // keyID is the shape of the key ID of a signature (`<identity>.<algorithm>.<version>`, such as core-execution.ed25519.1): the algorithm name holds a run of more than four
@@ -302,7 +303,7 @@ func longestRun(s string) int {
 // audit and ops surfaces only, never on the customer overlay or in an arm.
 var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
-// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, a short UPPER_SNAKE reason code (A231), the value of a
+// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
 // signature at /sig/value or the target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
 	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
@@ -318,7 +319,7 @@ func exempt(path, s string) bool {
 			}
 		}
 	}
-	return isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s) || isReasonCode(s)
+	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s)
 }
 
 // isRFC3339 is true for a timestamp in RFC 3339 form (a date, a "T", a time and an offset or Z), with or without fractional seconds.
@@ -428,5 +429,12 @@ func normalForm(s string) string {
 	return b.String()
 }
 
-// TransportClasses is the finite vocabulary of the controller's transport classes the guard exempts at the receipt's paths (stub).
-func TransportClasses() []string { return nil }
+// TransportClasses returns a copy of the transport classes the guard exempts at the receipt's two paths; guard_test.go reads the controller's constants and fails when they differ.
+func TransportClasses() []string {
+	out := make([]string, 0, len(transportClasses))
+	for c := range transportClasses {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
