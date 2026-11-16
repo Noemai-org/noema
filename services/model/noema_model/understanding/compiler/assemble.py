@@ -9,6 +9,7 @@ floored to integer basis points (ruling A173), so it never claims more than the 
 """
 
 import json
+import unicodedata
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -43,11 +44,26 @@ class Identifiers:
 
 
 MAX_DIGIT_RUN = 4  # the Record guard's limit (noema#536): a stored string holds no run of more than four digits
-_DIGIT_RUN = re.compile(r"\d(?:[ -]?\d)*")  # digits in any script, one space or hyphen allowed between two: the guard's own definition of a run
+# The separators that join digits into one number, taken from the core's `record/payloadguard` (noema#536; the one definition of noema#600): any whitespace, a space of any script (Zs), a
+# format character (Cf: soft hyphen, zero-width characters, joiners), a combining mark (M), a dot, a hyphen, a slash, the dashes U+2010 to U+2015 and the minus sign U+2212. The display mask
+# of the same package also joins across an underscore, a bracket and a colon; this is the stricter of the two, so a quotation the guard would let through but the mask would not is dropped.
+_EXTRA_SEPARATORS = frozenset(".-/_():\u2212") | {chr(c) for c in range(0x2010, 0x2016)}
+
+
+def _is_separator(char: str) -> bool:
+    return char.isspace() or char in _EXTRA_SEPARATORS or unicodedata.category(char) in ("Zs", "Cf", "Mn", "Mc", "Me")
 
 
 def _longest_digit_run(text: str) -> int:
-    return max((sum(1 for c in run.group() if c.isdecimal()) for run in _DIGIT_RUN.finditer(text)), default=0)
+    """The most digits (a Unicode decimal digit, in any script) one run holds, a run being digits joined by any number of separators (the guard's `digitRun`)."""
+    longest = current = 0
+    for char in text:
+        if unicodedata.category(char) == "Nd":
+            current += 1
+            longest = max(longest, current)
+        elif not _is_separator(char):
+            current = 0
+    return longest
 
 
 def _surface(surface: str, text: str) -> str | None:
