@@ -40,5 +40,6 @@ jobs:
           name: generator-reproduce-summary
           path: ${{ runner.temp }}/bench-out/reproduce-summary.txt
           if-no-files-found: warn
+          retention-days: 30
       - if: steps.changed.outputs.run != 'true'
         run: echo "no benchmark change; nothing to test"

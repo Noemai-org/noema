@@ -78,7 +78,7 @@ bench-test: bench-venv
 
 # BEN-04 (G0-N N10): generate the suite twice in two separate processes into two empty directories and compare every file (the oracle documents are in the trees, so only the summary is ever uploaded).
 bench-reproduce: bench-venv
-	rm -rf $(BENCH_OUT)/reproduce
+	test -n "$(BENCH_OUT)" && rm -rf "$(BENCH_OUT)/reproduce"
 	$(BENCH_PY) -m benchmark.generator reproduce --seed $(BENCH_SEED) --out $(BENCH_OUT)/reproduce --summary $(BENCH_OUT)/reproduce-summary.txt
 
 # mock-case (ENV-08): the synthetic case system. Tests run against a real PostgreSQL; scripts/test.sh starts a

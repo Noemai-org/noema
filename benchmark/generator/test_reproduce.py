@@ -168,6 +168,34 @@ class Workflow(unittest.TestCase):
         for forbidden in ("bench-out/reproduce\n", "run1", "run2", "oracle", "bench-out/reproduce/"):
             self.assertNotIn(forbidden, upload)
 
+    def test_the_artifact_is_kept_thirty_days_like_the_other_bench_workflows(self) -> None:
+        """Security Reviewer, note 3 on noema#626."""
+        self.assertIn("retention-days: 30", self.text[self.text.index("upload-artifact"):])
+
+    def test_the_make_target_cannot_remove_a_directory_from_an_empty_variable(self) -> None:
+        """Security Reviewer, note 4: `rm -rf $(BENCH_OUT)/reproduce` with BENCH_OUT empty would be `rm -rf /reproduce`."""
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        recipe = makefile[makefile.index("bench-reproduce: bench-venv"):]
+        recipe = recipe.split("\n\n")[0]
+        self.assertIn('test -n "$(BENCH_OUT)"', recipe)
+        self.assertLess(recipe.index('test -n "$(BENCH_OUT)"'), recipe.index("rm -rf"))
+
+    def test_the_documents_say_what_a_failing_summary_lists_and_that_it_is_not_scanned(self) -> None:
+        """Security Reviewer, notes 1 and 2: a passing summary names no file; a failing one names the differing files (names only, which may include oracle paths, never contents); no scan runs over the summary."""
+        for path in (ROOT / "benchmark" / "generator" / "reproduce.py", ROOT / "benchmark" / "generator" / "README.md"):
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("names only", text, path.name)
+            self.assertIn("not scanned", text, path.name)
+            self.assertNotIn("names no generated file", text, path.name)
+
+    def test_a_failing_summary_names_files_and_no_contents(self) -> None:
+        runners = iter([fake({"oracle/x/BEN-X-0001.json": b"TOP-SECRET-CONTENT"}), fake({"oracle/x/BEN-X-0001.json": b"OTHER-CONTENT"})])
+        with tempfile.TemporaryDirectory() as tmp:
+            text = render(reproduce(7, Path(tmp) / "r", lambda seed, out: next(runners)(seed, out)))
+        self.assertIn("oracle/x/BEN-X-0001.json", text)
+        self.assertNotIn("SECRET-CONTENT", text)
+        self.assertNotIn("OTHER-CONTENT", text)
+
     def test_the_action_is_pinned_to_a_commit(self) -> None:
         self.assertRegex(self.text, r"actions/upload-artifact@[0-9a-f]{40}")
 

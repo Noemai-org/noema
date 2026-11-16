@@ -1,8 +1,9 @@
 """`python -m benchmark.generator reproduce`: generate the suite twice, in two separate processes, and compare (BEN-04; G0-N N10 "the fixture run log twice with identical output").
 
 Each run writes into its own empty directory (`<out>/run1`, `<out>/run2`). Every file is compared by sha256; the manifest digest each generator printed is compared too. Any difference, a generator
-exit other than 0, or an empty output is a failure: nothing identical is claimed from two empty trees. The summary text holds the two logs, counts and digests, and never a generated file or a
-file name (the oracle documents are generated beside the cases, INV-22). Synthetic data only (AGENT-25)."""
+exit other than 0, or an empty output is a failure: nothing identical is claimed from two empty trees. The summary text holds the two logs, counts and digests, never a generated file's contents. A passing summary names no file; a failing one lists the
+differing files by name (names only, never contents; the names can include `oracle/` paths because the oracle documents are generated beside the cases, INV-22). The summary is not scanned:
+it is the generator's own output plus digests, and the same text is printed to the job log. Synthetic data only (AGENT-25)."""
 import hashlib
 import re
 import subprocess
