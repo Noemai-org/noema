@@ -81,7 +81,7 @@ def mic(n: int = 8) -> Source:
 
 def go(providers: Sequence[Fake], source: Source, shown: list[str], *, deadline_s: float = 0.2, max_buffered: int = 100) -> FailoverResult:
     async def call() -> FailoverResult:
-        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=deadline_s, cleanup_s=0.1, on_partial=shown.append,  # type: ignore[arg-type]
+        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=deadline_s, cleanup_s=0.1, on_partial=shown.append,
                                               max_buffered_chunks=max_buffered)
 
     return run(asyncio.wait_for(call(), timeout=GUARD_S))
@@ -101,7 +101,7 @@ def families() -> list[tuple[str, list[Fake], int]]:
 
 @pytest.mark.parametrize("name,providers,n", families(), ids=[f[0] for f in families()])
 def test_the_source_is_closed_and_no_text_arrives_after_the_call_returns(name: str, providers: list[Fake], n: int) -> None:
-    source, shown = mic(n), []
+    source, shown = mic(n), list[str]()
     result = go(providers, source, shown)
     shown_at_return = list(shown)
 
@@ -117,7 +117,7 @@ def test_the_source_is_closed_and_no_text_arrives_after_the_call_returns(name: s
 
 
 def test_a_replay_overflow_still_closes_the_source_and_offers_text() -> None:
-    source, shown = mic(8), []
+    source, shown = mic(8), list[str]()
     providers = [Fake("a", 8, raises=ProviderError(ProviderFailure.UNAVAILABLE)), Fake("b", 1, [final()])]
     result = go(providers, source, shown, max_buffered=2)
     assert result.replay_overflow and result.utterance is None and result.offer_text
@@ -128,7 +128,7 @@ def test_a_replay_overflow_still_closes_the_source_and_offers_text() -> None:
 def test_a_stubborn_provider_cannot_make_the_call_wait_for_it() -> None:
     import time
 
-    source, shown = mic(), []
+    source, shown = mic(), list[str]()
     started = time.monotonic()
     result = go([Fake("a", 1, hang=True, stubborn=True), Fake("b", 1, [final()])], source, shown)
     assert time.monotonic() - started < 1.5

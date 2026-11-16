@@ -43,7 +43,7 @@ def test_a_source_whose_close_never_returns_cannot_hold_the_call_and_the_person_
 
     async def call() -> FailoverResult | None:
         pending = asyncio.ensure_future(transcribe_with_failover(
-            [Fake("a", 1, [final()])], REQUEST, source,  # type: ignore[arg-type]
+            [Fake("a", 1, [final()])], REQUEST, source,
             deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10))
         try:
             done, _ = await asyncio.wait({pending}, timeout=GUARD_S)
@@ -90,7 +90,7 @@ def test_a_read_that_resists_cancellation_cannot_hold_the_call_and_the_source_is
 
     async def call() -> tuple[FailoverResult, bool, bool]:
         result = await asyncio.wait_for(transcribe_with_failover(
-            [Fake("a", 1, hang=True)], REQUEST, source,  # type: ignore[arg-type]
+            [Fake("a", 1, hang=True)], REQUEST, source,
             deadline_s=0.05, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10), timeout=GUARD_S)
         at_return = source.closed
         await asyncio.sleep(0.8)
@@ -123,7 +123,7 @@ def test_a_read_that_completes_in_the_turn_its_provider_is_cancelled_is_not_lost
             async def aclose(self) -> None:
                 return None
 
-        buffer = _ReplayBuffer(Source(), 10)  # type: ignore[arg-type]
+        buffer = _ReplayBuffer(Source(), 10)
         first = asyncio.ensure_future(anext(buffer.stream()))
         await asyncio.sleep(0)  # the first reader is now waiting for the read
         gate.set_result(chunk(0))

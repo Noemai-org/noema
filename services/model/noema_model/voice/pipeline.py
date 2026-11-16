@@ -48,7 +48,7 @@ CLEANUP_EVENT = "voice_audio_cleanup"
 Report = Callable[[str], None]
 
 
-def _reporter(telemetry: Telemetry | None, correlation_id: str) -> Report:
+def cleanup_reporter(telemetry: Telemetry | None, correlation_id: str) -> Report:
     """How a cleanup that happens after the call has returned is reported: one structured event, `voice_audio_cleanup`, on the call's correlation id, carrying a
     fixed code and nothing else (no error text, no audio, no source). The harness passes its Telemetry (REQ-OBS-001). A caller with none still gets a line
     with the same code, so a failed release is never silent (Codex P1 on #474)."""
@@ -137,7 +137,7 @@ class _AudioLease:
 _DEFERRED: set["asyncio.Future[None]"] = set()  # closes waiting for a read to end; held so they are not collected before they run
 
 
-def _begin_close(audio: AudioSource, close_s: float, report: Report) -> "asyncio.Future[None]":
+def begin_close(audio: AudioSource, close_s: float, report: Report) -> "asyncio.Future[None]":
     """Close the source in its own task, with a bound: a close that never finishes is cancelled after `close_s` and logged, so no deferred close is
     held for ever (Codex P2 on #474). A failed close is logged with a fixed code, never with the error text (it may carry data)."""
     closing = asyncio.ensure_future(audio.aclose())
@@ -179,13 +179,13 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
     can close; a process-level isolation boundary (a worker process) is outside this module. The test pins what the pipeline does hold: nothing, once the bound has expired.
     """
     window = hold_s if close_s is None else close_s
-    say = report if report is not None else _reporter(None, "uncorrelated")
+    say = report if report is not None else cleanup_reporter(None, "uncorrelated")
     timer: asyncio.TimerHandle | None = None
 
     def start(_: "asyncio.Future[Any]") -> None:
         if timer is not None:
             timer.cancel()
-        _begin_close(audio, window, say)
+        begin_close(audio, window, say)
 
     def abandon() -> None:
         if read.done():
@@ -204,27 +204,33 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
             state["retried"] = True
             target = weak() if state["failed"] else None
             if target is not None:
-                _begin_close(target, window, say)  # once: the read has ended, so the source can now be closed
+                begin_close(target, window, say)  # once: the read has ended, so the source can now be closed
 
         def attempt_over(closed: "asyncio.Future[None]") -> None:
             state["over"] = True
             state["failed"] = closed.cancelled() or closed.exception() is not None
             retry_if_needed(closed)
 
-        _begin_close(audio, window, say).add_done_callback(attempt_over)
+        begin_close(audio, window, say).add_done_callback(attempt_over)
         read.add_done_callback(retry_if_needed)
 
     timer = asyncio.get_running_loop().call_later(hold_s, abandon)
     read.add_done_callback(start)
 
 
-async def _close_refused(audio: AudioSource, bound_s: float) -> None:
-    """A source refused at the boundary is still released: closed within the bound, a failure or a stall of that close ignored (the caller gets the TypeError)."""
-    closing = asyncio.ensure_future(audio.aclose())
-    closing.add_done_callback(_mark_retrieved)
-    await asyncio.wait({closing}, timeout=bound_s)
-    if not closing.done():
-        closing.cancel()
+async def refuse_unweakable(audio: AudioSource, bound_s: float) -> None:
+    """The boundary check of every function that takes a live source: it must support weak references, because a close that failed while a read still ran is retried
+    through a weak reference, so the pipeline never pins the source. A source that does not is refused with `TypeError` before anything starts, and is still released:
+    closed within `bound_s`, a failure or a stall of that close ignored (the caller gets the TypeError). It does nothing for a source that can be weakly referenced."""
+    try:
+        weakref.ref(audio)
+    except TypeError:
+        closing = asyncio.ensure_future(audio.aclose())
+        closing.add_done_callback(_mark_retrieved)
+        await asyncio.wait({closing}, timeout=bound_s)
+        if not closing.done():
+            closing.cancel()
+        raise TypeError("the audio source must support weak references (a class with __slots__ needs a __weakref__ slot)") from None
 
 
 async def transcribe_utterance(
@@ -250,11 +256,7 @@ async def transcribe_utterance(
     `cleanup_s`, because the call owns it (Codex on #474).
     """
     bound_s = deadline_s if cleanup_s is None else cleanup_s
-    try:
-        weakref.ref(audio)
-    except TypeError:
-        await _close_refused(audio, deadline_s if cleanup_s is None else cleanup_s)
-        raise TypeError("the audio source must support weak references (a class with __slots__ needs a __weakref__ slot)") from None
+    await refuse_unweakable(audio, bound_s)
     hold = 10 * bound_s if hold_s is None else hold_s  # how long a deferred close waits for a read that outlived the bound before it is abandoned
     gate = _Gate()
     lease = _AudioLease(audio)
@@ -273,7 +275,7 @@ async def transcribe_utterance(
         await asyncio.wait({task}, timeout=bound_s)  # the provider's own shutdown, bounded
     except BaseException as caught:  # held while the audio is released, then raised again unchanged
         error = caught
-    failure = await _release(task, lease, audio, gate, bound_s, hold, _reporter(telemetry, correlation_id))
+    failure = await _release(task, lease, audio, gate, bound_s, hold, cleanup_reporter(telemetry, correlation_id))
     if error is not None:
         raise error
     if failure is not None or utterance is None:
