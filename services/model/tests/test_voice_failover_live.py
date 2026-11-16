@@ -65,7 +65,7 @@ def test_a_provider_timeout_while_waiting_for_live_audio_does_not_truncate_the_n
         gate = asyncio.Event()
         first, second = Reader("a", wants=2), Reader("b", wants=2, gate=gate)
         result = await transcribe_with_failover(
-            [first, second], REQUEST, live_source(gate), deadline_s=0.05, on_partial=lambda _: None, max_buffered_chunks=10
+            [first, second], REQUEST, live_source(gate), deadline_s=0.05, on_partial=lambda _: None, max_buffered_chunks=10, allow_replay=True
         )
         return first, second, result
 
@@ -82,7 +82,7 @@ def test_when_the_source_really_ends_early_the_providers_still_see_what_there_wa
 
     async def call() -> Reader:
         reader = Reader("a", wants=5)
-        await transcribe_with_failover([reader], REQUEST, short(), deadline_s=1.0, on_partial=lambda _: None, max_buffered_chunks=10)
+        await transcribe_with_failover([reader], REQUEST, short(), deadline_s=1.0, on_partial=lambda _: None, max_buffered_chunks=10, allow_replay=True)
         return reader
 
     assert run(call()).received == [0]

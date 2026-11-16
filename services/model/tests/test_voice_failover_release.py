@@ -82,7 +82,7 @@ def mic(n: int = 8) -> Source:
 def go(providers: Sequence[Fake], source: Source, shown: list[str], *, deadline_s: float = 0.2, max_buffered: int = 100) -> FailoverResult:
     async def call() -> FailoverResult:
         return await transcribe_with_failover(providers, REQUEST, source, deadline_s=deadline_s, cleanup_s=0.1, on_partial=shown.append,
-                                              max_buffered_chunks=max_buffered)
+                                              max_buffered_chunks=max_buffered, allow_replay=True)
 
     return run(asyncio.wait_for(call(), timeout=GUARD_S))
 

@@ -76,7 +76,7 @@ def go(providers: Sequence[Fake], chunks: int = 8, shown: list[str] | None = Non
        max_buffered: int = 100) -> FailoverResult:
     sink = shown if shown is not None else []
     return run(transcribe_with_failover(providers, REQUEST, audio_of([chunk(i) for i in range(chunks)]),
-                                        deadline_s=deadline_s, on_partial=sink.append, max_buffered_chunks=max_buffered))
+                                        deadline_s=deadline_s, on_partial=sink.append, max_buffered_chunks=max_buffered, allow_replay=True))
 
 
 def test_the_first_provider_answering_ends_the_call_with_no_failover() -> None:
@@ -168,7 +168,7 @@ def frames(levels: Sequence[int]) -> list[AudioChunk]:
 def play(tts_frames: int, inbound_levels: Sequence[int], max_stop_ms: int = 300) -> tuple[BargeInResult, list[int]]:
     played: list[int] = []
     result = run(play_until_barge_in(audio_of([chunk(i, 1000) for i in range(tts_frames)]), audio_of(frames(inbound_levels)),
-                                     BargeInMonitor(VAD, max_stop_ms=max_stop_ms), lambda c: played.append(c.sequence)))
+                                     BargeInMonitor(VAD, max_stop_ms=max_stop_ms), lambda c: played.append(c.sequence), close_s=1.0))
     return result, played
 
 

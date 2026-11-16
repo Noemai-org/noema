@@ -44,7 +44,7 @@ def test_a_source_whose_close_never_returns_cannot_hold_the_call_and_the_person_
     async def call() -> FailoverResult | None:
         pending = asyncio.ensure_future(transcribe_with_failover(
             [Fake("a", 1, [final()])], REQUEST, source,
-            deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10))
+            deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10, allow_replay=True))
         try:
             done, _ = await asyncio.wait({pending}, timeout=GUARD_S)
             return pending.result() if done else None
@@ -91,7 +91,7 @@ def test_a_read_that_resists_cancellation_cannot_hold_the_call_and_the_source_is
     async def call() -> tuple[FailoverResult, bool, bool]:
         result = await asyncio.wait_for(transcribe_with_failover(
             [Fake("a", 1, hang=True)], REQUEST, source,
-            deadline_s=0.05, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10), timeout=GUARD_S)
+            deadline_s=0.05, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10, allow_replay=True), timeout=GUARD_S)
         at_return = source.closed
         await asyncio.sleep(0.8)
         return result, at_return, source.closed

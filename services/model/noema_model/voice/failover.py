@@ -15,6 +15,8 @@ abandoned, and either way the result has no utterance, offers text and sets `rel
 A read that completes as its provider is cancelled stays for the next reader, so no chunk is lost (Codex on #218). The source must support weak references (see
 `AudioSource`); one that does not is refused with `TypeError`, and still closed.
 
+Whether a failed provider's audio is replayed to the next provider is `allow_replay`, a required argument with no default: sending a person's voice to a second vendor is a data-handling decision (REQ-VOI-004, PERD R-18, A180), not a mechanism. The replay buffer holds at most `max_buffered_chunks` chunks of at most the A191 frame cap and is emptied on every exit path.
+
 Every ProviderError fails over, including a stream that ends with no final, because a partial is never a result. No provider
 is tried twice. Each failure is listed in the result so the caller can record `PROVIDER_FAILOVER`; nothing here writes the
 Record.
@@ -27,7 +29,7 @@ from dataclasses import dataclass
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import AudioChunk, SpeechProvider, StreamRequest, Support
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
-from noema_model.voice.endpoint import AudioSource
+from noema_model.voice.endpoint import AudioSource, FrameLimits
 from noema_model.voice.pipeline import (
     FinalUtterance,
     Report,
@@ -35,6 +37,7 @@ from noema_model.voice.pipeline import (
     cleanup_reporter,
     close_when_read_ends,
     refuse_unweakable,
+    release_unused,
     transcribe_utterance,
 )
 
@@ -62,18 +65,38 @@ def eligible(provider: SpeechProvider) -> bool:
 
 
 class _ReplayBuffer:
-    def __init__(self, source: AudioSource, limit: int) -> None:
+    def __init__(self, source: AudioSource, limit: int, limits: FrameLimits | None = None) -> None:
         self._source = source
         self._limit = limit
+        self._limits = FrameLimits() if limits is None else limits
         self._chunks: list[AudioChunk] = []
+        self._bytes = 0
         self._exhausted = False
+        self._error: ValueError | None = None
         self._pending: asyncio.Future[AudioChunk] | None = None
         self.overflowed = False
+
+    @property
+    def held_chunks(self) -> int:
+        return len(self._chunks)
+
+    @property
+    def held_bytes(self) -> int:
+        return self._bytes
+
+    def _check(self, item: AudioChunk) -> None:
+        """A frame outside the limits of ruling A191 (the byte cap, 16 kHz) is refused, so the buffer holds at most `limit` chunks of at most the cap each (the bound in bytes), and a
+        chunk that was refused is never skipped: the buffer stays refused, so no provider hears a stream with a hole in it."""
+        if len(item.data) > self._limits.max_chunk_bytes or item.sample_rate_hz != self._limits.sample_rate_hz:
+            self._error = ValueError("audio frame is outside the limits of ruling A191")
+            raise self._error
 
     async def stream(self) -> AsyncGenerator[AudioChunk, None]:
         """The buffered chunks, then the live ones. Only one reader at a time."""
         index = 0
         while True:
+            if self._error is not None:
+                raise self._error
             if index < len(self._chunks):
                 index += 1
                 yield self._chunks[index - 1]
@@ -85,10 +108,12 @@ class _ReplayBuffer:
             except StopAsyncIteration:
                 self._exhausted = True
                 return
+            self._check(item)
             if len(self._chunks) >= self._limit:
                 self.overflowed = True  # this chunk is delivered now but cannot be replayed
             else:
                 self._chunks.append(item)
+                self._bytes += len(item.data)
                 index += 1
             yield item
 
@@ -114,6 +139,9 @@ class _ReplayBuffer:
         """Release the live source within the bounds. Returns True when it could not be released in time: a read that resists cancellation is closed over
         when it ends, after a second bound (the source cannot be closed while it runs), and a close that does not finish is cancelled at its bound, reported and
         let go of, the same way `transcribe_utterance` does it (Codex P1 on #218; Codex on #474)."""
+        self._chunks.clear()  # the raw audio is dropped on every path, before anything else can stall (REQ-VOI-004, AGENT-13)
+        self._bytes = 0
+        self._exhausted = True  # a reader that is still running (a provider that ignores its cancellation) gets nothing more
         pending, self._pending = self._pending, None
         if pending is not None and not pending.done():
             pending.cancel()
@@ -136,24 +164,28 @@ async def transcribe_with_failover(
     deadline_s: float,
     on_partial: Callable[[str], None],
     max_buffered_chunks: int,
+    allow_replay: bool,
     cleanup_s: float | None = None,
     hold_s: float | None = None,
+    limits: FrameLimits | None = None,
     telemetry: Telemetry | None = None,
     correlation_id: str = "uncorrelated",
 ) -> FailoverResult:
     """Try `providers` in order until one settles a final transcript. `deadline_s` bounds each provider separately and `cleanup_s` (default: `deadline_s`)
-    bounds each cleanup, including the release of the live source. If the source cannot be released in time the result has no utterance and offers text:
+    bounds each cleanup, including the release of the live source. `allow_replay` has no default: whether the audio one provider heard may be replayed to the next is a data-handling
+    decision (REQ-VOI-004, PERD R-18, A180) that the caller makes from configuration, and with False the person is offered text after the first provider fails. A frame
+    outside the limits of ruling A191 raises ValueError and the source is closed. If the source cannot be released in time the result has no utterance and offers text:
     a microphone that is still open is never a success (INV-07, AGENT-13). A provider that is not eligible (see `eligible`) is skipped untouched. Cleanup that
     happens after the call has returned is reported through `telemetry` on `correlation_id`, as for `transcribe_utterance`."""
-    if not providers:
-        raise ValueError("no speech providers configured")
-    if max_buffered_chunks < 1:
-        raise ValueError("the replay buffer must hold at least one chunk")
     bound_s = deadline_s if cleanup_s is None else cleanup_s
+    problem = "no speech providers configured" if not providers else ("the replay buffer must hold at least one chunk" if max_buffered_chunks < 1 else None)
+    if problem is not None:
+        await release_unused(audio, bound_s)  # the call owns the source: a configuration error never leaves a microphone open
+        raise ValueError(problem)
     hold = 10 * bound_s if hold_s is None else hold_s
     await refuse_unweakable(audio, bound_s)
     report = cleanup_reporter(telemetry, correlation_id)
-    buffer = _ReplayBuffer(audio, max_buffered_chunks)
+    buffer = _ReplayBuffer(audio, max_buffered_chunks, limits)
     steps: list[FailoverStep] = []
     result: FailoverResult | None = None
     cancelled = False
@@ -163,6 +195,9 @@ async def transcribe_with_failover(
             if not eligible(provider):
                 steps.append(FailoverStep(provider.name, ProviderFailure.REJECTED, skipped=True))
                 continue
+            if tried > 0 and not allow_replay:
+                result = FailoverResult(None, tuple(steps), True, False)  # the audio one vendor heard is not sent to another unless that was decided
+                break
             if tried > 0 and buffer.overflowed:
                 result = FailoverResult(None, tuple(steps), True, True)
                 break

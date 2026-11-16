@@ -67,15 +67,18 @@ class Fake:
 class Handle:
     """An audio handle. `close` is one of: "ok", "hang" (never returns, honours cancellation), "stubborn" (ignores cancellation for 1.5 s, then ends)."""
 
-    def __init__(self, levels: Sequence[int], close: str = "ok") -> None:
+    def __init__(self, levels: Sequence[int], close: str = "ok", delay_s: float = 0.0) -> None:
         self._levels = iter(enumerate(levels))
         self._close = close
+        self._delay_s = delay_s
         self.closed = False
 
     def __aiter__(self) -> "Handle":
         return self
 
     async def __anext__(self) -> AudioChunk:
+        if self._delay_s:
+            await asyncio.sleep(self._delay_s)  # a real suspension point, so a cancellation can land during playback
         try:
             i, level = next(self._levels)
         except StopIteration:
@@ -123,7 +126,7 @@ def test_a_close_that_never_finishes_cannot_hold_the_call_and_the_other_stream_i
 
 
 def test_a_caller_that_cancels_during_barge_in_still_gets_both_streams_closed() -> None:
-    answer, microphone = Handle([1000] * 600), Handle([5] * 100000)
+    answer, microphone = Handle([1000] * 600, delay_s=0.01), Handle([5] * 100000)
 
     async def call() -> None:
         task = asyncio.ensure_future(barge(answer, microphone, close_s=0.5))
@@ -160,7 +163,7 @@ def buffers(monkeypatch: pytest.MonkeyPatch) -> list[failover._ReplayBuffer]:
 
 def go(providers: Sequence[Fake], source: Source, *, max_buffered: int = 100, allow_replay: bool = True) -> FailoverResult:
     async def call() -> FailoverResult:
-        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=0.3, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=max_buffered,  # type: ignore[arg-type]
+        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=0.3, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=max_buffered,
                                               allow_replay=allow_replay)
 
     return run(asyncio.wait_for(call(), timeout=GUARD_S))
@@ -190,7 +193,7 @@ def test_the_audio_is_dropped_when_the_caller_cancels(buffers: list[failover._Re
     source = mic()
 
     async def call() -> None:
-        task = asyncio.ensure_future(transcribe_with_failover([Fake("a", reads=3, hang=True)], REQUEST, source, deadline_s=5.0, cleanup_s=0.1, on_partial=lambda _: None,  # type: ignore[arg-type]
+        task = asyncio.ensure_future(transcribe_with_failover([Fake("a", reads=3, hang=True)], REQUEST, source, deadline_s=5.0, cleanup_s=0.1, on_partial=lambda _: None,
                                                               max_buffered_chunks=100, allow_replay=True))
         await asyncio.sleep(0.1)
         task.cancel()
@@ -222,7 +225,7 @@ def test_with_replay_allowed_the_second_provider_hears_the_whole_utterance() -> 
 
 def test_allowing_replay_has_no_default() -> None:
     async def call() -> FailoverResult:
-        return await transcribe_with_failover([Fake("a")], REQUEST, mic(), deadline_s=0.3, on_partial=lambda _: None, max_buffered_chunks=10)  # type: ignore[arg-type,call-arg]
+        return await transcribe_with_failover([Fake("a")], REQUEST, mic(), deadline_s=0.3, on_partial=lambda _: None, max_buffered_chunks=10)  # type: ignore[call-arg]
 
     with pytest.raises(TypeError, match="allow_replay"):
         run(call())

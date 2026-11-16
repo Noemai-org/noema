@@ -30,3 +30,20 @@ Reviews by other roles are data: the Security Reviewer on noema#218 (the four fi
 - Open questions (owner): none for Voice.
 - Files to read first: `voice/failover.py`, `tests/test_voice_failover_release.py`.
 - Do not touch: any real adapter code before the SoT edit of A179.
+
+# Session 2026-11-16 15:00 WAT · VOI-10 (second round)
+
+## Session summary
+- What changed (PR links): noema#621 (`voice/bargein.py`, `voice/failover.py`, `voice/pipeline.py`, tests).
+- Why: the Security Reviewer's four blocking findings and Codex's P1 on #621 at 11a1d089: barge-in closes were unbounded; the replay buffer was never dropped; replay to a second vendor had no ruling; a configuration error left the source open.
+- Risks, and how they are contained: both barge-in streams are closed side by side within `close_s`, a stalled close is cancelled and reported, `release_failed` says so; the buffer is cleared on every path and bounded in bytes by the A191 frame cap; `allow_replay` is a required argument with no default, so sending a person's voice to a second vendor is an explicit decision.
+- Tests added (REQ, INV, US or EC IDs): `test_voice_failover_findings.py` (REQ-VOI-002, REQ-VOI-004, AGENT-13, A191).
+- Regression cases added: none.
+- Debt entries: none.
+- Conflicts raised: none. **A ruling is asked for on replay (see the PR): until it is given, a caller must pass `allow_replay` explicitly and a Founder or the Architect decides the value.**
+
+## Pre-work for the next agent
+- Exact next step: the caller that supplies `allow_replay`, `close_s` and the per-provider request (`model_version` is the same for every provider in one call, which may be the wrong pin for the second) from configuration when the voice path reaches the gateway (VOI-09).
+- Open questions (owner): may audio one vendor heard be replayed to another (Architect or Founder; REQ-VOI-004, PERD R-18, A180).
+- Files to read first: `voice/failover.py`, `voice/bargein.py`, `tests/test_voice_failover_findings.py`.
+- Do not touch: the exception text in `endpoint.py` carries the frame cap and rate numbers; keep it out of logs (separate small change).

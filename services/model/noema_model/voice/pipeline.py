@@ -218,6 +218,16 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
     read.add_done_callback(start)
 
 
+async def release_unused(audio: AudioSource, bound_s: float) -> None:
+    """Release a source the call will not use (it refused the call before reading a chunk): closed within `bound_s`, a failure or a stall of that close ignored, because the
+    caller gets the error that refused the call and the call owns the source."""
+    closing = asyncio.ensure_future(audio.aclose())
+    closing.add_done_callback(_mark_retrieved)
+    await asyncio.wait({closing}, timeout=bound_s)
+    if not closing.done():
+        closing.cancel()
+
+
 async def refuse_unweakable(audio: AudioSource, bound_s: float) -> None:
     """The boundary check of every function that takes a live source: it must support weak references, because a close that failed while a read still ran is retried
     through a weak reference, so the pipeline never pins the source. A source that does not is refused with `TypeError` before anything starts, and is still released:
@@ -225,11 +235,7 @@ async def refuse_unweakable(audio: AudioSource, bound_s: float) -> None:
     try:
         weakref.ref(audio)
     except TypeError:
-        closing = asyncio.ensure_future(audio.aclose())
-        closing.add_done_callback(_mark_retrieved)
-        await asyncio.wait({closing}, timeout=bound_s)
-        if not closing.done():
-            closing.cancel()
+        await release_unused(audio, bound_s)
         raise TypeError("the audio source must support weak references (a class with __slots__ needs a __weakref__ slot)") from None
 
 

@@ -55,7 +55,7 @@ def mic(n: int = 4) -> Source:
 
 def go(providers: Sequence[Fake], source: object) -> FailoverResult:
     async def call() -> FailoverResult:
-        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10)  # type: ignore[arg-type]
+        return await transcribe_with_failover(providers, REQUEST, source, deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None, max_buffered_chunks=10, allow_replay=True)  # type: ignore[arg-type]
 
     return run(asyncio.wait_for(call(), timeout=5.0))
 
