@@ -78,6 +78,24 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Note 4:** migration 0020 checks the shape of `reconciliation_id` (`^rec_...`) and `reconciliation_classification` (`^[A-Z][A-Z0-9_]*$`) and not a closed set; the adapter now refuses an answer that is not of those shapes (`ErrIncomplete`); the closed set stays the Reconciler's contract. **Notes 3 and 5:** stated in the README (who bounds what; the caller maps every error to one answer and never returns `err.Error()`). The cross-tenant and cross-principal test over Postgres belongs to the first real wiring.
 - Debt: none. Conflicts raised: none.
 
+# Session 2026-11-16 · ENV-04 slice 2 · the evidence item carries its source and times (noema#596)
+
+## Session summary
+- What changed (PR noema#613): `evidence/layer/builder.go`: `layer.Item` gains `Source`, `ReadAt`, `EffectiveAt` and `FreshnessSLASeconds`, set by `Builder.Record` from what it just wrote to `evidence_item`; `builder_test.go`: one test that reads the stored row back and compares.
+- Why: the Founder's order of 16 Nov 2026 ("Reconciler slice 2 per A228/#596"). The Reconciler builds a `reconcile.Evidence` per mapped row and needs the source, the read time (for `ExpiresAt`) and the effective time, which `layer.Item` did not carry.
+- Risks, and how they are contained: additive to a struct whose literals use field names; no new read, no new login; no Record event changes.
+- Tests added (REQ-CTX-001, REQ-RES-001): 1, red first (run 43806709349: `static`, `tests (2)` and `core` failed with "item.Source undefined"; the whole run read, `compose` included).
+- Regression cases added: the item agrees with the stored row.
+- The Security Reviewer's READY on noema#613 at `1ba21a85`, with a conflict and three notes (16 Nov 2026): merged `main` for the conflict (`status/ENV-04.md`, both sessions kept). Note 2: the item's `FreshnessSLASeconds` was only the source's limit, while `AssignStatus` applies the stricter of the source's and the profile's (INV-23), so an expiry made from it would have been looser than the status: the field is now `EffectiveFreshnessSeconds` (the applied limit; the row's `freshness_sla_seconds` stays the source's). Note 3: the item's times are cut to the microsecond `timestamptz` keeps. Both tests first (`c04783c8`). Note 1 (a zero `ReadAt` or `EffectiveAt` is refused nowhere): not changed here, because the builder never refused it and a failed read may carry no time; the Reconciler (slice 2b) refuses a zero value it uses, and the field's comment says so.
+- Debt entries: none. Conflicts raised: none.
+- Default taken (AGENT-02), stated on noema#596: EL owns `evidence/layer`; EL has not answered question 1, so this PR is the smallest default and closes if EL prefers to add the fields.
+
+## Pre-work for the next agent
+- Exact next step: after noema#589 merges, the `PayloadReader` port in `readseal`, the hash check (decode with exact numbers, canonicalise, compare with `PayloadHash`), and the Reconciler (`Classify`), tests first. A row with no fields is not a positive fact (INV-19; the Security Reviewer's note 2 on noema#589).
+- Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
+- Files to read first: `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`, `evidence/readseal/readseal.go`, `cmd/core/payloadreader.go`.
+- Do not touch: the pack's mapping rows until the Architect accepts them.
+
 # Session 2026-11-15 11:00 WAT · ENV-04 · the G1 stack workflow's session tokens and leak scan (IL, noema#577)
 
 ## Session summary
