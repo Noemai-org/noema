@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Annotated
 from pydantic import ConfigDict, Field, StringConstraints
 from ._base import ContractModel
-from .common_v1 import CommonV1CorrelationId, CommonV1InvestigationId, CommonV1Ratio, CommonV1SchemaVersion, CommonV1SessionId, CommonV1TenantId, CommonV1Timestamp
+from .common_v1 import CommonV1ClientRequestId, CommonV1CorrelationId, CommonV1InvestigationId, CommonV1Ratio, CommonV1SchemaVersion, CommonV1SessionId, CommonV1TenantId, CommonV1Timestamp
 from .enums_v1 import EnumsV1Mode
 
 class CanonicalInputV2Channel(StrEnum):
@@ -34,7 +34,7 @@ class CanonicalInputV2(ContractModel):
 
     model_config = ConfigDict(extra="forbid")
     schema_version: CommonV1SchemaVersion
-    request_id: Annotated[str, StringConstraints(pattern='\\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\Z')]
+    request_id: CommonV1ClientRequestId
     correlation_id: CommonV1CorrelationId
     tenant_id: CommonV1TenantId
     session_id: CommonV1SessionId

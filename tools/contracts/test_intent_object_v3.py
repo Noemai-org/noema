@@ -23,7 +23,7 @@ PINNED = {
     "intent-object.v1.json": "472e89bab3602dad03d4cb4ac95840a6b1cc0bec8a796f28fad0067c1d22b66d",
     "intent-object.v2.json": "cb9e534f4b14f82c035bf40db19ea89cc8be93d5612edd6ee3e8ed7f973b17a5",
     "intent-slot.v1.json": "33e54108f2b4dba0c65505891d9d9ad1ab52a3be306098a58901ced29964e611",
-    "common.v1.json": "c2e465911abdbe1f26f59b7460ef51c010c472b533daaf82a8601109337a7ae2",
+    "common.v1.json": "9fd1e2e0acb5310b35d0d7222b774c15497f20b36b027c410e994826c29ea6bb",  # the one deliberate edit since v3: noema#543 (ruling A203), see contracts/README.md
 }
 
 
