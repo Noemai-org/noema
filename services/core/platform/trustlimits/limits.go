@@ -2,7 +2,7 @@
 // (TRU-06, REQ-AMB-003, REQ-TRU-006, AGENT-16; Architect ruling A205 Q1). Both are integer basis points (0 to 10000, A166). Both values are NON-CANONICAL until GOV-06 adopts them.
 // There is no default: a document that is not exactly the contract is an error, and the zero Limits is not loaded and its accessors refuse.
 //
-// May import: the standard library and internal/contracts.
+// May import: the standard library, internal/contracts and platform/ceilings.
 //
 // Must never: hold a threshold of its own, default a missing member, use a float, return a limit of a document it refused, quote the document in an error text, or read the clock.
 package trustlimits
@@ -13,15 +13,13 @@ import (
 	"regexp"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/ceilings"
 )
 
-// Both members are BasisPoints in trust-limits.v1: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints), and here from 1: 0 is refused, because a floor of 0
-// passes every candidate and an AT_RISK threshold of 0 means a clock is never AT_RISK, so a pack could switch a safety limit off (Security Reviewer on noema#574). The
-// generated type does not check values, so Load does. Which least value is safe is a ruling (the Architect); until it is made the only structural refusal is "off".
-const (
-	minBasisPoints = 1
-	maxBasisPoints = 10000
-)
+// Both members are BasisPoints in trust-limits.v1: an integer from 0 to 10000 (intent-slot.v2 $defs/BasisPoints). The generated type does not check values, so Load does, against
+// the bounds of ruling A233 that platform/ceilings holds: the ambiguity floor is at least 7000 (it may only tighten), the AT_RISK share is 1000 to 5000. Zero is below every
+// bound: a floor of 0 passes every candidate and an AT_RISK threshold of 0 means a clock is never AT_RISK, so a pack could switch a safety limit off (Security Reviewer on noema#574).
+const maxBasisPoints = 10000
 
 // maxDocumentBytes bounds what Load reads; the contract is five short members.
 const maxDocumentBytes = 1 << 16
@@ -97,20 +95,20 @@ func Load(r io.Reader, wantPackID string) (Limits, error) {
 	if !packIDShape.MatchString(wantPackID) || d.PackId != wantPackID {
 		return Limits{}, refuse("the document is not the one of the pack asked for", nil)
 	}
-	floor, err := basisPoints("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp))
+	floor, err := basisPoints("ambiguity_absolute_floor_bp", int64(d.AmbiguityAbsoluteFloorBp), ceilings.MinAmbiguityAbsoluteFloorBP, maxBasisPoints)
 	if err != nil {
 		return Limits{}, err
 	}
-	atRisk, err := basisPoints("clock_at_risk_remaining_bp", int64(d.ClockAtRiskRemainingBp))
+	atRisk, err := basisPoints("clock_at_risk_remaining_bp", int64(d.ClockAtRiskRemainingBp), ceilings.MinClockAtRiskRemainingBP, ceilings.MaxClockAtRiskRemainingBP)
 	if err != nil {
 		return Limits{}, err
 	}
 	return Limits{floor: floor, atRisk: atRisk, label: string(d.Label), loaded: true}, nil
 }
 
-func basisPoints(member string, v int64) (int, error) {
-	if v < minBasisPoints || v > maxBasisPoints {
-		return 0, refuse(member+" is outside 1 to 10000 basis points (0 would switch the check off)", nil)
+func basisPoints(member string, v, least, most int64) (int, error) {
+	if v < least || v > most {
+		return 0, refuse(member+" is outside the bounds of the ruling (A233)", nil)
 	}
 	return int(v), nil
 }

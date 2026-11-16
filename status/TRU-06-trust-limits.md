@@ -39,3 +39,16 @@ Date: 2026-11-14 · Owner: Core Engineer 1 (C1), prepared by a helper session; u
 ## Pre-work for the next agent
 - Exact next step: the Trust steps read the limits with the error checked; the Architect rules the least safe values (then `platform/ceilings` carries them and `Load` refuses below them).
 - Note 5 (Trust refuses to start without the pack) cannot be tested before a Trust step reads the limits.
+
+# Session 2026-11-16 · TRU-06 A233 bounds (noema#574)
+
+## Session summary
+- What changed (PR links): noema#574. Ruling A233 (interim, relayed): the ambiguity floor is at least 7000 and the AT_RISK share is 1000 to 5000 basis points. The loader refuses a value outside, by the constants in `platform/ceilings` (`MinAmbiguityAbsoluteFloorBP`, `MinClockAtRiskRemainingBP`, `MaxClockAtRiskRemainingBP`) and the schema by `minimum` and `maximum`; three new invalid fixtures (`floor_below_7000`, `at_risk_below_1000`, `at_risk_above_5000`) and two valid edge fixtures.
+- Why: the Security Reviewer's "a pack may tighten and never switch off"; the Architect ruled the numbers (A233). This answers my open question on the PR.
+- Risks, and how they are contained: A233 is interim until docs#185 merges; if it changes, the constants and the schema change with it (one place each). The pack file (7000, 2500) is inside both bounds.
+- Tests added (REQ-AMB-003, REQ-TRU-006, AGENT-16): `TestTheBoundsOfA233AreEnforced` and the fixtures; seen failing first (red at `8a36ed76`).
+- Regression cases added: the three invalid fixtures. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Trust steps read the limits with the error checked; GOV-06 adopts the values (Founders).
+
