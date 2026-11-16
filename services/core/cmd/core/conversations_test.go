@@ -259,3 +259,52 @@ func (o oddCorrelationIDs) ID(prefix string) (string, error) {
 	}
 	return o.inner.ID(prefix)
 }
+
+// SR on #617, blocking 1: an error of this route keeps the request's correlation ID: the body's and the response header's are the same corr_ ID, never corr_NONE (REQ-API-001).
+func TestAnErrorBodyCarriesTheRequestsCorrelationID(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	m := &memGateway{prior: map[string]inputgateway.Prior{}}
+	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
+	auth := bearer(iss, session.RoleCustomer, convTenant)
+	m.failing = true
+	for name, body := range map[string]string{
+		"an invalid body":    `{"request_id":"nope","channel":"text","text":"x"}`,
+		"a Start that fails": startBody("5c1d0e2a-7b3f-4a6e-8d9c-1e2f3a4b5c6d", "x"),
+	} {
+		rec := post(h, auth, body)
+		var env struct {
+			Error struct {
+				CorrelationID string `json:"correlation_id"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%s: body %q: %v", name, rec.Body.String(), err)
+		}
+		hdr := rec.Header().Get(session.CorrelationHeader)
+		if !strings.HasPrefix(env.Error.CorrelationID, "corr_") || env.Error.CorrelationID == "corr_NONE" || env.Error.CorrelationID != hdr {
+			t.Errorf("%s: body correlation_id %q, response header %q: want the same real corr_ ID", name, env.Error.CorrelationID, hdr)
+		}
+	}
+}
+
+// SR on #617: identity is never read from the body (INV-12). A tenant or a role in the body is a 400, and nothing is recorded or started.
+func TestAnIdentityInTheBodyIsRefusedAndNothingStarts(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	m := &memGateway{prior: map[string]inputgateway.Prior{}}
+	h := conversationAPI(t, iss, Components{Gateway: newGateway(t, m)})
+	auth := bearer(iss, session.RoleCustomer, convTenant)
+	for name, extra := range map[string]string{
+		"a tenant":    `"tenant_id":"ten_zz"`,
+		"a role":      `"role":"ops"`,
+		"a principal": `"principal_id":"prn_9"`,
+	} {
+		body := `{"request_id":"` + aRequestID + `","channel":"text","text":"x",` + extra + `}`
+		rec := post(h, auth, body)
+		if rec.Code != http.StatusBadRequest || strings.Contains(rec.Body.String(), "investigation_id") {
+			t.Errorf("%s in the body: %d %s, want 400", name, rec.Code, rec.Body.String())
+		}
+	}
+	if len(m.started) != 0 || len(m.prior) != 0 {
+		t.Errorf("%d turns started and %d inputs recorded for refused bodies", len(m.started), len(m.prior))
+	}
+}
