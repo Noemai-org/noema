@@ -71,7 +71,7 @@ class Cases(unittest.TestCase):
         skip = {".git", "node_modules", "__pycache__", ".venv"}
         found = []
         for base, dirs, files in os.walk(ROOT):
-            dirs[:] = [d for d in dirs if d not in skip]
+            dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".venv")]  # any virtual environment, including the Makefile's .venv-bench (C2, P3)
             for f in files:
                 path = Path(base) / f
                 if path.suffix in {".png", ".jpg", ".gif", ".pdf", ".ico", ".woff", ".woff2", ".gz", ".zip", ".pyc", ".exe"} or path.stat().st_size > 2_000_000:
