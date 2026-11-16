@@ -109,13 +109,62 @@ func TestTheItemCarriesTheSourceAndTheTimesTheBuilderStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if item.Source != "fin.src.core_ledger" || !item.ReadAt.Equal(readAt) || !item.EffectiveAt.Equal(readAt.Add(-time.Minute)) || item.FreshnessSLASeconds != 300 {
+	if item.Source != "fin.src.core_ledger" || !item.ReadAt.Equal(readAt) || !item.EffectiveAt.Equal(readAt.Add(-time.Minute)) || item.EffectiveFreshnessSeconds != 300 {
 		t.Fatalf("item = %+v, want the source, the read time, the effective time and 300 seconds", item)
 	}
 	stored := w.rows(t, `SELECT source || ' ' || read_at::text || ' ' || effective_at::text || ' ' || freshness_sla_seconds::text FROM evidence_item WHERE evidence_id = $1`, item.EvidenceID)
 	want := "fin.src.core_ledger 2026-11-05 09:00:00+00 2026-11-05 08:59:00+00 300"
 	if len(stored) != 1 || stored[0] != want {
 		t.Fatalf("stored row = %v, want %q: the item must say what was stored", stored, want)
+	}
+}
+
+// INV-23, REQ-CTX-002: the limit the item carries is the one AssignStatus applied, the stricter of the source's and the profile's (a profile can only tighten), so a consumer that makes an
+// expiry from it is never looser than the status. The stored `freshness_sla_seconds` stays the source's own (the Security Reviewer's note 2 on noema#613).
+func TestTheItemCarriesTheLimitThatWasApplied(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	for name, c := range map[string]struct {
+		source, profile time.Duration
+		want            int64
+	}{
+		"no profile limit": {300 * time.Second, 0, 300}, "a stricter profile": {300 * time.Second, 120 * time.Second, 120},
+		"a looser profile cannot loosen": {300 * time.Second, 600 * time.Second, 300}, "an equal profile": {300 * time.Second, 300 * time.Second, 300},
+	} {
+		o := observation(tenantA, layer.ReadOK)
+		o.Src.SourceLimit, o.Src.ProfileLimit = c.source, c.profile
+		item, err := b.Record(ctx(t), o)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if item.EffectiveFreshnessSeconds != c.want {
+			t.Errorf("%s: the item says %d seconds, want %d", name, item.EffectiveFreshnessSeconds, c.want)
+		}
+		if got := w.rows(t, `SELECT freshness_sla_seconds::text FROM evidence_item WHERE evidence_id = $1`, item.EvidenceID); len(got) != 1 || got[0] != fmt.Sprint(int64(c.source/time.Second)) {
+			t.Errorf("%s: the stored limit is %v, want the source's own %d", name, got, int64(c.source/time.Second))
+		}
+	}
+}
+
+// The item says what is stored: timestamptz keeps microseconds and a Go time keeps nanoseconds, so the item's times are cut to the microsecond (the Security Reviewer's note 3).
+func TestTheItemsTimesAreTheMicrosecondsTheRowStored(t *testing.T) {
+	w := newWorld(t)
+	b, _ := newBuilder(t, w, tenantA, false)
+	o := observation(tenantA, layer.ReadOK)
+	o.Read.ReadAt = readAt.Add(123456789 * time.Nanosecond)
+	o.EffectiveAt = readAt.Add(-time.Minute).Add(987654321 * time.Nanosecond)
+	item, err := b.Record(ctx(t), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const layout = "2006-01-02 15:04:05.000000"
+	stored := w.rows(t, `SELECT to_char(read_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') || ' ' || to_char(effective_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') FROM evidence_item WHERE evidence_id = $1`, item.EvidenceID)
+	want := item.ReadAt.UTC().Format(layout) + " " + item.EffectiveAt.UTC().Format(layout)
+	if len(stored) != 1 || stored[0] != want {
+		t.Fatalf("stored %v, the item says %q", stored, want)
+	}
+	if item.ReadAt.Nanosecond()%1000 != 0 || item.EffectiveAt.Nanosecond()%1000 != 0 {
+		t.Fatalf("the item holds more than a microsecond: %v, %v", item.ReadAt, item.EffectiveAt)
 	}
 }
 
