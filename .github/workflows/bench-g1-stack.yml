@@ -120,16 +120,21 @@ jobs:
             --api-url http://core:8080 --idp-binary /bench-out/idp/synthetic-idp --idp-key /bench-out/idp/key/private.pem --idp-kid bench-k1 --idp-audience noema-core \
             --tenant-id ten_alpha --other-tenant-id ten_other --out /bench-out/evidence
           echo "probes=$?" >> "$GITHUB_OUTPUT"
-      - name: Capture the services' logs for the leak scan
+      - id: logs
+        name: Capture the services' logs for the leak scan
         if: always()
         run: |
           set +e
+          collected=0
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
           compose="docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench"
           mkdir -p benchmark/out/service-logs
           for svc in core model hostility-proxy standin; do
-            $compose logs --no-color --no-log-prefix "$svc" > "benchmark/out/service-logs/$svc.log" 2> "benchmark/out/service-logs/$svc.err"
+            # A service whose log could not be collected leaves an empty file that the scan would pass: the failure is recorded and the Result step fails on it (Codex P2 on noema#591).
+            $compose logs --no-color --no-log-prefix "$svc" > "benchmark/out/service-logs/$svc.log" 2> "benchmark/out/service-logs/$svc.err" || collected=1
+            [ -s "benchmark/out/service-logs/$svc.log" ] || collected=1
           done
+          echo "collected=$collected" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Summary
         if: always()
@@ -199,8 +204,10 @@ jobs:
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
           SCAN: ${{ steps.scan.outputs.scan }}
+          COLLECTED: ${{ steps.logs.outputs.collected }}
         run: |
           fail=0
+          [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
           [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }
           [ "${PROBES:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the negative probes (exit ${PROBES:-missing})."; fail=1; }
           [ "${SCAN:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: the leak scan (exit ${SCAN:-missing}); nothing was uploaded."; fail=1; }

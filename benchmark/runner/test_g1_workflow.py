@@ -187,6 +187,28 @@ class G1StackWorkflow(unittest.TestCase):
         assert entrypoint
         self.assertIn('"--no-access-log"', entrypoint.group(1))
 
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's log-capture step")
+    def test_a_service_log_that_could_not_be_collected_fails_the_job(self) -> None:
+        # Codex P2 on noema#591: set +e and exit 0 hid a failed `docker compose logs`, leaving an empty file the scan passed. The real step runs here against a stub `docker`.
+        step = re.search(r"(?ms)- id: logs\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "docker"
+            stub.write_text('#!/bin/sh\nfor a in "$@"; do last="$a"; done\n[ "$last" = "$FAIL_SERVICE" ] && exit 1\n[ "$last" = "$EMPTY_SERVICE" ] && exit 0\necho "a log line of $last"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            for fail, empty, want in (("", "", "collected=0"), ("model", "", "collected=1"), ("", "standin", "collected=1")):
+                out = root / f"out_{fail or 'none'}_{empty or 'none'}.txt"  # a fresh name per case, never pre-created: Windows can hold a just-written file when bash appends to it
+                run_ = subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True,
+                               env={"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(out), "FAIL_SERVICE": fail or "-", "EMPTY_SERVICE": empty or "-"})
+                self.assertEqual(out.read_text(encoding="utf-8").strip(), want, (fail, empty, run_.returncode, run_.stderr[-300:]))
+        result = re.search(r"(?ms)- name: Result.*", self.script)
+        assert result
+        self.assertIn("COLLECTED: ${{ steps.logs.outputs.collected }}", self.text)
+        self.assertRegex(result.group(0), r'\[ "\$\{COLLECTED:-missing\}" = 0 \]')
+
     def test_the_private_key_and_the_issuer_are_never_uploaded(self) -> None:
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded

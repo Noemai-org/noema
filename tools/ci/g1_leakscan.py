@@ -13,12 +13,17 @@ It never prints a found value (leakscan prints only file, line, kind, length and
 Usage: g1_leakscan.py [--scanner PATH] [--workdir DIR] [--allow FILE] PATH [PATH ...]
 Exit: 0 clean (and the scanner proved itself), 1 a leak was found in the artifacts, 2 usage error, 3 NOT RUN (the scanner is blind or looked at nothing)."""
 import argparse
+import re
 import secrets
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+
+# One finding line of leakscan: `<path>:<line>: <kind> (length ...)`. The kind is read on its own, so a finding of another kind in the same planted file does not count.
+FINDING = re.compile(r"^(?P<name>.*?):\d+: (?P<kind>[a-z_]+) \(length")
 
 
 def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None) -> tuple[int, str]:
@@ -64,7 +69,8 @@ def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = No
     for kind, line in plants.items():
         (planted / f"planted-{kind}.txt").write_text(line + "\n", encoding="utf-8")
     code, text = scan(scanner, canary_file, [planted], allow)
-    missing = [kind for kind in plants if not any(f"planted-{kind}.txt" in row and (kind in row or (kind == "canary" and "canary" in row)) for row in text.splitlines())]
+    reported = {(m.group("name"), m.group("kind")) for m in map(FINDING.match, text.splitlines()) if m}  # (the planted file's kind, the kind the scanner named), read separately
+    missing = [kind for kind in plants if (f"planted-{kind}.txt", kind) not in {(Path(p).name, k) for p, k in reported}]
     if code != 1 or missing or canary in text:
         print(f"NOT RUN: the scanner did not report every planted kind (exit {code}; not reported: {', '.join(missing) or 'none'}); a scan that finds nothing, or whose rules are broken, cannot be read as clean")
         return 3

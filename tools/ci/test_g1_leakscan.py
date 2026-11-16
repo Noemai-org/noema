@@ -96,6 +96,22 @@ class G1Leakscan(unittest.TestCase):
                 self.assertEqual(code, 3, text)
                 self.assertIn(kind, text.split("not reported:")[1])
 
+    def test_a_scanner_that_names_another_kind_for_a_planted_file_is_not_run(self) -> None:
+        # Codex P2 on noema#591: the kind is read from the finding, not from the file name. The wrapper keeps every finding but renames ONE kind to digit_run, as a scanner that lost that
+        # rule (and still saw the digits) would; the file name still contains the kind, and the probe must refuse it all the same.
+        real = HERE / "leakscan.py"
+        for kind in ("account_number", "card_number", "named_secret_value", "jwt", "bearer_token"):
+            with self.subTest(kind):
+                wrapper = self.root / f"renamed_{kind}.py"
+                wrapper.write_text(
+                    "import subprocess, sys\n"
+                    f"r = subprocess.run([sys.executable, '-I', {str(real)!r}, *sys.argv[1:]], capture_output=True, text=True)\n"
+                    f"print((r.stdout + r.stderr).replace(': {kind} (length', ': digit_run (length'))\n"
+                    "sys.exit(r.returncode)\n", encoding="utf-8")
+                code, text = run(["--scanner", str(wrapper), "--workdir", str(self.root / f"r_{kind}"), str(self.art)])
+                self.assertEqual(code, 3, text)
+                self.assertIn(kind, text.split("not reported:")[1])
+
     def test_the_planted_values_are_fresh_and_of_the_right_shape(self) -> None:
         a, b = g1_leakscan.planted_values("CANARY-x"), g1_leakscan.planted_values("CANARY-x")
         self.assertNotEqual(a, b)
