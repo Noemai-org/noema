@@ -23,6 +23,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
+// invTenant is a tenant in the Record's form (ten_...); the edge's own test tenant is not one.
+const invTenant = "ten_aa"
+
 const invID = "inv_01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 type fakeReader struct {
@@ -44,7 +47,7 @@ func invAPI(t *testing.T, iss *edgetest.Issuer, r InvestigationReader) http.Hand
 	t.Helper()
 	clk := clock.NewManual(apiEpoch)
 	e := sessionEnv(t, iss)
-	e[edge.EnvTenants] = convTenant
+	e[edge.EnvTenants] = invTenant
 	h, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{investigationRoute(r)})
 	if err != nil || h == nil {
 		t.Fatalf("edge: %v, %v", h, err)
@@ -81,7 +84,7 @@ func TestTheStageIsAnsweredToTheOwnersSession(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	fr := &fakeReader{state: "EVALUATING", found: true}
 	h := invAPI(t, iss, fr)
-	rec := getInv(h, bearer(iss, session.RoleCustomer, convTenant), invID)
+	rec := getInv(h, bearer(iss, session.RoleCustomer, invTenant), invID)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -92,7 +95,7 @@ func TestTheStageIsAnsweredToTheOwnersSession(t *testing.T) {
 	if len(got) != 2 || got["schema_version"] != "1.0" || got["state"] != "working" {
 		t.Errorf("body %v; want exactly {schema_version: 1.0, state: working}", got)
 	}
-	if fr.tenant != convTenant || fr.principal != "prn_1" || fr.id != invID || fr.calls != 1 {
+	if fr.tenant != invTenant || fr.principal != "prn_1" || fr.id != invID || fr.calls != 1 {
 		t.Errorf("reader asked %q %q %q (%d calls); want the session's tenant and principal and the path's ID, once", fr.tenant, fr.principal, fr.id, fr.calls)
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
@@ -110,7 +113,7 @@ func TestNoInternalStateNameLeavesTheRoute(t *testing.T) {
 	six := map[string]bool{"understanding": true, "needs_input": true, "needs_confirmation": true, "working": true, "answered": true, "unavailable": true}
 	for _, s := range tbl.States() {
 		h := invAPI(t, iss, &fakeReader{state: s, found: true})
-		rec := getInv(h, bearer(iss, session.RoleCustomer, convTenant), invID)
+		rec := getInv(h, bearer(iss, session.RoleCustomer, invTenant), invID)
 		var got struct {
 			State string `json:"state"`
 		}
@@ -125,7 +128,7 @@ func TestNotFoundIsOneShapeWhateverTheReason(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	fr := &fakeReader{found: false}
 	h := invAPI(t, iss, fr)
-	auth := bearer(iss, session.RoleCustomer, convTenant)
+	auth := bearer(iss, session.RoleCustomer, invTenant)
 	shape := func(rec *httptest.ResponseRecorder) string {
 		var env map[string]map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
@@ -135,7 +138,8 @@ func TestNotFoundIsOneShapeWhateverTheReason(t *testing.T) {
 		b, _ := json.Marshal(env)
 		return http.StatusText(rec.Code) + string(b)
 	}
-	unknown := shape(getInv(h, auth, "nope"))
+	// the edge's own refusal (a role that may not call the route) is the shape every not-found here must have
+	unknown := shape(getInv(h, bearer(iss, session.RoleOps, invTenant), invID))
 	for name, id := range map[string]string{"absent": invID, "malformed": "inv_!!", "empty prefix": "x_01ARZ3NDEKTSV4RRFFQ69G5FAV", "too long": "inv_" + strings.Repeat("A", 40)} {
 		rec := getInv(h, auth, id)
 		code, _ := errBody(t, rec)
@@ -155,7 +159,7 @@ func TestOnlyACustomerReadsAnInvestigation(t *testing.T) {
 	fr := &fakeReader{state: "RECEIVED", found: true}
 	h := invAPI(t, iss, fr)
 	for _, role := range []session.Role{session.RoleOps, session.RoleAudit, session.RoleApprover} {
-		if rec := getInv(h, bearer(iss, role, convTenant), invID); rec.Code != http.StatusNotFound {
+		if rec := getInv(h, bearer(iss, role, invTenant), invID); rec.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", role, rec.Code)
 		}
 	}
@@ -171,7 +175,7 @@ func TestOnlyACustomerReadsAnInvestigation(t *testing.T) {
 // INTERNAL_SAFETY_BLOCK and its name is not shown (fail closed, never a guess).
 func TestFailuresAreSafeAndCarryTheCorrelationID(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
-	auth := bearer(iss, session.RoleCustomer, convTenant)
+	auth := bearer(iss, session.RoleCustomer, invTenant)
 	down := getInv(invAPI(t, iss, &fakeReader{err: errors.New("pgx: connection refused to postgres://trust_rw:secret@db")}), auth, invID)
 	code, corr := errBody(t, down)
 	if down.Code != http.StatusServiceUnavailable || code != "DEPENDENCY_UNAVAILABLE" || corr == "corr_NONE" || corr != down.Header().Get(session.CorrelationHeader) ||
@@ -188,7 +192,7 @@ func TestFailuresAreSafeAndCarryTheCorrelationID(t *testing.T) {
 // With no reader the route refuses (503), it never answers a default stage.
 func TestWithNoReaderTheRouteRefuses(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
-	rec := getInv(invAPI(t, iss, nil), bearer(iss, session.RoleCustomer, convTenant), invID)
+	rec := getInv(invAPI(t, iss, nil), bearer(iss, session.RoleCustomer, invTenant), invID)
 	if code, _ := errBody(t, rec); rec.Code != http.StatusServiceUnavailable || code != "DEPENDENCY_UNAVAILABLE" {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
