@@ -227,6 +227,14 @@ class TypeScriptOutput(unittest.TestCase):
             self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
         self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
 
+    def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
+        # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first
+        # alternative, so `tsc` refused the second one. The parser names the union's own type: `union<T>(...)`.
+        files = generate.render_all(generate.load_schemas())
+        for module, name in (("overlay_card_v1", "OverlayCardV1"), ("sse_event_v1", "SseEventV1")):
+            text = files[f"{generate.TS_DIR}/{module}.ts"]
+            self.assertIn(f"return union<{name}>(v, p, [", text, f"{module}: the union does not name its type")
+
     def test_a_root_that_is_not_a_contract_is_an_error(self):
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE

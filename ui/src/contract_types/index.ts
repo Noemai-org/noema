@@ -2,17 +2,29 @@
 export { ContractError } from "./_runtime.js";
 import { parseClarificationV1 } from "./clarification_v1.js";
 import { parseConfirmationRequestV1 } from "./confirmation_request_v1.js";
+import { parseCustomerAnswerV1 } from "./customer_answer_v1.js";
 import { parseErrorsV2 } from "./errors_v2.js";
+import { parseInvestigationResponseV1 } from "./investigation_response_v1.js";
 import { parseNoemaResolutionV1 } from "./noema_resolution_v1.js";
+import { parseOverlayCardV1 } from "./overlay_card_v1.js";
+import { parseSseEventV1 } from "./sse_event_v1.js";
 
 /** The parser of each contract the UI reads, by contract name (the root object of the schema). */
 export const PARSERS: Record<string, (v: unknown) => unknown> = {
   "clarification.v1": parseClarificationV1,
   "confirmation-request.v1": parseConfirmationRequestV1,
+  "customer-answer.v1": parseCustomerAnswerV1,
   "errors.v2": parseErrorsV2,
+  "investigation-response.v1": parseInvestigationResponseV1,
   "noema-resolution.v1": parseNoemaResolutionV1,
+  "overlay-card.v1": parseOverlayCardV1,
+  "sse-event.v1": parseSseEventV1,
 };
 export * from "./clarification_v1.js";
 export * from "./confirmation_request_v1.js";
+export * from "./customer_answer_v1.js";
 export * from "./errors_v2.js";
+export * from "./investigation_response_v1.js";
 export * from "./noema_resolution_v1.js";
+export * from "./overlay_card_v1.js";
+export * from "./sse_event_v1.js";

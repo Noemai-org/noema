@@ -3,7 +3,11 @@
   "roots": [
     "clarification.v1.json",
     "confirmation-request.v1.json",
+    "customer-answer.v1.json",
     "errors.v2.json",
-    "noema-resolution.v1.json"
+    "investigation-response.v1.json",
+    "noema-resolution.v1.json",
+    "overlay-card.v1.json",
+    "sse-event.v1.json"
   ]
 }
