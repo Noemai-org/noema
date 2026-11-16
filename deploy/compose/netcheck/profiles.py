@@ -13,12 +13,15 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
   4. no privileged container, host network or PID/IPC namespace, added capability, or Docker socket mount;
   5. the networks that are not Docker-internal are exactly provider_egress, ui_publish_net and tushe_egress;
   6. profile placement: the evil provider only in bench; the hostility proxy and the stand-in only in ci and bench; the webhook relay only in ci;
-  7. the exact set of services each profile builds: a missing or an extra service fails.
+  7. the exact set of services each profile builds: a missing or an extra service fails;
+  8. provider credentials live only in the model service (INV-29): an environment variable or Compose secret named like a provider key or endpoint (`*_API_KEY`, `INTRON_*`,
+     `OPENAI_*`, ...) on any other service fails, and the provider side (model, evil provider) holds no database, Temporal or grant-key setting. Names only: no value is read.
 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -50,6 +53,11 @@ NETWORKS = {
 SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
+# Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
+# endpoint setting is allowed on `model` and on no other service; and the provider side holds no credential of the core's database, Temporal or grants (PERD 41.1). Names only: a value
+# is never read here. `evil-provider` is the synthetic provider of the bench and holds no real key, so it is not allowed one either.
+PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google_api)_")
+CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|postgres_password|pgpassword|pguser|temporal_|grant_key|signing_key)")
 # The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
 # credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
 BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
@@ -149,6 +157,12 @@ def check(cfg, profile):
                     bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
                 if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
                     bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
+        credential_names = list((svc.get("environment") or {}).keys()) + [str(s.get("source", s) if isinstance(s, dict) else s) for s in (svc.get("secrets") or [])]
+        for cred in sorted(credential_names):
+            if PROVIDER_NAME.search(cred) and name != "model":
+                bad.append(f"{profile}: {name} holds {cred!r}, a provider credential or endpoint setting: only the model service may (INV-29, AGENT-05)")
+            if name in PROVIDER_SIDE and CORE_CREDENTIAL_NAME.search(cred):
+                bad.append(f"{profile}: {name} holds {cred!r}, a credential of the core's database, Temporal or grants: the provider side never does (INV-29, PERD 41.1)")
         if name == "core":
             env = svc.get("environment") or {}
             for setting in MODEL_CLIENT_SETTINGS:
@@ -192,6 +206,15 @@ def self_test(configs):
         "dev loses the model": ("dev", lambda c: c["services"].pop("model")),
         "ci loses the webhook relay": ("ci", lambda c: c["services"].pop("webhook-relay")),
         "bench loses the evil provider": ("bench", lambda c: c["services"].pop("evil-provider")),
+        "the core holds a provider key (INV-29)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_KEY": "x"})),
+        "the core holds a provider endpoint setting": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_BASE_URL": "x"})),
+        "the ui holds a provider key in bench": ("bench", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENAI_API_KEY": "x"})),
+        "the evil provider holds a real provider key": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"AETHEX_API_KEY": "x"})),
+        "the core mounts a provider key as a Compose secret": ("dev", lambda c: c["services"]["core"].update({"secrets": [{"source": "intron_api_key"}]})),
+        "postgres holds a provider setting": ("demo", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"ANTHROPIC_API_KEY": "x"})),
+        "the model holds the core's database DSN": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_CORE_DSN": "x"})),
+        "the model holds a Temporal setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"TEMPORAL_ADDRESS": "x"})),
+        "the model holds a grant signing key": ("demo", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "x"})),
         "demo loses mock-case": ("demo", lambda c: c["services"].pop("mock-case")),
         # profile placement, one case per ONLY_IN rule
         "the evil provider appears in dev": ("dev", lambda c: c["services"].update({"evil-provider": {"networks": {"provider_egress": None}}})),
@@ -250,6 +273,12 @@ def self_test(configs):
     for profile, cfg in configs.items():
         if check(cfg, profile):
             missed.append(f"unmutated {profile} is not clean")
+    # Positive control for the credential rule: the model service IS allowed its provider key, endpoint and secret (a rule that refused it would make the allowed place unusable).
+    allowed = copy.deepcopy(configs["dev"])
+    allowed["services"]["model"].setdefault("environment", {}).update({"INTRON_API_KEY": "x", "INTRON_API_BASE_URL": "x", "OPENAI_API_KEY": "x"})
+    allowed["services"]["model"]["secrets"] = [{"source": "intron_api_key"}]
+    if any("credential" in item for item in check(allowed, "dev")):
+        missed.append("the model service is refused its own provider credentials")
     return missed, len(cases)
 
 
