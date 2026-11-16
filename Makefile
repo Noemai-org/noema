@@ -61,7 +61,7 @@ codegen-check:
 	python3 -I -m unittest discover -s tools/codegen -p 'test_*.py'
 
 # Benchmark (session C; T4 of DEC-2026-10-20). Targets are prefixed bench-.
-.PHONY: bench-test bench-venv bench bench-live bench-tokens bench-tokens-test bench-us bench-chaos bench-evil bench-full bench-g1
+.PHONY: bench-test bench-venv bench-reproduce bench bench-live bench-tokens bench-tokens-test bench-us bench-chaos bench-evil bench-full bench-g1
 BENCH_VENV := .venv-bench
 BENCH_PY := $(BENCH_VENV)/bin/python
 BENCH_SEED ?= 20261020
@@ -75,6 +75,11 @@ bench-venv:
 bench-test: bench-venv
 	$(BENCH_VENV)/bin/python -m unittest discover -s benchmark -t . -p 'test_*.py'
 	$(BENCH_VENV)/bin/python -m mypy -p benchmark --config-file benchmark/pyproject.toml
+
+# BEN-04 (G0-N N10): generate the suite twice in two separate processes into two empty directories and compare every file (the oracle documents are in the trees, so only the summary is ever uploaded).
+bench-reproduce: bench-venv
+	rm -rf $(BENCH_OUT)/reproduce
+	$(BENCH_PY) -m benchmark.generator reproduce --seed $(BENCH_SEED) --out $(BENCH_OUT)/reproduce --summary $(BENCH_OUT)/reproduce-summary.txt
 
 # mock-case (ENV-08): the synthetic case system. Tests run against a real PostgreSQL; scripts/test.sh starts a
 # throwaway server unless MOCK_CASE_TEST_DATABASE_URL points at one.

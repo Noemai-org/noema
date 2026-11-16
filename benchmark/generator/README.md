@@ -11,6 +11,7 @@
 python -m benchmark.generator generate    [--seed N] [--out DIR]   # writes the suite; exits 1, writing nothing, on a coverage gap
 python -m benchmark.generator coverage    [--seed N]               # the coverage report only
 python -m benchmark.generator assumptions                          # the INFERRED expectations, for the benchmark owner
+python -m benchmark.generator reproduce  [--seed N] [--out DIR] [--summary FILE]   # generate twice in two separate processes, compare every file; exit 1 on any difference
 ```
 
 The default seed is `20261020`; the default output root is `benchmark/out/generated` (git-ignored). The suite root holds `cases/`, `oracle/`, `fixtures/`, `fault_plans/` and `manifest.json`. A case's `known_facts_fixture` and `oracle_ref` are paths relative to that root.
@@ -70,3 +71,5 @@ make bench-test       # or: python -m unittest discover -s benchmark/generator -
 **1.3.2 (9 Nov 2026, ruling A31 on top of 1.3.1):** `state_reversal_pending` expects `WAIT` with `ESCALATE` as the only alternative, never `ALLOW`; REVERSAL_PENDING is non-terminal and never SUCCEEDED, FAILED or REVERSED. 1.3.1 and 1.3.2 changed only expectations, not the case set; the manifest digest changed.
 
 **1.3.3 (11 Nov 2026, A116, noema#346):** `amb_change_intent` (BEN-AMB-0016, BEN-AMB-0034, BEN-AMB-1006) no longer expects a case write, a grant or a verdict: the second turn changes the request, it does not clarify the first reference, so the case-write precondition (RESOLVED) is not met and the oracle forbids any write. The three cases are no longer held. Only expectations changed, not the case set; the manifest digest changed (pinned in `test_generate.py`).
+
+**`reproduce` (BEN-04, G0-N N10; 16 Nov 2026).** Generates the suite twice, each in its own process and its own empty directory (`<out>/run1`, `<out>/run2`), and compares every file by sha256 and the manifest digest each run printed. It fails on any difference, on a generator exit other than 0 and on an empty output (nothing identical is claimed from two empty trees). The summary holds both generator logs, the manifest digests, the tree digest (sha256 of the sorted `<relative path> <sha256>` lines, joined by a newline, no trailing newline) and the file count; it names no generated file, because the oracle documents are generated beside the cases (INV-22). `make bench-reproduce` runs it, and the `benchmark` workflow runs that target on every run that tests the benchmark (every push to `main`, and every pull request that changes `benchmark/`, `contracts/schemas/benchmark*` or the workflow) and uploads **only the summary** as the artifact `generator-reproduce-summary`. The test `test_generate.py` still pins the golden manifest digest in one process; this is the two-process check.

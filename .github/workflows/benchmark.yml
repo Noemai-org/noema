@@ -31,5 +31,14 @@ jobs:
           python-version: "3.13"
       - if: steps.changed.outputs.run == 'true'
         run: make bench-test
+      # BEN-04 (G0-N N10): two generations in two separate processes, compared byte for byte; the summary is the evidence. Only the summary is uploaded: the generated trees hold the oracle documents (INV-22).
+      - if: steps.changed.outputs.run == 'true'
+        run: make bench-reproduce BENCH_OUT="${{ runner.temp }}/bench-out"
+      - if: steps.changed.outputs.run == 'true' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: generator-reproduce-summary
+          path: ${{ runner.temp }}/bench-out/reproduce-summary.txt
+          if-no-files-found: warn
       - if: steps.changed.outputs.run != 'true'
         run: echo "no benchmark change; nothing to test"
