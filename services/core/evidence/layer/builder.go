@@ -69,12 +69,14 @@ type Item struct {
 	PayloadRef  string
 	PayloadHash string
 	Status      contracts.EnumsV1FactStatus
-	// Source, ReadAt, EffectiveAt and FreshnessSLASeconds are what the builder stored in the same row (source, read_at, effective_at, freshness_sla_seconds), so a
-	// consumer such as the Reconciler needs no second read of the item (noema#596).
-	Source              string
-	ReadAt              time.Time
-	EffectiveAt         time.Time
-	FreshnessSLASeconds int64
+	// Source, ReadAt and EffectiveAt are what the builder stored in the same row (source, read_at, effective_at), with the times cut to the microsecond the column keeps, so a
+	// consumer such as the Reconciler needs no second read of the item (noema#596). EffectiveFreshnessSeconds is the limit AssignStatus applied: the stricter of the source's limit
+	// and the profile's (a profile can only tighten, SoT 43.5, INV-23), so an expiry made from it is never looser than the status. The row's `freshness_sla_seconds` stays the source's own.
+	// A zero ReadAt or EffectiveAt is not refused here (it never was); a consumer that uses either refuses a zero.
+	Source                    string
+	ReadAt                    time.Time
+	EffectiveAt               time.Time
+	EffectiveFreshnessSeconds int64
 }
 
 // Builder turns an Observation into a stored evidence item (REQ-CTX-001). Its Pool must be the tenant's own evidence login: the
@@ -139,8 +141,9 @@ func (b *Builder) Record(ctx context.Context, o Observation) (Item, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return Item{}, fmt.Errorf("%scommit %s: %w", builderPrefix, evidenceID, err)
 	}
-	return Item{EvidenceID: evidenceID, PayloadRef: ref, PayloadHash: hash, Status: status, Source: o.Source, ReadAt: o.Read.ReadAt, EffectiveAt: o.EffectiveAt,
-		FreshnessSLASeconds: sla}, nil
+	effective, _ := effectiveLimit(o.Src) // a negative profile limit gives no usable limit: 0 seconds, an expiry already past, as AssignStatus gives UNKNOWN (fails closed)
+	return Item{EvidenceID: evidenceID, PayloadRef: ref, PayloadHash: hash, Status: status, Source: o.Source, ReadAt: o.Read.ReadAt.UTC().Truncate(time.Microsecond),
+		EffectiveAt: o.EffectiveAt.UTC().Truncate(time.Microsecond), EffectiveFreshnessSeconds: int64(effective / time.Second)}, nil
 }
 
 // row is what Record computed before it opens the transaction.
