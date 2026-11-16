@@ -71,6 +71,13 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
+# The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+# The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
+# AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
+MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
+MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
@@ -131,6 +138,9 @@ def check(cfg, profile):
             if "/idp/" in idp_src or idp_src.endswith("/idp") or holds_idp:
                 if not (name == "core" and idp_src.endswith("/idp/key/public.pem")) and name != "bench-runner":
                     bad.append(f"{profile}: {name} mounts {idp_src} from the synthetic IdP's directory; only the core's public key and the runner may (the private key and the issuer stay with the runner)")
+            src_norm = str(vol.get("source", "")).replace("\\", "/")
+            if "/secrets/tls/" in src_norm and src_norm.rsplit("/", 1)[-1] not in TLS_MOUNTS.get(name, set()):
+                bad.append(f"{profile}: {name} mounts {src_norm.rsplit('/', 1)[-1]} from the mTLS folder; it may mount only {sorted(TLS_MOUNTS.get(name, set()))} (the core never holds the model's key, the model never holds the core's)")
             if name == "model":
                 target, source = str(vol.get("target", "")), str(vol.get("source", ""))
                 # The model gets the benchmark COST directory and nothing else of the output directory: the runner writes the generated suite and its oracle documents beside it
@@ -139,6 +149,15 @@ def check(cfg, profile):
                     bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
                 if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
                     bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
+        if name == "core":
+            env = svc.get("environment") or {}
+            for setting in MODEL_CLIENT_SETTINGS:
+                if not str(env.get(setting, "")).strip():
+                    bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        if name in TLS_MOUNTS:
+            mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
+            for need in sorted(TLS_REQUIRED[name] - mounted):
+                bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -208,6 +227,14 @@ def self_test(configs):
         "the model mounts the oracle directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite/oracle", "target": "/bench-out/suite/oracle"})),
         "the model mounts the filesystem root": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/", "target": "/"})),
         "the model's cost mount is the whole output directory": ("bench", lambda c: [v.update({"source": "/tmp/noema-bench-out"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/bench-out/cost"]),
+        "the core mounts the model's server key": ("dev", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/model.key", "target": "/run/tls/model.key"})),
+        "the model mounts the core's client key": ("dev", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/core-client.key", "target": "/run/tls/core-client.key"})),
+        "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
+        "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
+        "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
+        "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
+        "the core's model URL is empty": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_MODEL_URL": ""})),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
@@ -231,6 +258,17 @@ def main():
         found = check(cfg, profile)
         print(f"{'FAIL' if found else 'ok  '} profile {profile:6} services: {', '.join(sorted(cfg['services']))}")
         failures += found
+    # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
+    # code cannot drift apart again; on a tree without it (before noema#563 merges) only the Compose side is checked, and this line says so.
+    if MODEL_CLIENT_SOURCE.is_file():
+        import re
+        names = set(re.findall(r'Env\w+\s*=\s*"(NOEMA_MODEL_[A-Z_]+)"', MODEL_CLIENT_SOURCE.read_text(encoding="utf-8")))
+        if names != set(MODEL_CLIENT_SETTINGS):
+            failures.append(f"drift: services/core/cmd/core/modelclient.go reads {sorted(names)} but profiles.py expects {sorted(MODEL_CLIENT_SETTINGS)}")
+        else:
+            print(f"ok   the core's model client reads exactly the {len(names)} settings Compose gives it")
+    else:
+        print("note the core's model client (services/core/cmd/core/modelclient.go) is not in this tree: only the Compose side of its five settings is checked")
     if "--self-test" in sys.argv:
         missed, n = self_test(configs)
         print(f"self-test: {n} mutations;", "every one is caught" if not missed else "NOT CAUGHT: " + "; ".join(missed))
