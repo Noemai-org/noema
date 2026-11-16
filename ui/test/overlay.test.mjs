@@ -10,5 +10,5 @@ test("REQ-UI-001: skeleton accepts text but cannot invent a response", () => {
   assert.match(html, /disabled=""[^>]*>Send/u);
   assert.match(html, /disabled=""[^>]*>Push to talk/u);
   assert.match(html, /aria-label="Messages"/u);
-  assert.doesNotMatch(html, /Thinking|Clarifying|Confirming|Answering/u);
+  assert.doesNotMatch(html, /\b(?:understanding|needs_input|needs_confirmation|working|answered|unavailable)\b/u);
 });

@@ -9,6 +9,8 @@ export function scanVisibleText(text: string): string[] {
   if (/\bpolicy threshold\b/iu.test(text)) findings.push("policy-threshold");
   if (/\braw evidence payload\b/iu.test(text)) findings.push("raw-evidence");
   if (/\binternal reason code\b/iu.test(text)) findings.push("internal-reason-code");
+  if (/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/u.test(text)) findings.push("internal-reason-code");
+  if (/\b(?:tenant_id|principal_id|decision_id|binding_hash)\b/iu.test(text)) findings.push("internal-field");
   return findings;
 }
 

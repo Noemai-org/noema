@@ -49,7 +49,7 @@ test("REQ-UI-001: the skeleton shows no fabricated state or answer", async ({ pa
   await expect(page.getByRole("button", { name: "Send" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Push to talk" })).toBeDisabled();
   await expect(page.getByRole("region", { name: "Messages" })).toBeEmpty();
-  await expect(page.getByText(/thinking|clarifying|confirming|answering/i)).toHaveCount(0);
+  await expect(page.getByText(/\b(?:understanding|needs_input|needs_confirmation|working|answered|unavailable)\b/)).toHaveCount(0);
 });
 
 test("REQ-UI-001: the DOM scanner catches synthetic leakage", async ({ page }) => {
