@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from noema_model.platform.redaction.digit_runs import longest_digit_run
 from noema_model.understanding.compiler.assemble import Identifiers, assemble
 from noema_model.understanding.gate import Context, Node, SchemaGate
 from noema_model.understanding.pipeline import NodeCatalogue, NormalisedSlots, Outcome, run_pipeline
@@ -287,3 +288,109 @@ def test_the_same_inputs_give_the_same_bytes() -> None:
     second = assemble(CANONICAL, compile_result(g_a(), (ref_candidate("a"),)), CONFIG.catalogue, "fin@1.0.0", IDS)
     assert first == second
     assert datetime.fromisoformat(IDS.created_at.replace("Z", "+00:00")).tzinfo is not None  # the clock is the request's, not the process's
+
+
+# --- the model's words are bounded and checked before they enter the object (the Security Reviewer's blocking finding on noema#598) --------------------------------------------------
+# A surface form is the customer's own words: a span of the text the model was given, no longer than the lexicon's bound, with no digit run over four (the Record's guard, noema#536 and
+# noema#600, would refuse such a string in a stored intent: an unknown outcome for a harmless request, and a way to push model text into the Record). The assembler is the boundary.
+
+def _assembled(text: str, mentions: dict[str, Any]) -> dict[str, Any]:
+    """The slots of a G-A compile whose utterance is `text` and whose model proposes `mentions` (a hostile model: the lexicon reads what the text holds, the model's spans are its own)."""
+    canonical = {**CANONICAL, "text": text}
+    harness, _ = harness_for(g_a(mentions=mentions))
+    result = run(run_pipeline(make_input(text, candidate_set_id="cns_test1"), CONFIG, harness, FakeSource((ref_candidate("a"),)), normaliser, no_errors))
+    return build(result, canonical)["slots"]  # type: ignore[no-any-return]
+
+
+def _mention(surface: str, **over: Any) -> dict[str, Any]:
+    return {"present": True, "surface_form": surface, "proposed_value": "x", "confidence": 0.9, **over}
+
+
+GOOD = "Wetin happen to the 20k wey I send Tunde this morning?"
+HOSTILE = {
+    "a span the text does not hold": "somebody else entirely",
+    "longer than the lexicon's bound": "x" * 65,
+    "a digit run over four (sixteen digits)": "4111 1111 1111 1111",
+    "a digit run of five": "12345",
+    "a digit run joined by hyphens": "1-2-3-4-5",
+    # The separators of the core's guard (record/payloadguard `digitRun`, noema#536, and the display mask's extra set of noema#600): any number of them, in any script, joins digits into one run.
+    "digits joined by dots": "4111.1111.1111.1111",
+    "digits joined by slashes": "4111/1111/1111/1111",
+    "digits joined by a tab": "4111\t1111\t1111\t1111",
+    "digits joined by a newline": "4111\n1111\n1111\n1111",
+    "digits joined by no-break spaces": "4111\u00a01111\u00a01111\u00a01111",
+    "digits joined by en dashes": "4111\u20131111\u20131111\u20131111",
+    "digits joined by the minus sign": "1\u22122\u22123\u22124\u22125",
+    "digits joined by soft hyphens": "4111\u00ad1111\u00ad1111\u00ad1111",
+    "digits joined by zero-width joiners": "1\u200d2\u200d3\u200d4\u200d5",
+    "digits joined by a combining mark": "1\u03012\u03013\u03014\u03015",
+    "digits joined by several separators": "1234 - 5",
+    "digits joined by two spaces": "1  2  3  4  5",
+    "digits joined by an underscore": "1_2_3_4_5",
+    "digits joined by brackets": "12(34)5",
+    "digits joined by colons": "1:2:3:4:5",
+    # The core's `separators` of noema#600 (A194, A231; head 75beb587): every kind of space (\p{Z}), every dash (Pd), every bracket (Ps, Pe), the middle dots and the full-width forms.
+    "digits joined by an Armenian hyphen (Pd)": "1234\u058a5678",
+    "digits joined by a two-em dash (Pd)": "1234\u2e3a5678",
+    "digits joined by square brackets (Ps, Pe)": "1234[5678]",
+    "digits joined by a curly bracket (Ps)": "1234{5678",
+    "digits joined by round brackets": "(4111)(1111)5",
+    "digits joined by a corner bracket (Ps)": "1234\u300c5678",
+    "digits joined by a middle dot": "1234\u00b75678",
+    "digits joined by a katakana middle dot": "1234\u30fb5678",
+    "digits joined by a full-width dot": "1234\uff0e5678",
+    "digits joined by a full-width slash": "1234\uff0f5678",
+    "digits joined by a full-width colon": "1234\uff1a5678",
+    "digits joined by a full-width low line": "1234\uff3f5678",
+    "digits joined by a vertical tab": "1234\x0b5678",
+    "digits joined by a next-line character": "1234\x855678",
+    "digits joined by a line separator (Zl)": "1234\u20285678",
+    "digits joined by a paragraph separator (Zp)": "1234\u20295678",
+    "arabic-indic digits": "\u0661\u0662\u0663\u0664\u0665",
+    "full-width digits": "\uff11\uff12\uff13\uff14\uff15",
+}
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_party_surface_form_that_is_not_the_customers_bounded_words_is_never_copied(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD  # the span is in the text for every case but the first, so only one rule fails at a time
+    slots = _assembled(text, {**GOOD_MENTIONS, "counterparty": _mention(surface)})
+    assert "counterparty" not in slots and surface not in json.dumps(slots)
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_time_surface_form_that_is_not_the_customers_bounded_words_is_never_copied(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD
+    slots = _assembled(text, {**GOOD_MENTIONS, "when": _mention(surface)})
+    assert "when" not in slots and surface not in json.dumps(slots)
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE))
+def test_a_quantity_keeps_the_lexicons_value_but_never_a_surface_form_that_is_not_the_customers_bounded_words(name: str) -> None:
+    surface = HOSTILE[name]
+    text = GOOD + " " + surface if name != "a span the text does not hold" else GOOD
+    slots = _assembled(text, {**GOOD_MENTIONS, "amount": _mention("20k") | {"surface_form": surface}})
+    amount = slots.get("amount")
+    assert amount is not None and "value" in amount, "the lexicon's value stays; only the quotation is withheld"
+    assert "surface_form" not in amount and surface not in json.dumps(slots)
+
+
+def test_good_surface_forms_pass_unchanged() -> None:
+    slots = _assembled(GOOD, GOOD_MENTIONS)
+    assert (slots["amount"]["surface_form"], slots["counterparty"]["surface_form"], slots["when"]["surface_form"]) == ("20k", "Tunde", "this morning")
+
+
+def test_a_surface_form_of_exactly_the_bound_and_a_digit_run_of_exactly_four_are_accepted() -> None:
+    name = "N" * 64
+    slots = _assembled(f"{GOOD} {name} 1234", {**GOOD_MENTIONS, "counterparty": _mention(name), "when": _mention("1234")})
+    assert slots["counterparty"]["surface_form"] == name and slots["when"]["surface_form"] == "1234"
+    joined = "1 2-3 4"  # four digits written with separators: a run of four, not of seven
+    assert _assembled(f"{GOOD} {joined}", {**GOOD_MENTIONS, "when": _mention(joined)})["when"]["surface_form"] == joined
+
+
+@pytest.mark.parametrize("text", ["1234,5678", "1234+5678", "1234\u20165678", "1234a5678", "1234\u00d75678"])
+def test_a_character_the_core_does_not_join_digits_with_ends_a_run(text: str) -> None:
+    """The comma (so `20,000,000` is groups of three), a plus, a double vertical line, a letter and a multiplication sign end a run in the core's `separators`; the check follows the core in both directions."""
+    assert longest_digit_run(text) == 4
