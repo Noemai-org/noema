@@ -178,7 +178,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
 	// earlier), so a retry never reaches this insert. The unique key is the single-use rule; a second spend is the typed error and the caller rolls back.
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" {
-		if _, err := tx.Exec(ctx, `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id) VALUES ($1, $2, $3)`, r.TenantID, r.ConfirmationEventID, decisionID); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash) VALUES ($1, $2, $3, $4)`, r.TenantID, r.ConfirmationEventID, decisionID, string(r.ConfirmationPlanHash)); err != nil {
 			var pg *pgconn.PgError
 			if errors.As(err, &pg) && pg.Code == pgUniqueViolation && pg.ConstraintName == confirmationEventKey {
 				return Result{}, ErrConfirmationSpent
@@ -235,6 +235,12 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	}
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
+	}
+	if r.ConfirmationPlanHash != "" && r.ConfirmationEventID == "" {
+		return decide.Basis{}, "", fmt.Errorf("%w: a plan hash is named with no confirmation", ErrRequest)
+	}
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !planMatches(r) {
+		return decide.Basis{}, "", ErrConfirmationPlanMismatch
 	}
 	if !d.HasCompleteBasis() {
 		return decide.Basis{}, "", ErrNoEvaluatedBasis
@@ -302,4 +308,18 @@ func policyVersions(b decide.Basis) []ruleVersion {
 		out = append(out, ruleVersion{r.RuleID, r.PolicyID, r.Version})
 	}
 	return out
+}
+
+// planMatches is A230: an ALLOW that follows a confirmation is written only when the confirmation was given for the very plan the steps carry. The hash must be well formed, there must
+// be at least one step (a confirmation is for a write) and every step's plan hash must equal it. Anything else is refused before anything is written.
+func planMatches(r Request) bool {
+	if !hashRe.MatchString(string(r.ConfirmationPlanHash)) || len(r.Steps) == 0 {
+		return false
+	}
+	for _, s := range r.Steps {
+		if s.PlanHash != r.ConfirmationPlanHash {
+			return false
+		}
+	}
+	return true
 }

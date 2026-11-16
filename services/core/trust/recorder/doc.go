@@ -16,8 +16,10 @@
 // (Request.ConfirmationEventID) and the decision is an ALLOW whose row is newly written, one confirmation_spend row is inserted right after the Decision Record,
 // in the same transaction. Its unique key (tenant, confirmation event) makes a second decision that names the same confirmation fail with ErrConfirmationSpent,
 // however two evaluations interleave. A retry of the same input returns the stored decision before this insert (A186), so it spends nothing. Every grant
-// follows the confirmation the decision spent: the writer sets it, a step's own claim is not used. A stored decision is returned for the same input whatever
-// confirmation the retry names; that retry spends nothing and gains nothing.
+// follows the confirmation the decision spent: the writer sets it, a step's own claim is not used. A stored ALLOW is returned for the same input only when the retry names the
+// confirmation it spent (or none, as it did): another is ErrDecisionConflict (A233, interim), with nothing spent or written. The writer also refuses an ALLOW whose confirmation
+// was given for another plan than the one its steps carry (A230, interim): Request.ConfirmationPlanHash must equal every step's plan hash, else ErrConfirmationPlanMismatch before
+// anything is written; the spend records that plan hash.
 //
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.

@@ -15,6 +15,8 @@ CREATE TABLE confirmation_spend (
   tenant_id             text NOT NULL REFERENCES tenant (tenant_id),
   confirmation_event_id text NOT NULL CHECK (confirmation_event_id ~ '^cfe_[0-9A-Za-z]{2,32}$'),
   decision_id           text NOT NULL,
+  -- the plan the confirmation was given for (A230): the writer refuses an ALLOW whose steps carry another, and the Record can show later which plan a spend was for
+  plan_hash             text NOT NULL CHECK (plan_hash ~ '^sha256:[0-9a-f]{64}$'),
   spent_at              timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT confirmation_spend_event_key UNIQUE (tenant_id, confirmation_event_id),
   CONSTRAINT confirmation_spend_decision_key UNIQUE (tenant_id, decision_id)
