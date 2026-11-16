@@ -67,8 +67,8 @@ func newRig(t *testing.T) rig {
 		w.WriteHeader(http.StatusOK)
 	})
 	h, err := edge.Protected(edge.Options{Verifier: newVerifier(t, iss, clk), IDs: ids.New(clk, nil), MaxBody: maxBody, Routes: []edge.Route{
-		{Pattern: "POST /v1/cases", Roles: []session.Role{session.RoleCustomer}, Handler: handler},
-		{Pattern: "GET /v1/cases", Roles: []session.Role{session.RoleCustomer, session.RoleOps}, Handler: handler},
+		{Pattern: "POST /v1/investigations", Roles: []session.Role{session.RoleCustomer}, Handler: handler},
+		{Pattern: "GET /v1/investigations", Roles: []session.Role{session.RoleCustomer, session.RoleOps}, Handler: handler},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func code(t *testing.T, rec *httptest.ResponseRecorder) string {
 // REQ-API-004: no credential is 401 UNAUTHENTICATED and the handler does not run.
 func TestNoSessionIs401AndTheHandlerDoesNotRun(t *testing.T) {
 	r := newRig(t)
-	rec := r.do(http.MethodGet, "/v1/cases", "", "")
+	rec := r.do(http.MethodGet, "/v1/investigations", "", "")
 	if rec.Code != http.StatusUnauthorized || code(t, rec) != "UNAUTHENTICATED" || *r.calls != 0 {
 		t.Fatalf("got %d %s, handler calls %d", rec.Code, rec.Body.String(), *r.calls)
 	}
@@ -143,7 +143,7 @@ func TestBadTokensAre401SessionInvalid(t *testing.T) {
 		"forged key":     edgetest.NewIssuer(t).Token(edgetest.Kid, good),
 	}
 	for name, tok := range cases {
-		rec := r.do(http.MethodGet, "/v1/cases", tok, "")
+		rec := r.do(http.MethodGet, "/v1/investigations", tok, "")
 		if rec.Code != http.StatusUnauthorized || code(t, rec) != "SESSION_INVALID" {
 			t.Errorf("%s: got %d %s", name, rec.Code, rec.Body.String())
 		}
@@ -156,7 +156,7 @@ func TestBadTokensAre401SessionInvalid(t *testing.T) {
 // INV-12: a valid session reaches the handler with the principal of the token.
 func TestAValidSessionReachesTheHandlerWithItsPrincipal(t *testing.T) {
 	r := newRig(t)
-	rec := r.do(http.MethodGet, "/v1/cases", r.token(edgetest.Good(epoch, session.RoleOps)), "")
+	rec := r.do(http.MethodGet, "/v1/investigations", r.token(edgetest.Good(epoch, session.RoleOps)), "")
 	if rec.Code != http.StatusOK || *r.calls != 1 {
 		t.Fatalf("got %d, calls %d", rec.Code, *r.calls)
 	}
@@ -169,12 +169,12 @@ func TestAValidSessionReachesTheHandlerWithItsPrincipal(t *testing.T) {
 func TestAWrongRoleIs404AndTheHandlerDoesNotRun(t *testing.T) {
 	r := newRig(t)
 	for _, role := range []session.Role{session.RoleApprover, session.RoleAudit} {
-		rec := r.do(http.MethodGet, "/v1/cases", r.token(edgetest.Good(epoch, role)), "")
+		rec := r.do(http.MethodGet, "/v1/investigations", r.token(edgetest.Good(epoch, role)), "")
 		if rec.Code != http.StatusNotFound || code(t, rec) != "NOT_FOUND_OR_NOT_AUTHORIZED" {
 			t.Errorf("%s: got %d %s", role, rec.Code, rec.Body.String())
 		}
 	}
-	rec := r.do(http.MethodPost, "/v1/cases", r.token(edgetest.Good(epoch, session.RoleOps)), `{"a":1}`)
+	rec := r.do(http.MethodPost, "/v1/investigations", r.token(edgetest.Good(epoch, session.RoleOps)), `{"a":1}`)
 	if rec.Code != http.StatusNotFound || *r.calls != 0 {
 		t.Fatalf("ops on a customer-only route: %d, calls %d", rec.Code, *r.calls)
 	}
@@ -184,7 +184,7 @@ func TestAWrongRoleIs404AndTheHandlerDoesNotRun(t *testing.T) {
 func TestAnUnregisteredRouteIsDeniedByDefault(t *testing.T) {
 	r := newRig(t)
 	tok := r.token(edgetest.Good(epoch, session.RoleCustomer))
-	for _, c := range []struct{ method, path string }{{http.MethodGet, "/v1/nothing"}, {http.MethodDelete, "/v1/cases"}, {http.MethodGet, "/v1/"}} {
+	for _, c := range []struct{ method, path string }{{http.MethodGet, "/v1/nothing"}, {http.MethodDelete, "/v1/investigations"}, {http.MethodGet, "/v1/"}} {
 		rec := r.do(c.method, c.path, tok, "")
 		if rec.Code != http.StatusNotFound || code(t, rec) != "NOT_FOUND_OR_NOT_AUTHORIZED" {
 			t.Errorf("%s %s with a session: %d %s", c.method, c.path, rec.Code, rec.Body.String())
@@ -204,7 +204,7 @@ func TestABodyNamingAnIdentityIs400(t *testing.T) {
 	r := newRig(t)
 	tok := r.token(edgetest.Good(epoch, session.RoleCustomer))
 	for _, b := range []string{`{"principal_id":"prn_2"}`, `{"a":{"Tenant_ID":"tnt_b"}}`, `[{"role":"ops"}]`, `{"a":1} {"b":2}`, `not json`} {
-		rec := r.do(http.MethodPost, "/v1/cases", tok, b)
+		rec := r.do(http.MethodPost, "/v1/investigations", tok, b)
 		if rec.Code != http.StatusBadRequest || code(t, rec) != "INPUT_INVALID" {
 			t.Errorf("body %q: %d %s", b, rec.Code, rec.Body.String())
 		}
@@ -222,10 +222,10 @@ func TestABodyNamingAnIdentityIs400(t *testing.T) {
 func TestTheSessionAndRoleAreCheckedBeforeTheBody(t *testing.T) {
 	r := newRig(t)
 	bad := `{"principal_id":"prn_2"}`
-	if rec := r.do(http.MethodPost, "/v1/cases", "", bad); rec.Code != http.StatusUnauthorized {
+	if rec := r.do(http.MethodPost, "/v1/investigations", "", bad); rec.Code != http.StatusUnauthorized {
 		t.Errorf("no session, identity body: %d", rec.Code)
 	}
-	if rec := r.do(http.MethodPost, "/v1/cases", r.token(edgetest.Good(epoch, session.RoleAudit)), bad); rec.Code != http.StatusNotFound {
+	if rec := r.do(http.MethodPost, "/v1/investigations", r.token(edgetest.Good(epoch, session.RoleAudit)), bad); rec.Code != http.StatusNotFound {
 		t.Errorf("wrong role, identity body: %d", rec.Code)
 	}
 }
@@ -235,11 +235,11 @@ func TestAnAcceptedBodyIsUnchangedAndAnOversizeOneIsRefused(t *testing.T) {
 	r := newRig(t)
 	tok := r.token(edgetest.Good(epoch, session.RoleCustomer))
 	ok := `{"case_ref":"c1","amount":{"minor":100,"currency":"NGN"}}`
-	if rec := r.do(http.MethodPost, "/v1/cases", tok, ok); rec.Code != http.StatusOK || *r.body != ok {
+	if rec := r.do(http.MethodPost, "/v1/investigations", tok, ok); rec.Code != http.StatusOK || *r.body != ok {
 		t.Fatalf("got %d, body seen %q", rec.Code, *r.body)
 	}
 	big := `{"x":"` + strings.Repeat("a", maxBody) + `"}`
-	if rec := r.do(http.MethodPost, "/v1/cases", tok, big); rec.Code != http.StatusBadRequest {
+	if rec := r.do(http.MethodPost, "/v1/investigations", tok, big); rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversize body: %d", rec.Code)
 	}
 }
@@ -248,11 +248,11 @@ func TestAnAcceptedBodyIsUnchangedAndAnOversizeOneIsRefused(t *testing.T) {
 func TestExpiryFollowsTheInjectedClock(t *testing.T) {
 	r := newRig(t)
 	tok := r.token(edgetest.Good(epoch, session.RoleCustomer))
-	if rec := r.do(http.MethodGet, "/v1/cases", tok, ""); rec.Code != http.StatusOK {
+	if rec := r.do(http.MethodGet, "/v1/investigations", tok, ""); rec.Code != http.StatusOK {
 		t.Fatalf("fresh session: %d", rec.Code)
 	}
 	r.clk.Advance(7 * time.Minute)
-	if rec := r.do(http.MethodGet, "/v1/cases", tok, ""); rec.Code != http.StatusUnauthorized {
+	if rec := r.do(http.MethodGet, "/v1/investigations", tok, ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expired session: %d", rec.Code)
 	}
 }
@@ -264,14 +264,14 @@ func TestProtectedRefusesAnUnsafeConfiguration(t *testing.T) {
 	v := newVerifier(t, iss, clk)
 	idg := ids.New(clk, nil)
 	ok := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
-	route := edge.Route{Pattern: "GET /v1/x", Roles: []session.Role{session.RoleOps}, Handler: ok}
+	route := edge.Route{Pattern: "GET /v1/conversations", Roles: []session.Role{session.RoleOps}, Handler: ok}
 	cases := map[string]edge.Options{
 		"no verifier":     {IDs: idg, MaxBody: 10, Routes: []edge.Route{route}},
 		"no ids":          {Verifier: v, MaxBody: 10, Routes: []edge.Route{route}},
 		"zero body limit": {Verifier: v, IDs: idg, MaxBody: 0, Routes: []edge.Route{route}},
-		"no roles":        {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/x", Handler: ok}}},
-		"unknown role":    {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/x", Roles: []session.Role{"root"}, Handler: ok}}},
-		"no handler":      {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/x", Roles: []session.Role{session.RoleOps}}}},
+		"no roles":        {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/conversations", Handler: ok}}},
+		"unknown role":    {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/conversations", Roles: []session.Role{"root"}, Handler: ok}}},
+		"no handler":      {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "GET /v1/conversations", Roles: []session.Role{session.RoleOps}}}},
 		"no pattern":      {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Roles: []session.Role{session.RoleOps}, Handler: ok}}},
 		"duplicate":       {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{route, route}},
 		"catch-all":       {Verifier: v, IDs: idg, MaxBody: 10, Routes: []edge.Route{{Pattern: "/", Roles: []session.Role{session.RoleOps}, Handler: ok}}},

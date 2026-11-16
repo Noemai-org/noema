@@ -1,0 +1,12 @@
+{
+  "answer_without_answer.json": "required",
+  "error_code_not_in_catalogue.json": "enum",
+  "error_tenant_scope_mismatch.json": "enum",
+  "error_with_stack_trace.json": "additionalProperties",
+  "missing_instant.json": "required",
+  "progress_internal_state.json": "enum",
+  "progress_unknown_state.json": "enum",
+  "progress_with_a_card.json": "additionalProperties",
+  "progress_with_percentage.json": "additionalProperties",
+  "unknown_event.json": "const"
+}

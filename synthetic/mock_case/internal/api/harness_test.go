@@ -231,7 +231,7 @@ func plan(faults string, clock string) string {
 	if clock != "" {
 		clock = `,"clock":` + clock
 	}
-	return `{"fault_plan_id":"fp_test","scenario_id":"SCN-TEST","seed":42,"deterministic":true,"source":"MOCK_CASE","faults":[` + faults + `]` + clock + `}`
+	return `{"fault_plan_id":"fp_test","scenario_id":"SCN-TEST","seed":` + fmt.Sprint(tenSeed) + `,"deterministic":true,"source":"MOCK_CASE","faults":[` + faults + `]` + clock + `}`
 }
 
 func fault(op, match, effect, params string) string {

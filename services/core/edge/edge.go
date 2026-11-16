@@ -54,10 +54,36 @@ func Protected(o Options) (http.Handler, error) {
 	return mux, nil
 }
 
+// publicAreas are the first path segments of the public API: PERD 39.2 (conversations, confirmations, investigations) and the routes of the authorization matrix rows 8 to 12
+// (PERD 39.4: ops, investigations, reconstructions, record, outcomes). Each route stays gated by its own role list.
+// The public edge serves nothing else and denies by default, so no route of the admin listener (OD-P-79, ruling A54, matrix rows 1 to 7), no route of any other listener (row 13)
+// and no key route can be mounted on it by mistake. A new public area is a decision of the Architect and a row of the matrix before it is a line here.
+var publicAreas = map[string]bool{"conversations": true, "confirmations": true, "investigations": true, "reconstructions": true, "ops": true, "record": true, "outcomes": true}
+
+// notPublic says why a path is not the public edge's to serve ("" when it is). Its first segment must be a public area (compared as written: the mux is case-sensitive, and an
+// upper-case variant is not a public area). No segment may name a key or a rotation (matrix rule 7, D3a: key rotation is an operator step with no API in the POC); the test is
+// on the word inside the segment and fails closed.
+func notPublic(path string) string {
+	segs := strings.Split(strings.TrimPrefix(path, apiPrefix), "/")
+	if !publicAreas[segs[0]] {
+		return "is not a public API route: the public edge serves the conversation, confirmation, investigation and reconstruction areas only (the control plane has its own listeners, OD-P-79)"
+	}
+	for _, s := range segs {
+		s = strings.ToLower(s)
+		if strings.Contains(s, "key") || strings.Contains(s, "rotat") {
+			return "names a key or a rotation, which has no route in the POC (D3a)"
+		}
+	}
+	return ""
+}
+
 func checkRoute(r Route, seen map[string]bool) error {
 	_, path, ok := strings.Cut(r.Pattern, " ")
 	if !ok || !strings.HasPrefix(path, apiPrefix) || strings.ContainsAny(r.Pattern, "\t\n\r") {
 		return fmt.Errorf("edge: route %q is not \"METHOD /v1/...\"", r.Pattern)
+	}
+	if why := notPublic(path); why != "" {
+		return fmt.Errorf("edge: route %q %s", r.Pattern, why)
 	}
 	if seen[r.Pattern] {
 		return fmt.Errorf("edge: route %q is registered twice", r.Pattern)

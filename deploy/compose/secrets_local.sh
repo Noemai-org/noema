@@ -6,7 +6,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 dir="$here/secrets"
 mkdir -p "$dir"
 chmod 700 "$dir"
-for name in postgres_superuser_password noema_core_password temporal_password noema_migrator_password noema_verify_password noema_tenant_login_password; do
+for name in postgres_superuser_password noema_core_password temporal_password noema_migrator_password noema_verify_password evidence_verify_password noema_tenant_login_password; do
   if [ ! -s "$dir/$name" ]; then
     python3 -c 'import secrets; print(secrets.token_hex(24))' > "$dir/$name"
   fi
@@ -42,3 +42,6 @@ for tenant in ${NOEMA_TENANTS:-}; do
     chmod 644 "$f"
   done
 done
+
+# The local mTLS material between the core and the model service (noema#555): a throwaway CA, the model's server certificate and the core's client certificate. Kept if complete.
+sh "$here/tls_local.sh"

@@ -18,6 +18,7 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +39,7 @@ NETWORKS = {
     "hostility-proxy-anchor": {"bench_net"},
     "standin": {"tushe_net", "bench_net"},
     "standin-anchor": {"bench_net"},
+    "bench-runner": {"bench_net", "edge_net"},
     "webhook-relay": {"tushe_net", "tushe_egress"},
     "evil-provider": {"provider_egress"},
     "mock-case-credentials": set(),
@@ -46,8 +48,11 @@ NETWORKS = {
     "webhook-relay-credentials": set(),
 }
 SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
-ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor"}
+ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
+# The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
+# credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
+BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
 PUBLISHED = {"ui": {("127.0.0.1", "8082")}, "webhook-relay": {("127.0.0.1", "8090")}}
 EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 # The services each profile must build, written out here (PERD section 65.1). A missing service fails, as does an extra one: a profile
@@ -57,17 +62,30 @@ EXPECTED_SERVICES = {
     "ci": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
     "bench": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
-              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials"},
+              "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner"},
     "demo": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
-           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}}
+           "standin": {"ci", "bench"}, "standin-anchor": {"ci", "bench"}, "standin-credentials": {"ci", "bench"}, "bench-runner": {"bench"}}
+
+
+# The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
+# The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+# The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
+# AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
+MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
+MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
+BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
+BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
 
 def resolved(profile):
-    out = subprocess.run(["docker", "compose", "-f", str(COMPOSE_FILE), "--profile", profile, "config", "--format", "json"],
-                         capture_output=True, text=True)
+    files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
+    cmd = ["docker", "compose"] + [a for f in files for a in ("-f", f)] + ["--profile", profile, "config", "--format", "json"]
+    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV} if profile == "bench" else None)
     if out.returncode != 0:
         raise SystemExit(f"docker compose config failed for profile {profile}: {out.stderr.strip()[:300]}")
     return json.loads(out.stdout)
@@ -108,6 +126,40 @@ def check(cfg, profile):
         for vol in svc.get("volumes", []) or []:
             if "docker.sock" in str(vol.get("source", "")):
                 bad.append(f"{profile}: {name} mounts the Docker socket")
+            if vol.get("source") in BENCH_CREDENTIAL_VOLUMES and name not in ORACLE_SIDE and name not in SIDECARS:
+                bad.append(f"{profile}: {name} mounts the bench credential volume {vol['source']} (oracle side only)")
+            # The synthetic IdP's material (benchmark/out/idp): the core holds the PUBLIC key and nothing else of it; the private key and the issuer binary are read by the runner only, so no
+            # other service may mount anything of that directory (a session token the core could mint would be an identity the core invents, INV-12).
+            idp_src = str(vol.get("source", "")).replace("\\", "/")
+            # The output directory itself, or a folder above it, holds the idp folder too (SR on noema#577, note b): the runner's own mount of /bench-out names the directory, and any
+            # other service mounting it or a parent of it would get the private key without the path containing "/idp".
+            out_roots = [str(v.get("source", "")).replace("\\", "/") for sv in cfg["services"].values() for v in (sv.get("volumes") or []) if v.get("target") == "/bench-out"]
+            holds_idp = any(root and (idp_src == root or root.startswith(idp_src.rstrip("/") + "/")) for root in out_roots) and bool(idp_src) and vol.get("type") == "bind"
+            if "/idp/" in idp_src or idp_src.endswith("/idp") or holds_idp:
+                if not (name == "core" and idp_src.endswith("/idp/key/public.pem")) and name != "bench-runner":
+                    bad.append(f"{profile}: {name} mounts {idp_src} from the synthetic IdP's directory; only the core's public key and the runner may (the private key and the issuer stay with the runner)")
+            src_norm = str(vol.get("source", "")).replace("\\", "/")
+            if "/secrets/tls/" in src_norm and src_norm.rsplit("/", 1)[-1] not in TLS_MOUNTS.get(name, set()):
+                bad.append(f"{profile}: {name} mounts {src_norm.rsplit('/', 1)[-1]} from the mTLS folder; it may mount only {sorted(TLS_MOUNTS.get(name, set()))} (the core never holds the model's key, the model never holds the core's)")
+            if name == "model":
+                target, source = str(vol.get("target", "")), str(vol.get("source", ""))
+                # The model gets the benchmark COST directory and nothing else of the output directory: the runner writes the generated suite and its oracle documents beside it
+                # (INV-22; Codex P1 on noema#444). So no model mount may be, contain or sit under /bench-out except /bench-out/cost, whose host source is the cost directory itself.
+                if target == "/bench-out" or target.startswith("/bench-out/") and target != "/bench-out/cost" or "/bench-out".startswith(target.rstrip("/") + "/") or target == "/":
+                    bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
+                if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
+                    bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
+        if name == "core":
+            env = svc.get("environment") or {}
+            for setting in MODEL_CLIENT_SETTINGS:
+                if not str(env.get(setting, "")).strip():
+                    bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        if name == "core" and profile == "bench" and not str((svc.get("environment") or {}).get("NOEMA_PAYLOAD_MAX_BYTES", "")).strip():
+            bad.append(f"{profile}: the core does not set NOEMA_PAYLOAD_MAX_BYTES: the evidence payload reader refuses to be built without its bound (noema#606, A236)")
+        if name in TLS_MOUNTS:
+            mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
+            for need in sorted(TLS_REQUIRED[name] - mounted):
+                bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
     for net, spec in cfg.get("networks", {}).items():
@@ -156,6 +208,36 @@ def self_test(configs):
         "the stand-in appears in demo": ("demo", lambda c: c["services"].update({"standin": {"networks": {"tushe_net": None, "bench_net": None}}})),
         "the stand-in anchor appears in demo": ("demo", lambda c: c["services"].update({"standin-anchor": {"networks": {"bench_net": None}}})),
         "the stand-in credentials appear in dev": ("dev", lambda c: c["services"].update({"standin-credentials": dict(sidecar)})),
+        "the bench runner appears in dev": ("dev", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner appears in ci": ("ci", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner appears in demo": ("demo", lambda c: c["services"].update({"bench-runner": {"networks": {"bench_net": None, "edge_net": None}}})),
+        "the bench runner leaves edge_net": ("bench", lambda c: c["services"]["bench-runner"]["networks"].pop("edge_net")),
+        "the bench runner joins tushe_net": ("bench", lambda c: c["services"]["bench-runner"]["networks"].update({"tushe_net": None})),
+        "the bench runner joins provider_egress": ("bench", lambda c: c["services"]["bench-runner"]["networks"].update({"provider_egress": None})),
+        "the bench runner publishes a port": ("bench", lambda c: c["services"]["bench-runner"].update({"ports": [{"host_ip": "127.0.0.1", "published": "9000"}]})),
+        "the bench runner mounts docker.sock": ("bench", lambda c: c["services"]["bench-runner"].update({"volumes": [{"source": "/var/run/docker.sock"}]})),
+        "the core mounts the stand-in bench credential": ("bench", lambda c: c["services"]["core"].setdefault("volumes", []).append({"source": "standin_bench_credential", "target": "/x"})),
+        "the model mounts the mock-case bench credential": ("bench", lambda c: c["services"]["model"].setdefault("volumes", []).append({"source": "mock_case_bench_credential", "target": "/x"})),
+        "the core mounts the IdP's private key": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/private.pem", "target": "/run/idp/private.pem"})),
+        "the core mounts the whole bench output directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out", "target": "/run/out"})),
+        "the stand-in mounts a folder above the bench output": ("bench", lambda c: c["services"]["standin"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp", "target": "/x"})),
+        "the core mounts the IdP directory": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp", "target": "/run/idp-all"})),
+        "the model mounts the issuer binary": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/idp/synthetic-idp", "target": "/usr/local/bin/synthetic-idp"})),
+        "the stand-in mounts the IdP public key": ("bench", lambda c: c["services"]["standin"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-bench-out/idp/key/public.pem", "target": "/x"})),
+        "the model mounts the whole bench output directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out", "target": "/bench-out"})),
+        "the model mounts the generated suite": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite", "target": "/bench-out/suite"})),
+        "the model mounts the oracle directory": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/tmp/noema-bench-out/suite/oracle", "target": "/bench-out/suite/oracle"})),
+        "the model mounts the filesystem root": ("bench", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/", "target": "/"})),
+        "the model's cost mount is the whole output directory": ("bench", lambda c: [v.update({"source": "/tmp/noema-bench-out"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/bench-out/cost"]),
+        "the core mounts the model's server key": ("dev", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/model.key", "target": "/run/tls/model.key"})),
+        "the model mounts the core's client key": ("dev", lambda c: c["services"]["model"]["volumes"].append({"type": "bind", "source": "/x/secrets/tls/core-client.key", "target": "/run/tls/core-client.key"})),
+        "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
+        "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
+        "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
+        "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
+        "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
+        "the core's model URL is empty": ("bench", lambda c: c["services"]["core"]["environment"].update({"NOEMA_MODEL_URL": ""})),
         "the stand-in leaves bench_net": ("ci", lambda c: c["services"]["standin"]["networks"].pop("bench_net")),
     }
     missed = []
@@ -179,6 +261,17 @@ def main():
         found = check(cfg, profile)
         print(f"{'FAIL' if found else 'ok  '} profile {profile:6} services: {', '.join(sorted(cfg['services']))}")
         failures += found
+    # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
+    # code cannot drift apart again; on a tree without it (before noema#563 merges) only the Compose side is checked, and this line says so.
+    if MODEL_CLIENT_SOURCE.is_file():
+        import re
+        names = set(re.findall(r'Env\w+\s*=\s*"(NOEMA_MODEL_[A-Z_]+)"', MODEL_CLIENT_SOURCE.read_text(encoding="utf-8")))
+        if names != set(MODEL_CLIENT_SETTINGS):
+            failures.append(f"drift: services/core/cmd/core/modelclient.go reads {sorted(names)} but profiles.py expects {sorted(MODEL_CLIENT_SETTINGS)}")
+        else:
+            print(f"ok   the core's model client reads exactly the {len(names)} settings Compose gives it")
+    else:
+        print("note the core's model client (services/core/cmd/core/modelclient.go) is not in this tree: only the Compose side of its five settings is checked")
     if "--self-test" in sys.argv:
         missed, n = self_test(configs)
         print(f"self-test: {n} mutations;", "every one is caught" if not missed else "NOT CAUGHT: " + "; ".join(missed))

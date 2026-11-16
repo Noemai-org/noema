@@ -10,6 +10,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 )
 
+// pgDispatchBudget is the SQLSTATE of migration 0023: the key's dispatch budget is spent, or the event's key cannot be read.
+const pgDispatchBudget = "NS002"
+
 const (
 	eventGrantSpent        = "GRANT_SPENT"
 	eventDispatchAttempted = "DISPATCH_ATTEMPTED"
@@ -34,6 +37,8 @@ func (l *Ledger) Spend(ctx context.Context, cmd controller.SpendCommand) (contro
 	switch {
 	case errors.Is(err, errNothingWritten):
 		return res, nil
+	case pgCode(err) == pgDispatchBudget:
+		return controller.SpendResult{BudgetSpent: true}, nil // the transaction rolled back as a whole: nothing was spent, written or dispatched
 	case errors.Is(err, controller.ErrKeyCollision):
 		return controller.SpendResult{}, l.raiseCollision(ctx, cmd, err)
 	case pgCode(err) == pgUniqueViolation || pgCode(err) == pgSerializationFailure || pgCode(err) == pgDeadlockDetected:

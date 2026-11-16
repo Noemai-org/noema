@@ -175,7 +175,9 @@ func TestEvidenceFromARealFaultedReadIsNeverKnown(t *testing.T) {
 // passed through unchanged and found again in the stored evidence payload (INV-19). The failed-read path is TestEvidenceFromARealFaultedReadIsNeverKnown.
 func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	mc := startMockCase(t)
-	cases, err := synthetic_tushe.NewCaseClient(mc.URL, mc.TokenFile, nil)
+	// noema#390: the client reads through a capturing proxy, so the hash the adapter reports can be compared with the bytes the real mock-case sent.
+	proxy, wire := newCaptureProxy(t, mc.URL)
+	cases, err := synthetic_tushe.NewCaseClient(proxy.URL, mc.TokenFile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +205,7 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	if err != nil || len(page.Items) != 1 {
 		t.Fatalf("find: %+v %v", page, err)
 	}
+	wire.reset()
 	rec, err := cases.GetCase(rctx, tenant, page.Items[0].CaseID)
 	readAt := clk.Now()
 	if layer.ClassifyError(err) != layer.ReadOK {
@@ -211,6 +214,10 @@ func TestEvidenceFromAHealthyRealReadIsKnownThenStale(t *testing.T) {
 	// The raw hash is the adapter's: GetCase returns the hash of the response bytes it received (noema#401, INV-19), and it is passed through unchanged.
 	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(rec.RawHash) {
 		t.Fatalf("the healthy read carries RawHash %q, want sha256: and 64 lower-case hex digits", rec.RawHash)
+	}
+	// noema#390: and it is the hash of the exact bytes the case system sent, not of a decoded or re-encoded copy: compared with the capturing proxy's copy of the response.
+	if want := sha256Hex(wire.only(t)); rec.RawHash != want {
+		t.Fatalf("the healthy read's RawHash %q is not the SHA-256 of the response bytes on the wire %q", rec.RawHash, want)
 	}
 	obs := func(recordID string) layer.Observation {
 		return layer.Observation{TenantID: tenant, CorrelationID: "corr_synthetic01", Source: "fin.src.core_case", SourceRecordID: recordID, ReadBy: "TRUST",

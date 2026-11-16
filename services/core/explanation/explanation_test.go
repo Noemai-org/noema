@@ -8,6 +8,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/masking"
 )
 
 // EXP-01 slice 3 (rulings A8, A18; REQ-EXP-002, INV-13, AGENT-17; PERD 31.2). SYNTHETIC facts. The renderer here is the deterministic fallback: no model, no network.
@@ -27,7 +28,22 @@ func load(t *testing.T) explanation.Templates {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tpl
+	return tpl.WithMaskingLimits(packMaskingLimits(t))
+}
+
+// packMaskingLimits is the pack's own masking-limits.v1 document (the single source of the longest unmasked digit run).
+func packMaskingLimits(t *testing.T) masking.Limits {
+	t.Helper()
+	f, err := os.Open("../../../packs/fintech/limits/masking_limits.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	l, err := masking.Load(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
 }
 
 // REQ-EXP-002: a fallback exists for every outcome and classification the pack can produce, and each one passes the validator by itself.
@@ -301,6 +317,40 @@ func TestDuplicateFactIDsAreRefusedSoAStatusCannotBeOverwritten(t *testing.T) {
 		g.Facts = facts
 		if p := explanation.Validate(tpl, claimed("Your payment of NGN 5,000 is confirmed."), g, nil); len(p) == 0 {
 			t.Errorf("%s: a claim over a duplicated fact ID passed", name)
+		}
+	}
+}
+
+// REQ-EXP-002, A18: the template version is an output the caller stores with the explanation (provenance), so a template-bound render must carry the
+// version of the locale file that was loaded, not any other string. Found by C2 while answering a review of noema#224 (a stale or invented version passed).
+func TestATemplateBoundRenderMustCarryTheLoadedTemplateVersion(t *testing.T) {
+	tpl := load(t)
+	f := facts("fin.outcome.exception.status_explained", "SUCCESS_CONFIRMED")
+	good, err := explanation.Fallback(tpl, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problems := explanation.Validate(tpl, good, f, nil); len(problems) != 0 {
+		t.Fatalf("control: the pack's own fallback fails the validator: %v", problems)
+	}
+	for name, version := range map[string]string{
+		"empty":                       "",
+		"another digest":              "sha256:" + strings.Repeat("0", 64),
+		"the loaded digest, upcased":  strings.ToUpper(good.TemplateVersion),
+		"the loaded digest plus text": good.TemplateVersion + "x",
+		"not a digest":                "v1",
+	} {
+		r := good
+		r.TemplateVersion = version
+		problems := explanation.Validate(tpl, r, f, nil)
+		found := false
+		for _, p := range problems {
+			if strings.Contains(p, "version") {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s: a template-bound render with version %q passed (problems: %v)", name, version, problems)
 		}
 	}
 }

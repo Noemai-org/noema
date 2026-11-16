@@ -61,6 +61,20 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Files to read first: `contracts/schemas/explanation-facts.v2.json`, `contracts/fixtures/invalid/explanation-facts.v2/`.
 - Do not touch: generated `*_gen.go` and `explanation_facts_v2.py` by hand.
 
+## Session 2026-11-12 04:00 UTC · EXP-01 · the template version is checked (follow-up to noema#224)
+
+## Session summary
+- What changed: `Validate` refuses a template-bound render whose `TemplateVersion` is not the loaded version of its template (new `Templates.version`, four lines in `Validate`), with `TestATemplateBoundRenderMustCarryTheLoadedTemplateVersion` (empty, another digest, the loaded digest upcased, the loaded digest plus text, not a digest) and a README paragraph. Nothing else in the package changed.
+- Why: found by C2 while answering the review of noema#224: text and template id were right but the version string was not compared with the loaded digest, so a wrong value would have been stored as provenance (A18). It cannot change what a customer sees. Not part of the four findings on noema#224; it waited until that PR merged (A131).
+- Risks, and how they are contained: a render that carries no template version (fact-bound claims only) is not checked; a caller that builds a template-bound render by hand must copy `Fallback`'s version. Both are stated in the README.
+- Tests added (REQ-EXP-002, A18): the one above. Failing first: seen failing locally on the five variants before the fix (no separate red CI run). Mutants killed: check disabled; case-insensitive comparison.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: slice 4 (the `orchestrator.Explainer` constructor) waits on the two decisions on noema#461.
+- Do not touch: the fallback templates (EXP-04's content).
+
+
 ## Session 2026-11-12 (C2) · slice 4: fact slots, FactsSource, the Explainer (ruling A155)
 - **What changed:** `{fact:<kind>}` slots (`slots.go`, `Fallback`, `LoadTemplates`, `Validate`); `FactsSource`, `Recorder`, `Subject`, `Event`, `Explanation` and `NewExplainer`/`Explain` (`explainer.go`); tests `slots_test.go` and `explainer_test.go`; README.
 - **Failing first:** tests-only commit `4b199633` did not compile.
@@ -74,3 +88,62 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Open questions (owner): the payload shape of `EXPLANATION_RENDERED` for template-bound claims (REC-04).
 - Files to read first: `services/core/explanation/README.md`, `explainer.go`.
 - Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (C2) · slice 5: the Record-backed Recorder (ruling A155)
+- **What changed:** `services/core/explanation/recorder/` (`Recorder`, `doc.go`, `README.md`, `recorder.go`), tests `recorder_test.go` (against PostgreSQL) and `build_test.go` (no database), the README of `explanation/`.
+- **Failing first:** the tests-only commit `8662462e` (the package did not exist). The PR was opened on that head so its CI run is the red evidence. That commit built an unsigned `chain.Appender`; `main` requires a signer per emitter since REC-08 (`record/chain` refuses to append otherwise), so the implementation commit adds `recordsig.All` to the test world.
+- **Local limit, stated:** this machine has no pgsodium, so a database append cannot succeed here and `recorder_test.go` ran in CI only. The rule layer (`build_test.go`) ran locally, with 31 hand-run mutations of `recorder.go`, each red; three first did not compile (an unused variable or import) and were redone in a compile-safe form.
+- **Found while doing it:** my open PRs noema#466 (input gateway) and noema#471 (admitted-intent store) were cut before REC-08 reached `main` and build an unsigned Appender in their tests. They will fail on `core` once they meet current `main`; both need `main` merged in and `recordsig.All` in their test worlds (done in follow-up pushes, noted on each PR).
+- **Debt for the Steward to register:** none new. **Conflicts raised:** none.
+
+### Pre-work for the next agent
+- Exact next step: EL wires `Recorder` (the tenant's core-edge login), the real `FactsSource` and the adapter in `compose.go`; the pack templates with slots need one Founder approval.
+- Open questions (owner): the marker for a template-only claim's `bound_fact_status` (Architect or REC-04).
+- Files to read first: `services/core/explanation/recorder/README.md`, `recorder.go`.
+- Do not touch: the pack templates (Founder approval).
+
+## Session 2026-11-12 (night) · EXP-01 · the notes of the reviews of noema#493 (merged)
+- **What changed:** `blockedPayload` stores the rule codes sorted and without repeats and `rule` is the first (EL's P2 1; the README already said sorted); the Record-backed test `TestWhatTheReconstructionCouldNotServeIsNotWritten` now uses a template id that passes the shape rule, so its "rendered event with a rule" and "event without a correlation id" cases are refused for the rule they name (EL's P2 3; checked against `build`: "carries no rule" and "the correlation id is not well formed"); `explanation/recorder_callers_test.go` fails if any code in the core other than the Explainer calls `AppendExplanation` (Security Reviewer, note 1); README sentences for the shared object reference and the unrecorded `PrincipalID` (C1, EL P3).
+- **Failing first:** `TestTheBlockedEventStoresItsRulesSortedAndWithoutRepeats` was red locally (the stored rules were in the caller's order). Mutation by hand: a call added in another package is red; the Explainer's own call is found.
+- **Not changed, stated in the README for the reviewers (decisions, not fixes):** the digit rule across separators (a decision about ruling A154; the single source is noema#468's `platform/masking`, to which the recorder's second copy of the threshold moves when it merges, EL's P2 2), a count cap on `FactIDs` and `Rules`, and how `reconstruct` reads two events for one correlation.
+- Debt: the second copy of the digit threshold (`maxDigitRun` in the recorder), until noema#468 merges. Conflicts raised: none.
+
+# Session 2026-11-14 16:45 WAT · EXP-01 · the FactsSource slot inventory (ruling A209, relayed)
+
+## Session summary
+- What changed: `services/core/explanation/facts-inventory.md` (new, documentation only). It lists the `{fact:<kind>}` slots the pack's templates would hold and the Record source of each fact kind, each row marked **stated** (a PERD or user-story sentence) or **[REC]** (my reading, for EL to confirm).
+- Why: the Founder's order of 14 Nov 2026 (A209): post the inventory as a PR so the Founder can give the A155 approval for the pack edit.
+- Risks, and how they are contained: no pack, code or contract changes; the templates still hold no slot. Seven fact kinds are proposed; three kind names (`payment.counterparty`, `case.team`, `case.clock`) and their Record sources are my reading, flagged for EL.
+- Tests added: none (documentation). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL confirms or corrects the Record sources; the Founder approves or strikes slots (A155); then one PR edits the `en-NG` templates (slot plus a slot-free sentence beside it) and `packcheck`/the template tests move with it.
+- Files to read first: `services/core/explanation/facts-inventory.md`, `slots.go`, `packs/fintech/templates/en-NG.json`.
+- Do not touch: the templates before the approval.
+
+# Session 2026-11-14 · EXP-01 · the Explainer port adapter (A155)
+
+## Session summary
+- What changed (this PR): `orchestrator/portadapters/explainer` (package `explainerport`): `Port.Explain` implements `orchestrator.Explainer` over `explanation.Explainer`: the session becomes the subject (tenant and principal), the decision ID passes untouched, a blocked answer returns no text, and an error returns no text with it. Four tests (tests first, red in CI); four mutants killed (text on a block, principal dropped, text with an error, no-decision check dropped).
+- Why: the G1 card's Explainer lane (noema#436): the write path's EXPLAINING state needs the port; the template Explainer exists, the port did not.
+- Risks, and how they are contained: the port adds no decision of its own; the explainer renders, validates and records (EXPLANATION_RENDERED or EXPLANATION_BLOCKED) before it returns anything. It cannot show the text of a blocked answer.
+- Tests added (REQ-EXP-002, REQ-AUD-002, INV-12, INV-13): `port_test.go`.
+- Not done, stated: the real `FactsSource` behind the explainer (A155: the orchestrator builds it): it must read the decision record, its sealed snapshot and the evidence payloads to build `explanation-facts.v2`, which needs a design of which evidence fields become which fact kinds; it is the next lane. The port is not plugged into `cmd/core` yet (the composition PR).
+- Regression cases added: the tests above. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the `FactsSource` design (EL), then plug the port into `Components.Ports.Explainer`.
+- Files to read first: `explanation/explainer.go`, `orchestrator/portadapters/explainer/port.go`.
+- Do not touch: `explanation` internals from the port.
+
+# Session 2026-11-15 · EXP-01 · EL's corrections on the slot inventory (noema#586)
+
+## Session summary
+- What changed (PR noema#586): the inventory's source column is now "Source (two reads)": the Record events carry hashes, references and statuses, and the values come from the item's payload by `payload_ref` through EL's `PayloadReader` (noema#599, A228 relayed). The account's last four digits and the grouped amount are derived by the source from `account_ref` and `amount_minor`; `case.ref` is the receipt's `external_ack` formatted without the year and masked (A207); `case.team` comes from the executed plan's `owner_queue`; `case.clock` needs `SLA_EVALUATED` to carry the committed time or it has no source. `payment.counterparty` is the masked form only, the Founder's call, and not in the pack. EL's answer to open point 2 (KNOWN only) is recorded. `main` was merged in for the conflict in this note.
+- Why: EL's independent read on noema#586 (15 Nov 2026) found the original "Record source" column wrong about where values live.
+- Risks, and how they are contained: documentation only; no pack, code or contract change.
+- Tests added: none (documentation). Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after the Founder's A155 approval, EL builds the real `FactsSource` over the Record reader, the sealed snapshot items and the `PayloadReader`; one fact per slot, KNOWN only; a slot with no source refuses.
+- Do not touch: the pack templates in this PR (noema#595 holds them).

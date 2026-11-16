@@ -154,9 +154,11 @@ func (l *Ledger) Complete(ctx context.Context, r controller.Receipt) (bool, erro
 			if tag.RowsAffected() != 1 {
 				return fmt.Errorf("%svoid the spent grant %s: it is not SPENT", errPrefix, r.GrantID)
 			}
-			return l.addRecoveryRequest(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, controller.VoidTargetVersionStale, voidChange{from: statusSpent, receiptID: r.ReceiptID})
+			if err := l.addRecoveryRequest(ctx, tx, r.TenantID, r.CorrelationID, r.GrantID, controller.VoidTargetVersionStale, voidChange{from: statusSpent, receiptID: r.ReceiptID}); err != nil {
+				return err
+			}
 		}
-		return nil
+		return l.at(PointInCompleteTxBeforeCommit) // after every write of the receipt, before the commit: nothing above is kept if the hook fails
 	})
 	if pgCode(err) == pgSignatureNotVerified {
 		return false, fmt.Errorf("%w: %v", controller.ErrSignatureRefused, err)

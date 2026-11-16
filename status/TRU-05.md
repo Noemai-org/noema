@@ -1,5 +1,6 @@
 
 
+
 # Session 2026-11-08 · TRU-05 slice 2 (noema#168)
 
 ## Session summary
@@ -70,3 +71,47 @@ State: In progress (slice 1 built). Needs REC-01: merged (noema#122, 4 Nov 2026 
 - Tests added (REQ-TRU-008, INV-03): `TestGrantSigningVector` (rewritten), `TestAGrantSignedOverBareJCSOrUnderAnotherLabelIsRefused`, two E1 cases in `TestEachCheckVoidsTheGrantWithItsReason`. Seen failing first.
 - Risks: P0 path and a contract fixture change (AGENT-15); both Founders approve. No stored grant exists, so nothing migrates. Stacked on noema#163.
 - Not done: the confirmation signer does not exist yet; this PR only reserves its label and message function.
+
+# Session 2026-11-11 · TRU-05 slice 3b (the Decision Record writer, noema#237), definition of done
+
+## Session summary
+- What changed (PR links): noema#237. Merged `main` (grant signing label from noema#337; own recorder diff unchanged, patch-id `e4f65676`). Removed `Request.Actor` (Codex P1: decision events are written as `core-trust`, INV-12). Added tests for the error paths of `Write` (second human review P1, C1): a failing DECISION_MADE append, a failing GRANT_ISSUED append, a duplicate decision id at the `decision_record` insert and a duplicate grant id at the `decision_grant` insert; each error was swallowed in turn and exactly its test went red. Added a test that a Request naming another tenant is refused by the database. All tests build the Appender through `newAppender`, the one line to change when noema#263 makes signed appends mandatory.
+- Why: Record-first (PERD 32.4, EC-E16): a failed append or insert must fail the whole write.
+- Risks, and how they are contained: noema#263 (REC-08) and noema#410 (EVD-02) land in the same area; whichever merges second needs `Signers` from `recordsig` in `newAppender`, and the grant insert may need the evidence-set hash. Neither package exists on `main` yet, so I did not guess at them.
+- Tests added (REQ-TRU-001, REQ-TRU-008, INV-03, INV-12, INV-17): `TestARequestCannotChooseTheRecordActor`, `TestAFailedDecisionMadeAppendFailsTheWriteAndLeavesNothing`, `TestAFailedGrantIssuedAppendFailsTheWriteAndLeavesNothing`, `TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing`, `TestAFailedGrantInsertFailsTheWriteAndLeavesNothing`, `TestARequestNamingAnotherTenantIsRefusedByTheDatabaseAndLeavesNothing`.
+- Regression cases added: the same tests.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after noema#263 merges, set `Signers` in `newAppender` (recorder_test.go) from `recordsig.For` for `core-trust`.
+- Open questions (owner): C1's non-blocking notes 2 to 5 on noema#237 (row counts after refusals, a WAIT/CONFIRM/UNKNOWN record, an empty `policy_id` in the DECISION_MADE payload, idempotency of a retried `Write`): the caller or workflow layer owns idempotency (TRU-08 or EXE-06), EL to confirm which.
+- Files to read first: `services/core/trust/recorder/recorder.go`, `recorder_test.go`.
+- Do not touch: `trust/grants` signing (noema#337).
+
+## Session 2026-11-12 18:00 WAT · TRU-05 (fixture signers, merge main)
+
+## Session summary
+- What changed: merged `main` (clean; `#263` REC-08 and later are on `main`); `newAppender` in `trust/recorder/recorder_test.go` now takes the fixture signer for `core-trust` from `internal/recordsig` (SYNTHETIC key, made per test), as the second human review asked. Test file only; `recorder.go`, `doc.go` and `trust/grants/record.go` are unchanged.
+- Own diff against `main`: 5 files, +925. Patch-id of the non-test sources before and after the merge: `1d17245f8cd62f81`.
+- Tests: the existing recorder tests now run with a signed appender. The tests that append signed Record events cannot run on my machine (no `pgsodium`); CI is their first run at this head.
+
+## Pre-work for the next agent
+- Exact next step: none for this PR once reviewed; CI at the head must be read before READY.
+- Do not touch: `Write`'s order (Record-first).
+
+## Session 2026-11-13 17:00 WAT · TRU-05 follow-up (A172, A186): one decision per full input tuple
+
+## Session summary
+- What changed (PR: the pull request of branch `feat/TRU-05-decision-input-tuple`; it replaces noema#527, closed because a secret-scanner false positive sat in one of its commits and history is never rewritten): migration `0027_decision_input_key.sql` (unique index `decision_record_input_key` over the tenant, the intent ID, the intent hash, the context snapshot and the policy version); `trust/recorder`: `Writer.Write` takes an advisory transaction lock on the tuple, reads the stored decision, and returns it with its grants and writes nothing; a stored decision that the new evaluation contradicts is `ErrDecisionConflict`.
+- Why: ruling A172 (the follow-up of noema#237, Tier 1, failing test first, C1 reviews) and ruling A186 (Founder-approved interim, relayed, not yet committed): the same full input tuple gets the stored decision; a new snapshot makes a new decision. A retried or resumed run reads the decision instead of deciding again, and a second grant cannot be issued for one input (INV-03, INV-21, INV-25).
+- Key mapped to the real columns: `tenant_id` and `intent_hash` are columns; `intent_id`, `evidence_snapshot_id` and `policy_version` are members of the signed document. A document with no snapshot (only direct test fixtures) is NULL in the index and not keyed.
+- Risks, and how they are contained: a duplicate tuple already in a database makes the migration fail (nothing is deleted; a person looks); a hit that disagrees (outcome, disposition, rule versions, grants' step, capability, target, params hash, plan hash) is refused, not returned.
+- Tests added (REQ-TRU-007, REQ-TRU-008, INV-21, INV-25): `platform/db/decision_input_key_test.go` (2), `trust/recorder/input_key_test.go` (5). `TestAFailedDecisionRecordInsertFailsTheWriteAndLeavesNothing` now collides the decision ID with two inputs (two intent hashes) because an identical request now returns the stored decision.
+- Regression cases added: none beyond the above. Debt entries: none. Conflicts raised: none.
+- Not done, stated: no production caller of `Writer.Write` exists yet; the `orchestrator.Trust` adapter that calls it is a later PR. A WAIT decision re-evaluated with an unchanged snapshot returns the stored WAIT (A186 as written): a re-evaluation must build a new snapshot (open point 1 on noema#527).
+
+## Pre-work for the next agent
+- Exact next step: the `orchestrator.Trust` adapter (evaluate, then `Write` in one transaction) once C1's Trust service assembles T1 to T15; resume of a stranded run (OD-P-85, A168) reads the stored decision through `Write`.
+- Open questions (owner): whether a WAIT re-evaluation of an unchanged snapshot should be a new decision (Architect: it would put the clock reading in the key).
+- Files to read first: `trust/recorder/inputkey.go`, `migrations/0027_decision_input_key.sql`.
+- Do not touch: `Write`'s order (Record first on a miss; nothing appended on a hit).

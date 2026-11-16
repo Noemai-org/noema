@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "pack_id": "fin",
+  "label": "SYNTHETIC",
+  "max_unmasked_digit_run": 4,
+  "min_masked_run": 5
+}

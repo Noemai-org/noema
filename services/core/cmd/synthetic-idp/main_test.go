@@ -60,7 +60,7 @@ func hasRole(args []string) bool {
 func mintToken(t *testing.T, dir string, clk clock.Clock, extra ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	args := append([]string{"issue", "-key", filepath.Join(dir, "private.pem"), "-kid", "idp-k1", "-aud", "noema-core", "-tenant", "tnt_a", "-principal", "cust_1", "-ttl", "10m"}, extra...)
+	args := append([]string{"issue", "-key", filepath.Join(dir, "private.pem"), "-kid", "idp-k1", "-aud", "noema-core", "-tenant", "tnt_a", "-principal", "usr_cust1", "-ttl", "10m"}, extra...)
 	if !hasRole(extra) {
 		args = append(args, "-role", "customer")
 	}
@@ -104,7 +104,7 @@ func TestATokenTheIssuerMakesIsAcceptedByTheCoresVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "cust_1" || p.Tenant != "tnt_a" || p.Role != session.RoleApprover ||
+	if p.ID != "usr_cust1" || p.Tenant != "tnt_a" || p.Role != session.RoleApprover ||
 		!p.IssuedAt.Equal(epoch) || !p.ExpiresAt.Equal(epoch.Add(10*time.Minute)) {
 		t.Fatalf("%+v", p)
 	}
@@ -149,6 +149,15 @@ func TestTheIssuerRefusesWhatTheCoreWouldRefuse(t *testing.T) {
 		"the same twice":                     {"-role", "ops", "-role", "ops"},
 		"empty tenant":                       {"-tenant", ""},
 		"empty princ.":                       {"-principal", ""},
+		"a principal that is not a usr_ ID":  {"-principal", "cust_1"},
+		"a usr_ ID of one character":         {"-principal", "usr_a"},
+		"a usr_ ID with a space":             {"-principal", "usr_a b"},
+		"a usr_ ID with a hyphen":            {"-principal", "usr_a-b"},
+		"a usr_ ID of 33 characters":         {"-principal", "usr_" + strings.Repeat("A", 33)},
+		"a usr_ ID with a trailing newline":  {"-principal", "usr_abc\n"},
+		"the prefix in capitals":             {"-principal", "USR_abc"},
+		"text before a usr_ ID":              {"-principal", "xusr_abc"},
+		"a usr_ ID and then more":            {"-principal", "usr_abc usr_def"},
 		"empty audience":                     {"-aud", ""},
 		"empty kid":                          {"-kid", ""},
 	} {
@@ -176,5 +185,24 @@ func TestNothingSecretIsPrinted(t *testing.T) {
 	_ = run([]string{"issue", "-key", filepath.Join(dir, "private.pem")}, &out, clock.NewManual(epoch))
 	if strings.Contains(out.String(), "PRIVATE") || strings.Contains(out.String(), strings.TrimSpace(strings.Split(string(raw), "\n")[1])) {
 		t.Fatalf("secret material in the output: %q", out.String())
+	}
+}
+
+// A163 (relayed, to be committed), contracts/schemas/common.v1.json PrincipalId: the synthetic IdP mints a `sub` that is a `usr_` ID of the contract, 2 to 32 letters
+// or digits after the prefix, so that a session's principal can become an Intent Object's principal_id without a rewrite. The verifier is not widened or narrowed:
+// it still accepts any `sub` of up to 128 bytes (ruling A1 item 6).
+func TestTheIssuerMintsUsrIDsOfTheContractAndNothingElse(t *testing.T) {
+	dir := newKeyDir(t)
+	clk := clock.NewManual(epoch)
+	for _, id := range []string{"usr_ab", "usr_synth012", "usr_01J9X3ABCDEFGHJKMNPQRSTVWX", "usr_" + strings.Repeat("Z", 32)} {
+		tok, err := mintToken(t, dir, clk, "-principal", id)
+		if err != nil {
+			t.Errorf("%s: %v", id, err)
+			continue
+		}
+		p, err := verifierFor(t, dir, "idp-k1", clk).Verify(tok)
+		if err != nil || p.ID != id {
+			t.Errorf("%s: verified as %q, %v", id, p.ID, err)
+		}
 	}
 }

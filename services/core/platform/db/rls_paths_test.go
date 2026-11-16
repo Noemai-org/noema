@@ -17,6 +17,7 @@ var reviewedPaths = map[string]string{
 	"function decision_grant_guard":          "trigger on decision_grant (migration 0001); compares columns of OLD and NEW only; reads no other table",
 	"function decision_record_tenant_guard":  "trigger on decision_record; SECURITY DEFINER with search_path = pg_catalog, pg_temp; reads public.tenant_login and pg_roles, never decision_record",
 	"function outcome_record_verdict":        "Outcome (migration 0007); SECURITY DEFINER, reads decision_grant to check a verdict's correlation; its policy sees only the caller's tenant because the policy keys on session_user, and its search_path pins pg_temp last since migration 0012",
+	"function grant_spend_budget_guard":      "trigger on grant_spend (migration 0023); SECURITY INVOKER, so it reads public.decision_grant as the spending login and row security applies to it (a foreign tenant's grant is invisible); a superuser skips it; the record count is made by dispatch_budget_count, which counts only the calling login's tenant",
 	"function reject_mutation":               "trigger function that always raises; reads no table",
 }
 

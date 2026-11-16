@@ -10,7 +10,7 @@ import (
 func get(t *testing.T, check readiness, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	newMux(check).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	newMux(check, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 	return rec
 }
 
@@ -43,7 +43,7 @@ func TestReadyzIs200WhenReady(t *testing.T) {
 
 func TestOnlyGetIsAllowed(t *testing.T) {
 	rec := httptest.NewRecorder()
-	newMux(notReady).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
+	newMux(notReady, nil).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/healthz", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST /healthz = %d, want 405", rec.Code)
 	}
@@ -51,7 +51,7 @@ func TestOnlyGetIsAllowed(t *testing.T) {
 
 // PLT-04: the container health check probes /healthz of a running core.
 func TestProbeHealth(t *testing.T) {
-	srv := httptest.NewServer(newMux(notReady))
+	srv := httptest.NewServer(newMux(notReady, nil))
 	defer srv.Close()
 	if err := probeHealth(strings.TrimPrefix(srv.URL, "http://")); err != nil {
 		t.Fatalf("probe of a live core failed: %v", err)

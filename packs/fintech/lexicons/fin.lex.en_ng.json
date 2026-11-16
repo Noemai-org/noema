@@ -1,0 +1,21 @@
+{
+  "lexicon_id": "fin.lex.en_ng",
+  "version": "1.0.0",
+  "mark": "[synthetic seed]",
+  "note": "Minimal v0 for the five golden examples G-A to G-E (UND-05). Every entry is a [synthetic seed]: invented for the POC, not reviewed by a native speaker (OQ-12), and every window and offset is a starting value that moves only through a benchmark run and a founder decision (AGENT-16). Numerals as words and the other four languages are UND-06's.",
+  "utc_offset_minutes": 60,
+  "currency": {"code": "NGN", "minor_per_major": 100, "words": ["naira", "ngn", "n", "₦"], "mark": "[synthetic seed]"},
+  "multipliers": [
+    {"word": "k", "value": 1000, "mark": "[synthetic seed]"},
+    {"word": "thousand", "value": 1000, "mark": "[synthetic seed]"}
+  ],
+  "relative_times": [
+    {"phrase": "this morning", "day_offset": 0, "from": "05:00", "to": "12:00", "mark": "[synthetic seed]"},
+    {"phrase": "yesterday", "day_offset": -1, "from": "00:00", "to": "24:00", "mark": "[synthetic seed]"}
+  ],
+  "directions": [
+    {"word": "send", "value": "OUTGOING", "mark": "[synthetic seed]"},
+    {"word": "sent", "value": "OUTGOING", "mark": "[synthetic seed]"},
+    {"word": "received", "value": "INCOMING", "mark": "[synthetic seed]"}
+  ]
+}

@@ -16,6 +16,7 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,11 +55,15 @@ const MaxSubjectLen = 128
 
 // Principal is the authenticated caller. Nothing else in a request may name one (INV-12).
 type Principal struct {
-	ID        string
-	Tenant    string
-	Role      Role // exactly one (ruling A1)
-	IssuedAt  time.Time
-	ExpiresAt time.Time
+	ID     string
+	Tenant string
+	Role   Role // exactly one (ruling A1)
+	// The three fields the Intent Object's principal needs besides the ID (ruling A149). They come from the verified session and from nothing else (INV-12).
+	PrincipalType string // from the single role: customer, operator (ops), auditor (audit), approver
+	AssertedBy    string // the verified issuer
+	AuthnRef      string // "ses_" and 32 hex characters of a hash of the token's kid, sub and iat; never the token
+	IssuedAt      time.Time
+	ExpiresAt     time.Time
 }
 
 // Config is what a Verifier needs. Every field is required.
@@ -199,7 +204,22 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	if !knownRole(role) {
 		return Principal{}, invalid("role")
 	}
-	return Principal{ID: c.Sub, Tenant: c.Tenant, Role: role, IssuedAt: iat, ExpiresAt: exp}, nil
+	return Principal{ID: c.Sub, Tenant: c.Tenant, Role: role, IssuedAt: iat, ExpiresAt: exp,
+		PrincipalType: principalTypes[role], AssertedBy: c.Iss, AuthnRef: authnRef(h.Kid, c.Sub, *c.Iat)}, nil
+}
+
+// principalTypes maps the single role of a session to the principal kind of the Intent Object (ruling A149; ops is operator, audit is auditor).
+var principalTypes = map[Role]string{RoleCustomer: "customer", RoleOps: "operator", RoleAudit: "auditor", RoleApprover: "approver"}
+
+// authnRef is a reference to the session, not the token: SHA-256 of the JSON array [kid, sub, iat] (one unambiguous spelling, no separator that a sub could
+// contain), as "ses_" and the first 32 hex characters, which is the shape of a SessionId in contracts/schemas/common.v1.json. It carries 128 bits.
+func authnRef(kid, sub string, iat int64) string {
+	raw, err := json.Marshal([]any{kid, sub, iat})
+	if err != nil {
+		return "" // cannot happen for a string, a string and an integer; an empty reference is refused by the contract
+	}
+	sum := sha256.Sum256(raw)
+	return "ses_" + hex.EncodeToString(sum[:])[:32]
 }
 
 // headerMembersAllowed accepts only the members alg, kid and typ. A token that names its own key (jwk, jku, x5u, x5c) or carries critical

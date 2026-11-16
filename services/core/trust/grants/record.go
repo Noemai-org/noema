@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
 
 // recordDomain is the domain label of a Decision Record v2 signature (rulings A5 and A13, 6 Nov 2026). The signed bytes are the label, one 0x00 byte
@@ -82,4 +83,14 @@ func (k *Keys) VerifyRecordAt(r contracts.DecisionRecordV2, now time.Time) error
 		return ErrRecordExpired
 	}
 	return nil
+}
+
+// BoundPolicy is the policy_id@version a record or a grant binds from a decision's basis, by the same rule as Issue (ruling D1): the exact policy named, the
+// newest version of that policy only; with one policy in the basis it may be left empty.
+func BoundPolicy(b decide.Basis, policyID string) (string, bool) {
+	p, ok := boundPolicy(b, policyID)
+	if !ok || !shapes["policy"].MatchString(p) {
+		return "", false
+	}
+	return p, true
 }

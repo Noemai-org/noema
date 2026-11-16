@@ -33,7 +33,7 @@ func slotTemplates(t *testing.T, text string) explanation.Templates {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	return tpl
+	return tpl.WithMaskingLimits(packMaskingLimits(t)) // a template without the loaded limit blocks every text (A154)
 }
 
 func withFacts(items ...contracts.ExplanationFactsV2FactsItem) contracts.ExplanationFactsV2 {

@@ -23,6 +23,9 @@ const (
 // Not read here: `subject_resource.status` of create_escalation_case. It is a read of the bank ledger, which is
 // Tushe-dependent work the Founder paused on 25 Oct 2026; the revalidation of that fact is added with the ledger
 // adapter.
+//
+// The complaint capability has no revalidation: it has no dispatch (see CapLogComplaintReference), so a grant for it is voided here (REVALIDATION_UNAVAILABLE) and
+// nothing is written.
 type CaseRevalidator struct {
 	Case adapters.Case
 }
@@ -36,6 +39,8 @@ func (r CaseRevalidator) Revalidate(ctx context.Context, g controller.Grant, ste
 		return r.route(ctx, g)
 	case CapCreateEscalationCase:
 		return r.create(ctx, g, step)
+	case CapRecordInvestigationEvidence:
+		return r.caseStatus(ctx, g)
 	}
 	return controller.Revalidation{}, fmt.Errorf("bridge: no revalidation for capability %q", step.CapabilityID)
 }
@@ -86,4 +91,16 @@ func (r CaseRevalidator) create(ctx context.Context, g controller.Grant, step co
 func epochOf(p map[string]any) int64 {
 	e, _ := p[paramEpoch].(int64)
 	return e
+}
+
+// caseStatus is the one read of the evidence capability: the case still exists and is open or routed. A case that cannot be read is an error.
+func (r CaseRevalidator) caseStatus(ctx context.Context, g controller.Grant) (controller.Revalidation, error) {
+	c, err := r.Case.GetCase(ctx, g.TenantID, g.TargetRef)
+	if err != nil {
+		return controller.Revalidation{}, err
+	}
+	if c.Status != "OPEN" && c.Status != "ROUTED" {
+		return controller.Revalidation{Passed: false, ChangedFacts: []string{FactCaseStatus}}, nil
+	}
+	return controller.Revalidation{Passed: true}, nil
 }

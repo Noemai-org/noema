@@ -174,6 +174,8 @@ func (c *Controller) Execute(ctx context.Context, tenantID, grantID string) (Out
 		return Outcome{Replayed: true}, nil
 	case spend.WritesDisabled:
 		return c.void(ctx, g, VoidWritesDisabled)
+	case spend.BudgetSpent:
+		return Outcome{BudgetSpent: true}, nil // nothing was written; the grant stays ISSUED and the database refuses it again each time
 	case !spend.Spent:
 		return Outcome{}, errors.New(errPrefix + "the ledger neither spent nor refused the grant")
 	}
