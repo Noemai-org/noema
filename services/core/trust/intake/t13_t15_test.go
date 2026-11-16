@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -257,13 +258,51 @@ func TestT13ConfirmationNotRequiredContinues(t *testing.T) {
 // INV-25: a resolved confirmation leads to the fresh evaluation this is; the grant follows the confirmation event.
 func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001"}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: tPlanHash}
 	res := run13(t, newEval13(t, f))
 	if tr, _ := stepResult(res, decide.T13Confirmation); tr != decide.StepPassed {
 		t.Fatalf("T13 %v, want PASSED; trace %v", tr, res.Trace)
 	}
 	if res.Decision.Outcome() != decide.Allow || rec0(t, f).ConfirmationEventID != "evt_synth0001" {
 		t.Errorf("outcome %s, confirmation event %q", res.Decision.Outcome(), rec0(t, f).ConfirmationEventID)
+	}
+	if got := rec0(t, f).ConfirmationPlanHash; got != tPlanHash {
+		t.Errorf("the Recorder was told the confirmation's plan %q, want %q (A230: the writer compares it with the steps' plan)", got, tPlanHash)
+	}
+}
+
+// A230 (interim), REQ-TRU-009, INV-25: a confirmation was given for ONE plan. If the plan T14 built is another, the confirmation does not authorise it: CONFIRM again, nothing
+// recorded. (The writer refuses the same mismatch as the last line of defence, noema#603.)
+func TestT14AConfirmationGivenForAnotherPlanIsConfirmAgainAndNothingIsRecorded(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	ev := newEval13(t, f)
+	res := run13(t, ev)
+	d := res.Decision
+	if d.Outcome() != decide.Confirm {
+		t.Fatalf("outcome %s %v, want CONFIRM", d.Outcome(), codes13(d))
+	}
+	if got := lastTrace(res); got.Step != decide.T14Plan || got.Result != decide.StepTerminal {
+		t.Errorf("trace ends %v, want T14 terminal", got)
+	}
+	if err := ev.bb.Check(d); err != nil {
+		t.Errorf("the CONFIRM's basis is not the evaluated set: %v", err)
+	}
+	if f.called("Recorder.Record") != 0 {
+		t.Errorf("the recorder was called after a confirmation for another plan: %v", f.calls)
+	}
+}
+
+// A Given answer with no plan hash, or one that is not in the contract's form, is not an answer (fail closed): UNKNOWN at T13, nothing planned or recorded.
+func TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown(t *testing.T) {
+	for name, hash := range map[string]string{"none": "", "the wrong form": "sha256:ABC", "no prefix": strings.Repeat("a", 64)} {
+		f := newFake13()
+		f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: hash}
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+			t.Errorf("%s: the planner or the recorder was called: %v", name, f.calls)
+		}
 	}
 }
 
@@ -415,7 +454,7 @@ func TestT15AllowStandsOnlyAfterTheRecordWasWrittenOnce(t *testing.T) {
 // TRU-13: what T15 hands to the Recorder is the decision carrying the builder's basis, the builder itself and its digest, with the identifiers of the request.
 func TestT15TheRecordRequestCarriesTheBuildersBasisAndTheRequestsIdentity(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001"}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: tPlanHash}
 	ev := newEval13(t, f)
 	run13(t, ev)
 	r := rec0(t, f)
