@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 const goodSecret = "whsec_" + "MfKQ9r8GKYqrTwjU" + "PD8ILPZIo2LaLaSw" // split so a scanner sees no key; the documented Standard Webhooks example key, not a credential
@@ -51,6 +52,31 @@ func TestRefusesMissingOrWeakSecret(t *testing.T) {
 	for i, c := range cases {
 		if _, err := load(c.env, c.files); err == nil || errors.Is(err, nil) {
 			t.Errorf("case %d: want a refusal", i)
+		}
+	}
+}
+
+// A240 and A247: the bench can make the relay hold its answer past Tushe's 12-second delivery timeout. The number of seconds is a setting with no default; unset means no hold.
+func TestHoldIsOffUnlessSetAndMustBeAboveTusheTimeout(t *testing.T) {
+	base := func(extra map[string]string) map[string]string {
+		env := map[string]string{"WEBHOOK_RELAY_SIGNING_SECRET_FILE": "/s", "WEBHOOK_RELAY_STORE_FILE": "/d/s.jsonl"}
+		for k, v := range extra {
+			env[k] = v
+		}
+		return env
+	}
+	files := map[string]string{"/s": goodSecret}
+	c, err := load(base(nil), files)
+	if err != nil || c.Hold != 0 {
+		t.Fatalf("unset: %v %+v", err, c)
+	}
+	c, err = load(base(map[string]string{"WEBHOOK_RELAY_HOLD_SECONDS": "15"}), files)
+	if err != nil || c.Hold != 15*time.Second {
+		t.Fatalf("15: %v %+v", err, c)
+	}
+	for _, bad := range []string{"12", "11", "0", "-15", "15.5", "abc", " 15", "1e2", "99999999999999999999"} {
+		if _, err := load(base(map[string]string{"WEBHOOK_RELAY_HOLD_SECONDS": bad}), files); err == nil || !strings.Contains(err.Error(), "WEBHOOK_RELAY_HOLD_SECONDS") {
+			t.Errorf("%q: want a refusal naming the setting, got %v", bad, err)
 		}
 	}
 }
