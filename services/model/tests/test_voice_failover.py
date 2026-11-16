@@ -1,6 +1,6 @@
 """Provider failover mid-utterance and barge-in tests (VOI-10, REQ-VOI-002, PERD §35.3).
 
-Providers are scripted fakes. No vendor wire format is assumed.
+Providers are scripted fakes and the audio is synthetic: SYNTHETIC test doubles under the recorded AGENT-12 exception of noema#412 (the SpeechProvider seam, tests under `services/model/tests/` only). No vendor wire format is assumed.
 """
 
 import asyncio

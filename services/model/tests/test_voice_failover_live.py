@@ -2,6 +2,8 @@
 
 When a provider's deadline expires while it waits for the next live chunk, the cancellation must not reach the microphone:
 the next provider has to receive the whole utterance, not the part heard before the stall.
+
+The providers and the microphone are SYNTHETIC scripted stand-ins under the recorded AGENT-12 exception of noema#412 (the SpeechProvider seam, tests under `services/model/tests/` only).
 """
 
 import asyncio

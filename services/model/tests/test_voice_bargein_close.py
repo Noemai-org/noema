@@ -1,4 +1,4 @@
-"""Both streams are closed even when one fails to close (VOI-10, REQ-VOI-004, AGENT-13; Codex P2 on #218)."""
+"""Both streams are closed even when one fails to close (VOI-10, REQ-VOI-004, AGENT-13; Codex P2 on #218). The streams are SYNTHETIC scripted stand-ins under the recorded AGENT-12 exception of noema#412 (the SpeechProvider seam; tests under `services/model/tests/` only)."""
 
 
 import pytest
