@@ -38,6 +38,7 @@
 - Risks, and how they are contained: the contract is checked by hand (no validator, AGENT-14); the differential test and 47 hand mutants on the gate and canary: 46 killed, 1 equivalent (comparing canonical YYYY-MM-DD dates as strings gives the date order) hold the two modules together; stricter than the schema only where a float is not an integer.
 - Tests added (REQ-INT-006, AGENT-28, REQ-BEN-009): the golden differential (84 lookups), the canary's subset and baseline consistency tests.
 - Regression cases added: a revoking record of an invalid kind still refuses; an A17-shaped record (no `runs`) refuses; a bar whose baseline record is missing, invalid, another model or version, or measured in another context refuses.
+- The Voice Engineer's independent read of noema#215 at `01cca65f` (READY, four notes, 16 Nov 2026): note 1 (a defect: `_SHA.match` with `$` accepted a trailing newline) and note 2 (the baseline's own `commit_sha` was not validated) fixed, tests first (`4c0e0fa9`, 14 cases red): `_is_sha` (a string and `fullmatch`) for the run's and the baseline's SHA, refused before any call; notes 3 and 4 are README statements (a record's date is not a security control; a speech model needs a version identifier from Intron). The golden fixtures are unchanged.
 - Debt: not ported: the understanding-dependent check of subset cases (the benchmark's family list is not in this service).
 - Conflicts raised: none.
 

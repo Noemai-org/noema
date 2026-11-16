@@ -10,6 +10,12 @@
 
 **Wiring (not in this slice).** Calling `require_qualified` at service start with the configured providers, and running the canary on a version or provider change, are the service's start-up and operations wiring; they need the harness configuration to name a records directory and a subset, which is a configuration decision (OD below in the PR).
 
+**A record's date is not a security control (the Voice Engineer's read of noema#215, note 3).** The gate reads no clock (INV-21), so "the latest by `qualified_on` decides" takes a record dated in the future as the latest until that date passes: it would shadow a later, real revocation. Records are reviewed commits (CODEOWNERS on `benchmark/qualification/records/`), and what makes a record true is that review, not its date. If the start-up wiring wants the rule enforced in code, it passes `today` and refuses a record dated after it; that is the wiring's decision (it holds the clock), not this module's.
+
+**Speech models need a version identifier from the provider (note 4).** The gate refuses an unpinned version using the harness's pin rule. For `kind: speech` the first record needs a model and version identifier from Intron, whose responses do not carry one in the documents read so far; until it is given the gate refuses the speech model, which is the right outcome (A182). Whoever writes the first speech record asks Intron for that identifier.
+
+**A commit SHA is exactly 40 lower-case hex characters (note 1 and 2).** In the run and in the baseline, whole string (`fullmatch`; `$` would accept a trailing newline), refused before any provider call.
+
 **Tests.** `pytest tests/test_qualification_gate.py tests/test_qualification_canary.py` from `services/model/`.
 
 **Fail closed on a malformed record (EL's review of noema#215).** A rate, a floor or a baseline that is NaN, infinite, a bool, a string or outside 0..1 invalidates the record, so the identity is refused (every comparison with NaN is false and would otherwise pass); a digest or date with a trailing newline is not a digest or a date (`fullmatch`); a reason that is not a string invalidates the record instead of raising. `run_canary` refuses a `timeout_s` that is not a positive finite number. A refused, truncated or unparseable reply is still recorded as UNAVAILABLE for that case, so a drifted answer shape reads as an outage in the run record (recording the reason per case is a later change). `gate.py` imports `harness.config` for the pin rule (`check_pinned`); that is the only import beyond the standard library and `platform`.

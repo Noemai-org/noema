@@ -22,7 +22,7 @@ from noema_model.qualification.gate import KINDS, is_pinned
 RUN_SCHEMA = "qualification-run.v1"
 SUBSET_SCHEMA = "qualification-subset.v1"
 LAYER = "GENERATED"
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SHA = re.compile(r"[0-9a-f]{40}")  # used with fullmatch: `$` would accept a trailing newline
 
 Json = dict[str, Any]
 
@@ -127,6 +127,10 @@ def _subset_problems(subset: Mapping[str, Any]) -> list[str]:
     return out
 
 
+def _is_sha(value: Any) -> bool:
+    return isinstance(value, str) and _SHA.fullmatch(value) is not None
+
+
 def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: Mapping[str, Any]) -> None:
     cases = subset.get("cases")
     if subset.get("layer") != LAYER or (isinstance(cases, list) and any(isinstance(c, Mapping) and c.get("suite_layer") != LAYER for c in cases)):
@@ -140,6 +144,8 @@ def _check_inputs(subset: Mapping[str, Any], baseline: Mapping[str, Any], pin: M
     absent = [m for m in ("subset_id", "cases_sha256", "pinned", "commit_sha", "cases") if m not in baseline]
     if absent:
         raise ValueError(f"the baseline is missing {', '.join(absent)}")
+    if not _is_sha(baseline["commit_sha"]):
+        raise ValueError("the baseline's commit_sha is not a 40-character lowercase hex SHA")
     if not isinstance(baseline["pinned"], Mapping) or not isinstance(baseline["cases"], Mapping) or not all(isinstance(baseline["pinned"].get(n), str) for n in ("kind", "provider", "model_id", "version")):
         raise ValueError("the baseline's pinned identity and cases must be objects, and the identity must name a kind, provider, model and version")
     if set(baseline["cases"]) != set(ids):
@@ -170,7 +176,7 @@ async def run_canary(*, subset: Mapping[str, Any], baseline: Mapping[str, Any], 
         raise ValueError(f"timeout_s must be a positive finite number from configuration, not {timeout_s!r} (None would wait forever)")
     pin = _pinned(pinned)
     _check_inputs(subset, baseline, pin)
-    if not _SHA.match(commit_sha):
+    if not _is_sha(commit_sha):
         raise ValueError(f"commit_sha must be a 40-character lowercase hex SHA, not {commit_sha!r}")
     rows: list[Json] = []
     for case in subset["cases"]:
