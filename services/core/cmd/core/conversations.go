@@ -44,11 +44,11 @@ func (c *capture) Header() http.Header         { return c.header }
 func (c *capture) WriteHeader(code int)        { c.status = code }
 func (c *capture) Write(b []byte) (int, error) { return c.body.Write(b) }
 
-// startConversation wraps the gateway's handler. On 200 and 202 it replaces the body with the A234 answer; any other status, header and body pass through unchanged. If the
+// startConversation wraps the gateway's handler. The capture starts from a copy of the response's headers: the gateway reads the request's correlation ID from them, and the error body, the header and the logs must agree. On 200 and 202 it replaces the body with the A234 answer; any other status, header and body pass through unchanged. If the
 // gateway's answer cannot be read, or its correlation ID is not one the core minted, the answer is an error and never a guess.
 func startConversation(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c := &capture{header: http.Header{}, status: http.StatusOK}
+		c := &capture{header: w.Header().Clone(), status: http.StatusOK}
 		inner.ServeHTTP(c, r)
 		if c.status != http.StatusOK && c.status != http.StatusAccepted {
 			for k, v := range c.header {

@@ -155,3 +155,20 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Exact next step: the Gateway's production construction (hash key file, deduplication window, the core-edge and record-read pools, the `Start` seam over the composed runner, late-bound so the gateway answers 503 until the runner is composed); then the investigation route and the events route (the read model from the Record, with A237's answer builder).
 - Files to read first: `cmd/core/conversations.go`, `inputgateway/README.md` ("For EL").
 - Do not touch: `inputgateway/`.
+
+# Session 2026-11-16 13:30 WAT · STM-01 (SR NOT READY on noema#617)
+
+## Session summary
+- What changed (PR links): noema#617. The route's capture now starts from a clone of the response's headers, so an error body keeps the request's correlation ID (SR blocking 1; red first: `TestAnErrorBodyCarriesTheRequestsCorrelationID` failed with `corr_NONE` against a real header). `POST /v1/conversations` is a row of the authorization matrix (`edge/authz_matrix_test.go`, test file only: `mxRow` gains a body; customer only; SR blocking 2). `TestAnIdentityInTheBodyIsRefusedAndNothingStarts`: a tenant, role or principal in the body gives 400 and records and starts nothing (it passed at once: the refusal already existed in `session.RefuseBodyIdentity` and the gateway's member list; the test pins it).
+- Why: SR review of 2461118f.
+- Risks, and how they are contained: none new; one header map copied per request.
+- Tests added (REQ, INV, US or EC IDs): REQ-API-001, INV-12.
+- Regression cases added: the three above.
+- Debt entries: none.
+- Conflicts raised: SR note 1 (ULID digit runs in IDs the core mints, against A154) is a question for the Architect, not decided here: the correlation ID was already sent before this PR; I make no change.
+
+## Pre-work for the next agent
+- Exact next step: the investigation route and the events feed (GET /v1/investigations/{id}, SSE), reading the Record.
+- Open questions (owner): A154 and core-minted ULIDs (Architect); errors.v2 against v3 codes in the gateway (SR note 2, Architect).
+- Files to read first: `cmd/core/conversations.go`, `inputgateway/handler.go`.
+- Do not touch: `inputgateway` (merged).
