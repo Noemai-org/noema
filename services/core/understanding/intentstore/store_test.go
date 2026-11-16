@@ -26,7 +26,7 @@ const (
 
 // admitted builds a valid admitted intent: the document, the hash over a stand-in canonical text, and the columns the table keeps.
 func admitted(tenant, id string, version int, corr string) intentstore.Admitted {
-	doc := map[string]any{"schema_version": "1.0", "intent_id": id, "version": version, "supersedes": nil, "tenant_id": tenant, "correlation_id": corr, "status": "VALIDATED",
+	doc := map[string]any{"schema_version": "3.0", "intent_id": id, "version": version, "supersedes": nil, "tenant_id": tenant, "correlation_id": corr, "status": "VALIDATED",
 		"intent_node": node}
 	sup := ""
 	if version > 1 {
