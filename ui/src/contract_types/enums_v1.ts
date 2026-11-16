@@ -8,7 +8,7 @@ const PATTERN_1 = new RegExp("^S[0-9]_[a-z][a-z0-9_]*$", "u");
 export type EnumsV1ApproverRequirement = EnumsV1ApproverRequirementOption1 | string;
 
 export function parseEnumsV1ApproverRequirement(v: unknown, p: string = "$"): EnumsV1ApproverRequirement {
-  return union(v, p, [(x, q) => parseEnumsV1ApproverRequirementOption1(x, q), (x, q) => str(x, q, {pattern: PATTERN_0})]);
+  return union<EnumsV1ApproverRequirement>(v, p, [(x, q) => parseEnumsV1ApproverRequirementOption1(x, q), (x, q) => str(x, q, {pattern: PATTERN_0})]);
 }
 
 /** EnumsV1ApproverRequirementOption1, generated from enums.v1.json#$defs/ApproverRequirement/oneOf/0. */

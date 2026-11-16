@@ -77,5 +77,5 @@ export function parseOverlayCardV1ConfirmationCard(v: unknown, p: string = "$"):
 export type OverlayCardV1 = OverlayCardV1ClarificationCard | OverlayCardV1ConfirmationCard;
 
 export function parseOverlayCardV1(v: unknown, p: string = "$"): OverlayCardV1 {
-  return union(v, p, [(x, q) => parseOverlayCardV1ClarificationCard(x, q), (x, q) => parseOverlayCardV1ConfirmationCard(x, q)]);
+  return union<OverlayCardV1>(v, p, [(x, q) => parseOverlayCardV1ClarificationCard(x, q), (x, q) => parseOverlayCardV1ConfirmationCard(x, q)]);
 }

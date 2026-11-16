@@ -61,8 +61,8 @@ class Ts:
         raise ir.GenerationError(f"no TypeScript expression for {type(t).__name__}")
 
     # -- parser expressions: code that turns `v` at `p` into the type -------------------------------------------------------
-    def pexpr(self, t: Any, v: str, p: str, use: set[str], pats: list[str]) -> str:
-        e = self.pbase(t, v, p, use, pats)
+    def pexpr(self, t: Any, v: str, p: str, use: set[str], pats: list[str], name: str | None = None) -> str:
+        e = self.pbase(t, v, p, use, pats, name)
         if getattr(t, "nullable", False):
             return f"({v} === null ? null : {e})"
         return e
@@ -72,7 +72,7 @@ class Ts:
             pats.append(pattern)
         return f"PATTERN_{pats.index(pattern)}"
 
-    def pbase(self, t: Any, v: str, p: str, use: set[str], pats: list[str]) -> str:
+    def pbase(self, t: Any, v: str, p: str, use: set[str], pats: list[str], name: str | None = None) -> str:
         if isinstance(t, ir.Prim):
             c = t.constraints
             if t.kind == "string":
@@ -108,7 +108,9 @@ class Ts:
             return f"mapOf({v}, {p}, (x, q) => {item})"
         if isinstance(t, ir.Union):
             alts = ", ".join(f"(x, q) => {self.pexpr(a, 'x', 'q', use, pats)}" for a in t.alts)
-            return f"union({v}, {p}, [{alts}])"
+            # The union names its own type: without it TypeScript infers T from the first alternative and refuses the others (a oneOf of different object shapes).
+            own = name or ("string" if all(isinstance(a, ir.Prim) and a.kind == "string" for a in t.alts) else self.tbase(t, use))
+            return f"union<{own}>({v}, {p}, [{alts}])"
         raise ir.GenerationError(f"no TypeScript parser for {type(t).__name__}")
 
     # -- named types ------------------------------------------------------------------------------------------------------
@@ -144,7 +146,7 @@ class Ts:
         if isinstance(t, ir.Union) and all(isinstance(a, ir.Prim) and a.kind == "string" for a in t.alts):
             expr_t = "string"
         return (head + f"export type {n} = {expr_t};\n\n"
-                + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n  return {self.pexpr(t, 'v', 'p', use, pats)};\n}}\n")
+                + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n  return {self.pexpr(t, 'v', 'p', use, pats, n)};\n}}\n")
 
     def render_schema(self, b: ir.Built) -> str:
         mod = module_name(b.file)

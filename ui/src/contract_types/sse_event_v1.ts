@@ -105,5 +105,5 @@ export function parseSseEventV1Progress(v: unknown, p: string = "$"): SseEventV1
 export type SseEventV1 = SseEventV1Progress | SseEventV1Clarification | SseEventV1Confirmation | SseEventV1Answer | SseEventV1Error;
 
 export function parseSseEventV1(v: unknown, p: string = "$"): SseEventV1 {
-  return union(v, p, [(x, q) => parseSseEventV1Progress(x, q), (x, q) => parseSseEventV1Clarification(x, q), (x, q) => parseSseEventV1Confirmation(x, q), (x, q) => parseSseEventV1Answer(x, q), (x, q) => parseSseEventV1Error(x, q)]);
+  return union<SseEventV1>(v, p, [(x, q) => parseSseEventV1Progress(x, q), (x, q) => parseSseEventV1Clarification(x, q), (x, q) => parseSseEventV1Confirmation(x, q), (x, q) => parseSseEventV1Answer(x, q), (x, q) => parseSseEventV1Error(x, q)]);
 }
