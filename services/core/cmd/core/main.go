@@ -100,14 +100,13 @@ func main() {
 	defer stop()
 	// The components other tasks build are plugged in here as their constructors land (nothing else is configured yet, so /readyz names the first one missing).
 	env := Env{Getenv: os.Getenv, ReadFile: os.ReadFile, ReadDir: os.ReadDir}
-	records, closeRecords, err := buildRecordReader(ctx, env)
+	clk := clock.System{}
+	components, closeComponents, err := buildComponents(ctx, env, clk, ids.New(clk, nil), logger)
 	if err != nil {
 		logger.Error("configuration", "error", err.Error()) // names the setting or the tenant, never a DSN
 		os.Exit(1)
 	}
-	defer closeRecords()
-	components := Components{Records: records, AccessLog: logger}
-	clk := clock.System{}
+	defer closeComponents()
 	api, err := buildAPI(components, env, clk, ids.New(clk, nil))
 	if err != nil {
 		logger.Error("configuration", "error", err.Error()) // names the setting, never a value

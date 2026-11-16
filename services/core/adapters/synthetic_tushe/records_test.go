@@ -228,7 +228,7 @@ func TestEvidenceAndComplaintBadInputSendsNothing(t *testing.T) {
 	}
 }
 
-// REQ-EXE-003: the complaint reference is logged with one keyed POST that names the tenant and nothing else; it moves no clock and carries no text.
+// REQ-EXE-003, A229: the complaint reference is logged with one keyed POST that names the tenant and nothing else, always conditional (If-None-Match: *); it moves no clock and carries no text.
 func TestLogComplaintSendsOneKeyedRequestAndReadsTheReference(t *testing.T) {
 	var s seen
 	c := serveOnce(t, &s, 201, nil, complaint(nil))
@@ -236,7 +236,7 @@ func TestLogComplaintSendsOneKeyedRequestAndReadsTheReference(t *testing.T) {
 	if r.Class != adapters.ClassAck2xx || r.RawCode != "201" || r.ExternalAck != "cmp_1" || r.Complaint == nil || r.Complaint.ComplaintRef != "cmp_1" {
 		t.Fatalf("result %+v", r)
 	}
-	if s.hits != 1 || s.method != http.MethodPost || s.path != "/v1/cases/cas_1/complaints" || s.key != "idem-cm-1" || s.ifNone != "" {
+	if s.hits != 1 || s.method != http.MethodPost || s.path != "/v1/cases/cas_1/complaints" || s.key != "idem-cm-1" || s.ifNone != "*" {
 		t.Fatalf("request %s %s key=%q if-none-match=%q hits=%d", s.method, s.path, s.key, s.ifNone, s.hits)
 	}
 	if len(s.body) != 1 || s.body["tenant_id"] != "ten_a" {

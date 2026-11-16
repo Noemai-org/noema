@@ -78,6 +78,24 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Note 4:** migration 0020 checks the shape of `reconciliation_id` (`^rec_...`) and `reconciliation_classification` (`^[A-Z][A-Z0-9_]*$`) and not a closed set; the adapter now refuses an answer that is not of those shapes (`ErrIncomplete`); the closed set stays the Reconciler's contract. **Notes 3 and 5:** stated in the README (who bounds what; the caller maps every error to one answer and never returns `err.Error()`). The cross-tenant and cross-principal test over Postgres belongs to the first real wiring.
 - Debt: none. Conflicts raised: none.
 
+# Session 2026-11-16 · ENV-04 slice 2 · the evidence item carries its source and times (noema#596)
+
+## Session summary
+- What changed (PR noema#613): `evidence/layer/builder.go`: `layer.Item` gains `Source`, `ReadAt`, `EffectiveAt` and `FreshnessSLASeconds`, set by `Builder.Record` from what it just wrote to `evidence_item`; `builder_test.go`: one test that reads the stored row back and compares.
+- Why: the Founder's order of 16 Nov 2026 ("Reconciler slice 2 per A228/#596"). The Reconciler builds a `reconcile.Evidence` per mapped row and needs the source, the read time (for `ExpiresAt`) and the effective time, which `layer.Item` did not carry.
+- Risks, and how they are contained: additive to a struct whose literals use field names; no new read, no new login; no Record event changes.
+- Tests added (REQ-CTX-001, REQ-RES-001): 1, red first (run 43806709349: `static`, `tests (2)` and `core` failed with "item.Source undefined"; the whole run read, `compose` included).
+- Regression cases added: the item agrees with the stored row.
+- The Security Reviewer's READY on noema#613 at `1ba21a85`, with a conflict and three notes (16 Nov 2026): merged `main` for the conflict (`status/ENV-04.md`, both sessions kept). Note 2: the item's `FreshnessSLASeconds` was only the source's limit, while `AssignStatus` applies the stricter of the source's and the profile's (INV-23), so an expiry made from it would have been looser than the status: the field is now `EffectiveFreshnessSeconds` (the applied limit; the row's `freshness_sla_seconds` stays the source's). Note 3: the item's times are cut to the microsecond `timestamptz` keeps. Both tests first (`c04783c8`). Note 1 (a zero `ReadAt` or `EffectiveAt` is refused nowhere): not changed here, because the builder never refused it and a failed read may carry no time; the Reconciler (slice 2b) refuses a zero value it uses, and the field's comment says so.
+- Debt entries: none. Conflicts raised: none.
+- Default taken (AGENT-02), stated on noema#596: EL owns `evidence/layer`; EL has not answered question 1, so this PR is the smallest default and closes if EL prefers to add the fields.
+
+## Pre-work for the next agent
+- Exact next step: after noema#589 merges, the `PayloadReader` port in `readseal`, the hash check (decode with exact numbers, canonicalise, compare with `PayloadHash`), and the Reconciler (`Classify`), tests first. A row with no fields is not a positive fact (INV-19; the Security Reviewer's note 2 on noema#589).
+- Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
+- Files to read first: `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`, `evidence/readseal/readseal.go`, `cmd/core/payloadreader.go`.
+- Do not touch: the pack's mapping rows until the Architect accepts them.
+
 # Session 2026-11-15 11:00 WAT · ENV-04 · the G1 stack workflow's session tokens and leak scan (IL, noema#577)
 
 ## Session summary
@@ -92,3 +110,20 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Open questions (owner): the concurrency group is single-flight (`bench-g1-stack`); the Security Reviewer asks for one ruling (Architect or Founders).
 - Files to read first: `.github/workflows/bench-g1-stack.yml`, `tools/ci/g1_leakscan.allow`, `benchmark/runner/test_g1_workflow.py`.
 - Do not touch: the private key path and the issuer binary (runner only).
+
+# Session 2026-11-16 · ENV-04 slice 2a · the verified payload read (noema#596)
+
+## Session summary
+- What changed (PR noema#619): `evidence/payloadread/` (`Reader.Payload`, typed errors, README), `payloadread_test.go`.
+- Why: the Founder's order of 16 Nov 2026 ("Reconciler slice 2, #599 is merged"). The reader of noema#599 returns `jsonb` text; the item's hash covers the canonical form; the Reconciler needs a payload it can prove is the sealed one. This slice depends on nothing unmerged.
+- Risks, and how they are contained: fails closed on every error and returns no object; no payload in an error; the tenant is the caller's; a read of any kind that cannot be verified is "cannot be classified".
+- Tests added (REQ-CTX-001, REQ-AUD-001; INV-12, INV-19, INV-21): 12 tests incl. 300 generated payloads, red first (run on `e206f36f`: the package did not build); 15 hand mutants, all killed.
+- Regression cases added: a changed value; another payload's hash; trailing data; a fraction; an integer at 2^53-1; every read failure; each unusable call reads nothing.
+- Debt entries: none. Conflicts raised: none.
+- Defaults taken (AGENT-02): any failure of the read is one error (`ErrUnavailable`) wrapping the cause, because EL's error values live in `package main` and cannot be imported; the payload is not size-bounded here (the reader's bound is noema#606).
+
+## Pre-work for the next agent
+- Exact next step: slice 2b, the `Classify` (`evidence/reconciler`): after noema#589 (mapping) and noema#613 (`layer.Item` source and times) merge, build one `reconcile.Evidence` per mapped row (a row with no fields is not a positive fact, INV-19), `Required` per the Architect's answer on noema#579 (default until then: every item required, the stricter reading), `now` from `platform/clock`, `rec_` plus letters from SHA-256 of the rule set, the mapping and the sorted evidence IDs, then `reconcile.Reconcile`. It needs `mapping` to say which entities a source feeds (for an item with no payload).
+- Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
+- Files to read first: `evidence/payloadread/README.md`, `evidence/readseal/readseal.go` (the `Reconciler` interface), `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`.
+- Do not touch: the mapping's rows until the Architect accepts them.

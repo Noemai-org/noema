@@ -72,6 +72,7 @@ from . import (
     recovery_request_v1,
     session_limits_v1,
     sse_event_v1,
+    trust_limits_v1,
     trust_profile_v1,
 )
 
@@ -96,6 +97,7 @@ TYPES: dict[str, Any] = {
     "common.v1": common_v1.CommonV1,
     "common.v1#CandidateSetId": common_v1.CommonV1CandidateSetId,
     "common.v1#ClarificationId": common_v1.CommonV1ClarificationId,
+    "common.v1#ClientRequestId": common_v1.CommonV1ClientRequestId,
     "common.v1#ConfirmationEventId": common_v1.CommonV1ConfirmationEventId,
     "common.v1#ConfirmationRequestId": common_v1.CommonV1ConfirmationRequestId,
     "common.v1#CorrelationId": common_v1.CommonV1CorrelationId,
@@ -320,5 +322,6 @@ TYPES: dict[str, Any] = {
     "sse-event.v1#Confirmation": sse_event_v1.SseEventV1Confirmation,
     "sse-event.v1#Error": sse_event_v1.SseEventV1Error,
     "sse-event.v1#Progress": sse_event_v1.SseEventV1Progress,
+    "trust-limits.v1": trust_limits_v1.TrustLimitsV1,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }
