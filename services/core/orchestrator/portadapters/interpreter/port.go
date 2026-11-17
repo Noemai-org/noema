@@ -151,17 +151,27 @@ func (p *Port) Interpret(ctx context.Context, s orchestrator.Session, t orchestr
 	return orchestrator.Interpretation{Kind: orchestrator.Admitted, IntentRef: ref}, nil
 }
 
-// satisfied: every required slot is present and, if it carries a status, that status is RESOLVED. A slot of a type with no status (a Reference) is as resolved as it is present.
+// satisfied: every required slot is present and resolved. A slot says it is resolved only with a `status` member that is the string RESOLVED: a `status` that is present and anything
+// else (null, a number, an empty string, another case) is unresolved, so the port does not rely on the gate to have kept such a value out (EL's read of noema#661). A slot with no `status`
+// member is resolved only when it is a Reference, the one slot type the intent-object contract gives no status; any other type without one is unresolved. Anything that cannot be read is unresolved.
 func satisfied(slots map[string]contracts.IntentSlotV2Slot, required []string) bool {
 	for _, name := range required {
 		raw, ok := slots[name]
 		if !ok {
 			return false
 		}
-		var head struct {
-			Status *string `json:"status"`
+		var head map[string]json.RawMessage
+		if json.Unmarshal(raw, &head) != nil || head == nil {
+			return false
 		}
-		if json.Unmarshal(raw, &head) != nil || (head.Status != nil && *head.Status != "RESOLVED") {
+		var word string
+		if status, has := head["status"]; has {
+			if json.Unmarshal(status, &word) != nil || word != string(contracts.IntentSlotV2SlotStatusRESOLVED) {
+				return false
+			}
+			continue
+		}
+		if json.Unmarshal(head["type"], &word) != nil || word != string(contracts.IntentSlotV2SlotTypeReference) {
 			return false
 		}
 	}

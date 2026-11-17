@@ -10,6 +10,12 @@ What it does, in order:
 3. **Builds the canonical input** (`schema_version` 2.0, the turn's request and correlation ids, the session's tenant, authentication reference and principal, `text` channel, `MODE_1`, `received_at` from the injected clock in UTC) and asks the Interpreter with the pack reference.
 4. **Maps the answer:** a refusal at the gate is `GATE_FAILED` with no error (the Interpreter recorded it first); an admitted intent is `ADMITTED`, or `NEEDS_CLARIFICATION` when it carries an ambiguity flag or a slot the pack requires is missing or not `RESOLVED`; the reference is `<intent_id>@<version>`. Every other failure is returned as the Interpreter gave it. An admitted node the pack does not describe is `ErrPack`, never a quiet admission.
 
+**Deadlines:** the port passes the caller's context through and sets no deadline of its own. A deadline on every call is the Interpreter's rule (the Go standard) and the composition root's duty (`cmd/core`); `TestTheCallersContextReachesTheInterpreter` shows the context arrives unchanged.
+
+**Admission and slots:** a required slot counts as resolved only with a `status` member that is exactly the string `RESOLVED`; any other `status` (null included) is unresolved, and a slot with no `status` is resolved only if it is a Reference (the one type that has none). The port does not rely on the gate for this.
+
+**The reference:** `IntentRef` is `<intent_id>@<version>` (for example `int_X@1`), the form of `common.v1.json#IntentRef` (the `supersedes` link, pattern `^int_[0-9A-Za-z]{2,32}@[0-9]+$`), not the `<prefix>_<ULID>` form of a single ID. No parser for it exists in the core yet; the Trust adapter (noema#572) will need one, with one test shared with the Record's typed-ID checks.
+
 `RequiredFromPack` reads each node's required slots from the pack's data (`packs/fintech_v1.json`), so no slot name is a literal here (A262 point 4).
 
 **Tests:** `cd services/core && go test ./orchestrator/portadapters/interpreter/`. They run the real Interpreter and gate with the repository's pack; the model service, the Record and the store are spies. Synthetic data.

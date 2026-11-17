@@ -140,3 +140,11 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - Open questions (owner): none. NFC stays with the model service's gateway unless a package is approved (AGENT-14).
 - Files to read first: `orchestrator/portadapters/interpreter/port.go`, `understanding/interpreter/interpreter.go`.
 - Do not touch: `understanding/**` (the gate and the pack view are UND-04's earlier PRs).
+
+# Session 2026-11-17 · UND-04 · fixes for the reads of noema#661 (EL and the Security Reviewer)
+
+- **EL P2 (done, tests first):** `satisfied` read the status into a `*string`, so an explicit `null` counted as resolved. It now takes a `status` member only if it is exactly the string `RESOLVED`; a present `status` that is anything else is unresolved; a slot with no `status` is resolved only if it is a Reference. `satisfied_internal_test.go` (19 cases) was red at the first push. I tested `satisfied` directly: through `Interpret` the gate may refuse a null status before the port sees it, which is the dependence the note says the port must not have.
+- **EL notes 2 and 3 (done):** the README says the deadline is the Interpreter's rule and the composition root's duty; a test comment says a retry in the same second builds the same canonical input.
+- **EL note 1 (answered, not coded):** `int_X@1` is the contract's `IntentRef` (`common.v1.json#IntentRef`, pattern `^int_[0-9A-Za-z]{2,32}@[0-9]+$`), not a single-ID form. The core has no parser for it. The parser and its shared test belong with the Trust adapter (noema#572, C1) that first needs one; I did not add one here (AGENT-02).
+- **Security Reviewer's two wiring conditions (for the wiring PR, A286, mine):** (1) the composition root gives `Session.AuthnRef` as an opaque session reference, never a bearer token or cookie value, because the canonical input goes to the model service (INV-29); (2) a test that the `Sessions` resolver is built from the verified edge session only and that no answer can come from request input.
+- Debt: none. Conflicts raised: none.

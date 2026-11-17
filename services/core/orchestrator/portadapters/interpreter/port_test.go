@@ -165,6 +165,7 @@ func TestAnAdmittedTurnIsAdmittedAndTheCanonicalInputIsBuiltFromTheSessionAndThe
 	if err := json.Unmarshal(w.comp.reqs[0].CanonicalInput, &ci); err != nil {
 		t.Fatal(err)
 	}
+	// received_at is the injected clock's reading cut to whole seconds (the contract's format), so a retry of the same request within the same second builds the same canonical input (INV-21).
 	want := map[string]any{"schema_version": "2.0", "request_id": reqID, "correlation_id": corr, "tenant_id": "ten_demo", "session_id": "ses_7a1b", "principal_ref": "usr_88213", "channel": "text",
 		"mode": "MODE_1", "text": "Wetin happen to the 20k wey I send Tunde this morning?", "received_at": "2026-11-17T09:30:15Z"}
 	if len(ci) != len(want) {
