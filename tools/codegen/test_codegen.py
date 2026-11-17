@@ -275,7 +275,7 @@ class TypeScriptOutput(unittest.TestCase):
         roots = {"parse" + m for f, text in files.items() if f == f"{generate.TS_DIR}/operator.ts" for m in re.findall(r"import \{ parse(\w+) \}", text)}
         every = "\n".join(ts.values())
         for fn, f in sorted(defined.items()):
-            uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
+            uses = len(re.findall(rf"\b{fn}\(", every)) - 1 + len(re.findall(rf"\bcRef\({fn}\)", every))  # the definition itself; a rule refers to a parser as cRef(parseX)
             self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
         self.assertNotIn("CoreReasonCode", "".join(ts.values()))
         self.assertIn("parseEnumsV1Verdict", defined)  # noema-resolution.v1 uses it, so it stays
@@ -376,6 +376,8 @@ class TypeScriptConditionals(unittest.TestCase):
         the keyword is the silent drop that let noema#615 ship a parser that accepted eight invalid fixtures."""
         for kw, node in self.SAMPLES.items():
             bare = {k: v for k, v in node.items() if k not in (kw, "then", "else")}
+            if kw == "prefixItems":
+                bare["items"] = {"type": "string"}  # `items: false` is not a schema without prefixItems
             try:
                 with_kw = self.render(type="object", properties={"a": node})
             except ir.GenerationError:
@@ -411,3 +413,26 @@ class TypeScriptConditionals(unittest.TestCase):
             **{"$defs": {"Cell": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}}})
         self.assertIn("cPrefix(", text)
         self.assertIn("cIf(", text)
+
+    def test_the_ir_keeps_the_rules_its_structure_does_not_carry(self):
+        built = ir.build_schemas(generate.load_schemas())["reconstruction.v3.json"]
+        section = built.named["ReconstructionV3Section"].type
+        self.assertEqual([sorted(r) for r in section.rules], [["allOf"]])
+        sections = next(f for f in built.root.type.fields if f.prop == "sections").type
+        self.assertEqual([sorted(r) for r in sections.rules], [["items", "prefixItems"]])
+        self.assertEqual(sections.item.rules, [], "a member's own rules hold at its position only: they stay with prefixItems")
+        self.assertEqual([sorted(r) for r in built.named["ReconstructionV3ItemFacts"].type.rules], [["maxProperties"]])
+
+    def test_go_and_python_output_does_not_depend_on_the_rules(self):
+        # The rules are for TypeScript. Dropping them all from the IR must not change a byte of the Go or the Pydantic output (noema#682 changed no file of either).
+        schemas = generate.load_schemas()
+        with_rules = generate.render_all(schemas)
+        original = ir.Builder.rules_of
+        ir.Builder.rules_of = lambda self, n, take, path: []
+        try:
+            without = generate.render_all(schemas)
+        finally:
+            ir.Builder.rules_of = original
+        for rel, text in with_rules.items():
+            if not rel.startswith(generate.TS_DIR):
+                self.assertEqual(text, without[rel], rel)

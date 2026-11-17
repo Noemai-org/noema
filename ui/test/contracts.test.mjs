@@ -198,6 +198,8 @@ const SECTION_FACTS = {
   "VERIFICATION capability_id is a pack id": [(d) => item(d, "VERIFICATION", { capability_id: "Not A Pack Id", verdict: "ACHIEVED" }), "VERIFICATION"],
   "EXPLANATION needs text": [(d) => item(d, "EXPLANATION", { bound_fact_status: "KNOWN" }), "EXPLANATION"],
   "EXPLANATION fact_id is not empty": [(d) => item(d, "EXPLANATION", { fact_id: "", text: "A case was opened.", bound_fact_status: "KNOWN" }), "EXPLANATION"],
+  "EXPLANATION fact_id is at most 64 characters": [(d) => item(d, "EXPLANATION", { fact_id: "f".repeat(65), text: "A case was opened.", bound_fact_status: "KNOWN" }), "EXPLANATION"],
+  "any facts hold at most 50 members": [(d) => item(d, "REQUEST", Object.fromEntries(Array.from({ length: 51 }, (_, i) => [`k${i}`, "v"]))), "REQUEST"],
   "EXPLANATION disclosed_refs are resource references": [(d) => item(d, "EXPLANATION", { text: "A case was opened.", bound_fact_status: "KNOWN", disclosed_refs: ["nope"] }), "EXPLANATION"],
 };
 

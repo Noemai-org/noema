@@ -3,10 +3,12 @@
 /** Thrown for any value a contract refuses. The message names the place and the rule, never the value (AGENT-13). */
 export class ContractError extends Error {
   readonly path: string;
+  readonly rule: string;
   constructor(path: string, rule: string) {
     super(`${path}: ${rule}`);
     this.name = "ContractError";
     this.path = path;
+    this.rule = rule;
   }
 }
 
@@ -106,3 +108,157 @@ export function union<T>(v: unknown, p: string, alts: readonly ((x: unknown, q: 
   if (accepted.length > 1) return fail(p, "matches more than one of the allowed shapes");
   return accepted[0] as T;
 }
+
+/** A check tests a parsed value against a rule that its type cannot carry: the order of a list (prefixItems), allOf, anyOf, oneOf over constraints, if/then/else, not,
+ * contains. It never throws: it returns the first problem, or null, so a condition (`if`, `not`, `anyOf`) can ask whether a value passes. Like JSON Schema, a keyword
+ * applies only to a value of its own type: `required` says nothing about a string. A problem names the place and the rule, never the value (AGENT-13). */
+export interface Problem {
+  readonly path: string;
+  readonly rule: string;
+}
+export type Check = (v: unknown, p: string) => Problem | null;
+type Scalar = string | number | boolean | null;
+type JsonType = "string" | "integer" | "number" | "boolean" | "null" | "object" | "array";
+
+const problem = (path: string, rule: string): Problem => ({ path, rule });
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function isType(v: unknown, t: JsonType): boolean {
+  switch (t) {
+    case "string": return typeof v === "string";
+    case "integer": return typeof v === "number" && Number.isInteger(v);
+    case "number": return typeof v === "number" && Number.isFinite(v);
+    case "boolean": return typeof v === "boolean";
+    case "null": return v === null;
+    case "object": return isObject(v);
+    case "array": return Array.isArray(v);
+  }
+}
+
+/** Parse, then hold the value to the rules its type could not carry. */
+export function enforce<T>(v: T, p: string, check: Check): T {
+  const found = check(v, p);
+  if (found !== null) return fail(found.path, found.rule);
+  return v;
+}
+
+export const cOk: Check = () => null;
+export const cFail: Check = (_v, p) => problem(p, "is not allowed here");
+export const cConst = (expected: Scalar): Check => (v, p) => (v === expected ? null : problem(p, `must be ${JSON.stringify(expected)}`));
+export const cEnum = (values: readonly Scalar[]): Check => (v, p) => (values.some((x) => x === v) ? null : problem(p, "is not one of the allowed values"));
+export const cType = (types: readonly JsonType[]): Check => (v, p) => (types.some((t) => isType(v, t)) ? null : problem(p, "is not of the allowed type"));
+
+export const cStr = (c: { pattern?: RegExp; minLength?: number; maxLength?: number }): Check => (v, p) => {
+  if (typeof v !== "string") return null;
+  const length = [...v].length; // JSON Schema counts code points
+  if (c.minLength !== undefined && length < c.minLength) return problem(p, `is shorter than ${c.minLength}`);
+  if (c.maxLength !== undefined && length > c.maxLength) return problem(p, `is longer than ${c.maxLength}`);
+  if (c.pattern !== undefined && !c.pattern.test(v)) return problem(p, "does not match its pattern");
+  return null;
+};
+
+export const cNum = (c: Bounds): Check => (v, p) => {
+  if (typeof v !== "number") return null;
+  if (c.minimum !== undefined && v < c.minimum) return problem(p, `is below ${c.minimum}`);
+  if (c.maximum !== undefined && v > c.maximum) return problem(p, `is above ${c.maximum}`);
+  if (c.exclusiveMinimum !== undefined && v <= c.exclusiveMinimum) return problem(p, `is not above ${c.exclusiveMinimum}`);
+  return null;
+};
+
+export const cCount = (c: { minItems?: number; maxItems?: number }): Check => (v, p) => {
+  if (!Array.isArray(v)) return null;
+  if (c.minItems !== undefined && v.length < c.minItems) return problem(p, `has fewer than ${c.minItems} items`);
+  if (c.maxItems !== undefined && v.length > c.maxItems) return problem(p, `has more than ${c.maxItems} items`);
+  return null;
+};
+
+export const cSize = (c: { minProperties?: number; maxProperties?: number }): Check => (v, p) => {
+  if (!isObject(v)) return null;
+  const size = Object.keys(v).length;
+  if (c.minProperties !== undefined && size < c.minProperties) return problem(p, `has fewer than ${c.minProperties} members`);
+  if (c.maxProperties !== undefined && size > c.maxProperties) return problem(p, `has more than ${c.maxProperties} members`);
+  return null;
+};
+
+export const cRequired = (names: readonly string[]): Check => (v, p) => {
+  if (!isObject(v)) return null;
+  for (const k of names) if (!has(v, k)) return problem(`${p}.${k}`, "is required");
+  return null;
+};
+
+export const cProps = (members: Readonly<Record<string, Check>>): Check => (v, p) => {
+  if (!isObject(v)) return null;
+  for (const [k, check] of Object.entries(members)) {
+    if (!has(v, k)) continue;
+    const found = check(v[k], `${p}.${k}`);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+/** `items`: every item from `from` on (the items after a prefix). */
+export const cItems = (check: Check, from: number = 0): Check => (v, p) => {
+  if (!Array.isArray(v)) return null;
+  for (let i = from; i < v.length; i++) {
+    const found = check(v[i], `${p}[${i}]`);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+/** `prefixItems`: the item at each position holds its own rule. */
+export const cPrefix = (checks: readonly Check[]): Check => (v, p) => {
+  if (!Array.isArray(v)) return null;
+  for (let i = 0; i < checks.length && i < v.length; i++) {
+    const found = (checks[i] as Check)(v[i], `${p}[${i}]`);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+export const cAll = (checks: readonly Check[]): Check => (v, p) => {
+  for (const check of checks) {
+    const found = check(v, p);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+export const cAny = (checks: readonly Check[]): Check => (v, p) => (checks.some((check) => check(v, p) === null) ? null : problem(p, "matches none of the allowed alternatives"));
+
+export const cOne = (checks: readonly Check[]): Check => (v, p) => {
+  const passed = checks.filter((check) => check(v, p) === null).length;
+  if (passed === 0) return problem(p, "matches none of the allowed alternatives");
+  return passed === 1 ? null : problem(p, "matches more than one of the allowed alternatives");
+};
+
+export const cNot = (check: Check): Check => (v, p) => (check(v, p) === null ? problem(p, "is not allowed here") : null);
+
+/** if/then/else: a value that passes `cond` must pass `then`, any other must pass `otherwise`. */
+export const cIf = (cond: Check, then: Check, otherwise: Check = cOk): Check => (v, p) => (cond(v, p) === null ? then(v, p) : otherwise(v, p));
+
+export const cContains = (check: Check): Check => (v, p) => {
+  if (!Array.isArray(v)) return null;
+  return v.some((x, i) => check(x, `${p}[${i}]`) === null) ? null : problem(p, "has no item that is allowed here");
+};
+
+/** propertyNames: every key, as a string, holds the rule. */
+export const cNames = (check: Check): Check => (v, p) => {
+  if (!isObject(v)) return null;
+  for (const k of Object.keys(v)) {
+    const found = check(k, p);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+/** A $ref: the value parses as the named type. */
+export const cRef = (parse: (v: unknown, p: string) => unknown): Check => (v, p) => {
+  try {
+    parse(v, p);
+    return null;
+  } catch (e) {
+    if (e instanceof ContractError) return problem(e.path, e.rule);
+    throw e;
+  }
+};

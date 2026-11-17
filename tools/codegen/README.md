@@ -1,6 +1,6 @@
 # tools/codegen
 
-Generates the Go and Pydantic types of every contract in `contracts/schemas/` (CON-03; REQ-API-001, REQ-TST-003; AGENT-15). Updated 3 Nov 2026.
+Generates the Go and Pydantic types of every contract in `contracts/schemas/` (CON-03; REQ-API-001, REQ-TST-003; AGENT-15). Updated 3 Nov 2026; the TypeScript conditional rules 17 Nov 2026 (noema#682).
 
 ```
 make codegen         rewrite the committed types from the schemas
@@ -15,7 +15,7 @@ The generator is Python standard library only and needs `gofmt` (Go toolchain) t
 |---|---|---|
 | Go types | `services/core/internal/contracts/*_gen.go` | one file per schema, `runtime_gen.go`, `registry_gen.go`, `enum_values_gen.json` |
 | Pydantic v2 models | `services/model/noema_model/contracts/*.py` | one module per schema, `_base.py`, `registry.py`, `__init__.py` |
-| TypeScript types and parsers | `ui/src/contract_types/*.ts` | only the contracts named as roots in `tools/codegen/ts.json` (the ones the UI reads, REQ-UI-001) and what they refer to; a contract in `excluded.json` is never a root and never reached (the benchmark scorecard refers to the benchmark case, so it stays out, INV-22). Only the named types a root uses, directly or through another, are emitted: a shared file such as `enums.v1` is read in part, and an unused definition (the core reason codes) does not reach the client bundle. A parser also holds what a type system cannot: patterns (whole-string), string lengths in code points, number and list bounds, `oneOf` (exactly one alternative: `union<T>`), and a map's key pattern (`propertyNames.pattern`). Conditional rules (`if`/`then`, a bound under an `allOf` of a section) stay with the validator; `ui/test/contracts.test.mjs` lists the fixtures a parser cannot hold. |
+| TypeScript types and parsers | `ui/src/contract_types/*.ts` | only the contracts named as roots in `tools/codegen/ts.json` (the ones the UI reads, REQ-UI-001) and what they refer to; a contract in `excluded.json` is never a root and never reached (the benchmark scorecard refers to the benchmark case, so it stays out, INV-22). Only the named types a root uses, directly or through another, are emitted: a shared file such as `enums.v1` is read in part, and an unused definition (the core reason codes) does not reach the client bundle. A parser also holds what a type system cannot: patterns (whole-string), string lengths in code points, number and list bounds, `oneOf` (exactly one alternative: `union<T>`), a map's key pattern (`propertyNames.pattern`), and the conditional rules a type cannot carry, written as checks (see below). |
 
 Both are committed. A hand edit, an added file, a missing file or a stale schema makes `make codegen-check` fail (`generate.check`). Hand-written files allowed beside the generated Go: `doc.go`, `README.md` and `*_test.go`. Beside the Python: `README.md`.
 
@@ -30,9 +30,24 @@ It models **shape**: objects, arrays, maps, enums, constants, references, nullab
 
 Patterns in the Python models are emitted whole-string anchored (`\A...\Z`, `anchors.py`; A138): Python's `$` also matches before a final newline, which JSON Schema's and Go's `$` do not, so a plain `^...$` would accept `"ab\n"`. The contract validator (`tools/contracts/validate.py`) applies the same rule to the `pattern` keyword.
 
-It does **not** model validation: patterns and bounds in Go, and every conditional rule (`if`/`then`/`else`, `not`, `oneOf` constraints, `contains`) in both. The JSON Schema validator owns those, at every boundary.
+It does **not** model validation: patterns and bounds in Go, and every conditional rule (`if`/`then`/`else`, `not`, `oneOf` constraints, `contains`) in Go and Python. The JSON Schema validator owns those, at every boundary. The TypeScript parsers do hold them (next section).
 
 The generator never guesses. A keyword it does not know, or a combination it does not model, is an error that names the schema and the path (`ir.GenerationError`).
+
+## The conditional rules of the TypeScript parsers (noema#682)
+
+A TypeScript parser refuses what the schema refuses, not only what its shape refuses (REQ-UI-001, INV-02): the UI shows only what a contract admits. `ir.py` keeps, on every type it builds, the keywords the type's structure does not carry as `rules` (raw schema, `$ref` resolved); Go and Pydantic ignore them. `ts.py` writes each rule as a **check**, a function from a value to a problem or `null` (`_runtime.ts`), and wraps the parser in `enforce(value, p, CHECK_n)`, so a rule is held after the shape.
+
+| Keyword (JSON Schema 2020-12) | Check |
+|---|---|
+| `prefixItems`, `items` after a prefix | `cPrefix`, `cItems` (the order of the twelve sections of `reconstruction.v3`) |
+| `allOf`, `anyOf`, `oneOf` over constraints | `cAll`, `cAny`, `cOne` |
+| `if` / `then` / `else` | `cIf` (the facts of a section kind, `errors` retryable, `record-event` emitters) |
+| `not`, `contains`, `propertyNames` | `cNot`, `cContains`, `cNames` |
+| `properties`, `required`, `type`, `const`, `enum`, `$ref` | `cProps`, `cRequired`, `cType`, `cConst`, `cEnum`, `cRef` (a `$ref` parses as the named type, so a conditional may name an enum of another contract) |
+| `pattern`, `minLength`, `maxLength`; `minimum`, `maximum`, `exclusiveMinimum`; `minItems`, `maxItems`; `minProperties`, `maxProperties` | `cStr`, `cNum`, `cCount`, `cSize` |
+
+Like JSON Schema, each keyword applies only to a value of its own type, and `if` holds when its schema passes (`properties` over a missing member passes). **A keyword the emitter does not implement stops generation** with the schema and the path (`uniqueItems`, `format`, `minContains`, `additionalProperties` inside a rule, `then` without `if`, any keyword it does not know): no keyword of a contract is dropped without anyone knowing. To use a new keyword, implement it in `ts.py` (and its check in `RUNTIME`) with a test, or take it out of the contract by a version bump (AGENT-15). A definition that only a rule names (`DecisionOutcome`, for the `DECISION` section) is generated with the parsers that reach it, and no more.
 
 ## Not generated
 
@@ -51,6 +66,8 @@ The generator never guesses. A keyword it does not know, or a combination it doe
 | `services/model/tests/test_contracts_generated.py` | the same two properties for the Pydantic models; the registry covers every schema and definition |
 | `consumer_test.go` and `services/model/tests/test_contracts_consumer.py` | the candidate-read contract between the model service and the core, on two recordings in `consumer/` |
 | `tools/contracts/test_shape_refusals.py` | `shape_refusals.json` is current |
+| `test_codegen.py` `TypeScriptConditionals` | no keyword the IR reads is silently ignored by the TypeScript emitter (it writes a check or raises), a keyword it does not implement stops generation, also in a real contract, and `prefixItems` and `if` are written as checks |
+| `ui/test/contracts.test.mjs` | every valid fixture of every root parses and every invalid fixture is refused (one exception: a float `seq` that `JSON.parse` reads as an integer), the eight `reconstruction.v3` fixtures of noema#682, one case per section kind, every swap of two sections |
 
 `shape_refusals.json` is derived, by `shape_refusals.py`, from the validator's own error paths: an invalid fixture is listed when it breaks `required`, `additionalProperties`, `enum`, `const` or `type` with no `if`/`then`/`else`/`allOf`/`oneOf`/`anyOf`/`not` above it. Nobody keeps it by hand.
 
