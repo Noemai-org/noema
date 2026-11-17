@@ -160,7 +160,9 @@
         },
         "reason": {
           "description": "GRANT_VOIDED carries a GrantVoidReason; PROVIDER_FAILOVER carries a ProviderFailoverReason. No other event carries one.",
-          "type": "string"
+          "type": "string",
+          "pattern": "^[A-Z_]{1,64}$",
+          "maxLength": 64
         }
       },
       "required": [

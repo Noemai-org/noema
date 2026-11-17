@@ -60,20 +60,6 @@ export function parseErrorsV2ErrorEnvelope(v: unknown, p: string = "$"): ErrorsV
   };
 }
 
-/** ErrorsV2NonRetryableErrorCode, generated from errors.v2.json#$defs/NonRetryableErrorCode. Every decision or reason code, every validation error and every authorization error, and every other code. The identical request would fail the same way, or the caller must change something first. */
-export type ErrorsV2NonRetryableErrorCode = "INPUT_INVALID" | "SCHEMA_INVALID" | "UNKNOWN_ENUM_VALUE" | "SESSION_INVALID" | "UNAUTHENTICATED" | "NOT_FOUND_OR_NOT_AUTHORIZED" | "TENANT_SCOPE_MISMATCH" | "REQUEST_ID_REUSED" | "AMBIGUOUS_TARGET" | "STALE_CANDIDATE_SET" | "EVIDENCE_STALE" | "CONTRADICTORY_STATE" | "POLICY_STALE" | "GRANT_INVALID" | "GRANT_EXPIRED" | "GRANT_ALREADY_SPENT" | "CONFIRMATION_EXPIRED" | "CONFIRMATION_BINDING_MISMATCH" | "APPROVER_NOT_ELIGIBLE" | "CAPABILITY_PROHIBITED" | "CAPABILITY_NOT_REGISTERED" | "IDEMPOTENCY_CONFLICT" | "DUPLICATE_CREATE" | "REJECTED_STALE_VERSION" | "OUTCOME_UNKNOWN" | "POSTCONDITION_UNVERIFIED" | "RECORD_INTEGRITY_FAILURE" | "WRITES_DISABLED" | "CALLBACK_DELIVERY_FAILED" | "INTERNAL_SAFETY_BLOCK";
-
-export function parseErrorsV2NonRetryableErrorCode(v: unknown, p: string = "$"): ErrorsV2NonRetryableErrorCode {
-  return oneOfLit(v, p, ["INPUT_INVALID", "SCHEMA_INVALID", "UNKNOWN_ENUM_VALUE", "SESSION_INVALID", "UNAUTHENTICATED", "NOT_FOUND_OR_NOT_AUTHORIZED", "TENANT_SCOPE_MISMATCH", "REQUEST_ID_REUSED", "AMBIGUOUS_TARGET", "STALE_CANDIDATE_SET", "EVIDENCE_STALE", "CONTRADICTORY_STATE", "POLICY_STALE", "GRANT_INVALID", "GRANT_EXPIRED", "GRANT_ALREADY_SPENT", "CONFIRMATION_EXPIRED", "CONFIRMATION_BINDING_MISMATCH", "APPROVER_NOT_ELIGIBLE", "CAPABILITY_PROHIBITED", "CAPABILITY_NOT_REGISTERED", "IDEMPOTENCY_CONFLICT", "DUPLICATE_CREATE", "REJECTED_STALE_VERSION", "OUTCOME_UNKNOWN", "POSTCONDITION_UNVERIFIED", "RECORD_INTEGRITY_FAILURE", "WRITES_DISABLED", "CALLBACK_DELIVERY_FAILED", "INTERNAL_SAFETY_BLOCK"] as const);
-}
-
-/** ErrorsV2RetryableErrorCode, generated from errors.v2.json#$defs/RetryableErrorCode. Retryable only if sending the identical request again can succeed with no change by the caller (transient: unavailable, timeout, rate-limited, dependency down). */
-export type ErrorsV2RetryableErrorCode = "EVIDENCE_UNAVAILABLE" | "TARGET_RATE_LIMITED" | "TARGET_TIMEOUT" | "PROVIDER_UNAVAILABLE" | "DEPENDENCY_UNAVAILABLE";
-
-export function parseErrorsV2RetryableErrorCode(v: unknown, p: string = "$"): ErrorsV2RetryableErrorCode {
-  return oneOfLit(v, p, ["EVIDENCE_UNAVAILABLE", "TARGET_RATE_LIMITED", "TARGET_TIMEOUT", "PROVIDER_UNAVAILABLE", "DEPENDENCY_UNAVAILABLE"] as const);
-}
-
 /** ErrorsV2, generated from errors.v2.json. v2: errors.v1.json plus one code, DUPLICATE_CREATE (non-retryable): a create that is conditional on absence was refused because the target already holds a case for the same subject and epoch, made under another idempo... */
 export type ErrorsV2 = ErrorsV2ErrorEnvelope;
 
