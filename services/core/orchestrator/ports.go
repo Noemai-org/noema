@@ -181,10 +181,9 @@ type Ports struct {
 // Errors of the runner. Callers compare with errors.Is.
 var (
 	// ErrNotWired is returned by NewRunner for a missing machine, table or port: a runner that cannot do everything does nothing.
+	ErrNotWired = errors.New("orchestrator: the runner is not fully wired")
 	// ErrNotBound is the refusal of Bindings: the decision, the grant or the intent a resume was given does not belong to this turn. Nothing is executed or verified.
 	ErrNotBound = errors.New("orchestrator: the decision, grant or intent is not bound to this turn")
-
-	ErrNotWired = errors.New("orchestrator: the runner is not fully wired")
 	// ErrNoSession is returned for a session without a tenant or a principal.
 	ErrNoSession = errors.New("orchestrator: the session has no tenant or no principal")
 	// ErrBadTurn is returned for a turn without an investigation ID, a correlation ID or text, or with a control character in an ID.

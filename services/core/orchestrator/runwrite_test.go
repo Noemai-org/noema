@@ -38,6 +38,7 @@ type wfakes struct {
 	executed                []string // grant IDs handed to Execute
 	spent                   []string // those the Record would show as spent: every one but a voided grant
 	snapshots               []string // evidence snapshots Trust decided on
+	intents                 []string // the intent reference each evidence read was asked for
 }
 
 func pick[T any](xs []T, n int) T {
@@ -56,8 +57,9 @@ func (w *wfakes) Decide(_ context.Context, s orchestrator.Session, _ string, e o
 }
 
 // Read gives every evaluation its own snapshot: a re-evaluation after a failed attempt must see a new one (INV-17, AGENT-08).
-func (w *wfakes) Read(_ context.Context, s orchestrator.Session, _ string) (orchestrator.EvidenceRef, error) {
+func (w *wfakes) Read(_ context.Context, s orchestrator.Session, intentRef string) (orchestrator.EvidenceRef, error) {
 	w.calls, w.session = append(w.calls, "evidence"), s
+	w.intents = append(w.intents, intentRef)
 	return orchestrator.EvidenceRef{SnapshotID: "evs_" + string(rune('A'+w.nDecide)) + "A11"}, nil
 }
 
@@ -634,5 +636,45 @@ func TestAResumeWithBindingsThatCannotAnswerExecutesNothing(t *testing.T) {
 	_, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, inv, writeDecision("grt_AA11"))
 	if err == nil || errors.Is(err, orchestrator.ErrNotBound) || w.nExec != 0 || w.nVerify != 0 {
 		t.Fatalf("err %v, executes %d, verifies %d; want an error that is not ErrNotBound and no action", err, w.nExec, w.nVerify)
+	}
+}
+
+// C1's read of noema#576 (P2, tests that could not fail; REQ-EXE-001, REQ-EXE-006, INV-03, INV-17, AGENT-08). Each test below was mutated against the line it guards.
+
+// `len(d.GrantIDs) != 1` in ResumeWrite: a resume with two grants is refused before Trust's side is asked and before anything moves or is dispatched (a `< 1` check would bind only
+// the first grant and let the second ride).
+func TestAResumeWithTwoGrantsAsksNobodyAndDoesNothing(t *testing.T) {
+	w := newWfakes()
+	planned := orchestrator.Investigation{ID: turn.InvestigationID, State: "PLANNED", Version: 5}
+	_, err := newWrite(t, w).ResumeWrite(context.Background(), sess, turn, planned, writeDecision("grt_AA11", "grt_BB22"))
+	if !errors.Is(err, orchestrator.ErrNoGrant) || len(w.bindings) != 0 || w.nExec != 0 || w.nVerify != 0 || len(w.changes) != 0 {
+		t.Fatalf("err %v, bindings asked %d, executes %d, verifies %d, moves %d; want ErrNoGrant and nothing else", err, len(w.bindings), w.nExec, w.nVerify, len(w.changes))
+	}
+}
+
+// An ALLOW that is a read (`Read: true`) goes to EXPLAINING and never to a write: no grant is needed, nothing is executed, and the explanation is the answer.
+func TestAnAllowedReadGoesToExplainingAndNeverExecutes(t *testing.T) {
+	w := newWfakes()
+	d := writeDecision()
+	d.Read = true
+	w.decisions = []orchestrator.Decision{d}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+	if err != nil || w.nExec != 0 || w.nVerify != 0 || !containsInOrder(states(w.changes), "EVALUATING", "EXPLAINING") || res.Investigation.State != "COMPLETED" {
+		t.Fatalf("err %v, executes %d, final %s, states %v; want EVALUATING then EXPLAINING, COMPLETED and no write", err, w.nExec, res.Investigation.State, states(w.changes))
+	}
+}
+
+// A decision that does not name its intent is the intent the evaluation was made on: a recovery re-evaluates that intent, never an empty one.
+func TestADecisionWithNoIntentKeepsTheIntentOfTheEvaluation(t *testing.T) {
+	w := newWfakes()
+	noIntent := func(g string) orchestrator.Decision { d := writeDecision(g); d.IntentRef = ""; return d }
+	w.decisions = []orchestrator.Decision{noIntent("grt_AA11"), noIntent("grt_BB22")}
+	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptApplied}, {GrantID: "grt_BB22", Class: orchestrator.ReceiptApplied}}
+	w.verdicts = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictACHIEVED}
+	if _, err := newWrite(t, w).RunWrite(context.Background(), sess, turn); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.intents) != 2 || w.intents[0] != "int_AA11" || w.intents[1] != "int_AA11" {
+		t.Fatalf("evidence was read for %v; want the interpreter's intent int_AA11 both times", w.intents)
 	}
 }

@@ -260,3 +260,8 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - Open questions (owner): the number (Architect or a Founder).
 - Files to read first: `cmd/core/payloadreader.go`.
 - Do not touch: `loginPools` without its three callers' tests.
+
+# Session 2026-11-17 · STM-01 · C1's read of noema#576 (four tests that could not fail)
+- What changed (tests; no behaviour): `TestAResumeWithTwoGrantsAsksNobodyAndDoesNothing` (`len(d.GrantIDs) != 1`), `TestAnAllowedReadGoesToExplainingAndNeverExecutes` (the `d.Read` branch of RunWrite), `TestADecisionWithNoIntentKeepsTheIntentOfTheEvaluation` (the `IntentRef` default; the evidence fake now records the intent it is asked for), and the journal port's first test file (`port_internal_test.go`: a port that cannot be used, a context with no deadline, a begin that fails, the reading of the idempotency key). Each of the first three was mutated against its line: all three mutants now fail a test. `ErrNotBound` moved off the comment of `ErrNotWired` (C1's cosmetic note).
+- Not done, stated: the journal port's two branches that need a real chain (a Record that does not verify; a GRANT_SPENT that names no key) are tests of Record rows and need the pgsodium database; they cannot be run locally and are not claimed here. Debt: they are the next commit when CI can show them. C1's note on `Journal.Progress` needing a deadline that `RunWrite` and `ResumeWrite` do not set stays on the debt list (fails closed).
+- One push for this round (the tests pass locally; the merge of `main` was clean).
