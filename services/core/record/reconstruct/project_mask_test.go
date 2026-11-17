@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 )
 
 // A digit run is digits joined by any number of spaces, dots, hyphens or zero-width characters; more than four digits in it keep only the last four, the separators stay.
@@ -156,6 +158,17 @@ func TestAClientRequestIdIsServedMaskedWhereItHoldsALongDigitRun(t *testing.T) {
 		got, err := fact("request_id", c.in, nil)
 		if err != nil || got != c.want {
 			t.Errorf("request_id %q served as %v (%v), want %q", c.in, got, err, c.want)
+		}
+	}
+}
+
+// A194: the projection masks with the definition that lives in record/payloadguard, not with one of its own: the same function, so a separator added there is masked here. The
+// corpus holds every kind of separator of both definitions.
+func TestTheProjectionMasksWithThePayloadGuardsDefinition(t *testing.T) {
+	for _, in := range []string{"1234 5678 9012 3456", "1234-5678-9012-3456", "1234_5678_9012_3456", "(1234)(5678)", "12:34:56", "1234\u200b5678\u200b9012", "1234\u00ad5678", "1234\u034f5678",
+		"\uff11\uff12\uff13\uff14-\uff15\uff16", "VERSION_CONFLICT_409_412", "on day 12", "0.41", "4111\u0303 1111 1111 1111"} {
+		if got, want := mask(in), payloadguard.Mask(in); got != want {
+			t.Errorf("mask(%q) = %q, but payloadguard.Mask gives %q", in, got, want)
 		}
 	}
 }
