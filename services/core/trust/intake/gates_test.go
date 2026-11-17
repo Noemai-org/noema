@@ -109,7 +109,7 @@ func (s *spy) NeedsWrite(context.Context, intake.AdmittedIntent) (bool, error) {
 func (s *spy) Enabled(context.Context, string) (bool, error) {
 	return s.enabled, s.hit("Writes.Enabled")
 }
-func (s *spy) Check(_ context.Context, id string) (intake.Capability, error) {
+func (s *spy) Check(_ context.Context, id, _ string) (intake.Capability, error) {
 	return intake.Capability{ID: id, Registered: true}, s.hit("Capabilities.Check")
 }
 func (s *spy) Requested(context.Context, intake.AdmittedIntent) (intake.Capability, bool, error) {
@@ -160,7 +160,7 @@ func (s *spy) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake
 
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s, Confirmations: s.late, Planner: s.late, Recorder: s.late},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s, Confirmations: s.late, Planner: s.late, Recorder: s.late, Dispatches: s.late},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}

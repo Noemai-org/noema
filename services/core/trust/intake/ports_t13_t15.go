@@ -104,3 +104,23 @@ type RecordResult struct {
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
 }
+
+// DispatchKey names one logical write for the dispatch budget: the same four values the ledger counts a key's dispatches by (ruling A153).
+type DispatchKey struct {
+	TenantID      string
+	CorrelationID string
+	CapabilityID  string
+	TargetRef     string
+}
+
+// DispatchCount is how many times the key has been dispatched and how many it may be. The limit belongs to the ledger (ruling A153); the intake holds no number.
+type DispatchCount struct {
+	Used  int
+	Limit int
+}
+
+// Dispatches answers the question after T14: has this plan step used its dispatch budget. The adapter reads the Record's dispatch events through the ledger; the intake
+// compares the two numbers and nothing else (A224: Trust itself decides ESCALATE, the runner's refusal is only the backstop).
+type Dispatches interface {
+	Count(ctx context.Context, k DispatchKey) (DispatchCount, error)
+}

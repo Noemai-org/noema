@@ -43,6 +43,16 @@ type f13 struct {
 	caps    map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
 	capErr  error
 	checked []string
+	roles   []string // the role each Check was asked about (A255)
+	// the dispatch budget (A224): the count the ledger would answer for any key, and what it was asked
+	dispatch    DispatchCount
+	dispatchErr error
+	dispatchKey []DispatchKey
+}
+
+func (f *f13) Count(ctx context.Context, k DispatchKey) (DispatchCount, error) {
+	f.dispatchKey = append(f.dispatchKey, k)
+	return f.dispatch, firstErr(f.hit(ctx, "Dispatches.Count"), f.dispatchErr)
 }
 
 func (f *f13) hit(ctx context.Context, name string) error {
@@ -66,8 +76,9 @@ func (f *f13) Requested(context.Context, AdmittedIntent) (Capability, bool, erro
 	return Capability{}, false, nil
 }
 
-func (f *f13) Check(ctx context.Context, id string) (Capability, error) {
+func (f *f13) Check(ctx context.Context, id, role string) (Capability, error) {
 	f.checked = append(f.checked, id)
+	f.roles = append(f.roles, role)
 	if f.panicAt == "Capabilities.Check" {
 		panic("injected panic in Capabilities.Check")
 	}
@@ -117,10 +128,11 @@ func (f *f13) called(name string) int {
 // newFake13 answers like a write request that needs no confirmation, with a one-step plan and a Recorder that succeeds.
 func newFake13() *f13 {
 	return &f13{
-		conf: Confirmation{Status: ConfirmationNotRequired},
-		plan: Plan{Hash: tPlanHash, Steps: []PlanStep{{CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash}}},
-		rec:  RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001"}},
-		caps: map[string]Capability{"fin.cap.create_escalation_case": {ID: "fin.cap.create_escalation_case", Registered: true}, "fin.cap.route_to_internal_owner": {ID: "fin.cap.route_to_internal_owner", Registered: true}},
+		conf:     Confirmation{Status: ConfirmationNotRequired},
+		plan:     Plan{Hash: tPlanHash, Steps: []PlanStep{{CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash}}},
+		rec:      RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001"}},
+		dispatch: DispatchCount{Used: 0, Limit: 1},
+		caps:     map[string]Capability{"fin.cap.create_escalation_case": {ID: "fin.cap.create_escalation_case", Registered: true, RoleAllowed: true}, "fin.cap.route_to_internal_owner": {ID: "fin.cap.route_to_internal_owner", Registered: true, RoleAllowed: true}},
 	}
 }
 
@@ -149,7 +161,7 @@ func newEval13(t *testing.T, f *f13) *evaluation {
 	view := decide.IntentView{Version: t13Version, RequiredSlots: map[string]decide.SlotStatus{"subject": decide.SlotResolved}}
 	a := AdmittedIntent{TenantID: t13Tenant, IntentID: tIntent, Version: t13Version, IntentNode: "fin.payments.exception.investigate", IntentHash: tHash,
 		CorrelationID: "corr_synth0001", PrincipalID: t13Principal, TargetRef: "txn_synth0001", View: view}
-	svc := &Service{Ports: Ports{Capabilities: f, Confirmations: f, Planner: f, Recorder: f}, Clock: clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), PackVersion: "1.0.0"}
+	svc := &Service{Ports: Ports{Capabilities: f, Confirmations: f, Planner: f, Recorder: f, Dispatches: f}, Clock: clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), PackVersion: "1.0.0"}
 	ev := &evaluation{svc: svc, req: Request{Session: Session{TenantID: t13Tenant, PrincipalID: t13Principal, Role: "customer"}, CorrelationID: "corr_synth0001", IntentRef: tIntent + "@2"},
 		intentID: tIntent, version: t13Version, intent: &a, bb: freshBuilder(t, true, true)}
 	ev.late.needsWrite = true
@@ -258,12 +270,12 @@ func TestT13ConfirmationNotRequiredContinues(t *testing.T) {
 // INV-25: a resolved confirmation leads to the fresh evaluation this is; the grant follows the confirmation event.
 func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: tPlanHash}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash}
 	res := run13(t, newEval13(t, f))
 	if tr, _ := stepResult(res, decide.T13Confirmation); tr != decide.StepPassed {
 		t.Fatalf("T13 %v, want PASSED; trace %v", tr, res.Trace)
 	}
-	if res.Decision.Outcome() != decide.Allow || rec0(t, f).ConfirmationEventID != "evt_synth0001" {
+	if res.Decision.Outcome() != decide.Allow || rec0(t, f).ConfirmationEventID != "cfe_synth0001" {
 		t.Errorf("outcome %s, confirmation event %q", res.Decision.Outcome(), rec0(t, f).ConfirmationEventID)
 	}
 	if got := rec0(t, f).ConfirmationPlanHash; got != tPlanHash {
@@ -276,7 +288,7 @@ func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 // defence, noema#603.)
 func TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
 	res := run13(t, newEval13(t, f))
 	wantUnknown(t, "a confirmation for another plan", res, "PLAN_INVALID", decide.T14Plan, decide.StepTerminal)
 	if f.called("Recorder.Record") != 0 {
@@ -288,7 +300,7 @@ func TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded(t 
 func TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown(t *testing.T) {
 	for name, hash := range map[string]string{"none": "", "the wrong form": "sha256:ABC", "no prefix": strings.Repeat("a", 64)} {
 		f := newFake13()
-		f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: hash}
+		f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: hash}
 		res := run13(t, newEval13(t, f))
 		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
 		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
@@ -304,7 +316,7 @@ func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 		conf Confirmation
 	}{
 		{"the zero status", Confirmation{}},
-		{"a status outside the three", Confirmation{Status: ConfirmationGiven + 1, EventID: "evt_synth0001"}},
+		{"a status outside the three", Confirmation{Status: ConfirmationGiven + 1, EventID: "cfe_synth0001"}},
 		{"given with no event", Confirmation{Status: ConfirmationGiven}},
 	} {
 		f := newFake13()
@@ -445,7 +457,7 @@ func TestT15AllowStandsOnlyAfterTheRecordWasWrittenOnce(t *testing.T) {
 // TRU-13: what T15 hands to the Recorder is the decision carrying the builder's basis, the builder itself and its digest, with the identifiers of the request.
 func TestT15TheRecordRequestCarriesTheBuildersBasisAndTheRequestsIdentity(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "evt_synth0001", PlanHash: tPlanHash}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash}
 	ev := newEval13(t, f)
 	run13(t, ev)
 	r := rec0(t, f)

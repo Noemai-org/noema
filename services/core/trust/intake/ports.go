@@ -66,14 +66,18 @@ type Capability struct {
 	ID         string
 	Registered bool
 	Prohibited bool
+	// RoleAllowed is the registry's answer for the role of the session (A255): whether a session with that role may use this capability (the capability descriptor's roles).
+	// Check fills it; Requested does not need it (T6 already checked the role for the intent node).
+	RoleAllowed bool
 }
 
 // Capabilities answers T4: the capability the intent asks for, if it asks for one (the `requested_remedy` slot), with whether the registry knows it and whether it is
 // prohibited. present is false when the intent names none.
 type Capabilities interface {
 	Requested(ctx context.Context, a AdmittedIntent) (c Capability, present bool, err error)
-	// Check is the registry's answer for one capability ID: the capabilities of a plan's steps are checked here at T14, one by one, not only the one the intent names.
-	Check(ctx context.Context, capabilityID string) (Capability, error)
+	// Check is the registry's answer for one capability ID and the role of the session: the capabilities of a plan's steps are checked here at T14, one by one, not only the
+	// one the intent names, and each for the role (A255, the safer reading: the role of the session is never assumed to be allowed).
+	Check(ctx context.Context, capabilityID, role string) (Capability, error)
 }
 
 // Scope answers T5: is the intent node in scope for the tenant.
@@ -103,4 +107,5 @@ type Ports struct {
 	Confirmations Confirmations
 	Planner       Planner
 	Recorder      Recorder
+	Dispatches    Dispatches
 }

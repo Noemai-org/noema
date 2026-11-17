@@ -35,3 +35,8 @@ func (l *lateSpy) Record(context.Context, intake.RecordRequest) (intake.RecordRe
 	}
 	return intake.RecordResult{}, intake.ErrPlanInvalid
 }
+
+func (l *lateSpy) Count(context.Context, intake.DispatchKey) (intake.DispatchCount, error) {
+	l.calls = append(l.calls, "Dispatches.Count")
+	return intake.DispatchCount{Used: 0, Limit: 1}, nil
+}

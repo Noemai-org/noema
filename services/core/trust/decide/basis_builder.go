@@ -122,6 +122,10 @@ func (b *BasisBuilder) Basis() (Basis, error) {
 	return out, nil
 }
 
+// Sealed is a copy of the builder that nothing can add to: what a later step hands to a writer, so the writer reads the evaluated set and cannot change the live builder, and
+// a later call to RecordEvidence or RecordPolicy on the copy is refused (ErrBasisRecorded).
+func (b *BasisBuilder) Sealed() *BasisBuilder { return b }
+
 // Digest is the digest of the evaluated set.
 func (b *BasisBuilder) Digest() (string, error) {
 	base, err := b.Basis()

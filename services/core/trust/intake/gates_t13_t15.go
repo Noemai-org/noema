@@ -136,7 +136,7 @@ func (e *evaluation) wellFormed(p Plan) bool {
 // that cannot answer is an error, never a pass.
 func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
 	for _, s := range p.Steps {
-		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID)
+		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID, e.req.Session.Role)
 		if err != nil {
 			return false, err
 		}

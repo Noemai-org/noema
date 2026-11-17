@@ -920,12 +920,15 @@ func (noPorts) LatestVersion(context.Context, string, string) (int, error) { ret
 func (noPorts) Verify(context.Context, AdmittedIntent) error               { return ErrInvalid }
 func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)   { return false, nil }
 func (noPorts) Enabled(context.Context, string) (bool, error)              { return false, nil }
-func (noPorts) Check(context.Context, string) (Capability, error)          { return Capability{}, nil }
+func (noPorts) Check(context.Context, string, string) (Capability, error)  { return Capability{}, nil }
 func (noPorts) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
 	return Capability{}, false, nil
 }
 func (noPorts) InScope(context.Context, string, string) (bool, error)     { return false, nil }
 func (noPorts) RoleAllowed(context.Context, string, string) (bool, error) { return false, nil }
+func (noPorts) Count(context.Context, DispatchKey) (DispatchCount, error) {
+	return DispatchCount{}, nil
+}
 func (noPorts) ScopedCandidates(context.Context, string, string, AdmittedIntent) (TargetCandidates, error) {
 	return TargetCandidates{}, nil
 }
@@ -938,5 +941,5 @@ func (noPorts) SnapshotFreshness(context.Context, string, string) (SnapshotEvide
 
 func configuredService(f *fake) *Service {
 	n := noPorts{}
-	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f, Confirmations: &f13{}, Planner: &f13{}, Recorder: &f13{}}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f, Confirmations: &f13{}, Planner: &f13{}, Recorder: &f13{}, Dispatches: &f13{}}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 }
