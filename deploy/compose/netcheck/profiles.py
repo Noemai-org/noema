@@ -24,6 +24,26 @@ import sys
 from pathlib import Path
 
 COMPOSE_FILE = Path(__file__).resolve().parent.parent / "docker-compose.yml"
+MODEL_DOCKERFILE = COMPOSE_FILE.parent.parent.parent / "services" / "model" / "Dockerfile"
+
+
+def listener_flags(argv) -> list[str]:
+    """The `--ssl-*` options in a launch command (a list, or one string). uvicorn gives a command-line option precedence over its UVICORN_SSL_* variable, so one of these can switch off
+    the client-certificate requirement while the variable still says 2: and the service's own startup check (`require_mtls_listener`, noema#635) reads only the variable."""
+    words = argv.split() if isinstance(argv, str) else [str(a) for a in (argv or [])]
+    return [w for w in words if w.startswith("--ssl-")]
+
+
+def dockerfile_problems(text: str) -> list[str]:
+    """The model image sets UVICORN_SSL_CERT_REQS=2 and starts uvicorn with no --ssl-* option of its own (noema#555, noema#635)."""
+    bad = []
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if not any(ln.startswith("ENV ") and "UVICORN_SSL_CERT_REQS=2" in ln.split() for ln in lines):
+        bad.append("the model image does not set UVICORN_SSL_CERT_REQS=2")
+    for ln in lines:
+        if ln.startswith(("ENTRYPOINT", "CMD")) and "--ssl-" in ln:
+            bad.append(f"the model image starts uvicorn with an --ssl-* option, which overrides UVICORN_SSL_CERT_REQS: {ln[:80]}")
+    return bad
 PROFILES = ("dev", "ci", "bench", "demo")
 
 # PERD section 65.1, independent of the Compose file. network_mode "none" services (credential sidecars) have no networks.
@@ -160,6 +180,12 @@ def check(cfg, profile):
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
+        if name == "model":
+            for flag in listener_flags(svc.get("entrypoint")) + listener_flags(svc.get("command")):
+                bad.append(f"{profile}: the model starts uvicorn with {flag}, which overrides its UVICORN_SSL_* settings (the client-certificate requirement can be switched off without the service's own check seeing it)")
+            reqs = (svc.get("environment") or {}).get("UVICORN_SSL_CERT_REQS")
+            if reqs is not None and str(reqs) != "2":
+                bad.append(f"{profile}: the model sets UVICORN_SSL_CERT_REQS to {reqs!r}; it must be 2 (a client certificate is required)")
         if name == "core" and profile == "bench" and not str((svc.get("environment") or {}).get("NOEMA_PAYLOAD_MAX_BYTES", "")).strip():
             bad.append(f"{profile}: the core does not set NOEMA_PAYLOAD_MAX_BYTES: the evidence payload reader refuses to be built without its bound (noema#606, A236)")
         if name in TLS_MOUNTS:
@@ -242,6 +268,10 @@ def self_test(configs):
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
+        "the bench model starts uvicorn with --ssl-cert-reqs 0": ("bench", lambda c: c["services"]["model"].update({"entrypoint": list(c["services"]["model"]["entrypoint"]) + ["--ssl-cert-reqs", "0"]})),
+        "the dev model's command carries an --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["--ssl-keyfile", "/x"]})),
+        "the ci model's command is one string with --ssl-cert-reqs=0": ("ci", lambda c: c["services"]["model"].update({"command": "--port 8081 --ssl-cert-reqs=0"})),
+        "the model's UVICORN_SSL_CERT_REQS is 0": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"UVICORN_SSL_CERT_REQS": "0"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
@@ -280,6 +310,24 @@ def main():
             print(f"ok   the core's model client reads exactly the {len(names)} settings Compose gives it")
     else:
         print("note the core's model client (services/core/cmd/core/modelclient.go) is not in this tree: only the Compose side of its five settings is checked")
+    if MODEL_DOCKERFILE.is_file():
+        text = MODEL_DOCKERFILE.read_text(encoding="utf-8")
+        found = dockerfile_problems(text)
+        failures += found
+        if not found:
+            print("ok   the model image requires a client certificate and starts uvicorn with no --ssl-* option of its own")
+        if "--self-test" in sys.argv:
+            mutants = {
+                "the image sets UVICORN_SSL_CERT_REQS=0": text.replace("UVICORN_SSL_CERT_REQS=2", "UVICORN_SSL_CERT_REQS=0"),
+                "the image drops UVICORN_SSL_CERT_REQS": text.replace("UVICORN_SSL_CERT_REQS=2", ""),
+                "the entrypoint carries --ssl-cert-reqs": text.replace('"--port", "8081"]', '"--port", "8081", "--ssl-cert-reqs", "0"]'),
+            }
+            for label, mutant in mutants.items():
+                if mutant == text or not dockerfile_problems(mutant):
+                    failures.append(f"self-test: the Dockerfile rule did not fire for: {label}")
+            print(f"self-test: {len(mutants)} Dockerfile mutations;", "every one is caught" if not any(f.startswith("self-test: the Dockerfile") for f in failures) else "NOT CAUGHT")
+    else:
+        failures.append(f"{MODEL_DOCKERFILE} is missing: the model image's listener settings cannot be checked")
     if "--self-test" in sys.argv:
         missed, n = self_test(configs)
         print(f"self-test: {n} mutations;", "every one is caught" if not missed else "NOT CAUGHT: " + "; ".join(missed))
