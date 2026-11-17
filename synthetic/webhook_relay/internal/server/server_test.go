@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -220,5 +221,97 @@ func TestPagingAfterCursor(t *testing.T) {
 		if c, _ := r.get("/v1/deliveries?"+q, r.tok); c != 400 {
 			t.Errorf("%s: %d, want 400", q, c)
 		}
+	}
+}
+
+// A240 and A247: the bench holds the answer past Tushe's 12-second delivery timeout. The delivery is on disk before the hold starts, so a sender that gives up and sends it again gets
+// "duplicate", and it is stored once. The wait is a function the test controls: no real 15 seconds.
+func TestAHeldAnswerIsSentAfterTheDeliveryIsStoredAndASenderThatGaveUpIsAnsweredDuplicate(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	v := verify.New(key)
+	waiting := make(chan time.Duration, 1)
+	release := make(chan struct{})
+	srv := New(v, st, verify.PullToken(key), func() time.Time { return now }).WithHold(15*time.Second, func(ctx context.Context, d time.Duration) {
+		waiting <- d
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+	})
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	r := &rig{t, ts, v, st, verify.PullToken(key)}
+	body := `{"n":1}`
+	stamp := now.Unix()
+
+	// the sender gives up while the answer is held
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, "POST", ts.URL+"/webhooks", strings.NewReader(body))
+	req.Header.Set("webhook-id", "m1")
+	req.Header.Set("webhook-timestamp", strconv.FormatInt(stamp, 10))
+	req.Header.Set("webhook-signature", v.Sign("m1", stamp, []byte(body)))
+	errc := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		errc <- err
+	}()
+	select {
+	case d := <-waiting:
+		if d != 15*time.Second {
+			t.Fatalf("held for %v, want 15s", d)
+		}
+	case <-time.After(5 * time.Second): // a relay that never holds must fail the test, not hang it
+		t.Fatal("the answer was not held")
+	}
+	if r.st.Len() != 1 {
+		t.Fatalf("the delivery must be on disk before the hold starts: stored %d", r.st.Len())
+	}
+	cancel()
+	if err := <-errc; err == nil {
+		t.Fatal("the sender should have timed out")
+	}
+
+	// it sends the same message again: stored once, acknowledged as a duplicate (after its own hold, released at once)
+	close(release)
+	if c := r.signed("m1", stamp, body); c != 200 {
+		t.Fatalf("re-send: %d", c)
+	}
+	if r.st.Len() != 1 {
+		t.Fatalf("stored %d times", r.st.Len())
+	}
+	_, raw := r.get("/v1/stats", r.tok)
+	if !strings.Contains(string(raw), `"duplicates":1`) || !strings.Contains(string(raw), `"held":2`) {
+		t.Fatalf("stats: %s", raw)
+	}
+}
+
+func TestNoHoldMeansNoWaitAndARefusedDeliveryIsNeverHeld(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	v := verify.New(key)
+	calls := 0
+	srv := New(v, st, verify.PullToken(key), func() time.Time { return now }).WithHold(15*time.Second, func(context.Context, time.Duration) { calls++ })
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	r := &rig{t, ts, v, st, verify.PullToken(key)}
+	if c := r.post("m2", now.Unix(), `{"n":2}`, "v1,bad"); c != 400 || calls != 0 {
+		t.Fatalf("a refused delivery: status %d, held %d times; it must be neither stored nor held", c, calls)
+	}
+	plain := New(v, st, verify.PullToken(key), func() time.Time { return now })
+	ts2 := httptest.NewServer(plain.Handler())
+	t.Cleanup(ts2.Close)
+	r2 := &rig{t, ts2, v, st, verify.PullToken(key)}
+	if c := r2.signed("m3", now.Unix(), `{"n":3}`); c != 200 || calls != 0 {
+		t.Fatalf("no hold configured: status %d, waits %d", c, calls)
 	}
 }
