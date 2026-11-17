@@ -1,6 +1,6 @@
 // Package recorder writes a Decision Record and the grants of an ALLOW into the Record, in one transaction the caller supplies (TRU-05).
 //
-// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005.
+// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only).
 //
 // May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/decide, trust/grants.
 //
@@ -24,6 +24,14 @@
 // What the database does NOT enforce (Security Reviewer, noema#603 note 1): that an ALLOW for a profile that requires a confirmation carries one. An ALLOW with an empty ConfirmationEventID
 // writes no spend and is not checked here; that rule is the intake's (T13, which stops with CONFIRM when the profile requires one) and the Recorder adapter's, and a composition test of the two
 // owes the case "confirmation required, none named, ALLOW refused" (EL's adapter, with noema#572).
+//
+// The tenant's kill switch (EXE-06, PUS-06; REQ-EXE-008, REQ-OPS-002; ruling A297, interim): a request with steps is refused with ErrWritesDisabled, before anything is written, while
+// tenant.kill_switch is on for the request's tenant. The writer reads the column on the caller's transaction (it has no other connection) after taking the input lock and before the
+// stored decision is read or anything is appended, so a refusal leaves no decision row, no grant and no event, and a retry of a stored decision with steps is refused too. A request with no
+// step is not refused: a read, an explanation or a refusal records as before. A switch that cannot be read is an error, never "off". The read is a plain SELECT at the transaction's own
+// isolation level and holds no lock on the tenant row (the Trust login has SELECT only, and FOR SHARE needs UPDATE), so a switch turned on after the read and before the commit is not seen
+// here; Execution reads it again inside the spend (E6, E8) and voids the grant, so the window never reaches a write. Not built here: the control plane that sets and clears the switch, and
+// any KILL_SWITCH_* event (KILL_SWITCH_CHANGED, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED are in contracts/perd-32-2-event-types.md; this writer emits none of them).
 //
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.

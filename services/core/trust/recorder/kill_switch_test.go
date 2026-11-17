@@ -93,6 +93,31 @@ func TestPUS06AKillSwitchThatIsOnIssuesNoGrantAndWritesNothingForADecisionWithSt
 	}
 }
 
+// The refusal comes before the first write, not after it with the caller's rollback to clean up: inside the caller's own transaction, at the moment Write returns, no decision row
+// and no grant row exists yet.
+func TestPUS06TheRefusalIsMadeBeforeTheFirstWriteInTheCallersTransaction(t *testing.T) {
+	w := newWorld(t)
+	w.setSwitch(t, tenant, true)
+	b := evaluated(t)
+	tx, err := w.trust.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	if _, err := w.w.Write(ctx(t), tx, request(t, decision(t, decide.Allow, b), b, step(t))); !errors.Is(err, recorder.ErrWritesDisabled) {
+		t.Fatalf("err %v, want ErrWritesDisabled", err)
+	}
+	for _, table := range []string{"decision_record", "decision_grant", "confirmation_spend"} {
+		var n int
+		if err := tx.QueryRow(ctx(t), `SELECT count(*) FROM `+table).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%d rows in %s inside the caller's transaction after the refusal, want 0", n, table)
+		}
+	}
+}
+
 // A decision with no write step still records while the switch is on: reads and explanations continue (REQ-EXE-008). An ALLOW with no step, a REJECT and a WAIT each write
 // their decision record and their DECISION_MADE event, and never a grant.
 func TestPUS06ADecisionWithNoStepStillRecordsWhileTheSwitchIsOn(t *testing.T) {
