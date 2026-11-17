@@ -193,3 +193,37 @@ func TestACaseReferenceNeverShowsMoreThanFourDigits(t *testing.T) {
 		}
 	}
 }
+
+// Codex P2 on #650: the source label goes into the customer-facing `source_label`, so it is held to the same safe-output rules as a value: non-empty, short, plain characters, and
+// unchanged by the one digit definition. An unsafe label makes every fact of that call an unknown (LABEL_NOT_SAFE); nothing is built with it.
+func TestAnUnsafeSourceLabelBuildsNothing(t *testing.T) {
+	for name, label := range map[string]string{
+		"account data":      "Account 1234567890",
+		"empty":             "",
+		"too long":          strings.Repeat("a", 65),
+		"a newline":         "ledger\nCMP-1",
+		"a control mark":    "ledger\x00",
+		"leading digit":     "1ledger",
+		"a digit run split": "ledger 1234-5678",
+		"arabic-indic":      "ledger ٠١٢٣٤٥٦",
+	} {
+		facts, unknowns := factsource.PaymentFacts(cfg, payment(), asOf, label)
+		if len(facts) != 0 || len(unknowns) != 4 {
+			t.Errorf("%s: %d facts and %d unknowns, want 0 and 4", name, len(facts), len(unknowns))
+		}
+		for _, u := range unknowns {
+			if u.WhyCode != "LABEL_NOT_SAFE" {
+				t.Errorf("%s: why code %q", name, u.WhyCode)
+			}
+		}
+		cf, cu := factsource.Case(cfg, factsource.CaseRow{ExternalAck: "CMP-2026-00001", OwnerQueue: "PAYMENTS_OPERATIONS", Status: contracts.EnumsV1FactStatusKNOWN}, asOf, label)
+		if len(cf) != 0 || len(cu) != 3 {
+			t.Errorf("%s (case): %d facts and %d unknowns, want 0 and 3", name, len(cf), len(cu))
+		}
+	}
+	for _, label := range []string{"ledger", "case system", "SYNTHETIC ledger", "case-system.v2", strings.Repeat("a", 64)} {
+		if facts, _ := factsource.PaymentFacts(cfg, payment(), asOf, label); len(facts) != 4 || facts[0].SourceLabel != label {
+			t.Errorf("%q: %d facts", label, len(facts))
+		}
+	}
+}

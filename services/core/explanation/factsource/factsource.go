@@ -55,12 +55,15 @@ const (
 
 var (
 	yearGroup = regexp.MustCompile(`-(?:19|20)[0-9]{2}-`)
-	fiveASCII = regexp.MustCompile(`[0-9]{5}`)
+	// labelShape is a source label: a letter first, then letters, digits, space, dot, colon, underscore or hyphen, at most 64 characters (it goes to the customer's facts).
+	labelShape = regexp.MustCompile(`\A[A-Za-z][A-Za-z0-9 ._:-]{0,63}\z`)
+	fiveASCII  = regexp.MustCompile(`[0-9]{5}`)
 )
 
 type builder struct {
 	asOf   string
 	label  string
+	unsafe bool // the source label failed labelSafe: every fact of the call is an unknown
 	facts  []contracts.ExplanationFactsV2FactsItem
 	unkn   []contracts.ExplanationFactsV2UnknownsItem
 	status contracts.EnumsV1FactStatus
@@ -85,11 +88,24 @@ func (b *builder) add(kind, value string) {
 	b.facts = append(b.facts, contracts.ExplanationFactsV2FactsItem{FactId: id("fct_", kind), Kind: kind, FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: value, SourceLabel: b.label, AsOf: contracts.CommonV1Timestamp(b.asOf)})
 }
 
-func newBuilder(asOf time.Time, label string, st contracts.EnumsV1FactStatus) *builder {
-	return &builder{asOf: asOf.UTC().Format(time.RFC3339), label: label, status: st}
+// labelSafe holds a source label to the rules of a value: the allowed shape and unchanged by the one digit definition (so a label cannot carry a run of more than four digits).
+func labelSafe(label string) bool {
+	return labelShape.MatchString(label) && payloadguard.Mask(label) == label && !fiveASCII.MatchString(label)
 }
 
-func (b *builder) known() bool { return b.status == contracts.EnumsV1FactStatusKNOWN }
+func newBuilder(asOf time.Time, label string, st contracts.EnumsV1FactStatus) *builder {
+	return &builder{asOf: asOf.UTC().Format(time.RFC3339), label: label, status: st, unsafe: !labelSafe(label)}
+}
+
+// known is true only for a KNOWN row with a safe source label; otherwise the caller emits unknowns, with the why-code from why.
+func (b *builder) known() bool { return !b.unsafe && b.status == contracts.EnumsV1FactStatusKNOWN }
+
+func (b *builder) why() string {
+	if b.unsafe {
+		return "LABEL_NOT_SAFE"
+	}
+	return "SOURCE_NOT_KNOWN"
+}
 
 // PaymentFacts makes payment.amount, account, payment.time and payment.counterparty. A row that is not KNOWN gives four unknowns and no fact (A155: only KNOWN fills a slot).
 func PaymentFacts(cfg Config, p Payment, asOf time.Time, label string) ([]contracts.ExplanationFactsV2FactsItem, []contracts.ExplanationFactsV2UnknownsItem) {
@@ -97,7 +113,7 @@ func PaymentFacts(cfg Config, p Payment, asOf time.Time, label string) ([]contra
 	kinds := []string{"payment.amount", "account", "payment.time", "payment.counterparty"}
 	if !b.known() {
 		for _, k := range kinds {
-			b.unknown(k, "SOURCE_NOT_KNOWN")
+			b.unknown(k, b.why())
 		}
 		return b.facts, b.unkn
 	}
@@ -129,7 +145,7 @@ func Case(cfg Config, c CaseRow, asOf time.Time, label string) ([]contracts.Expl
 	b := newBuilder(asOf, label, c.Status)
 	if !b.known() {
 		for _, k := range []string{"case.ref", "case.team", "case.clock"} {
-			b.unknown(k, "SOURCE_NOT_KNOWN")
+			b.unknown(k, b.why())
 		}
 		return b.facts, b.unkn
 	}

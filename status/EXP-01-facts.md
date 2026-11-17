@@ -12,3 +12,6 @@
 ## Pre-work for the next agent
 - Exact next step: the reading adapter that implements `explanation.FactsSource`: from a decision ID, find the investigation's correlation, read the sealed snapshot's items and the recorded payloads (as the session's tenant), the create-case RECEIPT's `external_ack`, the plan's owner queue and `SLA_EVALUATED`; build `Payment` and `CaseRow`; call this package; add `outcome_id`, `classification` and the correlation; refuse when it finds none or two items for a kind.
 - Open questions (owner): the amount wording above (Architect); the time zone and the owner-queue names (pack/deployment data).
+
+# Session 2026-11-17 · EXP-01 · Codex P2 on noema#650 (the source label)
+- What changed: the caller's `label` is copied into the customer-facing `source_label`, so it is held to the rules of a value: a letter first, then letters, digits, space, dot, colon, underscore or hyphen, at most 64 characters, and unchanged by the one digit definition. An unsafe label makes every fact of the call an unknown `LABEL_NOT_SAFE` (payment and case). `TestAnUnsafeSourceLabelBuildsNothing` (account data, empty, too long, newline, control, leading digit, split digit run, Arabic-Indic digits; and five good labels). Red locally, one push; three mutants killed (the label check dropped, the digit rule dropped, the length bound widened).
