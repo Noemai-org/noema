@@ -28,3 +28,24 @@ test("REQ-UI-003: an unverified chain is refused by the reconstruction contract"
   assert.doesNotMatch(unverified, />Verified</i);
   assert.match(unverified, /This evidence is unavailable/i);
 });
+
+test("REQ-UI-003 POC-FR-17: reconstruction sections and masked explanation are presented", async () => {
+  const value = await load("full_write_case");
+  const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+  for (const heading of ["Who", "Request", "Clarification", "Resolution", "Observed state", "Policy", "Authority", "Decision", "Action", "Downstream result", "Verification", "Explanation"]) {
+    assert.ok(html.includes(`>${heading}</h3>`), heading);
+  }
+  const explanation = value.sections.find((section) => section.kind === "EXPLANATION").items[0].facts.text;
+  assert.ok(html.includes(explanation));
+  assert.ok(!html.includes(value.sections.find((section) => section.kind === "RESOLUTION").items[0].facts.resolved_target));
+  assert.deepEqual(scanVisibleText(html), []);
+});
+
+test("REQ-UI-003: unsafe explanation digits cause refusal before rendering", async () => {
+  const value = await load("full_write_case");
+  value.sections.find((section) => section.kind === "EXPLANATION").items[0].facts.text = "Account 12345";
+  const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+  assert.match(html, /This evidence is unavailable/i);
+  assert.ok(!html.includes("12345"));
+  assert.deepEqual(scanVisibleText(html), []);
+});
