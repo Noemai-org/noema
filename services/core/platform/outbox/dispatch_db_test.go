@@ -205,6 +205,9 @@ func TestASecondDispatcherSkipsAnEventTheFirstIsDelivering(t *testing.T) {
 	w := newWorld(t)
 	w.enqueue(w.execA, tenantA, 1, topicV)
 	inside, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock() // a failed assertion must not leave the first handler waiting: closing the pool would wait for it
 	slow := outbox.HandlerFunc(func(context.Context, outbox.Delivery) error {
 		close(inside)
 		<-release
@@ -215,13 +218,17 @@ func TestASecondDispatcherSkipsAnEventTheFirstIsDelivering(t *testing.T) {
 		_, err := w.dispatcher(w.orchA, tenantA, slow, 10).RunOnce(ctx(t))
 		done <- err
 	}()
-	<-inside
+	select {
+	case <-inside:
+	case err := <-done:
+		t.Fatalf("the first dispatcher ended before its handler ran: %v", err)
+	}
 	rec := &recorder{}
 	res, err := w.dispatcher(w.orchA, tenantA, rec, 10).RunOnce(ctx(t))
 	if err != nil || len(res.Delivered) != 0 || len(rec.ids()) != 0 {
 		t.Fatalf("the second dispatcher: %v, %+v, %v; want it to skip the held event", err, res, rec.ids())
 	}
-	close(release)
+	unblock()
 	if err := <-done; err != nil {
 		t.Fatalf("first dispatcher: %v", err)
 	}

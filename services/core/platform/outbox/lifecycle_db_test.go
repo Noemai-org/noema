@@ -93,6 +93,12 @@ func TestAPendingEventsContentNeverChanges(t *testing.T) {
 		"a created_at edit": `UPDATE outbox_event SET created_at = created_at + interval '1 day' WHERE outbox_id = $1`,
 		"an ID edit":        `UPDATE outbox_event SET outbox_id = 'obx_` + strings.Repeat("9", 26) + `' WHERE outbox_id = $1`,
 		"a no-op":           `UPDATE outbox_event SET topic = topic WHERE outbox_id = $1`,
+		// the dispatch is legal only with everything else unchanged: a mark that carries an edit is refused
+		"a mark with a payload edit":    `UPDATE outbox_event SET dispatched_at = now(), payload = '{"x":1}' WHERE outbox_id = $1`,
+		"a mark with a topic edit":      `UPDATE outbox_event SET dispatched_at = now(), topic = 'a.b' WHERE outbox_id = $1`,
+		"a mark with a tenant edit":     `UPDATE outbox_event SET dispatched_at = now(), tenant_id = '` + tenantB + `' WHERE outbox_id = $1`,
+		"a mark with a created_at edit": `UPDATE outbox_event SET dispatched_at = now(), created_at = created_at + interval '1 day' WHERE outbox_id = $1`,
+		"a mark with an ID edit":        `UPDATE outbox_event SET dispatched_at = now(), outbox_id = 'obx_` + strings.Repeat("9", 26) + `' WHERE outbox_id = $1`,
 	} {
 		if _, err := w.admin.Exec(ctx(t), q, oid(1)); sqlstate(err) != integrity {
 			t.Errorf("%s: %v, want SQLSTATE %s", name, err, integrity)

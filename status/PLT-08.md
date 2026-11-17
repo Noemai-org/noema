@@ -67,3 +67,21 @@ Record events asserted: none. The outbox is not the Record. The outbox holds no 
 7. The two producers still hold their own `INSERT INTO outbox_event`. Moving them to `Enqueue` is a refactor PR (own task ID, no behaviour change). Not done here.
 8. Retention (30 d after dispatch, PERD §38.2) needs a DELETE nobody holds; it belongs to DATA-01.
 9. The lifecycle trigger (migration 0031) is my addition, justified by the two holes in "What is missing", item 3. It is Tier 1 (migration). If the reviewers prefer not to add a migration for PLT-08, the dispatcher and `Enqueue` stand without it and only the lifecycle tests drop out. Owner: Security Reviewer.
+
+# Session 2026-11-17 · PLT-08 (Core Engineer 2)
+
+## Session summary
+- What changed (PR links): noema#693 (draft; `feat/PLT-08-outbox`). Red head `0a2ed6eb`: this file and the tests. Implementation (local until the red CI run is read): `services/core/platform/outbox/{doc,event,dispatcher}.go` and `README.md`, `services/core/migrations/0031_outbox_lifecycle.sql`.
+- Why: the Founder's order of 17 Nov 2026 (PLT-08 taken from Core Engineer 1). `outbox_event` and its producers exist; no dispatcher exists, no outbox-level crash proof exists, and the lifecycle was not enforced.
+- Risks, and how they are contained: a migration (Tier 1: Codex, Security Reviewer, an independent read, a Founder). It adds one trigger, no role, table or column; it refuses only what PERD §38.2's one-way lifecycle already forbids; nothing on `main` inserts a dispatched row or updates an outbox row (`git grep`). The dispatcher can only set `dispatched_at` (its grant) and only for its login's tenant (row security, and its query filters by tenant). Delivery happens while a row lock is held, so a handler runs inside a transaction bounded by `DeliveryTimeout` (a design cost: the lock is the only claim, because a lease needs columns that are not decided).
+- Tests added (REQ, INV, US or EC IDs): REQ-VER-005 (outbox part), PERD §56, EC-E16, INV-11, INV-12, INV-30, AGENT-08, AGENT-13: see the PR body and `platform/outbox/README.md`.
+- Regression cases added: none (no bug fix). The two lifecycle holes are pinned by `TestAnEventCannotBeBornDispatched` and `TestADispatchedEventNeverChangesAgain`.
+- Debt entries: none filed (this repository does not hold `debt.md`). To file in docs: no retry policy and no dead-letter state on the general dispatcher (open question 2); the two producers keep raw INSERTs (open question 7).
+- Mutation check (hand mutants, run locally on PostgreSQL 16): 29 mutants of `event.go`, `dispatcher.go` and the migration, 28 killed by the tests, 1 survived as an equivalent (the mark's row count check: the row is locked by the same transaction, so it is always 1). One test gap found and closed (a mark that carries a content edit). Two test-hygiene fixes (a failed assertion left a transaction or a blocked handler open, so the run hung instead of failing) ship with the implementation push, in the same test files, no assertion weakened.
+- Conflicts raised: none. One mismatch noted: the row's REQ-VER-005 is the callback (open question 1).
+
+## Pre-work for the next agent
+- Exact next step: read the red CI run on noema#693, then push the implementation (commands in the hand-off report).
+- Open questions (owner): the nine in "Open questions" above.
+- Files to read first: `services/core/platform/outbox/README.md`, `migrations/0031_outbox_lifecycle.sql`, `execution/ledger/complete.go` (a producer), `platform/db/rls_tables_test.go`.
+- Do not touch: `execution/ledger` and `outcome/store` (moving them to `Enqueue` is a separate refactor PR), the callback (REQ-API-006), the Record.

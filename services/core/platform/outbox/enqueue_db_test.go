@@ -30,6 +30,7 @@ func TestAnEventCommitsWithItsStateChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx(t)) }() // a failed assertion must not leave the transaction open: closing the pool would wait for it
 	if err := w.insertState(tx, tenantA, "st_1", "ok"); err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +71,7 @@ func TestARollbackTakesTheEventWithTheStateChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx(t)) }() // a failed assertion must not leave the transaction open: closing the pool would wait for it
 	if err := w.insertState(tx, tenantA, "st_1", "ok"); err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +93,7 @@ func TestAStateChangeThatFailsAfterTheEnqueueLeavesNoEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx(t)) }() // a failed assertion must not leave the transaction open: closing the pool would wait for it
 	if err := outbox.Enqueue(ctx(t), tx, w.event(1, tenantA, topicV)); err != nil {
 		t.Fatal(err)
 	}
@@ -113,6 +116,7 @@ func TestAnEventThatIsRefusedTakesTheStateChangeWithIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = tx.Rollback(ctx(t)) }() // a failed assertion must not leave the transaction open: closing the pool would wait for it
 	if err := w.insertState(tx, tenantA, "st_1", "ok"); err != nil {
 		t.Fatal(err)
 	}
