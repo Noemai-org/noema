@@ -29,8 +29,9 @@ async function stream(input: ReconnectInput, onEvent: (event: SseEventV1) => voi
 /** One caller-driven recovery: refetch authoritative state before opening a replacement stream. */
 export async function reconnectOnce(input: ReconnectInput): Promise<void> {
   let consumerFailed = false;
+  let answerReceived = false;
   const onEvent = (event: SseEventV1) => {
-    try { input.onEvent(event); }
+    try { input.onEvent(event); if (event.event === "answer") answerReceived = true; }
     catch (error) { consumerFailed = true; throw error; }
   };
   try {
@@ -38,6 +39,7 @@ export async function reconnectOnce(input: ReconnectInput): Promise<void> {
   } catch (error) {
     if (consumerFailed || input.signal?.aborted || error instanceof StreamProtocolError || !(error instanceof TypeError || error instanceof StreamInterruptedError)) throw error;
   }
+  if (answerReceived) return;
   const state = await fetchInvestigation(input);
   input.onState(state);
   await stream(input, onEvent);

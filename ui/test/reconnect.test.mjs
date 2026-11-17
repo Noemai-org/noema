@@ -121,3 +121,26 @@ test("REQ-UI-001: clean EOF in a partial frame also refetches before reconnectin
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("REQ-UI-001: a completed answer does not trigger another request", async () => {
+  const address = Object.values(networkInterfaces()).flat().find((entry) => entry?.internal && entry.family === "IPv4")?.address;
+  assert.ok(address);
+  const answer = await fixture("sse-event/answer");
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    requests++;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.end(`event: answer\ndata: ${JSON.stringify(answer)}\n\n`);
+  });
+  server.listen(0, address);
+  await once(server, "listening");
+  try {
+    const events = [];
+    await reconnectOnce({ baseUrl: `http://${address}:${server.address().port}`, conversationRef: id, investigationId: id, sessionToken: "synthetic-session", maxFrameBytes: limit, maxResponseBytes: limit, onEvent: (value) => events.push(value), onState: () => assert.fail("unexpected refetch") });
+    assert.deepEqual(events, [answer]);
+    assert.equal(requests, 1);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
