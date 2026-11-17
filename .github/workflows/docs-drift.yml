@@ -33,7 +33,6 @@ jobs:
           repository: Noemai-org/docs
           ref: main
           path: docs-main
-          persist-credentials: false
           token: ${{ secrets.DOCS_READ_TOKEN }}
       - name: Compare the vendored copies with docs main
         run: python3 -I tools/vendor/repoint_docs.py --docs docs-main --check --ignore-commit
