@@ -7,6 +7,7 @@ import copy
 import json
 import re
 import unittest
+from unittest import mock
 from typing import Any, Callable, Iterator
 
 from benchmark.contracts import Contracts
@@ -120,6 +121,54 @@ class View(unittest.TestCase):
             scorecard_view({"run_id": "run_x"})
 
 
+class Fails(unittest.TestCase):
+    """Codex's two P2s on noema#642 at 4e5ff27b: (1) `by_disposition` and `latency_by_path` accepted any key, so a case id could ride in as a map key; (2) the projection copied nested members
+    without checking them, so an injected nested member (a failure list under tier2, an extra member of a rate or of pass^k) survived in the view, and a tier-2 rate without its exact bound passed.
+    The source is validated against scorecard v3 before it is projected, and the view is validated against scorecard-view.v1 before it is returned: either failure is a ValueError."""
+
+    def setUp(self) -> None:
+        self.card = cards()["clean"]
+
+    def refused(self, mutate: Callable[[dict[str, Any]], Any]) -> None:
+        card = copy.deepcopy(self.card)
+        mutate(card)
+        with self.assertRaises(ValueError):
+            scorecard_view(card)
+
+    def test_a_case_id_as_a_by_disposition_key_is_refused(self) -> None:
+        self.refused(lambda c: c["tier1"]["by_disposition"].update({"BEN-AMB-0001": make_rate(1, 1)}))
+
+    def test_a_case_id_as_a_latency_by_path_key_is_refused(self) -> None:
+        self.refused(lambda c: c["tier3"]["latency_by_path"].update({"BEN-AMB-0001": {"n": 1, "p50_ms": 1, "p95_ms": 1, "p99_ms": 1}}))
+
+    def test_an_injected_nested_member_is_refused_wherever_it_is(self) -> None:
+        self.refused(lambda c: c["tier2"].update(failures=[{"case_id": "BEN-AMB-0001"}]))
+        self.refused(lambda c: c["tier2"]["unsafe"].update(case_ids=["BEN-AMB-0001"]))
+        self.refused(lambda c: c["tier1"]["correct_terminal_handling"].update(note="BEN-AMB-0001"))
+        self.refused(lambda c: c["tier1"]["diagnostics"].update(sample_cases=["BEN-AMB-0001"]))
+        self.refused(lambda c: c["tier3"]["latency"].update(slowest_case="BEN-AMB-0001"))
+        self.refused(lambda c: c["by_family"]["B1"].update(case_ids=["BEN-AMB-0001"]))
+
+    def test_a_tier_two_rate_without_its_exact_bound_is_refused(self) -> None:
+        self.refused(lambda c: c["tier2"]["unsafe"].pop("exact_upper95"))
+
+    def test_an_injected_member_of_pass_k_is_refused(self) -> None:
+        def inject(c: dict[str, Any]) -> None:
+            c["tier1"]["diagnostics"]["pass_k"] = {"k_required": 5, "runs_supplied": 5, "available": True, "reason": None, "rate": make_rate(3, 4), "failing_cases": ["BEN-AMB-0001"],
+                                                   "slowest": "BEN-AMB-0002"}
+        self.refused(inject)
+
+    def test_a_view_that_would_not_validate_is_never_returned(self) -> None:
+        """The output check is not redundant with the input check: it is what stops a future change of the projection from leaking."""
+        import benchmark.scoring.view as module
+        original = module.CONTRACTS.errors
+
+        def forced(name: str, doc: Any) -> list[str]:
+            return ["forced"] if name == "scorecard-view.v1" else original(name, doc)
+        with mock.patch.object(module.CONTRACTS, "errors", forced), self.assertRaises(ValueError):
+            scorecard_view(self.card)
+
+
 class Schema(unittest.TestCase):
     def setUp(self) -> None:
         self.schema = json.loads((__import__("pathlib").Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "scorecard-view.v1.json").read_text(encoding="utf-8"))
@@ -146,6 +195,21 @@ class Schema(unittest.TestCase):
                 # The one deliberate identifier is the run's own id; its pattern is the existing RunId contract. Everything else must not be able to spell a case id.
                 if "pattern" in node and path != "#/$defs/RunId":
                     self.assertIsNone(re.fullmatch(node["pattern"], "BEN-AMB-0001"), path)
+
+    def test_every_map_constrains_its_keys_so_a_case_id_cannot_be_one(self) -> None:
+        """Codex P2 on noema#642: a map with free keys can carry an identifier as a key. Every object that has `additionalProperties` as a schema (a map) names its allowed keys."""
+        maps = 0
+        for path, node in self.walk(self.schema):
+            if isinstance(node.get("additionalProperties"), dict):
+                maps += 1
+                names: Any = node.get("propertyNames")
+                self.assertIsNotNone(names, path)
+                allowed = names.get("enum")
+                if allowed is not None:
+                    self.assertNotIn("BEN-AMB-0001", allowed, path)
+                else:
+                    self.assertIsNone(re.fullmatch(names["pattern"], "BEN-AMB-0001"), path)
+        self.assertGreaterEqual(maps, 5)  # by_disposition, latency_by_path, layers, by_category, by_family
 
     def test_the_forbidden_members_are_not_defined_anywhere(self) -> None:
         defined = {k for _, node in self.walk(self.schema) for k in node.get("properties", {})}

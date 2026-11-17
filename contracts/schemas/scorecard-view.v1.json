@@ -593,6 +593,17 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/Rate"
+          },
+          "propertyNames": {
+            "enum": [
+              "ALLOW",
+              "CLARIFY",
+              "CONFIRM",
+              "WAIT",
+              "ESCALATE",
+              "REJECT",
+              "UNKNOWN"
+            ]
           }
         },
         "diagnostics": {
@@ -657,6 +668,9 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/Latency"
+          },
+          "propertyNames": {
+            "pattern": "^[A-Z][A-Z0-9_]*$"
           }
         }
       },

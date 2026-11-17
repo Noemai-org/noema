@@ -1,10 +1,15 @@
 """scorecard-view.v1: the projection of a scorecard v3 that a user interface may show (ruling A250, interim). Aggregates only: no case id, no list of case ids, no failure list, no structural-
 evidence names, no manual-baseline placeholder. The lists a scorecard keeps are carried as COUNTS. It adds no number and no threshold (AGENT-16); every rate is the scorecard's own.
 
-The projection is an allowlist, not a filter: a member of the scorecard that is not named here is not in the view, so a member added to the scorecard later cannot leak through."""
+The projection is an allowlist, not a filter: a member of the scorecard that is not named here is not in the view, so a member added to the scorecard later cannot leak through. It is also
+checked at both ends (Codex's P2s on noema#642): the whole source must be a valid scorecard v3 (a closed schema, so an injected nested member is refused, not copied), and the whole view must
+be a valid `scorecard-view.v1` before it is returned (its map keys are enumerations or patterns that cannot spell a case id). Either failure is a ValueError, never a partial view."""
 from typing import Any, Mapping
 
+from benchmark.contracts import Contracts
+
 Json = dict[str, Any]
+CONTRACTS = Contracts()
 
 INCOMPLETE = ("missing", "errored", "stale_version", "duplicate", "unknown", "invalid_case")
 DIAGNOSTIC_RATES = ("exact_transaction_identification", "high_risk_ambiguous_not_guessed", "state_reconstruction", "policy_decisions", "writes_idempotent_and_verified",
@@ -29,9 +34,17 @@ def _pass_k(block: Mapping[str, Any]) -> Json:
 
 def scorecard_view(card: Mapping[str, Any]) -> Json:
     """The view of one scorecard v3. Raises ValueError for anything that is not a v3 scorecard (a rate without `exact_upper95`, a missing tier): nothing is guessed."""
-    for gate in _need(card, "tier0", "gates"):
-        if "exact_upper95" not in gate["rate"]:
-            raise ValueError("not a scorecard v3: a rate has no exact_upper95")
+    problems = CONTRACTS.errors("benchmark-scorecard.v3", card)
+    if problems:
+        raise ValueError(f"not a valid scorecard v3 ({len(problems)} problem(s)); first: {problems[0]}")
+    view = _project(card)
+    out = CONTRACTS.errors("scorecard-view.v1", view)
+    if out:
+        raise ValueError(f"the view is not a valid scorecard-view.v1 ({len(out)} problem(s)); first: {out[0]}")
+    return view
+
+
+def _project(card: Mapping[str, Any]) -> Json:
     diagnostics = _need(card, "tier1", "diagnostics")
     return {
         "run_id": _need(card, "run_id"), "complete": _need(card, "complete"),
