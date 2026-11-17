@@ -337,7 +337,7 @@ class TypeScriptOutput(unittest.TestCase):
 
     def test_the_benchmark_entry_point_reaches_no_case_id_oracle_or_write_access(self):
         # INV-22, REQ-UI-004: the view is "the numbers of scorecard v3 and nothing that names a case". The type closure of the entry point holds no case id, no list of ids, no failure list, no
-        # structural evidence, no oracle or held-out reference, no tenant, and nothing a write role or a credential would be named by. The scan reads the names of the emitted types and of their
+        # structural evidence, no oracle or held-out reference, no tenant, and nothing a write role or a credential would be named by. (`writes_idempotent_and_verified` is a diagnostic rate, not write access.) The scan reads the names of the emitted types and of their
         # members, not the enum values (a Tier 0 gate is *named* ORACLE_ACCESS: it is a count, not a reference) and not the doc comments (the schema says what it leaves out).
         files = generate.render_all(generate.load_schemas())
         base = f"{generate.TS_DIR}/"
@@ -353,7 +353,7 @@ class TypeScriptOutput(unittest.TestCase):
         self.assertIn("ScorecardViewV1", names)
         self.assertTrue({"failure_count", "failing_case_count", "incomplete_counts"} <= set(members), "the scan does not see the members it is meant to inspect")
         forbidden = ("caseid", "oracle", "heldout", "expected", "benchmarkcase", "failurelist", "failingcases", "structural", "evidence", "human", "tenant", "credential", "secret", "token", "role",
-                     "write", "grant", "session")
+                     "writer", "writeaccess", "grant", "session")
         for n in names + members:
             flat = re.sub(r"[^a-z0-9]", "", n.lower())
             self.assertFalse([w for w in forbidden if w in flat], f"{n} names something INV-22 keeps out of the benchmark view")

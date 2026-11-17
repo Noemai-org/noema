@@ -86,9 +86,11 @@ test("planting a case, oracle, tenant or write-access member anywhere in a valid
   }
 });
 
-// What the parser returns holds only the members the view declares: no key of any parsed fixture names a case, an oracle, a tenant or write access.
+// What the parser returns holds only the members the view declares: no member of any parsed fixture names a case, an oracle, a tenant or write access. The keys of a map (a layer, a family,
+// a category, a gate disposition, a path) are data the schema constrains by a pattern or an enum, all upper case (`HELD_OUT` is a layer name holding a count); only member names, which are
+// lower snake case, are scanned. `writes_idempotent_and_verified` is a diagnostic rate, not write access.
 test("a parsed view carries no member that names a case, an oracle, a tenant or write access", () => {
-  const forbidden = ["caseid", "oracle", "heldout", "expected", "failurelist", "failingcases", "structural", "evidence", "human", "tenant", "credential", "secret", "token", "role", "write", "grant", "session"];
+  const forbidden = ["caseid", "oracle", "heldout", "expected", "failurelist", "failingcases", "structural", "evidence", "human", "tenant", "credential", "secret", "token", "role", "writer", "writeaccess", "grant", "session"];
   const keys = (v, out = []) => {
     if (Array.isArray(v)) v.forEach((x) => keys(x, out));
     else if (v !== null && typeof v === "object") for (const [k, x] of Object.entries(v)) { out.push(k); keys(x, out); }
@@ -97,7 +99,7 @@ test("a parsed view carries no member that names a case, an oracle, a tenant or 
   for (const f of validFiles()) {
     const all = keys(parseView(valid(f)));
     assert.ok(all.includes("failure_count"), "the scan sees the members it inspects");
-    for (const k of all) assert.deepEqual(forbidden.filter((w) => k.toLowerCase().replace(/[^a-z0-9]/g, "").includes(w)), [], `${f}: ${k}`);
+    for (const k of all.filter((x) => /^[a-z]/.test(x))) assert.deepEqual(forbidden.filter((w) => k.toLowerCase().replace(/[^a-z0-9]/g, "").includes(w)), [], `${f}: ${k}`);
   }
 });
 
