@@ -114,3 +114,22 @@ test("REQ-UI-001: oversized frames and real HTTP errors do not deliver server te
     }
   });
 });
+
+test("REQ-UI-001: wrong content type and malformed or truncated frames fail closed", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/html") {
+      response.writeHead(200, { "content-type": "text/html" });
+      response.end("<p>synthetic server error</p>");
+    } else {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(request.url === "/malformed" ? "event: answer\ndata: {bad}\n\n" : "event: answer\ndata: {");
+    }
+  }, async (url) => {
+    for (const suffix of ["/html", "/malformed", "/truncated"]) {
+      const events = [];
+      const response = await fetch(`${url}${suffix}`);
+      await assert.rejects(readEventStream(response, (event) => events.push(event), maxFrameBytes));
+      assert.deepEqual(events, []);
+    }
+  });
+});
