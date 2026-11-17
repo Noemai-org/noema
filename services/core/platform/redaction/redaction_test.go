@@ -11,17 +11,20 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/redaction"
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 	"pgregory.net/rapid"
 )
 
-var longRun = regexp.MustCompile(`[0-9]{5,}`) // the PERD's limit: a run of five or more digits must never reach the output
+// hasRun is the oracle: true when s still holds a run of more than four digits, as the Record's append guard defines a run (record/payloadguard: any Unicode decimal digit, joined by
+// the wide separator set, any number of separators between two digits; A194, A231, A289). It is not ASCII-only and not tied to one separator: the first oracle here was [0-9]{5,}, which
+// is how a number written in another script, or with two spaces, passed every test of this package.
+func hasRun(s string) bool { return payloadguard.Mask(s) != s }
 
 func logged(t *testing.T, fn func(l *slog.Logger)) string {
 	t.Helper()
@@ -39,7 +42,7 @@ func logged(t *testing.T, fn func(l *slog.Logger)) string {
 
 func noRun(t *testing.T, label, out string) {
 	t.Helper()
-	if longRun.MatchString(out) {
+	if hasRun(out) {
 		t.Errorf("%s: a digit run of five or more reached the output: %s", label, out)
 	}
 }
@@ -269,7 +272,7 @@ func TestExemptionTypedID(t *testing.T) {
 		"grt_81J90123456789ABCDEFGHJKMN":               "", // a first character above 7 does not fit 128 bits
 	} {
 		got := r.MaskAccountNumbers(in)
-		if longRun.MatchString(got) {
+		if hasRun(got) {
 			t.Errorf("masked wrongly: %q -> %q", in, got)
 		}
 		if want != "" && got != want {
@@ -308,7 +311,7 @@ func TestExemptionRFC3339Timestamp(t *testing.T) {
 		stamp + "9":                       "",
 	} {
 		got := r.MaskAccountNumbers(in)
-		if longRun.MatchString(got) {
+		if hasRun(got) {
 			t.Errorf("masked wrongly: %q -> %q", in, got)
 		}
 		if want != "" && got != want {
@@ -450,7 +453,7 @@ func TestACyclicOrVeryDeepOrVeryWideValueIsBoundedAndNeverCrashes(t *testing.T) 
 // group name, a nested member), no run of five digits reaches the output, and a value under a secret-looking key never does.
 func TestNoGeneratedNestedValueLetsADigitRunOrASecretThrough(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		digits := rapid.StringMatching(`[0-9]{5,14}`).Draw(rt, "digits")
+		digits := wideRun(rt) // digits of any script, joined by any of the separators of the shared set (not only [0-9]{5,14})
 		var gen func(depth int) any
 		gen = func(depth int) any {
 			switch k := rapid.IntRange(0, 5).Draw(rt, "kind"); {
@@ -477,7 +480,7 @@ func TestNoGeneratedNestedValueLetsADigitRunOrASecretThrough(t *testing.T) {
 		out := logged(t, func(l *slog.Logger) {
 			l.WithGroup(rapid.SampledFrom([]string{"g", digits}).Draw(rt, "group")).Info("m"+digits, rapid.SampledFrom([]string{"v", digits}).Draw(rt, "attrkey"), v)
 		})
-		if longRun.MatchString(out) {
+		if hasRun(out) {
 			rt.Fatalf("a digit run reached the output: %s", out)
 		}
 	})
