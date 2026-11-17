@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 
 import generate  # noqa: E402
 import ir  # noqa: E402
+import ts  # noqa: E402
 from anchors import fully_anchored  # noqa: E402
 
 
@@ -332,3 +333,81 @@ class TypeScriptOutput(unittest.TestCase):
     def test_a_pattern_is_kept_as_written_because_ecma_262_dollar_is_whole_string(self):
         files = generate.render_all(generate.load_schemas())
         self.assertIn('new RegExp("^[0-9]+\\\\.[0-9]+$", "u")', files[f"{generate.TS_DIR}/common_v1.ts"])
+
+
+class TypeScriptConditionals(unittest.TestCase):
+    """noema#682 (REQ-UI-001, REQ-API-001, AGENT-15, INV-02): the TypeScript parser holds the conditional rules of a schema, and a keyword the emitter does not implement is an
+    error, never silence. The behaviour of the emitted checks is tested on the real fixtures in ui/test/contracts.test.mjs."""
+
+    def render(self, **body) -> str:
+        built = ir.build_schemas({"t.v1.json": schema(**body)})
+        return ts.Ts(built).render_schema(built["t.v1.json"])
+
+    def prop(self, **node) -> dict:
+        return {"type": "object", "properties": {"a": {"type": "object", "properties": {"x": {"type": "string"}}, **node}}}
+
+    # One sample per validation or applicator keyword the generator reads: the property schema it sits on, and the keyword itself.
+    SAMPLES = {
+        "pattern": {"type": "string", "pattern": "^a$"},
+        "minLength": {"type": "string", "minLength": 2},
+        "maxLength": {"type": "string", "maxLength": 2},
+        "format": {"type": "string", "format": "date-time"},
+        "minimum": {"type": "integer", "minimum": 1},
+        "maximum": {"type": "integer", "maximum": 1},
+        "exclusiveMinimum": {"type": "number", "exclusiveMinimum": 0},
+        "minItems": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "maxItems": {"type": "array", "items": {"type": "string"}, "maxItems": 1},
+        "uniqueItems": {"type": "array", "items": {"type": "string"}, "uniqueItems": True},
+        "contains": {"type": "array", "items": {"type": "string"}, "contains": {"const": "a"}},
+        "prefixItems": {"type": "array", "prefixItems": [{"type": "string"}], "items": False},
+        "minProperties": {"type": "object", "properties": {"x": {"type": "string"}}, "minProperties": 1},
+        "maxProperties": {"type": "object", "properties": {"x": {"type": "string"}}, "maxProperties": 1},
+        "propertyNames": {"type": "object", "additionalProperties": {"type": "string"}, "propertyNames": {"maxLength": 3}},
+        "not": {"type": "string", "not": {"const": "a"}},
+        "if": {"type": "string", "if": {"const": "a"}, "then": {"minLength": 2}},
+        "then": {"type": "string", "then": {"minLength": 2}},
+        "else": {"type": "string", "else": {"minLength": 2}},
+        "anyOf": {"type": "string", "anyOf": [{"minLength": 2}, {"const": "a"}]},
+        "allOf": {"type": "string", "allOf": [{"minLength": 2}]},
+    }
+
+    def test_no_keyword_is_silently_ignored(self):
+        """For each keyword the IR reads: the emitter either writes a check for it (the output changes) or refuses (GenerationError). Output identical to the output without
+        the keyword is the silent drop that let noema#615 ship a parser that accepted eight invalid fixtures."""
+        for kw, node in self.SAMPLES.items():
+            bare = {k: v for k, v in node.items() if k not in (kw, "then", "else")}
+            try:
+                with_kw = self.render(type="object", properties={"a": node})
+            except ir.GenerationError:
+                continue
+            without = self.render(type="object", properties={"a": bare})
+            self.assertNotEqual(with_kw, without, f"{kw} is read by the IR and written nowhere in the TypeScript: a silent ignore")
+
+    def test_every_keyword_the_ir_reads_has_a_sample(self):
+        self.assertEqual(sorted(ir.VALIDATION - set(self.SAMPLES)), [], "a keyword was added to ir.VALIDATION without a case in SAMPLES")
+
+    def test_the_keywords_the_emitter_does_not_implement_are_refused(self):
+        for kw in ("uniqueItems", "format", "then", "else"):
+            with self.assertRaisesRegex(ir.GenerationError, kw, msg=kw):
+                self.render(type="object", properties={"a": self.SAMPLES[kw]})
+
+    def test_an_unknown_keyword_inside_a_conditional_is_refused(self):
+        s = {"type": "object", "properties": {"a": {"type": "string"}}, "allOf": [{"if": {"properties": {"a": {"frobnicate": 1}}}, "then": {"required": ["a"]}}]}
+        with self.assertRaisesRegex(ir.GenerationError, "frobnicate"):
+            self.render(**s)
+
+    def test_a_keyword_the_emitter_does_not_implement_in_a_real_contract_stops_generation(self):
+        schemas = generate.load_schemas()
+        schemas["reconstruction.v3.json"]["properties"]["events"]["uniqueItems"] = True
+        with self.assertRaisesRegex(ir.GenerationError, r"reconstruction\.v3\.json.*uniqueItems"):
+            generate.render_all(schemas)
+
+    def test_prefix_items_and_a_conditional_are_written_as_checks(self):
+        cell = lambda kind: {"allOf": [{"$ref": "#/$defs/Cell"}, {"properties": {"kind": {"const": kind}}, "required": ["kind"]}]}  # noqa: E731
+        text = self.render(type="object", properties={
+            "k": {"type": "string"},
+            "pair": {"type": "array", "minItems": 2, "maxItems": 2, "items": False, "prefixItems": [cell("A"), cell("B")]},
+        }, required=["k", "pair"], allOf=[{"if": {"properties": {"k": {"const": "x"}}, "required": ["k"]}, "then": {"required": ["pair"]}}],
+            **{"$defs": {"Cell": {"type": "object", "properties": {"kind": {"type": "string"}}, "required": ["kind"]}}})
+        self.assertIn("cPrefix(", text)
+        self.assertIn("cIf(", text)
