@@ -37,7 +37,9 @@ class FakeTushe(BaseHTTPRequestHandler):
         presented = self.headers.get(self.expects, "")
         ok = presented.endswith(SECRET) if self.expects == "Authorization" else presented == SECRET
         mode = type(self).mode
-        if self.path.startswith(CONTROL):
+        if self.path.startswith(CONTROL) or self.path == "/v1/audit-events":
+            if mode == "events-refused" and self.path.startswith(CONTROL):
+                return self._answer(403)  # this credential may not read the event feed, but may read the audit trail
             return self._answer(200 if ok and mode != "refuses-control" else 401)
         if not ok:
             return self._answer(401)
@@ -72,10 +74,12 @@ class Probe(unittest.TestCase):
         self.server.server_close()
         self.tmp.cleanup()
 
-    def run_cli(self, *, scheme: str = "bearer", cred: Path | None = None, url: str | None = None, loopback: bool = True) -> tuple[int, str]:
-        argv = ["--base-url", url or self.url, "--credential-file", str(cred or self.cred), "--scheme", scheme, "--control-path", CONTROL]
-        for path in ADMIN:
-            argv += ["--probe-path", path]
+    def run_cli(self, *, scheme: str = "bearer", cred: Path | None = None, url: str | None = None, loopback: bool = True, defaults: bool = False) -> tuple[int, str]:
+        argv = ["--base-url", url or self.url, "--credential-file", str(cred or self.cred)]
+        if not defaults:
+            argv += ["--scheme", scheme, "--control-path", CONTROL]
+            for path in ADMIN:
+                argv += ["--probe-path", path]
         if loopback:
             argv.append("--allow-loopback-http")
         out = io.StringIO()
@@ -100,7 +104,7 @@ class Probe(unittest.TestCase):
         FakeTushe.expects = "X-API-Key"
         code, text = self.run_cli(scheme="bearer")
         self.assertEqual(code, 3, text)
-        self.assertIn("control read was not served", text)
+        self.assertIn("no control read was served", text)
         FakeTushe.mode = "refuses-control"
         FakeTushe.expects = "Authorization"
         self.assertEqual(self.run_cli()[0], 3)
@@ -108,6 +112,31 @@ class Probe(unittest.TestCase):
     def test_the_other_scheme_works_when_the_server_wants_it(self) -> None:
         FakeTushe.expects = "X-API-Key"
         self.assertEqual(self.run_cli(scheme="x-api-key")[0], 0)
+
+    def test_with_only_a_base_url_and_a_credential_file_the_documented_reads_and_routes_are_used_and_the_scheme_is_found(self) -> None:
+        # Ruling A276: nothing but the base URL and the credential comes from outside. The scheme is found by the control read and reported; the paths are the documented ones.
+        for expects, scheme in (("Authorization", "bearer"), ("X-API-Key", "x-api-key")):
+            with self.subTest(scheme):
+                FakeTushe.expects = expects
+                FakeTushe.methods = []
+                code, text = self.run_cli(defaults=True)
+                self.assertEqual(code, 0, text)
+                self.assertIn(f'"scheme": "{scheme}"', text)
+                self.assertIn("/partners/api-keys/scopes", text)
+                self.assertIn("/partner/events", text)
+
+    def test_the_audit_trail_is_the_control_when_the_event_feed_is_refused(self) -> None:
+        FakeTushe.mode = "events-refused"
+        code, text = self.run_cli(defaults=True)
+        self.assertEqual(code, 0, text)
+        self.assertIn('"path": "/v1/audit-events"', text)
+
+    def test_when_no_scheme_and_no_control_is_served_nothing_is_read_as_a_refusal(self) -> None:
+        FakeTushe.mode = "refuses-control"
+        code, text = self.run_cli(defaults=True)
+        self.assertEqual(code, 3, text)
+        self.assertIn("no control read was served", text)
+        self.assertEqual(len(FakeTushe.methods), 4, "two schemes by two controls, and no probe request after a refused control")
 
     def test_an_answer_that_is_neither_served_nor_refused_is_not_run(self) -> None:
         for mode in ("not-found", "redirect", "server-error"):

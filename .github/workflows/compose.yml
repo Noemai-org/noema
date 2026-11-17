@@ -20,7 +20,14 @@ jobs:
       - run: python3 -I deploy/relay-host/test_setup.py
       - run: make up
       - run: docker compose -f deploy/compose/docker-compose.yml --profile dev ps
-      - run: make net-matrix
+      # The TEN-01 line is checked, not only printed: if matrix.py stopped printing it the job would still pass (A274; the Security Reviewer's note 3 on noema#578).
+      - run: |
+          set +e
+          make net-matrix > "$RUNNER_TEMP/net-matrix.txt" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/net-matrix.txt"
+          [ "$code" -eq 0 ] || exit "$code"
+          grep -Eq 'TEN_RESULT id=TEN-01 seed=none pass=true$' "$RUNNER_TEMP/net-matrix.txt"
       - run: make bench-smoke
       - if: always()
         run: make reset
