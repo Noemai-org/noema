@@ -180,3 +180,36 @@ def test_cleanup_after_the_call_is_reported_with_the_correlation_id_and_a_fixed_
     result = run(asyncio.wait_for(call(), timeout=GUARD_S))
     assert result.utterance is None and result.offer_text
     assert all(c == "corr-d" and set(f) == {"code"} for n, c, f in telemetry.events if n == "voice_audio_cleanup")
+
+
+# ---- Codex P2 on noema#621 at 6d084abd: a caller's cancellation while an ineligible provider's source is being closed still ends in a bounded close ----------------------
+
+
+class StallsOnClose(Source):
+    """A source whose close never returns on its own but honours cancellation, and records that it was cancelled."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.close_cancelled = False
+
+    async def aclose(self) -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.close_cancelled = True
+            raise
+
+
+def test_a_cancellation_during_the_release_of_an_ineligible_providers_source_still_cancels_the_stalled_close_at_its_bound() -> None:
+    source = StallsOnClose()
+
+    async def call() -> bool:
+        task = asyncio.ensure_future(transcribe_or_text(Fake((final(),), capabilities=caps(qualified=False)), REQUEST, source, deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None))  # type: ignore[arg-type]
+        await asyncio.sleep(0.03)  # the close has started
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.4)  # three cleanup windows: the close must have been given its deadline
+        return source.close_cancelled  # read before the loop is torn down, which would cancel the task by itself
+
+    assert run(asyncio.wait_for(call(), timeout=GUARD_S))

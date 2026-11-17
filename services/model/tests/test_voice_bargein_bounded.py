@@ -98,3 +98,27 @@ def test_a_clean_close_is_not_a_release_failure() -> None:
     answer, microphone = Handle([1000] * 6), Handle([5] * 2000)
     result = run(barge(answer, microphone))
     assert answer.closed and microphone.closed and not result.release_failed
+
+
+# ---- Codex P1 on noema#621 at 6d084abd: a stream that stops producing frames reaches the bounded cleanup --------------------------------------------------------------
+
+
+@pytest.mark.parametrize("which", ["answer", "microphone"])
+def test_a_stream_that_stops_producing_frames_ends_the_call_at_the_read_bound_and_both_streams_are_closed(which: str) -> None:
+    answer = Handle([1000] * 50, stall_after=1 if which == "answer" else None)
+    microphone = Handle([5] * 2000, stall_after=1 if which == "microphone" else None)
+    started = time.monotonic()
+
+    async def call() -> BargeInResult:
+        return await asyncio.wait_for(play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.2, read_s=0.1), timeout=GUARD_S)
+
+    result = run(call())
+    assert time.monotonic() - started < 1.5  # not "until external cancellation"
+    assert answer.closed and microphone.closed  # the microphone is released although a stream stalled
+    assert result.stalled and not result.barged_in
+
+
+def test_a_read_bound_that_is_not_positive_and_finite_is_refused() -> None:
+    for bad in (0.0, -1.0, float("inf"), float("nan")):
+        with pytest.raises(ValueError):
+            run(play_until_barge_in(Handle([1]), Handle([1]), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.1, read_s=bad))
