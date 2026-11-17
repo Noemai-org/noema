@@ -117,6 +117,10 @@ def check(cfg, profile):
         published = {(p.get("host_ip") or "0.0.0.0", str(p.get("published"))) for p in svc.get("ports", [])}
         if published != PUBLISHED.get(name, set()):
             bad.append(f"{profile}: {name} publishes {sorted(published)}, expected {sorted(PUBLISHED.get(name, set()))}")
+        if profile == "bench" and name == "model" and "--no-access-log" not in (svc.get("entrypoint") or []):
+            # The G1 workflow captures the model's log and scans it (criterion 8). Uvicorn's access log names the client's ephemeral port on every request, and the health check makes one
+            # every three seconds: five-digit ports are digit runs, so a clean run would fail its own scan (Codex P1 on noema#591).
+            bad.append(f"{profile}: the model's uvicorn must run with --no-access-log (its access log carries the client port, a digit run the leak scan would report)")
         for flag in ("privileged", "cap_add", "devices"):
             if svc.get(flag):
                 bad.append(f"{profile}: {name} sets {flag}")
@@ -183,6 +187,7 @@ def self_test(configs):
         "unknown service": ("dev", lambda c: c["services"].update({"extra": {"networks": {"edge_net": None}}})),
         "postgres publishes a port": ("dev", lambda c: c["services"]["postgres"].update({"ports": [{"host_ip": "127.0.0.1", "published": "5432"}]})),
         "ui binds all interfaces": ("dev", lambda c: c["services"]["ui"].update({"ports": [{"published": "8082"}]})),
+        "the bench model logs every request with the client port": ("bench", lambda c: c["services"]["model"].update({"entrypoint": [a for a in c["services"]["model"]["entrypoint"] if a != "--no-access-log"]})),
         "core is privileged": ("dev", lambda c: c["services"]["core"].update({"privileged": True})),
         "core uses host network": ("dev", lambda c: c["services"]["core"].update({"network_mode": "host"})),
         "core mounts docker.sock": ("dev", lambda c: c["services"]["core"].update({"volumes": [{"source": "/var/run/docker.sock"}]})),
