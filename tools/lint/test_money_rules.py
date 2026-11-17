@@ -94,7 +94,7 @@ class SqlTypes(unittest.TestCase):
         for text in ("CREATE TABLE t (amount_minor BIGINT NOT NULL CHECK (amount_minor BETWEEN 0 AND 9007199254740991));", "CREATE TABLE t (ratio numeric, elapsed real);",
                      "-- amount_minor NUMERIC in a comment\nSELECT 1;", "SELECT 'amount_minor numeric';", "SELECT (r.json->>'attempt')::numeric FROM r;", "/* amount real */ SELECT 1;",
                      "SELECT CAST(amount_minor AS BIGINT) FROM t;", "SELECT CAST(r.attempt AS numeric) FROM r;", "SELECT CAST(elapsed AS real) FROM t;",
-                     "SELECT CAST('amount_minor' AS numeric) FROM t;", "-- CAST(amount_minor AS NUMERIC)\nSELECT 1;", "SELECT CAST(amount_minor AS BIGINT), 1 AS numeric FROM t;"):
+                     "SELECT CAST('amount_minor' AS numeric) FROM t;", "-- CAST(amount_minor AS NUMERIC)\nSELECT 1;", "SELECT CAST(amount_minor AS BIGINT) AS numeric FROM t;"):
             with self.subTest(text=text):
                 self.assertNotIn("money-sql-type", lint(sql(text)))
 

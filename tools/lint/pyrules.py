@@ -16,6 +16,8 @@ BAD_MONEY_TYPE = re.compile(r"\b(float|Decimal)\b")
 SQL_BAD_TYPE = r"(?:numeric|decimal|real|double\s+precision|float[48]?|money)"
 SQL_MONEY_COLUMN = re.compile(rf"\b(amount\w*|\w*minor)\b\s+(?:set\s+data\s+)?(?:type\s+)?{SQL_BAD_TYPE}\b", re.I)
 SQL_MONEY_CAST = re.compile(rf"\b(amount\w*|\w*minor)\b\s*\)?\s*::\s*{SQL_BAD_TYPE}\b", re.I)
+_NOT_AS = r"(?:(?!\bas\b)[^()])*?"
+SQL_MONEY_CAST_FN = re.compile(rf"\bcast\s*\(\s*\(*{_NOT_AS}\b(amount\w*|\w*minor)\b{_NOT_AS}\)*\s+as\s+{SQL_BAD_TYPE}\b", re.I)
 SQL_MONEY_TYPE = re.compile(r"\b\w+\s+money\b(?!\s*[.(])", re.I)
 DB_AND_TEMPORAL = {
     "psycopg", "psycopg2", "psycopg2-binary", "psycopg-binary", "asyncpg", "sqlalchemy", "sqlmodel", "pymysql", "mysqlclient",
@@ -249,7 +251,7 @@ def money_sql(root: Path) -> list[Violation]:
     out = []
     for path, rel in _files(root, "services/core/migrations", ".sql"):
         code = _sql_code(path.read_text())
-        for pattern, why in ((SQL_MONEY_COLUMN, "a money column"), (SQL_MONEY_CAST, "a cast of a money value"), (SQL_MONEY_TYPE, "the MONEY type")):
+        for pattern, why in ((SQL_MONEY_COLUMN, "a money column"), (SQL_MONEY_CAST, "a cast of a money value"), (SQL_MONEY_CAST_FN, "a cast of a money value"), (SQL_MONEY_TYPE, "the MONEY type")):
             for m in pattern.finditer(code):
                 kind = re.search(SQL_BAD_TYPE, m.group(0)[len(m.group(1)) if m.lastindex else 0:], re.I)
                 out.append(("money-sql-type", rel, code.count("\n", 0, m.start()) + 1, f"{why} uses {' '.join(kind.group(0).upper().split()) if kind else 'a non-integer type'}; money is BIGINT in minor units (M4)"))
