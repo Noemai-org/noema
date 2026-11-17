@@ -1,7 +1,8 @@
 // Test aid only: these checks cannot prove that arbitrary text is safe to show.
 export function scanVisibleText(text: string): string[] {
   const findings: string[] = [];
-  if (/\p{Nd}(?:[\s\p{Zs}.\-/_():\u00ad\u034f\u180e\u200b-\u200d\u2010-\u2015\u2060\u2212\ufeff]*\p{Nd}){4}/u.test(text)) {
+  // Match the wide separator categories in tools/contracts/digit_run.py and the public schemas.
+  if (/\p{Nd}(?:[\s\u0085\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\u2212\u00b7\u30fb\uff0e\uff0f\uff1a\uff3f]*\p{Nd}){4}/u.test(text)) {
     findings.push("digit-run");
   }
   if (/\bmodel confidence\b/iu.test(text)) findings.push("model-confidence");
