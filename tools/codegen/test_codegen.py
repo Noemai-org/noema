@@ -212,3 +212,123 @@ class Anchors(unittest.TestCase):
         import re
 
         self.assertIsNotNone(re.search(fully_anchored(r"^[\s\S]*$"), "a\nb\n"))
+
+
+class TypeScriptOutput(unittest.TestCase):
+    """REQ-UI-001: the TypeScript the UI reads comes from tools/codegen/ts.json, with every contract its roots refer to, and never from a contract kept out of the services."""
+
+    def test_the_roots_and_what_they_refer_to_are_generated_and_nothing_else(self):
+        files = generate.render_all(generate.load_schemas())
+        ts_files = {p for p in files if p.startswith(generate.TS_DIR + "/")}
+        self.assertIn(f"{generate.TS_DIR}/_runtime.ts", ts_files)
+        self.assertIn(f"{generate.TS_DIR}/customer.ts", ts_files)
+        self.assertIn(f"{generate.TS_DIR}/operator.ts", ts_files)
+        self.assertNotIn(f"{generate.TS_DIR}/index.ts", ts_files)  # one entry point for everything would defeat the two audiences (A258)
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
+        for r in roots:
+            self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
+        self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
+
+    def test_the_front_end_reads_the_four_public_contracts_the_errors_and_the_reconstruction(self):
+        # REQ-UI-001, REQ-API-001: the roots the UI reads. errors.v3 (the public error envelope) and reconstruction.v3 (the case view) are roots in their own right, not only
+        # dependencies of another root, so the front end can import them by name.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
+        files = generate.render_all(generate.load_schemas())
+        for r in ("customer-answer.v1.json", "investigation-response.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json", "reconstruction.v3.json"):
+            self.assertIn(r, roots, f"{r} is not a root of ts.json")
+            self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", files)
+
+    def test_a_map_whose_keys_have_a_pattern_refuses_a_key_that_does_not_match(self):
+        # reconstruction.v3 facts: propertyNames { pattern } with additionalProperties. The TypeScript parser must refuse a key outside the pattern, as the validator does
+        # (the front end read an invalid fixture, fact_key_not_snake_case, as valid before this).
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn("keyPattern?: RegExp", files[f"{generate.TS_DIR}/_runtime.ts"])
+        self.assertRegex(files[f"{generate.TS_DIR}/reconstruction_v3.ts"], r"mapOf\([^\n]*, PATTERN_\d+\)")
+
+    def test_the_customer_entry_point_reaches_no_operator_contract(self):
+        # A258 (the Security Reviewer's question on noema#615): reconstruction.v3 and record-event.v3 carry tenant_id, the full events and their hashes: the operator and auditor UI
+        # only. The customer entry point imports the four public contracts and errors.v3, and nothing it imports leads to those two.
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        todo, seen = [base + "customer.ts"], set()
+        while todo:
+            f = todo.pop()
+            if f in seen:
+                continue
+            seen.add(f)
+            todo.extend(base + m + ".ts" for m in re.findall(r'from "\./(\w+)\.js"', files[f]))
+        names = {f[len(base):-3] for f in seen}
+        self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "sse_event_v1"} <= names)
+        self.assertFalse(names & {"reconstruction_v3", "record_event_v3", "operator"}, names)
+        parsers = set(re.findall(r'^  "([^"]+)": parse', files[base + "customer.ts"], re.M))
+        self.assertEqual(parsers, {"customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"})
+
+    def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
+        # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
+        # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
+        files = generate.render_all(generate.load_schemas())
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts"))}
+        defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
+        roots = {"parse" + m for f, text in files.items() if f == f"{generate.TS_DIR}/operator.ts" for m in re.findall(r"import \{ parse(\w+) \}", text)}
+        every = "\n".join(ts.values())
+        for fn, f in sorted(defined.items()):
+            uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
+            self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
+        self.assertNotIn("CoreReasonCode", "".join(ts.values()))
+        self.assertIn("parseEnumsV1Verdict", defined)  # noema-resolution.v1 uses it, so it stays
+
+    def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
+        # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
+        # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertNotIn("benchmark-scorecard.v3.json", cfg["customer"] + cfg["operator"])
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-scorecard.v3.json"], "operator": []}), encoding="utf-8")
+            (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "keeps out"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
+        # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first
+        # alternative, so `tsc` refused the second one. The parser names the union's own type: `union<T>(...)`.
+        files = generate.render_all(generate.load_schemas())
+        for module, name in (("overlay_card_v1", "OverlayCardV1"), ("sse_event_v1", "SseEventV1")):
+            text = files[f"{generate.TS_DIR}/{module}.ts"]
+            self.assertIn(f"return union<{name}>(v, p, [", text, f"{module}: the union does not name its type")
+
+    def test_a_root_that_is_not_a_contract_is_an_error(self):
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["nothing.v1.json"], "operator": []}), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "nothing.v1.json"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    def test_a_root_kept_out_of_the_services_is_an_error(self):
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-case.v1.json"], "operator": []}), encoding="utf-8")
+            (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "keeps out"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    def test_a_pattern_is_kept_as_written_because_ecma_262_dollar_is_whole_string(self):
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn('new RegExp("^[0-9]+\\\\.[0-9]+$", "u")', files[f"{generate.TS_DIR}/common_v1.ts"])

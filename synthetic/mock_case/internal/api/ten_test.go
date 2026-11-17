@@ -11,7 +11,7 @@ import (
 // Each test prints one TEN_RESULT line so the gate record can quote the run seed. The seed is the fault plan's seed
 // (plan() in harness_test.go); a check without a fault plan says "none".
 
-const tenSeed = 42 // the seed plan() puts in every fault plan of this package
+const tenSeed = 42 // plan() writes this seed into every fault plan of this package, so the printed seed is the plan's own
 
 func tenResult(t *testing.T, id, seed string) {
 	t.Helper()

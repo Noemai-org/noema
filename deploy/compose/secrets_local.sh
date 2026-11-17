@@ -42,3 +42,6 @@ for tenant in ${NOEMA_TENANTS:-}; do
     chmod 644 "$f"
   done
 done
+
+# The local mTLS material between the core and the model service (noema#555): a throwaway CA, the model's server certificate and the core's client certificate. Kept if complete.
+sh "$here/tls_local.sh"

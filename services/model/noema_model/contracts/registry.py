@@ -72,6 +72,7 @@ from . import (
     recovery_request_v1,
     session_limits_v1,
     sse_event_v1,
+    trust_limits_v1,
     trust_profile_v1,
 )
 
@@ -96,6 +97,7 @@ TYPES: dict[str, Any] = {
     "common.v1": common_v1.CommonV1,
     "common.v1#CandidateSetId": common_v1.CommonV1CandidateSetId,
     "common.v1#ClarificationId": common_v1.CommonV1ClarificationId,
+    "common.v1#ClientRequestId": common_v1.CommonV1ClientRequestId,
     "common.v1#ConfirmationEventId": common_v1.CommonV1ConfirmationEventId,
     "common.v1#ConfirmationRequestId": common_v1.CommonV1ConfirmationRequestId,
     "common.v1#CorrelationId": common_v1.CommonV1CorrelationId,
@@ -287,6 +289,7 @@ TYPES: dict[str, Any] = {
     "reconstruction.v3": reconstruction_v3.ReconstructionV3,
     "reconstruction.v3#Item": reconstruction_v3.ReconstructionV3Item,
     "reconstruction.v3#Item/properties/basis": reconstruction_v3.ReconstructionV3ItemBasis,
+    "reconstruction.v3#Item/properties/facts": reconstruction_v3.ReconstructionV3ItemFacts,
     "reconstruction.v3#Item/properties/facts/additionalProperties": reconstruction_v3.ReconstructionV3ItemFactsValue,
     "reconstruction.v3#Section": reconstruction_v3.ReconstructionV3Section,
     "reconstruction.v3#Section/properties/kind": reconstruction_v3.ReconstructionV3SectionKind,
@@ -320,5 +323,6 @@ TYPES: dict[str, Any] = {
     "sse-event.v1#Confirmation": sse_event_v1.SseEventV1Confirmation,
     "sse-event.v1#Error": sse_event_v1.SseEventV1Error,
     "sse-event.v1#Progress": sse_event_v1.SseEventV1Progress,
+    "trust-limits.v1": trust_limits_v1.TrustLimitsV1,
     "trust-profile.v1": trust_profile_v1.TrustProfileV1,
 }

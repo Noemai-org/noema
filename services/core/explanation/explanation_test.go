@@ -19,7 +19,12 @@ var locales = []string{"en-NG"}
 
 func facts(outcome, class string) contracts.ExplanationFactsV2 {
 	return contracts.ExplanationFactsV2{Locale: contracts.ExplanationFactsV2LocaleEnNG, OutcomeId: contracts.CommonV1PackId(outcome), Classification: class,
-		Facts: []contracts.ExplanationFactsV2FactsItem{{FactId: "f1", Kind: "payment.amount", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "NGN 5,000", SourceLabel: "SYNTHETIC ledger"}}}
+		Facts: []contracts.ExplanationFactsV2FactsItem{
+			{FactId: "f1", Kind: "payment.amount", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "NGN 5,000", SourceLabel: "SYNTHETIC ledger"},
+			// The other kinds of the slot inventory (noema#586, ruling A155): the pack's templates hold {fact:<kind>} slots, so a render needs the facts of its outcome's group.
+			{FactId: "f2", Kind: "account", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "ending 0001", SourceLabel: "SYNTHETIC ledger"},
+			{FactId: "f3", Kind: "payment.time", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "10:42 on 12 Nov", SourceLabel: "SYNTHETIC ledger"},
+			{FactId: "f4", Kind: "case.ref", FactStatus: contracts.ExplanationFactsV2FactsItemFactStatusKNOWN, ValueMasked: "CASE-AB12", SourceLabel: "SYNTHETIC case system"}}}
 }
 
 func load(t *testing.T) explanation.Templates {

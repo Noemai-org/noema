@@ -108,6 +108,19 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - **Not changed, stated in the README for the reviewers (decisions, not fixes):** the digit rule across separators (a decision about ruling A154; the single source is noema#468's `platform/masking`, to which the recorder's second copy of the threshold moves when it merges, EL's P2 2), a count cap on `FactIDs` and `Rules`, and how `reconstruct` reads two events for one correlation.
 - Debt: the second copy of the digit threshold (`maxDigitRun` in the recorder), until noema#468 merges. Conflicts raised: none.
 
+# Session 2026-11-14 16:45 WAT · EXP-01 · the FactsSource slot inventory (ruling A209, relayed)
+
+## Session summary
+- What changed: `services/core/explanation/facts-inventory.md` (new, documentation only). It lists the `{fact:<kind>}` slots the pack's templates would hold and the Record source of each fact kind, each row marked **stated** (a PERD or user-story sentence) or **[REC]** (my reading, for EL to confirm).
+- Why: the Founder's order of 14 Nov 2026 (A209): post the inventory as a PR so the Founder can give the A155 approval for the pack edit.
+- Risks, and how they are contained: no pack, code or contract changes; the templates still hold no slot. Seven fact kinds are proposed; three kind names (`payment.counterparty`, `case.team`, `case.clock`) and their Record sources are my reading, flagged for EL.
+- Tests added: none (documentation). Regression cases added: none. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL confirms or corrects the Record sources; the Founder approves or strikes slots (A155); then one PR edits the `en-NG` templates (slot plus a slot-free sentence beside it) and `packcheck`/the template tests move with it.
+- Files to read first: `services/core/explanation/facts-inventory.md`, `slots.go`, `packs/fintech/templates/en-NG.json`.
+- Do not touch: the templates before the approval.
+
 # Session 2026-11-14 · EXP-01 · the Explainer port adapter (A155)
 
 ## Session summary
@@ -122,3 +135,15 @@ Name detection no longer depends on capitalisation: every word of a rendered tex
 - Exact next step: the `FactsSource` design (EL), then plug the port into `Components.Ports.Explainer`.
 - Files to read first: `explanation/explainer.go`, `orchestrator/portadapters/explainer/port.go`.
 - Do not touch: `explanation` internals from the port.
+
+# Session 2026-11-15 · EXP-01 · EL's corrections on the slot inventory (noema#586)
+
+## Session summary
+- What changed (PR noema#586): the inventory's source column is now "Source (two reads)": the Record events carry hashes, references and statuses, and the values come from the item's payload by `payload_ref` through EL's `PayloadReader` (noema#599, A228 relayed). The account's last four digits and the grouped amount are derived by the source from `account_ref` and `amount_minor`; `case.ref` is the receipt's `external_ack` formatted without the year and masked (A207); `case.team` comes from the executed plan's `owner_queue`; `case.clock` needs `SLA_EVALUATED` to carry the committed time or it has no source. `payment.counterparty` is the masked form only, the Founder's call, and not in the pack. EL's answer to open point 2 (KNOWN only) is recorded. `main` was merged in for the conflict in this note.
+- Why: EL's independent read on noema#586 (15 Nov 2026) found the original "Record source" column wrong about where values live.
+- Risks, and how they are contained: documentation only; no pack, code or contract change.
+- Tests added: none (documentation). Debt: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: after the Founder's A155 approval, EL builds the real `FactsSource` over the Record reader, the sealed snapshot items and the `PayloadReader`; one fact per slot, KNOWN only; a slot with no source refuses.
+- Do not touch: the pack templates in this PR (noema#595 holds them).
