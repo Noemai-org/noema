@@ -9,9 +9,7 @@
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/SchemaVersion"
     },
     "request_id": {
-      "description": "Client-supplied UUID, used for deduplication (REQ-INP-003).",
-      "type": "string",
-      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClientRequestId"
     },
     "correlation_id": {
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/CorrelationId"

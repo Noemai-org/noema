@@ -25,6 +25,7 @@ var Types = map[string]func() any{
 	"common.v1":                                             func() any { return new(CommonV1) },
 	"common.v1#CandidateSetId":                              func() any { return new(CommonV1CandidateSetId) },
 	"common.v1#ClarificationId":                             func() any { return new(CommonV1ClarificationId) },
+	"common.v1#ClientRequestId":                             func() any { return new(CommonV1ClientRequestId) },
 	"common.v1#ConfirmationEventId":                         func() any { return new(CommonV1ConfirmationEventId) },
 	"common.v1#ConfirmationRequestId":                       func() any { return new(CommonV1ConfirmationRequestId) },
 	"common.v1#CorrelationId":                               func() any { return new(CommonV1CorrelationId) },
@@ -215,6 +216,7 @@ var Types = map[string]func() any{
 	"reconstruction.v3":                                            func() any { return new(ReconstructionV3) },
 	"reconstruction.v3#Item":                                       func() any { return new(ReconstructionV3Item) },
 	"reconstruction.v3#Item/properties/basis":                      func() any { return new(ReconstructionV3ItemBasis) },
+	"reconstruction.v3#Item/properties/facts":                      func() any { return new(ReconstructionV3ItemFacts) },
 	"reconstruction.v3#Item/properties/facts/additionalProperties": func() any { return new(ReconstructionV3ItemFactsValue) },
 	"reconstruction.v3#Section":                                    func() any { return new(ReconstructionV3Section) },
 	"reconstruction.v3#Section/properties/kind":                    func() any { return new(ReconstructionV3SectionKind) },
@@ -248,5 +250,6 @@ var Types = map[string]func() any{
 	"sse-event.v1#Confirmation":                                    func() any { return new(SseEventV1Confirmation) },
 	"sse-event.v1#Error":                                           func() any { return new(SseEventV1Error) },
 	"sse-event.v1#Progress":                                        func() any { return new(SseEventV1Progress) },
+	"trust-limits.v1":                                              func() any { return new(TrustLimitsV1) },
 	"trust-profile.v1":                                             func() any { return new(TrustProfileV1) },
 }

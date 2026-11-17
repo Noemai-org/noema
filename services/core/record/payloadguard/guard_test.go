@@ -31,8 +31,8 @@ func TestARunOfFiveDigitsInAStringIsRefusedAndARunOfFourIsNot(t *testing.T) {
 		`{"a":"4111-1111"}`:                              true,
 		`{"a":"4111.1111"}`:                              true,
 		`{"a":"4111/1111"}`:                              true,
-		`{"a":"4111_1111"}`:                              false, // an underscore ends a run: a code is not a number
-		`{"a":"409:412:409"}`:                            false,
+		`{"a":"4111_1111"}`:                              true, // A231: the guard joins across an underscore, a colon and a bracket, as the display mask does
+		`{"a":"409:412:409"}`:                            true,
 		`{"a":"20,000,000"}`:                             false, // a comma ends a run
 		`{"a":"٤١١١١"}`:                                  true,  // Arabic-Indic digits
 		`{"a":"４１１１１"}`:                                  true,  // full-width digits
@@ -261,17 +261,19 @@ func TestACoreMintedIDOfAnyPrefixIsExemptAndNothingLookingLikeOneIs(t *testing.T
 func TestNoExemptionAcceptsABareRunOfDigits(t *testing.T) {
 	digits64 := strings.Repeat("4", 64)
 	for name, js := range map[string]string{
-		"a typed ID of digits":           `{"v":"ten_4111111111111111"}`,
-		"a typed ID, the longest body":   `{"v":"grt_` + strings.Repeat("4", 32) + `"}`,
-		"the nonce of digits":            `{"v":"n_4111111111111111"}`,
-		"a content hash of digits":       `{"v":"sha256:` + digits64 + `"}`,
-		"a keyed hash of digits":         `{"v":"hmac-sha256:` + digits64 + `"}`,
-		"an idempotency key of digits":   `{"v":"idk_v1_` + digits64 + `"}`,
-		"an intent reference of digits":  `{"v":"int_4111111111111111@2"}`,
-		"a ULID of digits, any prefix":   `{"v":"zzz_01234567890123456789012345"}`,
-		"a UUID of digits":               `{"v":"41111111-1111-1111-1111-111111111111"}`,
-		"a signature of digits (hex)":    `{"sig":{"value":"` + digits64 + `"}}`,
-		"a signature of digits (base64)": `{"sig":{"value":"` + strings.Repeat("4", 50) + `"}}`,
+		"a typed ID of digits":                                  `{"v":"ten_4111111111111111"}`,
+		"a typed ID, the longest body":                          `{"v":"grt_` + strings.Repeat("4", 32) + `"}`,
+		"the nonce of digits":                                   `{"v":"n_4111111111111111"}`,
+		"a content hash of digits":                              `{"v":"sha256:` + digits64 + `"}`,
+		"a keyed hash of digits":                                `{"v":"hmac-sha256:` + digits64 + `"}`,
+		"an idempotency key of digits":                          `{"v":"idk_v1_` + digits64 + `"}`,
+		"a short idk ID (no longer a typed ID since noema#564)": `{"v":"idk_123456a"}`,
+		"an all-digit minted request id":                        `{"v":"req_` + strings.Repeat("4", 32) + `"}`,
+		"an intent reference of digits":                         `{"v":"int_4111111111111111@2"}`,
+		"a ULID of digits, any prefix":                          `{"v":"zzz_01234567890123456789012345"}`,
+		"a UUID of digits":                                      `{"v":"41111111-1111-1111-1111-111111111111"}`,
+		"a signature of digits (hex)":                           `{"sig":{"value":"` + digits64 + `"}}`,
+		"a signature of digits (base64)":                        `{"sig":{"value":"` + strings.Repeat("4", 50) + `"}}`,
 	} {
 		if err := check(t, js); err == nil {
 			t.Errorf("%s was accepted", name)

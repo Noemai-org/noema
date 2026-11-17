@@ -49,6 +49,9 @@ services:
         condition: service_completed_successfully
     environment:
       WEBHOOK_RELAY_LISTEN: ":8090"
+      # Bench only (A240, A247): seconds the relay holds its 200 after storing a delivery, to show Tushe a timeout (above Tushe's 12 s; the bench value is 15). Empty means no hold, which is
+      # what every other profile must have: netcheck fails a ci, dev or demo profile that sets it.
+      WEBHOOK_RELAY_HOLD_SECONDS: "${WEBHOOK_RELAY_HOLD_SECONDS:-}"
       WEBHOOK_RELAY_SIGNING_SECRET_FILE: /run/webhook-relay/signing_secret
       WEBHOOK_RELAY_STORE_FILE: /data/store/deliveries.jsonl
     volumes:

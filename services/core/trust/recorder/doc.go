@@ -12,6 +12,19 @@
 // is returned and the caller rolls back, so the record, the grants and the events appear together or not at all. A failed append fails the write, so a
 // grant never exists without its event.
 //
+// A given confirmation is spent once, and only if it is valid for the action (TRU-07 follow-up, migration 0028; REQ-TRU-008, REQ-TRU-009; INV-17, INV-25). The confirmation store records an
+// accepted confirmation that resolved to a fresh evaluation with RecordConfirmation: its event ID, its request ID, the binding hash the request was given for (trust/confirm.BindingHash of the
+// eight values of SoT 43.2a) and its expiry. When a request names one (Request.ConfirmationEventID) and the decision is an ALLOW whose row is newly written, the writer computes the binding from the
+// ALLOW's own single step (a confirmation approves one action) and inserts one confirmation_spend row right after the Decision Record, in the same transaction. The database refuses the row unless
+// the confirmation exists for the tenant, has not expired by the database's clock and has that binding (ErrConfirmationNotValid: the three are one answer), and its unique keys make a second spend
+// of the event, or a second spend by the decision, ErrConfirmationSpent, however two evaluations interleave. Request.ConfirmationPlanHash must equal the step's plan hash, else
+// ErrConfirmationPlanMismatch before anything is written (A230, interim). A retry of the same input returns the stored decision before this insert (A186) when it names the confirmation the
+// stored ALLOW spent (or none, as it did): another is ErrDecisionConflict (A233, interim). PERD 32.2 has no spend event type, so the Record shows the spend on two events of the same
+// transaction: DECISION_MADE names confirmation_event_id and confirmation_binding_hash, GRANT_ISSUED names confirmation_event_id; a decision with no confirmation carries neither.
+// What the database does NOT enforce (Security Reviewer, noema#603 note 1): that an ALLOW for a profile that requires a confirmation carries one. An ALLOW with an empty ConfirmationEventID
+// writes no spend and is not checked here; that rule is the intake's (T13, which stops with CONFIRM when the profile requires one) and the Recorder adapter's, and a composition test of the two
+// owes the case "confirmation required, none named, ALLOW refused" (EL's adapter, with noema#572).
+//
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.
 package recorder
