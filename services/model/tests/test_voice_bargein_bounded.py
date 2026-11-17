@@ -23,7 +23,7 @@ GUARD_S = 8.0
 
 
 class Handle:
-    """An audio handle. `close` is one of: "ok", "hang" (never returns, honours cancellation), "stubborn" (ignores cancellation for 1.5 s, then ends)."""
+    """An audio handle. `close` is one of: "ok", "hang" (never returns, honours cancellation), "grace" (catches its cancellation and finishes 30 ms later), "stubborn" (ignores cancellation for 1.5 s, then ends)."""
 
     def __init__(self, levels: Sequence[int], close: str = "ok", delay_s: float = 0.0, stall_after: int | None = None) -> None:
         self._levels = iter(enumerate(levels))
@@ -52,6 +52,12 @@ class Handle:
         self.closed = True
         if self._close == "hang":
             await asyncio.Event().wait()
+        if self._close == "grace":
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.03)  # catches its cancellation and finishes a moment later, inside the cancellation grace period
+                return
         if self._close == "stubborn":
             end = asyncio.get_running_loop().time() + 1.5
             while asyncio.get_running_loop().time() < end:
@@ -127,3 +133,44 @@ def test_a_read_bound_that_is_not_positive_and_finite_is_refused() -> None:
     for bad in (0.0, -1.0, float("inf"), float("nan")):
         with pytest.raises(ValueError):
             run(play_until_barge_in(Handle([1]), Handle([1]), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.1, read_s=bad))
+
+
+# ---- Codex P2s on noema#621 at ca81fecd ---------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_close_that_overran_its_bound_is_a_release_failure_even_if_it_finishes_in_the_cancellation_grace_period() -> None:
+    answer, microphone = Handle([1000] * 6, close="grace"), Handle([5] * 2000)
+    telemetry = InMemoryTelemetry()
+
+    async def call() -> BargeInResult:
+        return await barge(answer, microphone, telemetry, close_s=0.1)
+
+    result = run(asyncio.wait_for(call(), timeout=GUARD_S))
+    assert answer.closed and microphone.closed
+    assert [f["code"] for n, c, f in telemetry.events if n == "voice_audio_cleanup"] == ["VOI_AUDIO_CLOSE_ABANDONED"]  # it was cancelled at its bound ...
+    assert result.release_failed  # ... so the release did not succeed, whether or not it ended a moment later
+
+
+@pytest.mark.parametrize("close_s,read_s", [(0.05, 0.0), (0.05, -1.0), (0.05, float("nan")), (0.0, 0.5), (float("inf"), 0.5)])
+def test_a_bad_bound_is_refused_and_both_live_streams_are_still_released(close_s: float, read_s: float) -> None:
+    answer, microphone = Handle([1000] * 6), Handle([5] * 2000)
+
+    async def call() -> None:
+        with pytest.raises(ValueError):
+            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, read_s=read_s)
+        await asyncio.sleep(0.05)
+
+    run(asyncio.wait_for(call(), timeout=GUARD_S))
+    assert answer.closed and microphone.closed  # a configuration error cannot retain the microphone
+
+
+def test_with_neither_bound_valid_both_closes_are_still_started_and_the_error_is_raised() -> None:
+    answer, microphone = Handle([1000] * 6), Handle([5] * 2000)
+
+    async def call() -> None:
+        with pytest.raises(ValueError):
+            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.0, read_s=0.0)
+        await asyncio.sleep(0.05)
+
+    run(asyncio.wait_for(call(), timeout=GUARD_S))
+    assert answer.closed and microphone.closed
