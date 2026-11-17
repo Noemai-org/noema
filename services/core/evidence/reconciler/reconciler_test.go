@@ -97,6 +97,7 @@ type world struct {
 	st    *store
 	items []layer.Item
 	rec   *reconciler.Reconciler
+	clk   *clock.Manual
 }
 
 type spec struct {
@@ -134,7 +135,8 @@ func build(t *testing.T, specs ...spec) *world {
 			EffectiveFreshnessSeconds: 300})
 	}
 	var err error
-	w.rec, err = reconciler.New(reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: w.st}, Clock: clock.NewManual(now)})
+	w.clk = clock.NewManual(now)
+	w.rec, err = reconciler.New(reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: w.st}, Clock: w.clk})
 	if err != nil {
 		t.Fatal(err)
 	}
