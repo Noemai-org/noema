@@ -49,3 +49,15 @@ test("REQ-UI-003: unsafe explanation digits cause refusal before rendering", asy
   assert.ok(!html.includes("12345"));
   assert.deepEqual(scanVisibleText(html), []);
 });
+
+test("REQ-UI-003: malformed conditional reconstruction fixtures are never presented as verified", async () => {
+  const root = new URL("../../contracts/fixtures/invalid/reconstruction.v3/", import.meta.url);
+  const names = ["sections_out_of_order.json", "decision_outcome_unknown_value.json", "execution_state_succeeded.json", "action_without_grant_state.json", "grant_state_unknown_value.json", "claim_without_bound_status.json", "claim_status_not_a_fact_status.json", "claim_text_empty.json"];
+  for (const name of names) {
+    const value = JSON.parse(await readFile(new URL(name, root), "utf8"));
+    const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+    assert.match(html, /This evidence is unavailable/i, name);
+    assert.doesNotMatch(html, />Verified</i, name);
+    assert.deepEqual(scanVisibleText(html), [], name);
+  }
+});
