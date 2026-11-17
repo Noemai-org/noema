@@ -33,3 +33,7 @@ Packs are loaded as data, never imported as code (SoT §51). The files are `fint
 ## Policy conditions that name a slot
 
 `fin.pol.default.permit_case_writes` has the condition `subject_resource.status == 'RESOLVED'`. `subject_resource` is the **intent slot** of that name (type Resource, kind `fin.transaction`), and a slot's `status` is `RESOLVED`, `UNRESOLVED`, `AMBIGUOUS` or `ABSENT` (`intent-slot.v1`; a slot is RESOLVED only with a resolved reference, INV-06). So the rule permits a case write only against one transaction the person's reference was resolved to; it does not say the payment problem is resolved. The `transaction` descriptor has no `status` field and needs none for this rule.
+
+## Injection patterns (EVD-06 slice 2, ruling A292)
+
+`fintech/context/injection_patterns.v1.json` is the pattern list of the advisory injection detector (REQ-CTX-007): Go RE2 expressions with an id and a note each, SYNTHETIC. The core loads it as data through `services/core/evidence/injection`, which refuses a repeated or unknown member, a pattern that is not RE2 and one that can match the empty string. A match raises `SECURITY_EVENT` of kind `INJECTION_DETECTED`; detection is advisory and never changes evidence, a classification or a decision.

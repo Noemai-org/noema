@@ -161,8 +161,8 @@ func TestARecorderThatIsNotWholeWritesNothing(t *testing.T) {
 		"no timeout":       {Pool: pool, Appender: app},
 		"negative timeout": {Pool: pool, Appender: app, Timeout: -time.Second},
 	} {
-		if err := r.Record(dctx(t), subj, result(oneFinding)); err == nil {
-			t.Errorf("%s: wrote", name)
+		if err := r.Record(dctx(t), subj, result(oneFinding)); err == nil || !strings.Contains(err.Error(), "needs a pool, an appender and a positive timeout") {
+			t.Errorf("%s: %v, want the refusal for a recorder that is not whole", name, err)
 		}
 	}
 	// A whole recorder whose database cannot be reached reports it and does not panic: nothing was stored.
