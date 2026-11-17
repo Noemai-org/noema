@@ -171,3 +171,11 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Open questions (owner): none (A245 and A260 answered `Required` and absence).
 - Files to read first: `evidence/reconciler/reconciler.go`, `evidence/readseal/readseal.go`.
 - Do not touch: the mapping's rows (accepted by A245; a change goes through the Architect).
+
+# Session 2026-11-17 · ENV-04 · fixes for the reads of noema#663 (Security Reviewer and EL)
+
+- **P2 and note 2 (done, tests first):** the reconciliation id now hashes the clock reading and, per item, the source, read time, effective time and freshness limit, as well as the id, payload hash and status. `reconciler_review_test.go` (the id follows every input, 7 cases; and the id is stable for the same inputs) was red at the first push. A retry at a later clock reading therefore has another id: `readseal` stores the classification on its own snapshot, so nothing collides.
+- **Note 3 of the Security Reviewer (done, tests first):** an item whose `ReadAt` is after the clock's reading is refused whole (`ErrItem`); a read at the reading is used. I chose "refuse" of the two options offered because it fails closed without needing the layer's clock to be the same one; whether `layer` takes `ReadAt` from the injected clock is for the layer's owner to confirm (`builder.go` takes it from the read object it is given).
+- **Tamper signal (open, not decided):** a payload that does not match its sealed hash becomes UNKNOWN silently (A260). Where it is surfaced (a Record event or a metric) is for REC and SEC to decide; this package does not emit one. Debt entry requested through the Steward.
+- **EL note 2 (done):** README says the freshness bound is the layer's. **EL note 3 (answered, not coded):** in the real mapping each source feeds exactly one row, so "one row's field missing while another row of the same source is present" cannot occur end to end; the per-row path is in `internal_test.go`. A test with a second row for a source needs a mapping row the Architect has not approved (A245).
+- Debt: one entry requested (the tamper signal). Conflicts raised: none.

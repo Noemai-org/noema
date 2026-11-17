@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math/big"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
@@ -85,11 +86,12 @@ func (r *Reconciler) Classify(ctx context.Context, tenantID string, items []laye
 	if tenantID == "" || len(items) == 0 {
 		return readseal.Classified{}, ErrItem
 	}
+	now := r.c.Clock.Now()
 	sorted := append([]layer.Item(nil), items...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].EvidenceID < sorted[j].EvidenceID })
 	var evidence []reconcile.Evidence
 	for i, it := range sorted {
-		if err := r.check(it, i > 0 && sorted[i-1].EvidenceID == it.EvidenceID); err != nil {
+		if err := r.check(it, i > 0 && sorted[i-1].EvidenceID == it.EvidenceID, now); err != nil {
 			return readseal.Classified{}, err
 		}
 		rows, err := r.rows(ctx, tenantID, it)
@@ -98,15 +100,15 @@ func (r *Reconciler) Classify(ctx context.Context, tenantID string, items []laye
 		}
 		evidence = append(evidence, rows...)
 	}
-	res, err := reconcile.Reconcile(r.c.RuleSet, evidence, r.c.Clock.Now().Unix())
+	res, err := reconcile.Reconcile(r.c.RuleSet, evidence, now.Unix())
 	if err != nil {
 		return readseal.Classified{}, &opError{kind: ErrRule, cause: err}
 	}
-	return readseal.Classified{ReconciliationID: r.reconciliationID(sorted), Classification: string(res.Classification)}, nil
+	return readseal.Classified{ReconciliationID: r.reconciliationID(sorted, now), Classification: string(res.Classification)}, nil
 }
 
-func (r *Reconciler) check(it layer.Item, repeated bool) error {
-	if _, ok := statuses[it.Status]; !ok || it.EvidenceID == "" || repeated || it.Source == "" || it.ReadAt.IsZero() || it.EffectiveAt.IsZero() || it.EffectiveFreshnessSeconds <= 0 {
+func (r *Reconciler) check(it layer.Item, repeated bool, now time.Time) error {
+	if _, ok := statuses[it.Status]; !ok || it.EvidenceID == "" || repeated || it.Source == "" || it.ReadAt.IsZero() || it.EffectiveAt.IsZero() || it.EffectiveFreshnessSeconds <= 0 || it.ReadAt.After(now) {
 		return ErrItem
 	}
 	return nil
@@ -149,9 +151,10 @@ func expiry(it layer.Item) int64 {
 	return it.ReadAt.Add(time.Duration(it.EffectiveFreshnessSeconds) * time.Second).Unix()
 }
 
-// reconciliationID is `rec_` and 26 letters from the SHA-256 of the rule set, the mapping and the sorted items (id, payload hash, status): it names what was classified (INV-21) and holds no digit,
-// so the Record's guard against digit runs never meets one. The contract allows 2 to 32 letters or digits.
-func (r *Reconciler) reconciliationID(sorted []layer.Item) string {
+// reconciliationID is `rec_` and 26 letters from the SHA-256 of everything the classification depends on: the rule set, the mapping, the clock reading it was computed at, and for each sorted item its
+// id, source, payload hash, status, read time, effective time and freshness limit (INV-21, INV-23). So the same inputs give the same id and a different clock reading, expiry or source gives another:
+// it names what was classified. It holds no digit, so the Record's guard against digit runs never meets one. The contract allows 2 to 32 letters or digits.
+func (r *Reconciler) reconciliationID(sorted []layer.Item, now time.Time) string {
 	h := sha256.New()
 	put := func(s string) {
 		var n [4]byte
@@ -161,10 +164,15 @@ func (r *Reconciler) reconciliationID(sorted []layer.Item) string {
 	}
 	put(r.c.RuleSet.ID())
 	put(r.c.Mapping.ID())
+	put(strconv.FormatInt(now.UnixNano(), 10))
 	for _, it := range sorted {
 		put(it.EvidenceID)
+		put(it.Source)
 		put(it.PayloadHash)
 		put(string(it.Status))
+		put(strconv.FormatInt(it.ReadAt.UnixNano(), 10))
+		put(strconv.FormatInt(it.EffectiveAt.UnixNano(), 10))
+		put(strconv.FormatInt(it.EffectiveFreshnessSeconds, 10))
 	}
 	number, base, letters := new(big.Int).SetBytes(h.Sum(nil)), big.NewInt(26), make([]byte, 26)
 	for i := range letters {
