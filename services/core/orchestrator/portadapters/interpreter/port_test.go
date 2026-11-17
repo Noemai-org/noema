@@ -180,8 +180,10 @@ func TestAnAdmittedTurnIsAdmittedAndTheCanonicalInputIsBuiltFromTheSessionAndThe
 // The identity is the verified session's, whatever the text says, and the resolver may not answer for another principal or tenant (INV-12, AGENT-10).
 func TestTheResolverMayNotAnswerForAnotherPrincipalOrTenantAndNothingIsSent(t *testing.T) {
 	for name, mutate := range map[string]func(*interpreterport.Resolved){
-		"another principal": func(r *interpreterport.Resolved) { r.Session.PrincipalID = "usr_99999" },
-		"another tenant":    func(r *interpreterport.Resolved) { r.Session.TenantID = "ten_other" },
+		"another principal":           func(r *interpreterport.Resolved) { r.Session.PrincipalID = "usr_99999" },
+		"another tenant":              func(r *interpreterport.Resolved) { r.Session.TenantID = "ten_other" },
+		"an invalid session":          func(r *interpreterport.Resolved) { r.Session.PrincipalType = "End User" },
+		"an actor kind off its shape": func(r *interpreterport.Resolved) { r.ActorKind = "Customer:x" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, proposal(nil))
@@ -191,6 +193,15 @@ func TestTheResolverMayNotAnswerForAnotherPrincipalOrTenantAndNothingIsSent(t *t
 				t.Fatalf("err %v, requests %d", err, len(w.comp.reqs))
 			}
 		})
+	}
+}
+
+// The actor the Record writes is the resolver's kind, never a constant of this port.
+func TestTheActorIsTheKindTheResolverGaveAndThePrincipalOfTheSession(t *testing.T) {
+	w := newWorld(t, proposal(nil))
+	w.sess.out.ActorKind = "operator"
+	if _, err := w.port.Interpret(context.Background(), tenant, turn("hello")); err != nil || len(w.save.actors) != 1 || w.save.actors[0] != "operator:usr_88213" {
+		t.Fatalf("err %v, actors %v", err, w.save.actors)
 	}
 }
 
@@ -313,11 +324,16 @@ func TestAnAdmittedNodeThePackDoesNotDescribeIsAnErrorNotAnAdmission(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := required.RequiredSlots("fin.payments.exception.investigate"); !ok || strings.Join(got, ",") != "question_type,subject_resource" {
+	got, ok := required.RequiredSlots("fin.payments.exception.investigate")
+	if !ok || strings.Join(got, ",") != "question_type,subject_resource" {
 		t.Fatalf("required %v %v, want question_type and subject_resource, sorted", got, ok)
 	}
 	if got, ok := required.RequiredSlots("fin.meta.out_of_scope"); !ok || len(got) != 0 {
 		t.Fatalf("out of scope: %v %v", got, ok)
+	}
+	got[0] = "tampered"
+	if again, _ := required.RequiredSlots("fin.payments.exception.investigate"); again[0] != "question_type" {
+		t.Fatal("the slice handed out is the port's own: a caller changed what the next call returns")
 	}
 	if _, ok := required.RequiredSlots("fin.unknown"); ok {
 		t.Fatal("an unknown node has a required set")

@@ -123,3 +123,20 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Note (b), the committed rapid failure file** (`testdata/rapid/TestNoPrincipalOrTenantInTheModelOutputEverSurvives/…-1185.fail`): **kept on purpose.** It is the failing case of the red run, replayed on every run as a regression seed; `main` already carries three such files under `execution/controller/testdata/rapid/`.
 - **Note (a), whether confidence leaves the system:** not changed by this PR. The outward schemas (noema#521) forbid it; the API handler is not in this PR and I did not check it.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-17 · UND-04 · the Interpreter port adapter (noema#661; A262 on noema#565)
+
+## Session summary
+- What changed (noema#661): `services/core/orchestrator/portadapters/interpreter/` (package `interpreterport`): `Port.Interpret`, `RequiredFromPack`, its README and tests.
+- Why: the orchestrator's `Interpreter` port had no implementation; the four gaps of noema#565 were answered by A262 with C2's recommendations (a `Sessions` resolver, the canonical input built here with channel `text`, mode `MODE_1` and the clock's `received_at`, the actor kind from the resolver, and `NEEDS_CLARIFICATION` from the ambiguity flags and the pack's required slots).
+- Risks, and how they are contained: it sits on the path from a person's words to the admitted intent. It cannot widen identity (the resolution must equal the verified session), it rewrites nothing but the trim, and a failure that is not a gate refusal stops the runner. The composition root (`cmd/core`, EL) plugs it in; it is not wired here.
+- Tests added (REQ-INT-001, REQ-INT-002, REQ-INP-002, INV-12): 12 test functions with subtests; 26 hand mutants over the port, all killed (three survived the first tests and each got a case: an invalid resolved session, the actor kind, and the slice a caller may not change).
+- Regression cases added: the same.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's composition root builds `Sessions` from the verified session, `RequiredFromPack` from the mounted pack, the Interpreter from the model client, the gate, the Record recorder and the intent store, and passes the clock; then the G1 story test runs it.
+- Open questions (owner): none. NFC stays with the model service's gateway unless a package is approved (AGENT-14).
+- Files to read first: `orchestrator/portadapters/interpreter/port.go`, `understanding/interpreter/interpreter.go`.
+- Do not touch: `understanding/**` (the gate and the pack view are UND-04's earlier PRs).
