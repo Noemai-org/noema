@@ -212,6 +212,23 @@ class UnsupportedForms(unittest.TestCase):
         self.assertEqual(run({"workflows/t.yml": GOOD + comment}), [])
 
 
+    def test_a_quoted_hash_before_the_checkout_key_does_not_hide_it(self) -> None:
+        for quote in ("'", '"'):
+            self.refused(f"      - {{name: {quote}# label{quote}, uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262}}")
+
+    def test_a_quoted_hash_followed_by_a_real_comment_is_still_read(self) -> None:
+        self.refused("      - {name: '# a', uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262} # and a comment")
+
+    def test_a_hash_inside_a_word_is_not_a_comment(self) -> None:
+        self.refused("      - {name: a#b, uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262}")
+
+    def test_a_hash_in_a_block_style_name_does_not_hide_a_missing_key(self) -> None:
+        text = chr(10).join(["jobs:", "  j:", "    steps:", "      - name: '# label'", "        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262", ""])
+        found = run({"workflows/t.yml": text})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("workflows/t.yml:5", found[0])
+
+
 class ThisRepository(unittest.TestCase):
     def test_every_checkout_of_this_repository_sets_it(self) -> None:
         github = Path(__file__).resolve().parents[2] / ".github"

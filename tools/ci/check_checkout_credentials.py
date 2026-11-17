@@ -23,6 +23,21 @@ KEY = re.compile(r"^(?P<indent>\s*)(?P<q>['\"]?)(?P<key>[A-Za-z0-9_-]+)(?P=q):(?
 FALSE = re.compile(r"^\s*false\s*(#.*)?$")
 
 
+def code_of(line: str) -> str:
+    """The line without its YAML comment: a `#` starts one only outside a quoted string and at the start of the line or after a space or tab, so `{name: '# label', uses: ...}` keeps its
+    `uses` (Codex P2 on noema#622)."""
+    quote = ""
+    for index, char in enumerate(line):
+        if quote:
+            if char == quote and not (quote == '"' and line[index - 1] == chr(92)):
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or line[index - 1] in " " + chr(9)):
+            return line[:index]
+    return line
+
+
 def indent_of(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
@@ -87,7 +102,7 @@ def violations(github_dir: Path) -> list[str]:
             found.append(f"{path.relative_to(github_dir).as_posix()}: cannot be read ({exc})")
             continue
         for number, line in enumerate(lines):
-            if meaningful(line) and "actions/checkout" in line.split("#", 1)[0] and not USES.match(line):
+            if meaningful(line) and "actions/checkout" in code_of(line) and not USES.match(line):
                 # A checkout written as a flow mapping (`- {uses: actions/checkout@...}`), as `uses :` or in any other shape this reader does not parse could hide a persisted token: refuse it
                 # instead of skipping it (Codex P2 on noema#622). Write the step in block style.
                 found.append(f"{path.relative_to(github_dir).as_posix()}:{number + 1}: actions/checkout written in a form this check does not read (a flow mapping or an odd spelling): use block style")
