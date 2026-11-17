@@ -197,3 +197,27 @@ func TestWithNoReaderTheRouteRefuses(t *testing.T) {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Mounted through the real API builder: a customer reads the stage with a reader configured; ops, audit and approver get the not-found shape; with no reader there is no route
+// at all (404 for a customer, never a default stage). A246 as relayed: the route was waiting on noema#617's compose change, now merged.
+func TestTheInvestigationRouteIsMountedForACustomerAndOnlyWithAReader(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	fr := &fakeReader{state: "AWAITING_CONFIRMATION", found: true}
+	with := conversationAPI(t, iss, Components{Investigations: fr})
+	rec := getInv(with, bearer(iss, session.RoleCustomer, invTenant), invID)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"needs_confirmation"`) {
+		t.Fatalf("customer: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, role := range []session.Role{session.RoleOps, session.RoleAudit, session.RoleApprover} {
+		if r := getInv(with, bearer(iss, role, invTenant), invID); r.Code != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404", role, r.Code)
+		}
+	}
+	if r := getInv(with, "", invID); r.Code != http.StatusUnauthorized {
+		t.Errorf("no session: %d", r.Code)
+	}
+	without := conversationAPI(t, iss, Components{Records: &failingDBs{}, AccessLog: discardLog()})
+	if r := getInv(without, bearer(iss, session.RoleCustomer, invTenant), invID); r.Code != http.StatusNotFound {
+		t.Errorf("no reader: %d, want 404 (no route)", r.Code)
+	}
+}

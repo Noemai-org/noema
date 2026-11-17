@@ -203,3 +203,13 @@
 - Open questions (owner): the migration number (C1).
 - Files to read first: `cmd/core/investigation.go`, `orchestrator/publicstage/publicstage.go`.
 - Do not touch: `orchestrator/transitions.yaml`.
+
+# Session 2026-11-17 · EDG-01 · GET /v1/investigations/{id} is mounted (EL; A246 as relayed; noema#646)
+
+## Session summary
+- What changed: `Components.Investigations` and the mount in `apiRoutes` (customer only, only with a reader); the authz-matrix row `GET /v1/investigations/{id}` (customer only); `TestTheInvestigationRouteIsMountedForACustomerAndOnlyWithAReader` (customer 200, ops/audit/approver 404, no session 401, no reader no route). Merge of `main` (noema#617 merged) into the branch, no conflict. The new test was seen failing locally (`Components.Investigations` did not exist) before the code; one push for this round, as the Founder asked.
+- Risks, and how they are contained: production does not set `Components.Investigations` yet (the production reader needs the `principal_ref` migration), so the route is absent in production: 404 for a customer.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the read-only store method and the `principal_ref` migration (number from C1), then set `Components.Investigations`.
