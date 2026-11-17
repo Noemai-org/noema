@@ -225,6 +225,22 @@ class LayoutsTheBlockReaderDoesNotParse(unittest.TestCase):
         text = GOOD + "      - run: echo needs permissions" + chr(10) + "      # permissions : write" + chr(10) + "      - name: no-permissions-here" + chr(10) + "        run: echo ok" + chr(10)
         self.assertEqual(run({"t.yml": text}), [])
 
+    def test_a_quoted_hash_before_the_permissions_key_does_not_hide_it(self) -> None:
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {name: " + quote + "# x" + quote + ", permissions: {contents: write}}" + chr(10)
+                self.refused(text)
+
+    def test_a_quoted_hash_in_a_permissions_value_line_does_not_hide_a_write(self) -> None:
+        text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + "  packages: write # '# reviewed'" + chr(10))
+        found = run({"t.yml": text})
+        self.assertTrue(any("packages: write" in item for item in found), found)
+
+    def test_a_hash_inside_a_word_is_not_a_comment(self) -> None:
+        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {name: a#b, permissions: {contents: write}}" + chr(10)
+        self.refused(text)
+
+
 class ThisRepository(unittest.TestCase):
     workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 

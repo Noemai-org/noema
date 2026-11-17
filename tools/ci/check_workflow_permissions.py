@@ -34,8 +34,18 @@ PERMISSIONS_ANYWHERE = re.compile(r"(?<![\w.-])['\"]?permissions['\"]?[ \t]*:")
 
 
 def code(line: str) -> str:
-    """The line without a trailing comment (a `#` inside a quoted value is not special here: no permission value is quoted)."""
-    return line.split("#", 1)[0].rstrip()
+    """The line without its YAML comment: a `#` starts one only outside a quoted string and at the start of the line or after a space or tab, so `{name: '# x', permissions: {...}}`
+    keeps its `permissions` key (Codex P2 on noema#629)."""
+    quote = ""
+    for index, char in enumerate(line):
+        if quote:
+            if char == quote and not (quote == '"' and line[index - 1] == chr(92)):
+                quote = ""
+        elif char in "'\"":
+            quote = char
+        elif char == "#" and (index == 0 or line[index - 1] in " " + chr(9)):
+            return line[:index].rstrip()
+    return line.rstrip()
 
 
 def blocks(lines: list[str]) -> list[tuple[int, int, str, dict[str, tuple[str, int]]]]:
