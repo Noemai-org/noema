@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import AudioChunk
 from noema_model.voice.endpoint import AudioSource, EndpointDetector, EndpointState, VadConfig
-from noema_model.voice.pipeline import Report, begin_close, cleanup_reporter
+from noema_model.voice.pipeline import Report, _mark_retrieved, begin_close, cleanup_reporter
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +83,21 @@ async def _release(answer: AudioSource, microphone: AudioSource, close_s: float,
     _, pending = await asyncio.wait(closes, timeout=close_s)
     if pending:
         await asyncio.wait(pending, timeout=close_s)
-    stalled = any(not close.done() or close.cancelled() for close in closes)
+    stalled = bool(pending) or any(close.cancelled() for close in closes)  # a close that reached its bound failed, even if it ended during the cancellation grace (Codex P2 on #621)
     error = next((e for close in closes if close.done() and not close.cancelled() and (e := close.exception()) is not None), None)
     return stalled, error
+
+
+async def _refuse(answer: AudioSource, microphone: AudioSource) -> None:
+    """A configuration error must not retain the streams the caller handed over. There is no valid bound to use, and none is invented: both closes are started, given one turn of the event loop
+    to begin, and any that has not finished is cancelled (Codex P2 on #621)."""
+    closes = [asyncio.ensure_future(source.aclose()) for source in (answer, microphone)]
+    for close in closes:
+        close.add_done_callback(_mark_retrieved)
+    await asyncio.sleep(0)
+    for close in closes:
+        if not close.done():
+            close.cancel()
 
 
 async def play_until_barge_in(
@@ -102,6 +114,7 @@ async def play_until_barge_in(
     """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. `close_s` bounds the release of each stream and `read_s` each read of either; neither has a
     default (AGENT-16: a bound comes from configuration)."""
     if not (math.isfinite(close_s) and close_s > 0 and math.isfinite(read_s) and read_s > 0):
+        await _refuse(answer, microphone)
         raise ValueError("the close and read bounds must be positive finite numbers from configuration")
     report = cleanup_reporter(telemetry, correlation_id)
     outcome: BargeInResult | None = None
