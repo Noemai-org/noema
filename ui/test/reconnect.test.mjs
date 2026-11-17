@@ -144,3 +144,44 @@ test("REQ-UI-001: a completed answer does not trigger another request", async ()
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("REQ-UI-001: refetch with a final answer does not reopen the stream", async () => {
+  const address = Object.values(networkInterfaces()).flat().find((entry) => entry?.internal && entry.family === "IPv4")?.address;
+  assert.ok(address);
+  const state = await fixture("investigation-response/completed_with_answer");
+  let firstStream;
+  let started;
+  const firstStarted = new Promise((resolve) => { started = resolve; });
+  const paths = [];
+  const server = createServer((request, response) => {
+    if (request.url === "/drop") {
+      firstStream.destroy();
+      response.writeHead(204).end();
+      return;
+    }
+    paths.push(request.url);
+    if (request.url === `/v1/investigations/${id}`) {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(state));
+    } else if (paths.length === 1) {
+      firstStream = response;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.flushHeaders();
+      started();
+    } else response.writeHead(503).end();
+  });
+  server.listen(0, address);
+  await once(server, "listening");
+  try {
+    const states = [];
+    const baseUrl = `http://${address}:${server.address().port}`;
+    const pending = reconnectOnce({ baseUrl, conversationRef: id, investigationId: id, sessionToken: "synthetic-session", maxFrameBytes: limit, maxResponseBytes: limit, onEvent: () => assert.fail("unexpected event"), onState: (value) => states.push(value) });
+    await firstStarted;
+    await fetch(`${baseUrl}/drop`);
+    await pending;
+    assert.deepEqual(states, [state]);
+    assert.deepEqual(paths, [`/v1/conversations/${id}/events`, `/v1/investigations/${id}`]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
