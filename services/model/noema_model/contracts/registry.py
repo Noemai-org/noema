@@ -163,6 +163,7 @@ TYPES: dict[str, Any] = {
     "enums.v1#LimitSetBy": enums_v1.EnumsV1LimitSetBy,
     "enums.v1#Mode": enums_v1.EnumsV1Mode,
     "enums.v1#RetrySafety": enums_v1.EnumsV1RetrySafety,
+    "enums.v1#TransactionClassification": enums_v1.EnumsV1TransactionClassification,
     "enums.v1#Verdict": enums_v1.EnumsV1Verdict,
     "errors.v1": errors_v1.ErrorsV1,
     "errors.v1#ErrorBody": errors_v1.ErrorsV1ErrorBody,
