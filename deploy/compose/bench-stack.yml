@@ -28,6 +28,9 @@ services:
       NOEMA_SESSION_TENANTS: "${STANDIN_TENANT_ID:-ten_alpha}"
       NOEMA_SESSION_LIMITS_FILE: /run/idp/session_limits.json
       NOEMA_MAX_BODY_BYTES: "${NOEMA_BENCH_MAX_BODY_BYTES:?set by make bench-up from BENCH_MAX_BODY_BYTES}"
+      # The most bytes the core reads of one evidence payload (noema#606). No default in the core (AGENT-16): this number is the Architect's, ruling A236 (interim, relayed; docs#187),
+      # for the bench profile only and provisional; a production value goes through an [OPEN] entry. The core reads it only when its Trust-login DSN directory is set.
+      NOEMA_PAYLOAD_MAX_BYTES: "262144"
     volumes:
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro

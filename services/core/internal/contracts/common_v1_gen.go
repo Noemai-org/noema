@@ -13,6 +13,10 @@ type CommonV1CandidateSetId string
 // CommonV1ClarificationId is generated from common.v1.json#$defs/ClarificationId.
 type CommonV1ClarificationId string
 
+// CommonV1ClientRequestId is generated from common.v1.json#$defs/ClientRequestId.
+// The client's request ID: a lower-case UUID, used for deduplication (REQ-INP-003). The core never uses it as the reference of an event (ruling A184); that is RequestId.
+type CommonV1ClientRequestId string
+
 // CommonV1ConfirmationEventId is generated from common.v1.json#$defs/ConfirmationEventId.
 type CommonV1ConfirmationEventId string
 
@@ -100,7 +104,7 @@ type CommonV1RecordEventId string
 type CommonV1RecoveryRequestId string
 
 // CommonV1RequestId is generated from common.v1.json#$defs/RequestId.
-// Client-supplied request ID (a UUID in the canonical input, see CanonicalInput).
+// The ID the core mints for an input: req_ and a ULID (ruling A184; the object_ref of INPUT_RECEIVED). Never a client's value: the client's UUID is ClientRequestId.
 type CommonV1RequestId string
 
 // CommonV1ResourceRef is generated from common.v1.json#$defs/ResourceRef.
