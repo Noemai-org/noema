@@ -32,6 +32,7 @@ class BargeInResult:
     stopped_after_ms: int | None  # milliseconds of speech heard when the answer was stopped
     within_limit: bool | None
     release_failed: bool = False  # True when a stream could not be released within its bound: abandoned and reported, never a clean success
+    stalled: bool = False  # True when a stream stopped producing frames for `read_s`: the call ended there, both streams were released, and nothing was decided
 
 
 class BargeInMonitor:
@@ -54,16 +55,25 @@ class BargeInMonitor:
         return BargeInResult(True, heard, heard <= self._max_stop_ms)
 
 
-async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMonitor, play: Callable[[AudioChunk], None]) -> BargeInResult:
-    async for out in answer:
-        play(out)
-        try:
-            incoming = await microphone.__anext__()
-        except StopAsyncIteration:
-            continue  # no more microphone frames: the answer plays on
-        if monitor.feed(incoming):
-            return monitor.result(True)
-    return monitor.result(False)
+async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMonitor, play: Callable[[AudioChunk], None], read_s: float) -> BargeInResult:
+    """Each read of either stream is bounded by `read_s`; a stream that stops producing frames ends the call at that bound (it then reaches the bounded release), never waits for ever."""
+    try:
+        while True:
+            try:
+                async with asyncio.timeout(read_s):
+                    out = await answer.__anext__()
+            except StopAsyncIteration:
+                return monitor.result(False)
+            play(out)
+            try:
+                async with asyncio.timeout(read_s):
+                    incoming = await microphone.__anext__()
+            except StopAsyncIteration:
+                continue  # no more microphone frames: the answer plays on
+            if monitor.feed(incoming):
+                return monitor.result(True)
+    except TimeoutError:
+        return replace(monitor.result(False), stalled=True)
 
 
 async def _release(answer: AudioSource, microphone: AudioSource, close_s: float, report: Report) -> tuple[bool, BaseException | None]:
@@ -85,17 +95,18 @@ async def play_until_barge_in(
     play: Callable[[AudioChunk], None],
     *,
     close_s: float,
+    read_s: float,
     telemetry: Telemetry | None = None,
     correlation_id: str = "uncorrelated",
 ) -> BargeInResult:
-    """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. `close_s` bounds the release of each stream and has no default
-    (AGENT-16: a bound comes from configuration)."""
-    if not (math.isfinite(close_s) and close_s > 0):
-        raise ValueError("the close bound must be a positive finite number from configuration")
+    """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. `close_s` bounds the release of each stream and `read_s` each read of either; neither has a
+    default (AGENT-16: a bound comes from configuration)."""
+    if not (math.isfinite(close_s) and close_s > 0 and math.isfinite(read_s) and read_s > 0):
+        raise ValueError("the close and read bounds must be positive finite numbers from configuration")
     report = cleanup_reporter(telemetry, correlation_id)
     outcome: BargeInResult | None = None
     try:
-        outcome = await _play(answer, microphone, monitor, play)
+        outcome = await _play(answer, microphone, monitor, play, read_s)
     finally:
         release = asyncio.ensure_future(_release(answer, microphone, close_s, report))
         cancelled = False

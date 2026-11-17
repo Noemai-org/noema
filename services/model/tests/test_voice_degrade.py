@@ -204,7 +204,7 @@ def test_a_cancellation_during_the_release_of_an_ineligible_providers_source_sti
     source = StallsOnClose()
 
     async def call() -> bool:
-        task = asyncio.ensure_future(transcribe_or_text(Fake((final(),), capabilities=caps(qualified=False)), REQUEST, source, deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None))  # type: ignore[arg-type]
+        task = asyncio.ensure_future(transcribe_or_text(Fake((final(),), capabilities=caps(qualified=False)), REQUEST, source, deadline_s=0.5, cleanup_s=0.1, on_partial=lambda _: None))
         await asyncio.sleep(0.03)  # the close has started
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

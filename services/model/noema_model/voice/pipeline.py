@@ -218,14 +218,12 @@ def close_when_read_ends(read: "asyncio.Future[AudioChunk]", audio: AudioSource,
     read.add_done_callback(start)
 
 
-async def release_unused(audio: AudioSource, bound_s: float) -> None:
-    """Release a source the call will not use (it refused the call before reading a chunk): closed within `bound_s`, a failure or a stall of that close ignored, because the
-    caller gets the error that refused the call and the call owns the source."""
-    closing = asyncio.ensure_future(audio.aclose())
-    closing.add_done_callback(_mark_retrieved)
+async def release_unused(audio: AudioSource, bound_s: float, report: Report | None = None) -> None:
+    """Release a source the call will not use (it refused the call before reading a chunk): closed within `bound_s`, a failure ignored, a stall cancelled and reported, because the
+    caller gets the error that refused the call and the call owns the source. The deadline is set when the close starts (`begin_close` cancels it at `bound_s` on its own timer), so
+    a caller that is cancelled while waiting cannot leave a close without one (Codex P2 on noema#621)."""
+    closing = begin_close(audio, bound_s, report if report is not None else cleanup_reporter(None, "uncorrelated"))
     await asyncio.wait({closing}, timeout=bound_s)
-    if not closing.done():
-        closing.cancel()
 
 
 async def refuse_unweakable(audio: AudioSource, bound_s: float) -> None:

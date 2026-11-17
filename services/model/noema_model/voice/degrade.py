@@ -19,7 +19,7 @@ from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import SpeechProvider, StreamRequest, Support
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.voice.endpoint import AudioSource
-from noema_model.voice.pipeline import FinalUtterance, release_unused, transcribe_utterance
+from noema_model.voice.pipeline import FinalUtterance, cleanup_reporter, release_unused, transcribe_utterance
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +52,7 @@ async def transcribe_or_text(
     happens after the call has returned is reported through `telemetry` on `correlation_id`, as for `transcribe_utterance`."""
     bound_s = deadline_s if cleanup_s is None else cleanup_s
     if not eligible(provider):
-        await release_unused(audio, bound_s)  # the call owns the source: nothing was allowed to listen, and the microphone is still released
+        await release_unused(audio, bound_s, cleanup_reporter(telemetry, correlation_id))  # the call owns the source: nothing was allowed to listen, and the microphone is still released
         return DegradeResult(None, True, ProviderFailure.REJECTED, skipped=True)
     try:
         utterance = await transcribe_utterance(

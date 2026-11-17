@@ -25,16 +25,21 @@ GUARD_S = 8.0
 class Handle:
     """An audio handle. `close` is one of: "ok", "hang" (never returns, honours cancellation), "stubborn" (ignores cancellation for 1.5 s, then ends)."""
 
-    def __init__(self, levels: Sequence[int], close: str = "ok", delay_s: float = 0.0) -> None:
+    def __init__(self, levels: Sequence[int], close: str = "ok", delay_s: float = 0.0, stall_after: int | None = None) -> None:
         self._levels = iter(enumerate(levels))
         self._close = close
         self._delay_s = delay_s
+        self._stall_after = stall_after  # after this many frames the next read never returns
+        self._served = 0
         self.closed = False
 
     def __aiter__(self) -> "Handle":
         return self
 
     async def __anext__(self) -> AudioChunk:
+        if self._stall_after is not None and self._served >= self._stall_after:
+            await asyncio.Event().wait()  # a stream that stops producing frames
+        self._served += 1
         if self._delay_s:
             await asyncio.sleep(self._delay_s)  # a real suspension point, so a cancellation can land during playback
         try:
@@ -57,7 +62,7 @@ class Handle:
 
 
 async def barge(answer: Handle, microphone: Handle, telemetry: InMemoryTelemetry | None = None, close_s: float = 0.1) -> BargeInResult:
-    return await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, telemetry=telemetry, correlation_id="corr-b")
+    return await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, read_s=5.0, telemetry=telemetry, correlation_id="corr-b")
 
 
 @pytest.mark.parametrize("which", ["answer", "microphone"])
