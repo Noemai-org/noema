@@ -186,6 +186,32 @@ class QuotedKeys(unittest.TestCase):
         self.assertIn("workflows/t.yml:4", found[0])
 
 
+class UnsupportedForms(unittest.TestCase):
+    """A checkout the check cannot read is refused, not skipped (Codex P2 on noema#622)."""
+
+    def refused(self, step: str) -> None:
+        text = chr(10).join(["jobs:", "  j:", "    steps:", step, ""])
+        found = run({"workflows/t.yml": text})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("form this check does not read", found[0])
+
+    def test_a_flow_mapping_step_is_refused(self) -> None:
+        self.refused("      - {uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262}")
+
+    def test_a_flow_mapping_step_that_sets_the_key_is_refused_too(self) -> None:
+        self.refused("      - {uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262, with: {persist-credentials: false}}")
+
+    def test_a_space_before_the_colon_is_refused(self) -> None:
+        self.refused("      - uses : actions/checkout@11d5960a326750d5838078e36cf38b85af677262")
+
+    def test_a_json_style_step_is_refused(self) -> None:
+        self.refused('      - {"uses": "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"}')
+
+    def test_a_comment_that_names_a_checkout_is_not_a_checkout(self) -> None:
+        comment = "      # was: uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262" + chr(10)
+        self.assertEqual(run({"workflows/t.yml": GOOD + comment}), [])
+
+
 class ThisRepository(unittest.TestCase):
     def test_every_checkout_of_this_repository_sets_it(self) -> None:
         github = Path(__file__).resolve().parents[2] / ".github"

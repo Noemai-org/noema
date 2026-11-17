@@ -87,6 +87,11 @@ def violations(github_dir: Path) -> list[str]:
             found.append(f"{path.relative_to(github_dir).as_posix()}: cannot be read ({exc})")
             continue
         for number, line in enumerate(lines):
+            if meaningful(line) and "actions/checkout" in line.split("#", 1)[0] and not USES.match(line):
+                # A checkout written as a flow mapping (`- {uses: actions/checkout@...}`), as `uses :` or in any other shape this reader does not parse could hide a persisted token: refuse it
+                # instead of skipping it (Codex P2 on noema#622). Write the step in block style.
+                found.append(f"{path.relative_to(github_dir).as_posix()}:{number + 1}: actions/checkout written in a form this check does not read (a flow mapping or an odd spelling): use block style")
+                continue
             if not meaningful(line) or not USES.match(line):
                 continue
             start, end, key_indent = step_bounds(lines, number)
