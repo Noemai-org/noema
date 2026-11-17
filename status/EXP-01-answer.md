@@ -35,3 +35,14 @@ The sources of `found`, `not_known`, `advice` and `next` and the call site: noth
 - Open questions (owner): none.
 - Files to read first: `services/core/explanation/answer/answer.go`.
 - Do not touch: the contract.
+
+# Session 2026-11-17 · EXP-01 (FE contract review on noema#618; A3)
+
+## Session summary
+- What changed: (1) the bounds of `customer-answer.v1` the UI parser enforces: `next.when` at most 100 characters, `advice.do` and `advice.do_not` at most 4 items each (they were 300 and 8); `TestTheBoundsAreTheContractsAndBuildRefusesOneBeyondThem` reads the contract and tests 100/101, 4/5 and the 300/301 and 8 bounds; length is counted in characters. (2) A3 (Architect, interim, relayed): `Input`'s sentences are `answer.Text`, made only by `FromRendered` from a `Rendered` that `explanation.Fallback` produced (a new unexported `sealed` flag on `Rendered`, read by `FromRenderer()`); no text member is a plain string (a reflection test), a hand-built `Rendered` and the zero `Text` are refused. The test file's helper `tx` builds each sentence through the real renderer.
+- Allowlist: this round touched `explanation/explanation.go` (the `sealed` flag and accessor, behaviour otherwise unchanged; the `explanation` tests pass) beyond `explanation/answer/**`; disclosed for the Founder.
+- Evidence: red locally (the tests did not compile: `answer.Text` did not exist) and one push for this round, as the Founder asked; four mutants killed (when bound, advice bound, the renderer-provenance check, the seal).
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- The call site builds each `Text` from a `Rendered` the template explainer returned; one Rendered is one sentence, so the pack needs a template per answer part (found, summary, advice, next) before the route can fill all six: an open question for the Architect.

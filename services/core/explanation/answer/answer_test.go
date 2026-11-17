@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/explanation/answer"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
@@ -27,14 +29,49 @@ var (
 	others   = []contracts.EnumsV1Verdict{contracts.EnumsV1VerdictNOTACHIEVED, contracts.EnumsV1VerdictPARTIALLYACHIEVED, contracts.EnumsV1VerdictUNKNOWN, contracts.EnumsV1VerdictCOMPENSATED, contracts.EnumsV1VerdictPENDINGEXTERNAL}
 )
 
+// tx makes a customer sentence the only way the package allows: through the template renderer (explanation.Fallback) and answer.FromRendered (A3, relayed). The text is the
+// pack template's text, so a test can put any sentence in it, including one that breaks the contract (Build must refuse it).
+func tx(s string) answer.Text {
+	dir, err := os.MkdirTemp("", "answer-templates")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(dir)
+	b, _ := json.Marshal(map[string]string{"fin.outcome.test/CLASS": s})
+	if err := os.WriteFile(filepath.Join(dir, "en-NG.json"), b, 0o600); err != nil {
+		panic(err)
+	}
+	tpl, err := explanation.LoadTemplates(dir, []string{"en-NG"})
+	if err != nil {
+		panic(err)
+	}
+	r, err := explanation.Fallback(tpl, contracts.ExplanationFactsV2{Locale: contracts.ExplanationFactsV2LocaleEnNG, OutcomeId: "fin.outcome.test", Classification: "CLASS"})
+	if err != nil {
+		panic(err)
+	}
+	t, err := answer.FromRendered(r)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func txs(ss ...string) []answer.Text {
+	var out []answer.Text
+	for _, s := range ss {
+		out = append(out, tx(s))
+	}
+	return out
+}
+
 func base() answer.Input {
 	return answer.Input{
-		Found:               []string{"Your transfer was debited from your account."},
-		NotKnown:            []answer.NotKnown{{What: "Whether the recipient was credited", Why: "The destination has not answered yet."}},
-		Summary:             "We opened a case for you.",
-		Do:                  []string{"Keep this message."},
-		DoNot:               []string{"Do not send the money again yet."},
-		Next:                "We will update you here.",
+		Found:               txs("Your transfer was debited from your account."),
+		NotKnown:            []answer.NotKnown{{What: tx("Whether the recipient was credited"), Why: tx("The destination has not answered yet.")}},
+		Summary:             tx("We opened a case for you."),
+		Do:                  txs("Keep this message."),
+		DoNot:               txs("Do not send the money again yet."),
+		Next:                tx("We will update you here."),
 		CaseOpenedOutcomeID: caseOpened,
 	}
 }
@@ -134,20 +171,20 @@ func TestAReferenceThatIsNotMaskedIsRefused(t *testing.T) {
 // Every text member is held to the contract: no run of five digits (any script), the length bounds, and the list bounds. A refusal is an error, never a masked guess.
 func TestATextThatBreaksTheContractIsRefused(t *testing.T) {
 	bads := map[string]func(*answer.Input){
-		"a digit run in found":    func(i *answer.Input) { i.Found = []string{"Your account 123456789 was debited."} },
-		"digits joined by spaces": func(i *answer.Input) { i.Summary = "We opened case 1234 5678 for you." },
-		"arabic-indic digits":     func(i *answer.Input) { i.Next = "Call ٠١٢٣٤٥٦٧٨٩ today." },
-		"an empty summary":        func(i *answer.Input) { i.Summary = "" },
-		"a summary over 300":      func(i *answer.Input) { i.Summary = strings.Repeat("a", 301) },
+		"a digit run in found":    func(i *answer.Input) { i.Found = txs("Your account 123456789 was debited.") },
+		"digits joined by spaces": func(i *answer.Input) { i.Summary = tx("We opened case 1234 5678 for you.") },
+		"arabic-indic digits":     func(i *answer.Input) { i.Next = tx("Call ٠١٢٣٤٥٦٧٨٩ today.") },
+		"an empty summary":        func(i *answer.Input) { i.Summary = answer.Text{} },
+		"a summary over 300":      func(i *answer.Input) { i.Summary = tx(strings.Repeat("a", 301)) },
 		"nine found items": func(i *answer.Input) {
-			i.Found = make([]string, 9)
+			i.Found = make([]answer.Text, 9)
 			for k := range i.Found {
-				i.Found[k] = "x"
+				i.Found[k] = tx("x")
 			}
 		},
-		"an empty found item":             func(i *answer.Input) { i.Found = []string{""} },
-		"a not-known item with no reason": func(i *answer.Input) { i.NotKnown = []answer.NotKnown{{What: "x"}} },
-		"an empty next":                   func(i *answer.Input) { i.Next = "" },
+		"an empty found item":             func(i *answer.Input) { i.Found = []answer.Text{{}} },
+		"a not-known item with no reason": func(i *answer.Input) { i.NotKnown = []answer.NotKnown{{What: tx("x")}} },
+		"an empty next":                   func(i *answer.Input) { i.Next = answer.Text{} },
 	}
 	for name, mut := range bads {
 		in := base()
@@ -271,5 +308,113 @@ func TestTheContractsInvalidCaseReferencesAreRefused(t *testing.T) {
 		if _, err := answer.Build(in); err == nil {
 			t.Errorf("%s: %q was accepted", f, fx.Ref)
 		}
+	}
+}
+
+// FE contract review on #618: the bounds of customer-answer.v1 that the generated TypeScript parser enforces. `next.when` is at most 100 characters and each of `advice.do` and
+// `advice.do_not` at most 4 items (the other text members 300, `found` and `not_known` 8). The bounds are read from the contract file, so a change there changes this test.
+func TestTheBoundsAreTheContractsAndBuildRefusesOneBeyondThem(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "schemas", "customer-answer.v1.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Props struct {
+			Found  struct{ MaxItems int } `json:"found"`
+			Advice struct {
+				Props struct {
+					Do    struct{ MaxItems int } `json:"do"`
+					DoNot struct{ MaxItems int } `json:"do_not"`
+				} `json:"properties"`
+			} `json:"advice"`
+			Next struct {
+				Props struct {
+					When struct{ MaxLength int } `json:"when"`
+				} `json:"properties"`
+			} `json:"next"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	// the raw tags above use Go's case-insensitive match on "maxItems"/"maxLength"
+	if c.Props.Advice.Props.Do.MaxItems != 4 || c.Props.Advice.Props.DoNot.MaxItems != 4 || c.Props.Next.Props.When.MaxLength != 100 || c.Props.Found.MaxItems != 8 {
+		t.Fatalf("the contract's bounds changed: do %d, do_not %d, when %d, found %d; update answer.go and this test", c.Props.Advice.Props.Do.MaxItems, c.Props.Advice.Props.DoNot.MaxItems, c.Props.Next.Props.When.MaxLength, c.Props.Found.MaxItems)
+	}
+	in := base()
+	in.Verdicts = []answer.Verdict{v(caseOpened, achieved)}
+	at := func(mut func(*answer.Input), wantOK bool, what string) {
+		t.Helper()
+		x := in
+		mut(&x)
+		if _, err := answer.Build(x); (err == nil) != wantOK {
+			t.Errorf("%s: err %v, want ok=%v", what, err, wantOK)
+		}
+	}
+	when := func(n int) func(*answer.Input) {
+		return func(i *answer.Input) { w := tx(strings.Repeat("w", n)); i.When = &w }
+	}
+	at(when(100), true, "next.when at 100")
+	at(when(101), false, "next.when at 101")
+	at(func(i *answer.Input) { i.Do = txs("a", "b", "c", "d") }, true, "advice.do at 4")
+	at(func(i *answer.Input) { i.Do = txs("a", "b", "c", "d", "e") }, false, "advice.do at 5")
+	at(func(i *answer.Input) { i.DoNot = txs("a", "b", "c", "d") }, true, "advice.do_not at 4")
+	at(func(i *answer.Input) { i.DoNot = txs("a", "b", "c", "d", "e") }, false, "advice.do_not at 5")
+	at(func(i *answer.Input) { i.Found = txs("a", "b", "c", "d", "e", "f", "g", "h") }, true, "found at 8")
+	at(func(i *answer.Input) { i.Summary = tx(strings.Repeat("s", 300)) }, true, "summary at 300")
+	at(func(i *answer.Input) { i.Summary = tx(strings.Repeat("s", 301)) }, false, "summary at 301")
+	at(func(i *answer.Input) { i.Next = tx(strings.Repeat("n", 300)) }, true, "next.what at 300")
+	at(func(i *answer.Input) { i.Next = tx(strings.Repeat("n", 301)) }, false, "next.what at 301")
+}
+
+// The length is counted in characters (code points), as the contract's maxLength is: 300 two-byte letters is allowed, and 301 is not.
+func TestLengthIsCountedInCharactersNotBytes(t *testing.T) {
+	in := base()
+	in.Summary = tx(strings.Repeat("é", 300))
+	if _, err := answer.Build(in); err != nil {
+		t.Errorf("300 characters of two bytes each: %v", err)
+	}
+	in.Summary = tx(strings.Repeat("é", 301))
+	if _, err := answer.Build(in); err == nil {
+		t.Error("301 characters were accepted")
+	}
+}
+
+// A3 (Architect, interim, relayed): Build accepts only the renderer's type. The text members of Input are `answer.Text`, which only FromRendered makes, from a Rendered that
+// the renderer itself produced (explanation.Fallback); no text member of Input is a plain string, so no caller can hand Build a model's sentence or a literal.
+func TestNoTextMemberOfInputIsAPlainString(t *testing.T) {
+	allowed := map[string]bool{"CaseOpenedOutcomeID": true, "CaseRefMasked": true} // the pack's outcome ID and the already-masked reference, not customer sentences
+	ty := reflect.TypeOf(answer.Input{})
+	for i := 0; i < ty.NumField(); i++ {
+		f := ty.Field(i)
+		if allowed[f.Name] || f.Name == "Verdicts" {
+			continue
+		}
+		switch f.Type.String() {
+		case "string", "[]string", "*string":
+			t.Errorf("Input.%s is %s: a customer sentence must be an answer.Text", f.Name, f.Type)
+		}
+	}
+	nk := reflect.TypeOf(answer.NotKnown{})
+	for i := 0; i < nk.NumField(); i++ {
+		if nk.Field(i).Type.Kind() == reflect.String {
+			t.Errorf("NotKnown.%s is a plain string", nk.Field(i).Name)
+		}
+	}
+}
+
+// FromRendered refuses what the renderer did not make: a Rendered built by hand (even with every field set), an empty one, and the zero Text is refused by Build.
+func TestFromRenderedRefusesAHandBuiltRendered(t *testing.T) {
+	forged := explanation.Rendered{Text: "We opened a case for you.", TemplateID: "en-NG/fin.outcome.x/CLASS", TemplateVersion: "1", Claims: []explanation.Claim{{Span: "We opened a case for you.", TemplateID: "en-NG/fin.outcome.x/CLASS"}}}
+	if _, err := answer.FromRendered(forged); err == nil {
+		t.Error("a hand-built Rendered was accepted")
+	}
+	if _, err := answer.FromRendered(explanation.Rendered{}); err == nil {
+		t.Error("an empty Rendered was accepted")
+	}
+	in := base()
+	in.Summary = answer.Text{}
+	if _, err := answer.Build(in); err == nil {
+		t.Error("the zero Text was accepted as a summary")
 	}
 }

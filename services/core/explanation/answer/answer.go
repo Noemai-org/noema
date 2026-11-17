@@ -2,7 +2,7 @@
 // rule 6 and 40.1; REQ-UI-001). `done.verified` is true only when there is at least one verdict and every verdict is ACHIEVED. `case_ref_masked` is present only when the case-opened
 // outcome has an ACHIEVED verdict. The UI renders what it is given and derives nothing.
 //
-// May import: the standard library, internal/contracts, record/payloadguard (the one digit definition, A194).
+// May import: the standard library, internal/contracts, explanation (the renderer's output type only, A3), record/payloadguard (the one digit definition, A194).
 //
 // Must never: name an outcome or an industry term (the pack gives the case-opened outcome's ID, INV-14); show a reference that is not masked; guess, mask or trim a text that breaks
 // the contract (it is an error); read the Record, a clock or a store; import decision, grant or verdict code (explanation output is never an input to them, SoT 51).
@@ -16,6 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Noemai-org/noema/services/core/explanation"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 )
@@ -23,10 +24,32 @@ import (
 // Bounds of the contract (customer-answer.v1): frame bounds, not policy.
 const (
 	maxText       = 300
-	maxItems      = 8
+	maxWhen       = 100 // next.when
+	maxItems      = 8   // found, not_known
+	maxAdvice     = 4   // advice.do and advice.do_not, each
 	maxCaseRef    = 64
 	schemaVersion = "1.0"
 )
+
+// Text is a customer sentence that came from the template renderer (A3, Architect, interim, relayed). The only way to make one is FromRendered, from a Rendered that
+// explanation.Fallback produced; the zero Text is empty and Build refuses it. A caller therefore cannot hand Build a model's sentence or a literal.
+type Text struct{ s string }
+
+// FromRendered makes a Text from the renderer's own output. A Rendered built by hand, or with no text, is refused.
+func FromRendered(r explanation.Rendered) (Text, error) {
+	if !r.FromRenderer() || r.Text == "" || r.TemplateID == "" {
+		return Text{}, fmt.Errorf("%w: the text did not come from the template renderer", ErrAnswer)
+	}
+	return Text{s: r.Text}, nil
+}
+
+func strs(ts []Text) []string {
+	out := make([]string, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, t.s)
+	}
+	return out
+}
 
 // ErrAnswer is returned for an input that cannot become an answer that satisfies the contract. It names the part and never carries the text (AGENT-13).
 var ErrAnswer = errors.New("answer: the input does not satisfy the customer-answer contract")
@@ -38,17 +61,17 @@ type Verdict struct {
 }
 
 // NotKnown is one thing that is not known yet, and why.
-type NotKnown struct{ What, Why string }
+type NotKnown struct{ What, Why Text }
 
-// Input is everything the answer needs. The texts are already the customer's words (the pack's templates and the masked facts); Build checks them and changes none.
+// Input is everything the answer needs. The texts are the renderer's sentences (Text; A3); Build checks them against the contract and changes none.
 type Input struct {
-	Found    []string
+	Found    []Text
 	NotKnown []NotKnown
-	Summary  string
-	Do       []string
-	DoNot    []string
-	Next     string
-	When     *string
+	Summary  Text
+	Do       []Text
+	DoNot    []Text
+	Next     Text
+	When     *Text
 	// Verdicts are the investigation's verdicts. They decide `done.verified` and the case reference; nothing else does.
 	Verdicts []Verdict
 	// CaseOpenedOutcomeID is the pack's ID of the case-opened outcome. With none, no case reference is ever shown.
@@ -98,13 +121,17 @@ func caseOpenedAchieved(vs []Verdict, outcomeID string) bool {
 func Build(in Input) (contracts.CustomerAnswerV1, error) {
 	a := contracts.CustomerAnswerV1{
 		SchemaVersion: schemaVersion,
-		Found:         append([]string(nil), in.Found...),
-		Done:          contracts.CustomerAnswerV1Done{Summary: in.Summary, Verified: Verified(in.Verdicts)},
-		Advice:        contracts.CustomerAnswerV1Advice{Do: append([]string(nil), in.Do...), DoNot: append([]string(nil), in.DoNot...)},
-		Next:          contracts.CustomerAnswerV1Next{What: in.Next, When: in.When},
+		Found:         strs(in.Found),
+		Done:          contracts.CustomerAnswerV1Done{Summary: in.Summary.s, Verified: Verified(in.Verdicts)},
+		Advice:        contracts.CustomerAnswerV1Advice{Do: strs(in.Do), DoNot: strs(in.DoNot)},
+		Next:          contracts.CustomerAnswerV1Next{What: in.Next.s},
+	}
+	if in.When != nil {
+		w := in.When.s
+		a.Next.When = &w
 	}
 	for _, n := range in.NotKnown {
-		a.NotKnown = append(a.NotKnown, contracts.CustomerAnswerV1NotKnownItem{What: n.What, Why: n.Why})
+		a.NotKnown = append(a.NotKnown, contracts.CustomerAnswerV1NotKnownItem{What: n.What.s, Why: n.Why.s})
 	}
 	if in.CaseRefMasked != "" && caseOpenedAchieved(in.Verdicts, in.CaseOpenedOutcomeID) {
 		ref := in.CaseRefMasked
@@ -126,8 +153,8 @@ func text(part, s string) error {
 	return nil
 }
 
-func texts(part string, ss []string, allowEmptyList bool) error {
-	if len(ss) > maxItems || (!allowEmptyList && len(ss) == 0) {
+func texts(part string, ss []string, allowEmptyList bool, max int) error {
+	if len(ss) > max || (!allowEmptyList && len(ss) == 0) {
 		return fmt.Errorf("%w: %s has %d items", ErrAnswer, part, len(ss))
 	}
 	for _, s := range ss {
@@ -140,7 +167,7 @@ func texts(part string, ss []string, allowEmptyList bool) error {
 
 // check holds the answer to the contract: the bounds, the mask of a case reference, and no digit run over the Record's limit in any member (payloadguard's definition, A194).
 func check(a contracts.CustomerAnswerV1) error {
-	if err := texts("found", a.Found, true); err != nil {
+	if err := texts("found", a.Found, true, maxItems); err != nil {
 		return err
 	}
 	if len(a.NotKnown) > maxItems {
@@ -163,11 +190,14 @@ func check(a contracts.CustomerAnswerV1) error {
 		if err := text("next", *a.Next.When); err != nil {
 			return err
 		}
+		if utf8.RuneCountInString(*a.Next.When) > maxWhen {
+			return fmt.Errorf("%w: next.when is over %d characters", ErrAnswer, maxWhen)
+		}
 	}
-	if err := texts("advice.do", a.Advice.Do, true); err != nil {
+	if err := texts("advice.do", a.Advice.Do, true, maxAdvice); err != nil {
 		return err
 	}
-	if err := texts("advice.do_not", a.Advice.DoNot, true); err != nil {
+	if err := texts("advice.do_not", a.Advice.DoNot, true, maxAdvice); err != nil {
 		return err
 	}
 	if a.CaseRefMasked != nil {
