@@ -7,6 +7,12 @@ type Shared = { baseUrl: string; sessionToken: string; signal?: AbortSignal };
 type Clarification = Shared & { conversationRef: string; card: unknown; optionId: string };
 type Confirmation = Shared & { card: unknown; response: "ACCEPT" | "DECLINE" };
 
+export function isSecureTarget(url: URL): boolean {
+  if (url.username || url.password) return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "[::1]" || /^127(?:\.\d{1,3}){3}$/u.test(url.hostname));
+}
+
 function expiry(value: string): "active" | "expired" | "unavailable" {
   const instant = Date.parse(value);
   if (!Number.isFinite(instant)) return "unavailable";
@@ -26,7 +32,7 @@ async function post(input: Shared, path: string, body: object): Promise<SubmitRe
     if (!(error instanceof TypeError)) throw error;
     return "unavailable";
   }
-  if ((url.protocol !== "https:" && url.protocol !== "http:") || !input.sessionToken) return "unavailable";
+  if (!isSecureTarget(url) || !input.sessionToken) return "unavailable";
   try {
     const response = await fetch(url, {
       method: "POST",

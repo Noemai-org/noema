@@ -4,11 +4,19 @@ import { createServer } from "node:http";
 import { networkInterfaces } from "node:os";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
-import { submitClarification, submitConfirmation } from "../build/js/card-submit.js";
+import { isSecureTarget, submitClarification, submitConfirmation } from "../build/js/card-submit.js";
 
 // Local contract server, not the core. All identifiers, tokens and clock values are SYNTHETIC.
 const bearer = "synthetic-session";
 const conversation = "inv_SyntheticA";
+
+test("REQ-UI-002: bearer tokens are never sent to a non-loopback HTTP origin", () => {
+  assert.equal(isSecureTarget(new URL("http://example.invalid")), false);
+  assert.equal(isSecureTarget(new URL("http://127.0.0.1.example.invalid")), false);
+  assert.equal(isSecureTarget(new URL("https://user@example.invalid")), false);
+  assert.equal(isSecureTarget(new URL("https://example.invalid")), true);
+  assert.equal(isSecureTarget(new URL("http://localhost")), true);
+});
 const currentCard = async (name) => ({
   ...JSON.parse(await readFile(new URL(`../../contracts/fixtures/valid/overlay-card/${name}.json`, import.meta.url), "utf8")),
   expires_at: "2099-01-01T00:00:00Z",
