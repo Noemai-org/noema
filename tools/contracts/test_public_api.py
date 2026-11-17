@@ -230,6 +230,14 @@ class WidenedAndBounded(unittest.TestCase):
             self.assertIn("maxItems", node, what)
         self.assertIn("maxProperties", d["$defs"]["Item"]["properties"]["facts"])
         self.assertEqual(d["$defs"]["TimelineEntry"]["properties"]["text"]["pattern"], DIGIT_RUN)
+        facts = d["$defs"]["Item"]["properties"]["facts"]
+        # A272: the pattern is on the free-text facts only, named here; a reference, a *_id fact or a minted ID is served as written
+        self.assertEqual(sorted(facts["properties"]), ["reason_codes", "text"])
+        self.assertEqual(facts["properties"]["text"]["pattern"], DIGIT_RUN)
+        self.assertEqual(facts["properties"]["reason_codes"]["items"]["pattern"], DIGIT_RUN)
+        for alt in facts["additionalProperties"]["oneOf"]:
+            self.assertNotIn("pattern", alt)
+            self.assertNotIn("pattern", alt.get("items", {}))
         reason = SCHEMAS["record-event.v3.json"]["$defs"]["RecordEvent"]["properties"]["reason"]
         self.assertEqual((reason["pattern"], reason["maxLength"]), ("^[A-Z_]{1,64}$", 64))
 

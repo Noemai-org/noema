@@ -79,6 +79,7 @@ class Obj:
     fields: list[Field_]
     extra: Any = None  # None: closed (additionalProperties: false). Prim("any"): open. Any other type: the type of the other members.
     nullable: bool = False
+    key_pattern: str | None = None  # propertyNames.pattern of the other members (the TypeScript parser refuses a key that does not match)
 
     @property
     def closed(self) -> bool:
@@ -282,7 +283,8 @@ class Builder:
             return Obj([], None, nullable) if extra is None else MapOf(extra, nullable, key_pattern)
         required = set(n.get("required", []))
         fields = [Field_(p, self.node(v, f"{path}/properties/{p}", hint + pascal(p)), p in required) for p, v in props.items()]
-        return Obj(fields, extra, nullable)
+        names = n.get("propertyNames")
+        return Obj(fields, extra, nullable, names.get("pattern") if isinstance(names, dict) else None)
 
     # -- one schema file ---------------------------------------------------------------------------------------------
     def build(self, file: str) -> Built:

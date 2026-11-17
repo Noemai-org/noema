@@ -155,7 +155,15 @@ class Ts:
                 else:
                     value = self.pexpr(f.type, f"o[{js(f.prop)}]", path, use, pats)
                     items.append(f"    ...(has(o, {js(f.prop)}) ? {{ {key(f.prop)}: {value} }} : {{}}),")
-            spread = "    ...o,\n" if not t.closed else ""
+            if not t.closed and not (isinstance(t.extra, ir.Prim) and t.extra.kind == "any"):
+                # the other members have a type (and maybe a key pattern): they are parsed as a map of the members the object does not declare
+                declared = ", ".join(js(f.prop) for f in t.fields)
+                item = self.pexpr(t.extra, "x", "q", use, pats)
+                key_arg = f", {self.pat(t.key_pattern, pats)}" if t.key_pattern else ""
+                body.append(f"  const rest = mapOf(Object.fromEntries(Object.entries(o).filter(([k]) => ![{declared}].includes(k))), p, (x, q) => {item}{key_arg});")
+                spread = "    ...rest,\n"
+            else:
+                spread = "    ...o,\n" if not t.closed else ""
             body.append("  return {\n" + spread + "\n".join(items) + "\n  };")
             return (head + f"export interface {n} {{\n" + "\n".join(fields) + "\n}\n\n"
                     + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n" + "\n".join(body) + "\n}\n")
