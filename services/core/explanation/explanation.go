@@ -127,7 +127,12 @@ type Rendered struct {
 	TemplateID      string
 	TemplateVersion string
 	FactIDs         []string
+	// sealed is set by Fallback and by nothing else: a Rendered built by hand has it false, so a consumer can tell the renderer's own output (FromRenderer; answer.FromRendered, A3).
+	sealed bool
 }
+
+// FromRenderer reports whether this Rendered was produced by the renderer (Fallback) and not built by hand.
+func (r Rendered) FromRenderer() bool { return r.sealed }
 
 // Fallback renders the pack template for the facts' locale, outcome and classification. The whole text is one template-bound claim.
 func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
@@ -142,7 +147,7 @@ func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
 	if err != nil {
 		return Rendered{}, err
 	}
-	return Rendered{Text: text, TemplateID: id, TemplateVersion: e.version, FactIDs: used, Claims: []Claim{{Span: text, TemplateID: id}}}, nil
+	return Rendered{Text: text, TemplateID: id, TemplateVersion: e.version, FactIDs: used, Claims: []Claim{{Span: text, TemplateID: id}}, sealed: true}, nil
 }
 
 var (
