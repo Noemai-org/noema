@@ -45,12 +45,6 @@ class FakeTushe(BaseHTTPRequestHandler):
             return self._answer(401)
         if mode == "serves-admin":
             return self._answer(200)
-        if mode == "not-found":
-            return self._answer(404)
-        if mode == "redirect":
-            return self._answer(302, {"Location": "/elsewhere"})
-        if mode == "server-error":
-            return self._answer(500)
         self._answer(403)
 
     do_GET = _handle
@@ -138,13 +132,39 @@ class Probe(unittest.TestCase):
         self.assertIn("no control read was served", text)
         self.assertEqual(len(FakeTushe.methods), 4, "two schemes by two controls, and no probe request after a refused control")
 
-    def test_an_answer_that_is_neither_served_nor_refused_is_not_run(self) -> None:
-        for mode in ("not-found", "redirect", "server-error"):
-            with self.subTest(mode):
-                FakeTushe.mode = mode
-                code, text = self.run_cli()
-                self.assertEqual(code, 3, text)
-                self.assertIn("inconclusive", text)
+    def test_every_status_is_classified_by_one_pure_function(self) -> None:
+        # No server and no manufactured failure: the meaning of each status is a table. Failure ANSWERS from a real system are produced by the hostility proxy's FaultPlans, in
+        # benchmark/hostility_proxy/internal/proxy/partner_probe_test.go (AGENTS 8: no mocked failure modes).
+        for status in (401, 403):
+            self.assertEqual(probe.classify(status), "refused", status)
+        for status in (200, 201, 204, 299):
+            self.assertEqual(probe.classify(status), "SERVED", status)
+        for status in (100, 301, 302, 304, 400, 404, 405, 409, 429, 500, 502, 503):
+            self.assertEqual(probe.classify(status), "inconclusive", status)
+
+    def test_a_served_route_is_never_erased_by_an_inconclusive_one(self) -> None:
+        # Codex P2 on noema#655: a later timeout must not turn a confirmed isolation breach into NOT RUN.
+        def row(outcome: str) -> dict[str, object]:
+            return {"path": "/x", "status": None, "outcome": outcome}
+
+        self.assertTrue(probe.verdict_of([row("SERVED"), row("inconclusive")]).startswith("NOT MET"))
+        self.assertTrue(probe.verdict_of([row("inconclusive"), row("SERVED")]).startswith("NOT MET"))
+        self.assertTrue(probe.verdict_of([row("refused"), row("inconclusive")]).startswith("NOT RUN"))
+        self.assertTrue(probe.verdict_of([row("refused"), row("refused")]).startswith("MET"))
+
+    def test_a_credential_that_is_not_one_printable_value_is_refused_and_never_echoed(self) -> None:
+        # Codex P1 on noema#655: http.client puts a header value it rejects into its error text; a two-line credential must not reach it, and must not be printed.
+        self.assertFalse(probe.valid_credential("first-line\nsecond-line"))
+        for bad in ("", "has space", "tab\there", "nul\x00", "caf\u00e9", "x" * 4097):
+            self.assertFalse(probe.valid_credential(bad), repr(bad))
+        self.assertTrue(probe.valid_credential(SECRET))
+        multi = Path(self.tmp.name) / "multi"
+        multi.write_text("first-secret-line\nsecond-secret-line\n", encoding="utf-8")
+        code, text = self.run_cli(cred=multi)
+        self.assertEqual(code, 3, text)
+        self.assertNotIn("first-secret-line", text)
+        self.assertNotIn("second-secret-line", text)
+        self.assertEqual(FakeTushe.methods, [], "no request was made with it")
 
     def test_it_makes_get_requests_only(self) -> None:
         for mode in ("edge", "serves-admin"):

@@ -15,6 +15,7 @@ Exit: 0 met, 1 not met (a probe was served, or the control was refused), 2 bad i
 import argparse
 import http.client
 import json
+import re
 import ssl
 import sys
 from pathlib import Path
@@ -34,6 +35,30 @@ REFUSED = (401, 403)
 
 class NotRun(Exception):
     pass
+
+
+# One printable ASCII word: no space, no control character, no newline. http.client puts a header value it refuses INTO its error message, so a credential that is not valid as a header must never
+# reach it (Codex P1 on noema#655); this check says only that the file is wrong, never what it holds.
+CREDENTIAL = re.compile(r"[\x21-\x7e]{1,4096}")
+
+
+def valid_credential(secret: str) -> bool:
+    return CREDENTIAL.fullmatch(secret) is not None
+
+
+def classify(status: int) -> str:
+    """What one answer from an administration route means. A pure function, so every status is tested without a server."""
+    return "refused" if status in REFUSED else "SERVED" if 200 <= status < 300 else "inconclusive"
+
+
+def verdict_of(rows: list[Json]) -> str:
+    """A served administration route is a definitive failure and is never erased by a later transport failure or an inconclusive row (Codex P2 on noema#655)."""
+    outcomes = [r["outcome"] for r in rows]
+    if "SERVED" in outcomes:
+        return "NOT MET: the runtime credential was served on an administration route"
+    if "inconclusive" in outcomes:
+        return "NOT RUN: a probe answered neither 2xx nor 401/403, or could not be completed, so it is not read as a refusal"
+    return "MET: the control read was served and every administration route refused the runtime credential"
 
 
 def _present(scheme: str, secret: str) -> dict[str, str]:
@@ -57,6 +82,8 @@ def get_status(base_url: str, path: str, headers: dict[str, str], *, timeout: fl
         return conn.getresponse().status
     except (OSError, http.client.HTTPException) as error:
         raise NotRun(f"transport failure on {path}: {type(error).__name__}") from error
+    except ValueError:
+        raise NotRun("the request could not be built (an invalid header or path)") from None  # the library's message would hold the credential
     finally:
         conn.close()
 
@@ -70,7 +97,11 @@ def probe(base_url: str, secret: str, scheme: str, control_paths: list[str], pro
     served: tuple[str, str] | None = None
     for candidate in (SCHEMES if scheme == "auto" else (scheme,)):
         for control_path in control_paths:
-            status = get_status(base_url, control_path, _present(candidate, secret), timeout=timeout, allow_loopback_http=allow_loopback_http)
+            try:
+                status = get_status(base_url, control_path, _present(candidate, secret), timeout=timeout, allow_loopback_http=allow_loopback_http)
+            except NotRun as error:
+                attempts.append({"scheme": candidate, "path": control_path, "status": None, "detail": str(error)})
+                continue
             attempts.append({"scheme": candidate, "path": control_path, "status": status})
             if 200 <= status < 300:
                 served = (candidate, control_path)
@@ -86,15 +117,14 @@ def probe(base_url: str, secret: str, scheme: str, control_paths: list[str], pro
     headers = _present(served[0], secret)
     rows: list[Json] = []
     for path in probe_paths:
-        status = get_status(base_url, path, headers, timeout=timeout, allow_loopback_http=allow_loopback_http)
-        rows.append({"path": path, "status": status, "outcome": "refused" if status in REFUSED else "SERVED" if 200 <= status < 300 else "inconclusive"})
+        try:
+            status = get_status(base_url, path, headers, timeout=timeout, allow_loopback_http=allow_loopback_http)
+        except NotRun as error:
+            rows.append({"path": path, "status": None, "outcome": "inconclusive", "detail": str(error)})  # kept, so a served route elsewhere still decides the verdict
+            continue
+        rows.append({"path": path, "status": status, "outcome": classify(status)})
     result["probes"] = rows
-    if any(r["outcome"] == "SERVED" for r in rows):
-        result["verdict"] = "NOT MET: the runtime credential was served on an administration route"
-    elif any(r["outcome"] == "inconclusive" for r in rows):
-        result["verdict"] = "NOT RUN: a probe answered neither 2xx nor 401/403, so it is not read as a refusal"
-    else:
-        result["verdict"] = "MET: the control read was served and every administration route refused the runtime credential"
+    result["verdict"] = verdict_of(rows)
     return result
 
 
@@ -113,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         secret = a.credential_file.read_text(encoding="utf-8").strip()
         if not secret:
             raise NotRun("the credential file is empty")
+        if not valid_credential(secret):
+            raise NotRun("the credential file does not hold a single printable value (it is not echoed)")
         doc = probe(a.base_url, secret, a.scheme, a.control_path or list(CONTROL_PATHS), a.probe_path or list(PROBE_PATHS), timeout=a.timeout, allow_loopback_http=a.allow_loopback_http)
     except OSError:
         print("NOT RUN: the credential file could not be read")
