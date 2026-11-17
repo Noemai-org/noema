@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,8 +10,12 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
+	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/record/admission"
+	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 )
 
@@ -31,6 +36,8 @@ import (
 type Components struct {
 	Ports   orchestrator.Ports
 	Records reconstruct.TenantDBs
+	// Gateway is the Input Gateway (UND-02); POST /v1/conversations is mounted only with it.
+	Gateway *inputgateway.Gateway
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 }
@@ -53,6 +60,9 @@ var rolesOpsAndAudit = []session.Role{session.RoleOps, session.RoleAudit}
 // apiRoutes is the route table of the public API: each route with the roles that may call it. A route exists only when the component behind it does.
 func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	var routes []edge.Route
+	if c.Gateway != nil {
+		routes = append(routes, edge.Route{Pattern: inputgateway.Route, Roles: rolesCustomer, Handler: startConversation(c.Gateway.Handler(gatewayIdentity))})
+	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
@@ -129,4 +139,36 @@ func composeReadiness(c Components, api http.Handler) readiness {
 		}
 		return true, ""
 	}
+}
+
+// buildComponents builds what main composes, in one place, and returns it with one function that closes every pool opened (safe to call more than once, and returned with an error
+// too). Only adapters that are merged are plugged in: the Record reader, the Admissions port over it (one reader, so a turn's input is confirmed as the session's tenant) and the
+// orchestrator's Recorder. With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
+// whose adapters are not built stay nil, so /readyz names them (missing). Nothing is dialled here.
+func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger) (Components, func(), error) {
+	var closers []func()
+	closeAll := func() {
+		for i := len(closers) - 1; i >= 0; i-- {
+			closers[i]()
+		}
+	}
+	records, closeRecords, err := buildRecordReader(ctx, env)
+	if err != nil {
+		return Components{}, closeAll, err
+	}
+	closers = append(closers, closeRecords)
+	recorder, closeRecorder, err := buildRecorder(ctx, env, clk, ids, records)
+	if err != nil {
+		closeAll()
+		return Components{}, closeAll, err
+	}
+	closers = append(closers, closeRecorder)
+	c := Components{Records: records, AccessLog: logger}
+	if records != nil {
+		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
+	}
+	if recorder != nil {
+		c.Ports.Recorder = recorder
+	}
+	return c, closeAll, nil
 }

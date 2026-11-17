@@ -70,10 +70,10 @@ func main() {
 	}()
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(verify.New(cfg.Key), st, verify.PullToken(cfg.Key), time.Now).Handler(),
+		Handler:           holdingServer(cfg, st).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      15*time.Second + cfg.Hold, // the hold is added, or the listener would cut a held answer off at its own timeout instead of sending it late
 		IdleTimeout:       60 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -138,4 +138,13 @@ func initCredentials(args []string) error {
 		return err
 	}
 	return os.WriteFile(*path, []byte("whsec_"+base64.StdEncoding.EncodeToString(b)), 0o444)
+}
+
+// holdingServer is the relay's handler, with the bench's hold when one is configured (A247).
+func holdingServer(cfg *config.Config, st *store.Store) *server.Server {
+	s := server.New(verify.New(cfg.Key), st, verify.PullToken(cfg.Key), time.Now)
+	if cfg.Hold > 0 {
+		s = s.WithHold(cfg.Hold, nil)
+	}
+	return s
 }

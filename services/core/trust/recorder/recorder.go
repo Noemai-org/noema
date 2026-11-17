@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -23,6 +24,10 @@ const (
 	schemaV    = "2.0"
 	emitter    = "core-trust"
 	timeLayout = "2006-01-02T15:04:05.000Z"
+
+	pgUniqueViolation    = "23505"
+	confirmationEventKey = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
+	confirmationValid    = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
 )
 
 // Errors of Write. Callers compare with errors.Is.
@@ -38,6 +43,14 @@ var (
 	// ErrDecisionConflict is returned when a decision is already stored for the same input tuple and the new evaluation disagrees with it (INV-21: the same input
 	// gives the same decision). Nothing is written and nothing of either decision is returned; the error carries no content of the decision.
 	ErrDecisionConflict = errors.New(errPrefix + "the stored decision for this input does not agree with the new evaluation")
+	// ErrConfirmationNotValid is returned when the confirmation an ALLOW names does not exist for the tenant, has expired by the database's clock, or was given for another action than
+	// the one the ALLOW's step carries (the eight values of SoT 43.2a). The caller cannot tell which: the three are one answer, so no outward answer tells an attacker which.
+	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
+	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
+	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
+	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
+	// confirmation is used once). Nothing is written; the caller rolls back.
+	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
 )
 
 // IDs makes the decision ID.
@@ -66,7 +79,9 @@ type Request struct {
 	PolicyID              string // which policy the record and the grants bind when the basis names several; may be empty with one
 	Decision              decide.Decision
 	Evaluated             *decide.BasisBuilder
-	Steps                 []grants.Step // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
+	ConfirmationPlanHash  contracts.CommonV1Hash // the plan hash the confirmation was given for (A230); the writer refuses an ALLOW whose steps carry another
+	ConfirmationEventID   string                 // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
+	Steps                 []grants.Step          // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
 }
 
 // Result is what was written.
@@ -84,6 +99,7 @@ var (
 	packVersionRe = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*@[0-9]+\.[0-9]+(\.[0-9]+)?$`)
 	packRe        = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9_]*)+$`)
 	decisionRe    = regexp.MustCompile(`^dec_[0-9A-Za-z]{2,32}$`)
+	confirmRe     = regexp.MustCompile(`^cfe_[0-9A-Za-z]{2,32}$`)
 )
 
 // Write checks the request, then in tx: appends DECISION_MADE, inserts the signed record, and for each step issues, inserts and records a grant. It never
@@ -99,6 +115,14 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	basis, policy, err := w.check(r)
 	if err != nil {
 		return Result{}, err
+	}
+	// A confirmation an ALLOW follows is bound to the action of the ALLOW's own step (SoT 43.2a): the binding is computed here, from the step, never taken from the caller; the database refuses
+	// the spend unless the confirmation was given for exactly this binding.
+	var binding string
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" {
+		if binding, err = bindingOf(r, policy); err != nil {
+			return Result{}, fmt.Errorf("%w: the confirmation's binding cannot be computed: %v", ErrRequest, err)
+		}
 	}
 	// A186: one decision per full input tuple. Writers of one input are serialised, the stored decision (if any) is read, and only a tuple with none is written.
 	key := inputKey{tenant: r.TenantID, intentID: r.IntentID, intentHash: string(r.IntentHash), snapshot: basis.EvidenceSnapshotID, policy: policy}
@@ -149,9 +173,15 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		return Result{}, err
 	}
 	actor := emitter // no authenticated person causes a decision event; a person's identity comes only from the session, never from a request field (INV-12)
+	decisionMade := map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
+		"policy_version": policy, "sig_key_id": rec.Sig.KeyId}
+	if binding != "" {
+		// PERD 32.2 has no spend event type, so the spend is shown by the two events of the same transaction: the decision names the confirmation it spent and the binding it was spent against,
+		// and each grant names the event it follows. A decision with no confirmation carries neither member.
+		decisionMade["confirmation_event_id"], decisionMade["confirmation_binding_hash"] = r.ConfirmationEventID, binding
+	}
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
-		Payload: map[string]any{"decision_id": decisionID, "decision_outcome": string(d.Outcome()), "reason_codes": reasonStrings(d), "policy_id": r.PolicyID,
-			"policy_version": policy, "sig_key_id": rec.Sig.KeyId}}); err != nil {
+		Payload: decisionMade}); err != nil {
 		return Result{}, fmt.Errorf("%sappend DECISION_MADE: %w", errPrefix, err)
 	}
 	var disposition *string
@@ -163,9 +193,25 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value); err != nil {
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
 	}
+	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
+	// earlier), so a retry never reaches this insert. The unique key is the single-use rule; a second spend is the typed error and the caller rolls back.
+	if binding != "" {
+		if _, err := tx.Exec(ctx, `INSERT INTO confirmation_spend (tenant_id, confirmation_event_id, decision_id, plan_hash, binding_hash) VALUES ($1, $2, $3, $4, $5)`,
+			r.TenantID, r.ConfirmationEventID, decisionID, string(r.ConfirmationPlanHash), binding); err != nil {
+			var pg *pgconn.PgError
+			if errors.As(err, &pg) && pg.Code == pgUniqueViolation && pg.ConstraintName == confirmationEventKey {
+				return Result{}, ErrConfirmationSpent
+			}
+			if errors.As(err, &pg) && pg.ConstraintName == confirmationValid {
+				return Result{}, ErrConfirmationNotValid
+			}
+			return Result{}, fmt.Errorf("%sspend the confirmation: %w", errPrefix, err)
+		}
+	}
 	res := Result{Record: rec}
 	for i, s := range r.Steps {
 		s.TenantID, s.CorrelationID, s.DecisionID, s.IntentHash, s.PolicyID = r.TenantID, r.CorrelationID, decisionID, r.IntentHash, r.PolicyID
+		s.ConfirmationEventID = r.ConfirmationEventID // the grant follows the confirmation the decision spent; the caller's own claim on the step is not used
 		g, err := w.Issuer.Issue(d, s)
 		if err != nil {
 			return Result{}, fmt.Errorf("%sgrant %d: %w", errPrefix, i, err)
@@ -185,8 +231,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, fmt.Errorf("%sinsert grant %d: %w", errPrefix, i, err)
 		}
 		if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "GRANT_ISSUED", ObjectRef: string(g.GrantId),
-			Payload: map[string]any{"grant_id": string(g.GrantId), "decision_id": decisionID, "capability_id": string(g.CapabilityId), "plan_step": g.PlanStep,
-				"expires_at": string(g.ExpiresAt)}}); err != nil {
+			Payload: grantIssued(g, decisionID, r.ConfirmationEventID)}); err != nil {
 			return Result{}, fmt.Errorf("%sappend GRANT_ISSUED %d: %w", errPrefix, i, err)
 		}
 		res.Grants = append(res.Grants, g)
@@ -198,7 +243,8 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !intentRe.MatchString(r.IntentID), !hashRe.MatchString(string(r.IntentHash)),
-		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID):
+		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID),
+		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID):
 		return decide.Basis{}, "", ErrRequest
 	}
 	d := r.Decision
@@ -210,6 +256,12 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	}
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
+	}
+	if r.ConfirmationPlanHash != "" && r.ConfirmationEventID == "" {
+		return decide.Basis{}, "", fmt.Errorf("%w: a plan hash is named with no confirmation", ErrRequest)
+	}
+	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" && !planMatches(r) {
+		return decide.Basis{}, "", ErrConfirmationPlanMismatch
 	}
 	if !d.HasCompleteBasis() {
 		return decide.Basis{}, "", ErrNoEvaluatedBasis
@@ -277,4 +329,27 @@ func policyVersions(b decide.Basis) []ruleVersion {
 		out = append(out, ruleVersion{r.RuleID, r.PolicyID, r.Version})
 	}
 	return out
+}
+
+// planMatches is A230: an ALLOW that follows a confirmation is written only when the confirmation was given for the very plan the steps carry. The hash must be well formed, there must
+// be exactly one step (a confirmation approves one action, SoT 43.2a) and its plan hash must equal it. Anything else is refused before anything is written.
+func planMatches(r Request) bool {
+	if !hashRe.MatchString(string(r.ConfirmationPlanHash)) || len(r.Steps) != 1 {
+		return false
+	}
+	for _, s := range r.Steps {
+		if s.PlanHash != r.ConfirmationPlanHash {
+			return false
+		}
+	}
+	return true
+}
+
+// grantIssued is the payload of GRANT_ISSUED: the grant, its decision, its step and its expiry, and the confirmation event the grant follows when there is one.
+func grantIssued(g contracts.DecisionGrantV1, decisionID, confirmationEventID string) map[string]any {
+	p := map[string]any{"grant_id": string(g.GrantId), "decision_id": decisionID, "capability_id": string(g.CapabilityId), "plan_step": g.PlanStep, "expires_at": string(g.ExpiresAt)}
+	if confirmationEventID != "" {
+		p["confirmation_event_id"] = confirmationEventID
+	}
+	return p
 }

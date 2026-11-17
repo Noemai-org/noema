@@ -14,7 +14,7 @@ import (
 // fresh proxy: the observation and the trace hash must be identical (REQ-ENV-004). Observations are facts, never durations, so the
 // test does not depend on how fast the machine is. SYNTHETIC (AGENT-25). Nothing here says anything about Tushe's behaviour.
 
-const ten06Seed = 42 // planDoc fixes this seed
+const ten06Seed = 42 // planDoc writes this seed into every plan, so the printed seed is the plan's own
 
 // produce loads one plan on a fresh proxy, runs the observation, and returns what was observed and the trace hash.
 func produce(t *testing.T, faults string, observe func(r *rig) string) (string, string) {

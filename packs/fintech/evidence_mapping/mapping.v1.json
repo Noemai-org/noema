@@ -1,0 +1,30 @@
+{
+  "mapping_id": "fin.map.v1",
+  "version": 1,
+  "label": "SYNTHETIC",
+  "ruleset": "fin.recon.rules@1",
+  "note": "The evidence mapping of the fintech pack (ENV-04, ruling A208, relayed): how a stored source payload becomes rows of the reconciliation rule set's vocabulary. Closed lookups and one quantifier only, no expression language. A field the payload does not give, or gives as a value not listed here, is left UNSET: absence is never a negative fact (INV-19). The rows' meaning is the reconciliation's, so the Architect approves each. Three entities only, the ones the stand-in's ports provide (debit, switch, credit); a settlement or a reversal row needs a source that does not exist yet.",
+  "rows": [
+    {
+      "entity": "debit",
+      "source": "fin.src.core_ledger",
+      "fields": {
+        "state": {"any_of": "entries", "where": {"entry_type": "DEBIT", "posting_status": "POSTED"}, "value": "POSTED"}
+      }
+    },
+    {
+      "entity": "switch",
+      "source": "fin.src.switch",
+      "fields": {
+        "state": {"path": "semantic_status", "map": {"SUCCESS": "SUCCESSFUL", "REJECTED": "FAILED", "TIMED_OUT": "TIMED_OUT", "UNKNOWN": "EXECUTION_OUTCOME_UNKNOWN"}}
+      }
+    },
+    {
+      "entity": "credit",
+      "source": "fin.src.destination",
+      "fields": {
+        "state": {"path": "credit_state", "map": {"CREDITED": "CREDITED", "NOT_CREDITED": "NOT_CREDITED", "PENDING": "PENDING"}}
+      }
+    }
+  ]
+}
