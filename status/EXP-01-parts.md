@@ -12,3 +12,6 @@
 ## Pre-work for the next agent
 - Exact next step: the sentences (Founder and native speaker), then require every part in `check_templates`, then the investigation route builds each `answer.Text` through `FallbackPart`.
 - Open questions (owner): the exact A271 key shape and part list (Architect); who writes the 7 parts x 35 keys of `en-NG` (Founder).
+
+# Session 2026-11-17 · EXP-01 · A281: the part list is derived from the contract
+- `TestThePartListIsTheContractsTextMembers` walks `customer-answer.v1.json` and derives the parts (a text member's path joined with `_`, array marks dropped; `schema_version`, `done.verified`, `done.summary` and `case_ref_masked` are not parts), then requires `explanation.Parts()` to equal that set and the count to be 7 on purpose; the Go-and-Python equality test already ties packcheck to `Parts()`. Two mutants killed (a part removed, a part renamed). A test only: the list in code is still written out, and the test is what keeps it equal to the contract (a runtime read of the contract would need an embedded file in a package that reads none).
