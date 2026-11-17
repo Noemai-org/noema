@@ -26,7 +26,7 @@ It is started only by `.github/workflows/bench-live-compile.yml` (noema#569), wi
 | 0 | every example met its check |
 | 1 | a miss, an error (no usable reply, or the schema gate refused it) or the stop |
 | 2 | a bad input, or something that names the held-out set |
-| 3 | NOT RUN: no key, or no provider call was made. Never a pass |
+| 3 | NOT RUN: no key, or no provider call was made. Never a pass. `--dry-run` calls no provider, so it always exits 3 (A285) |
 
 The cost counted for a call is what the reply's own `usage` gives at the frozen rate card, or the worst-case projection when a reply reports none (`benchmark/bakeoff/budget.py`; a failed call is settled at its projection). The hard stop is whole dollars (1 to 5) counted with `--prior-spent-micros`.
 

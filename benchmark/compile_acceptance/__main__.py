@@ -2,7 +2,7 @@
 
 It is started only by the `bench-live-compile` workflow. The key is the process environment's `OPENAI_API_KEY`; nothing here reads it except the model service's provider adapter (INV-29), prints it or writes it.
 Exit codes: 0 every example met its check; 1 a miss, an error or the stop; 2 a bad input; 3 NOT RUN (no key, or no provider call was made: that is never a pass).
-`--dry-run` calls no provider and needs no key: it prints what the first request of each example would cost and the ceiling, so the reviewer sees the cost before approving the paid job."""
+`--dry-run` calls no provider and needs no key: it prints what the first request of each example would cost and the ceiling, so the reviewer sees the cost before approving the paid job. It makes no provider call, so it always exits 3 (A285): a script that gates on the exit code cannot read an unrun acceptance as a pass."""
 import argparse
 import asyncio
 import re
@@ -21,6 +21,7 @@ KEY_VARIABLE = "OPENAI_API_KEY"
 _PACK_REF = re.compile(r"[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+")
 _RUN_ID = re.compile(r"[A-Za-z0-9_.-]{1,64}")
 MICRO = 1_000_000
+NOT_RUN = 3  # the documented exit for "no key, or no provider call was made" (A285)
 
 
 class Backend(Protocol):
@@ -72,7 +73,7 @@ def main(argv: list[str], environ: Mapping[str, str], factory: Factory | None = 
         return 2
     if not args.dry_run and not environ.get(KEY_VARIABLE, "").strip():
         sys.stderr.write(f"not run: no access: {KEY_VARIABLE} is not set in the environment\n")
-        return 3
+        return NOT_RUN
     limit = args.hard_stop_usd * MICRO
     guard = BudgetGuard(limit_micros=limit, spent_micros=args.prior_spent_micros)
     recorder = Recorder(args.out, args.run_id, args.provider, "unpinned", lambda: datetime.now(UTC))
@@ -101,7 +102,7 @@ def _dry(backend: Backend, limit: int, prior: int) -> int:
     lines += [f"  {case_id}: {micros}" for case_id, micros in backend.dry_costs()]
     lines += [f"hard stop: {limit} micro-dollars, prior spent {prior}, remaining {max(limit - prior, 0)}", "A request that would pass the stop is refused before it is sent, and the stop stays."]
     sys.stdout.write("\n".join(lines) + "\n")
-    return 0
+    return NOT_RUN
 
 
 if __name__ == "__main__":

@@ -133,7 +133,7 @@ class DryRun(unittest.TestCase):
     def test_a_dry_run_needs_no_key_prints_the_cost_of_each_request_and_the_ceiling_and_calls_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             code, out, _, built = run_main(argv(tmp, dry=True), {})
-            self.assertEqual(code, 0, out)
+            self.assertEqual(code, 3, out)  # A285: a dry run makes no provider call, so it is NOT RUN, never a pass
             self.assertEqual(len(built), 1)
             self.assertTrue(built[0].dry)
             self.assertEqual(built[0].calls(), 0)
@@ -143,6 +143,13 @@ class DryRun(unittest.TestCase):
             self.assertIn("5000000", out)
             self.assertIn("326693", out)
             self.assertFalse((Path(tmp) / "out" / "recordings").exists())
+
+    def test_a_dry_run_never_exits_zero_even_with_a_key_set_so_a_script_cannot_read_it_as_a_pass(self) -> None:
+        # Codex P2 on noema#654 and A285: the documented exit 3 is "no provider call was made"; 0 means every example met its check.
+        with tempfile.TemporaryDirectory() as tmp:
+            for env in ({}, {"OPENAI_API_KEY": KEY}):
+                code, _, _, _ = run_main(argv(tmp, dry=True), env)
+                self.assertEqual(code, 3, env.keys())
 
     def test_a_dry_run_never_prints_a_key_even_if_one_is_set(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
