@@ -1,0 +1,26 @@
+# UI-04 · Android browser emulation
+
+## Task card
+
+```
+TASK-P11-UI-04  Android browser emulation of the static overlay
+Priority: P1
+Requirement IDs: REQ-UI-001, POC-FR-11; SoT §18.4
+Rationale: the overlay must work on a mid-range Android webview and present accessible controls.
+Modules touched (allowlist): ui/**, status/UI-04-android.md
+Contracts: no contract change; the static overlay does not receive backend data.
+Inputs/outputs: synthetic static overlay to local Playwright browser checks.
+Acceptance criteria: The Playwright suite SHALL pass for J1–J8 flows. A masking test SHALL find no digit runs longer than 4 in the DOM.
+Tests to write FIRST (AGENT-11): REQ-UI-001 viewport fit and touch-token dimensions under an Android device profile; DOM privacy scan after every test.
+Faults to exercise (AGENT-12): none in the static shell; this test does not replace real-connection fault cases.
+Dependencies: UI-01 and UI-02 for live flows; merged static shell noema#502.
+Out of scope: external browser downloads, mocked backend, real-core US-01 evidence, claiming emulation is a physical Android webview.
+Definition of done: tests green; boundary/lint green; Record events asserted; docs updated; PR answers the SoT §52 questions.
+If blocked or conflicting: STOP and emit the CONFLICT block (§71.3).
+```
+
+## Session 2026-11-17 · tests first
+- Uses Playwright's Pixel 5 profile with the approved pre-installed desktop Chromium. This is Android browser emulation, not a physical device or Android webview.
+- The tests load the built synthetic static shell and CSS locally. They check the viewport, disabled controls and the existing `--noema-touch-target` minimum in both dimensions; every flow uses the DOM privacy scanner.
+- A scanner regression compares three synthetic wide-separator examples with the merged customer-answer schema pattern. It fails locally because the contract rejects the samples while the UI scanner does not. The proposed shared machine-readable A259 vector corpus is still pending; this test does not claim corpus coverage.
+- No network, backend or Record events are involved. The live J-flows and US-01 on a mid-range Android webview against the real core remain outstanding.
