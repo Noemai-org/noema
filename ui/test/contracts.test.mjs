@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
-import { ContractError, PARSERS } from "../build/js/contract_types/index.js";
+import { ContractError, PARSERS } from "../build/js/contract_types/operator.js";
+import { PARSERS as CUSTOMER_PARSERS } from "../build/js/contract_types/customer.js";
 import { arr, bool, closed, int, lit, num, obj, oneOfLit, req, str, union } from "../build/js/contract_types/_runtime.js";
 
 const FIXTURES = fileURLToPath(new URL("../../contracts/fixtures/", import.meta.url));
@@ -17,7 +18,7 @@ const SHAPE = JSON.parse(readFileSync(fileURLToPath(new URL("../../tools/codegen
 // Invalid fixtures whose bound sits under an if/then rule, so a parser cannot hold it:
 //   clarification: minItems 2 applies only in ATTRIBUTE mode; noema-resolution: minItems 1 applies only when verified is true;
 //   reconstruction.v3: the EXPLANATION section's items need a claim text of at least one character, a bound that sits in that section's allOf (a fact key of the section), not in the shape.
-const CONDITIONAL = new Set(["clarification/attribute_mode_one_option.json", "noema-resolution/verified_with_no_verdicts.json", "reconstruction.v3/claim_text_empty.json"]);
+const CONDITIONAL = new Set(["clarification/attribute_mode_one_option.json", "noema-resolution/verified_with_no_verdicts.json", "reconstruction.v3/claim_text_empty.json", "record-event.v3/seq_is_a_float.json"]);  // seq_is_a_float: JSON.parse reads 1.0 as 1, so a browser cannot see the float; the core and the validator refuse it
 
 // The fixture folder of a contract: <name> for v1, <name>.v<major> for a later major (tools/contracts/validate.py).
 const folder = (name) => name.replace(/\.v1$/, "");
@@ -137,3 +138,19 @@ for (const [surface, [build, root]] of Object.entries(SURFACES)) {
     assert.doesNotThrow(() => PARSERS[root](build("Reference only")));
   });
 }
+
+// A258: the customer entry point holds the four public contracts and errors.v3 and nothing that leads to the operator contracts (they carry tenant_id, events and hashes).
+test("the customer entry point parses the public contracts only and imports no operator contract", () => {
+  assert.deepEqual(Object.keys(CUSTOMER_PARSERS).sort(), ["customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"]);
+  const dir = fileURLToPath(new URL("../build/js/contract_types/", import.meta.url));
+  const seen = new Set();
+  const todo = ["customer.js"];
+  while (todo.length) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    for (const m of readFileSync(join(dir, f), "utf8").matchAll(/from "\.\/([a-z0-9_]+\.js)"/g)) todo.push(m[1]);
+  }
+  for (const operator of ["reconstruction_v3.js", "record_event_v3.js", "operator.js"]) assert.ok(!seen.has(operator), `${operator} is reachable from the customer entry point`);
+  assert.ok(Object.keys(PARSERS).includes("reconstruction.v3") && Object.keys(PARSERS).includes("record-event.v3"));
+});

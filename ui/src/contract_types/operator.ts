@@ -9,6 +9,7 @@ import { parseInvestigationResponseV1 } from "./investigation_response_v1.js";
 import { parseNoemaResolutionV1 } from "./noema_resolution_v1.js";
 import { parseOverlayCardV1 } from "./overlay_card_v1.js";
 import { parseReconstructionV3 } from "./reconstruction_v3.js";
+import { parseRecordEventV3 } from "./record_event_v3.js";
 import { parseSseEventV1 } from "./sse_event_v1.js";
 
 /** The parser of each contract the UI reads, by contract name (the root object of the schema). */
@@ -22,6 +23,7 @@ export const PARSERS: Record<string, (v: unknown) => unknown> = {
   "noema-resolution.v1": parseNoemaResolutionV1,
   "overlay-card.v1": parseOverlayCardV1,
   "reconstruction.v3": parseReconstructionV3,
+  "record-event.v3": parseRecordEventV3,
   "sse-event.v1": parseSseEventV1,
 };
 export * from "./clarification_v1.js";
@@ -33,4 +35,5 @@ export * from "./investigation_response_v1.js";
 export * from "./noema_resolution_v1.js";
 export * from "./overlay_card_v1.js";
 export * from "./reconstruction_v3.js";
+export * from "./record_event_v3.js";
 export * from "./sse_event_v1.js";

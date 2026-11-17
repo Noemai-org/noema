@@ -5,6 +5,7 @@ import { parseRecordEventV3, type RecordEventV3, parseRecordEventV3RecordEventTy
 
 const PATTERN_0 = new RegExp("^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$", "u");
 const PATTERN_1 = new RegExp("^[a-z][a-z0-9_]*$", "u");
+const PATTERN_2 = new RegExp("^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[\t-\r (-)\\--/:\\[\\]_{} ­·̀-ͯ҃-҉֊֑-ֿׁ-ׂׄ-ׇׅ؀-؅ؐ-ؚ؜ً-ٰٟۖ-۝۟-ۤۧ-۪ۨ-ۭ܏ܑܰ-݊ަ-ް߫-߽߳ࠖ-࠙ࠛ-ࠣࠥ-ࠧࠩ-࡙࠭-࡛࢐-࢑࢘-࢟࣊-ःऺ-़ा-ॏ॑-ॗॢ-ॣঁ-ঃ়া-ৄে-ৈো-্ৗৢ-ৣ৾ਁ-ਃ਼ਾ-ੂੇ-ੈੋ-੍ੑੰ-ੱੵઁ-ઃ઼ા-ૅે-ૉો-્ૢ-ૣૺ-૿ଁ-ଃ଼ା-ୄେ-ୈୋ-୍୕-ୗୢ-ୣஂா-ூெ-ைொ-்ௗఀ-ఄ఼ా-ౄె-ైొ-్ౕ-ౖౢ-ౣಁ-ಃ಼ಾ-ೄೆ-ೈೊ-್ೕ-ೖೢ-ೣೳഀ-ഃ഻-഼ാ-ൄെ-ൈൊ-്ൗൢ-ൣඁ-ඃ්ා-ුූෘ-ෟෲ-ෳัิ-ฺ็-๎ັິ-ຼ່-໎༘-༹༙༵༷-༿ཱ-྄྆-྇ྍ-ྗྙ-ྼ࿆ါ-ှၖ-ၙၞ-ၠၢ-ၤၧ-ၭၱ-ၴႂ-ႍႏႚ-ႝ፝-፟᐀ ᚛-᚜ᜒ-᜕ᜲ-᜴ᝒ-ᝓᝲ-ᝳ឴-៓៝᠆᠋-᠏ᢅ-ᢆᢩᤠ-ᤫᤰ-᤻ᨗ-ᨛᩕ-ᩞ᩠-᩿᩼᪰-ᫎᬀ-ᬄ᬴-᭄᭫-᭳ᮀ-ᮂᮡ-ᮭ᯦-᯳ᰤ-᰷᳐-᳔᳒-᳨᳭᳴᳷-᳹᷀-᷿ -―‚„ - ⁅-⁆ -⁤⁦-⁯⁽-⁾₍-₎⃐-⃰−⌈-⌋〈-〉❨-❵⟅-⟆⟦-⟯⦃-⦘⧘-⧛⧼-⧽⳯-⵿⳱ⷠ-ⷿ⸗⸚⸢-⸩⸺-⸻⹀⹂⹕-⹝　〈-】〔-〟〪-〰゙-゚゠・꙯-꙲ꙴ-꙽ꚞ-ꚟ꛰-꛱ꠂ꠆ꠋꠣ-ꠧ꠬ꢀ-ꢁꢴ-ꣅ꣠-꣱ꣿꤦ-꤭ꥇ-꥓ꦀ-ꦃ꦳-꧀ꧥꨩ-ꨶꩃꩌ-ꩍꩻ-ꩽꪰꪲ-ꪴꪷ-ꪸꪾ-꪿꫁ꫫ-ꫯꫵ-꫶ꯣ-ꯪ꯬-꯭ﬞ﴾-﴿︀-️︗-︘︠-︯︱-︲︵-﹄﹇-﹈﹘-﹞﹣﻿（-）－-／：［］＿｛｝｟-｠｢-｣￹-￻𐇽𐋠𐍶-𐍺𐨁-𐨃𐨅-𐨆𐨌-𐨏𐨸-𐨿𐨺𐫥-𐫦𐴤-𐴧𐺫-𐺭𐻽-𐻿𐽆-𐽐𐾂-𐾅𑀀-𑀂𑀸-𑁆𑁰𑁳-𑁴𑁿-𑂂𑂰-𑂺𑂽𑃂𑃍𑄀-𑄂𑄧-𑄴𑅅-𑅆𑅳𑆀-𑆂𑆳-𑇀𑇉-𑇌𑇎-𑇏𑈬-𑈷𑈾𑉁𑋟-𑋪𑌀-𑌃𑌻-𑌼𑌾-𑍄𑍇-𑍈𑍋-𑍍𑍗𑍢-𑍣𑍦-𑍬𑍰-𑍴𑐵-𑑆𑑞𑒰-𑓃𑖯-𑖵𑖸-𑗀𑗜-𑗝𑘰-𑙀𑚫-𑚷𑜝-𑜫𑠬-𑠺𑤰-𑤵𑤷-𑤸𑤻-𑤾𑥀𑥂-𑥃𑧑-𑧗𑧚-𑧠𑧤𑨁-𑨊𑨳-𑨹𑨻-𑨾𑩇𑩑-𑩛𑪊-𑪙𑰯-𑰶𑰸-𑰿𑲒-𑲧𑲩-𑲶𑴱-𑴶𑴺𑴼-𑴽𑴿-𑵅𑵇𑶊-𑶎𑶐-𑶑𑶓-𑶗𑻳-𑻶𑼀-𑼁𑼃𑼴-𑼺𑼾-𑽂𓐰-𓑀𓑇-𓑕𖫰-𖫴𖬰-𖬶𖽏𖽑-𖾇𖾏-𖾒𖿤𖿰-𖿱𛲝-𛲞𛲠-𛲣𜼀-𜼭𜼰-𜽆𝅥-𝅩𝅭-𝆂𝆅-𝆋𝆪-𝆭𝉂-𝉄𝨀-𝨶𝨻-𝩬𝩵𝪄𝪛-𝪟𝪡-𝪯𞀀-𞀆𞀈-𞀘𞀛-𞀡𞀣-𞀤𞀦-𞀪𞂏𞄰-𞄶𞊮𞋬-𞋯𞓬-𞣐𞓯-𞣖𞥄-𞥊󠀁󠀠-󠁿󠄀-󠇯]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$", "u");
 
 /** ReconstructionV3Item, generated from reconstruction.v3.json#$defs/Item. */
 export interface ReconstructionV3Item {
@@ -50,7 +51,7 @@ export function parseReconstructionV3Section(v: unknown, p: string = "$"): Recon
   closed(o, ["kind", "items"], p);
   return {
     kind: parseReconstructionV3SectionKind(req(o, "kind", p), p + ".kind"),
-    items: arr(req(o, "items", p), p + ".items", (x, q) => parseReconstructionV3Item(x, q)),
+    items: arr(req(o, "items", p), p + ".items", (x, q) => parseReconstructionV3Item(x, q), {maxItems: 100}),
   };
 }
 
@@ -76,7 +77,7 @@ export function parseReconstructionV3TimelineEntry(v: unknown, p: string = "$"):
     record_event_id: parseCommonV1RecordEventId(req(o, "record_event_id", p), p + ".record_event_id"),
     at: parseCommonV1Timestamp(req(o, "at", p), p + ".at"),
     event_type: parseRecordEventV3RecordEventType(req(o, "event_type", p), p + ".event_type"),
-    text: str(req(o, "text", p), p + ".text", {minLength: 1, maxLength: 300}),
+    text: str(req(o, "text", p), p + ".text", {pattern: PATTERN_2, minLength: 1, maxLength: 300}),
   };
 }
 
@@ -116,8 +117,8 @@ export function parseReconstructionV3(v: unknown, p: string = "$"): Reconstructi
     tenant_id: parseCommonV1TenantId(req(o, "tenant_id", p), p + ".tenant_id"),
     correlation_id: parseCommonV1CorrelationId(req(o, "correlation_id", p), p + ".correlation_id"),
     chain: parseReconstructionV3Chain(req(o, "chain", p), p + ".chain"),
-    events: arr(req(o, "events", p), p + ".events", (x, q) => parseRecordEventV3(x, q)),
+    events: arr(req(o, "events", p), p + ".events", (x, q) => parseRecordEventV3(x, q), {maxItems: 1000}),
     sections: arr(req(o, "sections", p), p + ".sections", (x, q) => parseReconstructionV3Section(x, q), {minItems: 12, maxItems: 12}),
-    timeline: arr(req(o, "timeline", p), p + ".timeline", (x, q) => parseReconstructionV3TimelineEntry(x, q)),
+    timeline: arr(req(o, "timeline", p), p + ".timeline", (x, q) => parseReconstructionV3TimelineEntry(x, q), {maxItems: 1000}),
   };
 }

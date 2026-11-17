@@ -6,7 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
+
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 )
 
 // The twelve sections, in the order of REQ-AUD-003 (contracts/schemas/reconstruction.v3.json).
@@ -134,9 +135,6 @@ var (
 	resourceRe  = regexp.MustCompile(`^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:[A-Za-z0-9_.-]{1,64}$`)
 	upperCodeRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	objectRefRe = regexp.MustCompile(`^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$`)
-	// digitRun is a run of digits, each pair of neighbours joined by any number of spaces, dots, hyphens or zero-width characters (the Security Reviewer's rule on noema#492: a
-	// number split by a separator is still the number). The separator set is the leak scanner's (noema#222), so a number split by an en dash, a soft hyphen, a slash, brackets or a colon is masked too. A comma ends a run, so "20,000,000" (groups of three) is left alone.
-	digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}.\-/_():\x{00AD}\x{034F}\x{180E}\x{200B}-\x{200D}\x{2010}-\x{2015}\x{2060}\x{2212}\x{FEFF}]*\p{Nd})*`)
 	// mintedBody is the body of an ID the core minted: 26 Crockford base32 characters, the first 0 to 7 (a ULID).
 	mintedBody = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 
@@ -157,40 +155,10 @@ var (
 	}
 )
 
-// keepDigits is how many digits of a long run a served fact keeps (AGENTS.md section 7: mask to the last four).
-const keepDigits = 4
-
-// mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"), whatever the script of the digits: a digit is any Unicode Nd
-// character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154). It applies to free text
-// and plain scalar facts; references, IDs and enum values are checked by their contract pattern instead and served
-// as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked
-// is unchanged.
-func mask(s string) string {
-	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
-		total := 0
-		for _, r := range run {
-			if unicode.IsDigit(r) {
-				total++
-			}
-		}
-		if total <= keepDigits {
-			return run
-		}
-		keep := total - keepDigits // digits to hide; the separators stay where they are
-		var out strings.Builder
-		for _, r := range run {
-			if unicode.IsDigit(r) {
-				if keep > 0 {
-					out.WriteRune('*')
-					keep--
-					continue
-				}
-			}
-			out.WriteRune(r)
-		}
-		return out.String()
-	})
-}
+// mask keeps only the last four digits of every run of five or more (REQ-AUD-003 "Masked"), whatever the script of the digits. The definition of a run and of the limit is the one in
+// record/payloadguard (A194): this function only delegates, so a separator added there is masked here. It applies to free text and plain scalar facts; references, IDs and enum values
+// are checked by their contract pattern instead and served as written, because the reader matches on them. Masking is idempotent, so text that Explanation already masked is unchanged.
+func mask(s string) string { return payloadguard.Mask(s) }
 
 // errProjection marks a Record object that cannot be served under the contract. The endpoint refuses rather than serve
 // a partial or invalid narrative.

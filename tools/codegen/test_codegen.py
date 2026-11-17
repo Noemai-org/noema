@@ -221,8 +221,11 @@ class TypeScriptOutput(unittest.TestCase):
         files = generate.render_all(generate.load_schemas())
         ts_files = {p for p in files if p.startswith(generate.TS_DIR + "/")}
         self.assertIn(f"{generate.TS_DIR}/_runtime.ts", ts_files)
-        self.assertIn(f"{generate.TS_DIR}/index.ts", ts_files)
-        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        self.assertIn(f"{generate.TS_DIR}/customer.ts", ts_files)
+        self.assertIn(f"{generate.TS_DIR}/operator.ts", ts_files)
+        self.assertNotIn(f"{generate.TS_DIR}/index.ts", ts_files)  # one entry point for everything would defeat the two audiences (A258)
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
         for r in roots:
             self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
         self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
@@ -230,7 +233,8 @@ class TypeScriptOutput(unittest.TestCase):
     def test_the_front_end_reads_the_four_public_contracts_the_errors_and_the_reconstruction(self):
         # REQ-UI-001, REQ-API-001: the roots the UI reads. errors.v3 (the public error envelope) and reconstruction.v3 (the case view) are roots in their own right, not only
         # dependencies of another root, so the front end can import them by name.
-        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
         files = generate.render_all(generate.load_schemas())
         for r in ("customer-answer.v1.json", "investigation-response.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json", "reconstruction.v3.json"):
             self.assertIn(r, roots, f"{r} is not a root of ts.json")
@@ -243,13 +247,31 @@ class TypeScriptOutput(unittest.TestCase):
         self.assertIn("keyPattern?: RegExp", files[f"{generate.TS_DIR}/_runtime.ts"])
         self.assertRegex(files[f"{generate.TS_DIR}/reconstruction_v3.ts"], r"mapOf\([^\n]*, PATTERN_\d+\)")
 
+    def test_the_customer_entry_point_reaches_no_operator_contract(self):
+        # A258 (the Security Reviewer's question on noema#615): reconstruction.v3 and record-event.v3 carry tenant_id, the full events and their hashes: the operator and auditor UI
+        # only. The customer entry point imports the four public contracts and errors.v3, and nothing it imports leads to those two.
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        todo, seen = [base + "customer.ts"], set()
+        while todo:
+            f = todo.pop()
+            if f in seen:
+                continue
+            seen.add(f)
+            todo.extend(base + m + ".ts" for m in re.findall(r'from "\./(\w+)\.js"', files[f]))
+        names = {f[len(base):-3] for f in seen}
+        self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "sse_event_v1"} <= names)
+        self.assertFalse(names & {"reconstruction_v3", "record_event_v3", "operator"}, names)
+        parsers = set(re.findall(r'^  "([^"]+)": parse', files[base + "customer.ts"], re.M))
+        self.assertEqual(parsers, {"customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"})
+
     def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
         # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
         # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
         files = generate.render_all(generate.load_schemas())
-        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "index.ts"))}
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts"))}
         defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
-        roots = {"parse" + m for f, text in files.items() if f == f"{generate.TS_DIR}/index.ts" for m in re.findall(r"import \{ parse(\w+) \}", text)}
+        roots = {"parse" + m for f, text in files.items() if f == f"{generate.TS_DIR}/operator.ts" for m in re.findall(r"import \{ parse(\w+) \}", text)}
         every = "\n".join(ts.values())
         for fn, f in sorted(defined.items()):
             uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
@@ -260,12 +282,12 @@ class TypeScriptOutput(unittest.TestCase):
     def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
         # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
         # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.
-        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
-        self.assertNotIn("benchmark-scorecard.v3.json", roots)
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertNotIn("benchmark-scorecard.v3.json", cfg["customer"] + cfg["operator"])
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["benchmark-scorecard.v3.json"]}), encoding="utf-8")
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-scorecard.v3.json"], "operator": []}), encoding="utf-8")
             (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
             generate.HERE = Path(d)
             try:
@@ -286,7 +308,7 @@ class TypeScriptOutput(unittest.TestCase):
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["nothing.v1.json"]}), encoding="utf-8")
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["nothing.v1.json"], "operator": []}), encoding="utf-8")
             generate.HERE = Path(d)
             try:
                 with self.assertRaisesRegex(ir.GenerationError, "nothing.v1.json"):
@@ -298,7 +320,7 @@ class TypeScriptOutput(unittest.TestCase):
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["benchmark-case.v1.json"]}), encoding="utf-8")
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-case.v1.json"], "operator": []}), encoding="utf-8")
             (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
             generate.HERE = Path(d)
             try:

@@ -96,7 +96,8 @@ def render_all(schemas: dict[str, dict]) -> dict[str, str]:
 def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str, str]:
     """The UI's TypeScript: the roots of ts.json and every contract they refer to, each with its parsers, a runtime and an index."""
     cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
-    roots = list(cfg["roots"])
+    customer, operator = list(cfg["customer"]), list(cfg["operator"])
+    roots = customer + [r for r in operator if r not in customer]
     for r in roots:
         if r not in every:
             raise ir.GenerationError(f"tools/codegen/ts.json names {r}, which is not a contract")
@@ -116,7 +117,8 @@ def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str,
     t.keep = t.reachable([every[r].root.name for r in roots])
     files = {f"{TS_DIR}/{py.module_name(f)}.ts": t.render_schema(every[f]) for f in sorted(needed) if set(every[f].named) & t.keep}
     files[f"{TS_DIR}/_runtime.ts"] = ts.RUNTIME
-    files[f"{TS_DIR}/index.ts"] = t.render_index(roots)
+    files[f"{TS_DIR}/customer.ts"] = t.render_index(customer)
+    files[f"{TS_DIR}/operator.ts"] = t.render_index(roots)
     return files
 
 

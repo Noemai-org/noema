@@ -5,6 +5,7 @@ import { parseCommonV1CorrelationId, type CommonV1CorrelationId, parseCommonV1Ha
 const PATTERN_0 = new RegExp("^(customer|operator|approver|auditor|regulator|admin):[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", "u");
 const PATTERN_1 = new RegExp("^3\\.[0-9]+$", "u");
 const PATTERN_2 = new RegExp("^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$", "u");
+const PATTERN_3 = new RegExp("^[A-Z_]{1,64}$", "u");
 
 /** RecordEventV3Emitter, generated from record-event.v3.json#$defs/Emitter. The service identity that appended the event (PERD v1.17 §32.1). The ten identities of the §41.1 table (core-edge, core-trust, core-execution, core-outcome, core-record, core-evidence, core-workflows, model-service, b... */
 export type RecordEventV3Emitter = "core-edge" | "core-trust" | "core-execution" | "core-outcome" | "core-record" | "core-evidence" | "core-workflows" | "model-service" | "benchmark-runner" | "admin" | "mock-ledger" | "mock-switch" | "mock-destination" | "mock-customer" | "mock-policy" | "mock-case" | "mock-clock";
@@ -57,7 +58,7 @@ export function parseRecordEventV3RecordEvent(v: unknown, p: string = "$"): Reco
     object_ref: str(req(o, "object_ref", p), p + ".object_ref", {pattern: PATTERN_2}),
     payload_hash: parseCommonV1Hash(req(o, "payload_hash", p), p + ".payload_hash"),
     at: parseCommonV1Timestamp(req(o, "at", p), p + ".at"),
-    ...(has(o, "reason") ? { reason: str(o["reason"], p + ".reason") } : {}),
+    ...(has(o, "reason") ? { reason: str(o["reason"], p + ".reason", {pattern: PATTERN_3, maxLength: 64}) } : {}),
   };
 }
 
