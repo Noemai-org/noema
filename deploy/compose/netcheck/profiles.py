@@ -19,6 +19,7 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -34,16 +35,46 @@ def listener_flags(argv) -> list[str]:
     return [w for w in words if w.startswith("--ssl-")]
 
 
+def logical_instructions(text: str) -> list[str]:
+    """The Dockerfile's instructions with line continuations joined (a backslash at the end of a line continues the instruction onto the next, and comment lines inside a continued
+    instruction are dropped, as Docker does). A scan of physical lines would miss an `--ssl-*` option put on a continuation line (Codex P2 on noema#670)."""
+    out: list[str] = []
+    current = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if current and line.startswith("#"):
+            continue  # a comment line inside a continued instruction
+        if not current and (not line or line.startswith("#")):
+            continue
+        if line.endswith("\\"):
+            current += line[:-1] + " "
+            continue
+        out.append((current + line).strip())
+        current = ""
+    if current:
+        out.append(current.strip())
+    return out
+
+
 def dockerfile_problems(text: str) -> list[str]:
-    """The model image sets UVICORN_SSL_CERT_REQS=2 and starts uvicorn with no --ssl-* option of its own (noema#555, noema#635)."""
+    """The model image requires a client certificate and starts uvicorn with no --ssl-* option of its own (noema#555, noema#635): UVICORN_SSL_CERT_REQS is set, its LAST assignment is 2,
+    and no ENTRYPOINT or CMD (continued over lines or not) carries an --ssl-* option. A parser directive that changes the escape character fails closed: the continuation rule above
+    would no longer be the Dockerfile's."""
     bad = []
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
-    if not any(ln.startswith("ENV ") and "UVICORN_SSL_CERT_REQS=2" in ln.split() for ln in lines):
+    if re.search(r"(?im)^\s*#\s*escape\s*=", text):
+        bad.append("the model Dockerfile changes its escape character (# escape=): the checks of its instructions cannot be trusted; remove the directive")
+    instructions = logical_instructions(text)
+    assigned = [t.split("=", 1)[1].strip(chr(34) + chr(39)) for ln in instructions if ln.upper().startswith("ENV ") for t in ln.split() if t.startswith("UVICORN_SSL_CERT_REQS=")]
+    if not assigned:
         bad.append("the model image does not set UVICORN_SSL_CERT_REQS=2")
-    for ln in lines:
-        if ln.startswith(("ENTRYPOINT", "CMD")) and "--ssl-" in ln:
+    elif assigned[-1] != "2":
+        bad.append(f"the model image's last assignment of UVICORN_SSL_CERT_REQS is {assigned[-1]!r}, not 2")
+    for ln in instructions:
+        if ln.upper().startswith(("ENTRYPOINT", "CMD")) and "--ssl-" in ln:
             bad.append(f"the model image starts uvicorn with an --ssl-* option, which overrides UVICORN_SSL_CERT_REQS: {ln[:80]}")
     return bad
+
+
 PROFILES = ("dev", "ci", "bench", "demo")
 
 # PERD section 65.1, independent of the Compose file. network_mode "none" services (credential sidecars) have no networks.
@@ -321,6 +352,10 @@ def main():
                 "the image sets UVICORN_SSL_CERT_REQS=0": text.replace("UVICORN_SSL_CERT_REQS=2", "UVICORN_SSL_CERT_REQS=0"),
                 "the image drops UVICORN_SSL_CERT_REQS": text.replace("UVICORN_SSL_CERT_REQS=2", ""),
                 "the entrypoint carries --ssl-cert-reqs": text.replace('"--port", "8081"]', '"--port", "8081", "--ssl-cert-reqs", "0"]'),
+                "the --ssl option is on a continuation line of the ENTRYPOINT": text.replace('"--port", "8081"]', '"--port", "8081", ' + chr(92) + chr(10) + '    "--ssl-cert-reqs", "0"]'),
+                "the --ssl option is on a continuation line of a CMD": text + chr(10) + "CMD [" + chr(34) + "--port" + chr(34) + ", " + chr(92) + chr(10) + "# a comment inside the instruction" + chr(10) + "  " + chr(34) + "--ssl-keyfile=/x" + chr(34) + "]" + chr(10),
+                "a later ENV sets UVICORN_SSL_CERT_REQS back to 0": text + chr(10) + "ENV UVICORN_SSL_CERT_REQS=0" + chr(10),
+                "the image changes its escape character": "# escape=`" + chr(10) + text,
             }
             for label, mutant in mutants.items():
                 if mutant == text or not dockerfile_problems(mutant):
