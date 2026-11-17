@@ -29,7 +29,8 @@ class Script:
             raise RuntimeError("a bug in the compile")
         if g.case_id in self.fail:
             raise CompileFailed("no usable reply")
-        return self.bad.get(g.case_id, good(g.case_id))
+        proposal: Mapping[str, Any] = self.bad.get(g.case_id, good(g.case_id))
+        return proposal
 
 
 def recorder(root: Path) -> Recorder:
@@ -84,10 +85,16 @@ class Loop(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             guard = BudgetGuard(limit_micros=1_000)
             guard.stopped = True
-            s = Script(guard, spend=0)
-            result = await run_cases(GOLDEN, s, guard, recorder(Path(tmp)), calls=lambda: s.calls)
+            seen: list[str] = []
+
+            async def compile_one(g: Golden) -> Mapping[str, Any]:
+                seen.append(g.case_id)  # does not consult the guard: only the loop can keep it from being called
+                return good(g.case_id)
+
+            result = await run_cases(GOLDEN, compile_one, guard, recorder(Path(tmp)), calls=lambda: 0)
             self.assertEqual({c.status for c in result.cases}, {"NOT_RUN"})
-            self.assertEqual(s.calls, 0)
+            self.assertEqual(seen, [])
+            self.assertTrue(result.stopped)
 
     async def test_a_run_that_made_no_provider_call_is_not_run_and_exit_three_even_if_every_check_is_met(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,6 +102,42 @@ class Loop(unittest.IsolatedAsyncioTestCase):
             s = Script(guard)
             result = await run_cases(GOLDEN, s, guard, recorder(Path(tmp)), calls=lambda: 0)
             self.assertEqual(result.exit_code, 3)
+
+    async def test_a_guard_that_is_stopped_before_an_example_means_the_example_is_never_compiled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = BudgetGuard(limit_micros=5_000_000)
+            seen: list[str] = []
+
+            async def compile_one(g: Golden) -> Mapping[str, Any]:
+                seen.append(g.case_id)
+                if g.case_id == "G-B":
+                    guard.stopped = True  # a stop reached inside the transport of this example
+                return good(g.case_id)
+
+            result = await run_cases(GOLDEN, compile_one, guard, recorder(Path(tmp)), calls=lambda: 2)
+            self.assertEqual(seen, ["G-A", "G-B"])
+            self.assertEqual([c.status for c in result.cases], ["MET", "MET", "NOT_RUN", "NOT_RUN", "NOT_RUN"])
+
+    async def test_a_stop_in_the_last_example_is_a_stopped_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = BudgetGuard(limit_micros=5_000_000)
+
+            async def compile_one(g: Golden) -> Mapping[str, Any]:
+                if g.case_id == "G-E":
+                    guard.stopped = True
+                    raise CompileFailed("no usable reply")
+                return good(g.case_id)
+
+            result = await run_cases(GOLDEN, compile_one, guard, recorder(Path(tmp)), calls=lambda: 5)
+            self.assertEqual((result.stopped, result.cases[-1].status, result.exit_code), (True, "ERROR", 1))
+
+    async def test_a_refusal_of_the_last_example_is_a_stopped_run_of_not_run_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = BudgetGuard(limit_micros=4_500)
+            s = Script(guard, spend=1_000)
+            result = await run_cases(GOLDEN, s, guard, recorder(Path(tmp)), calls=lambda: s.calls)
+            self.assertEqual([c.status for c in result.cases], ["MET", "MET", "MET", "MET", "NOT_RUN"])
+            self.assertEqual((result.stopped, result.exit_code), (True, 1))
 
 
 class Record(unittest.IsolatedAsyncioTestCase):

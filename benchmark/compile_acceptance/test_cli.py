@@ -124,7 +124,7 @@ class Running(unittest.TestCase):
     def test_a_prior_spend_that_leaves_no_room_stops_before_the_first_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             code, out, _, built = run_main(argv(tmp) + ["--prior-spent-micros", "5000000"], {"OPENAI_API_KEY": KEY})
-            self.assertEqual(code, 1)
+            self.assertEqual(code, 3)  # no provider call was made: NOT RUN
             self.assertEqual(json.loads((Path(tmp) / "out" / "run.json").read_text())["stopped"], True)
             self.assertEqual({c["status"] for c in json.loads((Path(tmp) / "out" / "run.json").read_text())["cases"]}, {"NOT_RUN"})
 

@@ -95,7 +95,7 @@ def test_a_failure_of_the_wire_is_recorded_with_its_name_settled_at_its_projecti
         t = transport(Wire(raises=ProviderError(ProviderFailure.TIMEOUT)), guard, rec)
         with pytest.raises(ProviderError) as caught:
             await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
-        assert caught.value.failure is ProviderFailure.TIMEOUT
+        assert caught.value.kind is ProviderFailure.TIMEOUT
         doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
         assert (doc["status"], doc["failure"], doc["cost_micros"]) == (None, "TIMEOUT", doc["projected_micros"]) and guard.spent_micros == doc["projected_micros"]
 
@@ -105,9 +105,9 @@ def test_the_dry_transport_keeps_the_first_request_of_each_case_prices_it_and_se
     async def go() -> None:
         d = DryTransport(**RATES)
         d.case_id = "G-A"
-        for _ in range(2):
+        for size in (1_000, 9_000):  # a later, larger request of the same example does not replace the first
             with pytest.raises(ProviderError):
-                await d.post("https://h.invalid/p", {"Authorization": f"Bearer {KEY}"}, b"x" * 1_000, 30.0, 1_000_000)
+                await d.post("https://h.invalid/p", {"Authorization": f"Bearer {KEY}"}, b"x" * size, 30.0, 1_000_000)
         d.case_id = "G-B"
         with pytest.raises(ProviderError):
             await d.post("https://h.invalid/p", {}, b"y" * 2_000, 30.0, 1_000_000)

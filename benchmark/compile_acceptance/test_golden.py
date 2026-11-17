@@ -85,6 +85,9 @@ class Check(unittest.TestCase):
         wrong = copy.deepcopy(good("G-A"))
         wrong["slots"]["amount"]["value"] = 2_000_001
         self.assertTrue(any("amount" in p for p in check(a, wrong)))
+        in_dollars = copy.deepcopy(good("G-A"))
+        in_dollars["slots"]["amount"]["unit"] = "USD"
+        self.assertTrue(any("amount" in p for p in check(a, in_dollars)))
         c = next(g for g in GOLDEN if g.case_id == "G-C")
         invented = copy.deepcopy(good("G-C"))
         invented["slots"]["amount"] = {"type": "Quantity", "unit": "NGN", "value": 100, "status": "RESOLVED", "confidence": 9000}
