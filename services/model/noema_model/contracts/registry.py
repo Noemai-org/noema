@@ -289,7 +289,6 @@ TYPES: dict[str, Any] = {
     "reconstruction.v3": reconstruction_v3.ReconstructionV3,
     "reconstruction.v3#Item": reconstruction_v3.ReconstructionV3Item,
     "reconstruction.v3#Item/properties/basis": reconstruction_v3.ReconstructionV3ItemBasis,
-    "reconstruction.v3#Item/properties/facts": reconstruction_v3.ReconstructionV3ItemFacts,
     "reconstruction.v3#Item/properties/facts/additionalProperties": reconstruction_v3.ReconstructionV3ItemFactsValue,
     "reconstruction.v3#Section": reconstruction_v3.ReconstructionV3Section,
     "reconstruction.v3#Section/properties/kind": reconstruction_v3.ReconstructionV3SectionKind,

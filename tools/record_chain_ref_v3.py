@@ -234,8 +234,8 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
     valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
     invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
     invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])
-    expect["text_fact_with_five_joined_digits.json"] = "pattern"
-    expect["reason_codes_item_with_five_joined_digits.json"] = "pattern"
+    expect["text_fact_with_five_joined_digits.json"] = "oneOf"
+    expect["reason_codes_item_with_five_joined_digits.json"] = "oneOf"
     # A278 (final): the rule is by VALUE, not by key. A fact value is a typed or minted ID by shape with a letter in its body, a resource reference with a letter in its body, or a
     # string without five digits joined by separators; any key. The values below are refused or accepted for what they are, under keys the contract does not name.
     refused = {
