@@ -48,6 +48,9 @@ var (
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
+	// ErrWritesDisabled is returned when the tenant's kill switch is on and the decision would issue grants (REQ-EXE-008, REQ-OPS-002; the contract's WRITES_DISABLED, errors.v3).
+	// Nothing is written: no decision record, no grant, no event. A decision with no write step is not refused.
+	ErrWritesDisabled = errors.New(errPrefix + "the tenant's kill switch is on: no grant is issued")
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
