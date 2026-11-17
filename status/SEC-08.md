@@ -14,3 +14,8 @@ Updated 2026-11-17. Owner: C1 (A257: C1 authors, the Security Reviewer reviews).
 
 ## Pre-work for the next agent
 - Exact next step: the Security Reviewer's ruling on the `tenant` finding; then migration 0029 and the behavioural matrix.
+
+# Session 2026-11-17 (round 2) · SEC-08, the Security Reviewer's blocking finding on noema#658
+- What changed: a policy now counts as bound only when its expression is exactly `(tenant_id = <name>_login_tenant(...))`, optionally narrowed by `AND` of a text column equal to a literal (`boundExpression`); an `OR`, a `true`, another comparison or any other shape is refused. The matcher has its own unit test with the loosened strings (`true`, `tenant_id = tenant_id OR ...`, `true OR ...`, `... OR true`, `<>`, a literal tenant, an empty expression), no database needed. A new test names the two tables with no `tenant_id` (`schema_migration`, `signing_key`: public keys, no tenant data) so a third one fails until reviewed (note 3).
+- Mutant: `USING (true OR tenant_id = decision_login_tenant())` on `confirmation_spend_read` fails the catalog test.
+- **For the PR that adds migration 0029** (the `tenant` policy, A273): it must flip `registryReadable["tenant"]` and move `tenant` out of `registryTables`, so the policy is checked like the others; the exception cannot stay behind. The refusals across tenants for each table stay in the packages that own them (listed above); the Security Reviewer checks that list against the catalog's functions when 0029 lands.

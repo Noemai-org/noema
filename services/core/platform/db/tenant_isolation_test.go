@@ -6,6 +6,7 @@ package db_test
 // Two things are reviewed by hand and listed: the registry tables, and the verification logins that read every tenant's chain and cannot write.
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -80,7 +81,8 @@ func TestEveryTenantTableForcesRowSecurityWithAPolicyBoundToTheLoginsTenant(t *t
 			t.Errorf("%s has row-level security and no policy: nothing is readable, and the next policy added is unreviewed", name)
 		}
 		for _, p := range byTable[name] {
-			bound := strings.Contains(p.using+p.check, "_login_tenant(")
+			// every present expression is exactly the bound one (the Security Reviewer's blocking finding on noema#658: "contains _login_tenant(" accepted a loosened policy)
+			bound := (p.using != "" || p.check != "") && (p.using == "" || boundExpression(p.using)) && (p.check == "" || boundExpression(p.check))
 			switch {
 			case bound:
 				// the policy compares tenant_id with the tenant of the session's login: the only ways in are that tenant's own rows
@@ -94,6 +96,87 @@ func TestEveryTenantTableForcesRowSecurityWithAPolicyBoundToTheLoginsTenant(t *t
 	for name := range registryTables {
 		if _, ok := tables[name]; !ok {
 			t.Errorf("registryTables names %s, which no longer holds a tenant_id", name)
+		}
+	}
+}
+
+// boundExpression is true only for what pg_get_expr prints for a policy bound to the login's tenant: `(tenant_id = <name>_login_tenant(...))`, optionally narrowed by an AND of
+// equalities of a text column with a literal (decision_grant_write: `(status = 'ISSUED'::text)`). An OR, a `true`, a comparison of tenant_id with anything else or any other
+// shape is refused: it could make every row visible to every login.
+var (
+	boundShape  = `\(tenant_id = [a-z]+_login_tenant\((?:'[a-z]+'::text)?\)\)`
+	boundOnly   = regexp.MustCompile(`^` + boundShape + `$`)
+	boundNarrow = regexp.MustCompile(`^\(` + boundShape + `(?: AND \([a-z_]+ = '[A-Za-z_]+'::text\))+\)$`)
+)
+
+func boundExpression(expr string) bool {
+	e := strings.TrimSpace(expr)
+	return boundOnly.MatchString(e) || boundNarrow.MatchString(e)
+}
+
+func TestTheBoundPolicyMatcherRefusesALoosenedPolicy(t *testing.T) {
+	accepted := []string{
+		"(tenant_id = decision_login_tenant())",
+		"(tenant_id = evidence_login_tenant())",
+		"(tenant_id = record_login_tenant('write'::text))",
+		"((tenant_id = decision_login_tenant()) AND (status = 'ISSUED'::text))",
+	}
+	refused := []string{
+		"true",
+		"(tenant_id = tenant_id)",
+		"((tenant_id = tenant_id) OR (evidence_login_tenant() IS NOT NULL))",
+		"(true OR (tenant_id = decision_login_tenant()))",
+		"((tenant_id = decision_login_tenant()) OR true)",
+		"((tenant_id = decision_login_tenant()) OR (status = 'ISSUED'::text))",
+		"(tenant_id <> decision_login_tenant())",
+		"(tenant_id = 'ten_aa'::text)",
+		"(decision_login_tenant() IS NOT NULL)",
+		"(tenant_id = decision_login_tenant()) OR true",
+		"((tenant_id = decision_login_tenant()) AND true)",
+		"",
+	}
+	for _, e := range accepted {
+		if !boundExpression(e) {
+			t.Errorf("a bound policy was refused: %s", e)
+		}
+	}
+	for _, e := range refused {
+		if boundExpression(e) {
+			t.Errorf("a loosened policy was accepted as bound: %q", e)
+		}
+	}
+}
+
+// A table of the schema with no tenant_id is outside the catalog query above, so it is named here with the reason it holds no tenant data; a new one fails until reviewed.
+var tablesWithNoTenantID = map[string]string{
+	"schema_migration": "the migration ledger: file names and checksums, no tenant data",
+	"signing_key":      "the public keys of the core's own emitter identities (migration 0013): key material, no tenant data",
+}
+
+func TestEveryTableWithNoTenantIDHasBeenReviewed(t *testing.T) {
+	pool := migrated(t)
+	rows, err := pool.Query(ctx(t), `
+		SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+		 WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+		   AND NOT EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped) ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		seen[name] = true
+		if _, ok := tablesWithNoTenantID[name]; !ok {
+			t.Errorf("%s has no tenant_id and is not on the reviewed list: if it holds tenant data it needs one and a policy", name)
+		}
+	}
+	for name := range tablesWithNoTenantID {
+		if !seen[name] {
+			t.Errorf("tablesWithNoTenantID names %s, which no longer exists without a tenant_id", name)
 		}
 	}
 }
