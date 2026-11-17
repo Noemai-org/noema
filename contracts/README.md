@@ -64,6 +64,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v1 or v2, never both (tests). The runner, the scorer, its report and CLI move together. `benchmark/replay` (noema#102) validates v1 results and moves to v2 in whichever pull request merges second.
 - **Fixtures.** `fixtures/{valid,invalid}/benchmark-case-result.v2` and `benchmark-scorecard.v2`: every v1 fixture with the new members, plus new valid and invalid cases. No generated models exist yet (CON-03).
 
+## Benchmark scorecard v3 (13 Nov 2026)
+
+`schemas/benchmark-scorecard.v3.json` sits beside v1 and v2, which are not edited (AGENT-15; `tools/contracts/test_benchmark_v2.py` and `test_benchmark_v3.py` pin their bytes). Ruling A190 (interim, Founder-approved); task BEN-30; PERD REQ-BEN-004.
+
+- **What v3 is.** v2 plus one required member on every rate, `exact_upper95`: the exact (Clopper-Pearson) one-sided 95% upper bound on the true rate of the counted failure (`1 - 0.05^(1/n)` at zero failures, which SoT section 38.8 approximates by `3/n`). Rounded up to six places; null when n is 0 or the rate is not a rate of failures. It is reported, not a gate: no threshold is added or changed (AGENT-16), and `rule_of_three_upper` stays.
+- **Migration note.** Breaking (a required member is added; `additionalProperties` is false), hence a new major. A document is v2 or v3, never both (tests). The scorer and its tests move together (`benchmark/scoring/rates.py` wraps the frozen `stats.make_rate`, which is not edited because the 27 Oct 2026 freeze hashes it).
+- **Fixtures.** `fixtures/{valid,invalid}/benchmark-scorecard.v3`: every v2 fixture with the member added, plus four invalid ones (missing, above one, negative, not a number). No generated models: `benchmark-*` contracts are excluded from codegen.
+
 ## Error catalogue v2 (27 Oct 2026)
 
 `schemas/errors.v2.json` sits beside `errors.v1.json`, which is not edited (a test pins its bytes). It is v1 plus one code, `DUPLICATE_CREATE` (non-retryable, 35 codes: 5 retryable, 30 non-retryable). Decision record: `DEC-2026-10-27-record-event-v2` (D6) in `Noemai-org/docs`.
@@ -72,9 +80,14 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Where it is used.** The case adapter reports it as the transport class `DUPLICATE_CREATE`; Execution classifies that class as `REJECTED_BY_TARGET` (PERD §27.1 E10, "4xx validation/business rejection"). No execution state is added, so the SoT and `state-registry.md` are unchanged.
 - **Migration note.** A larger closed enum is breaking for a strict reader of v1, hence a new major. A document is v1 or v2: v1 does not accept the new code. No producer writes the code yet, so nothing needs migrating. No generated models exist yet (CON-03).
 
+## Qualification record and run record (6 Nov 2026)
+
+`schemas/qualification-run.v1.json` and `schemas/qualification-record.v1.json` are new (UND-13, REQ-INT-006, ruling A17). Neither edits an existing schema. Migration note: none, since both are new contracts at major 1; see `INVENTORY.md`. The reference implementation, the CLI and the rules for the lookup are in `benchmark/qualification/`; its records live in `benchmark/qualification/records/`. Fixtures: `fixtures/{valid,invalid}/qualification-run` and `qualification-record`, generated from the reference implementation by the tests' own builders.
+
 ## Case contract v2, a draft (7 Nov 2026)
 
 `schemas/benchmark-case.v2.json`, `benchmark-oracle.v2.json`, `benchmark-fixture.v2.json` and `benchmark-arm-case.v1.json` are drafts for the PERD §48.1 amendment (ruling A27). Nothing uses them yet and no existing schema is edited. Migration note: see `INVENTORY.md`. The arm case is the only view of a case an arm is shown. Fixtures: `fixtures/{valid,invalid}/benchmark-case.v2`, `benchmark-oracle.v2`, `benchmark-fixture.v2`, `benchmark-arm-case`.
+
 ## Neutral arm result (7 Nov 2026)
 
 `schemas/benchmark-arm-result.v1.json` is new (BEN-16, benchmark suite definition v1). It edits no existing schema. Migration note: none, since it is a new contract at major 1; see `INVENTORY.md`. It carries the seven fields every arm must produce and no Noema internals. Fixtures: `fixtures/{valid,invalid}/benchmark-arm-result`.
@@ -92,3 +105,15 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.
 - **Constraints:** both founders review changes (CODEOWNERS). The PERD §32.2 and state-registry files here are vendored copies; do not edit them.
 - **Open:** `INVENTORY.md` is also changed by #57; the second PR to merge merges `main` in. #59 adds the pack `understanding` schema fields.
+
+## common.v1, minor correction of three ID definitions (noema#543, ruling A203, relayed)
+
+- **What changed.** `IdempotencyKeyId` is `^idk_v1_[0-9a-f]{64}$` (the real key, PERD 27.2: 71 characters; the old pattern `^idk_[0-9A-Za-z]{2,32}$` matched no real key). `RequestId` keeps its pattern and says what it is: the ID the core mints for an input, `req_` and a ULID (A184). New `ClientRequestId` is the client's lower-case UUID; `canonical-input.v2`'s `request_id` now references it (the same pattern, so validation is unchanged).
+- **Migration note.** No schema referenced `IdempotencyKeyId` or `RequestId`, and no code outside the generated files used their generated types, so no document and no consumer changes meaning; `ClientRequestId` is additive. **`IdempotencyKeyId` is a narrowing, not a widening** (the Security Reviewer's note): the old shape (`idk_` and 2 to 32 letters or digits) is refused now; the real key never had it, so nothing that existed stops validating. This is a correction in place, not a new major: a minor change (an addition, or a correction in place) keeps the file name, is recorded in this file with a migration note, and moves the pin of any test that pins the file, so the file stays `common.v1.json` and the pin of its hash in `tools/contracts/test_intent_object_v3.py` moves to this edit (it is the only edit since v3). Regenerated: the Go and Pydantic models.
+- **Tests.** `tools/contracts/test_common_ids.py`: a real key validates and eight non-keys are refused; a core-minted `req_<ULID>` validates and a UUID does not; `ClientRequestId` accepts a lower-case UUID and refuses five non-UUIDs; `canonical-input.v2` references it.
+
+## enums.v1, three core reason codes added (ruling A254, interim)
+
+- **What changed.** `CoreReasonCode` gains `TARGET_FROZEN`, `CLOCK_BREACHED_UNROUTED` and `DISPATCH_BUDGET_EXHAUSTED` (additive, so the file stays `enums.v1.json`). The fourth name of A254, `DECLINED_BY_APPROVER`, was already in the list, so the list goes from 17 to 20; A254 says 21, and the Steward's record `DEC-2026-11-17-reason-codes-a254` section 3 asks the Architect to confirm 20, so the count is written nowhere. The three are [REC] until the founders confirm them. The registry row (`state-registry.md`), the Go set `decide.coreCodes` and the generated Go, Pydantic and TypeScript types are updated together; `tools/contracts/drift.py` and `TestTheCoreReasonCodesTrustAcceptsAreExactlyTheContractsClosedList` hold them equal.
+- **Migration note.** Nothing that validated before stops validating: no schema or fixture uses the three words, and the Decision Record's `reason_codes` is an array of core or pack codes, so an old record is still valid. A consumer with its own copy of the closed list (a switch on `CoreReasonCode`) must add the three; the core's is `decide.coreCodes`. Packs may not reuse a core code (`packcheck`): no shipped pack holds the three. Regenerated: the Go, Pydantic and TypeScript models.
+- **Tests.** The Go test above; a valid fixture for each of the three (`contracts/fixtures/valid/enums/`).

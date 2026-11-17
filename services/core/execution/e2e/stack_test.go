@@ -115,7 +115,7 @@ func (s *trustStandIn) issue(ctx context.Context, capability, target string, par
 	g := controller.Grant{SchemaVersion: "1.0", GrantID: fmt.Sprintf("grt_g2%04d", n), DecisionID: "dec_g2case", PrincipalID: principal, IntentHash: hash(1),
 		CapabilityID: capability, TargetRef: target, ParamsHash: paramsHash, EvidenceSetHash: hash(2), PlanHash: hash(3), PlanStep: int64(n), TargetVersions: versions,
 		PolicyVersion: policyScope + "@1.0", PackVersion: "fintech@1", NotBefore: now.Add(-time.Minute).Format(time.RFC3339), ExpiresAt: now.Add(time.Hour).Format(time.RFC3339),
-		Nonce: fmt.Sprintf("nonce_g2%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
+		Nonce: fmt.Sprintf("n_ab2%04d", n), SingleUse: true, TenantID: tenant, CorrelationID: correlation}
 	canon, err := crypto.CanonicalJSON(g)
 	if err != nil {
 		return "", err
@@ -197,7 +197,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	signingtest.Register(t, admin, ring)
 	led.Rec.Signers = recordsig.All(t, admin, "e2e", map[string]chain.Signer{"core-execution": ring})
-	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases, Records: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases, Records: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}

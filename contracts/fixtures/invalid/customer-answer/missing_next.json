@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0",
+  "found": [
+    "Your transfer of NGN 20,000 to a savings account ending 4821 left your account on 12 November."
+  ],
+  "not_known": [
+    {
+      "what": "Whether the receiving bank has credited it",
+      "why": "The receiving bank has not answered yet."
+    }
+  ],
+  "done": {
+    "summary": "I checked the transfer with your bank's records.",
+    "verified": false
+  },
+  "advice": {
+    "do": [
+      "Keep this message."
+    ],
+    "do_not": [
+      "Do not send the money again yet."
+    ]
+  }
+}

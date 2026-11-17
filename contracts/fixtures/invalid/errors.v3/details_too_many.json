@@ -1,0 +1,94 @@
+{
+  "error": {
+    "code": "INPUT_INVALID",
+    "message": "That request could not be read.",
+    "retryable": false,
+    "correlation_id": "corr_4c21f9",
+    "details": [
+      {
+        "field": "f0",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f1",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f2",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f3",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f4",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f5",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f6",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f7",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f8",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f9",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f10",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f11",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f12",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f13",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f14",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f15",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f16",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f17",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f18",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f19",
+        "issue": "Enter a value."
+      },
+      {
+        "field": "f20",
+        "issue": "Enter a value."
+      }
+    ]
+  }
+}

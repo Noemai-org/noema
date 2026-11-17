@@ -46,6 +46,34 @@ class TestEvidenceFiles(unittest.TestCase):
             self.assertEqual(score_run.main(["--run", str(RUN), "--diagnostics", str(DIAGNOSTICS), "--check", str(other)]), 1)
 
 
+class TestSupersededConfiguration(unittest.TestCase):
+    """The 27 October full run was made under harness configuration ee1cde86 (masking floor 8), superseded by the 13 Nov re-freeze (A162). It still verifies, by its superseded
+    hash, and its report says so; a hash that is neither the current one nor a superseded one is still refused."""
+
+    def test_the_old_run_verifies_by_its_superseded_hash_and_the_report_says_floor_8(self) -> None:
+        run, diagnostics = _load()
+        self.assertEqual(score_run.verify(run, frozen_block(), ROOT, corpus_hash()), [])
+        text = score_run.build_report(run, diagnostics, "run.json", "diagnostics.json", b"", b"")
+        self.assertIn("Made under masking floor 8, and labelled so", text)
+        self.assertIn("superseded", text)
+        self.assertIn("account_run_min_digits: 8", text)
+        self.assertIn("2026-11-13-harness-masking-refreeze.md", text)
+
+    def test_a_hash_that_is_neither_current_nor_superseded_is_still_refused(self) -> None:
+        run, _ = _load()
+        bad = copy.deepcopy(run)
+        bad["pin"]["harness_config_sha256"] = "1" * 64
+        self.assertIn("the run's harness-configuration hash differs from the record's", score_run.verify(bad, frozen_block(), ROOT, corpus_hash()))
+
+    def test_a_run_made_under_the_current_configuration_carries_no_floor_8_label(self) -> None:
+        run, diagnostics = _load()
+        current = copy.deepcopy(run)
+        current["pin"]["harness_config_sha256"] = frozen_block()["harness_configs"]["benchmark/decisions/harness-gpt-6-luna.json"]
+        self.assertEqual(score_run.verify(current, frozen_block(), ROOT, corpus_hash()), [])
+        report = score_run.build_report(current, diagnostics, "run.json", "diagnostics.json", b"", b"")
+        self.assertNotIn("account_run_min_digits: 8", report)
+
+
 class TestVerification(unittest.TestCase):
     def test_the_run_is_the_frozen_one(self) -> None:
         run, _ = _load()

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/Noemai-org/noema/services/core/record/payloadguard"
 )
 
 // A digit run is digits joined by any number of spaces, dots, hyphens or zero-width characters; more than four digits in it keep only the last four, the separators stay.
@@ -140,5 +142,33 @@ func TestDigitsJoinedByDashesSlashesAndBracketsAreMaskedToTheLastFour(t *testing
 	}
 	if got, want := mask("(1234) 5678"), "(****) 5678"; got != want {
 		t.Errorf("a number split by brackets was served as %q, want %q", got, want)
+	}
+}
+
+// A client's request ID is a lower-case UUID (canonical-input.v2), not a `req_` ID, so the projection's shape for `request_id` never matches it and the UUID is served as text:
+// masked wherever it holds a run of more than four digits, separators included, and as written when it does not. This pins what the reconstruction shows today (noema#531, A184);
+// a reader matches an input by its correlation and event, never by the client's request ID. SYNTHETIC values.
+func TestAClientRequestIdIsServedMaskedWhereItHoldsALongDigitRun(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"0b8f3c1e-52a4-4d7e-9a61-123456789012", "0b8f3c1e-52a4-4d7e-9a**-********9012"}, // the tail run of twelve digits is masked, the last four kept
+		{"a3c9e1f4-7b2d-4c8a-9e05-6f1d2b8c4a97", "a3c9e1f4-7b2d-4c8a-9e05-6f1d2b8c4a97"}, // no run over four: as written
+		{"12345678-1234-4123-8123-123456789012", "********-****-****-****-********9012"}, // all digits: the gateway refuses it at the door, and the projection would mask it
+	}
+	for _, c := range cases {
+		got, err := fact("request_id", c.in, nil)
+		if err != nil || got != c.want {
+			t.Errorf("request_id %q served as %v (%v), want %q", c.in, got, err, c.want)
+		}
+	}
+}
+
+// A194: the projection masks with the definition that lives in record/payloadguard, not with one of its own: the same function, so a separator added there is masked here. The
+// corpus holds every kind of separator of both definitions.
+func TestTheProjectionMasksWithThePayloadGuardsDefinition(t *testing.T) {
+	for _, in := range []string{"1234 5678 9012 3456", "1234-5678-9012-3456", "1234_5678_9012_3456", "(1234)(5678)", "12:34:56", "1234\u200b5678\u200b9012", "1234\u00ad5678", "1234\u034f5678",
+		"\uff11\uff12\uff13\uff14-\uff15\uff16", "VERSION_CONFLICT_409_412", "on day 12", "0.41", "4111\u0303 1111 1111 1111"} {
+		if got, want := mask(in), payloadguard.Mask(in); got != want {
+			t.Errorf("mask(%q) = %q, but payloadguard.Mask gives %q", in, got, want)
+		}
 	}
 }

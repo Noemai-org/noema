@@ -1,0 +1,18 @@
+{
+  "comment": "The contracts the UI reads (REQ-UI-001; A258). Two entry points are generated to ui/src/contract_types: customer.ts (the four public contracts and errors.v3: all a customer-facing page may import) and operator.ts (the customer set plus the operator and auditor contracts, among them reconstruction.v3 and record-event.v3, which carry tenant_id, the full events and their hashes). Each root is generated as TypeScript types and parsers with every contract it refers to; a contract the UI does not read is not listed, so it does not reach the client bundle.",
+  "customer": [
+    "customer-answer.v1.json",
+    "errors.v3.json",
+    "investigation-response.v1.json",
+    "overlay-card.v1.json",
+    "sse-event.v1.json"
+  ],
+  "operator": [
+    "clarification.v1.json",
+    "confirmation-request.v1.json",
+    "errors.v2.json",
+    "noema-resolution.v1.json",
+    "reconstruction.v3.json",
+    "record-event.v3.json"
+  ]
+}
