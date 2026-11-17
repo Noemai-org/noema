@@ -56,7 +56,7 @@ func newSQLWorld(t *testing.T) *sqlWorld {
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA)}
 }
 
-const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version) VALUES ($1, $2, $3, $4, $5, $6)`
+const insertRow = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref) VALUES ($1, $2, $3, $4, $5, $6, 'usr_01')`
 
 func (w *sqlWorld) insert(t *testing.T, p *pgxpool.Pool, tenant, inv, ref, state string, version int64) error {
 	t.Helper()

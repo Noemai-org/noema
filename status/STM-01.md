@@ -265,3 +265,16 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 - What changed (tests; no behaviour): `TestAResumeWithTwoGrantsAsksNobodyAndDoesNothing` (`len(d.GrantIDs) != 1`), `TestAnAllowedReadGoesToExplainingAndNeverExecutes` (the `d.Read` branch of RunWrite), `TestADecisionWithNoIntentKeepsTheIntentOfTheEvaluation` (the `IntentRef` default; the evidence fake now records the intent it is asked for), and the journal port's first test file (`port_internal_test.go`: a port that cannot be used, a context with no deadline, a begin that fails, the reading of the idempotency key). Each of the first three was mutated against its line: all three mutants now fail a test. `ErrNotBound` moved off the comment of `ErrNotWired` (C1's cosmetic note).
 - Not done, stated: the journal port's two branches that need a real chain (a Record that does not verify; a GRANT_SPENT that names no key) are tests of Record rows and need the pgsodium database; they cannot be run locally and are not claimed here. Debt: they are the next commit when CI can show them. C1's note on `Journal.Progress` needing a deadline that `RunWrite` and `ResumeWrite` do not set stays on the debt list (fails closed).
 - One push for this round (the tests pass locally; the merge of `main` was clean).
+
+# Session 2026-11-17 · STM-01 · migration 0029 `principal_ref` (A243, A273, A280; noema#681)
+
+## Session summary
+- What changed (noema#681): `0029_investigation_principal_ref.sql` (column, no default, CHECK non-empty `NOT VALID`, not in the column-limited UPDATE grant); `Store.Start` writes the session's principal and refuses another principal's Start of the same recorded input; `Store.PrincipalOf`. The ledger on noema#183 now reads 0029 principal_ref, 0030 tenant row-level security (A280), next free 0031.
+- Why: a route that serves an investigation must refuse another principal's request for it, and the row did not say who started it.
+- Risks, and how they are contained: rows from before 0029 hold an empty principal. Contained by `NOT VALID` (no past row rewritten or invented); `PrincipalOf` returns "" for them and a route compares it with the session's principal, so it refuses.
+- Tests added (REQ-STM-001, REQ-SEC-004, INV-12): `TestAnInvestigationNamesItsPrincipalAndNeverChangesIt`, `TestAnInvestigationNamesThePrincipalThatStartedItAndAnotherPrincipalCannotStartIt`. Red first at `5a9f6e1f`.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: 0030 (tenant row-level security; flips `registryReadable["tenant"]` in noema#658's test; DEBT-43); the route that calls `PrincipalOf` waits on noema#601.
+- Do not touch: 0025 (merged).

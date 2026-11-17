@@ -142,19 +142,23 @@ func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartReq
 	defer rollback(ctx, tx)
 	var inv orchestrator.Investigation
 	var state, corr string
-	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version)
-		VALUES ($1, $2, $3, $4, 'RECEIVED', 0) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
-		RETURNING investigation_id, state, state_version, correlation_id`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID).Scan(&inv.ID, &state, &inv.Version, &corr)
+	var principal string
+	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref)
+		VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
+		RETURNING investigation_id, state, state_version, correlation_id, principal_ref`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID, sess.PrincipalID).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
 	created := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
-			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version, &corr)
+		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id, principal_ref FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
+			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
 	}
 	if err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%sstart: %w", errPrefix, err)
 	}
 	if corr != r.CorrelationID {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%w: the recorded input already belongs to another correlation", ErrRequest)
+	}
+	if principal != sess.PrincipalID {
+		return orchestrator.Investigation{}, false, fmt.Errorf("%w: the recorded input already belongs to another principal's investigation", ErrRequest)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%scommit: %w", errPrefix, err)
@@ -229,5 +233,30 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 // PrincipalOf is the principal that started the investigation (migration 0029; A243): the read-only fact a route needs to refuse another principal's request for it. An
 // investigation of another tenant, or none, is ErrNoInvestigation: the two are not told apart.
 func (s *Store) PrincipalOf(ctx context.Context, sess orchestrator.Session, investigationID string) (string, error) {
-	return "", nil
+	if err := needDeadline(ctx); err != nil {
+		return "", err
+	}
+	if err := s.ready(); err != nil {
+		return "", err
+	}
+	if err := checkSession(sess); err != nil {
+		return "", err
+	}
+	if !investigationRe.MatchString(investigationID) {
+		return "", fmt.Errorf("%w: an investigation is outside its pattern", ErrRequest)
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", fmt.Errorf("%sbegin: %w", errPrefix, err)
+	}
+	defer rollback(ctx, tx)
+	var principal string
+	err = tx.QueryRow(ctx, `SELECT principal_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = $2`, sess.TenantID, investigationID).Scan(&principal)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNoInvestigation
+	}
+	if err != nil {
+		return "", fmt.Errorf("%sread: %w", errPrefix, err)
+	}
+	return principal, nil
 }
