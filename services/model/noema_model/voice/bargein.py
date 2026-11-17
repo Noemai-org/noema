@@ -60,20 +60,34 @@ async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMo
     try:
         while True:
             try:
-                async with asyncio.timeout(read_s):
-                    out = await answer.__anext__()
+                out = await _read(answer, read_s)
             except StopAsyncIteration:
                 return monitor.result(False)
             play(out)
             try:
-                async with asyncio.timeout(read_s):
-                    incoming = await microphone.__anext__()
+                incoming = await _read(microphone, read_s)
             except StopAsyncIteration:
                 continue  # no more microphone frames: the answer plays on
             if monitor.feed(incoming):
                 return monitor.result(True)
     except TimeoutError:
         return replace(monitor.result(False), stalled=True)
+
+
+async def _read(source: AudioSource, read_s: float) -> AudioChunk:
+    """One read in a task of its own, so that a source whose cancellation handler waits (an `EndpointGate` shields its close from a cancelled reader) cannot hold this call past `read_s`:
+    at the bound the read is cancelled and let go of (its outcome is never read), and the call goes on to the bounded release. A caller's cancellation cancels the read too (Codex P1 on #621)."""
+    reading = asyncio.ensure_future(source.__anext__())
+    reading.add_done_callback(_mark_retrieved)
+    try:
+        done, _ = await asyncio.wait({reading}, timeout=read_s)
+    except asyncio.CancelledError:
+        reading.cancel()
+        raise
+    if not done:
+        reading.cancel()
+        raise TimeoutError
+    return reading.result()
 
 
 async def _release(answer: AudioSource, microphone: AudioSource, close_s: float, report: Report) -> tuple[bool, BaseException | None]:
@@ -88,16 +102,20 @@ async def _release(answer: AudioSource, microphone: AudioSource, close_s: float,
     return stalled, error
 
 
-async def _refuse(answer: AudioSource, microphone: AudioSource) -> None:
-    """A configuration error must not retain the streams the caller handed over. There is no valid bound to use, and none is invented: both closes are started, given one turn of the event loop
-    to begin, and any that has not finished is cancelled (Codex P2 on #621)."""
+async def _refuse(answer: AudioSource, microphone: AudioSource, bound_s: float | None) -> None:
+    """A configuration error must not retain the streams the caller handed over. Both closes are started and awaited. The bound is the other bound if one of the two is valid, because
+    none is invented; with neither valid the closes are awaited until they end, and the caller's own cancellation still applies (Codex P2 on #621, twice)."""
     closes = [asyncio.ensure_future(source.aclose()) for source in (answer, microphone)]
     for close in closes:
         close.add_done_callback(_mark_retrieved)
-    await asyncio.sleep(0)
-    for close in closes:
-        if not close.done():
+    try:
+        _, pending = await asyncio.wait(closes, timeout=bound_s)
+    except asyncio.CancelledError:
+        for close in closes:
             close.cancel()
+        raise
+    for close in pending:
+        close.cancel()
 
 
 async def play_until_barge_in(
@@ -114,7 +132,8 @@ async def play_until_barge_in(
     """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. `close_s` bounds the release of each stream and `read_s` each read of either; neither has a
     default (AGENT-16: a bound comes from configuration)."""
     if not (math.isfinite(close_s) and close_s > 0 and math.isfinite(read_s) and read_s > 0):
-        await _refuse(answer, microphone)
+        valid = [b for b in (close_s, read_s) if math.isfinite(b) and b > 0]
+        await _refuse(answer, microphone, valid[0] if valid else None)
         raise ValueError("the close and read bounds must be positive finite numbers from configuration")
     report = cleanup_reporter(telemetry, correlation_id)
     outcome: BargeInResult | None = None
