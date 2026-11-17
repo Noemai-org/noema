@@ -22,5 +22,6 @@
   "empty_utterances.json": "minItems",
   "timeline_offset_not_relative.json": "pattern",
   "float_seed.json": "type",
-  "channel_phone.json": "enum"
+  "channel_phone.json": "enum",
+  "classification_is_a_receipt_state.json": "enum"
 }
