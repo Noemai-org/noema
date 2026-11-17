@@ -12,6 +12,7 @@ CI safeguards (PLT-02). Standard library only, except the two pinned scanners.
 | Tushe administrator credential | `check_no_admin_in_workflows.py` | any YAML under `.github/` names the Tushe administrator secret or Environment, in any case or separator spelling, comments included (SEC-02, OD-16) |
 | PR trace | `check_pr_trace.py` | the PR body lacks a task ID, a PERD `REQ-` ID or a SoT ID |
 | Secret scan | gitleaks via `gitleaks_range.py`, config `/.gitleaks.toml` | a secret is found in the commits of this change: a pull request's `base..head`, or what a push adds (not every ref; the range is printed). `test_gitleaks_range.py` runs it against the real gitleaks |
+| Workflow permissions (REQ-SEC-007) | `check_workflow_permissions.py` | a workflow has no top-level `permissions:` mapping; top-level `contents` is not `read` or `none`; any `permissions:` block grants `write` outside `ALLOW_WRITE` (two reviewed issue filers) or holds a value other than `read`, `write`, `none`; a workflow uses `pull_request_target`, `write-all`, `read-all` or `id-token`; an `ALLOW_WRITE` entry is no longer used |
 | SBOM | syft (CycloneDX JSON) | uploaded per image as an artifact |
 
 `run_canaries.py` proves each check can fail. Each canary must fail for its own reason. Canaries are left out by pointing each check at its own canary, never by weakening a check. The fake secret is built at run time.
