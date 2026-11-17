@@ -82,10 +82,13 @@ export function arr<T>(v: unknown, p: string, item: (x: unknown, q: string) => T
   return v.map((x, i) => item(x, `${p}[${i}]`));
 }
 
-export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T): Record<string, T> {
+export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T, keyPattern?: RegExp): Record<string, T> {
   const o = obj(v, p);
   const out: Record<string, T> = {};
-  for (const k of Object.keys(o)) Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  for (const k of Object.keys(o)) {
+    if (keyPattern !== undefined && !keyPattern.test(k)) fail(p, "has a key that is not in the form the contract allows");
+    Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  }
   return out;
 }
 
