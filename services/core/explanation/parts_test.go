@@ -168,3 +168,62 @@ func TestThePackCheckersPartsAreTheLoadersParts(t *testing.T) {
 		t.Errorf("packcheck parts %v, loader parts %v", py, gop)
 	}
 }
+
+// A281 (Architect, interim, relayed): the part list is derived from the contract and tested against it. The contract's text members are walked (customer-answer.v1.json); a member's
+// part name is its path joined with "_" and with array marks dropped (`not_known[].what` is `not_known_what`, `advice.do_not` is `advice_do_not`). Not parts: `schema_version` (not a
+// sentence), `done.verified` (a boolean the core sets, A237), `case_ref_masked` (a reference, masked by the builder, never a template) and `done.summary`, which is the summary and
+// keeps the two-segment key. The loader's closed list and packcheck's must equal this derived set, so a member added to the contract fails here until both lists follow.
+func TestThePartListIsTheContractsTextMembers(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/schemas/customer-answer.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatal(err)
+	}
+	notParts := map[string]bool{"schema_version": true, "done_verified": true, "done_summary": true, "case_ref_masked": true}
+	derived := map[string]bool{}
+	var walk func(node map[string]any, path string)
+	walk = func(node map[string]any, path string) {
+		switch node["type"] {
+		case "string":
+			if !notParts[path] {
+				derived[path] = true
+			}
+		case "array":
+			if items, ok := node["items"].(map[string]any); ok {
+				walk(items, path)
+			}
+		case "object":
+			props, _ := node["properties"].(map[string]any)
+			for name, v := range props {
+				child, _ := v.(map[string]any)
+				next := name
+				if path != "" {
+					next = path + "_" + name
+				}
+				walk(child, next)
+			}
+		}
+	}
+	walk(schema, "")
+	// a member that is a $ref (for example schema_version) is not a sentence of this contract
+	got := map[string]bool{}
+	for _, p := range explanation.Parts() {
+		got[string(p)] = true
+	}
+	for p := range derived {
+		if !got[p] {
+			t.Errorf("the contract has a text member %q that is not a part", p)
+		}
+	}
+	for p := range got {
+		if !derived[p] {
+			t.Errorf("part %q is not a text member of the contract", p)
+		}
+	}
+	if len(derived) != 7 {
+		t.Errorf("the contract has %d text members besides the summary, want 7: update the list on purpose", len(derived))
+	}
+}
