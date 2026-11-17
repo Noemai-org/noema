@@ -110,3 +110,17 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 
 ## Pre-work for the next agent
 - Exact next step: Codex re-read at the final head; EL's independent read; one Founder approval. The redactor is still not installed in `cmd/core`; the one masking definition is a follow-up (A184: `masking-limits.v1`, noema#468).
+
+# Session 2026-11-17 · SEC-03 (fix round for the P1 and two P2s on noema#457 at 241694b2)
+
+## Session summary
+- What changed (noema#457): (P1) the redactor's run is the Record guard's: any number of the guard's separators between two digits (`separators` in `redaction.go`), where it was one space or hyphen, so `4111  1111  1111  1111`, `4111_1111_1111_1111` and `4111.1111.1111.1111` were not masked. (P2b) the secret-key words now include `pwd`, `cookie` and the word `pin`; a string value is scanned for an Authorization line, a bearer token and `<secret word>=<value>` pairs under any key.
+- Why: Architect rulings A289 (the redactor adopts the guard's wide separator set) and A259 (one separator definition on every surface; the shared vector file is a later PR).
+- Risks, and how they are contained: the wider class also masks `20.000.000`, `192.168.100.200` and `10:00:00` in free text (the guard does the same; a whole RFC 3339 time is exempt); stated in the README. The class is a copy of the guard's string, not an import (`record/` is a P0 path): `TestEveryCodePointJoinsDigitsExactlyWhenTheRecordGuardSaysSo` asks both about all code points and fails when they differ.
+- Tests added (REQ-SEC-003, REQ-OBS-002, AGENT-13): `separators_test.go`; the oracle of `redaction_test.go` is `payloadguard.Mask` (any script, any separators) instead of `[0-9]{5,}`, and the nested-value property generates digits of four scripts joined by the guard's separators. Written first and red on 241694b2 (11 tests, 37 subtests).
+- Not done, by design: P2a (the redactor is not installed in `cmd/core`; `cmd/core/main.go` is outside this PR's allowlist and is the composition root, EL's module). The README says so (limit 4). A test that the logger `main` builds redacts a card number needs that wiring first.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL installs `Handler` in `cmd/core` with a test that the logger it builds masks a card number in a message and an attribute; the shared vector file (A259) in a later PR.
+- Do not touch: the exemption list without a Founder's approval (AGENT-16).

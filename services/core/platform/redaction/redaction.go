@@ -2,14 +2,15 @@
 //
 // The rule is the PERD's: the longest run of digits that reaches an outward surface (a log line or attribute, a trace attribute, an API or error body, explanation text, a served fact,
 // a model prompt, the UI feed) is four. MaskAccountNumbers masks every run longer than four digits to asterisks plus its last four. A digit is any Unicode decimal digit, so a number
-// written in full-width, Arabic-Indic or Devanagari digits is masked like an ASCII one. A run is digits with a single space or hyphen allowed between two digits; a comma ends a run,
-// so an amount written "20,000,000" (groups of three) is left alone; a run split by two or more separators is not one run (the leak scanner, tools/ci/leakscan.py, is the second wall).
+// written in full-width, Arabic-Indic or Devanagari digits is masked like an ASCII one. A run is digits with any number of separators between two digits; a comma ends a run,
+// so an amount written "20,000,000" (groups of three) is left alone. The characters that join the digits of a run, and any number of them between two digits, are the Record guard's (record/payloadguard; A194, A231, A289, A259): see separators.
 //
 // There is no threshold to configure. The only exceptions are the typed exemptions listed by Exemptions: typed IDs, RFC 3339 timestamps, and structured numeric fields (minor-unit money,
 // counts, sizes, durations). They are decided by type, never by length or by how a value looks in free text. A string-valued field is always strict: ten digits under the key
 // "amount_minor" are masked. The list is an AGENT-16 constant; changing it needs a Founder's approval and a decision record, and a test fails if it changes without its tests.
 //
-// The redactor also removes the value under a secret-looking key, inside a secret-looking group, and inside any map, struct or slice it cannot read safely.
+// The redactor also removes the value under a secret-looking key, inside a secret-looking group, and inside any map, struct or slice it cannot read safely. A string value is scanned for the
+// credential of an Authorization line, a bearer token and a "password=..." style pair, whatever key it sits under (scrubSecrets); this is a small scan of known forms, not a guarantee.
 //
 // May import: the standard library.
 //
@@ -63,11 +64,26 @@ const (
 // numericSuffixes are the key suffixes of the structured numeric exemptions: the key is chosen by code, never by a user, a model or an enterprise field.
 var numericSuffixes = []string{"_minor", "_count", "_bytes", "_ms", "_s", "_seconds", "_minutes", "_micros"}
 
+// separators is the class of characters that join the digits of a run: the one definition of the Record's append guard (record/payloadguard, A194, A231), adopted here by ruling A289 (A259:
+// one separator definition on every surface). Every kind of space (\s, \p{Z}, the vertical tab, the next-line character), every dash (\p{Pd}) and the minus sign, every bracket (\p{Ps},
+// \p{Pe}), the dot, the slash, the colon and the underscore with their full-width forms and the middle dots, every format character (\p{Cf}: zero-width characters, soft hyphen, joiners) and
+// every combining mark (\p{M}); any NUMBER of them between two digits. A comma is not in it. It is a copy, not an import: record/ is a P0 path and platform/ imports the standard library
+// only; TestEveryCodePointJoinsDigitsExactlyWhenTheRecordGuardSaysSo asks both about every code point and fails when they differ.
+const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
+
 var (
-	runPattern    = regexp.MustCompile(`\p{Nd}(?:[ \-]?\p{Nd})*`)
-	secretPattern = regexp.MustCompile(`(?i)(api[_-]?key|authorization|auth|token|secret|password|passwd|credential|bearer|private[_-]?key|signing[_-]?key|raw[_-]?audio)`)
-	typedIDRe     = regexp.MustCompile(`[a-z]{2,6}_[0-7][0-9A-HJKMNP-TV-Z]{25}`)
-	timestampRe   = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})`)
+	runPattern = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
+	// secretPattern is the list of key words whose value is removed (substring, any case). "pin" is not in it: as a substring it would remove "shipping" and "mapping", so it is a word (pinKey).
+	secretPattern = regexp.MustCompile(`(?i)(api[_-]?key|authorization|auth|token|secret|password|passwd|pwd|credential|bearer|cookie|private[_-]?key|signing[_-]?key|raw[_-]?audio)`)
+	// pinKey is the word "pin" in a key: alone, between non-letters (user_pin, new-pin, pin2) or at a camel-case boundary (userPin, userPIN, PINCode). Not inside a word (shipping, pinned).
+	pinKey = regexp.MustCompile(`(?:^|[^A-Za-z])(?i:pin)(?:[^a-z]|$)|[a-z](?:Pin|PIN)(?:[^a-z]|$)`)
+	// bearerValue and secretValue find a secret inside a string value, whatever the key it sits under: an Authorization header line, a bearer token, a "key=value" or "key: value" pair
+	// whose key is one of the secret words (a URL query, a JSON body, a header dump). They are small on purpose: only the key word directly before the colon or equals sign, or "bearer"
+	// directly before a token of eight characters or more, so ordinary prose ("password reset", "max_tokens=100", "the bearer of news") is left alone.
+	bearerValue = regexp.MustCompile(`(?i)\b(bearer)\s+[A-Za-z0-9._~+/=\-]{8,}`)
+	secretValue = regexp.MustCompile(`(?i)((?:^|[^a-z])pin|api[_-]?key|authorization|token|secret|passw(?:or)?d|pwd|credential|cookie|(?:private|signing)[_-]?key)["']?\s*[:=]\s*(?:bearer\s+|basic\s+)?("[^"]*"|'[^']*'|[^\s,;&"']+)`)
+	typedIDRe   = regexp.MustCompile(`[a-z]{2,6}_[0-7][0-9A-HJKMNP-TV-Z]{25}`)
+	timestampRe = regexp.MustCompile(`[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})`)
 )
 
 // Redactor masks and removes. It holds no state and is safe for concurrent use.
@@ -165,7 +181,17 @@ func hasLetter(s string) bool {
 	return false
 }
 
-func secretKey(key string) bool { return secretPattern.MatchString(key) }
+func secretKey(key string) bool { return secretPattern.MatchString(key) || pinKey.MatchString(key) }
+
+// scrubSecrets removes the secret inside a string value: the credential of an Authorization line, a bearer token, the value of a "password=..." or "api_key: ..." pair.
+func scrubSecrets(s string) string {
+	s = bearerValue.ReplaceAllString(s, "${1} "+Redacted)
+	return secretValue.ReplaceAllString(s, "${1}="+Redacted)
+}
+
+// text is what a string VALUE goes through before it leaves: its secrets removed, then its digit runs masked. Keys and group names are masked only (they are names, classified by the
+// key rules, not scanned for secrets).
+func (r *Redactor) text(s string) string { return r.MaskAccountNumbers(scrubSecrets(s)) }
 
 func numericKey(key string) bool {
 	for _, suf := range numericSuffixes {
@@ -185,7 +211,7 @@ func (r *Redactor) FilterAttributes(attrs map[string]string) map[string]string {
 			out[r.MaskAccountNumbers(k)] = Redacted
 			continue
 		}
-		out[r.MaskAccountNumbers(k)] = r.MaskAccountNumbers(v)
+		out[r.MaskAccountNumbers(k)] = r.text(v)
 	}
 	return out
 }
@@ -206,7 +232,7 @@ func (h *handler) Enabled(ctx context.Context, level slog.Level) bool {
 }
 
 func (h *handler) Handle(ctx context.Context, rec slog.Record) error {
-	out := slog.NewRecord(rec.Time, rec.Level, h.r.MaskAccountNumbers(rec.Message), rec.PC)
+	out := slog.NewRecord(rec.Time, rec.Level, h.r.text(rec.Message), rec.PC)
 	rec.Attrs(func(a slog.Attr) bool {
 		out.AddAttrs(h.r.redactAttr(a, h.secret))
 		return true
@@ -266,14 +292,14 @@ func (r *Redactor) redactValue(a slog.Attr, force bool, depth int, budget *int) 
 	}
 	switch v.Kind() {
 	case slog.KindString:
-		return slog.String(a.Key, r.MaskAccountNumbers(v.String()))
+		return slog.String(a.Key, r.text(v.String()))
 	case slog.KindBool, slog.KindDuration:
 		return slog.Attr{Key: a.Key, Value: v} // a duration is a duration whatever its key (the duration_field exemption); a bool holds no digits
 	case slog.KindInt64, slog.KindUint64, slog.KindFloat64:
 		if numericKey(a.Key) {
 			return slog.Attr{Key: a.Key, Value: v}
 		}
-		return slog.String(a.Key, r.MaskAccountNumbers(v.String()))
+		return slog.String(a.Key, r.text(v.String()))
 	case slog.KindTime:
 		return slog.String(a.Key, r.MaskAccountNumbers(v.Time().UTC().Format(time.RFC3339Nano)))
 	default:
@@ -287,9 +313,9 @@ func (r *Redactor) redactAny(key string, x any, force bool, depth int, budget *i
 	case nil:
 		return slog.String(key, "<nil>")
 	case error:
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(t)))
+		return slog.String(key, r.text(fmt.Sprint(t)))
 	case fmt.Stringer:
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(t)))
+		return slog.String(key, r.text(fmt.Sprint(t)))
 	case map[string]string:
 		if len(t) > *budget {
 			return slog.String(key, Redacted)
@@ -329,22 +355,22 @@ func (r *Redactor) redactAny(key string, x any, force bool, depth int, budget *i
 	}
 	switch reflect.ValueOf(x).Kind() {
 	case reflect.String, reflect.Bool:
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+		return slog.String(key, r.text(fmt.Sprint(x)))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		if numericKey(key) {
 			return slog.Int64(key, reflect.ValueOf(x).Int()) // a primitive: the type's own MarshalJSON is never forwarded
 		}
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+		return slog.String(key, r.text(fmt.Sprint(x)))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if numericKey(key) {
 			return slog.Uint64(key, reflect.ValueOf(x).Uint())
 		}
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+		return slog.String(key, r.text(fmt.Sprint(x)))
 	case reflect.Float32, reflect.Float64:
 		if numericKey(key) {
 			return slog.Float64(key, reflect.ValueOf(x).Float())
 		}
-		return slog.String(key, r.MaskAccountNumbers(fmt.Sprint(x)))
+		return slog.String(key, r.text(fmt.Sprint(x)))
 	}
 	return slog.String(key, Redacted) // a struct, a pointer, a byte slice, a channel, a function: not readable safely
 }
