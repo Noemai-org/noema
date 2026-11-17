@@ -26,7 +26,7 @@ func writePair(t *testing.T, dir string) (certFile, keyFile string) {
 		t.Fatal(err)
 	}
 	tpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "SYNTHETIC core"}, NotBefore: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), NotAfter: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC), // SYNTHETIC fixed dates: no wall clock in a test (INV-21)
-		 IsCA: true, BasicConstraintsValid: true}
+		IsCA: true, BasicConstraintsValid: true}
 	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
 	if err != nil {
 		t.Fatal(err)
