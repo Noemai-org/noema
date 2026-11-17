@@ -64,6 +64,8 @@ type builder struct {
 	asOf   string
 	label  string
 	unsafe bool // the source label failed labelSafe: every fact of the call is an unknown
+	noAsOf bool // asOf is the zero time: every fact of the call is an unknown
+	asOfT  time.Time
 	facts  []contracts.ExplanationFactsV2FactsItem
 	unkn   []contracts.ExplanationFactsV2UnknownsItem
 	status contracts.EnumsV1FactStatus
@@ -94,15 +96,20 @@ func labelSafe(label string) bool {
 }
 
 func newBuilder(asOf time.Time, label string, st contracts.EnumsV1FactStatus) *builder {
-	return &builder{asOf: asOf.UTC().Format(time.RFC3339), label: label, status: st, unsafe: !labelSafe(label)}
+	return &builder{asOf: asOf.UTC().Format(time.RFC3339), asOfT: asOf, label: label, status: st, unsafe: !labelSafe(label), noAsOf: asOf.IsZero()}
 }
 
 // known is true only for a KNOWN row with a safe source label; otherwise the caller emits unknowns, with the why-code from why.
-func (b *builder) known() bool { return !b.unsafe && b.status == contracts.EnumsV1FactStatusKNOWN }
+func (b *builder) known() bool {
+	return !b.unsafe && !b.noAsOf && b.status == contracts.EnumsV1FactStatusKNOWN
+}
 
 func (b *builder) why() string {
-	if b.unsafe {
+	switch {
+	case b.unsafe:
 		return "LABEL_NOT_SAFE"
+	case b.noAsOf:
+		return "AS_OF_MISSING"
 	}
 	return "SOURCE_NOT_KNOWN"
 }
@@ -122,12 +129,12 @@ func PaymentFacts(cfg Config, p Payment, asOf time.Time, label string) ([]contra
 	} else {
 		b.unknown("payment.amount", "FIELD_UNUSABLE")
 	}
-	if d := lastDigits(p.AccountRef, 4); d != "" {
+	if d := suffixDigits(p.AccountRef, 4); d != "" {
 		b.add("account", "ending "+d)
 	} else {
 		b.unknown("account", "FIELD_UNUSABLE")
 	}
-	if v, ok := clockWords(cfg.Zone, p.OccurredAt); ok {
+	if v, ok := clockWords(cfg.Zone, p.OccurredAt, b.asOfT); ok {
 		b.add("payment.time", v)
 	} else {
 		b.unknown("payment.time", "FIELD_UNUSABLE")
@@ -159,7 +166,7 @@ func Case(cfg Config, c CaseRow, asOf time.Time, label string) ([]contracts.Expl
 	} else {
 		b.unknown("case.team", "QUEUE_NOT_NAMED")
 	}
-	if v, ok := clockWords(cfg.Zone, c.CommittedBy); ok {
+	if v, ok := clockWords(cfg.Zone, c.CommittedBy, b.asOfT); ok {
 		b.add("case.clock", v)
 	} else {
 		b.unknown("case.clock", "CLOCK_NOT_COMMITTED")
@@ -197,26 +204,31 @@ func group(digits string) string {
 	return string(out)
 }
 
-// clockWords is the time in the configured zone in words ("10:42 on 12 Nov"); no zone and a zero time are refused (never a default zone).
-func clockWords(zone *time.Location, t time.Time) (string, bool) {
+// clockWords is the time in the configured zone in words ("10:42 on 12 Nov"), with the year when it is not the year of asOf ("10:42 on 12 Nov 2025"); no zone and a zero time are
+// refused (never a default zone).
+func clockWords(zone *time.Location, t, asOf time.Time) (string, bool) {
 	if zone == nil || t.IsZero() {
 		return "", false
 	}
-	return t.In(zone).Format("15:04 on 2 Jan"), true
+	local := t.In(zone)
+	if local.Year() != asOf.In(zone).Year() {
+		return local.Format("15:04 on 2 Jan 2006"), true
+	}
+	return local.Format("15:04 on 2 Jan"), true
 }
 
-// lastDigits is the last n ASCII digits of s, or "" when s has fewer than n.
-func lastDigits(s string, n int) string {
-	var d []byte
-	for i := 0; i < len(s); i++ {
-		if s[i] >= '0' && s[i] <= '9' {
-			d = append(d, s[i])
-		}
+// suffixDigits is the last n digits of a number: s must END in a run of at least n ASCII digits ("acc_0012345678904321" gives "4321"). Digits scattered through s, a run shorter
+// than n, or digits that are not at the end give "": no "ending" is made from pieces (C1's P2 on noema#650).
+func suffixDigits(s string, n int) string {
+	end := len(s)
+	start := end
+	for start > 0 && s[start-1] >= '0' && s[start-1] <= '9' {
+		start--
 	}
-	if len(d) < n {
+	if end-start < n {
 		return ""
 	}
-	return string(d[len(d)-n:])
+	return s[end-n:]
 }
 
 // counterparty is the masked form only: the initial of the first letter, and "ending dddd" when the source holds four or more digits. [REC] (the inventory): never the full name.
@@ -224,7 +236,7 @@ func counterparty(s string) (string, bool) {
 	for _, r := range s {
 		if unicode.IsLetter(r) {
 			v := strings.ToUpper(string(r)) + "."
-			if d := lastDigits(s, 4); d != "" {
+			if d := suffixDigits(s, 4); d != "" {
 				v += " ending " + d
 			}
 			return v, true

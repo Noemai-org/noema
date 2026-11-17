@@ -227,3 +227,103 @@ func TestAnUnsafeSourceLabelBuildsNothing(t *testing.T) {
 		}
 	}
 }
+
+// C1's P2 on #650 (REQ-EXP-001, REQ-SEC-003; INV-13, AGENT-13): the account's last four digits are the last four of a number, not digits picked from anywhere in the reference. The
+// reference must END in a run of at least four digits; anything else is an unknown, never a made-up "ending".
+func TestTheAccountEndingIsTheLastFourDigitsOfTheNumber(t *testing.T) {
+	for ref, want := range map[string]string{"acc_NG0012345678904321": "ending 4321", "4321": "ending 4321", "acc-9990": "ending 9990"} {
+		p := payment()
+		p.AccountRef = ref
+		facts, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+		if want != "" {
+			if got := byKind(facts)["account"].ValueMasked; got != want {
+				t.Errorf("%q: %q, want %q", ref, got, want)
+			}
+			continue
+		}
+		if _, has := byKind(facts)["account"]; has || !hasUnknown(unknowns, "account") {
+			t.Errorf("%q: facts %+v unknowns %+v; want an unknown and no account", ref, facts, unknowns)
+		}
+	}
+	for _, ref := range []string{"acc_01J9X7K2M4Q8", "acc_12 34 56 78", "acc_NG00123456789043X21", "abcd", "acc_4321x", "acc_٠١٢٣٤٥٦٧"} {
+		p := payment()
+		p.AccountRef = ref
+		facts, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+		if _, has := byKind(facts)["account"]; has || !hasUnknown(unknowns, "account") {
+			t.Errorf("%q gave an account fact %+v / %+v; want an unknown", ref, facts, unknowns)
+		}
+	}
+}
+
+// The counterparty's "ending" follows the same rule: no ending from digits scattered in the name.
+func TestTheCounterpartyEndingNeedsAContiguousRun(t *testing.T) {
+	p := payment()
+	p.Counterparty = "Jane Doe 12 34 56 78"
+	facts, _ := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+	if got := byKind(facts)["payment.counterparty"].ValueMasked; got != "J." {
+		t.Errorf("%q, want the initial only", got)
+	}
+}
+
+// C1's P2 on #650: a time with no year is ambiguous. The year is told whenever it is not the year of asOf; asOf itself must be set.
+func TestATimeFromAnotherYearTellsTheYear(t *testing.T) {
+	p := payment()
+	p.OccurredAt = time.Date(2025, 11, 12, 9, 42, 0, 0, time.UTC)
+	facts, _ := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+	if got := byKind(facts)["payment.time"].ValueMasked; got != "10:42 on 12 Nov 2025" {
+		t.Errorf("%q", got)
+	}
+	cf, _ := factsource.Case(cfg, factsource.CaseRow{ExternalAck: "CMP-1", OwnerQueue: "PAYMENTS_OPERATIONS", CommittedBy: time.Date(2027, 1, 3, 14, 30, 0, 0, time.UTC), Status: contracts.EnumsV1FactStatusKNOWN}, asOf, "case system")
+	if got := byKind(cf)["case.clock"].ValueMasked; got != "15:30 on 3 Jan 2027" {
+		t.Errorf("%q", got)
+	}
+	for _, f := range append(facts, cf...) {
+		if fiveD.MatchString(f.ValueMasked) || payloadguard.Mask(f.ValueMasked) != f.ValueMasked {
+			t.Errorf("%s: %q is not safe", f.Kind, f.ValueMasked)
+		}
+	}
+}
+
+func TestAZeroAsOfBuildsNothing(t *testing.T) {
+	facts, unknowns := factsource.PaymentFacts(cfg, payment(), time.Time{}, "ledger")
+	cf, cu := factsource.Case(cfg, factsource.CaseRow{ExternalAck: "CMP-1", OwnerQueue: "PAYMENTS_OPERATIONS", Status: contracts.EnumsV1FactStatusKNOWN}, time.Time{}, "case system")
+	if len(facts) != 0 || len(unknowns) != 4 || len(cf) != 0 || len(cu) != 3 {
+		t.Fatalf("%d/%d and %d/%d", len(facts), len(unknowns), len(cf), len(cu))
+	}
+	for _, u := range append(unknowns, cu...) {
+		if u.WhyCode != "AS_OF_MISSING" {
+			t.Errorf("why code %q", u.WhyCode)
+		}
+	}
+}
+
+// C1's notes on #650: the as-of time of a fact is the caller's, an unknown item is never KNOWN, and the 200-character bound holds (pack data, the team name, is the longest value).
+func TestAsOfStatusAndBoundOfTheItems(t *testing.T) {
+	facts, _ := factsource.PaymentFacts(cfg, payment(), asOf, "ledger")
+	for _, f := range facts {
+		if string(f.AsOf) != "2026-11-12T09:50:00Z" {
+			t.Errorf("%s: as_of %q", f.Kind, f.AsOf)
+		}
+	}
+	for _, st := range []contracts.EnumsV1FactStatus{contracts.EnumsV1FactStatusKNOWN, contracts.EnumsV1FactStatusINFERRED, contracts.EnumsV1FactStatusSTALE} {
+		p := payment()
+		p.Status = st
+		p.AccountRef = ""
+		_, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+		for _, u := range unknowns {
+			if u.Status == contracts.EnumsV1FactStatusKNOWN || u.FactId == "" {
+				t.Errorf("status %s: unknown item %+v is KNOWN or has no id", st, u)
+			}
+		}
+	}
+	long := cfg
+	long.OwnerQueues = map[string]string{"Q": strings.Repeat("T", 200), "R": strings.Repeat("T", 201)}
+	ok, _ := factsource.Case(long, factsource.CaseRow{ExternalAck: "CMP-1", OwnerQueue: "Q", Status: contracts.EnumsV1FactStatusKNOWN}, asOf, "case system")
+	tooLong, us := factsource.Case(long, factsource.CaseRow{ExternalAck: "CMP-1", OwnerQueue: "R", Status: contracts.EnumsV1FactStatusKNOWN}, asOf, "case system")
+	if _, has := byKind(ok)["case.team"]; !has {
+		t.Error("a 200-character team name was refused")
+	}
+	if _, has := byKind(tooLong)["case.team"]; has || !hasUnknown(us, "case.team") {
+		t.Error("a 201-character team name was shown")
+	}
+}
