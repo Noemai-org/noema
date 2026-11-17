@@ -124,5 +124,14 @@ class NamedSuites(unittest.TestCase):
         self.assertTrue(ids)
 
 
+
+
+class ScoringCommand(unittest.TestCase):
+    def test_every_suite_run_asks_the_scorer_for_the_story_table(self) -> None:
+        """BEN-12 (A300): the by-family G2 table is produced from the same run, never by a second hand-run step."""
+        from benchmark.suites.__main__ import scoring_command
+        self.assertIn("--story-table", scoring_command(Path("s"), Path("r"), "run_x", Path("o")))
+
+
 if __name__ == "__main__":
     unittest.main()
