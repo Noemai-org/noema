@@ -94,10 +94,11 @@ test("REQ-UI-001: CRLF frames accept a split UTF-8 event without inventing conte
 });
 
 test("REQ-UI-001: oversized frames and real HTTP errors do not deliver server text", async () => {
+  const envelope = await readFile(new URL("../../contracts/fixtures/valid/errors.v3/dependency_unavailable_retryable.json", import.meta.url));
   await withServer((request, response) => {
     if (request.url === "/error") {
       response.writeHead(503, { "content-type": "application/json" });
-      response.end('{"message":"synthetic private text"}');
+      response.end(envelope);
     } else {
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`event: answer\ndata: ${"x".repeat(maxFrameBytes + 1)}\n\n`);
@@ -107,7 +108,7 @@ test("REQ-UI-001: oversized frames and real HTTP errors do not deliver server te
       const events = [];
       const response = await fetch(`${url}${suffix}`);
       await assert.rejects(readEventStream(response, (event) => events.push(event), maxFrameBytes), (error) => {
-        assert.ok(!String(error).includes("synthetic private text"));
+        assert.ok(!String(error).includes("DEPENDENCY_UNAVAILABLE"));
         return true;
       });
       if (suffix === "/error") assert.equal(response.bodyUsed, true, "rejected error body is cancelled");
