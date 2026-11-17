@@ -7,7 +7,6 @@ import copy
 import json
 import re
 import unittest
-from unittest import mock
 from typing import Any, Callable, Iterator
 
 from benchmark.contracts import Contracts
@@ -161,12 +160,18 @@ class Fails(unittest.TestCase):
     def test_a_view_that_would_not_validate_is_never_returned(self) -> None:
         """The output check is not redundant with the input check: it is what stops a future change of the projection from leaking."""
         import benchmark.scoring.view as module
-        original = module.CONTRACTS.errors
+        original = module._project
 
-        def forced(name: str, doc: Any) -> list[str]:
-            return ["forced"] if name == "scorecard-view.v1" else original(name, doc)
-        with mock.patch.object(module.CONTRACTS, "errors", forced), self.assertRaises(ValueError):
-            scorecard_view(self.card)
+        def leaking(card: Any) -> dict[str, Any]:
+            leaked = original(card)
+            leaked["failures"] = [{"case_id": "BEN-AMB-0001"}]
+            return leaked
+        module._project = leaking
+        try:
+            with self.assertRaises(ValueError):
+                scorecard_view(self.card)
+        finally:
+            module._project = original
 
 
 class Schema(unittest.TestCase):
