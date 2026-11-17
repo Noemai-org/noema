@@ -3,6 +3,7 @@
 Each function returns a list of violations: (rule, file, line, message).
 """
 import ast
+import math
 import re
 import tomllib
 from pathlib import Path
@@ -12,6 +13,10 @@ Violation = tuple[str, str, int, str]
 SKIP = {".git", "node_modules", ".venv", "__pycache__"}
 MONEY_NAME = re.compile(r"^(amount.*|.*_minor|.*minor)$", re.I)
 BAD_MONEY_TYPE = re.compile(r"\b(float|Decimal)\b")
+SQL_BAD_TYPE = r"(?:numeric|decimal|real|double\s+precision|float[48]?|money)"
+SQL_MONEY_COLUMN = re.compile(rf"\b(amount\w*|\w*minor)\b\s+(?:set\s+data\s+)?(?:type\s+)?{SQL_BAD_TYPE}\b", re.I)
+SQL_MONEY_CAST = re.compile(rf"\b(amount\w*|\w*minor)\b\s*\)?\s*::\s*{SQL_BAD_TYPE}\b", re.I)
+SQL_MONEY_TYPE = re.compile(r"\b\w+\s+money\b(?!\s*[.(])", re.I)
 DB_AND_TEMPORAL = {
     "psycopg", "psycopg2", "psycopg2-binary", "psycopg-binary", "asyncpg", "sqlalchemy", "sqlmodel", "pymysql", "mysqlclient",
     "mysql-connector-python", "aiomysql", "pg8000", "databases", "peewee", "tortoise-orm", "pymongo", "motor", "alembic", "temporalio",
@@ -204,4 +209,51 @@ def pipeline_purity(root: Path) -> list[Violation]:
     return out
 
 
-ALL = (clock, money, cross_service, manifest, mocks, harness_only_providers, pipeline_purity)
+def _power_of_ten(node: ast.AST) -> bool:
+    """A literal 10, 100, 1000 ... (also 1e2 or 100.0), 10 ** n, or pow(10, n): a literal exponent multiplier."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+        v = abs(float(node.value))
+        return v >= 10 and abs(math.log10(v) - round(math.log10(v))) < 1e-9
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+        return isinstance(node.left, ast.Constant) and node.left.value == 10
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "pow" and node.args:
+        return isinstance(node.args[0], ast.Constant) and node.args[0].value == 10
+    return False
+
+
+def _mentions_money(node: ast.AST) -> bool:
+    return any((isinstance(n, ast.Name) and MONEY_NAME.match(n.id)) or (isinstance(n, ast.Attribute) and MONEY_NAME.match(n.attr)) for n in ast.walk(node))
+
+
+def money_multiplier(root: Path) -> list[Violation]:
+    """No literal power of ten multiplies, divides or scales a money value in the model service (M1; the exponent comes from the currency table)."""
+    out = []
+    for path, rel in _files(root, "services/model"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Mult, ast.Div, ast.FloorDiv, ast.Mod)):
+                if (_mentions_money(node.left) and _power_of_ten(node.right)) or (_mentions_money(node.right) and _power_of_ten(node.left)):
+                    out.append(("py-money-multiplier", rel, node.lineno, "a literal power of ten on a money value; the exponent comes from the currency table (M1)"))
+    return out
+
+
+def _sql_code(text: str) -> str:
+    """The SQL with comments and string literals blanked, keeping every line break so line numbers stay true."""
+    blank = lambda m: re.sub(r"[^\n]", " ", m.group(0))
+    text = re.sub(r"/\*.*?\*/", blank, text, flags=re.S)
+    text = re.sub(r"--[^\n]*", blank, text)
+    return re.sub(r"'(?:[^']|'')*'", blank, text)
+
+
+def money_sql(root: Path) -> list[Violation]:
+    """No REAL, DOUBLE PRECISION, FLOAT, NUMERIC, DECIMAL or MONEY on a money column or cast of a migration, and no MONEY type anywhere (M4)."""
+    out = []
+    for path, rel in _files(root, "services/core/migrations", ".sql"):
+        code = _sql_code(path.read_text())
+        for pattern, why in ((SQL_MONEY_COLUMN, "a money column"), (SQL_MONEY_CAST, "a cast of a money value"), (SQL_MONEY_TYPE, "the MONEY type")):
+            for m in pattern.finditer(code):
+                kind = re.search(SQL_BAD_TYPE, m.group(0)[len(m.group(1)) if m.lastindex else 0:], re.I)
+                out.append(("money-sql-type", rel, code.count("\n", 0, m.start()) + 1, f"{why} uses {' '.join(kind.group(0).upper().split()) if kind else 'a non-integer type'}; money is BIGINT in minor units (M4)"))
+    return sorted(set(out))
+
+
+ALL = (clock, money, money_multiplier, money_sql, cross_service, manifest, mocks, harness_only_providers, pipeline_purity)

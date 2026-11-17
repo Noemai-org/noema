@@ -3,7 +3,9 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -11,6 +13,61 @@ var moneyAreas = map[string]bool{"trust": true, "execution": true, "outcome": tr
 
 // moneyName matches names that hold money: *_minor, *Minor, amount*.
 var moneyName = regexp.MustCompile(`(?i)^(amount.*|.*minor)$`)
+
+// isDecimalType reports a decimal or arbitrary-precision type: Decimal, decimal.Decimal, big.Float, big.Rat, also behind a pointer
+// (SoT money rules M4: money is an integer in minor units, never a decimal).
+func isDecimalType(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.StarExpr:
+		return isDecimalType(v.X)
+	case *ast.Ident:
+		return v.Name == "Decimal"
+	case *ast.SelectorExpr:
+		pkg := identName(v.X)
+		return v.Sel.Name == "Decimal" || (pkg == "big" && (v.Sel.Name == "Float" || v.Sel.Name == "Rat"))
+	}
+	return false
+}
+
+// mentionsMoney reports whether an expression names a money value anywhere inside it.
+func mentionsMoney(e ast.Expr) bool {
+	found := false
+	ast.Inspect(e, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && moneyName.MatchString(id.Name) {
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// isPowerOfTen reports a literal 10, 100, 1000 ... (also 1e2 or 100.0) or math.Pow10 / math.Pow(10, n): a literal exponent multiplier.
+func isPowerOfTen(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.ParenExpr:
+		return isPowerOfTen(v.X)
+	case *ast.BasicLit:
+		if v.Kind != token.INT && v.Kind != token.FLOAT {
+			return false
+		}
+		f, err := strconv.ParseFloat(strings.ReplaceAll(v.Value, "_", ""), 64)
+		if err != nil || f < 10 {
+			return false
+		}
+		exp := math.Log10(f)
+		return math.Abs(exp-math.Round(exp)) < 1e-9
+	case *ast.CallExpr:
+		sel, ok := v.Fun.(*ast.SelectorExpr)
+		if !ok || identName(sel.X) != "math" {
+			return false
+		}
+		if sel.Sel.Name == "Pow10" {
+			return true
+		}
+		return sel.Sel.Name == "Pow" && len(v.Args) == 2 && isPowerOfTen(v.Args[0])
+	}
+	return false
+}
 
 func isFloatType(e ast.Expr) bool {
 	name := identName(e)
@@ -69,7 +126,20 @@ func (l *linter) moneyRules(f *srcFile) {
 			if moneyAreas[f.area] && v.Kind == token.FLOAT {
 				l.add("money-float-area", f, v.Pos(), "float literal %s in %s", v.Value, f.area)
 			}
+		case *ast.BinaryExpr:
+			if v.Op == token.MUL || v.Op == token.QUO || v.Op == token.REM {
+				if (mentionsMoney(v.X) && isPowerOfTen(v.Y)) || (mentionsMoney(v.Y) && isPowerOfTen(v.X)) {
+					l.add("money-literal-multiplier", f, v.OpPos, "a literal power of ten on a money value; the exponent comes from contracts/currencies.json (M1)")
+				}
+			}
 		case *ast.Field:
+			if isDecimalType(v.Type) {
+				for _, name := range v.Names {
+					if moneyName.MatchString(name.Name) {
+						l.add("money-decimal-field", f, name.Pos(), "money field %q has a decimal type", name.Name)
+					}
+				}
+			}
 			if isFloatType(v.Type) {
 				for _, name := range v.Names {
 					if moneyName.MatchString(name.Name) {
@@ -78,6 +148,13 @@ func (l *linter) moneyRules(f *srcFile) {
 				}
 			}
 		case *ast.ValueSpec:
+			if v.Type != nil && isDecimalType(v.Type) {
+				for _, name := range v.Names {
+					if moneyName.MatchString(name.Name) {
+						l.add("money-decimal-field", f, name.Pos(), "money value %q has a decimal type", name.Name)
+					}
+				}
+			}
 			if v.Type != nil && isFloatType(v.Type) {
 				for _, name := range v.Names {
 					if moneyName.MatchString(name.Name) {
