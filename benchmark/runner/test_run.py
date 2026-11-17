@@ -373,6 +373,15 @@ class RunSuite(unittest.TestCase):
             for f in (Path(out) / "results").glob("*.json"):
                 self.assertEqual(errors(json.loads(f.read_text())), [])
 
+    def test_the_run_writes_each_cases_correlation_id_for_the_evidence_probes(self) -> None:
+        # noema#436, SR criterion 9: the negative probes read each case's own reconstruction, so the runner records which correlation id each case ran under.
+        with Rig() as rig, tempfile.TemporaryDirectory() as out:
+            s = self._small(1)
+            run_suite(rig.env, s, Path(out), commit_sha=None, providers=[], suite_manifest_bytes=b"{}")
+            written = json.loads((Path(out) / "correlations.json").read_text())
+            self.assertEqual(sorted(written), [lc.case["case_id"] for lc in s.cases])
+            self.assertTrue(all(v.startswith("corr_") for v in written.values()), written)
+
     def test_a_complete_run_says_so(self) -> None:
         with Rig() as rig, tempfile.TemporaryDirectory() as out:
             s = self._small(1)
