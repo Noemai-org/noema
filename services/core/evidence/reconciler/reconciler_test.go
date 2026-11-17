@@ -197,7 +197,7 @@ func TestTheAnswerIsTheSameForTheSameEvidenceInAnyOrderAndTheIDFollowsTheEvidenc
 func TestAbsenceIsUnknownAndNeverASuccess(t *testing.T) {
 	for name, w := range map[string]*world{
 		"a ledger with no posted debit":      build(t, spec{source: ledger, payload: map[string]any{"entries": []any{}}}, switchIs("SUCCESS"), destIs("CREDITED")),
-		"a status the mapping does not list": build(t, ledgerPosted(), switchIs("SOMETHING_NEW"), destIs("CREDITED")),
+		"a status the mapping does not list": build(t, ledgerPosted(), switchIs("SUCCESS"), destIs("SOMETHING_NEW")),
 		"a stale ledger":                     build(t, spec{source: ledger, payload: map[string]any{"entries": []any{}}, status: contracts.EnumsV1FactStatusSTALE}, switchIs("SUCCESS"), destIs("CREDITED")),
 		"an unavailable destination":         build(t, ledgerPosted(), switchIs("SUCCESS"), spec{source: dest, payload: map[string]any{}, status: contracts.EnumsV1FactStatusUNAVAILABLE}),
 	} {
@@ -312,5 +312,45 @@ func TestNewRefusesAnIncompleteConfiguration(t *testing.T) {
 	}
 	if _, err := reconciler.New(reconciler.Config{RuleSet: rs2, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: &store{}}, Clock: clock.NewManual(now)}); !errors.Is(err, reconciler.ErrNotUsable) {
 		t.Fatalf("a mapping written for another rule set was accepted: %v", err)
+	}
+}
+
+// The empty tenant is refused even when no payload would be read (every item not KNOWN).
+func TestAnEmptyTenantIsRefusedEvenWhenNoPayloadIsRead(t *testing.T) {
+	w := build(t, spec{source: ledger, payload: map[string]any{}, status: contracts.EnumsV1FactStatusUNAVAILABLE})
+	if _, err := w.rec.Classify(ctx(t), "", w.items); !errors.Is(err, reconciler.ErrItem) {
+		t.Fatalf("err %v, want ErrItem", err)
+	}
+}
+
+// Every item is required (A245): a source that could not answer stops a success the other two would give, because an unavailable required source is itself a rule's condition.
+func TestAnUnavailableSourceStopsASuccessTheOthersWouldGive(t *testing.T) {
+	w := build(t, ledgerPosted(), destIs("CREDITED"), spec{source: sw, payload: map[string]any{}, status: contracts.EnumsV1FactStatusUNAVAILABLE})
+	if got := classify(t, w); got.Classification != "INSUFFICIENT_EVIDENCE" {
+		t.Fatalf("got %+v, want INSUFFICIENT_EVIDENCE", got)
+	}
+}
+
+// The reconciliation id names what was classified: the status of an item and the mapping are part of it, not only the ids and the hashes.
+func TestTheReconciliationIDFollowsTheStatusOfAnItemAndTheMapping(t *testing.T) {
+	stale := build(t, spec{source: ledger, payload: map[string]any{}, status: contracts.EnumsV1FactStatusSTALE}, switchIs("SUCCESS"))
+	unavailable := build(t, spec{source: ledger, payload: map[string]any{}, status: contracts.EnumsV1FactStatusUNAVAILABLE}, switchIs("SUCCESS"))
+	if classify(t, stale).ReconciliationID == classify(t, unavailable).ReconciliationID {
+		t.Fatal("two item statuses gave one reconciliation id")
+	}
+	base := build(t, ledgerPosted(), switchIs("SUCCESS"), destIs("CREDITED"))
+	rs := ruleSet(t)
+	raw := strings.Replace(string(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json")), `"mapping_id": "fin.map.v1"`, `"mapping_id": "fin.map.v2"`, 1)
+	m2, err := mapping.Parse([]byte(raw), rs, []string{ledger, sw, dest}, "fin.map.v2@1", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	if err != nil {
+		t.Skipf("the mapping cannot be re-identified in this fixture: %v", err)
+	}
+	r2, err := reconciler.New(reconciler.Config{RuleSet: rs, Mapping: m2, Payloads: payloadread.Reader{Payloads: base.st}, Clock: clock.NewManual(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := r2.Classify(ctx(t), tenant, base.items)
+	if err != nil || other.ReconciliationID == classify(t, base).ReconciliationID {
+		t.Fatalf("a mapping with another identity gave the same reconciliation id (%v)", err)
 	}
 }

@@ -155,3 +155,19 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
 - Files to read first: `evidence/payloadread/README.md`, `evidence/readseal/readseal.go` (the `Reconciler` interface), `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`.
 - Do not touch: the mapping's rows until the Architect accepts them.
+
+# Session 2026-11-17 · ENV-04 slice 2b · the Reconciler (noema#663; A208, A245, A260)
+
+## Session summary
+- What changed (noema#663): `services/core/evidence/reconciler/` (`Reconciler.Classify`, README, tests). It reads a KNOWN item's verified payload, maps it with the pack's mapping, builds one `reconcile.Evidence` per row (every item required, A245), classifies with the real rule set and returns `rec_` plus 26 letters and the classification.
+- Why: `readseal.Reconciler` had no implementation, so the Evidence adapter could not be wired (noema#547, noema#596). A260: absence is UNKNOWN.
+- Risks, and how they are contained: it sits under Trust's evidence classification. It never turns an absence into a fact (a row with no field, an unverifiable payload, a non-KNOWN item cannot satisfy a rule); a store failure refuses the whole call; its error texts are fixed. It is not wired (`cmd/core` is EL's).
+- Tests added (REQ-RES-001, REQ-CTX-001, INV-19, INV-21, INV-23): 15 test functions with subtests; 23 hand mutants, all killed but two that are equivalent (an empty source is also refused by the mapping; the clock's reading feeds only `ValidUntil`, which `readseal` does not take). Six survived the first tests and each got a case (an empty tenant, a required unavailable source, the item status and the mapping in the id, a trusted row with no field, the expiry).
+- Regression cases added: the same.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's composition root builds `Reconciler` from `ParseRuleSet`, `mapping.Parse` (with the expected `<id>@<version>` the pack manifest names and the pack's evidence source ids), `payloadread.Reader{Payloads: trustPayloads}` and the clock, and plugs it into `readseal.Adapter`; then the G1 story test.
+- Open questions (owner): none (A245 and A260 answered `Required` and absence).
+- Files to read first: `evidence/reconciler/reconciler.go`, `evidence/readseal/readseal.go`.
+- Do not touch: the mapping's rows (accepted by A245; a change goes through the Architect).
