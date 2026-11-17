@@ -56,7 +56,9 @@ PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
 # endpoint setting is allowed on `model` and on no other service; and the provider side holds no credential of the core's database, Temporal or grants (PERD 41.1). Names only: a value
 # is never read here. `evil-provider` is the synthetic provider of the bench and holds no real key, so it is not allowed one either.
-PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google_api)_")
+# The prefixes are the providers of .env.example, the repository's inventory of secret and setting names (Codex P2 on noema#641: AZURE_FOUNDRY_ENDPOINT, OPENROUTER_ and TYPESAFE_ were missed);
+# self_test() reads that file and fails when a name ending in _API_KEY or _ENDPOINT there is not classified as a provider name, so a new provider cannot be added unseen.
+PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token|endpoint|api_base_url)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google|openrouter|azure_foundry|typesafe)_")
 CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|postgres_password|pgpassword|pguser|temporal_|grant_key|signing_key)")
 # The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
 # credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
@@ -212,6 +214,10 @@ def self_test(configs):
         "the evil provider holds a real provider key": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"AETHEX_API_KEY": "x"})),
         "the core mounts a provider key as a Compose secret": ("dev", lambda c: c["services"]["core"].update({"secrets": [{"source": "intron_api_key"}]})),
         "postgres holds a provider setting": ("demo", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"ANTHROPIC_API_KEY": "x"})),
+        "the core holds the Azure Foundry endpoint (Codex P2 on noema#641)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_ENDPOINT": "x"})),
+        "the core holds the Azure Foundry key": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_API_KEY": "x"})),
+        "the ui holds an OpenRouter key": ("demo", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENROUTER_API_KEY": "x"})),
+        "postgres holds a Typesafe key": ("dev", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"TYPESAFE_API_KEY": "x"})),
         "the model holds the core's database DSN": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_CORE_DSN": "x"})),
         "the model holds a Temporal setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"TEMPORAL_ADDRESS": "x"})),
         "the model holds a grant signing key": ("demo", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "x"})),
@@ -273,6 +279,15 @@ def self_test(configs):
     for profile, cfg in configs.items():
         if check(cfg, profile):
             missed.append(f"unmutated {profile} is not clean")
+    # The inventory: every name of .env.example that is a key or an endpoint must be classified as a provider name, or this rule would not know it (Codex P2 on noema#641).
+    env_example = COMPOSE_FILE.parent.parent.parent / ".env.example"
+    if env_example.is_file():
+        for line in env_example.read_text(encoding="utf-8").splitlines():
+            name = line.split("=", 1)[0].strip()
+            if "=" in line and re.fullmatch(r"[A-Z][A-Z0-9_]*", name) and re.search(r"(API_KEY|_ENDPOINT)$", name) and not PROVIDER_NAME.search(name):
+                missed.append(f".env.example names {name}, which the provider-credential rule does not classify as a provider name: add its prefix to PROVIDER_NAME")
+    else:
+        missed.append(".env.example is missing: the provider inventory cannot be checked")
     # Positive control for the credential rule: the model service IS allowed its provider key, endpoint and secret (a rule that refused it would make the allowed place unusable).
     allowed = copy.deepcopy(configs["dev"])
     allowed["services"]["model"].setdefault("environment", {}).update({"INTRON_API_KEY": "x", "INTRON_API_BASE_URL": "x", "OPENAI_API_KEY": "x"})
