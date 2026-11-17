@@ -51,6 +51,11 @@ secrets:
     file: ./secrets/noema_core_password
   temporal_password:
     file: ./secrets/temporal_password
+  # The Decision Grant HMAC keys (SEC-09): two files, so a rotation has two active keys. The core holds both; no other service does (netcheck refuses it, INV-29). SYNTHETIC local values.
+  grant_hmac_key_a:
+    file: ./secrets/grant_hmac_key_a
+  grant_hmac_key_b:
+    file: ./secrets/grant_hmac_key_b
   # The migration login's password (W1 D14a). Mounted into postgres (bootstrap) only; the one-shot migrate step (W4) will be
   # the second and last holder. The core never holds it.
   noema_migrator_password:
@@ -149,7 +154,7 @@ services:
       # The largest answer the core's client reads from the model service, in bytes: no default in the core (AGENT-16), so it is set here. 65536 is the value the Founders gave on
       # 15 Nov 2026 (relayed, not yet in a decision record); the core refuses to build its client without it.
       NOEMA_MODEL_MAX_RESPONSE_BYTES: "65536"
-    secrets: [noema_core_password]
+    secrets: [noema_core_password, grant_hmac_key_a, grant_hmac_key_b]
     volumes:
       - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
       - ./secrets/tls/core-client.crt:/run/tls/core-client.crt:ro
