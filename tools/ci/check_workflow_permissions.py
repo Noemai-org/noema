@@ -28,6 +28,9 @@ VALUES = {"read", "write", "none"}
 PERMISSIONS = re.compile(r"^(?P<indent>[ ]*)['\"]?permissions['\"]?:[ ]*(?P<rest>.*)$")
 ENTRY = re.compile(r"^(?P<indent>[ ]*)(?P<q>['\"]?)(?P<key>[A-Za-z0-9_-]+)(?P=q):[ ]*(?P<value>[^#\s]*)[ ]*(#.*)?$")
 UNSUPPORTED = "unsupported syntax"
+# Any `permissions` KEY anywhere on a line, in any spelling (a space before the colon, a flow mapping, a JSON-style line): a line that carries one but is not a recognised block line is
+# refused, so a grant cannot hide in a layout the block reader does not parse (Codex P2 on noema#629).
+PERMISSIONS_ANYWHERE = re.compile(r"(?<![\w.-])['\"]?permissions['\"]?[ \t]*:")
 
 
 def code(line: str) -> str:
@@ -86,8 +89,11 @@ def scan(name: str, text: str) -> tuple[list[str], set[tuple[str, str]]]:
                     problems.append(f"{name}:{entry_line}: `{permission}: write` is not in ALLOW_WRITE for this workflow")
             if indent == 0 and permission == "contents" and value not in {"read", "none"}:
                 problems.append(f"{name}:{entry_line}: top-level `contents` must be read or none")
+    recognised = {number for number, _indent, _scalar, _entries in found}
     for number, line in enumerate(lines, 1):
         body = code(line)
+        if PERMISSIONS_ANYWHERE.search(body) and number not in recognised:
+            problems.append(f"{name}:{number}: a `permissions` key in a layout this check does not read (a space before the colon, a flow mapping, an inline job): write it as a block line")
         if re.search(r"(?<![\w-])pull_request_target(?![\w-])", body):
             problems.append(f"{name}:{number}: the `pull_request_target` trigger runs fork code with a write token")
         for word in ("write-all", "read-all", "id-token"):

@@ -195,6 +195,36 @@ class QuotedAndUnsupportedSyntax(unittest.TestCase):
         self.assertTrue(any("must be a mapping" in item for item in found), found)
 
 
+class LayoutsTheBlockReaderDoesNotParse(unittest.TestCase):
+    """A permissions key in any layout the block reader does not parse is refused, never skipped (Codex P2 on noema#629)."""
+
+    def refused(self, text: str) -> None:
+        found = run({"t.yml": text})
+        self.assertTrue(any("does not read" in item for item in found), found)
+
+    def test_a_space_before_the_colon_at_job_level(self) -> None:
+        self.refused(GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + "    permissions : " + chr(10) + "      contents: write" + chr(10)))
+
+    def test_an_inline_job_mapping(self) -> None:
+        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {runs-on: ubuntu-24.04, permissions: {contents: write}, steps: [{run: echo}]}" + chr(10)
+        self.refused(text)
+
+    def test_a_json_style_job(self) -> None:
+        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + '  "one": {"permissions": {"contents": "write"}}' + chr(10)
+        self.refused(text)
+
+    def test_a_flow_mapping_at_the_top_of_the_file(self) -> None:
+        self.refused("{name: t, permissions: {contents: write}, jobs: {}}" + chr(10))
+
+    def test_a_top_level_block_with_a_space_before_the_colon_does_not_count_as_the_block(self) -> None:
+        found = run({"t.yml": GOOD.replace("permissions:", "permissions :")})
+        self.assertTrue(any("does not read" in item for item in found), found)
+        self.assertTrue(any("no top-level" in item for item in found), found)
+
+    def test_a_comment_or_another_word_is_not_a_permissions_key(self) -> None:
+        text = GOOD + "      - run: echo needs permissions" + chr(10) + "      # permissions : write" + chr(10) + "      - name: no-permissions-here" + chr(10) + "        run: echo ok" + chr(10)
+        self.assertEqual(run({"t.yml": text}), [])
+
 class ThisRepository(unittest.TestCase):
     workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 
