@@ -1,0 +1,16 @@
+# Status · SEC-08 the cross-tenant suite (ADV-12)
+
+Updated 2026-11-17. Owner: C1 (A257: C1 authors, the Security Reviewer reviews).
+
+# Session 2026-11-17 · SEC-08 slice 1: the catalog guard
+
+## Session summary
+- What changed: `services/core/platform/db/tenant_isolation_test.go`. (1) Every table of the schema that holds a `tenant_id` must have row-level security enabled and forced and at least one policy, each bound to the login's tenant (`*_login_tenant()`), or be a SELECT-only `true` policy for the two verification roles; a new tenant table with no policy fails here. (2) The verification roles hold SELECT only, and the power logins hold no write privilege on the two registry tables. (3) A session with no tenant mapping gets no tenant from any login-tenant function (NULL, or the refusal of `record_login_tenant`), so every policy matches nothing.
+- Why: the done-when is "cross-tenant suite passes (ADV-12): cross-tenant reads, writes, grants and Record queries all refused". The behavioural refusals sit in the packages that own each table (decision_record and decision_grant: `platform/db/decision_record_test.go`; evidence: `evidence/layer/tables_test.go`; Record: `record/...`, `cmd/core/recordpools_test.go`; confirmation spend: `trust/recorder/confirmation_spend_test.go`; the case adapter: `adapters/outcome_e2e/records_test.go`); this slice makes sure no table escapes them by having no policy.
+- **FINDING for the Security Reviewer and the Architect (not changed here).** `tenant` has no row-level security and every power login (`trust_rw`, `execution_rw`, `outcome_rw`, `evidence_rw`, `orchestrator_rw`) holds SELECT on it (migration 0001): any tenant's login can list every tenant's ID and name. It is read-only and holds no customer data, but REQ-SEC-004 says cross-tenant reads are refused. Smallest safe fix: migration 0029 (C1's number): enable and force row-level security on `tenant` with a SELECT policy for the power roles bound to `decision_login_tenant()` (the ledger reads only its own tenant's `kill_switch`), and a `true` SELECT policy for the verification roles (the Verifier lists all tenants). A test that a ten_a login sees no ten_b row goes with it. Not built without a ruling: the test records the SELECT as reviewed (`registryReadable`), so removing it later is one line.
+- Not done: a behavioural cross-tenant matrix for every table in one place (each table needs valid rows built through its own writer; it is a larger slice); the Record query path across tenants through the read function (REC-03 tests cover it).
+- Tests added (REQ-SEC-004, INV-11, INV-12): above; mutant: removing `FORCE ROW LEVEL SECURITY` from migration 0028's `confirmation_spend` fails the guard. No red CI run (the schema already conforms).
+- Debt entries: none. Conflicts raised: none (the finding is for the Security Reviewer).
+
+## Pre-work for the next agent
+- Exact next step: the Security Reviewer's ruling on the `tenant` finding; then migration 0029 and the behavioural matrix.
