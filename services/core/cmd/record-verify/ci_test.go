@@ -284,17 +284,27 @@ func TestRecordVerifyCINoTenantsIsNotAPass(t *testing.T) {
 // Record are each refused before anything is read, and nothing is stopped.
 func TestRecordVerifyCIRefusesALoginThatIsNotTheVerificationLogin(t *testing.T) {
 	w := newCIWorld(t, "ten_aa")
-	if _, err := w.admin.Exec(ctx(t), `CREATE ROLE verify_writer__rec06 LOGIN IN ROLE record_verify`); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _, _ = w.admin.Exec(context.Background(), `DROP ROLE IF EXISTS verify_writer__rec06`) })
-	if _, err := w.admin.Exec(ctx(t), `GRANT INSERT ON record_event TO verify_writer__rec06`); err != nil {
-		t.Fatal(err)
-	}
 	cases := map[string]string{
-		"the administrator":                       w.admin.Config().ConnString(),
-		"a power's tenant login":                  w.pools["ten_aa"].Config().ConnString(),
-		"a verification login with a write grant": withUser(t, w.dsn, "verify_writer__rec06"),
+		"the administrator":      w.admin.Config().ConnString(),
+		"a power's tenant login": w.pools["ten_aa"].Config().ConnString(),
+	}
+	// A member of record_verify that was given one more privilege on the Record: each of the four write privileges, on the Record and on its head.
+	for i, grant := range []string{
+		"INSERT ON record_event", "UPDATE ON record_event", "DELETE ON record_event", "TRUNCATE ON record_event",
+		"INSERT ON record_chain_head", "UPDATE ON record_chain_head", "DELETE ON record_chain_head", "TRUNCATE ON record_chain_head",
+	} {
+		role := fmt.Sprintf("verify_writer_%d__rec06", i)
+		if _, err := w.admin.Exec(ctx(t), `CREATE ROLE `+role+` LOGIN IN ROLE record_verify`); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_, _ = w.admin.Exec(context.Background(), `DROP OWNED BY `+role)
+			_, _ = w.admin.Exec(context.Background(), `DROP ROLE IF EXISTS `+role)
+		})
+		if _, err := w.admin.Exec(ctx(t), `GRANT `+grant+` TO `+role); err != nil {
+			t.Fatal(err)
+		}
+		cases["a verification login that may also "+grant] = withUser(t, w.dsn, role)
 	}
 	for name, dsn := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -80,6 +80,18 @@ jobs:
           echo "test database: PostgreSQL $server"
           test "$server" = "$EXPECTED_POSTGRES"
           go test -race $(cat /tmp/shard-packages.txt)
+      # REC-06 (REQ-AUD-001, OD-06 of DEC-2026-10-17): the chain verifier job on the CI database, on every merge, from one shard. The tests build a SYNTHETIC Record with the real appender and run
+      # cmd/record-verify as the restricted verification login; a tampered row, a broken prior hash, a missing or reordered sequence number each fail it. The nightly workflow
+      # (record-verify-nightly.yml) runs this same command. The lines are checked, not only printed: a renamed test would make -run match nothing and still pass.
+      - name: Chain verifier job on the CI database (REC-06)
+        if: matrix.shard == 0
+        working-directory: services/core
+        run: |
+          set -eu
+          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt"
+          cat "$RUNNER_TEMP/record-verify.txt"
+          grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
+          test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
   # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.
   static:
     needs: changed
