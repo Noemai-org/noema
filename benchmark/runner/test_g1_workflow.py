@@ -12,7 +12,6 @@ from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "bench-g1-stack.yml"
 
-
 class G1StackWorkflow(unittest.TestCase):
     def setUp(self) -> None:
         self.text = WORKFLOW.read_text()
@@ -48,6 +47,7 @@ class G1StackWorkflow(unittest.TestCase):
         return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body}, capture_output=True, check=False).returncode
 
     @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation step")
+
     def test_the_run_id_and_the_body_limit_are_validated_on_the_whole_string(self) -> None:
         # Codex P1 and the Security Reviewer on noema#577: grep passed any value with one matching line (a newline injected a $GITHUB_OUTPUT entry) and rejected the empty default.
         for run_id in ("", "g1-stack-gh12.3_a", "a" * 64):
@@ -62,20 +62,49 @@ class G1StackWorkflow(unittest.TestCase):
     def test_the_checkout_does_not_keep_the_repository_token(self) -> None:
         self.assertRegex(self.text, r"uses: actions/checkout@\S+[^\n]*\n\s+with:\n\s+persist-credentials: false")
 
-    def test_the_uploaded_artifacts_are_leak_scanned_first_and_a_failed_scan_fails_the_job(self) -> None:
-        scan = re.search(r"python3 -I tools/ci/leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
+    # The Security Reviewer's criteria 6, 8 and 9 on noema#436 (the Founders' order of 15 Nov): the recorded FaultPlans, a leak scan with a planted canary over every artifact, and two
+    # negative probes per case. Each must be run and each must fail the job.
+    def test_the_fault_plans_are_recorded_and_the_identity_probes_run_in_the_runner_container(self) -> None:
+        self.assertRegex(self.script, r"exec -T bench-runner python -m benchmark\.runner\.evidence fault-plans --suite /bench-out/suite --run /bench-out/run --out /bench-out/evidence")
+        probes = re.search(r"python -m benchmark\.runner\.evidence probes (.*?)(?=\n\s*echo \"probes=)", self.script, re.S)
+        assert probes
+        for flag in ("--api-url http://core:8080", "--tenant-id ten_alpha", "--other-tenant-id ten_other", "--idp-binary", "--idp-key", "--idp-kid", "--idp-audience"):
+            self.assertIn(flag, probes.group(1))
+
+    def test_the_result_fails_unless_the_run_the_evidence_and_the_scan_are_all_met(self) -> None:
+        result = re.search(r"(?ms)- name: Result.*", self.script)
+        assert result
+        for variable in ("FAULT_PLANS", "PROBES", "SCAN", "CODE"):
+            self.assertIn(variable, result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{FAULT_PLANS:-missing\}" = 0 \]')
+        self.assertRegex(result.group(0), r'\[ "\$\{PROBES:-missing\}" = 0 \]')
+        self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
+        self.assertIn('exit "$fail"', result.group(0))
+
+    def test_the_leak_scan_runs_the_canary_probe_and_covers_every_uploaded_path_and_the_summary(self) -> None:
+        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
         assert scan
         scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
+        self.assertIn("benchmark/out/summary.md", scan.group(1))
+        self.assertNotIn("$GITHUB_STEP_SUMMARY", scan.group(1), "that variable names a different file in each step (Codex P2 on noema#591)")
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
         for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
             self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
         self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+
+    def test_nothing_is_uploaded_unless_the_scan_is_clean_and_the_scan_comes_first(self) -> None:
         self.assertIn("if: always() && steps.scan.outputs.scan == '0'", self.script)
-        self.assertLess(self.script.index("tools/ci/leakscan.py"), self.script.index("actions/upload-artifact"))
-        result = re.search(r"(?ms)- name: Result.*", self.script)
-        assert result
-        self.assertRegex(result.group(0), r'\[ "\$\{SCAN:-missing\}" = 0 \]')
+        self.assertLess(self.script.index("tools/ci/g1_leakscan.py"), self.script.index("actions/upload-artifact"))
+        self.assertLess(self.script.index("name: Summary"), self.script.index("tools/ci/g1_leakscan.py"), "the step summary is scanned after it is written")
+
+    def test_the_step_summary_is_published_only_after_a_clean_scan(self) -> None:
+        publish = re.search(r"(?ms)- name: Publish the step summary.*?(?=^      - name:)", self.script)
+        assert publish
+        self.assertIn('[ "${SCAN:-missing}" = 0 ]', publish.group(0))
+        self.assertLess(self.script.index("tools/ci/g1_leakscan.py"), self.script.index("name: Publish the step summary"))
+        self.assertEqual(self.script.count("cat benchmark/out/summary.md"), 1)
+        self.assertNotRegex(self.script.split("name: Publish the step summary")[0], r">>\s*\"\$GITHUB_STEP_SUMMARY\"")
 
     def scan(self, target: Path, use_allow: bool = True) -> int:
         allow = WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow"
@@ -139,6 +168,46 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertEqual(scan(good, False), 1, "without the allow file the same lines are findings")
             for line in bad:
                 self.assertEqual(scan([line], True), 1, line)
+
+    def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
+        allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
+        self.assertEqual(len([l for l in allow if l.strip()]), 13)
+        for line in allow:
+            if line.strip():
+                self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
+
+    def test_a_captured_service_log_is_not_scanned_with_the_model_access_log_on(self) -> None:
+        # Codex P1 on noema#591: uvicorn's access line carries the client's ephemeral port, five digits, on every request and on the health check every three seconds, so a captured model
+        # log would fail the scan of an otherwise clean run. The workflow captures the model's log; the bench overlay must start it without the access log.
+        captured = re.search(r"for svc in ([a-z -]+); do", self.script)
+        assert captured
+        self.assertIn("model", captured.group(1).split())
+        overlay = (WORKFLOW.parents[2] / "deploy" / "compose" / "bench-model.yml").read_text()
+        entrypoint = re.search(r"entrypoint: \[(.*?)\]", overlay)
+        assert entrypoint
+        self.assertIn('"--no-access-log"', entrypoint.group(1))
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's log-capture step")
+    def test_a_service_log_that_could_not_be_collected_fails_the_job(self) -> None:
+        # Codex P2 on noema#591: set +e and exit 0 hid a failed `docker compose logs`, leaving an empty file the scan passed. The real step runs here against a stub `docker`.
+        step = re.search(r"(?ms)- id: logs\n.*?run: \|\n(.*?)(?=^      - )", self.text)
+        assert step
+        script = "\n".join(line[10:] for line in step.group(1).splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "bin").mkdir()
+            stub = root / "bin" / "docker"
+            stub.write_text('#!/bin/sh\nfor a in "$@"; do last="$a"; done\n[ "$last" = "$FAIL_SERVICE" ] && exit 1\n[ "$last" = "$EMPTY_SERVICE" ] && exit 0\necho "a log line of $last"\n', encoding="utf-8")
+            stub.chmod(0o755)
+            for fail, empty, want in (("", "", "collected=0"), ("model", "", "collected=1"), ("", "standin", "collected=1")):
+                out = root / f"out_{fail or 'none'}_{empty or 'none'}.txt"  # a fresh name per case, never pre-created: Windows can hold a just-written file when bash appends to it
+                run_ = subprocess.run(["bash", "-c", script], cwd=root, check=False, capture_output=True, text=True,
+                               env={"PATH": f"{root / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}", "GITHUB_OUTPUT": str(out), "FAIL_SERVICE": fail or "-", "EMPTY_SERVICE": empty or "-"})
+                self.assertEqual(out.read_text(encoding="utf-8").strip(), want, (fail, empty, run_.returncode, run_.stderr[-300:]))
+        result = re.search(r"(?ms)- name: Result.*", self.script)
+        assert result
+        self.assertIn("COLLECTED: ${{ steps.logs.outputs.collected }}", self.text)
+        self.assertRegex(result.group(0), r'\[ "\$\{COLLECTED:-missing\}" = 0 \]')
 
     def test_the_private_key_and_the_issuer_are_never_uploaded(self) -> None:
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)

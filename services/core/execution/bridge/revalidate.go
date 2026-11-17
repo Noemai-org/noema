@@ -14,6 +14,9 @@ const (
 	FactCaseStatus  = "case_status"
 	FactCaseVersion = "case_version"
 	FactOpenCases   = "open_cases"
+
+	// FactExistingComplaint: a complaint reference is already logged for the case (the descriptor's `existing_complaint_reference`).
+	FactExistingComplaint = "existing_complaint_reference"
 )
 
 // CaseRevalidator is E7 for mock-case: it re-reads exactly what the descriptors of the two capabilities name,
@@ -24,10 +27,10 @@ const (
 // Tushe-dependent work the Founder paused on 25 Oct 2026; the revalidation of that fact is added with the ledger
 // adapter.
 //
-// The complaint capability has no revalidation: it has no dispatch (see CapLogComplaintReference), so a grant for it is voided here (REVALIDATION_UNAVAILABLE) and
-// nothing is written.
+// Records is read for the complaint capability only. With none, a complaint cannot be revalidated and the controller voids the grant.
 type CaseRevalidator struct {
-	Case adapters.Case
+	Case    adapters.Case
+	Records adapters.CaseRecords
 }
 
 var _ controller.Revalidator = CaseRevalidator{}
@@ -41,6 +44,8 @@ func (r CaseRevalidator) Revalidate(ctx context.Context, g controller.Grant, ste
 		return r.create(ctx, g, step)
 	case CapRecordInvestigationEvidence:
 		return r.caseStatus(ctx, g)
+	case CapLogComplaintReference:
+		return r.complaint(ctx, g)
 	}
 	return controller.Revalidation{}, fmt.Errorf("bridge: no revalidation for capability %q", step.CapabilityID)
 }
@@ -103,4 +108,28 @@ func (r CaseRevalidator) caseStatus(ctx context.Context, g controller.Grant) (co
 		return controller.Revalidation{Passed: false, ChangedFacts: []string{FactCaseStatus}}, nil
 	}
 	return controller.Revalidation{Passed: true}, nil
+}
+
+// complaint: the case is open or routed and holds no complaint. This is the first line against a second complaint, not the guard: a rival can write between this read
+// and the write, and the target's conditional create (If-None-Match: *) refuses it atomically (A185). An incomplete page proves nothing and is an error, not a pass.
+func (r CaseRevalidator) complaint(ctx context.Context, g controller.Grant) (controller.Revalidation, error) {
+	if r.Records == nil {
+		return controller.Revalidation{}, errors.New("bridge: no records adapter, so the complaints of the case cannot be read")
+	}
+	base, err := r.caseStatus(ctx, g)
+	if err != nil {
+		return controller.Revalidation{}, err
+	}
+	page, err := r.Records.FindComplaints(ctx, adapters.RecordQuery{TenantID: g.TenantID, CaseID: g.TargetRef})
+	if err != nil {
+		return controller.Revalidation{}, err
+	}
+	if !page.Complete {
+		return controller.Revalidation{}, errors.New("bridge: the complaint list is incomplete, so absence cannot be concluded")
+	}
+	changed := base.ChangedFacts
+	if len(page.Items) > 0 {
+		changed = append(changed, FactExistingComplaint)
+	}
+	return controller.Revalidation{Passed: len(changed) == 0, ChangedFacts: changed}, nil
 }
