@@ -82,13 +82,19 @@ class SqlTypes(unittest.TestCase):
     def test_a_money_column_or_cast_of_an_inexact_type_is_refused(self) -> None:
         for text in ("CREATE TABLE t (amount_minor NUMERIC);", "CREATE TABLE t (fee_minor DOUBLE PRECISION);", "CREATE TABLE t (amount real);", "CREATE TABLE t (amount_total decimal(12,2));",
                      "ALTER TABLE t ALTER COLUMN amount_minor TYPE numeric;", "ALTER TABLE t ALTER COLUMN amount_minor SET DATA TYPE float8;", "SELECT amount_minor::numeric FROM t;",
-                     "SELECT (amount_minor)::double precision FROM t;", "CREATE TABLE t (balance money);"):
+                     "SELECT (amount_minor)::double precision FROM t;", "CREATE TABLE t (balance money);",
+                     # Codex's P2 on noema#669: the standard CAST(... AS ...) form is a cast of a money value as well
+                     "SELECT CAST(amount_minor AS NUMERIC) FROM t;", "SELECT cast(amount_minor as numeric) FROM t;", "SELECT CAST(t.amount_minor AS decimal(12,2)) FROM t;",
+                     "SELECT CAST((amount_minor) AS double precision) FROM t;", "SELECT CAST( amount_minor\n   AS real ) FROM t;", "SELECT CAST(fee_minor + 1 AS float8) FROM t;",
+                     "SELECT CAST(amount_minor AS money) FROM t;", "SELECT CAST ( amount_minor AS NUMERIC ) FROM t;"):
             with self.subTest(text=text):
                 self.assertIn("money-sql-type", lint(sql(text)))
 
     def test_exact_money_and_inexact_non_money_are_allowed(self) -> None:
         for text in ("CREATE TABLE t (amount_minor BIGINT NOT NULL CHECK (amount_minor BETWEEN 0 AND 9007199254740991));", "CREATE TABLE t (ratio numeric, elapsed real);",
-                     "-- amount_minor NUMERIC in a comment\nSELECT 1;", "SELECT 'amount_minor numeric';", "SELECT (r.json->>'attempt')::numeric FROM r;", "/* amount real */ SELECT 1;"):
+                     "-- amount_minor NUMERIC in a comment\nSELECT 1;", "SELECT 'amount_minor numeric';", "SELECT (r.json->>'attempt')::numeric FROM r;", "/* amount real */ SELECT 1;",
+                     "SELECT CAST(amount_minor AS BIGINT) FROM t;", "SELECT CAST(r.attempt AS numeric) FROM r;", "SELECT CAST(elapsed AS real) FROM t;",
+                     "SELECT CAST('amount_minor' AS numeric) FROM t;", "-- CAST(amount_minor AS NUMERIC)\nSELECT 1;", "SELECT CAST(amount_minor AS BIGINT), 1 AS numeric FROM t;"):
             with self.subTest(text=text):
                 self.assertNotIn("money-sql-type", lint(sql(text)))
 
