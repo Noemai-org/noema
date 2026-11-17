@@ -213,3 +213,6 @@
 
 ## Pre-work for the next agent
 - Exact next step: the read-only store method and the `principal_ref` migration (number from C1), then set `Components.Investigations`.
+
+# Session 2026-11-17 · EDG-01 · C2's P2 and P3 on noema#646
+- What changed: the body is made from the generated `contracts.InvestigationResponseV1` and `TestTheBodyIsInvestigationResponseV1` decodes every state's answer with the contract's own strict `UnmarshalJSON` (P2); every answer of the route (200 and each error) carries `Cache-Control: no-store`, and `publicError` sets it too (P3, `TestEveryAnswerOfTheRouteIsNoStore`). Seen failing locally (five no-store cases red; the body test pins what was already true), one push. The edge's own refusals (a refused role, no session) are the edge's and do not carry the header: the edge is C1's path.

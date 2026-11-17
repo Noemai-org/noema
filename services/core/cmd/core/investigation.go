@@ -28,6 +28,7 @@ var investigationPath = regexp.MustCompile(`\Ainv_[0-9A-Za-z]{2,32}\z`)
 // investigationRoute is the route, for a customer only. With a nil reader it refuses (503) and never answers a default stage.
 func investigationRoute(r InvestigationReader) edge.Route {
 	return edge.Route{Pattern: "GET /v1/investigations/{id}", Roles: rolesCustomer, Handler: http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Cache-Control", "no-store") // one person's investigation state: never kept by a shared cache or the browser
 		corr := session.CorrelationFromContext(req.Context())
 		id := req.PathValue("id")
 		p, ok := session.FromContext(req.Context())
@@ -57,7 +58,7 @@ func investigationRoute(r InvestigationReader) edge.Route {
 			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
 			return
 		}
-		body, err := crypto.CanonicalJSON(map[string]any{"schema_version": "1.0", "state": string(stage)})
+		body, err := crypto.CanonicalJSON(contracts.InvestigationResponseV1{SchemaVersion: "1.0", State: stage})
 		if err != nil {
 			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
 			return
@@ -70,6 +71,7 @@ func investigationRoute(r InvestigationReader) edge.Route {
 
 // publicError writes the error envelope of errors.v3 with the request's correlation ID and a fixed sentence (AGENT-13). The not-found shape is byte-for-byte the edge's own.
 func publicError(w http.ResponseWriter, status int, code contracts.ErrorsV3ErrorCode, message, corr string) {
+	w.Header().Set("Cache-Control", "no-store")
 	body, err := crypto.CanonicalJSON(map[string]any{"error": map[string]any{"code": string(code), "message": message, "retryable": retryableV3(code), "correlation_id": corr}})
 	if err != nil {
 		http.Error(w, "", http.StatusInternalServerError)

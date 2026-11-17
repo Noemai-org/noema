@@ -18,6 +18,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/edgetest"
 	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
@@ -219,5 +220,42 @@ func TestTheInvestigationRouteIsMountedForACustomerAndOnlyWithAReader(t *testing
 	without := conversationAPI(t, iss, Components{Records: &failingDBs{}, AccessLog: discardLog()})
 	if r := getInv(without, bearer(iss, session.RoleCustomer, invTenant), invID); r.Code != http.StatusNotFound {
 		t.Errorf("no reader: %d, want 404 (no route)", r.Code)
+	}
+}
+
+// C2's P2 on #646: the body is the contract. Each answer decodes with investigation-response.v1's own strict UnmarshalJSON (closed shape, a stage of the six), so a renamed member
+// or a new required one fails here and not at the client.
+func TestTheBodyIsInvestigationResponseV1(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	tbl, err := orchestrator.LoadTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range tbl.States() {
+		h := invAPI(t, iss, &fakeReader{state: s, found: true})
+		rec := getInv(h, bearer(iss, session.RoleCustomer, invTenant), invID)
+		var got contracts.InvestigationResponseV1
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.SchemaVersion != "1.0" || got.LastAnswer != nil || got.CaseRefMasked != nil {
+			t.Errorf("%s: %d %s does not decode as investigation-response.v1 (or carries an answer it should not yet)", s, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// C2's P3 on #646: one person's investigation state is never kept by a shared cache or the browser: Cache-Control: no-store on the 200 and on every error this route writes.
+func TestEveryAnswerOfTheRouteIsNoStore(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	auth := bearer(iss, session.RoleCustomer, invTenant)
+	cases := map[string]*httptest.ResponseRecorder{
+		"found":         getInv(invAPI(t, iss, &fakeReader{state: "EVALUATING", found: true}), auth, invID),
+		"absent":        getInv(invAPI(t, iss, &fakeReader{found: false}), auth, invID),
+		"malformed id":  getInv(invAPI(t, iss, &fakeReader{found: true}), auth, "inv_!!"),
+		"store failure": getInv(invAPI(t, iss, &fakeReader{err: errors.New("down")}), auth, invID),
+		"unmapped":      getInv(invAPI(t, iss, &fakeReader{state: "FROZEN", found: true}), auth, invID),
+		"no reader":     getInv(invAPI(t, iss, nil), auth, invID),
+	}
+	for name, rec := range cases {
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s (%d): Cache-Control %q, want no-store", name, rec.Code, got)
+		}
 	}
 }
