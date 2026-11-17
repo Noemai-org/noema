@@ -15,6 +15,10 @@ CommonV1CandidateSetId: TypeAlias = Annotated[str, StringConstraints(pattern='\\
 CommonV1ClarificationId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aclr_[0-9A-Za-z]{2,32}\\Z')]
 
 
+# CommonV1ClientRequestId. Source: common.v1.json#$defs/ClientRequestId
+CommonV1ClientRequestId: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\Z')]
+
+
 # CommonV1ConfirmationEventId. Source: common.v1.json#$defs/ConfirmationEventId
 CommonV1ConfirmationEventId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Acfe_[0-9A-Za-z]{2,32}\\Z')]
 
@@ -52,7 +56,7 @@ CommonV1Id: TypeAlias = Annotated[str, StringConstraints(pattern='\\A[a-z]{2,6}_
 
 
 # CommonV1IdempotencyKeyId. Source: common.v1.json#$defs/IdempotencyKeyId
-CommonV1IdempotencyKeyId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aidk_[0-9A-Za-z]{2,32}\\Z')]
+CommonV1IdempotencyKeyId: TypeAlias = Annotated[str, StringConstraints(pattern='\\Aidk_v1_[0-9a-f]{64}\\Z')]
 
 
 # CommonV1IntentId. Source: common.v1.json#$defs/IntentId

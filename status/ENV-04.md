@@ -78,6 +78,52 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Note 4:** migration 0020 checks the shape of `reconciliation_id` (`^rec_...`) and `reconciliation_classification` (`^[A-Z][A-Z0-9_]*$`) and not a closed set; the adapter now refuses an answer that is not of those shapes (`ErrIncomplete`); the closed set stays the Reconciler's contract. **Notes 3 and 5:** stated in the README (who bounds what; the caller maps every error to one answer and never returns `err.Error()`). The cross-tenant and cross-principal test over Postgres belongs to the first real wiring.
 - Debt: none. Conflicts raised: none.
 
+# Session 2026-11-14 17:20 WAT · ENV-04 · the evidence mapping (A208, slice 1 of 2, noema#589)
+
+## Session summary
+- What changed (PR noema#589): `services/core/trust/reconcile/mapping` (`Parse`, `Rows`) and `packs/fintech/evidence_mapping/mapping.v1.json`: versioned pack data that turns a stored source payload (`entries`, `semantic_status`, `credit_state`, the words `portread` records) into rows of the reconciliation rule set's vocabulary (`debit`, `switch`, `credit`).
+- Why: the Founder's order of 14 Nov 2026 ("the evidence mapping is versioned pack data: C2 owns it and EL reviews it; classify first, then seal (A208)"). EL's finding on noema#547 and my proposal on noema#579: nothing mapped the payloads to the rule set, so the adapter's `Reconciler` could not classify.
+- Risks, and how they are contained: **absence is never a negative fact** (INV-19): a field the payload does not give, or gives as a value the mapping does not list, is left unset; nothing is defaulted; `debit.NOT_POSTED` is never produced. A mapping that is not whole fails at load (unknown entity or field, non-enum, a value not in the enum, an unlisted source, a repeated row or member, another rule set). The status of a row is the evidence item's, never the mapping's.
+- Tests added (REQ-RES-001, REQ-CTX-001; INV-19, INV-21): 12 test functions, red first (run 43614711290, `static` failed: no non-test Go files). Twenty hand mutations: seventeen killed; three survive and are equivalent (a missing entity check, a missing field check and a missing non-enum check are each refused again by a later check). Two cases were added after the red push: a repeated JSON member at any depth, and a quantifier value outside the enum (the one real survivor).
+- Regression cases added: a repeated member at any depth is refused; a quantifier whose value is not in the enum is refused.
+- Debt entries: none. Conflicts raised: none. Open: the Architect's reading of A208 (noema#579: the predicate language or this closed reading) and approval of each row's meaning; EL's review of the pack data.
+
+## Pre-work for the next agent
+- Exact next step: slice 2, the `Reconciler` (readseal's port): load each item's stored payload (`evidence_payload.json`, SELECT is granted to `trust_rw`), call `Rows`, set each row's `Evidence.Status` from the item, call `reconcile.Reconcile` with the rule set, record `mapping.ID()` beside the rule set's id, return `Classified`. The payload reader needs a Trust-login connection: ask EL where it lives.
+- Files to read first: `trust/reconcile/mapping/mapping.go`, `packs/fintech/evidence_mapping/mapping.v1.json`, `evidence/readseal/readseal.go` (the `Reconciler` interface), `evidence/portread/reader.go` (the payload shapes).
+- Do not touch: the rule set (`rules.v1.json`) and the semantic table until the Architect approves it.
+
+# Session 2026-11-15 · ENV-04 · the Security Reviewer's blocking finding on noema#589 (the mapping's version)
+
+## Session summary
+- What changed (PR noema#589, two pushes: the tests, red first, then the fix): `mapping.Parse` takes the identity and version the caller expects (`<mapping_id>@<version>`, from the pack manifest at composition) and refuses any other, so a file that is silently another version, or whose id and version disagree with what was approved, never loads. The label must be exactly `SYNTHETIC` (note 1). The document is bounded before it is decoded (note 3): `Parse` takes `Limits{MaxBytes, MaxDepth}` from the caller (platform/config; the repository's own lint refuses a threshold literal in decision code, which I learned from the first push of this round) and refuses limits that are not positive. The two loops the Security Reviewer called vacuous now fail if no row or no field is produced (note 2).
+- Why: the mapping is the pack data that decides what a source payload means to Trust (AGENT-16); a version change must fail a test, not pass silently.
+- Risks, and how they are contained: the composition must pass the expected identity from the pack manifest; **there is no caller yet**, so nothing breaks, and the Reconciler (slice 2) takes it as an argument. Hand mutants on the new code, all killed (the label check, the identity check, the version in the identity, both bounds, the limits check, the depth).
+- Tests added (REQ-RES-001, REQ-CTX-001; INV-19, INV-21, AGENT-16): three new test functions and two existing loops made non-vacuous. Red first: the package did not compile against them (a signature change), so the red shows the API, not each assertion; the mutants are the evidence for the assertions.
+- Not done, stated: a JSON Schema for the mapping file with valid and invalid fixtures, or a hash pin (the Security Reviewer's "can follow"); the Architect's acceptance of each row's meaning (A208, noema#579) remains open.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Reconciler (slice 2) calls `Parse` with the expected `<id>@<version>` the pack manifest names; see noema#596 for the inputs it still needs.
+
+# Session 2026-11-16 · ENV-04 slice 2 · the evidence item carries its source and times (noema#596)
+
+## Session summary
+- What changed (PR noema#613): `evidence/layer/builder.go`: `layer.Item` gains `Source`, `ReadAt`, `EffectiveAt` and `FreshnessSLASeconds`, set by `Builder.Record` from what it just wrote to `evidence_item`; `builder_test.go`: one test that reads the stored row back and compares.
+- Why: the Founder's order of 16 Nov 2026 ("Reconciler slice 2 per A228/#596"). The Reconciler builds a `reconcile.Evidence` per mapped row and needs the source, the read time (for `ExpiresAt`) and the effective time, which `layer.Item` did not carry.
+- Risks, and how they are contained: additive to a struct whose literals use field names; no new read, no new login; no Record event changes.
+- Tests added (REQ-CTX-001, REQ-RES-001): 1, red first (run 43806709349: `static`, `tests (2)` and `core` failed with "item.Source undefined"; the whole run read, `compose` included).
+- Regression cases added: the item agrees with the stored row.
+- The Security Reviewer's READY on noema#613 at `1ba21a85`, with a conflict and three notes (16 Nov 2026): merged `main` for the conflict (`status/ENV-04.md`, both sessions kept). Note 2: the item's `FreshnessSLASeconds` was only the source's limit, while `AssignStatus` applies the stricter of the source's and the profile's (INV-23), so an expiry made from it would have been looser than the status: the field is now `EffectiveFreshnessSeconds` (the applied limit; the row's `freshness_sla_seconds` stays the source's). Note 3: the item's times are cut to the microsecond `timestamptz` keeps. Both tests first (`c04783c8`). Note 1 (a zero `ReadAt` or `EffectiveAt` is refused nowhere): not changed here, because the builder never refused it and a failed read may carry no time; the Reconciler (slice 2b) refuses a zero value it uses, and the field's comment says so.
+- Debt entries: none. Conflicts raised: none.
+- Default taken (AGENT-02), stated on noema#596: EL owns `evidence/layer`; EL has not answered question 1, so this PR is the smallest default and closes if EL prefers to add the fields.
+
+## Pre-work for the next agent
+- Exact next step: after noema#589 merges, the `PayloadReader` port in `readseal`, the hash check (decode with exact numbers, canonicalise, compare with `PayloadHash`), and the Reconciler (`Classify`), tests first. A row with no fields is not a positive fact (INV-19; the Security Reviewer's note 2 on noema#589).
+- Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
+- Files to read first: `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`, `evidence/readseal/readseal.go`, `cmd/core/payloadreader.go`.
+- Do not touch: the pack's mapping rows until the Architect accepts them.
+
 # Session 2026-11-15 11:00 WAT · ENV-04 · the G1 stack workflow's session tokens and leak scan (IL, noema#577)
 
 ## Session summary
@@ -92,3 +138,20 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - Open questions (owner): the concurrency group is single-flight (`bench-g1-stack`); the Security Reviewer asks for one ruling (Architect or Founders).
 - Files to read first: `.github/workflows/bench-g1-stack.yml`, `tools/ci/g1_leakscan.allow`, `benchmark/runner/test_g1_workflow.py`.
 - Do not touch: the private key path and the issuer binary (runner only).
+
+# Session 2026-11-16 · ENV-04 slice 2a · the verified payload read (noema#596)
+
+## Session summary
+- What changed (PR noema#619): `evidence/payloadread/` (`Reader.Payload`, typed errors, README), `payloadread_test.go`.
+- Why: the Founder's order of 16 Nov 2026 ("Reconciler slice 2, #599 is merged"). The reader of noema#599 returns `jsonb` text; the item's hash covers the canonical form; the Reconciler needs a payload it can prove is the sealed one. This slice depends on nothing unmerged.
+- Risks, and how they are contained: fails closed on every error and returns no object; no payload in an error; the tenant is the caller's; a read of any kind that cannot be verified is "cannot be classified".
+- Tests added (REQ-CTX-001, REQ-AUD-001; INV-12, INV-19, INV-21): 12 tests incl. 300 generated payloads, red first (run on `e206f36f`: the package did not build); 15 hand mutants, all killed.
+- Regression cases added: a changed value; another payload's hash; trailing data; a fraction; an integer at 2^53-1; every read failure; each unusable call reads nothing.
+- Debt entries: none. Conflicts raised: none.
+- Defaults taken (AGENT-02): any failure of the read is one error (`ErrUnavailable`) wrapping the cause, because EL's error values live in `package main` and cannot be imported; the payload is not size-bounded here (the reader's bound is noema#606).
+
+## Pre-work for the next agent
+- Exact next step: slice 2b, the `Classify` (`evidence/reconciler`): after noema#589 (mapping) and noema#613 (`layer.Item` source and times) merge, build one `reconcile.Evidence` per mapped row (a row with no fields is not a positive fact, INV-19), `Required` per the Architect's answer on noema#579 (default until then: every item required, the stricter reading), `now` from `platform/clock`, `rec_` plus letters from SHA-256 of the rule set, the mapping and the sorted evidence IDs, then `reconcile.Reconcile`. It needs `mapping` to say which entities a source feeds (for an item with no payload).
+- Open questions (owner): `Required` per row (Architect, noema#579); where the reconciliation id comes from (EL, noema#596).
+- Files to read first: `evidence/payloadread/README.md`, `evidence/readseal/readseal.go` (the `Reconciler` interface), `trust/reconcile/types.go`, `trust/reconcile/mapping/mapping.go`.
+- Do not touch: the mapping's rows until the Architect accepts them.

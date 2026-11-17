@@ -241,6 +241,28 @@ class LayoutsTheBlockReaderDoesNotParse(unittest.TestCase):
         self.refused(text)
 
 
+    def test_an_escaped_key_spelling_is_refused(self) -> None:
+        key = "permiss" + chr(92) + "u0069ons"
+        for text in (
+            GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + "    " + chr(34) + key + chr(34) + ":" + chr(10) + "      contents: write" + chr(10)),
+            GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {" + chr(34) + key + chr(34) + ": {contents: write}}" + chr(10),
+            GOOD.replace("permissions:", chr(34) + key + chr(34) + ":"),
+        ):
+            found = run({"t.yml": text})
+            self.assertTrue(any("YAML escapes" in item for item in found), found)
+
+    def test_an_escape_in_a_value_or_a_text_is_not_a_key(self) -> None:
+        text = GOOD + "      - name: " + chr(34) + "a\tb" + chr(34) + chr(10) + "        run: echo " + chr(34) + "x\ny" + chr(34) + chr(10)
+        self.assertEqual(run({"t.yml": text}), [])
+
+
+    def test_a_token_that_ends_in_an_escaped_backslash_still_ends(self) -> None:
+        key = chr(34) + "a" + chr(92) + chr(92) + chr(34) + ": 1"
+        text = GOOD.replace("      - run: echo hello" + chr(10), "      - {" + key + ", permissions: {contents: write}}" + chr(10))
+        found = run({"t.yml": text})
+        self.assertTrue(any("YAML escapes" in item for item in found), found)
+
+
 class ThisRepository(unittest.TestCase):
     workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 

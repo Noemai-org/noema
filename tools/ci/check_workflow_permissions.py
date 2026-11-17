@@ -31,15 +31,47 @@ UNSUPPORTED = "unsupported syntax"
 # Any `permissions` KEY anywhere on a line, in any spelling (a space before the colon, a flow mapping, a JSON-style line): a line that carries one but is not a recognised block line is
 # refused, so a grant cannot hide in a layout the block reader does not parse (Codex P2 on noema#629).
 PERMISSIONS_ANYWHERE = re.compile(r"(?<![\w.-])['\"]?permissions['\"]?[ \t]*:")
+# A double-quoted key may be written with YAML escapes ("permiss\u0069ons" is `permissions`); a line scanner cannot read them, so a double-quoted token with a backslash that is
+# used as a KEY (followed by a colon) is refused (Codex P2 on noema#629). A stop gap: A283 replaces the line scanning with a YAML parser once one is approved.
+
+
+def has_escaped_key(line: str) -> bool:
+    """True when a double-quoted token that holds a backslash escape is followed by a colon (an escaped KEY). The line is walked token by token, outside single quotes, so an escaped
+    JSON string inside a script (a value like `{BS}"a{BS}": 1`) is one token that is not followed by a colon and is not a key. A backslash escapes the next character, so a token that ends
+    in an escaped backslash still ends."""
+    quote = ""
+    start = -1
+    escaped = False
+    for index, char in enumerate(line):
+        if quote == "'":
+            if char == "'":
+                quote = ""
+        elif quote == '"':
+            if escaped:
+                escaped = False
+            elif char == chr(92):
+                escaped = True
+            elif char == '"':
+                quote = ""
+                if chr(92) in line[start:index] and line[index + 1:].lstrip(" " + chr(9)).startswith(":"):
+                    return True
+        elif char in "'\"":
+            quote, start, escaped = char, index, False
+    return False
 
 
 def code(line: str) -> str:
     """The line without its YAML comment: a `#` starts one only outside a quoted string and at the start of the line or after a space or tab, so `{name: '# x', permissions: {...}}`
-    keeps its `permissions` key (Codex P2 on noema#629)."""
+    keeps its `permissions` key (Codex P2 on noema#629). A backslash escapes the next character inside double quotes."""
     quote = ""
+    escaped = False
     for index, char in enumerate(line):
         if quote:
-            if char == quote and not (quote == '"' and line[index - 1] == chr(92)):
+            if escaped:
+                escaped = False
+            elif quote == '"' and char == chr(92):
+                escaped = True
+            elif char == quote:
                 quote = ""
         elif char in "'\"":
             quote = char
@@ -102,6 +134,8 @@ def scan(name: str, text: str) -> tuple[list[str], set[tuple[str, str]]]:
     recognised = {number for number, _indent, _scalar, _entries in found}
     for number, line in enumerate(lines, 1):
         body = code(line)
+        if has_escaped_key(body):
+            problems.append(f"{name}:{number}: a key written with YAML escapes: this check cannot read it (write the key plainly)")
         if PERMISSIONS_ANYWHERE.search(body) and number not in recognised:
             problems.append(f"{name}:{number}: a `permissions` key in a layout this check does not read (a space before the colon, a flow mapping, an inline job): write it as a block line")
         if re.search(r"(?<![\w-])pull_request_target(?![\w-])", body):

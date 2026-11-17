@@ -88,7 +88,7 @@ func (c *CaseClient) LogComplaint(ctx context.Context, in adapters.LogComplaintI
 	if in.IdempotencyKey == "" || in.TenantID == "" || in.CaseID == "" || in.Timeout <= 0 {
 		return defect("INVALID_INPUT")
 	}
-	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases/"+url.PathEscape(in.CaseID)+"/complaints", nil, map[string]string{"Idempotency-Key": in.IdempotencyKey}, map[string]any{"tenant_id": in.TenantID}, in.Timeout)
+	status, hdr, raw, res := c.do(ctx, http.MethodPost, "/v1/cases/"+url.PathEscape(in.CaseID)+"/complaints", nil, complaintHeaders(in), map[string]any{"tenant_id": in.TenantID}, in.Timeout)
 	if res != nil {
 		return *res
 	}
@@ -133,7 +133,32 @@ func classifyEvidence(status int, h http.Header, raw []byte, in adapters.AppendE
 	})
 }
 
+// complaintHeaders is the idempotency key and the precondition "create only if absent", always: a complaint reference is made only when the case has none (the precondition of
+// log_complaint_reference, "no complaint for the subject and epoch", where a case is the subject and epoch; Architect rulings A185 and A229). There is no unconditional log, so a
+// caller cannot forget the precondition. The target enforces it atomically; a refusal is ClassDuplicateCreate with ExistingComplaintRef.
+func complaintHeaders(in adapters.LogComplaintInput) map[string]string {
+	return map[string]string{"Idempotency-Key": in.IdempotencyKey, "If-None-Match": "*"}
+}
+
 func classifyComplaint(status int, h http.Header, raw []byte, in adapters.LogComplaintInput) adapters.WriteResult {
+	if status == http.StatusPreconditionFailed {
+		// The log was conditional on the case having no complaint, and the target holds one that another key made. That is a business rejection (E10), not a stale version: a
+		// create has no version token. It has the class of every refused create-if-absent (the error code DUPLICATE_CREATE of errors.v2.json, D6). The complaint that exists is
+		// named, never adopted as this write's result.
+		code, we := errCode(raw)
+		if code != "PRECONDITION_FAILED" {
+			return adapters.WriteResult{Class: adapters.ClassRejected4xx, RawCode: rawCode(status, code)}
+		}
+		r := adapters.WriteResult{Class: adapters.ClassDuplicateCreate, RawCode: rawCode(status, code)}
+		if we != nil {
+			for _, d := range we.Error.Details {
+				if d.Field == "existing_complaint_ref" {
+					r.ExistingComplaintRef = d.Issue
+				}
+			}
+		}
+		return r
+	}
 	return classifyKeyed(status, h, raw, func() (adapters.WriteResult, bool) {
 		var w wireComplaint
 		if strictJSON(h, raw, &w) != nil {

@@ -27,29 +27,139 @@ import (
 // Limit is the longest run of digits a payload string may hold.
 const Limit = 4
 
+// Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
+// Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
+// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path and so no exemption: a transport class that holds
+// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). Masking is idempotent. record/reconstruct serves its facts
+// through this function (A194).
+func Mask(s string) string {
+	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
+		total := 0
+		for _, r := range run {
+			if unicode.IsDigit(r) {
+				total++
+			}
+		}
+		if total <= Limit {
+			return run
+		}
+		hide := total - Limit // digits to hide
+		var out strings.Builder
+		for _, r := range run {
+			if unicode.IsDigit(r) && hide > 0 {
+				out.WriteRune('*')
+				hide--
+				continue
+			}
+			out.WriteRune(r)
+		}
+		return out.String()
+	})
+}
+
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
-// digitRun is a run of digits in any script, with the separators people and programs put inside one number: spaces (also Unicode spaces), dots, hyphens, dashes, slashes, every Unicode
-// format character (soft hyphen, zero-width characters, joiners) and every combining mark ("4111 1111 1111 1111" and "4111-1111-1111-1111" are one run of 16). A comma, an underscore, a colon and a bracket end a run: a
-// code such as "VERSION_CONFLICT_409_412" is not a number. (record/reconstruct joins on the longer set of the leak scanner for what it serves; this guard is for what the core
-// writes, where a false refusal stops a write.)
-var digitRun = regexp.MustCompile(`\p{Nd}(?:[\s\p{Zs}\p{Cf}\p{M}.\-/\x{2010}-\x{2015}\x{2212}]*\p{Nd})*`)
+// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the next-line character
+// and the line and paragraph separators (\p{Z}); every dash (\p{Pd}) and the minus sign; every bracket (\p{Ps}, \p{Pe}); the dot, the slash, the colon and the underscore, with their
+// full-width forms and the middle dots; every Unicode format character (soft hyphen, zero-width characters, joiners) and every combining mark. "4111 1111 1111 1111",
+// "4111-1111-1111-1111", "4111_1111_1111_1111" and "(4111)(1111)(1111)(1111)" are each one run of 16. A comma is not in it, so an amount such as "20,000,000" is not one run. The guard
+// and the display mask use this set and no other; the earlier guard left out the underscore, the colon and the brackets so that a code such as VERSION_CONFLICT_409_412 was not
+// refused, and A231 replaced that with the one exemption of isReasonCode.
+const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
+
+// digitRun is a run of digits in any script joined by the separators. It is the one definition: Check refuses by it and Mask masks by it.
+var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
+
+// The one exemption of this rule besides the typed values below (A231, interim; narrowed by the Security Reviewer's and Codex's P1 on noema#600): the transport class a receipt carries.
+// The Record's receipt event stores `transport_result` (one transport class of the adapter, a finite vocabulary) and `raw_status`, which is that class, then a colon and a raw code
+// when there is one (execution/ledger/complete.go; outcome/receiptsig). One class, VERSION_CONFLICT_409_412, holds six digits, which the guard would otherwise refuse: the receipt
+// of every version conflict, after the write was dispatched. The exemption is **at those two exact paths of the payload and for those exact values only**: `/transport_result` must
+// be a class of transportClasses, `/raw_status` a class followed by at most maxRawCodeParts parts, each one to three digits or an UPPER_SNAKE word with no digit, and no more than
+// maxRawStatusDigits digits in all. The same string at any other path is refused, whatever its shape (a nine-digit identifier cannot be carried as a "code"). A deviation from A231 as
+// written (a whole-string UPPER_SNAKE shape anywhere), in the safer direction: the Architect is asked to confirm it on the PR.
+const (
+	maxRawCodeParts    = 2
+	maxRawStatusDigits = 9
+	maxRawCodeDigits   = 3
+
+	pathTransportResult = "/transport_result"
+	pathRawStatus       = "/raw_status"
+)
+
+// transportClasses is the finite vocabulary of execution/controller TransportClass (PERD 27.1, E10); guard_test.go reads that file and fails when the two disagree. record/ imports
+// no execution package, so the list is kept here.
+var transportClasses = map[string]bool{
+	"ACK_2XX": true, "VERSION_CONFLICT_409_412": true, "DUPLICATE_409_SAME_KEY": true, "DUPLICATE_CREATE": true, "REJECTED_4XX": true,
+	"TIMEOUT": true, "CONNECTION_RESET": true, "SERVER_5XX": true, "NO_RESPONSE": true, "ADAPTER_NON_RETRYABLE_DEFECT": true,
+}
+
+// isReceiptTransportValue reports whether s is exempt at path: the class itself at /transport_result, or the class and its raw-code parts at /raw_status.
+func isReceiptTransportValue(path, s string) bool {
+	switch path {
+	case pathTransportResult:
+		return transportClasses[s]
+	case pathRawStatus:
+		parts := strings.Split(s, ":")
+		if len(parts) > 1+maxRawCodeParts || !transportClasses[parts[0]] {
+			return false
+		}
+		total := countDigits(parts[0])
+		for _, p := range parts[1:] {
+			switch {
+			case p != "" && strings.Trim(p, "0123456789") == "":
+				if len(p) > maxRawCodeDigits {
+					return false
+				}
+				total += len(p)
+			case isUpperSnakeWord(p):
+			default:
+				return false
+			}
+		}
+		return total <= maxRawStatusDigits
+	}
+	return false
+}
+
+func countDigits(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] >= '0' && s[i] <= '9' {
+			n++
+		}
+	}
+	return n
+}
+
+// isUpperSnakeWord is a raw code that is a word: capital letters and single underscores, no digit (PRECONDITION_FAILED).
+func isUpperSnakeWord(s string) bool {
+	if s == "" || s[0] == '_' || s[len(s)-1] == '_' || strings.Contains(s, "__") {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !(c >= 'A' && c <= 'Z') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
 
 // keyID is the shape of the key ID of a signature (`<identity>.<algorithm>.<version>`, such as core-execution.ed25519.1): the algorithm name holds a run of more than four
 // digits ("ed25519"). It is exempt at a path that ends in /key_id only, and only in this shape, so the name cannot be put inside another string to split a number.
 var keyID = regexp.MustCompile(`\A[a-z][a-z0-9-]*\.(?:ed25519|x25519)\.[0-9]{1,4}\z`)
 
 // typedIDPrefixes are the prefixes of the typed IDs of contracts/schemas/common.v1.json (`<prefix>_` and 2 to 32 letters or digits). guard_test.go reads the contract and fails
-// when this list and the contract's ID definitions disagree.
-var typedIDPrefixes = []string{"req", "corr", "ten", "ses", "inv", "int", "cns", "clr", "evr", "evs", "rec", "dec", "cfr", "cfe", "pln", "grt", "idk", "rcp", "ver", "wat", "rrq", "exp", "evt", "recev", "mem", "usr"}
+// when this list and the contract's ID definitions disagree. `idk` is not here: since noema#564 the contract's IdempotencyKeyId is `idk_v1_` and 64 hex, which is matched whole below, so
+// a short `idk_<letters or digits>` is no ID and gets no exemption.
+var typedIDPrefixes = []string{"req", "corr", "ten", "ses", "inv", "int", "cns", "clr", "evr", "evs", "rec", "dec", "cfr", "cfe", "pln", "grt", "rcp", "ver", "wat", "rrq", "exp", "evt", "recev", "mem", "usr"}
 
 // TypedIDPrefixes returns a copy of the prefixes the guard treats as typed IDs.
 func TypedIDPrefixes() []string { return append([]string(nil), typedIDPrefixes...) }
 
 // typedIDs are the typed values of the contracts, whole-string: the typed IDs of contracts/schemas/common.v1.json (a prefix and 2 to 32 letters or digits), the intent
 // reference (`int_...@version`), the content hash (`sha256:` and 64 hex), the keyed hash of the input (`hmac-sha256:` and 64 hex), the idempotency key as PERD 27.2 writes
-// it (`idk_v1_` and 64 hex: common.v1's IdempotencyKeyId allows only 32 characters, which the real key does not fit; see the PR) and the grant nonce of decision-grant.v1
+// it (`idk_v1_` and 64 hex, which common.v1's IdempotencyKeyId says since noema#564) and the grant nonce of decision-grant.v1
 // (`n_` and 4 to 64 hex), and the lower-case UUID that canonical-input.v2 types the client's request ID as (the input gateway records it in INPUT_RECEIVED; common.v1's RequestId
 // is `req_` and up to 32 characters, which that UUID does not fit: see the PR). guard_test.go reads common.v1.json and fails when the typed ID prefixes here and the contract disagree.
 //
@@ -194,8 +304,8 @@ func longestRun(s string) int {
 // audit and ops surfaces only, never on the customer overlay or in an arm.
 var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
-// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the value of a signature at /sig/value or the
-// target's acknowledgement reference at /external_ack.
+// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
+// signature at /sig/value or the target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
 	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
 		return true
@@ -210,7 +320,7 @@ func exempt(path, s string) bool {
 			}
 		}
 	}
-	return isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s)
+	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s)
 }
 
 // isRFC3339 is true for a timestamp in RFC 3339 form (a date, a "T", a time and an offset or Z), with or without fractional seconds.
@@ -318,4 +428,14 @@ func normalForm(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// TransportClasses returns a copy of the transport classes the guard exempts at the receipt's two paths; guard_test.go reads the controller's constants and fails when they differ.
+func TransportClasses() []string {
+	out := make([]string, 0, len(transportClasses))
+	for c := range transportClasses {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }

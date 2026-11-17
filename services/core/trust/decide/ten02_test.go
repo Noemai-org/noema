@@ -52,7 +52,7 @@ func ten02Decide(t *testing.T, pack swapPack, k ten02Key) []byte {
 
 func TestTEN02ReplayedScenariosGiveIdenticalTrustDecisions(t *testing.T) {
 	defer func() {
-		t.Logf("TEN_RESULT id=TEN-02 part=trust-decisions seed=%d replays=%d pass=%t (verdict half: not built, OUT-01)", ten02Seed, ten02Replays, !t.Failed())
+		t.Logf("TEN_RESULT id=TEN-02 part=trust-decisions seed=%d replays=%d pass=%t (the verdict half prints its own line: part=outcome-verdicts)", ten02Seed, ten02Replays, !t.Failed())
 	}()
 	pack := loadSwapPack(t)
 	keys := ten02Keys()
