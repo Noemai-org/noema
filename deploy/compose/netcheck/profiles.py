@@ -59,7 +59,9 @@ PROVIDER_SIDE = {"model", "evil-provider"}
 # The prefixes are the providers of .env.example, the repository's inventory of secret and setting names (Codex P2 on noema#641: AZURE_FOUNDRY_ENDPOINT, OPENROUTER_ and TYPESAFE_ were missed);
 # self_test() reads that file and fails when a name ending in _API_KEY or _ENDPOINT there is not classified as a provider name, so a new provider cannot be added unseen.
 PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token|endpoint|api_base_url)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google|openrouter|azure_foundry|typesafe)_")
-CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|postgres_password|pgpassword|pguser|temporal_|grant_key|signing_key)")
+# Any name that holds a password (NOEMA_DB_PASSWORD_FILE, POSTGRES_PASSWORD_FILE, the Compose secret noema_core_password; Codex P1 on noema#641) is refused on the provider side: the model has no
+# database login of any kind, so a password name there is wrong whatever it is called. (NOEMA_CORE_ADDR is not a credential: the model may be told where the core is.)
+CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|password|passwd|pgpass|pguser|postgres_|temporal_|grant_key|signing_key)")
 # The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
 # credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
 BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
@@ -218,6 +220,9 @@ def self_test(configs):
         "the core holds the Azure Foundry key": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_API_KEY": "x"})),
         "the ui holds an OpenRouter key": ("demo", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENROUTER_API_KEY": "x"})),
         "postgres holds a Typesafe key": ("dev", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"TYPESAFE_API_KEY": "x"})),
+        "the model holds the core's database password file (Codex P1 on noema#641)": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_DB_PASSWORD_FILE": "/run/secrets/noema_core_password"})),
+        "the model mounts the core's database password as a Compose secret": ("ci", lambda c: c["services"]["model"].update({"secrets": [{"source": "noema_core_password"}]})),
+        "the evil provider holds a Postgres password file": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"POSTGRES_PASSWORD_FILE": "x"})),
         "the model holds the core's database DSN": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_CORE_DSN": "x"})),
         "the model holds a Temporal setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"TEMPORAL_ADDRESS": "x"})),
         "the model holds a grant signing key": ("demo", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "x"})),
