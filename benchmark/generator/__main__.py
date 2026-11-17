@@ -1,6 +1,7 @@
-"""noema-casegen: `python -m benchmark.generator generate|coverage|assumptions [--seed N] [--out DIR]`.
+"""noema-casegen: `python -m benchmark.generator generate|coverage|assumptions|reproduce [--seed N] [--out DIR] [--summary FILE]`.
 
 `generate` and `coverage` exit 1 when the coverage report has a gap (PERD §48.1 "Coverage rule"): a suite with a gap is not built.
+`reproduce` generates twice in two separate processes into `<out>/run1` and `<out>/run2` and exits 1 on any difference (BEN-04, G0-N N10); `--summary` writes the logs and digests, never a generated file.
 """
 import argparse
 import sys
@@ -26,10 +27,20 @@ def assumptions() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="noema-casegen", description=__doc__)
-    parser.add_argument("command", choices=("generate", "coverage", "assumptions"))
+    parser.add_argument("command", choices=("generate", "coverage", "assumptions", "reproduce"))
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument("--out", type=Path, default=Path("benchmark/out/generated"), help="suite root for `generate`")
+    parser.add_argument("--summary", type=Path, help="for `reproduce`: write the summary here")
     args = parser.parse_args(argv)
+    if args.command == "reproduce":
+        from .reproduce import render as render_summary, reproduce
+        outcome = reproduce(args.seed, args.out)
+        text = render_summary(outcome)
+        sys.stdout.write(text)
+        if args.summary is not None:
+            with args.summary.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+        return 0 if outcome.ok else 1
     if args.command == "assumptions":
         print(assumptions())
         return 0

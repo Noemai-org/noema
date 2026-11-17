@@ -162,12 +162,17 @@ func TestABraceInARenderedTextIsBlocked(t *testing.T) {
 	}
 }
 
-// The pack's own templates carry no slot yet, so slice 3's behaviour is unchanged for them (the pack edit is a separate, Founder-approved change).
-func TestTheTemplatesOfThePackStillRenderUnchanged(t *testing.T) {
+// The pack edit (the Founder's A155 approval; noema#595) put the inventory's slots in the pack's templates. This pins one of them end to end: the status template of a confirmed
+// success is filled from the three KNOWN facts of its group and leaves no brace. (Before the edit this test pinned that the pack carried no slot yet; the edit is that change.)
+func TestAPackTemplateRendersWithItsSlotsFilled(t *testing.T) {
 	tpl := load(t)
 	f := facts("fin.outcome.exception.status_explained", "SUCCESS_CONFIRMED")
 	r, err := explanation.Fallback(tpl, f)
-	if err != nil || len(r.FactIDs) != 0 || strings.ContainsAny(r.Text, "{}") {
+	if err != nil || strings.Join(r.FactIDs, ",") != "f1,f2,f3" || strings.ContainsAny(r.Text, "{}") {
 		t.Fatalf("pack template: %+v, %v", r, err)
+	}
+	want := "Here is what we can see about your transaction of NGN 5,000 on your account ending 0001 at 10:42 on 12 Nov. This transaction is confirmed as successful."
+	if r.Text != want {
+		t.Errorf("text %q, want %q", r.Text, want)
 	}
 }
