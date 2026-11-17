@@ -58,3 +58,10 @@ Updated 2026-11-14. The Trust intake's last three steps (the G1 card of noema#43
 ## Pre-work for the next agent
 - Exact next step: EL's confirmation adapter returns `PlanHash`; the Recorder adapter passes `ConfirmationPlanHash` and `ConfirmationEventID` to `recorder.Request`, and maps `recorder.ErrConfirmationSpent`, `ErrConfirmationPlanMismatch` and `ErrDecisionConflict` to UNKNOWN (never ALLOW).
 
+
+# Session 2026-11-17 · TRU-07 intake, the second round of noema#572 (A224, A225, A254, A255; the Security Reviewer's notes 1, 5 and 7)
+- What changed: T10 (a frozen target: reads go on, a blocked write is ESCALATE `TARGET_FROZEN`); T12 (an unrouted breached clock is ESCALATE `CLOCK_BREACHED_UNROUTED`; then the `Dispatches` port: spent budget is ESCALATE `DISPATCH_BUDGET_EXHAUSTED`); T14 (`Capabilities.Check(ctx, id, role)`, a step the role may not use is PLAN_INVALID); T15 (a sealed copy of the basis builder, `decide.BasisBuilder.Sealed`). Test fixtures use `cfe_` confirmation IDs (note 1). The determinism test cannot pass on a request that ignores its inputs: `TestT13ToT15TheRecordRequestFollowsTheInputsAndOnlyTheInputs` (note 7).
+- **For the Architect:** the three reason codes can only be ESCALATE at T10 and T12 (PERD 23.3 stop sets: T10 {Escalate}, T12 {Escalate}, T14 {}), so the frozen refusal is an ESCALATE and the dispatch budget is asked at T12 for the capability and target the intent names, not "after T14" as relayed. A plan step on another capability is covered by the runner's backstop. If T14 should be able to escalate, that is a PERD 23.3 change.
+- Not done: nothing of A225, A226 or the notes is left except note 3 and 4 (TRU-14, the end-to-end ALLOW test, both on the debt list).
+- Tests (REQ-TRU-002, REQ-TRU-006, REQ-RES-002; INV-03, INV-16, INV-21): ten new in `a255_round_test.go`, one in `decide/basis_sealed_test.go`; red first at `6fa6dae0` (seven failed). Mutant: a Record request with a constant plan hash fails the new determinism test.
+- Adapters (EL): `Capabilities.Check` fills `RoleAllowed`; `Dispatches.Count` answers from the ledger's dispatch events (the limit is the ledger's).

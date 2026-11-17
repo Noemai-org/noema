@@ -465,7 +465,8 @@ func TestT15TheRecordRequestCarriesTheBuildersBasisAndTheRequestsIdentity(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Evaluated != ev.bb || r.BasisDigest != digest || ev.bb.Check(r.Decision) != nil {
+	got, gerr := r.Evaluated.Digest() // the Recorder is handed a sealed copy of the builder (noema#572 note 5), with the same set
+	if r.Evaluated == ev.bb || gerr != nil || got != digest || r.BasisDigest != digest || r.Evaluated.Check(r.Decision) != nil || ev.bb.Check(r.Decision) != nil {
 		t.Errorf("the request does not carry the evaluated set: digest %q want %q", r.BasisDigest, digest)
 	}
 	if r.Decision.Outcome() != decide.Allow || !r.Decision.HasCompleteBasis() {

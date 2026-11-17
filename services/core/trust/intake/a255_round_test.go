@@ -14,11 +14,11 @@ import (
 
 // ---- T10: a frozen target (A225, A254) ----
 
-// A225: reads continue on a frozen target; only a write the freeze blocks is refused, and as a typed refusal (TARGET_FROZEN), not an internal error.
-func TestT10AFrozenTargetRefusesAWriteTheFreezeBlocksAsATypedRefusal(t *testing.T) {
+// A225, A254: reads continue on a frozen target; a write the freeze blocks ends in a typed ESCALATE (TARGET_FROZEN; PERD 23.3 gives T10 no REJECT), not an internal error.
+func TestT10AFrozenTargetEscalatesAWriteTheFreezeBlocksWithATypedReason(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
 	d, trace := run(t, newEv(t, f).withCapability(tWriteCap), decide.T10Reconciliation)
-	stopped(t, "frozen, write not allowed under the freeze", d, trace, decide.T10Reconciliation, decide.Reject, []string{"TARGET_FROZEN"}, escalateAtT10)
+	stopped(t, "frozen, write not allowed under the freeze", d, trace, decide.T10Reconciliation, decide.Escalate, []string{"TARGET_FROZEN"}, escalateAtT10)
 }
 
 func TestT10AReadContinuesOnAFrozenTarget(t *testing.T) {
@@ -70,51 +70,47 @@ func TestT14AStepTheRoleMayNotUseIsPlanInvalidAndNothingIsRecorded(t *testing.T)
 	planRefused(t, "a step the role may not use", f, res)
 }
 
-// ---- after T14: the dispatch budget (A224, A254) ----
+// ---- the dispatch budget (A224, A254) ----
 
-// A224: when a key's dispatches have reached the ledger's limit, Trust itself decides ESCALATE (DISPATCH_BUDGET_EXHAUSTED); the runner's refusal is only the backstop. Nothing is recorded.
-func TestT14AStepWhoseDispatchBudgetIsSpentEscalatesAndNothingIsRecorded(t *testing.T) {
-	f := newFake13()
-	f.dispatch = DispatchCount{Used: 1, Limit: 1}
-	res := run13(t, newEval13(t, f))
-	if res.Decision.Outcome() != decide.Escalate || !reflect.DeepEqual(codes13(res.Decision), []string{"DISPATCH_BUDGET_EXHAUSTED"}) {
-		t.Fatalf("%s %v, want ESCALATE DISPATCH_BUDGET_EXHAUSTED", res.Decision.Outcome(), codes13(res.Decision))
-	}
-	if got := lastTrace(res); got.Step != decide.T14Plan || got.Result != decide.StepTerminal {
-		t.Errorf("trace ends %v, want T14 TERMINAL", got)
-	}
-	if f.called("Recorder.Record") != 0 || res.DecisionID != "" || len(res.GrantIDs) != 0 {
-		t.Errorf("an escalation was recorded as a write: %v %q %v", f.calls, res.DecisionID, res.GrantIDs)
-	}
-	want := DispatchKey{TenantID: t13Tenant, CorrelationID: "corr_synth0001", CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001"}
-	if len(f.dispatchKey) != 1 || f.dispatchKey[0] != want {
-		t.Errorf("the ledger was asked about %+v, want %+v", f.dispatchKey, want)
+// A224: when a key's dispatches have reached the ledger's limit, Trust itself decides ESCALATE (DISPATCH_BUDGET_EXHAUSTED); the runner's refusal is only the backstop. It is
+// asked where an ESCALATE may end the evaluation (T12; PERD 23.3 gives T14 an empty stop set), for the capability and the target the intent names.
+func TestT12AWriteWhoseDispatchBudgetIsSpentEscalates(t *testing.T) {
+	f := &fake{dispatch: DispatchCount{Used: 1, Limit: 1}}
+	ev := newEv(t, f).withCapability(tWriteCap)
+	ev.intent.TargetRef, ev.intent.CorrelationID = "txn_synth0001", "corr_synth0001"
+	d, trace := run(t, ev, decide.T12Clocks)
+	stopped(t, "dispatch budget spent", d, trace, decide.T12Clocks, decide.Escalate, []string{"DISPATCH_BUDGET_EXHAUSTED"}, escalateAtT12)
+	want := DispatchKey{TenantID: tTenant, CorrelationID: "corr_synth0001", CapabilityID: tWriteCap, TargetRef: "txn_synth0001"}
+	if len(f.gotDispatch) != 1 || f.gotDispatch[0] != want {
+		t.Errorf("the ledger was asked about %+v, want %+v", f.gotDispatch, want)
 	}
 }
 
-func TestT14AStepWithBudgetLeftIsAllowedAndAReadAsksNothing(t *testing.T) {
-	f := newFake13()
-	f.dispatch = DispatchCount{Used: 0, Limit: 1}
-	if res := run13(t, newEval13(t, f)); res.Decision.Outcome() != decide.Allow {
-		t.Fatalf("%s %v with budget left", res.Decision.Outcome(), codes13(res.Decision))
-	}
-	r := newFake13()
-	r.plan = Plan{Hash: tPlanHash}
-	ev := newEval13(t, r)
-	ev.late.needsWrite = false
-	run13(t, ev)
-	if r.called("Dispatches.Count") != 0 {
-		t.Errorf("a read asked the dispatch ledger: %v", r.calls)
+func TestT12AWriteWithBudgetLeftGoesOnAndAReadAsksNothing(t *testing.T) {
+	f := &fake{dispatch: DispatchCount{Used: 0, Limit: 1}}
+	ev := newEv(t, f).withCapability(tWriteCap)
+	ev.intent.TargetRef, ev.intent.CorrelationID = "txn_synth0001", "corr_synth0001"
+	_, trace := run(t, ev, decide.T12Clocks)
+	wentOn(t, "budget left", trace, decide.T12Clocks)
+	r := &fake{dispatch: DispatchCount{Used: 5, Limit: 1}}
+	_, trace = run(t, newEv(t, r), decide.T12Clocks)
+	wentOn(t, "a read", trace, decide.T12Clocks)
+	if len(r.gotDispatch) != 0 {
+		t.Errorf("a read asked the dispatch ledger: %+v", r.gotDispatch)
 	}
 }
 
-func TestT14ALedgerThatCannotAnswerFailsClosed(t *testing.T) {
-	f := newFake13()
-	f.dispatchErr = errInjected
-	res := run13(t, newEval13(t, f))
-	wantUnknown(t, "the dispatch ledger failed", res, "INTERNAL_ERROR", decide.T14Plan, decide.StepFailed)
-	if f.called("Recorder.Record") != 0 {
-		t.Errorf("recorded after the ledger failed: %v", f.calls)
+func TestT12ALedgerThatCannotAnswerOrAnswersNothingUsableFailsClosed(t *testing.T) {
+	for name, f := range map[string]*fake{
+		"an error":               {fail: map[string]bool{"Count": true}},
+		"a limit of nothing":     {dispatch: DispatchCount{Used: 0, Limit: 0}},
+		"a negative use":         {dispatch: DispatchCount{Used: -1, Limit: 1}},
+		"the ledger's own panic": {panics: map[string]bool{"Count": true}},
+	} {
+		ev := newEv(t, f).withCapability(tWriteCap)
+		ev.intent.TargetRef, ev.intent.CorrelationID = "txn_synth0001", "corr_synth0001"
+		d, trace := run(t, ev, decide.T12Clocks)
+		failedClosed(t, name, d, trace, decide.T12Clocks)
 	}
 }
 

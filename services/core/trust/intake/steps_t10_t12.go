@@ -57,12 +57,16 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 	}
 	e.frozen, e.allowedUnderFreeze = rec.Frozen, append([]string(nil), rec.AllowedUnderFreeze...) // T14 checks the plan's capabilities against the freeze
 	if rec.EscalateReason == "" {
-		// Nothing maps this classification to an escalation. A frozen target goes on only with a capability the pack allows under the freeze; an intent that names none has
-		// nothing that says what it may do (its plan's capabilities are checked against the freeze again at T14). Any other target goes on only on a settled classification.
-		if rec.Frozen && (e.capability == nil || freezeBlocks(rec, e.capability)) {
-			return decide.FailStep(errNoMapping)
+		// Nothing maps this classification to an escalation. A frozen target: reads continue, and only a write the freeze blocks is refused, as a typed refusal and not an internal
+		// error (A225, A254: TARGET_FROZEN); an intent that names no capability asks for no write (the plan's capabilities are checked against the freeze again at T14). Any other
+		// target goes on only on a settled classification.
+		if rec.Frozen {
+			if e.capability != nil && freezeBlocks(rec, e.capability) {
+				return escalateCore(r, "TARGET_FROZEN", decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
+			}
+			return decide.Continue()
 		}
-		if !rec.Frozen && !goesOnUnmapped(rec.Classification) {
+		if !goesOnUnmapped(rec.Classification) {
 			return decide.FailStep(errNoMapping)
 		}
 		return decide.Continue()
@@ -91,6 +95,19 @@ func freezeBlocks(rec Reconciliation, c *Capability) bool {
 	}
 	_, err := reconcile.NewFreezeGate(rec.AllowedUnderFreeze).Permit(rec.Frozen, c.ID)
 	return err != nil
+}
+
+// escalateCore is the ESCALATE with one core reason code that Trust itself gives when the pack routes nothing (A225) or the dispatch budget is spent (A224).
+func escalateCore(r decide.ResolvedIntent, code string, a decide.Authority) decide.StepResult {
+	reason, err := decide.Core(code)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	d, err := r.Escalate(a, reason)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	return decide.Stop(d)
 }
 
 // escalate is the ESCALATE that a pack reason code asks for.
@@ -218,14 +235,41 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 		statuses = append(statuses, st)
 	}
 	if len(statuses) == 0 {
-		return decide.Continue()
+		return e.dispatchBudget(ctx, r)
 	}
 	routing, err := e.svc.Ports.Clocks.Route(ctx, q, statuses)
 	if err != nil {
 		return decide.FailStep(err)
 	}
 	if !routing.Escalate {
-		return decide.Continue()
+		// A225: a breached clock the pack's routing does not route is not a clock to ignore; T12 escalates by itself, with the core code.
+		for _, st := range statuses {
+			if st.Phase == clocks.Breached {
+				return escalateCore(r, "CLOCK_BREACHED_UNROUTED", passed())
+			}
+		}
+		return e.dispatchBudget(ctx, r)
 	}
 	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+}
+
+// dispatchBudget is the last question of T12 for a write: has the logical write the intent asks for used the ledger's dispatch budget (A224, A254). Trust itself decides ESCALATE
+// DISPATCH_BUDGET_EXHAUSTED; the runner's refusal is only the backstop. It runs here, where an ESCALATE may end the evaluation (the stop sets of PERD 23.3 give T14 none), and asks
+// for the capability and the target the intent names; a plan step on another capability is checked against the budget by the runner (a question for the Architect, in the PR). A read
+// asks nothing. The intake holds no limit: the ledger answers both numbers.
+func (e *evaluation) dispatchBudget(ctx context.Context, r decide.ResolvedIntent) decide.StepResult {
+	if e.capability == nil || e.intent == nil || e.intent.TargetRef == "" {
+		return decide.Continue()
+	}
+	c, err := e.svc.Ports.Dispatches.Count(ctx, DispatchKey{TenantID: e.intent.TenantID, CorrelationID: e.intent.CorrelationID, CapabilityID: e.capability.ID, TargetRef: e.intent.TargetRef})
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	if c.Limit < 1 || c.Used < 0 {
+		return decide.FailStep(errAnswer)
+	}
+	if c.Used >= c.Limit {
+		return escalateCore(r, "DISPATCH_BUDGET_EXHAUSTED", passed())
+	}
+	return decide.Continue()
 }

@@ -140,7 +140,7 @@ func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if !c.Registered || c.Prohibited {
+		if !c.Registered || c.Prohibited || !c.RoleAllowed { // A255: the role of the session is never assumed to be allowed
 			return false, nil
 		}
 		if e.intent.TargetRef == "" || s.TargetRef != e.intent.TargetRef {
@@ -197,7 +197,7 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 		steps = append(steps, RecordStep{PlanStep: int64(i), CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: s.ParamsHash})
 	}
 	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
-		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb, BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, PlanHash: plan.Hash, Steps: steps,
 		ConfirmationEventID: e.late.confirmationID, ConfirmationPlanHash: e.late.confirmationPlanHash})
 	if err != nil {
 		return decide.FailStep(err)

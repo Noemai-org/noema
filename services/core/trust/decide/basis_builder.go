@@ -78,6 +78,7 @@ type BasisBuilder struct {
 	rules      []PolicyRuleVersion
 	haveEvid   bool
 	havePolicy bool
+	sealed     bool // a copy handed on (Sealed): nothing can be recorded in it
 }
 
 // NewBasisBuilder starts the set of one evaluation at the pack version and the clock reading (Unix seconds).
@@ -92,7 +93,7 @@ func NewBasisBuilder(packVersion string, evaluatedAt int64) (*BasisBuilder, erro
 func (b *BasisBuilder) RecordEvidence(snapshotID string, items []Freshness) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.haveEvid {
+	if b.haveEvid || b.sealed {
 		return ErrBasisRecorded
 	}
 	b.haveEvid, b.snapshot, b.fresh = true, snapshotID, append([]Freshness(nil), items...)
@@ -103,7 +104,7 @@ func (b *BasisBuilder) RecordEvidence(snapshotID string, items []Freshness) erro
 func (b *BasisBuilder) RecordPolicy(rules []PolicyRuleVersion) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.havePolicy {
+	if b.havePolicy || b.sealed {
 		return ErrBasisRecorded
 	}
 	b.havePolicy, b.rules = true, append([]PolicyRuleVersion(nil), rules...)
@@ -124,7 +125,12 @@ func (b *BasisBuilder) Basis() (Basis, error) {
 
 // Sealed is a copy of the builder that nothing can add to: what a later step hands to a writer, so the writer reads the evaluated set and cannot change the live builder, and
 // a later call to RecordEvidence or RecordPolicy on the copy is refused (ErrBasisRecorded).
-func (b *BasisBuilder) Sealed() *BasisBuilder { return b }
+func (b *BasisBuilder) Sealed() *BasisBuilder {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return &BasisBuilder{pack: b.pack, at: b.at, snapshot: b.snapshot, fresh: append([]Freshness(nil), b.fresh...), rules: append([]PolicyRuleVersion(nil), b.rules...),
+		haveEvid: b.haveEvid, havePolicy: b.havePolicy, sealed: true}
+}
 
 // Digest is the digest of the evaluated set.
 func (b *BasisBuilder) Digest() (string, error) {

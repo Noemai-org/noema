@@ -57,6 +57,14 @@ type fake struct {
 	routing     ClockRouting
 	gotClockQ   ClockQuery
 	gotStatuses []clocks.Status
+
+	dispatch    DispatchCount // what the ledger answers for any key (A224)
+	gotDispatch []DispatchKey
+}
+
+func (f *fake) Count(_ context.Context, k DispatchKey) (DispatchCount, error) {
+	f.gotDispatch = append(f.gotDispatch, k)
+	return f.dispatch, f.hit("Count")
 }
 
 func (f *fake) hit(name string) error {
@@ -102,7 +110,7 @@ func (f *fake) Route(_ context.Context, _ ClockQuery, statuses []clocks.Status) 
 // newEv is an evaluation at the synthetic clock reading with the intent T1 would have read and no capability.
 func newEv(t *testing.T, f *fake) *evaluation {
 	t.Helper()
-	svc := &Service{Ports: Ports{Reconciler: f, Policies: f, Clocks: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	svc := &Service{Ports: Ports{Reconciler: f, Policies: f, Clocks: f, Dispatches: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 	ev, err := svc.newEvaluation(Request{Session: Session{TenantID: tTenant, PrincipalID: "usr_synth01", Role: "customer"}, EvidenceSnapshotID: tSnapshot}, tIntentID, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -301,13 +309,8 @@ func declaredClassifications(t *testing.T) []string {
 	return out
 }
 
-// REQ-RES-002: a frozen target and a capability the pack does not allow under the freeze never goes on. With no pack reason to escalate with, the step cannot build an
-// ESCALATE, so it fails closed: UNKNOWN.
-func TestT10TheFreezeStopsACapabilityThePackDoesNotAllowUnderIt(t *testing.T) {
-	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
-	d, trace := run(t, newEv(t, f).withCapability(tWriteCap), decide.T10Reconciliation)
-	failedClosed(t, "frozen, capability not allowed, no pack mapping", d, trace, decide.T10Reconciliation)
-}
+// A225, A254: a write the freeze blocks is a typed ESCALATE (TARGET_FROZEN), and a read continues: TestT10AFrozenTargetEscalatesAWriteTheFreezeBlocksWithATypedReason and
+// TestT10AReadContinuesOnAFrozenTarget (a255_round_test.go) replace the two tests that expected UNKNOWN INTERNAL_ERROR here.
 
 func TestT10TheFreezeEscalatesWithThePackReasonWhenThePackMapsIt(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}, EscalateReason: tPackCode}}
@@ -330,14 +333,6 @@ func TestT10TheFreezeLetsThroughACapabilityThePackAllowsUnderIt(t *testing.T) {
 		_, trace := run(t, c.ev(newEv(t, f)), decide.T10Reconciliation)
 		wentOn(t, c.name, trace, decide.T10Reconciliation)
 	}
-}
-
-// SR blocking finding on noema#570: a frozen target with an intent that names no capability asks for no grant, but nothing says what it may do either, and a plan's
-// capabilities are only known at T14. With no pack mapping to escalate with, it fails closed here; the plan's own capabilities are checked against the freeze at T14.
-func TestT10AFrozenTargetWithNoNamedCapabilityAndNoPackMappingFailsClosed(t *testing.T) {
-	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
-	d, trace := run(t, newEv(t, f), decide.T10Reconciliation)
-	failedClosed(t, "frozen, no capability named, no mapping", d, trace, decide.T10Reconciliation)
 }
 
 // What T10 saw of the freeze is kept for T14, which checks the plan's capabilities against it (the Security Reviewer's blocking finding 2 on noema#572): the evaluation holds
@@ -704,8 +699,9 @@ func TestT12EvaluatesEveryClockAtTheServiceClockWithThePortsAtRiskFraction(t *te
 		clockAt("fin.clock.at_risk", 200),
 		clockAt("fin.clock.breached", 0),
 	}}}
-	_, trace := run(t, newEv(t, f), decide.T12Clocks)
-	wentOn(t, "no escalation", trace, decide.T12Clocks)
+	d, trace := run(t, newEv(t, f), decide.T12Clocks)
+	// the breached clock has no routing, so T12 escalates by itself (A225); the statuses below are what the routing was asked about
+	stopped(t, "breached clock, no routing", d, trace, decide.T12Clocks, decide.Escalate, []string{"CLOCK_BREACHED_UNROUTED"}, escalateAtT12)
 	var got []clocks.Phase
 	var ids []string
 	for _, s := range f.gotStatuses {
@@ -775,7 +771,8 @@ func TestT12EscalatesOnlyWhenThePackRoutingSaysSo(t *testing.T) {
 	if len(f.gotStatuses) != 1 || f.gotStatuses[0].Phase != clocks.Breached {
 		t.Errorf("the routing saw %+v, want the BREACHED status", f.gotStatuses)
 	}
-	f = &fake{set: set, routing: ClockRouting{Escalate: false, ReasonCode: "fin.reason.sla_breached"}}
+	// a clock that is not breached, with a routing that does not escalate, goes on (a breached one the pack omits escalates by itself: a255_round_test.go, A225)
+	f = &fake{set: ClockSet{AtRisk: quarterOf, Clocks: []ClockInstance{clockAt("fin.clock.a", 100)}}, routing: ClockRouting{Escalate: false}}
 	_, trace = run(t, newEv(t, f), decide.T12Clocks)
 	wentOn(t, "routing does not escalate", trace, decide.T12Clocks)
 }
