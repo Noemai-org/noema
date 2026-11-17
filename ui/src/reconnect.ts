@@ -42,5 +42,6 @@ export async function reconnectOnce(input: ReconnectInput): Promise<void> {
   if (answerReceived) return;
   const state = await fetchInvestigation(input);
   input.onState(state);
+  if (state.state === "answered" && state.last_answer !== undefined) return;
   await stream(input, onEvent);
 }
