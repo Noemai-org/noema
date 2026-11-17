@@ -19,7 +19,10 @@ const test = base.extend({
 
 test("REQ-UI-001: the customer overlay has no automated WCAG A/AA violations", async ({ page }) => {
   const markup = await readFile("dist/index.html", "utf8");
+  const stylesheet = await readFile("dist/tokens.css", "utf8");
   await page.setContent(markup);
+  await page.addStyleTag({ content: stylesheet });
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--noema-color-text").trim())).not.toBe("");
   await expect(page.getByRole("textbox", { name: "Your message" })).toBeVisible();
   const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze();
   expect(result.violations).toEqual([]);
