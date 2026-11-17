@@ -42,8 +42,10 @@ jobs:
           server="$(psql "$NOEMA_TEST_DATABASE_URL" -tAc 'SHOW server_version' | cut -d' ' -f1)"
           echo "database: PostgreSQL $server"
           test "$server" = "$EXPECTED_POSTGRES"
-          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt"
+          status=0
+          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt" || status=$?
           cat "$RUNNER_TEMP/record-verify.txt"
+          test "$status" -eq 0
           grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
           test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
       - name: Summary

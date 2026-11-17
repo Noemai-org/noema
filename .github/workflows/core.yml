@@ -88,8 +88,10 @@ jobs:
         working-directory: services/core
         run: |
           set -eu
-          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt"
+          status=0
+          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt" || status=$?
           cat "$RUNNER_TEMP/record-verify.txt"
+          test "$status" -eq 0
           grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
           test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
   # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.

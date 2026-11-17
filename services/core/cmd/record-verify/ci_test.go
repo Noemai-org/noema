@@ -213,7 +213,7 @@ func TestRecordVerifyCITamperingFailsTheJob(t *testing.T) {
 		{"a tampered row: the stored hash edited", `UPDATE record_event SET hash = ` + hash0 + ` WHERE tenant_id = 'ten_aa' AND seq = 2`, 2, "HASH"},
 		{"a tampered row: the payload edited after append", `UPDATE record_event SET payload = '{"n": 999}' WHERE tenant_id = 'ten_aa' AND seq = 2`, 2, "PAYLOAD_HASH"},
 		{"a broken prior hash", `UPDATE record_event SET prev_hash = ` + hash0 + ` WHERE tenant_id = 'ten_aa' AND seq = 3`, 3, "PREV_HASH"},
-		{"a missing sequence number", `DELETE FROM record_event WHERE tenant_id = 'ten_aa' AND seq = 2`, 2, "SEQ_GAP"},
+		{"a missing sequence number", `DELETE FROM record_event WHERE tenant_id = 'ten_aa' AND seq = 2`, 3, "SEQ_GAP"}, // the verifier (record/chain.VerifyRows) reports the first row present after the gap (seq 3; its detail says "expected seq 2")
 		{"a reordered pair", `UPDATE record_event SET seq = 1002 WHERE tenant_id = 'ten_aa' AND seq = 2; UPDATE record_event SET seq = 2 WHERE tenant_id = 'ten_aa' AND seq = 3; UPDATE record_event SET seq = 3 WHERE tenant_id = 'ten_aa' AND seq = 1002`, 2, "PREV_HASH"},
 		{"the newest events dropped while the head is kept", `DELETE FROM record_event WHERE tenant_id = 'ten_aa' AND seq > 2`, 0, "HEAD_MISMATCH"},
 	}
