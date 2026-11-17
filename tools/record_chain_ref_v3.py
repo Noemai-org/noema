@@ -218,7 +218,25 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
     valid = {p.stem: convert_reconstruction(json.loads(p.read_text())) for p in sorted((FIXTURES / "valid" / "reconstruction").glob("*.json"))}
     inv_dir = FIXTURES / "invalid" / "reconstruction"
     invalid = {p.stem: convert_reconstruction(json.loads(p.read_text())) for p in sorted(inv_dir.glob("*.json")) if p.name != "expectations.json"}
-    return valid, invalid, (inv_dir / "expectations.json").read_text()
+    expect = json.loads((inv_dir / "expectations.json").read_text())
+    # v3 only (A272): the digit pattern sits on the free-text facts `text` and each item of `reason_codes`, and on nothing else. Built from the converted full write case, so the
+    # chain stays valid; the v1 and v2 schemas have no such pattern, so these are not v1 sources.
+    base = valid["full_write_case"]
+
+    def with_fact(**facts: object) -> dict:
+        doc = copy.deepcopy(base)
+        for section in doc["sections"]:
+            for item in section["items"]:
+                if "fact_id" in item["facts"]:  # the EXPLANATION item: one claim, its text and its bound status
+                    item["facts"].update(facts)
+        return doc
+
+    valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
+    invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
+    invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])
+    expect["text_fact_with_five_joined_digits.json"] = "pattern"
+    expect["reason_codes_item_with_five_joined_digits.json"] = "pattern"
+    return valid, invalid, json.dumps(expect, indent=2) + "\n"
 
 
 # ---- the payload-hash vectors: checked here, produced by an independent implementation ---------------------------------
