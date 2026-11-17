@@ -110,6 +110,7 @@ test("REQ-UI-001: oversized frames and real HTTP errors do not deliver server te
         assert.ok(!String(error).includes("synthetic private text"));
         return true;
       });
+      if (suffix === "/error") assert.equal(response.bodyUsed, true, "rejected error body is cancelled");
       assert.deepEqual(events, []);
     }
   });

@@ -39,7 +39,10 @@ function line(frame: Frame, text: string, newlineBytes: number, maxFrameBytes: n
 /** Consume complete schema-validated events. The approved transport limit is supplied by the caller. */
 export async function readEventStream(response: Response, receive: Receiver, maxFrameBytes: number): Promise<void> {
   const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-  if (!response.ok || contentType !== "text/event-stream" || !response.body || !Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) throw invalid();
+  if (!response.ok || contentType !== "text/event-stream" || !response.body || !Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) {
+    await response.body?.cancel();
+    throw invalid();
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const frame: Frame = { name: "", data: [], size: 0 };
@@ -60,7 +63,7 @@ export async function readEventStream(response: Response, receive: Receiver, max
     }
     if (pending !== "" || frame.size !== 0) throw invalid();
   } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    try { await reader.cancel(); }
+    finally { reader.releaseLock(); }
   }
 }
