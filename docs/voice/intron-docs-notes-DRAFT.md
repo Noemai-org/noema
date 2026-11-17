@@ -7,11 +7,11 @@ Status key: **VERIFIED** = on an official Intron page (URL given). **UNVERIFIED*
 ## Sources read
 | Page | Result |
 |---|---|
-| https://docs.voice.intron.io/docs/index/introduction (API docs; also /stt/supported-languages, /stt/streaming, /tts/supported-languages-and-accents, /tts/tts-streaming, /tts/tts-generate, /accounts/credits_balance) | read |
-| https://intron.io/ (Sahara v2.5 homepage), https://intron.io/sahara (2025 launch page) | read; marketing |
-| https://speech.intron.health/ | a contributor login page ("Intron Data Vault"), no API docs |
-| https://docs.intron.health, https://intron.health/developers | does not resolve / 404 |
-| Privacy policy PDF (https://www.intron.io/wp-content/uploads/2024/05/Revised-Introns-Privacy-Policy.pdf), terms PDF (https://www.intron.io/wp-content/uploads/2023/12/Intron-Transcribe-App.pdf) | fetched, text **not extractable**; nothing verified |
+| Intron Voice API documentation, pages "Introduction", "Speech-to-text supported languages", "Streaming speech-to-text", "Text-to-speech supported languages and accents", "Streaming text-to-speech", "Generate text-to-speech" and "Credits balance" | read |
+| Intron homepage (Sahara v2.5) and the older Sahara launch page | read; marketing |
+| the "Intron Data Vault" page (the contributor login, an older address) | a contributor login page ("Intron Data Vault"), no API docs |
+| two other addresses tried (an older docs host and a developers page) | does not resolve / 404 |
+| the privacy policy PDF (June 2024) and the terms PDF (the Transcribe App), both linked from the homepage footer | fetched, text **not extractable**; nothing verified |
 | Not read: file-upload, file-status, question-answering, tts-queue, tts-status, widget, voice-ai page, any pricing page (none linked), the dashboard (login) | |
 
 ## Findings
@@ -21,15 +21,15 @@ Status key: **VERIFIED** = on an official Intron page (URL given). **UNVERIFIED*
 | Locales, TTS | 13 languages; English with accent rows (yoruba, hausa, igbo, pidgin and others), male and female. The streaming example uses accent `english`, which is not in the accent table. | VERIFIED; docs inconsistent |
 | Per-language quality | No per-language accuracy, WER or status in the docs. Homepage says only "Improved". | UNVERIFIED |
 | Language counts | Homepage: 57 languages, 500+ accents, "63 total"; press gives other figures. Not reconciled. | UNVERIFIED |
-| Streaming STT protocol | WebSocket only: `wss://infer.voice.intron.io/stt/v1/stream`, `Authorization: Bearer <key>`. No gRPC or HTTP streaming documented. | VERIFIED |
+| Streaming STT protocol | WebSocket only: the path `/stt/v1/stream` on the vendor's inference host, `Authorization: Bearer <key>`. No gRPC or HTTP streaming documented. | VERIFIED |
 | Streaming STT audio | Base64 PCM16 little-endian in `audio_base_64`; params `sample_rate` (default 16000), `bit_rate` (16), `num_channels` (1); chunks 1 KB to 32 KB. A list of allowed rates is not given. This fits F7 (PCM16 16 kHz). | VERIFIED |
 | Streaming STT events | In: `INPUT_AUDIO_CHUNK`, `COMMIT`. Out: `SESSION_CREATED`, `AUDIO_CHUNK_ACK`, `PARTIAL_TRANSCRIPT` (`transcript`, sent when text changes), `COMMITTED_TRANSCRIPT` (`transcript_id`, `transcript_text`, `audio_len`). A partial and a final are distinct events, as our contract needs. The client must send `COMMIT`; the provider does not decide the endpoint for us. | VERIFIED |
 | Per-token confidence | **No per-token or per-word confidence field** in any response schema read. Our contract treats a missing confidence as 0.0, so every key slot would read as low and fall to confirmation or text. The homepage "98% confidence" is a UI mock-up, not an API field. | NOT FOUND |
-| TTS | Streaming: `wss://infer.voice.intron.io/tts/v1/stream`, text chunks of 10 to 100 characters, then `FETCH_AUDIO_CHUNK` polled until READY, then `COMMIT`. Non-streaming: `POST /tts/v1/generate`, docs say up to 4096 characters, which conflicts with a 100-character error sample. Output: WAV or OPUS, default WAV; a sample shows 48000 Hz. Voice choice is accent plus gender only. | VERIFIED; docs inconsistent |
+| TTS | Streaming: the path `/tts/v1/stream` on the vendor's inference host, text chunks of 10 to 100 characters, then `FETCH_AUDIO_CHUNK` polled until READY, then `COMMIT`. Non-streaming: `POST /tts/v1/generate`, docs say up to 4096 characters, which conflicts with a 100-character error sample. Output: WAV or OPUS, default WAV; a sample shows 48000 Hz. Voice choice is accent plus gender only. | VERIFIED; docs inconsistent |
 | Latency, SLA | No numbers. Homepage says "Real-time" and "Low-latency". | NOT FOUND |
 | Limits | Streaming STT and TTS: 300 s session lifetime, 60 s idle audio gap, 3 connections per minute, 3 concurrent connections. TTS generate: 30 requests per minute (503 after 120 s). Balance endpoint: 100 per minute. File-upload limits not read. | VERIFIED |
 | Data terms | **Supplied to me by the Founder side, not read by me** (the PDF text was not extractable here): Intron Privacy Policy, Version 01, June 2024, which names APIs and speech data in its scope. Retention: personal information is kept "as long as necessary" for the stated purposes or legal, accounting and reporting needs; **no number of hours, days or months for audio, and none for transcripts**. Deletion: on request, only if the data is no longer necessary and there is no other lawful basis to keep it. Anonymised data: may be kept and used **indefinitely**. Sharing: affiliates and service providers, including for support, database management, analytics, **research** and quality control. Nothing was supplied on training use of customer audio, residency or a DPA. The terms PDF still has not been read, and may cover the Transcribe App, not the API. | UNVERIFIED by me (policy supplied); retention numbers NOT STATED |
-| Pricing, access | Key from the developers tab at voice.intron.io; usage is credit-based (`credit_balance` in `SESSION_CREATED`, `QUOTA_EXCEEDED`); balance in NGN or USD by account country. No price list found; "Talk to Our Team" form and `voice@intron.io` for support. | VERIFIED access, pricing UNVERIFIED |
+| Pricing, access | Key from the developers tab of the vendor's voice console; usage is credit-based (`credit_balance` in `SESSION_CREATED`, `QUOTA_EXCEEDED`); balance in NGN or USD by account country. No price list found; "Talk to Our Team" form and the support address on the Introduction page. | VERIFIED access, pricing UNVERIFIED |
 | Marketing claims | "Beats OpenAI, Google, AWS, Azure", "300+ non-native accents", the 12-bilingual-model list: not verified and not used. | UNVERIFIED |
 
 
@@ -42,7 +42,7 @@ Also supplied (not read by me): the docs have file-upload and synchronous STT up
 4. Data terms are the F4 blocker: no partner data until they are read and approved. The policy gives no retention period and lets anonymised data be kept and used indefinitely and shared for research, which does not match what our recording plan (F3) promises its speakers (deleted 90 days after analysis). Any use needs a written contract term, not the policy alone.
 5. Keeping Intron behind the provider interface, apart from Trust and Execution, is what our architecture already requires (INV-29, A9); these notes change nothing about that.
 
-## Questions to put to Intron (writing, `voice@intron.io`)
+## Questions to put to Intron (the support address is on the documentation's Introduction page)
 Whether the stated limits are defaults or can be raised; the retention period for audio and transcripts and a no-training, no-research commitment in a contract; per-token confidence in any response; the allowed sample rates; per-locale accuracy on Nigerian English and the three code-switched models; latency figures and any SLA; limits at enterprise tier; retention, training use, residency and a DPA for audio and transcripts; the effective date and scope of the terms.
 
 ## What the committed rulings say about these findings (16 Nov 2026)
