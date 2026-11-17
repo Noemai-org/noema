@@ -31,7 +31,7 @@ from noema_model.voice.pipeline import FinalUtterance, transcribe_utterance
 from tests.support import run
 from tests.support_voice import Source, chunk
 
-KEY = "synthetic-key-0123456789"
+KEY = "synthetic-synthetic-synthetic"  # a placeholder with no entropy, so the secret scanner has nothing to flag
 REQUEST = StreamRequest(model_version="pinned-1", locale_hint=Locale.PCM)
 CAPS = ProviderCapabilities("intron", PipelineMode.TRANSCRIBE_ONLY, Support.YES, (), (), None, Support.YES, "pinned-1", True)
 GUARD_S = 5.0
