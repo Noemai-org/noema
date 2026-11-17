@@ -52,3 +52,26 @@ Updated 2026-11-12. Plan task EXE-05: owner C1+AG; REQ-EXE-003, REQ-EXE-007, REQ
 ## Pre-work for the next agent (complaint)
 - Exact next step: when the target (mock-case, and the Tushe delta it follows) creates a complaint conditionally on absence for the subject and epoch, map `fin.cap.log_complaint_reference` again with the condition carried through `adapters.LogComplaintInput`, restore its revalidation, and change `TestConcurrentComplaintsOfOneCaseCreateNone` to "exactly one".
 
+## Session 2026-11-14 · EXE-09: the complaint mapping restored (A185, noema#537)
+### Session summary
+- What changed (PR links): noema#588 (`feat/EXE-09-complaint-mapping`): `LogComplaint` sends `If-None-Match: *` and reads a 412 PRECONDITION_FAILED as class `DUPLICATE_CREATE` (REJECTED_BY_TARGET) with the existing reference named in `WriteResult.ExistingComplaintRef`; `CaseDispatcher` maps `fin.cap.log_complaint_reference` again (case only, the grant's target); `CaseRevalidator` reads the case status and the case's complaints again (`Records` field, `FactExistingComplaint`).
+- Why: the mock-case conditional create landed (noema#537), which is what the Security Reviewer's P1 on noema#491 required; ruling A185.
+- Risks, and how they are contained: a rival between E7 and the write is refused by the target, not by E7; two independent guards sit under it (the target's create, and the database's dispatch budget of two per key, ruling A153). A 412 is never an acknowledgement and never unknown.
+- Tests added (REQ-EXE-003, REQ-EXE-006, REQ-EXE-007, INV-03, AGENT-08, EC-E06): adapter (`records_test.go`), bridge (`records_test.go`: dispatch, defects, the nine E7 cases), real stack (`execution/e2e/records_test.go`: one complaint with its Record events; eight concurrent grants give exactly one complaint; with a revalidation that sees nothing, the target alone gives one complaint and one 412 and the database budget refuses the other six). Six mutants of the implementation, each caught (no header; 412 as plain rejection; revalidation ignoring complaints; an incomplete page passing; the target not checked; and through the real stack, no header gives two complaints).
+- Regression cases added: `TestConcurrentComplaintsOfOneCaseCreateNone` (noema#491) became `TestConcurrentComplaintsOfOneCaseCreateExactlyOne`.
+- Debt entries: none. Conflicts raised: none. Observed, not changed: concurrent spends of one tenant contend for the head of its Record chain and the database may refuse to serialise one ("nothing was spent, the caller may try again"); the e2e helper presents the grant again, bounded. A composition that runs several executions of one tenant at once must do the same.
+### Pre-work for the next agent
+- Exact next step: the Outcome predicates for `complaint_logged` (OUT-02, C2) decide ACHIEVED; a receipt says only "acknowledged".
+- Do not touch: the migrations.
+
+
+## Session 2026-11-16 · EXE-09: the Security Reviewer's notes on noema#588 (a lost reply; the string match)
+### Session summary
+- What changed (PR links): noema#588. `execution/e2e/records_lost_reply_test.go` (new): the real mock-case commits the complaint and drops the reply (a FaultPlan `create_complaint` `TIMEOUT_AFTER_COMMIT`, loaded through the test-only bench client): the receipt is OUTCOME_UNKNOWN with no acknowledgement and the complaint exists; the spent grant presented again writes nothing; a new grant for another key is voided at E7 (`STATE_CHANGED`) because the case now shows its complaint; with E7 made blind the target refuses it (412, `DUPLICATE_CREATE`, no acknowledgement). One complaint throughout. `execution/e2e/records_test.go`: `runAll` retries a refused spend by the database's code (`spendDidNotCommit`: 40001, 40P01, 23505, the codes `execution/ledger/spend.go` retries on) instead of the wording "did not commit".
+- Why: the Security Reviewer's notes 1 and 3 on noema#588 (the "the store commits, then the reply is lost" case had no test; the string match was fragile).
+- Risks, and how they are contained: tests only, no production code; the lost-reply case holds the mock-case connection for the fault's delay, so the test takes about seven seconds.
+- Tests added (REQ-EXE-003, REQ-EXE-006, INV-03, INV-04, INV-07, AGENT-07, AGENT-08): the lost-reply case. It passes on the current code by design; with the `If-None-Match: *` header removed from the complaint create the blind-E7 step fails (a second complaint is acknowledged). The concurrent tests were run twice with the new helper; only code 40001 was observed.
+- Regression cases added: the above. Debt entries: none. Conflicts raised: none.
+### Pre-work for the next agent
+- Exact next step: OUT-02 predicates for `complaint_logged` (C2).
+- Do not touch: the migrations.

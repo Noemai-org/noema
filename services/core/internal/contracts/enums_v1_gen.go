@@ -144,7 +144,7 @@ func (e *EnumsV1ConsequenceLevel) UnmarshalJSON(b []byte) error {
 }
 
 // EnumsV1CoreReasonCode is generated from enums.v1.json#$defs/CoreReasonCode.
-// The 17 core (tier 1) reason codes, a closed list. The last three are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue.
+// The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders co...
 type EnumsV1CoreReasonCode string
 
 const (
@@ -165,6 +165,9 @@ const (
 	EnumsV1CoreReasonCodeRATELIMITED             EnumsV1CoreReasonCode = "RATE_LIMITED"
 	EnumsV1CoreReasonCodeINTERNALERROR           EnumsV1CoreReasonCode = "INTERNAL_ERROR"
 	EnumsV1CoreReasonCodeMODENOTENABLED          EnumsV1CoreReasonCode = "MODE_NOT_ENABLED"
+	EnumsV1CoreReasonCodeTARGETFROZEN            EnumsV1CoreReasonCode = "TARGET_FROZEN"
+	EnumsV1CoreReasonCodeCLOCKBREACHEDUNROUTED   EnumsV1CoreReasonCode = "CLOCK_BREACHED_UNROUTED"
+	EnumsV1CoreReasonCodeDISPATCHBUDGETEXHAUSTED EnumsV1CoreReasonCode = "DISPATCH_BUDGET_EXHAUSTED"
 )
 
 func (e *EnumsV1CoreReasonCode) UnmarshalJSON(b []byte) error {
@@ -173,7 +176,7 @@ func (e *EnumsV1CoreReasonCode) UnmarshalJSON(b []byte) error {
 		return fmt.Errorf("contracts: EnumsV1CoreReasonCode: %w", err)
 	}
 	switch v := EnumsV1CoreReasonCode(s); v {
-	case EnumsV1CoreReasonCodePROHIBITEDCAPABILITY, EnumsV1CoreReasonCodeAMBIGUOUSCOUNTERPARTY, EnumsV1CoreReasonCodeDECLINEDBYAPPROVER, EnumsV1CoreReasonCodePOLICYVERSIONMISMATCH, EnumsV1CoreReasonCodeINSUFFICIENTEVIDENCE, EnumsV1CoreReasonCodeSTALEEVIDENCE, EnumsV1CoreReasonCodeINTENTINVALID, EnumsV1CoreReasonCodeUNAUTHENTICATED, EnumsV1CoreReasonCodeWRITESDISABLED, EnumsV1CoreReasonCodeOUTOFSCOPE, EnumsV1CoreReasonCodeNOTAUTHORIZED, EnumsV1CoreReasonCodeNOTFOUNDORNOTAUTHORIZED, EnumsV1CoreReasonCodePLANINVALID, EnumsV1CoreReasonCodeNOPERMITTINGRULE, EnumsV1CoreReasonCodeRATELIMITED, EnumsV1CoreReasonCodeINTERNALERROR, EnumsV1CoreReasonCodeMODENOTENABLED:
+	case EnumsV1CoreReasonCodePROHIBITEDCAPABILITY, EnumsV1CoreReasonCodeAMBIGUOUSCOUNTERPARTY, EnumsV1CoreReasonCodeDECLINEDBYAPPROVER, EnumsV1CoreReasonCodePOLICYVERSIONMISMATCH, EnumsV1CoreReasonCodeINSUFFICIENTEVIDENCE, EnumsV1CoreReasonCodeSTALEEVIDENCE, EnumsV1CoreReasonCodeINTENTINVALID, EnumsV1CoreReasonCodeUNAUTHENTICATED, EnumsV1CoreReasonCodeWRITESDISABLED, EnumsV1CoreReasonCodeOUTOFSCOPE, EnumsV1CoreReasonCodeNOTAUTHORIZED, EnumsV1CoreReasonCodeNOTFOUNDORNOTAUTHORIZED, EnumsV1CoreReasonCodePLANINVALID, EnumsV1CoreReasonCodeNOPERMITTINGRULE, EnumsV1CoreReasonCodeRATELIMITED, EnumsV1CoreReasonCodeINTERNALERROR, EnumsV1CoreReasonCodeMODENOTENABLED, EnumsV1CoreReasonCodeTARGETFROZEN, EnumsV1CoreReasonCodeCLOCKBREACHEDUNROUTED, EnumsV1CoreReasonCodeDISPATCHBUDGETEXHAUSTED:
 		*e = v
 		return nil
 	}

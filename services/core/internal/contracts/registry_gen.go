@@ -216,6 +216,7 @@ var Types = map[string]func() any{
 	"reconstruction.v3":                                            func() any { return new(ReconstructionV3) },
 	"reconstruction.v3#Item":                                       func() any { return new(ReconstructionV3Item) },
 	"reconstruction.v3#Item/properties/basis":                      func() any { return new(ReconstructionV3ItemBasis) },
+	"reconstruction.v3#Item/properties/facts":                      func() any { return new(ReconstructionV3ItemFacts) },
 	"reconstruction.v3#Item/properties/facts/additionalProperties": func() any { return new(ReconstructionV3ItemFactsValue) },
 	"reconstruction.v3#Section":                                    func() any { return new(ReconstructionV3Section) },
 	"reconstruction.v3#Section/properties/kind":                    func() any { return new(ReconstructionV3SectionKind) },
