@@ -198,3 +198,22 @@ func TestATenantSeesOnlyItsOwnRowsAndOnlyTheOrchestratorTouchesThem(t *testing.T
 		t.Errorf("row-level security is not enabled and forced (%v)", err)
 	}
 }
+
+// A243 (migration 0029): every new investigation names its principal, an empty one is refused, and the column never changes after the insert.
+func TestAnInvestigationNamesItsPrincipalAndNeverChangesIt(t *testing.T) {
+	w := newSQLWorld(t)
+	const insertWith = `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref) VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5)`
+	if _, err := w.orchA.Exec(ctx(t), insertWith, tenantA, "inv_AA11", "recev_AA11", "corr_AA11", "usr_01"); err != nil {
+		t.Fatalf("an investigation with a principal: %v", err)
+	}
+	if _, err := w.orchA.Exec(ctx(t), insertWith, tenantA, "inv_BB22", "recev_BB22", "corr_AA11", ""); err == nil {
+		t.Error("an investigation with an empty principal was accepted")
+	}
+	if _, err := w.orchA.Exec(ctx(t), `UPDATE investigation SET principal_ref = 'usr_02' WHERE investigation_id = 'inv_AA11'`); err == nil {
+		t.Error("the orchestrator's login changed the principal of an investigation")
+	}
+	var got string
+	if err := w.orchA.QueryRow(ctx(t), `SELECT principal_ref FROM investigation WHERE investigation_id = 'inv_AA11'`).Scan(&got); err != nil || got != "usr_01" {
+		t.Errorf("principal %q (%v), want usr_01", got, err)
+	}
+}

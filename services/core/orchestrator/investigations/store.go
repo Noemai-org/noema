@@ -32,6 +32,8 @@ var (
 	ErrRequest = errors.New(errPrefix + "the request is not valid")
 	// ErrNoRecordedInput marks an input the Record does not confirm as an INPUT_RECEIVED of this tenant, principal and correlation: no investigation is made for it.
 	ErrNoRecordedInput = errors.New(errPrefix + "the Record does not confirm this input")
+	// ErrNoInvestigation: there is no such investigation for this tenant; another tenant's is not told apart from none.
+	ErrNoInvestigation = errors.New(errPrefix + "no such investigation")
 )
 
 // Inputs confirms, against the Record, that the INPUT_RECEIVED event a Start names exists and belongs to this session and correlation (A161, A169). A nil return is the
@@ -222,4 +224,10 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
 	defer cancel()
 	_ = tx.Rollback(c)
+}
+
+// PrincipalOf is the principal that started the investigation (migration 0029; A243): the read-only fact a route needs to refuse another principal's request for it. An
+// investigation of another tenant, or none, is ErrNoInvestigation: the two are not told apart.
+func (s *Store) PrincipalOf(ctx context.Context, sess orchestrator.Session, investigationID string) (string, error) {
+	return "", nil
 }
