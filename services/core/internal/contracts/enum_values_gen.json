@@ -1,5 +1,8 @@
 {
  "RecordEventV3Emitter": [
   "benchmark-runner"
+ ],
+ "ScorecardViewV1GateGate": [
+  "ORACLE_ACCESS"
  ]
 }

@@ -16,5 +16,7 @@
   "grant_state_unknown_value.json": "enum",
   "claim_without_bound_status.json": "required",
   "claim_status_not_a_fact_status.json": "oneOf",
-  "claim_text_empty.json": "minLength"
+  "claim_text_empty.json": "minLength",
+  "text_fact_with_five_joined_digits.json": "pattern",
+  "reason_codes_item_with_five_joined_digits.json": "pattern"
 }
