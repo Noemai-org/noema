@@ -10,6 +10,7 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -35,6 +36,8 @@ import (
 type Components struct {
 	Ports   orchestrator.Ports
 	Records reconstruct.TenantDBs
+	// Gateway is the Input Gateway (UND-02); POST /v1/conversations is mounted only with it.
+	Gateway *inputgateway.Gateway
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 }
@@ -57,6 +60,9 @@ var rolesOpsAndAudit = []session.Role{session.RoleOps, session.RoleAudit}
 // apiRoutes is the route table of the public API: each route with the roles that may call it. A route exists only when the component behind it does.
 func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	var routes []edge.Route
+	if c.Gateway != nil {
+		routes = append(routes, edge.Route{Pattern: inputgateway.Route, Roles: rolesCustomer, Handler: startConversation(c.Gateway.Handler(gatewayIdentity))})
+	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,

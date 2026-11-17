@@ -1,4 +1,4 @@
-<!-- Copy of Noemai-org/docs AGENTS.md at docs commit af3f840d895e251726c4d7e9e013e39bb39934a1. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
+<!-- Copy of Noemai-org/docs AGENTS.md at docs commit 2266b54be0ae03687b89a7242a8ef3366bcd062e. The docs original wins on any difference. Re-point every copy with: python3 tools/vendor/repoint_docs.py --docs <docs checkout> -->
 
 # Instructions for AI agents (and the humans working with them)
 
@@ -470,7 +470,7 @@ Rules for adding an entry:
 
 Entries:
 
-- (none yet)
+- 2026-11-15 · a `git add -A` after a red run or a mutant run committed `rapid` counterexample files (`testdata/rapid/**/*.fail`) twice (noema#592, noema#600); each held a mutant's or a stub's failure message, not a defect of the code · before committing, run `git diff --name-only --cached | grep testdata/rapid` and commit a `.fail` only for a real defect, together with its regression test; a CI check on new `.fail` files is a candidate if it happens again · approved by: pending EL review
 
 ## 16. Where things are
 
