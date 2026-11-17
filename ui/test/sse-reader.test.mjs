@@ -135,3 +135,15 @@ test("REQ-UI-001: wrong content type and malformed or truncated frames fail clos
     }
   });
 });
+
+test("REQ-UI-001: a non-200 stream response is not treated as an event stream", async () => {
+  const event = await fixture("progress");
+  await withServer((_request, response) => {
+    response.writeHead(202, { "content-type": "text/event-stream" });
+    response.end(`event: progress\ndata: ${JSON.stringify(event)}\n\n`);
+  }, async (url) => {
+    const events = [];
+    await assert.rejects(readEventStream(await fetch(url), (value) => events.push(value), maxFrameBytes));
+    assert.deepEqual(events, []);
+  });
+});
