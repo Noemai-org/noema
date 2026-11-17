@@ -3,7 +3,13 @@ import { parseSseEventV1, type SseEventV1 } from "./contract_types/customer.js";
 type Receiver = (event: SseEventV1) => void;
 interface Frame { name: string; data: string[]; size: number }
 const encoder = new TextEncoder();
-const invalid = () => new Error("This update is unavailable.");
+export class StreamProtocolError extends Error {
+  constructor() { super("This update is unavailable."); this.name = "StreamProtocolError"; }
+}
+export class StreamInterruptedError extends Error {
+  constructor() { super("This update was interrupted."); this.name = "StreamInterruptedError"; }
+}
+const invalid = () => new StreamProtocolError();
 
 function deliver(frame: Frame, receive: Receiver): void {
   if (frame.data.length === 0) return;
@@ -39,7 +45,7 @@ function line(frame: Frame, text: string, newlineBytes: number, maxFrameBytes: n
 /** Consume complete schema-validated events. The approved transport limit is supplied by the caller. */
 export async function readEventStream(response: Response, receive: Receiver, maxFrameBytes: number): Promise<void> {
   const contentType = response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase();
-  if (!response.ok || contentType !== "text/event-stream" || !response.body || !Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) {
+  if (response.status !== 200 || contentType !== "text/event-stream" || !response.body || !Number.isSafeInteger(maxFrameBytes) || maxFrameBytes <= 0) {
     await response.body?.cancel();
     throw invalid();
   }
@@ -61,7 +67,7 @@ export async function readEventStream(response: Response, receive: Receiver, max
       if (frame.size + encoder.encode(pending).byteLength > maxFrameBytes) throw invalid();
       if (chunk.done) break;
     }
-    if (pending !== "" || frame.size !== 0) throw invalid();
+    if (pending !== "" || frame.size !== 0) throw new StreamInterruptedError();
   } finally {
     try { await reader.cancel(); }
     finally { reader.releaseLock(); }

@@ -62,3 +62,62 @@ test("REQ-UI-001: on a real stream drop refetches state before reconnecting, nev
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("REQ-UI-001: malformed events and consumer failures do not trigger a retry", async () => {
+  const address = Object.values(networkInterfaces()).flat().find((entry) => entry?.internal && entry.family === "IPv4")?.address;
+  assert.ok(address);
+  const progress = await fixture("sse-event/progress");
+  let requests = 0;
+  let malformed = true;
+  const server = createServer((_request, response) => {
+    requests++;
+    response.writeHead(200, { "content-type": "text/event-stream" });
+    response.end(malformed ? "event: answer\ndata: {}\n\n" : `event: progress\ndata: ${JSON.stringify(progress)}\n\n`);
+  });
+  server.listen(0, address);
+  await once(server, "listening");
+  try {
+    const baseUrl = `http://${address}:${server.address().port}`;
+    const input = { baseUrl, conversationRef: id, investigationId: id, sessionToken: "synthetic-session", maxFrameBytes: limit, maxResponseBytes: limit, onEvent: () => {}, onState: () => assert.fail("unexpected refetch") };
+    await assert.rejects(reconnectOnce(input));
+    assert.equal(requests, 1);
+    malformed = false;
+    await assert.rejects(reconnectOnce({ ...input, onEvent: () => { throw new TypeError("consumer failure"); } }), /consumer failure/);
+    assert.equal(requests, 2);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("REQ-UI-001: clean EOF in a partial frame also refetches before reconnecting", async () => {
+  const address = Object.values(networkInterfaces()).flat().find((entry) => entry?.internal && entry.family === "IPv4")?.address;
+  assert.ok(address);
+  const state = await fixture("investigation-response/understanding");
+  const progress = await fixture("sse-event/progress");
+  const paths = [];
+  let streams = 0;
+  const server = createServer((request, response) => {
+    paths.push(request.url);
+    if (request.url === `/v1/investigations/${id}`) {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(state));
+    } else {
+      streams++;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(streams === 1 ? "event: answer\ndata: {" : `event: progress\ndata: ${JSON.stringify(progress)}\n\n`);
+    }
+  });
+  server.listen(0, address);
+  await once(server, "listening");
+  try {
+    const events = [];
+    const states = [];
+    await reconnectOnce({ baseUrl: `http://${address}:${server.address().port}`, conversationRef: id, investigationId: id, sessionToken: "synthetic-session", maxFrameBytes: limit, maxResponseBytes: limit, onEvent: (value) => events.push(value), onState: (value) => states.push(value) });
+    assert.deepEqual(states, [state]);
+    assert.deepEqual(events, [progress]);
+    assert.deepEqual(paths, [`/v1/conversations/${id}/events`, `/v1/investigations/${id}`, `/v1/conversations/${id}/events`]);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
