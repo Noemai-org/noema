@@ -44,6 +44,27 @@ services:
   hostility-proxy:
     environment:
       HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/routes.standin.json
+  # Temporal serves TLS in the bench profile (A296, interim): the frontend presents the stack's `temporal` certificate, so a plain client is refused (EL's "refuse plain" test follows this).
+  # The names are the ones of the pinned image's config template (docker/config_template.yaml, release 1.29.7): TEMPORAL_TLS_FRONTEND_CERT and _KEY are the server certificate;
+  # TEMPORAL_TLS_SERVER_CA_CERT and TEMPORAL_TLS_FRONTEND_SERVER_NAME are what the in-process worker trusts and verifies when it dials the frontend; TEMPORAL_TLS, TEMPORAL_TLS_CA and
+  # TEMPORAL_TLS_SERVER_NAME are read by the image's `temporal` CLI (its default-namespace set-up and the healthcheck below) and are not the server's names.
+  # What this is NOT: client authentication. The frontend does not require a client certificate (TEMPORAL_TLS_REQUIRE_CLIENT_AUTH stays false): with it the combined auto-setup server's
+  # own worker would need a client certificate its template cannot give it, and the clean answer is an internal-frontend split, which is a decision for EL and the Architect, not a setting here.
+  temporal:
+    environment:
+      TEMPORAL_TLS_FRONTEND_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_FRONTEND_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_SERVER_CA_CERT: /run/tls/ca.crt
+      TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal
+      TEMPORAL_TLS: "true"
+      TEMPORAL_TLS_CA: /run/tls/ca.crt
+      TEMPORAL_TLS_SERVER_NAME: temporal
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/temporal.crt:/run/tls/temporal.crt:ro
+      - ./secrets/tls/temporal.key:/run/tls/temporal.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233 --tls --tls-ca-path /run/tls/ca.crt --tls-server-name temporal"]
   # The runner writes the suite, the run and the score into the same directory the model writes its cost files to, and reads the live mock-case log from it.
   # The invoking user, so the files on the host are theirs. NOEMA_BENCH_* are set by `make bench-up`.
   bench-runner:
