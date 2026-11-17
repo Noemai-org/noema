@@ -53,11 +53,11 @@ export function parseEnumsV1ConsequenceLevel(v: unknown, p: string = "$"): Enums
   return oneOfLit(v, p, ["NONE", "LOW", "HIGH"] as const);
 }
 
-/** EnumsV1CoreReasonCode, generated from enums.v1.json#$defs/CoreReasonCode. The 17 core (tier 1) reason codes, a closed list. The last three are [REC] until the founders confirm them. Pack codes (<vertical>.reason.<name>) are the second tier and live in the pack's catalogue. */
-export type EnumsV1CoreReasonCode = "PROHIBITED_CAPABILITY" | "AMBIGUOUS_COUNTERPARTY" | "DECLINED_BY_APPROVER" | "POLICY_VERSION_MISMATCH" | "INSUFFICIENT_EVIDENCE" | "STALE_EVIDENCE" | "INTENT_INVALID" | "UNAUTHENTICATED" | "WRITES_DISABLED" | "OUT_OF_SCOPE" | "NOT_AUTHORIZED" | "NOT_FOUND_OR_NOT_AUTHORIZED" | "PLAN_INVALID" | "NO_PERMITTING_RULE" | "RATE_LIMITED" | "INTERNAL_ERROR" | "MODE_NOT_ENABLED";
+/** EnumsV1CoreReasonCode, generated from enums.v1.json#$defs/CoreReasonCode. The core (tier 1) reason codes, a closed list. The three added by ruling A254 (TARGET_FROZEN, CLOCK_BREACHED_UNROUTED, DISPATCH_BUDGET_EXHAUSTED) and the last three of the original list are [REC] until the founders co... */
+export type EnumsV1CoreReasonCode = "PROHIBITED_CAPABILITY" | "AMBIGUOUS_COUNTERPARTY" | "DECLINED_BY_APPROVER" | "POLICY_VERSION_MISMATCH" | "INSUFFICIENT_EVIDENCE" | "STALE_EVIDENCE" | "INTENT_INVALID" | "UNAUTHENTICATED" | "WRITES_DISABLED" | "OUT_OF_SCOPE" | "NOT_AUTHORIZED" | "NOT_FOUND_OR_NOT_AUTHORIZED" | "PLAN_INVALID" | "NO_PERMITTING_RULE" | "RATE_LIMITED" | "INTERNAL_ERROR" | "MODE_NOT_ENABLED" | "TARGET_FROZEN" | "CLOCK_BREACHED_UNROUTED" | "DISPATCH_BUDGET_EXHAUSTED";
 
 export function parseEnumsV1CoreReasonCode(v: unknown, p: string = "$"): EnumsV1CoreReasonCode {
-  return oneOfLit(v, p, ["PROHIBITED_CAPABILITY", "AMBIGUOUS_COUNTERPARTY", "DECLINED_BY_APPROVER", "POLICY_VERSION_MISMATCH", "INSUFFICIENT_EVIDENCE", "STALE_EVIDENCE", "INTENT_INVALID", "UNAUTHENTICATED", "WRITES_DISABLED", "OUT_OF_SCOPE", "NOT_AUTHORIZED", "NOT_FOUND_OR_NOT_AUTHORIZED", "PLAN_INVALID", "NO_PERMITTING_RULE", "RATE_LIMITED", "INTERNAL_ERROR", "MODE_NOT_ENABLED"] as const);
+  return oneOfLit(v, p, ["PROHIBITED_CAPABILITY", "AMBIGUOUS_COUNTERPARTY", "DECLINED_BY_APPROVER", "POLICY_VERSION_MISMATCH", "INSUFFICIENT_EVIDENCE", "STALE_EVIDENCE", "INTENT_INVALID", "UNAUTHENTICATED", "WRITES_DISABLED", "OUT_OF_SCOPE", "NOT_AUTHORIZED", "NOT_FOUND_OR_NOT_AUTHORIZED", "PLAN_INVALID", "NO_PERMITTING_RULE", "RATE_LIMITED", "INTERNAL_ERROR", "MODE_NOT_ENABLED", "TARGET_FROZEN", "CLOCK_BREACHED_UNROUTED", "DISPATCH_BUDGET_EXHAUSTED"] as const);
 }
 
 /** EnumsV1DataSensitivity, generated from enums.v1.json#$defs/DataSensitivity. Data sensitivity class, for example S3_financial_pii. The SoT gives examples only, so the shape is constrained, not the list. Distinct from FindingSeverity (OD-P-10). */

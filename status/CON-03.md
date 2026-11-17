@@ -87,3 +87,15 @@ Found mechanically (member-name overlap of every hand-written Go struct and Pyth
 - Open questions (owner): C1 and the frontend owner accept the target and the path; whether the parsers should also refuse conditional rules (Architect).
 - Files to read first: `tools/codegen/ts.py`, `ui/src/contract_types/README.md`, `ui/test/contracts.test.mjs`.
 - Do not touch: `ui/src/contract_types/**` by hand.
+
+# Session 2026-11-17 · CON-03 the three core reason codes of A254 (noema#653)
+
+## Session summary
+- What changed: `enums.v1.json#CoreReasonCode` gains `TARGET_FROZEN`, `CLOCK_BREACHED_UNROUTED`, `DISPATCH_BUDGET_EXHAUSTED`; `state-registry.md` row, `decide.coreCodes`, regenerated Go/Pydantic/TypeScript, three valid fixtures, a migration note in `contracts/README.md` (which also states how a minor change is recorded, replacing the sentence "no mechanism for a minor version" in the note of noema#564).
+- Why: A254 (interim), A244 first bullet; noema#572's remaining round needs the codes.
+- Count: 20, not 21 (`DECLINED_BY_APPROVER` was already one of the 17); the number is written nowhere; the Architect confirms (record `DEC-2026-11-17-reason-codes-a254` section 3).
+- Tests added (REQ-TRU-001, REQ-TRU-002, REQ-API-001): `TestTheCoreReasonCodesTrustAcceptsAreExactlyTheContractsClosedList`; seen failing first (CI red at `19832e06`). `tools/contracts/drift.py` holds the registry row equal to the enum.
+- Debt entries: none. Conflicts raised: none (the count is the Steward's open question).
+
+## Pre-work for the next agent
+- Exact next step: noema#572's round uses the three codes (frozen target, breached clock, exhausted dispatches) at T4 to T15 of the intake.
