@@ -27,6 +27,9 @@ func goodWorker() map[string]string {
 		"NOEMA_TEMPORAL_NAMESPACE":           "noema",
 		"NOEMA_TEMPORAL_TASK_QUEUE":          "noema-core",
 		"NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS": "30000",
+		"NOEMA_TEMPORAL_TLS_CERT_FILE":       "/run/tls/worker.crt",
+		"NOEMA_TEMPORAL_TLS_KEY_FILE":        "/run/tls/worker.key",
+		"NOEMA_TEMPORAL_TLS_CA_FILE":         "/run/tls/ca.crt",
 	}
 }
 
@@ -42,7 +45,7 @@ func TestTheWorkerConfigIsReadWithNoDefaults(t *testing.T) {
 	if err != nil || cfg == nil {
 		t.Fatalf("%+v, %v", cfg, err)
 	}
-	if cfg.Address != "temporal:7233" || cfg.Namespace != "noema" || cfg.TaskQueue != "noema-core" || cfg.ActivityTimeout != 30*time.Second || cfg.TLS != nil {
+	if cfg.Address != "temporal:7233" || cfg.Namespace != "noema" || cfg.TaskQueue != "noema-core" || cfg.ActivityTimeout != 30*time.Second || cfg.TLS.CertFile != "/run/tls/worker.crt" || cfg.TLS.KeyFile != "/run/tls/worker.key" || cfg.TLS.CAFile != "/run/tls/ca.crt" {
 		t.Errorf("%+v", cfg)
 	}
 }
@@ -88,33 +91,33 @@ func TestEveryMissingOrBadTemporalSettingIsRefusedByName(t *testing.T) {
 	}
 }
 
-// The TLS files are all or none (a client certificate with no key, or no CA, is a mistake that would otherwise fall back to a plain connection without saying so).
-func TestTheTemporalTLSFilesAreAllOrNone(t *testing.T) {
+// Codex P2 on #676 and the ruling for the bench profile: a configured worker uses mutual TLS. All three TLS files are required; a worker with none (a plain connection), or with one or two,
+// is refused naming the first missing file, so a configured worker can never run without transport authentication (INV-29, PERD 36.1).
+func TestAConfiguredWorkerRequiresMutualTLS(t *testing.T) {
 	files := []string{"NOEMA_TEMPORAL_TLS_CERT_FILE", "NOEMA_TEMPORAL_TLS_KEY_FILE", "NOEMA_TEMPORAL_TLS_CA_FILE"}
-	set := goodWorker()
-	for _, f := range files {
-		set[f] = "/run/tls/" + strings.ToLower(f)
-	}
-	cfg, err := LoadWorkerConfig(workerEnv(set))
-	if err != nil || cfg == nil || cfg.TLS == nil || cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" || cfg.TLS.CAFile == "" {
-		t.Fatalf("all three: %+v, %v", cfg, err)
-	}
-	for i := range files {
-		partial := goodWorker()
+	for i, missing := range files {
+		set := goodWorker()
+		delete(set, missing)
+		if cfg, err := LoadWorkerConfig(workerEnv(set)); cfg != nil || err == nil || !strings.Contains(err.Error(), missing) {
+			t.Errorf("without %s: %+v, %v", missing, cfg, err)
+		}
+		only := goodWorker()
 		for j, f := range files {
 			if j != i {
-				partial[f] = "/run/tls/x"
+				delete(only, f)
 			}
 		}
-		// two of three
-		if cfg, err := LoadWorkerConfig(workerEnv(partial)); cfg != nil || err == nil || !strings.Contains(err.Error(), files[i]) {
-			t.Errorf("without %s: %+v, %v", files[i], cfg, err)
+		if cfg, err := LoadWorkerConfig(workerEnv(only)); cfg != nil || err == nil {
+			t.Errorf("only %s: %+v, %v", missing, cfg, err)
 		}
-		one := goodWorker()
-		one[files[i]] = "/run/tls/x"
-		if cfg, err := LoadWorkerConfig(workerEnv(one)); cfg != nil || err == nil {
-			t.Errorf("only %s: %+v, %v", files[i], cfg, err)
-		}
+	}
+	plain := goodWorker()
+	for _, f := range files {
+		delete(plain, f)
+	}
+	cfg, err := LoadWorkerConfig(workerEnv(plain))
+	if cfg != nil || err == nil || !strings.Contains(err.Error(), files[0]) {
+		t.Errorf("a plain connection: %+v, %v; want a refusal naming the first TLS file", cfg, err)
 	}
 }
 

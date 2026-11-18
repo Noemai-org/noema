@@ -38,13 +38,13 @@ type WorkerConfig struct {
 	Namespace       string
 	TaskQueue       string
 	ActivityTimeout time.Duration
-	TLS             *WorkerTLS // nil: a plain connection (the Compose Temporal frontend is plain today)
+	TLS             WorkerTLS // required: a configured worker uses mutual TLS (PERD 36.1; Codex P2 on noema#676)
 }
 
 var temporalName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z`)
 
 // LoadWorkerConfig reads the settings. With none of them it returns nil and no error (there is no worker); with some, or any wrong, it returns an error that names the setting and the
-// process does not start. The TLS files are all or none.
+// process does not start. The three TLS files are required: a configured worker never runs without transport authentication.
 func LoadWorkerConfig(e Env) (*WorkerConfig, error) {
 	names := []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA}
 	anySet := false
@@ -73,16 +73,14 @@ func LoadWorkerConfig(e Env) (*WorkerConfig, error) {
 	cfg.ActivityTimeout = time.Duration(ms) * time.Millisecond
 	cert, key, ca := e.Getenv(EnvTemporalTLSCert), e.Getenv(EnvTemporalTLSKey), e.Getenv(EnvTemporalTLSCA)
 	switch {
-	case cert == "" && key == "" && ca == "":
 	case cert == "":
-		return nil, fmt.Errorf("%s: the TLS files are all or none", EnvTemporalTLSCert)
+		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSCert)
 	case key == "":
-		return nil, fmt.Errorf("%s: the TLS files are all or none", EnvTemporalTLSKey)
+		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSKey)
 	case ca == "":
-		return nil, fmt.Errorf("%s: the TLS files are all or none", EnvTemporalTLSCA)
-	default:
-		cfg.TLS = &WorkerTLS{CertFile: cert, KeyFile: key, CAFile: ca}
+		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSCA)
 	}
+	cfg.TLS = WorkerTLS{CertFile: cert, KeyFile: key, CAFile: ca}
 	return cfg, nil
 }
 

@@ -48,7 +48,7 @@ func writePair(t *testing.T, dir string) (certFile, keyFile string) {
 func TestTheTemporalTLSConfigIsMutualAndTLS13(t *testing.T) {
 	dir := t.TempDir()
 	cert, key := writePair(t, dir)
-	cfg := &WorkerConfig{Address: "temporal.internal:7233", TLS: &WorkerTLS{CertFile: cert, KeyFile: key, CAFile: cert}}
+	cfg := &WorkerConfig{Address: "temporal.internal:7233", TLS: WorkerTLS{CertFile: cert, KeyFile: key, CAFile: cert}}
 	tc, err := temporalTLS(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestABrokenTLSInputIsRefusedByNameWithNoPathInTheError(t *testing.T) {
 	}
 	for name, c := range cases {
 		tc := c.tls
-		tcfg, err := temporalTLS(&WorkerConfig{Address: c.addr, TLS: &tc})
+		tcfg, err := temporalTLS(&WorkerConfig{Address: c.addr, TLS: tc})
 		if tcfg != nil || err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v, %v", name, tcfg, err)
 			continue

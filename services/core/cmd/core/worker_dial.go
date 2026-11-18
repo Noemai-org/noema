@@ -13,7 +13,7 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
-// worker_dial.go: the real connection to Temporal (STM-04 slice 2). mTLS when the three TLS files are configured, else a plain connection (the Compose frontend is plain today).
+// worker_dial.go: the real connection to Temporal (STM-04 slice 2). Always mutual TLS: there is no plain connection to fall back to.
 
 type sdkConnection struct{ c client.Client }
 
@@ -25,15 +25,11 @@ func (s sdkConnection) Close() { s.c.Close() }
 
 // dialTemporal connects as the configured namespace. The ConnectionOptions carry the TLS configuration when there is one.
 func dialTemporal(_ context.Context, cfg *WorkerConfig) (Connection, error) {
-	opts := client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace}
-	if cfg.TLS != nil {
-		tc, err := temporalTLS(cfg)
-		if err != nil {
-			return nil, err
-		}
-		opts.ConnectionOptions = client.ConnectionOptions{TLS: tc}
+	tc, err := temporalTLS(cfg)
+	if err != nil {
+		return nil, err
 	}
-	c, err := client.Dial(opts)
+	c, err := client.Dial(client.Options{HostPort: cfg.Address, Namespace: cfg.Namespace, ConnectionOptions: client.ConnectionOptions{TLS: tc}})
 	if err != nil {
 		return nil, err
 	}
