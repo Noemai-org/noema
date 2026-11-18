@@ -105,7 +105,7 @@ func newFake() *f7 {
 	return &f7{
 		cands: TargetCandidates{Disambiguation: disambiguation(), Ranked: twoCandidates()},
 		owned: true,
-		evid: SnapshotEvidence{Items: []SourceItem{
+		evid: SnapshotEvidence{IntentID: "int_synth0001", IntentVersion: tVersion, Items: []SourceItem{
 			item("evi_synth0001", "fin.src.ledger", 10, 60, contracts.EnumsV1FactStatusKNOWN),
 			item("evi_synth0002", "fin.src.switch", 20, 30, contracts.EnumsV1FactStatusKNOWN),
 		}},
@@ -678,4 +678,31 @@ func TestT9TheSameInputsGiveTheSameDecisionAndBasis(t *testing.T) {
 	if digests[0] != digests[1] {
 		t.Errorf("two runs recorded different sets: %v", digests)
 	}
+}
+
+// A226 (carried from the Security Reviewer's notes on noema#571): T9's snapshot must belong to this intent, and a negative evidence age is refused. The snapshot ID the
+// orchestrator names is scoped to the tenant only; the Evidence adapter says which intent and version it was sealed for, and T9 checks it. A snapshot of another intent, or one
+// that names none, is an unusable answer: UNKNOWN INTERNAL_ERROR, never a basis the decision rests on.
+func TestT9ASnapshotOfAnotherIntentOrVersionOrOfNoneIsRefused(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		set  func(f *f7)
+	}{
+		{"another intent", func(f *f7) { f.evid.IntentID = "int_other0001" }},
+		{"another version", func(f *f7) { f.evid.IntentVersion = tVersion + 1 }},
+		{"no intent named", func(f *f7) { f.evid.IntentID = "" }},
+		{"no version named", func(f *f7) { f.evid.IntentVersion = 0 }},
+	} {
+		f := newFake()
+		c.set(f)
+		d, trace := runStep(t, newEval(t, resolvedView(), f, nil), decide.T9Evidence)
+		failed(t, c.name, d, trace, decide.T9Evidence, decide.StepFailed)
+	}
+}
+
+func TestT9ANegativeEvidenceAgeIsRefused(t *testing.T) {
+	f := newFake()
+	f.evid.Items[0].Freshness.AgeSeconds = -1
+	d, trace := runStep(t, newEval(t, resolvedView(), f, nil), decide.T9Evidence)
+	failed(t, "a negative age", d, trace, decide.T9Evidence, decide.StepFailed)
 }
