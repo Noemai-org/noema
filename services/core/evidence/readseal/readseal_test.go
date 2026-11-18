@@ -234,7 +234,7 @@ func TestAnythingElseThanTheAdaptersTenantIsRefusedBeforeAnyRead(t *testing.T) {
 
 func TestAnIntentReferenceThatIsNotIntentIdAtVersionIsRefused(t *testing.T) {
 	for name, bad := range map[string]string{"empty": "", "no version": intentID, "version zero": intentID + "@0", "version not a number": intentID + "@x", "version with a sign": intentID + "@-1",
-		"two separators": intentID + "@1@2", "id with a slash": "int/0001@1", "no id": "@1", "huge version": intentID + "@99999999999999999999"} {
+		"two separators": intentID + "@1@2", "id with a slash": "int/0001@1", "id with an underscore": "int_00_01@1", "id of 33 characters": "int_" + strings.Repeat("a", 33) + "@1", "version with a leading zero": intentID + "@01", "no id": "@1", "huge version": intentID + "@99999999999999999999"} {
 		r := newRig()
 		if _, err := r.a.Read(deadline(t), session, bad); !errors.Is(err, readseal.ErrIntentRef) {
 			t.Errorf("%s: want ErrIntentRef, got %v", name, err)
