@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -101,7 +102,9 @@ func TestTheDispatchLimitIsTheAdoptedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer closer()
-	c, err := p.Dispatches.Count(t.Context(), intake.DispatchKey{TenantID: "ten_aa", CorrelationID: "corr_ABC123", CapabilityID: "fin.cap.x", TargetRef: "fin.t:1"})
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	c, err := p.Dispatches.Count(ctx, intake.DispatchKey{TenantID: "ten_aa", CorrelationID: "corr_ABC123", CapabilityID: "fin.cap.x", TargetRef: "fin.t:1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,4 +211,15 @@ func TestNoKeyIsReadFromTheEnvironment(t *testing.T) {
 	if l.dir != "/synthetic/grant-keys" {
 		t.Fatalf("loader got %q", l.dir)
 	}
+}
+
+// A loader that returns neither keys nor an error is a startup error, never a Trust without keys (INV-29).
+func TestALoaderThatReturnsNoKeysStopsTheStartup(t *testing.T) {
+	e := trustEnv(t)
+	p, closer, err := buildTrust(t.Context(), Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir}, emptyRecord{}, evalStub{},
+		func(string, int) (*grants.Keys, error) { return nil, nil })
+	if err == nil || !strings.Contains(err.Error(), EnvGrantKeyDir) || p.Trust != nil {
+		t.Fatalf("error %v, trust %v; want an error that names %s and no Trust", err, p.Trust, EnvGrantKeyDir)
+	}
+	closer()
 }

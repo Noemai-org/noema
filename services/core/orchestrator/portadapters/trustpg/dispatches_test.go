@@ -4,13 +4,12 @@ import (
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg"
-	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-type readers map[string]reconstruct.TxBeginner
+type readers map[string]trustpg.TxBeginner
 
-func (r readers) For(tenant string) (reconstruct.TxBeginner, error) {
+func (r readers) For(tenant string) (trustpg.TxBeginner, error) {
 	if b, ok := r[tenant]; ok {
 		return b, nil
 	}
