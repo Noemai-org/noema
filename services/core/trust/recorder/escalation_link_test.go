@@ -400,3 +400,22 @@ func TestPropertyNoActionDecisionWithoutALinkedDisposition(t *testing.T) {
 		}
 	}
 }
+
+// The tenant of the disposition is checked by the recorder itself, not only by the row security of the login (REQ-SEC-004, defence in depth): written through a connection that
+// sees every tenant's rows, with the foreign key off, another tenant's ESCALATE decision is still refused and nothing is written.
+func TestTheRecorderChecksTheDispositionTenantEvenWhereRowSecurityShowsEveryTenant(t *testing.T) {
+	w := escalationWorld(t)
+	other := w.otherTenantDisposition(t)
+	if _, err := w.admin.Exec(ctx(t), `ALTER TABLE decision_record DISABLE TRIGGER ALL`); err != nil {
+		t.Fatal(err)
+	}
+	w.trust = w.admin
+	before := w.counts(t)
+	res, err := w.writeAndCommit(t, w.action(t, decide.Allow, other, capability))
+	if !errors.Is(err, recorder.ErrDispositionNotValid) {
+		t.Fatalf("another tenant's disposition: got %v (%+v), want ErrDispositionNotValid", err, res)
+	}
+	if after := w.counts(t); after != before {
+		t.Errorf("a refusal changed the rows from %+v to %+v", before, after)
+	}
+}

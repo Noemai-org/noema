@@ -25,9 +25,11 @@ const (
 	emitter    = "core-trust"
 	timeLayout = "2006-01-02T15:04:05.000Z"
 
-	pgUniqueViolation    = "23505"
-	confirmationEventKey = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
-	confirmationValid    = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
+	pgUniqueViolation     = "23505"
+	pgForeignKeyViolation = "23503"
+	dispositionKey        = "decision_record_disposition_fkey"      // migration 0012: (tenant, disposition) must be an ESCALATE decision of the same tenant
+	confirmationEventKey  = "confirmation_spend_event_key"          // migration 0028: UNIQUE (tenant_id, confirmation_event_id)
+	confirmationValid     = "confirmation_spend_confirmation_valid" // migration 0028: the trigger that refuses a confirmation that is unknown, expired or given for another action
 )
 
 // Errors of Write. Callers compare with errors.Is.
@@ -162,6 +164,11 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if found {
 		return stored, nil
 	}
+	if r.DispositionDecisionID != "" {
+		if err := requireEscalationDisposition(ctx, tx, r); err != nil {
+			return Result{}, err
+		}
+	}
 	decisionID, err := w.IDs.ID("dec")
 	if err != nil || !decisionRe.MatchString(decisionID) {
 		return Result{}, fmt.Errorf("%w: decision id: %v", ErrRequest, err)
@@ -217,6 +224,10 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if _, err := tx.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
 		VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)`,
 		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value); err != nil {
+		var pg *pgconn.PgError
+		if errors.As(err, &pg) && pg.Code == pgForeignKeyViolation && pg.ConstraintName == dispositionKey {
+			return Result{}, ErrDispositionNotValid // the database's own refusal, behind the check above
+		}
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
 	}
 	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
@@ -283,6 +294,14 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
 	}
+	if r.DispositionDecisionID != "" {
+		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.
+		for _, s := range r.Steps {
+			if !w.Escalation.Contains(s.CapabilityID) {
+				return decide.Basis{}, "", ErrStepOutsideEscalation
+			}
+		}
+	}
 	if r.ConfirmationPlanHash != "" && r.ConfirmationEventID == "" {
 		return decide.Basis{}, "", fmt.Errorf("%w: a plan hash is named with no confirmation", ErrRequest)
 	}
@@ -312,6 +331,23 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 		return decide.Basis{}, "", fmt.Errorf("%w: no single policy is bound: name one policy the basis holds", ErrRequest)
 	}
 	return basis, policy, nil
+}
+
+// requireEscalationDisposition checks, before anything is written, that the disposition a decision names is an existing ESCALATE decision of the same tenant (REQ-TRU-010). A
+// missing decision, another tenant's and one with another outcome are one answer. The database's foreign key (migration 0012) says the same behind it.
+func requireEscalationDisposition(ctx context.Context, tx pgx.Tx, r Request) error {
+	var outcome string
+	err := tx.QueryRow(ctx, `SELECT outcome FROM decision_record WHERE tenant_id = $1 AND decision_id = $2`, r.TenantID, r.DispositionDecisionID).Scan(&outcome)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrDispositionNotValid
+	}
+	if err != nil {
+		return fmt.Errorf("%sread the disposition: %w", errPrefix, err)
+	}
+	if outcome != string(decide.Escalate) {
+		return ErrDispositionNotValid
+	}
+	return nil
 }
 
 func stamp(t time.Time) contracts.CommonV1Timestamp {
