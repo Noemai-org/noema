@@ -1,5 +1,5 @@
 // Package payloadguard is the Record's append guard (A184, A154, REQ-AUD-003, REQ-SEC-003): a string in an event payload never holds a run of more than four digits,
-// unless the whole string is a typed ID of the contract, an RFC 3339 timestamp, a content hash or a money string (A279/A270, below). A number-typed field is a number, not a string, and is not
+// unless the whole string is a typed ID of the contract, an RFC 3339 timestamp, a content hash or, at a customer-visible text path only, a money string (A279/A270, A331, below). A number-typed field is a number, not a string, and is not
 // examined. The limit is four, as on every outward surface (AGENTS.md section 7: mask to the last four digits); a Record that never holds a longer run needs no
 // masking of its own, so the hashed `events` array can be served as stored.
 //
@@ -30,13 +30,10 @@ const Limit = 4
 // Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
 // Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
 // found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path, so it has no path-based exemption: a transport class that holds
-// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). It has the money exemption, because that one is by the whole string and not by path
-// (A308): a stored `NGN 12,345.00` is served as it is, not `NGN 12,*45.00`. Masking is idempotent. record/reconstruct serves its facts
-// through this function (A194).
+// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). It has no money exemption either (A331, relayed, interim): a stored
+// `NGN 12,345.00` in a structured value, a reference or any field that is not customer-visible text is masked like any other run (`NGN 12,*45.00`); MaskText is the mask of customer-visible
+// text, which keeps it. Masking is idempotent. record/reconstruct serves its facts through these two functions (A194).
 func Mask(s string) string {
-	if isMoney(s) {
-		return s
-	}
 	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
 		total := 0
 		for _, r := range run {
@@ -61,11 +58,14 @@ func Mask(s string) string {
 	})
 }
 
-// CustomerVisibleTextPaths and MaskText are stubs of the red commit (A331): the list is empty and MaskText is Mask.
-func CustomerVisibleTextPaths() []string { return nil }
-
-// MaskText is Mask for customer-visible text.
-func MaskText(s string) string { return Mask(s) }
+// MaskText is Mask for customer-visible text (A331): a string that as a whole is a money string (A279, A270, A308) is shown as it is, `NGN 12,345.00` and not `NGN 12,*45.00`, because the
+// exemption is by the whole string and not by path; the caller says that the string is customer-visible text (a claim's text, an answer member), as Check says it by path.
+func MaskText(s string) string {
+	if isMoney(s) {
+		return s
+	}
+	return Mask(s)
+}
 
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
@@ -209,6 +209,46 @@ func hasLetter(s string) bool {
 // but it is a value the client chose, so it is not a core-minted ID: the CI scan does not treat a payload that cites it as the object's own ID.
 var clientRequestID = regexp.MustCompile(`\A([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\z`)
 
+// customerVisibleTextPaths are the places a money string is exempt (A331, relayed, interim: "money in customer-visible text only"): the text members of customer-answer.v1 and of the cards of
+// overlay-card.v1, as the guard reads them (a JSON pointer, `*` for one array index), and the text of an explanation claim in the Record (EXPLANATION_RENDERED, which the reconstruction serves as the
+// `text` fact and the explanation recorder writes). Every other string, a structured fact value, an option ID, a reference, a note, is held to the digit rule whatever its shape. The list is the one in
+// contracts/fixtures/digit_run_vectors.json (`path_rule`), and path_test.go fails when it, that file and the text members of the two contracts disagree, so a member added to a contract does not
+// become a money-exempt path unnoticed. `case_ref_masked`, `option_id` and `policy_version` are members of those contracts that are not text and are not on it.
+var customerVisibleTextPaths = []string{
+	"/found/*", "/not_known/*/what", "/not_known/*/why", "/done/summary", "/advice/do/*", "/advice/do_not/*", "/next/what", "/next/when", // customer-answer.v1
+	"/question", "/options/*/label", "/action", "/target", "/evidence_summary", // overlay-card.v1
+	"/claims/*/text", // EXPLANATION_RENDERED
+}
+
+// CustomerVisibleTextPaths returns a copy of the paths at which a money string is exempt.
+func CustomerVisibleTextPaths() []string { return append([]string(nil), customerVisibleTextPaths...) }
+
+// IsCustomerVisibleTextPath reports whether path, a JSON pointer as the guard builds it, is one of customerVisibleTextPaths: segment for segment, with `*` standing for one array index (digits only).
+func IsCustomerVisibleTextPath(path string) bool {
+	segs := strings.Split(path, "/")
+	for _, p := range customerVisibleTextPaths {
+		want := strings.Split(p, "/")
+		if len(want) != len(segs) {
+			continue
+		}
+		ok := true
+		for i := range want {
+			if want[i] == "*" {
+				ok = segs[i] != "" && strings.Trim(segs[i], "0123456789") == ""
+			} else {
+				ok = want[i] == segs[i]
+			}
+			if !ok {
+				break
+			}
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
 // moneyShape is the whole-string shape of an amount the core renders from integer minor units (A279, A270; the shared vectors of A259, contracts/fixtures/digit_run_vectors.json): three
 // capital letters, one space, an integer part of one to three digits and then groups of three digits each with a comma before them, and exactly two decimals or none. ASCII digits and letters
 // only; `\z` is the end of the string, not a place before a final newline. The same pattern is in the model service's redactor and in the UI scan; the vector file is what keeps the three together.
@@ -217,7 +257,7 @@ var moneyShape = regexp.MustCompile(`\A[A-Z]{3} [0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-
 // maxMoneyIntegerDigits is the most digits the integer part of a money string may hold (A279, A270). A longer amount is refused, like any other long run.
 const maxMoneyIntegerDigits = 9
 
-// isMoney reports whether the whole of s is a money string: moneyShape, and at most maxMoneyIntegerDigits digits before the decimal point. A comma ends a digit run, so a grouped amount with
+// isMoney reports whether the whole of s is a money string (the exemption itself applies only at a customer-visible text path, in exempt, or through MaskText): moneyShape, and at most maxMoneyIntegerDigits digits before the decimal point. A comma ends a digit run, so a grouped amount with
 // no decimals holds no run over four anyway; the exemption matters for the dot, which joins the last group to its decimals ("12,345.00" holds the run "345.00" of five).
 func isMoney(s string) bool {
 	if !moneyShape.MatchString(s) {
@@ -333,7 +373,7 @@ func longestRun(s string) int {
 // audit and ops surfaces only, never on the customer overlay or in an arm.
 var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
-// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, a money string (A279, A270), the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
+// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, a money string at a customer-visible text path (A279, A270, A331), the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
 // signature at /sig/value or the target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
 	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
@@ -349,7 +389,7 @@ func exempt(path, s string) bool {
 			}
 		}
 	}
-	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s) || isMoney(s)
+	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s) || (isMoney(s) && IsCustomerVisibleTextPath(path))
 }
 
 // isRFC3339 is true for a timestamp in RFC 3339 form (a date, a "T", a time and an offset or Z), with or without fractional seconds.
