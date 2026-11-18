@@ -1,0 +1,5 @@
+[
+  {"seq": 1, "lifecycle": "payout", "fromState": null, "toState": "CREATED", "source": "api", "sourceRef": "syn-src-1", "inferred": false, "injected": false, "reason": "created", "occurredAt": "2026-11-01T09:00:00.000Z", "observedAt": "2026-11-01T09:00:00.120Z", "actor": "syn-actor-1", "request": {"id": "syn-req-1", "idempotencyKey": "syn-idem-1"}},
+  {"seq": 2, "lifecycle": "payout", "fromState": "CREATED", "toState": "SUBMITTED", "source": "api", "sourceRef": "syn-src-2", "inferred": false, "injected": false, "reason": "submitted", "occurredAt": "2026-11-01T09:00:05.000Z", "observedAt": "2026-11-01T09:00:05.050Z", "actor": "syn-actor-1", "request": {"id": "syn-req-2", "idempotencyKey": "syn-idem-2"}},
+  {"seq": 3, "lifecycle": "payout", "fromState": "SUBMITTED", "toState": "SETTLED", "source": "processor", "sourceRef": "syn-src-3", "inferred": true, "injected": false, "reason": "settled", "occurredAt": "2026-11-01T09:10:00.000Z", "observedAt": "2026-11-01T09:10:07.500Z", "actor": "syn-actor-2", "request": {"id": "syn-req-3", "idempotencyKey": ""}}
+]
