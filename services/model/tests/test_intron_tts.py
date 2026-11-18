@@ -1,6 +1,6 @@
 """The Intron text-to-speech adapter behind `SpeechSynthesizer` and its wire format (VOI-04, REQ-VOI-002, INV-07, AGENT-13; rulings A179 to A181, A241, A249).
 
-Intron's documented streaming text-to-speech (`docs.voice.intron.io`, read 16 Nov 2026) is a WebSocket: the query names the voice (language, accent, gender) and the output format; the
+Intron's documented streaming text-to-speech (the Intron Voice API documentation, read 16 Nov 2026) is a WebSocket: the query names the voice (language, accent, gender) and the output format; the
 client sends INPUT_TEXT_CHUNK messages of 10 to 100 characters, asks for each chunk's audio with FETCH_AUDIO_CHUNK until it says READY (the field is spelled `processing_staus` on
 the page and in its example, so that spelling is the wire), then sends COMMIT and the server answers COMMITTED_AUDIO. The page's own spelling and examples are pinned here, in
 one place. The adapter speaks only the text it is given, which the core has already masked (A181); it splits it at word boundaries and never adds a word. The voice for a locale is

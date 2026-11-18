@@ -1,6 +1,6 @@
 """The wire format of Intron's streaming text-to-speech, as pure functions (VOI-04, REQ-VOI-002, AGENT-13; rulings A179 to A181, A241 and A249).
 
-Intron's documented protocol (`docs.voice.intron.io/docs/tts/tts-streaming`, read 16 Nov 2026), nothing invented: a WebSocket at `<base>/tts/v1/stream` whose query names the voice
+Intron's documented protocol (the Intron Voice API documentation page "Streaming text-to-speech", read 16 Nov 2026), nothing invented: a WebSocket at `<base>/tts/v1/stream` whose query names the voice
 (`voice_language`, `voice_accent`, `voice_gender`) and the `output_audio_format`; the client sends INPUT_TEXT_CHUNK (`text` of 10 to 100 characters, `ack_id`), asks for each chunk's audio
 with FETCH_AUDIO_CHUNK (`chunk_id`) until the server says READY, then sends COMMIT and the server answers COMMITTED_AUDIO. The audio of a chunk is `audio_base_64`, a WAV. **The status
 field is spelled `processing_staus` on the page and in its own example, so that is the wire**; if the first live call shows `processing_status`, this is the one file that changes. The key is

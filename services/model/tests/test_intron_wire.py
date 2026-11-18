@@ -1,6 +1,6 @@
 """The Intron wire format as pure functions (VOI-01, REQ-VOI-002, AGENT-13; rulings A179 to A181, A191, A241 and A249).
 
-Intron's documented streaming protocol (`docs.voice.intron.io`, read 13 Nov 2026; `docs/voice/intron-docs-notes-DRAFT.md`) is a WebSocket: the client sends base64 PCM16 chunks of 1 KB
+Intron's documented streaming protocol (the Intron Voice API documentation, read 13 Nov 2026; `docs/voice/intron-docs-notes-DRAFT.md`) is a WebSocket: the client sends base64 PCM16 chunks of 1 KB
 to 32 KB and a COMMIT; the server answers with SESSION_CREATED, AUDIO_CHUNK_ACK, PARTIAL_TRANSCRIPT, COMMITTED_TRANSCRIPT or QUOTA_EXCEEDED. These tests pin our reading of it in one
 place so that the first live call can correct it in one place. The key is never in the URL; a message that is not understood is MALFORMED, never skipped; and no error text carries
 a body or a key. All audio is SYNTHETIC (AGENT-25).
