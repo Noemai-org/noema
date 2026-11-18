@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, Sequence
 import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec
-from noema_model.voice.bargein import BargeInMonitor, BargeInResult, play_until_barge_in
+from noema_model.voice.bargein import BargeInMonitor, BargeInResult, PlaybackBounds, play_until_barge_in
 from noema_model.voice.endpoint import VadConfig
 from tests.support import run
 
@@ -32,7 +32,7 @@ def frames(levels: Sequence[int]) -> list[AudioChunk]:
 def play(tts_frames: int, inbound_levels: Sequence[int], max_stop_ms: int = 300) -> tuple[BargeInResult, list[int]]:
     played: list[int] = []
     result = run(play_until_barge_in(audio_of([chunk(i, 1000) for i in range(tts_frames)]), audio_of(frames(inbound_levels)),
-                                     BargeInMonitor(VAD, max_stop_ms=max_stop_ms), lambda c: played.append(c.sequence), close_s=1.0, read_s=1.0))
+                                     BargeInMonitor(VAD, max_stop_ms=max_stop_ms), lambda c: played.append(c.sequence), bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
     return result, played
 
 
@@ -66,4 +66,4 @@ def test_the_limit_must_be_positive() -> None:
 def test_the_close_bound_must_be_positive_and_finite() -> None:
     for bad in (0.0, -1.0, float("inf"), float("nan")):
         with pytest.raises(ValueError):
-            run(play_until_barge_in(audio_of([chunk(0)]), audio_of([chunk(0)]), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=bad, read_s=1.0))
+            run(play_until_barge_in(audio_of([chunk(0)]), audio_of([chunk(0)]), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=1.0, close_s=bad, hold_s=1.0)))

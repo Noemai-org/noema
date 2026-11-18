@@ -4,7 +4,7 @@
 import pytest
 
 from noema_model.providers.speech.base import AudioChunk, AudioCodec
-from noema_model.voice.bargein import BargeInMonitor, play_until_barge_in
+from noema_model.voice.bargein import BargeInMonitor, PlaybackBounds, play_until_barge_in
 from noema_model.voice.endpoint import VadConfig
 from tests.support import run
 
@@ -46,7 +46,7 @@ def test_a_failure_closing_the_answer_still_closes_the_microphone() -> None:
     answer = Tracked([1000] * 6, fail_on_close=True)
     microphone = Tracked([5] * 2000)
     with pytest.raises(RuntimeError):
-        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=1.0, read_s=1.0))
+        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
     assert answer.closed and microphone.closed
 
 
@@ -54,14 +54,14 @@ def test_a_failure_closing_the_microphone_still_closes_the_answer() -> None:
     answer = Tracked([1000] * 6)
     microphone = Tracked([5] * 2000, fail_on_close=True)
     with pytest.raises(RuntimeError):
-        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=1.0, read_s=1.0))
+        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
     assert answer.closed and microphone.closed
 
 
 def test_a_barge_in_closes_both_streams() -> None:
     answer = Tracked([1000] * 10)
     microphone = Tracked([5, 5, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000])
-    result = run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=1.0, read_s=1.0))
+    result = run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
     assert result.barged_in
     assert answer.closed and microphone.closed
 
@@ -74,5 +74,5 @@ def test_a_failing_play_callback_closes_both_streams() -> None:
         raise OSError("speaker gone")
 
     with pytest.raises(OSError):
-        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), boom, close_s=1.0, read_s=1.0))
+        run(play_until_barge_in(answer.stream(), microphone.stream(), BargeInMonitor(VAD, max_stop_ms=300), boom, bounds=PlaybackBounds(read_s=1.0, close_s=1.0, hold_s=1.0)))
     assert answer.closed and microphone.closed

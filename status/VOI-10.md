@@ -64,3 +64,14 @@ Reviews by other roles are data: the Security Reviewer on noema#218 (the four fi
 - Open questions (owner): none for Voice.
 - Files to read first: `voice/degrade.py`, `tests/test_voice_degrade.py`.
 - Do not touch: nothing here sets a threshold.
+
+# Session 2026-11-18 · VOI-10 (Codex round at 20b6d355)
+
+## Session summary
+- What changed: `PlaybackBounds(read_s, close_s, hold_s)` is validated when built, so `play_until_barge_in` is never handed an invalid bound while it holds live streams (Codex P2s on invalid-bound cleanup: the refusal path is removed rather than made safe). A read that timed out, or was cancelled with the call, is kept with its source; the release waits up to `close_s` for it to end, closes the source after it, and hands a source whose read will not end to `close_when_read_ends` (Codex P2 on closing a generator that is still running).
+- API change: `play_until_barge_in(..., bounds=PlaybackBounds(...))` replaces `close_s=` and `read_s=`; no caller outside the tests exists yet.
+- Tests: the tests that passed a bad bound into a call and checked the release are replaced by one that a bad bound cannot be built; new test for the late-ending read (red first at fe71968a: VOI_AUDIO_DEFERRED_CLOSE_FAILED).
+- Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: wire `PlaybackBounds` from configuration when the voice session is assembled.

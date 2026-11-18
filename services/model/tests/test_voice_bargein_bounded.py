@@ -13,7 +13,7 @@ import pytest
 
 from noema_model.platform.telemetry import InMemoryTelemetry
 from noema_model.providers.speech.base import AudioChunk
-from noema_model.voice.bargein import BargeInMonitor, BargeInResult, play_until_barge_in
+from noema_model.voice.bargein import BargeInMonitor, BargeInResult, PlaybackBounds, play_until_barge_in
 from noema_model.voice.endpoint import EndpointDetector, EndpointGate, VadConfig
 from tests.support import run
 from tests.support_voice import chunk
@@ -73,7 +73,7 @@ class Handle:
 
 
 async def barge(answer: Handle, microphone: Handle, telemetry: InMemoryTelemetry | None = None, close_s: float = 0.1) -> BargeInResult:
-    return await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, read_s=5.0, telemetry=telemetry, correlation_id="corr-b")
+    return await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=5.0, close_s=close_s, hold_s=1.0), telemetry=telemetry, correlation_id="corr-b")
 
 
 @pytest.mark.parametrize("which", ["answer", "microphone"])
@@ -126,18 +126,13 @@ def test_a_stream_that_stops_producing_frames_ends_the_call_at_the_read_bound_an
     started = time.monotonic()
 
     async def call() -> BargeInResult:
-        return await asyncio.wait_for(play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.2, read_s=0.1), timeout=GUARD_S)
+        return await asyncio.wait_for(play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=0.1, close_s=0.2, hold_s=1.0)), timeout=GUARD_S)
 
     result = run(call())
     assert time.monotonic() - started < 1.5  # not "until external cancellation"
     assert answer.closed and microphone.closed  # the microphone is released although a stream stalled
     assert result.stalled and not result.barged_in
 
-
-def test_a_read_bound_that_is_not_positive_and_finite_is_refused() -> None:
-    for bad in (0.0, -1.0, float("inf"), float("nan")):
-        with pytest.raises(ValueError):
-            run(play_until_barge_in(Handle([1]), Handle([1]), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.1, read_s=bad))
 
 
 # ---- Codex P2s on noema#621 at ca81fecd ---------------------------------------------------------------------------------------------------------------------------------
@@ -156,31 +151,6 @@ def test_a_close_that_overran_its_bound_is_a_release_failure_even_if_it_finishes
     assert result.release_failed  # ... so the release did not succeed, whether or not it ended a moment later
 
 
-@pytest.mark.parametrize("close_s,read_s", [(0.05, 0.0), (0.05, -1.0), (0.05, float("nan")), (0.0, 0.5), (float("inf"), 0.5)])
-def test_a_bad_bound_is_refused_and_both_live_streams_are_still_released(close_s: float, read_s: float) -> None:
-    answer, microphone = Handle([1000] * 6), Handle([5] * 2000)
-
-    async def call() -> None:
-        with pytest.raises(ValueError):
-            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, read_s=read_s)
-        await asyncio.sleep(0.05)
-
-    run(asyncio.wait_for(call(), timeout=GUARD_S))
-    assert answer.closed and microphone.closed  # a configuration error cannot retain the microphone
-
-
-def test_with_neither_bound_valid_both_closes_are_still_started_and_the_error_is_raised() -> None:
-    answer, microphone = Handle([1000] * 6), Handle([5] * 2000)
-
-    async def call() -> None:
-        with pytest.raises(ValueError):
-            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.0, read_s=0.0)
-        await asyncio.sleep(0.05)
-
-    run(asyncio.wait_for(call(), timeout=GUARD_S))
-    assert answer.closed and microphone.closed
-
-
 # ---- Codex P1 and P2 on noema#621 at e64e3380 ------------------------------------------------------------------------------------------------------------------------------
 
 
@@ -191,23 +161,12 @@ def test_a_stalled_read_through_an_endpoint_gate_whose_own_close_stalls_still_en
     started = time.monotonic()
 
     async def call() -> BargeInResult:
-        return await play_until_barge_in(answer, gate, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.1, read_s=0.05)
+        return await play_until_barge_in(answer, gate, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=0.05, close_s=0.1, hold_s=1.0))
 
     result = run(asyncio.wait_for(call(), timeout=GUARD_S))
     assert time.monotonic() - started < 2.0  # not "until the microphone's close is released"
     assert answer.closed and microphone.closed and result.stalled and result.release_failed
 
-
-@pytest.mark.parametrize("close_s,read_s", [(0.05, 0.0), (0.0, 0.5), (float("nan"), float("nan"))])
-def test_a_bad_bound_waits_for_each_close_to_run_to_its_end_before_the_error_is_raised(close_s: float, read_s: float) -> None:
-    answer, microphone = Handle([1000] * 6, close="slow"), Handle([5] * 2000, close="slow")
-
-    async def call() -> None:
-        with pytest.raises(ValueError):
-            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=close_s, read_s=read_s)
-
-    run(asyncio.wait_for(call(), timeout=GUARD_S))
-    assert answer.finished and microphone.finished  # aclose() was awaited, not abandoned after one turn
 
 
 # ---- Codex P2 on noema#621 at 20b6d355: a timed-out read is still running when the release starts; the close waits for it and is not lost ------------------------------
@@ -231,8 +190,19 @@ def test_a_timed_out_read_that_ends_late_is_waited_for_and_the_stream_is_then_cl
     answer = Handle([1000] * 50)
 
     async def call() -> BargeInResult:
-        return await play_until_barge_in(answer, slow_to_cancel_microphone(state), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.5, read_s=0.05)  # type: ignore[arg-type]
+        return await play_until_barge_in(answer, slow_to_cancel_microphone(state), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=0.05, close_s=0.5, hold_s=1.0))  # type: ignore[arg-type]
 
     result = run(asyncio.wait_for(call(), timeout=GUARD_S))  # no RuntimeError from closing a generator that is still running
     assert result.stalled and answer.closed
     assert state["closed"]  # the microphone was closed once its read ended
+
+
+# ---- Codex P2s on noema#621 at ca81fecd and 20b6d355: an invalid bound can never reach a call that holds live streams ----------------------------------------------------------
+# (the tests that handed a call a bad bound and checked the release are replaced by this: `PlaybackBounds` refuses a bad bound when it is built, before any stream is acquired)
+
+
+def test_a_bad_bound_cannot_be_built_so_a_call_never_holds_streams_with_one() -> None:
+    for field in ("read_s", "close_s", "hold_s"):
+        for bad in (0.0, -1.0, float("nan"), float("inf"), True):
+            with pytest.raises(ValueError):
+                PlaybackBounds(**({"read_s": 0.1, "close_s": 0.1, "hold_s": 0.1} | {field: bad}))

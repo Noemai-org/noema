@@ -23,7 +23,7 @@ from dataclasses import dataclass, replace
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import AudioChunk
 from noema_model.voice.endpoint import AudioSource, EndpointDetector, EndpointState, VadConfig
-from noema_model.voice.pipeline import Report, _mark_retrieved, begin_close, cleanup_reporter
+from noema_model.voice.pipeline import Report, _mark_retrieved, begin_close, cleanup_reporter, close_when_read_ends
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,17 +55,55 @@ class BargeInMonitor:
         return BargeInResult(True, heard, heard <= self._max_stop_ms)
 
 
-async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMonitor, play: Callable[[AudioChunk], None], read_s: float) -> BargeInResult:
+@dataclass(frozen=True, slots=True)
+class PlaybackBounds:
+    """The three bounds of a barge-in call, all from configuration (AGENT-16: none has a default), validated when they are built, so the call itself can never be handed an invalid one while it
+    holds live streams (Codex P2 on #621: a configuration error must not be able to retain the microphone).
+
+    `read_s`: how long either stream may go without producing a frame. `close_s`: how long a close may take, and how long a stalled read may be waited for before the release goes on without it.
+    `hold_s`: how long the release of a source whose read will not end is kept alive, before it is abandoned and reported (see `close_when_read_ends`)."""
+
+    read_s: float
+    close_s: float
+    hold_s: float
+
+    def __post_init__(self) -> None:
+        for bound in (self.read_s, self.close_s, self.hold_s):
+            if isinstance(bound, bool) or not (math.isfinite(bound) and bound > 0):
+                raise ValueError("every playback bound must be a positive finite number from configuration")
+
+
+async def _read(source: AudioSource, read_s: float, outstanding: list[tuple[AudioSource, "asyncio.Future[AudioChunk]"]]) -> AudioChunk:
+    """One read in a task of its own, so that a source whose cancellation handler waits (an `EndpointGate` shields its close from a cancelled reader) cannot hold this call past `read_s`.
+    At the bound, or if the caller is cancelled, the read is cancelled and recorded in `outstanding` with its source: it may still be running, and a source with a running read cannot be
+    closed (an async generator raises), so the release waits for that read and closes the source after it (Codex P1 and P2 on #621)."""
+    reading = asyncio.ensure_future(source.__anext__())
+    reading.add_done_callback(_mark_retrieved)
+    try:
+        done, _ = await asyncio.wait({reading}, timeout=read_s)
+    except asyncio.CancelledError:
+        reading.cancel()
+        outstanding.append((source, reading))
+        raise
+    if not done:
+        reading.cancel()
+        outstanding.append((source, reading))
+        raise TimeoutError
+    return reading.result()
+
+
+async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMonitor, play: Callable[[AudioChunk], None], read_s: float,
+                outstanding: list[tuple[AudioSource, "asyncio.Future[AudioChunk]"]]) -> BargeInResult:
     """Each read of either stream is bounded by `read_s`; a stream that stops producing frames ends the call at that bound (it then reaches the bounded release), never waits for ever."""
     try:
         while True:
             try:
-                out = await _read(answer, read_s)
+                out = await _read(answer, read_s, outstanding)
             except StopAsyncIteration:
                 return monitor.result(False)
             play(out)
             try:
-                incoming = await _read(microphone, read_s)
+                incoming = await _read(microphone, read_s, outstanding)
             except StopAsyncIteration:
                 continue  # no more microphone frames: the answer plays on
             if monitor.feed(incoming):
@@ -74,48 +112,33 @@ async def _play(answer: AudioSource, microphone: AudioSource, monitor: BargeInMo
         return replace(monitor.result(False), stalled=True)
 
 
-async def _read(source: AudioSource, read_s: float) -> AudioChunk:
-    """One read in a task of its own, so that a source whose cancellation handler waits (an `EndpointGate` shields its close from a cancelled reader) cannot hold this call past `read_s`:
-    at the bound the read is cancelled and let go of (its outcome is never read), and the call goes on to the bounded release. A caller's cancellation cancels the read too (Codex P1 on #621)."""
-    reading = asyncio.ensure_future(source.__anext__())
-    reading.add_done_callback(_mark_retrieved)
-    try:
-        done, _ = await asyncio.wait({reading}, timeout=read_s)
-    except asyncio.CancelledError:
-        reading.cancel()
-        raise
-    if not done:
-        reading.cancel()
-        raise TimeoutError
-    return reading.result()
-
-
-async def _release(answer: AudioSource, microphone: AudioSource, close_s: float, report: Report) -> tuple[bool, BaseException | None]:
-    """Close both streams side by side, each within `close_s`. Returns (some close did not finish, the first error a close raised). Bounded: at most twice `close_s`, the second
-    wait being only for the cancellation of a close that reached its bound to take effect."""
-    closes = {begin_close(answer, close_s, report), begin_close(microphone, close_s, report)}
-    _, pending = await asyncio.wait(closes, timeout=close_s)
-    if pending:
-        await asyncio.wait(pending, timeout=close_s)
-    stalled = bool(pending) or any(close.cancelled() for close in closes)  # a close that reached its bound failed, even if it ended during the cancellation grace (Codex P2 on #621)
+async def _release(
+    answer: AudioSource,
+    microphone: AudioSource,
+    bounds: PlaybackBounds,
+    report: Report,
+    outstanding: list[tuple[AudioSource, "asyncio.Future[AudioChunk]"]],
+) -> tuple[bool, BaseException | None]:
+    """Release both streams. A stream whose read is still running is first given `close_s` for that read to end (it was cancelled); if it does, it is closed with the other, side by side, each
+    within `close_s`. If it does not, its close is handed to `close_when_read_ends` (closed the moment the read ends, abandoned and reported after `hold_s`) and the release counts as failed.
+    Returns (some release did not complete within its bound, the first error a close raised). Bounded: about three times `close_s`, plus nothing for the handed-over source."""
+    running = {source: read for source, read in outstanding}
+    if running:
+        await asyncio.wait(set(running.values()), timeout=bounds.close_s)
+    deferred = [(source, read) for source, read in running.items() if not read.done()]
+    for source, read in deferred:
+        close_when_read_ends(read, source, bounds.hold_s, bounds.close_s, report)
+    deferred_sources = {id(source) for source, _ in deferred}
+    now = [source for source in (answer, microphone) if id(source) not in deferred_sources]
+    closes = {begin_close(source, bounds.close_s, report) for source in now}
+    stalled = bool(deferred)
+    if closes:
+        _, pending = await asyncio.wait(closes, timeout=bounds.close_s)
+        if pending:
+            await asyncio.wait(pending, timeout=bounds.close_s)
+        stalled = stalled or bool(pending) or any(close.cancelled() for close in closes)  # a close that reached its bound failed, even if it ended during the cancellation grace
     error = next((e for close in closes if close.done() and not close.cancelled() and (e := close.exception()) is not None), None)
     return stalled, error
-
-
-async def _refuse(answer: AudioSource, microphone: AudioSource, bound_s: float | None) -> None:
-    """A configuration error must not retain the streams the caller handed over. Both closes are started and awaited. The bound is the other bound if one of the two is valid, because
-    none is invented; with neither valid the closes are awaited until they end, and the caller's own cancellation still applies (Codex P2 on #621, twice)."""
-    closes = [asyncio.ensure_future(source.aclose()) for source in (answer, microphone)]
-    for close in closes:
-        close.add_done_callback(_mark_retrieved)
-    try:
-        _, pending = await asyncio.wait(closes, timeout=bound_s)
-    except asyncio.CancelledError:
-        for close in closes:
-            close.cancel()
-        raise
-    for close in pending:
-        close.cancel()
 
 
 async def play_until_barge_in(
@@ -124,23 +147,19 @@ async def play_until_barge_in(
     monitor: BargeInMonitor,
     play: Callable[[AudioChunk], None],
     *,
-    close_s: float,
-    read_s: float,
+    bounds: PlaybackBounds,
     telemetry: Telemetry | None = None,
     correlation_id: str = "uncorrelated",
 ) -> BargeInResult:
-    """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. `close_s` bounds the release of each stream and `read_s` each read of either; neither has a
-    default (AGENT-16: a bound comes from configuration)."""
-    if not (math.isfinite(close_s) and close_s > 0 and math.isfinite(read_s) and read_s > 0):
-        valid = [b for b in (close_s, read_s) if math.isfinite(b) and b > 0]
-        await _refuse(answer, microphone, valid[0] if valid else None)
-        raise ValueError("the close and read bounds must be positive finite numbers from configuration")
+    """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. The bounds are configuration, validated when they were built
+    (`PlaybackBounds`), so this call never refuses with live streams in hand."""
     report = cleanup_reporter(telemetry, correlation_id)
+    outstanding: list[tuple[AudioSource, asyncio.Future[AudioChunk]]] = []
     outcome: BargeInResult | None = None
     try:
-        outcome = await _play(answer, microphone, monitor, play, read_s)
+        outcome = await _play(answer, microphone, monitor, play, bounds.read_s, outstanding)
     finally:
-        release = asyncio.ensure_future(_release(answer, microphone, close_s, report))
+        release = asyncio.ensure_future(_release(answer, microphone, bounds, report, outstanding))
         cancelled = False
         while not release.done():
             try:
