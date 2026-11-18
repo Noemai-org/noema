@@ -117,3 +117,20 @@ func TestPublishedAnUnreadableTableIsAnErrorAndNeverAnEmptyList(t *testing.T) {
 		t.Fatalf("an Outcome login read the publications: %v", got)
 	}
 }
+
+// A query that cannot even start (a context already cancelled, a closed pool) is an error and never an empty list.
+func TestPublishedAQueryThatCannotStartIsAnErrorAndNeverAnEmptyList(t *testing.T) {
+	w := newWorld(t)
+	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "1.0"); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithTimeout(context.Background(), time.Minute)
+	cancel()
+	if got, err := policystore.Published(cancelled, w.trustA, tenantA, "fin.pol"); err == nil {
+		t.Fatalf("a cancelled context read %v and no error", got)
+	}
+	w.trustA.Close()
+	if got, err := policystore.Published(ctx(t), w.trustA, tenantA, "fin.pol"); err == nil {
+		t.Fatalf("a closed pool read %v and no error", got)
+	}
+}
