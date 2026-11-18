@@ -1,0 +1,23 @@
+/* Noema neutral palette and single type scale. */
+:root {
+  --noema-color-surface: #ffffff;
+  --noema-color-text: #17212b;
+  --noema-color-action: #174d74;
+  --noema-color-warning: #7a3e00;
+  --noema-type-body: 1rem;
+  --noema-type-label: 0.875rem;
+  --noema-type-heading: 1.25rem;
+  --noema-space-small: 0.5rem;
+  --noema-space-medium: 1rem;
+  --noema-space-large: 1.5rem;
+  --noema-touch-target: 3rem;
+  --noema-content-width: 32rem;
+}
+
+body { margin: 0; background: var(--noema-color-surface); color: var(--noema-color-text); font: var(--noema-type-body)/1.5 system-ui, sans-serif; }
+.overlay { max-width: var(--noema-content-width); margin: auto; padding: var(--noema-space-large); }
+h1 { font-size: var(--noema-type-heading); }
+.notice { font-size: var(--noema-type-label); }
+textarea { box-sizing: border-box; width: 100%; font: inherit; margin-top: var(--noema-space-small); }
+.actions { display: flex; gap: var(--noema-space-medium); margin-top: var(--noema-space-medium); }
+button { min-height: var(--noema-touch-target); font: inherit; }

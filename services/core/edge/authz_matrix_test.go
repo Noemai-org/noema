@@ -33,15 +33,20 @@ import (
 type mxRow struct {
 	pattern, path string
 	allowed       []session.Role
+	body          string // a non-empty body makes the request a POST with a JSON body; empty is a GET
 }
 
 var mxRows = []mxRow{
-	{"GET /v1/ops/debt", "/v1/ops/debt", []session.Role{session.RoleOps}},
-	{"GET /v1/ops/alerts", "/v1/ops/alerts", []session.Role{session.RoleOps}},
-	{"GET /v1/investigations/{id}/panel", "/v1/investigations/inv_1/panel", []session.Role{session.RoleOps, session.RoleAudit}},
-	{"GET /v1/reconstructions/{cid}", "/v1/reconstructions/corr_1", []session.Role{session.RoleAudit}},
-	{"GET /v1/record/verify", "/v1/record/verify", []session.Role{session.RoleAudit}},
-	{"GET /v1/outcomes/{verdict_id}", "/v1/outcomes/vrd_1", []session.Role{session.RoleCustomer, session.RoleOps, session.RoleAudit}},
+	{"GET /v1/ops/debt", "/v1/ops/debt", []session.Role{session.RoleOps}, ""},
+	{"GET /v1/ops/alerts", "/v1/ops/alerts", []session.Role{session.RoleOps}, ""},
+	{"GET /v1/investigations/{id}/panel", "/v1/investigations/inv_1/panel", []session.Role{session.RoleOps, session.RoleAudit}, ""},
+	{"GET /v1/reconstructions/{cid}", "/v1/reconstructions/corr_1", []session.Role{session.RoleAudit}, ""},
+	{"GET /v1/record/verify", "/v1/record/verify", []session.Role{session.RoleAudit}, ""},
+	{"GET /v1/outcomes/{verdict_id}", "/v1/outcomes/vrd_1", []session.Role{session.RoleCustomer, session.RoleOps, session.RoleAudit}, ""},
+	// EDG-01 (noema#601, A243): the investigation's public stage: customer only.
+	{"GET /v1/investigations/{id}", "/v1/investigations/inv_1", []session.Role{session.RoleCustomer}, ""},
+	// STM-01 (noema#601, SR on #617): the first customer route, POST /v1/conversations: customer only (PERD 39.4).
+	{"POST /v1/conversations", "/v1/conversations", []session.Role{session.RoleCustomer}, `{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","channel":"text","text":"x"}`},
 }
 
 var mxRoles = []session.Role{session.RoleCustomer, session.RoleApprover, session.RoleOps, session.RoleAudit}
@@ -87,7 +92,16 @@ func newMxRig(t *testing.T) mxRig {
 }
 
 func (r mxRig) get(path, bearer string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
+	return r.do(mxRow{path: path}, bearer)
+}
+
+// do sends the row's request: a GET, or a POST with the row's JSON body.
+func (r mxRig) do(row mxRow, bearer string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, row.path, nil)
+	if row.body != "" {
+		req = httptest.NewRequest(http.MethodPost, row.path, strings.NewReader(row.body))
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
@@ -120,7 +134,7 @@ func TestTheMatrixCellOfEveryRoleAndPublicRoute(t *testing.T) {
 		unknown := mxShape(t, rig.get("/v1/does-not-exist", tok))
 		for _, row := range mxRows {
 			before := rig.calls[row.pattern]
-			rec := rig.get(row.path, tok)
+			rec := rig.do(row, tok)
 			if mxAllows(row.allowed, role) {
 				if rec.Code != http.StatusOK || rig.calls[row.pattern] != before+1 {
 					t.Errorf("%s as %s: want 200 and one handler call, got %d and %d calls", row.pattern, role, rec.Code, rig.calls[row.pattern]-before)

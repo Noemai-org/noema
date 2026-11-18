@@ -47,3 +47,18 @@ Updated 2026-11-03. Owner: the Founder (benchmark owner B). Needs: BEN-01. Gate:
 - Files to read first: `contracts/schemas/benchmark-scorecard.v3.json`, `benchmark/scoring/rates.py`.
 - Do not touch: `benchmark/scoring/stats.py` (frozen by hash in `benchmark/decisions/2026-10-27-model-selection.md`).
 
+
+# Session 2026-11-17 · BEN-30 · scorecard-view.v1 (ruling A250)
+
+## Session summary
+- What changed: `contracts/schemas/scorecard-view.v1.json` (new), `benchmark/scoring/view.py` (`scorecard_view`, an allowlist projection of a v3 scorecard), fixtures (3 valid, 9 invalid), the INVENTORY row and migration note, and the generated Go and Python models and registry entries.
+- Why: A250 (interim): "the scorecard view for the UI is a new `scorecard-view.v1` that BO defines (aggregates only, no case or oracle refs). C1 adds its root."
+- Risks, and how they are contained: a new contract, so nothing existing breaks. It is not excluded from codegen, so it has its own copies of the rate, latency and slice shapes (a service contract may not refer to an excluded one) and an open `layers` map (the lint refuses a layer name spelled in core code). Every object is closed; no free string can spell a case id (the one deliberate identifier is the run's own id; the pass^k reason is a pattern); a test walks the schema for both. The view adds no number and no threshold.
+- Tests added (REQ-BEN-004): `test_view.py` (15), seen failing first; six mutations of `view.py` each caught.
+- Regression cases added: none. Debt entries: none. Conflicts raised: none (A250 is relayed; docs#192 records it).
+
+## Pre-work for the next agent
+- Exact next step: C1 adds the root that serves the view (A250); the scorer can write it next to the scorecard once a consumer exists.
+- Open questions (owner): whether the UI needs any member this view omits (it would be a new minor version): the UI owner.
+- Files to read first: `benchmark/scoring/view.py`, `contracts/schemas/scorecard-view.v1.json`.
+- Do not touch: nothing outside the view (scorecard v3 is unchanged).

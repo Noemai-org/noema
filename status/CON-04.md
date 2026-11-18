@@ -11,3 +11,15 @@ Updated 2026-10-24.
 
 ## Messages
 None sent or accepted for this task.
+
+# Session 2026-11-17 · CON-04 (the vector check in CI; the Go side of every family)
+
+## Session summary
+- What changed: `services/core/internal/vectors/families_test.go`: Go tests for the three families no Go test read (`intent_hash_vectors` and `plan_hash_vectors`, the JCS-primitive vectors: RFC 8785 form and SHA-256; `binding_hash_vectors` through `trust/confirm.BindingHash`), and `TestEveryVectorFamilyHasAGoTest`, which fails when a family is added to `golden_vectors.json` with no Go test (it names the file for each family and checks the file holds the family key).
+- Where each family runs in CI (the answer to "confirm the vector check runs in CI"): Go: the `core` job runs `go test ./...` (`internal/vectors`, `evidence/snapshot`, `record/chain`). Python: `make contracts-validate` runs `tools/contracts/test_check_vectors_negatives.py` (`test_the_committed_fixture_passes` runs `tools/check_vectors.py` on the committed file, every family) in the `contracts` workflow.
+- Tests added (REQ-API-001, REQ-EXE-002, REQ-TRU-008; INV-18, INV-21): above. No red run (the vectors already agree); mutant: swapping two keys in `BindingHash` fails `TestBindingHashVectors`.
+- Not done: schema-valid `intent_hash` and `plan_hash` vectors (the plan adds them "once CON-01 exists"; CON-01 is merged): inputs for a v3 intent and a real plan are the Architect's to choose; the shared vector file of A259 (masking, after noema#636) is a later PR.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: schema-valid intent and plan vectors, with the Architect's inputs; then A259's shared masking vector file.
