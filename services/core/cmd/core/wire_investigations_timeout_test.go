@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 )
 
@@ -64,9 +65,10 @@ func TestTheReadBoundIsASettingWithNoDefaultAndParsedStrictly(t *testing.T) {
 
 // The value is the bound: a read whose request has no deadline runs under exactly that many milliseconds, a request with an earlier deadline keeps it, and a later one does not
 // lengthen the bound.
+// A context deadline is wall-clock time, so these checks read the system clock (through the clock package, not time.Now).
 func TestTheReadRunsUnderTheConfiguredBoundAndNeverALaterOneThanTheRequests(t *testing.T) {
 	r, pool := observedReader(t, "700")
-	before := time.Now()
+	before := clock.System{}.Now()
 	_, found, err := r.Read(context.Background(), "ten_aa", "prn_1", wireInvA1)
 	if pool.calls != 1 || !pool.has || found || err == nil {
 		t.Fatalf("calls %d, deadline %v, found %v, err %v; want one read under a deadline that failed", pool.calls, pool.has, found, err)
@@ -87,7 +89,7 @@ func TestTheReadRunsUnderTheConfiguredBoundAndNeverALaterOneThanTheRequests(t *t
 		t.Errorf("a request deadline of one hour lengthened the bound to %v", got)
 	}
 	r2, pool2 := observedReader(t, "1500")
-	before = time.Now()
+	before = clock.System{}.Now()
 	_, _, _ = r2.Read(context.Background(), "ten_aa", "prn_1", wireInvA1)
 	if got := pool2.deadline.Sub(before); got <= 1000*time.Millisecond || got > 1500*time.Millisecond+time.Second/2 {
 		t.Errorf("a bound of 1500ms ran under %v", got)
