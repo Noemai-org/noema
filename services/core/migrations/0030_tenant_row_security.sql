@@ -7,7 +7,7 @@
 -- switch at E6 and again inside the spend transaction at E8, Trust reads it at T3, and the chain verifier (REC-05) lists every tenant and sets the switch after a proven break.
 -- Three policies, one per role group, and nothing else:
 --
---   tenant_own_row      the five power groups and record_read, ALL: tenant_id = decision_login_tenant() (migration 0012; the tenant of the login that connected, by session_user, which no caller
+--   tenant_own_row      the five power groups, ALL: tenant_id = decision_login_tenant() (migration 0012; the tenant of the login that connected, by session_user, which no caller
 --                       can change). Same shape and same function as the policies of 0018. FOR ALL, not FOR SELECT, so that the privilege is what limits the command, as on the tables of
 --                       0018: a power role that a later grant gave UPDATE (kill_switch) still reaches the guard of 0017, which refuses a clear whoever asks (TestNoRuntimeLoginCanClearTheKillSwitchEvenWithTheGrant).
 --                       A login with no tenant mapping gets NULL from the function and sees nothing.
@@ -19,18 +19,14 @@
 -- off for that check (PostgreSQL runs the referential check as the owner without FORCE; TestForcedRowSecurityOnTenantDoesNotBreakForeignKeyChecksOfANonSuperuserOwner proves it
 -- with a non-superuser owner). FORCE therefore makes the owner, and so the migration login, read and write no tenant row without a tenant mapping, as 0018 does for its tables.
 -- A superuser still bypasses row security: the tenant list is created and administered by the operator's own superuser credential, the break-glass path of 0017, never by a service.
--- record_read holds no privilege on tenant, so its logins still cannot read the table. It is in the policy's role list, with EXECUTE on decision_login_tenant() (the function returns
--- only the caller's own tenant, as for the roles of 0012 and 0018), for one reason: the existing test TestNoRuntimeLoginCanClearTheKillSwitchEvenWithTheGrant simulates a mistaken
--- UPDATE grant to every per-tenant group, record_read included, and requires the trigger of 0017 to be what refuses the clear. A group that no policy covers would see zero rows
--- and never reach the trigger, which would change what that test shows. This grant is the one item of this migration that is not strictly needed to close DEBT-43; it is
--- listed for the Architect (status/SEC-08-tenant-rls.md), who may rule that the test case should change instead.
-
-GRANT EXECUTE ON FUNCTION public.decision_login_tenant() TO record_read;
+-- The record_read group holds no privilege on tenant and gets no policy: a login of it cannot read the table, and a mistaken UPDATE grant to it would match no row (ruling on noema#716).
+-- Tenant creation is an init-time step of the operator's superuser (ruling on noema#716): no policy and no role is made for it, and the migration login cannot insert a tenant
+-- under FORCE (TestOnlyASuperuserCreatesATenant).
 
 ALTER TABLE public.tenant ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tenant FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY tenant_own_row ON public.tenant FOR ALL TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw, record_read
+CREATE POLICY tenant_own_row ON public.tenant FOR ALL TO trust_rw, execution_rw, outcome_rw, evidence_rw, orchestrator_rw
   USING (tenant_id = public.decision_login_tenant()) WITH CHECK (tenant_id = public.decision_login_tenant());
 CREATE POLICY tenant_verify_read ON public.tenant FOR SELECT TO record_verify USING (true);
 CREATE POLICY tenant_verify_halt ON public.tenant FOR UPDATE TO record_verify USING (true) WITH CHECK (kill_switch);
