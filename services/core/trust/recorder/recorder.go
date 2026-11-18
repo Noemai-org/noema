@@ -327,6 +327,10 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	if len(r.Steps) > 0 && d.Outcome() != decide.Allow {
 		return decide.Basis{}, "", ErrGrantsNeedAllow
 	}
+	if len(r.Steps) > 0 && r.DispositionDecisionID == "" {
+		// Every grant-issuing action decision links its disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim). Only an ALLOW reaches here with steps.
+		return decide.Basis{}, "", ErrDispositionRequired
+	}
 	if r.DispositionDecisionID != "" {
 		// An ESCALATE disposition authorises the escalation plan's write steps and nothing else (REQ-TRU-010, INV-25). The set is the pack's, injected; an empty set allows no step.
 		for _, s := range r.Steps {
