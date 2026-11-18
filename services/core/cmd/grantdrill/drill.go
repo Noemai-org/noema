@@ -1,6 +1,7 @@
 package main
 
-// SEC-09 (REQ-SEC-005, INV-03, INV-25): the drill, on a simulated clock. A grant is issued every tick for the length of the run while the key ring goes from one key, to two (the highest
+// SEC-09 (REQ-SEC-005, INV-03, INV-25): the drill, on simulated time: every instant is an offset from a fixed epoch carried in the decision's basis (the grant's validity starts from it), so no
+// simulated clock object is built here (TEN-05: the simulated clock is built only in test files); the ID source takes the real clock, whose reading is no part of a grant's validity. A grant is issued every tick for the length of the run while the key ring goes from one key, to two (the highest
 // version signs, either verifies), to the new key alone. At every tick every grant still inside its validity window is verified against the ring in force, and a corpus of forgeries is
 // presented. The ring in force is whatever the caller gives (the command gives rings loaded from key files, as the core loads them). Everything here is SYNTHETIC; nothing is printed but counts.
 
@@ -91,7 +92,7 @@ func issue(keys *grants.Keys, at time.Duration, seed int64) (contracts.DecisionG
 	if err != nil {
 		return contracts.DecisionGrantV1{}, err
 	}
-	i, err := grants.NewIssuer(keys, ids.New(clock.NewManual(epoch), rand.New(rand.NewSource(seed))), rand.New(rand.NewSource(seed+1)), validity)
+	i, err := grants.NewIssuer(keys, ids.New(clock.System{}, rand.New(rand.NewSource(seed))), rand.New(rand.NewSource(seed+1)), validity)
 	if err != nil {
 		return contracts.DecisionGrantV1{}, err
 	}

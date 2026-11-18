@@ -1,6 +1,6 @@
 # cmd/grantdrill
 
-**What it does.** The SEC-09 key-rotation drill for the Decision Grant HMAC key, on a simulated clock. `grantdrill --work DIR` (an existing, empty directory) makes three synthetic keys, writes the three key directories an operator goes through (the old key; the new key and the old; the new key alone), loads each with the core's loader (`trust/grants/keyfiles`), issues a grant every 30 simulated seconds for 90 simulated minutes, and verifies every grant still inside its 10-minute window at every tick, with a corpus of forgeries (a made-up secret under each key id; a retired key's secret after retirement; a changed field; a swapped, unknown or empty key id). It then removes the files.
+**What it does.** The SEC-09 key-rotation drill for the Decision Grant HMAC key, on simulated time (instants are offsets from a fixed epoch; no simulated clock object, TEN-05). `grantdrill --work DIR` (an existing, empty directory) makes three synthetic keys, writes the three key directories an operator goes through (the old key; the new key and the old; the new key alone), loads each with the core's loader (`trust/grants/keyfiles`), issues a grant every 30 simulated seconds for 90 simulated minutes, and verifies every grant still inside its 10-minute window at every tick, with a corpus of forgeries (a made-up secret under each key id; a retired key's secret after retirement; a changed field; a swapped, unknown or empty key id). It then removes the files.
 
 **REQs.** REQ-SEC-005, INV-03, INV-25. Updated 18 Nov 2026.
 

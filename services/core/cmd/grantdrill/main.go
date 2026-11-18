@@ -1,4 +1,4 @@
-// Command grantdrill is the SEC-09 key-rotation drill for the Decision Grant HMAC key (REQ-SEC-005, INV-03, INV-25), on a simulated clock.
+// Command grantdrill is the SEC-09 key-rotation drill for the Decision Grant HMAC key (REQ-SEC-005, INV-03, INV-25), on simulated time.
 //
 //	grantdrill --work DIR
 //
@@ -146,7 +146,7 @@ func runCommand(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, "grantdrill: the control run could not complete")
 		return exitCannot
 	}
-	fmt.Fprintln(out, "grantdrill: SYNTHETIC keys and simulated clock")
+	fmt.Fprintln(out, "grantdrill: SYNTHETIC keys and simulated time")
 	fmt.Fprintf(out, "safe rule (old key retired after its last grant expired): grants %d (old key %d, new key %d); checks %d; valid grants rejected %d; forgeries tried %d; forgeries accepted %d\n",
 		safe.issued, safe.signedOld, safe.signedNew, safe.checks, safe.rejectedValid, safe.tried, safe.forgedAccepted)
 	fmt.Fprintf(out, "control (old key retired the moment the new one joined): valid grants rejected %d (must be above 0)\n", control.rejectedValid)
