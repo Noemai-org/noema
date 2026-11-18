@@ -1,6 +1,6 @@
 # MEM-03: labelled pairs by design (spec, for C1 and C2 to implement)
 
-**Status:** a spec, 17 Nov 2026. No code. Task MEM-03 (owners C1, C2; due 1 Dec 2026), REQ-MEM-003 (P1), dependencies REQ-MEM-001, REQ-AUD-001; REC-03 is Done. Written by the Benchmark Owner agent for review by C1 and C2; nothing here is decided until they accept it.
+**Status:** the final spec, 18 Nov 2026, updated to the Architect's ruling A322 (interim; recorded in docs#205, so it counts once a Founder merges that pull request). No code. Task MEM-03 (owners C1, C2; due 1 Dec 2026), REQ-MEM-003 (P1), dependencies REQ-MEM-001, REQ-AUD-001; REC-03 is Done. Written by the Benchmark Owner agent for C1 and C2 to implement. The four open questions of the 17 Nov draft are answered in section 6.
 
 ## 1. What is asked
 
@@ -13,12 +13,12 @@ Nothing new is stored. A pair is derived from the reconstruction of one correlat
 | Field | Source section of the reconstruction | Notes |
 |---|---|---|
 | request | `REQUEST` | the typed facts the section already serves, not raw text (REQ-MEM-001: free text is not stored) |
-| resolved target | `RESOLUTION` | the entity the resolver selected; absent if the case ended in clarification or refusal |
+| resolved target | `RESOLUTION` | **a typed fact** (a `RESOLUTION` entity reference of the contract's own type, never a free string); absent if the case ended in clarification or refusal (A322) |
 | verified outcome | `VERIFICATION` (and `DOWNSTREAM_RESULT` for the system's answer) | only a verdict from the Outcome power counts; an HTTP 200 never does (AGENT-21) |
 | provenance | `chain.head_event_id`, `chain.head_hash`, the event ids of the three sections | so a pair traces to the exact Record bytes |
 | scope | `tenant_id`, `correlation_id` | one tenant per call, taken from the authenticated session, never from input (INV-12) |
 
-**A pair is emitted only when all three fields exist and the verification is a verified verdict.** A correlation with no resolved target, an `OUTCOME_UNKNOWN`, or a refused request yields no pair. It is counted, not silently dropped: the extraction reports how many correlations it skipped and why, by enum reason.
+**A pair carries exactly the fields above and no `AMBIGUITY` facts in v1 (A322).** **A pair is emitted only when all three fields exist and the verification is a verified verdict.** A correlation with no resolved target, an `OUTCOME_UNKNOWN`, or a refused request yields no pair. It is counted, not silently dropped: the extraction reports how many correlations it skipped and why, by enum reason.
 
 ## 3. Interface (smallest viable)
 
@@ -37,19 +37,25 @@ Nothing new is stored. A pair is derived from the reconstruction of one correlat
 ## 5. Tests (written first, seen failing)
 
 - **Extraction on a benchmark run (the task's "done when"):** run a small generated suite through the stack, then `Extract` over its correlations. Every completed, verified, resolved case yields exactly one pair with all three fields and a provenance that matches the reconstruction's `chain.head_hash`; skipped cases are counted with a reason.
-- **No pair without all three** (resolution absent, outcome unknown, refused): a table test now; a `rapid` property test once AGENT-14 approves the library.
+- **No pair without all three** (resolution absent, outcome unknown, refused): a **table test now** (A322): one row per skip reason and per missing field, each asserting no pair and the counted reason. No property-test library is needed for v1.
 - **Tamper:** break one Record event; the tenant yields no pairs and an integrity error (INV-11).
 - **Tenant isolation:** a correlation of another tenant yields nothing, indistinguishable from "unknown".
 - **Purpose gate:** `TRAINING` is refused; no code path writes the three fields anywhere outside the result.
 - **Boundary lint:** no decision-path package imports `record/pairs` (extend the REQ-MEM-001 check).
-- **Mutants to try:** emit a pair on `OUTCOME_UNKNOWN`; read the tenant from the argument instead of the session; allow `TRAINING`; drop provenance.
+- **Typed target:** a `RESOLUTION` whose target is not of the contract's type yields no pair and a counted skip reason, never a coerced string.
+- **No `AMBIGUITY` in v1:** the contract has no member for it and is closed (`additionalProperties: false`); a fixture with an `AMBIGUITY` section yields a pair without it.
+- **Mutants to try:** emit a pair on `OUTCOME_UNKNOWN`; read the tenant from the argument instead of the session; allow `TRAINING`; drop provenance; copy `AMBIGUITY` facts into the pair; accept an untyped target.
 
-## 6. Questions for C1 and C2
+## 6. Decided (ruling A322) and what is left to C1 and C2
 
-1. Is the reconstruction the right source, or should the extraction read the chain through its own `record_read` view? This spec prefers the reconstruction for the verification it already does; the cost is one reconstruction per correlation.
-2. Does `RESOLUTION` carry the selected entity as a typed fact today, or must the projection table (`project.go`) list a new key? A new key is a contract-adjacent change and needs its own PR.
-3. Should a pair carry the case's `AMBIGUITY` facts (whether clarification was asked)? Useful for Entity Resolution labels; it widens the contract.
-4. `rapid` is `[REC]` and needs AGENT-14 approval: is a table test enough for now?
+| Question of the 17 Nov draft | Decision (A322) |
+|---|---|
+| Is the reconstruction the source, or the chain through `record_read`? | **The reconstruction is the source.** One reconstruction per correlation is the accepted cost. |
+| Does `RESOLUTION` carry a typed selected entity? | **The target is a typed `RESOLUTION`.** If `project.go` does not list the key today, adding it is a contract-adjacent change in its own pull request (AGENT-15) before this one. C1 or C2 checks which. |
+| Should a pair carry `AMBIGUITY` facts? | **No: `AMBIGUITY` stays out of v1.** Adding it later is a new minor version of `labelled-pair`. |
+| Is a table test enough, or `rapid`? | **A table test now.** |
+
+Left to C1 and C2, as implementation checks rather than open decisions: whether the typed-target key exists in the projection today (above), and the CLI's exact flags under the benchmark profile.
 
 ## 7. Out of scope
 
