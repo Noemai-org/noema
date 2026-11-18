@@ -35,6 +35,7 @@ Go rules run in `golint/` with `go/parser` and `go/ast` (standard library, no mo
 | `construct-decision-grant` | `DecisionRecord` is built outside `trust/decide`, or `DecisionGrant` outside `trust/grants` (generated `internal/contracts` and tests exempt) |
 | `harness-only-providers` | the model service imports `providers` anywhere except `harness/` (and `providers/` itself); `voice/` may import `providers.speech` and nothing else in `providers` (A9) |
 | `pipeline-purity` | `understanding/pipeline` has module-level mutable state, `global`, or imports a database, Temporal, HTTP or agent-framework client |
+| `crash-hook` | a `Boundary` field (the crash-point matrix's hook in `execution/ledger`, `execution/controller` and `outcome/verifier`) is set to anything but `nil` by an assignment (also in parentheses), a pointer to the field (`&x.Boundary`), a composite-literal key, or a positional composite literal of a struct that declares it (also an elided element of a slice or map), in a file that is not `_test.go`; declaring, reading, calling, comparing and clearing it are fine (noema#553, noema#628) |
 
 ## Decisions
 
