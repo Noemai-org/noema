@@ -198,8 +198,8 @@ def record_access_evidence(probes: Json, log_text: str, tenant: str, other_tenan
             if len(found) != 1:
                 problems.append(f"{case_id}: the {name} probe left {len(found)} RECORD_ACCESSED lines, not 1")
                 continue
-            line = found[0]
-            if line.get("principal") != f"auditor:{who[name]}" or line.get("tenant_id") != tenant or line.get("correlation_id") != correlation or line.get("outcome") != outcome:
+            entry = found[0]
+            if entry.get("principal") != f"auditor:{who[name]}" or entry.get("tenant_id") != tenant or entry.get("correlation_id") != correlation or entry.get("outcome") != outcome:
                 problems.append(f"{case_id}: the {name} probe's access line is not the one expected (tenant, principal kind, correlation or outcome differs)")
         for name in ("wrong_role", "foreign_tenant"):
             if counts[name]:
