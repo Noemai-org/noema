@@ -5,7 +5,7 @@
 // SoT 51). The composition root supplies the adapters.
 //
 // Implements: REQ-TRU-001, REQ-TRU-002, REQ-TRU-003 (T1 to T6 and T8 here), REQ-AMB-001 to REQ-AMB-004 (T7), REQ-CTX-003 (T9), REQ-RES-001 and REQ-RES-002 (T10), REQ-TRU-004 (T11),
-// REQ-TRU-006 (T12), REQ-TRU-008 and REQ-TRU-009 (T13 to T15: the confirmation, the plan, the Decision Record and then the grants, through the Recorder port), REQ-NFR-002.
+// REQ-TRU-006 (T12), A306 (T11 asks the policy about every capability of a write's authorized set and combines the answers, policy_combine.go), REQ-TRU-008 and REQ-TRU-009 (T13 to T15: the confirmation, the plan, the Decision Record and then the grants, through the Recorder port), REQ-NFR-002.
 // Every step T1 to T15 is built; T15 is the only step that can end in ALLOW.
 //
 // May import: trust/decide, trust/clocks, trust/policy, trust/reconcile, internal/contracts, platform/clock, the standard library.
