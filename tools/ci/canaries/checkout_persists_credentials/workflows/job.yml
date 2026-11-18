@@ -1,0 +1,11 @@
+# Canary: a checkout that leaves the job's token in .git/config. check_checkout_credentials.py must fail.
+name: canary
+on: push
+jobs:
+  job:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - run: echo "a later step can read the token from .git/config"

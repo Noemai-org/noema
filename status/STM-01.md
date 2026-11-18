@@ -278,3 +278,8 @@ Updated 2026-11-07. Plan task STM-01: owner C1+AG; REQ-STM-001; needs REC-01; do
 ## Pre-work for the next agent
 - Exact next step: 0030 (tenant row-level security; flips `registryReadable["tenant"]` in noema#658's test; DEBT-43); the route that calls `PrincipalOf` waits on noema#601.
 - Do not touch: 0025 (merged).
+
+# Session 2026-11-17 · STM-01 the spent-budget receipt class (noema#678; A216, A217, A224)
+- What changed: `orchestrator.ReceiptBudgetSpent`; `portadapters/executor` returns it for `Outcome.BudgetSpent` (it was an error); `RunWrite` stops with `ErrRecoveryBudgetSpent` on it without verifying and without a new decision, leaving the investigation at PLANNED.
+- Tests (REQ-RCV-003; INV-03, AGENT-08): `TestASpentDispatchBudgetIsItsOwnReceiptClass` (adapter), `TestASpentDispatchBudgetIsItsOwnReceiptClassThatStopsTheRunWithoutVerifying` (runner); red first (two failed locally, then in CI).
+- For EL / the Architect: there is no arrow from PLANNED to a hand-over (HANDED_TO_TEAM) in `transitions.yaml`; A216 says EL files a change request and nothing is invented here.
