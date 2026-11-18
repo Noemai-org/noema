@@ -13,12 +13,15 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
   4. no privileged container, host network or PID/IPC namespace, added capability, or Docker socket mount;
   5. the networks that are not Docker-internal are exactly provider_egress, ui_publish_net and tushe_egress;
   6. profile placement: the evil provider only in bench; the hostility proxy and the stand-in only in ci and bench; the webhook relay only in ci;
-  7. the exact set of services each profile builds: a missing or an extra service fails.
+  7. the exact set of services each profile builds: a missing or an extra service fails;
+  8. provider credentials live only in the model service (INV-29): an environment variable or Compose secret named like a provider key or endpoint (`*_API_KEY`, `INTRON_*`,
+     `OPENAI_*`, ...) on any other service fails, and the provider side (model, evil provider) holds no database, Temporal or grant-key setting. Names only: no value is read.
 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -50,6 +53,15 @@ NETWORKS = {
 SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
+# Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
+# endpoint setting is allowed on `model` and on no other service; and the provider side holds no credential of the core's database, Temporal or grants (PERD 41.1). Names only: a value
+# is never read here. `evil-provider` is the synthetic provider of the bench and holds no real key, so it is not allowed one either.
+# The prefixes are the providers of .env.example, the repository's inventory of secret and setting names (Codex P2 on noema#641: AZURE_FOUNDRY_ENDPOINT, OPENROUTER_ and TYPESAFE_ were missed);
+# self_test() reads that file and fails when a name ending in _API_KEY or _ENDPOINT there is not classified as a provider name, so a new provider cannot be added unseen.
+PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token|endpoint|api_base_url)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google|openrouter|azure_foundry|typesafe)_")
+# Any name that holds a password (NOEMA_DB_PASSWORD_FILE, POSTGRES_PASSWORD_FILE, the Compose secret noema_core_password; Codex P1 on noema#641) is refused on the provider side: the model has no
+# database login of any kind, so a password name there is wrong whatever it is called. (NOEMA_CORE_ADDR is not a credential: the model may be told where the core is.)
+CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|password|passwd|pgpass|pguser|postgres_|temporal_|grant_key|signing_key)")
 # The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
 # credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
 BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
@@ -72,12 +84,20 @@ ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "host
 
 # The bench stack is started with these overlays (make bench-up). Their placeholder variables are set here only so `config` can resolve them.
 # The mTLS material between the core and the model service (noema#555), from deploy/compose/tls_local.sh: each side mounts its own key and the CA certificate, never the other's key.
-TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
+TLS_MOUNTS = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"},
+              "temporal": {"ca.crt", "temporal.crt", "temporal.key"}}
 TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model": {"ca.crt", "model.crt", "model.key", "model-health.crt", "model-health.key"}}
 # The settings of the core's client of the model service (noema#555, noema#563): the core reads exactly these five and refuses to build its client unless all five are set (no default,
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
 MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
 MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
+# The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
+# server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
+# to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
+# services dial each other over TLS: the internode SERVER must then present a certificate (TEMPORAL_TLS_SERVER_CERT and _KEY) and the client must know the name to verify
+# (TEMPORAL_TLS_INTERNODE_SERVER_NAME), or the services cannot reach each other (Codex P1 on noema#698). This is server-side TLS with NO client authentication (DEBT-46).
+TEMPORAL_TLS_SETTINGS = ("TEMPORAL_TLS_FRONTEND_CERT", "TEMPORAL_TLS_FRONTEND_KEY", "TEMPORAL_TLS_SERVER_CA_CERT", "TEMPORAL_TLS_FRONTEND_SERVER_NAME", "TEMPORAL_TLS", "TEMPORAL_TLS_CA", "TEMPORAL_TLS_SERVER_NAME",
+                         "TEMPORAL_TLS_SERVER_CERT", "TEMPORAL_TLS_SERVER_KEY", "TEMPORAL_TLS_INTERNODE_SERVER_NAME")
 BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
@@ -153,18 +173,46 @@ def check(cfg, profile):
                     bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
                 if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
                     bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
+        credential_names = list((svc.get("environment") or {}).keys()) + [str(s.get("source", s) if isinstance(s, dict) else s) for s in (svc.get("secrets") or [])]
+        for cred in sorted(credential_names):
+            if PROVIDER_NAME.search(cred) and name != "model":
+                bad.append(f"{profile}: {name} holds {cred!r}, a provider credential or endpoint setting: only the model service may (INV-29, AGENT-05)")
+            if name in PROVIDER_SIDE and CORE_CREDENTIAL_NAME.search(cred):
+                bad.append(f"{profile}: {name} holds {cred!r}, a credential of the core's database, Temporal or grants: the provider side never does (INV-29, PERD 41.1)")
         if name == "core":
             env = svc.get("environment") or {}
             for setting in MODEL_CLIENT_SETTINGS:
                 if not str(env.get(setting, "")).strip():
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        if name == "temporal":
+            # Temporal TLS (A296): in the bench profile the frontend presents a certificate and the CLI the healthcheck and the namespace set-up use trusts the stack's CA, so a plain
+            # client is refused (EL's "refuse plain" test follows). The server keeps only its own key and the CA certificate.
+            if profile == "bench":
+                env = svc.get("environment") or {}
+                for setting in TEMPORAL_TLS_SETTINGS:
+                    if not str(env.get(setting, "")).strip():
+                        bad.append(f"{profile}: temporal does not set {setting}: the bench Temporal must serve TLS (A296)")
+                mounted_tls = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
+                for need in sorted(TLS_MOUNTS["temporal"] - mounted_tls):
+                    bad.append(f"{profile}: temporal does not mount {need} from the mTLS folder (A296)")
+                if "--tls" not in " ".join(map(str, (svc.get("healthcheck") or {}).get("test", []))):
+                    bad.append(f"{profile}: temporal's healthcheck does not use TLS (A296)")
+            elif any(str(k).startswith("TEMPORAL_TLS") for k in (svc.get("environment") or {})):
+                bad.append(f"{profile}: temporal sets TLS outside the bench profile; A296 puts it in bench only until the core's client follows")
+        # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
+        env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
+        mounts = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])] + [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
+        if "INTRON_API_KEY" in env_names:
+            bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
+        if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
+            bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "core" and profile == "bench" and not str((svc.get("environment") or {}).get("NOEMA_PAYLOAD_MAX_BYTES", "")).strip():
             bad.append(f"{profile}: the core does not set NOEMA_PAYLOAD_MAX_BYTES: the evidence payload reader refuses to be built without its bound (noema#606, A236)")
         if name in TLS_MOUNTS:
             mounted = {str(v.get("source", "")).replace("\\", "/").rsplit("/", 1)[-1] for v in svc.get("volumes", []) or [] if "/secrets/tls/" in str(v.get("source", "")).replace("\\", "/")}
-            for need in sorted(TLS_REQUIRED[name] - mounted):
+            for need in sorted(TLS_REQUIRED.get(name, set()) - mounted):
                 bad.append(f"{profile}: {name} does not mount {need} from the mTLS folder: without it the {'listener cannot start' if name == 'model' else 'core has no client identity'} (noema#555)")
         if name in ONLY_IN and profile not in ONLY_IN[name]:
             bad.append(f"{profile}: {name} is present but is allowed only in {sorted(ONLY_IN[name])}")
@@ -199,6 +247,22 @@ def self_test(configs):
         "dev loses the model": ("dev", lambda c: c["services"].pop("model")),
         "ci loses the webhook relay": ("ci", lambda c: c["services"].pop("webhook-relay")),
         "bench loses the evil provider": ("bench", lambda c: c["services"].pop("evil-provider")),
+        "the core holds a provider key (INV-29)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_KEY": "x"})),
+        "the core holds a provider endpoint setting": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_BASE_URL": "x"})),
+        "the ui holds a provider key in bench": ("bench", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENAI_API_KEY": "x"})),
+        "the evil provider holds a real provider key": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"AETHEX_API_KEY": "x"})),
+        "the core mounts a provider key as a Compose secret": ("dev", lambda c: c["services"]["core"].update({"secrets": [{"source": "intron_api_key"}]})),
+        "postgres holds a provider setting": ("demo", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"ANTHROPIC_API_KEY": "x"})),
+        "the core holds the Azure Foundry endpoint (Codex P2 on noema#641)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_ENDPOINT": "x"})),
+        "the core holds the Azure Foundry key": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_API_KEY": "x"})),
+        "the ui holds an OpenRouter key": ("demo", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENROUTER_API_KEY": "x"})),
+        "postgres holds a Typesafe key": ("dev", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"TYPESAFE_API_KEY": "x"})),
+        "the model holds the core's database password file (Codex P1 on noema#641)": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_DB_PASSWORD_FILE": "/run/secrets/noema_core_password"})),
+        "the model mounts the core's database password as a Compose secret": ("ci", lambda c: c["services"]["model"].update({"secrets": [{"source": "noema_core_password"}]})),
+        "the evil provider holds a Postgres password file": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"POSTGRES_PASSWORD_FILE": "x"})),
+        "the model holds the core's database DSN": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_CORE_DSN": "x"})),
+        "the model holds a Temporal setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"TEMPORAL_ADDRESS": "x"})),
+        "the model holds a grant signing key": ("demo", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "x"})),
         "demo loses mock-case": ("demo", lambda c: c["services"].pop("mock-case")),
         # profile placement, one case per ONLY_IN rule
         "the evil provider appears in dev": ("dev", lambda c: c["services"].update({"evil-provider": {"networks": {"provider_egress": None}}})),
@@ -241,7 +305,19 @@ def self_test(configs):
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
+        "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
+        "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
+        "the bench temporal drops its frontend certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_FRONTEND_CERT")),
+        "the bench temporal drops its internode server certificate": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CERT")),
+        "the bench temporal drops its internode server key": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_KEY")),
+        "the bench temporal drops the internode server name": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_INTERNODE_SERVER_NAME")),
+        "the bench temporal drops its CA setting": ("bench", lambda c: c["services"]["temporal"]["environment"].pop("TEMPORAL_TLS_SERVER_CA_CERT")),
+        "the bench temporal healthcheck goes back to plain": ("bench", lambda c: c["services"]["temporal"]["healthcheck"].update({"test": ["CMD-SHELL", "temporal operator cluster health --address x:7233"]})),
+        "the bench temporal stops mounting its key": ("bench", lambda c: c["services"]["temporal"].update({"volumes": [v for v in c["services"]["temporal"]["volumes"] if not str(v.get("source", "")).endswith("temporal.key")]})),
+        "temporal serves TLS in dev (outside the bench profile)": ("dev", lambda c: c["services"]["temporal"].setdefault("environment", {}).update({"TEMPORAL_TLS_FRONTEND_CERT": "/x"})),
+        "the model mounts the temporal key": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/tls/temporal.key", "target": "/x"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
         "the core loses the model client certificate setting": ("ci", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_TLS_CERT_FILE")),
@@ -258,6 +334,21 @@ def self_test(configs):
     for profile, cfg in configs.items():
         if check(cfg, profile):
             missed.append(f"unmutated {profile} is not clean")
+    # The inventory: every name of .env.example that is a key or an endpoint must be classified as a provider name, or this rule would not know it (Codex P2 on noema#641).
+    env_example = COMPOSE_FILE.parent.parent.parent / ".env.example"
+    if env_example.is_file():
+        for line in env_example.read_text(encoding="utf-8").splitlines():
+            name = line.split("=", 1)[0].strip()
+            if "=" in line and re.fullmatch(r"[A-Z][A-Z0-9_]*", name) and re.search(r"(API_KEY|_ENDPOINT)$", name) and not PROVIDER_NAME.search(name):
+                missed.append(f".env.example names {name}, which the provider-credential rule does not classify as a provider name: add its prefix to PROVIDER_NAME")
+    else:
+        missed.append(".env.example is missing: the provider inventory cannot be checked")
+    # Positive control for the credential rule: the model service IS allowed its provider key, endpoint and secret (a rule that refused it would make the allowed place unusable).
+    allowed = copy.deepcopy(configs["dev"])
+    allowed["services"]["model"].setdefault("environment", {}).update({"INTRON_API_KEY": "x", "INTRON_API_BASE_URL": "x", "OPENAI_API_KEY": "x"})
+    allowed["services"]["model"]["secrets"] = [{"source": "intron_api_key"}]
+    if any("credential" in item for item in check(allowed, "dev")):
+        missed.append("the model service is refused its own provider credentials")
     return missed, len(cases)
 
 

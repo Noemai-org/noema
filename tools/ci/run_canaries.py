@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Runs the five PLT-02 canaries and asserts each fails for its own reason.
+"""Runs the PLT-02 canaries and asserts each fails for its own reason.
 
 A canary that passes, or fails for another reason, is itself a failure. Canaries live under
 tools/ci/canaries/ and are excluded by this harness (it points each check at its own canary),
@@ -37,6 +37,7 @@ def main() -> int:
         ("cross-service file in an image", run([sys.executable, "-I", str(HERE / "check_image_files.py"), "core", "--list", str(CANARIES / "image_cross_service" / "core.listing")]), "image-files FAIL"),
         ("workflow reading a secret missing from .env.example", run([sys.executable, "-I", str(HERE / "check_secret_refs.py"), str(CANARIES / "secret_not_in_example" / "workflows"), str(CANARIES / "secret_not_in_example" / "env.example")]), "secret-refs FAIL"),
         ("repository-level contracts in the model image", run([sys.executable, "-I", str(HERE / "check_image_files.py"), "model", "--list", str(CANARIES / "image_cross_service" / "model.listing")]), "image-files FAIL"),
+        ("checkout that persists the job token", run([sys.executable, "-I", str(HERE / "check_checkout_credentials.py"), str(CANARIES / "checkout_persists_credentials")]), "checkout-credentials FAIL"),
         ("workflow referencing another area's environment", run([sys.executable, "-I", str(HERE / "check_env_refs.py"), str(CANARIES / "env_cross_reference" / "workflows")]), "env-refs FAIL"),
         ("workflow with a write token on fork code", run([sys.executable, "-I", str(HERE / "check_workflow_permissions.py"), str(CANARIES / "workflow_over_permissive" / "workflows")]), "workflow-permissions FAIL"),
     ]

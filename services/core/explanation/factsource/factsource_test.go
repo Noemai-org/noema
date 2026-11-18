@@ -73,9 +73,18 @@ func TestTheAmountIsFormattedFromIntegerMinorUnits(t *testing.T) {
 			t.Errorf("%d: %q, %+v; want %q", minor, got, unknowns, want)
 		}
 	}
-	// A154/A194: the display definition joins digits across a dot, so "1,234.50" (the run "234.50" is five digits) cannot be shown unmasked. It is an unknown, never a value with a
-	// digit hidden or a cent dropped: the explanation for it is blocked until the Architect words such an amount (reported on noema#586).
-	for _, minor := range []int64{123450, 123456789, 100050} {
+	// A154/A194, then A308 (interim): the display definition joins digits across a dot, so "1,234.50" (the run "234.50" is five digits) used to be an unknown here, never a value with a digit
+	// hidden or a cent dropped (noema#586). A308 gives the money exemption to Mask: an amount the core renders from integer minor units, three capitals, a space, grouped thousands and two
+	// decimals, is served as it is. An amount of ten or more integer digits is still refused by the shape and stays an unknown.
+	for minor, want := range map[int64]string{123450: "NGN 1,234.50", 123456789: "NGN 1,234,567.89", 100050: "NGN 1,000.50"} {
+		p := payment()
+		p.AmountMinor = minor
+		facts, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")
+		if got := byKind(facts)["payment.amount"].ValueMasked; got != want || len(unknowns) != 0 {
+			t.Errorf("%d: %q, %+v; want %q", minor, got, unknowns, want)
+		}
+	}
+	for _, minor := range []int64{100000000050} { // 1,000,000,000.50: ten integer digits with decimals, over the money rule's nine
 		p := payment()
 		p.AmountMinor = minor
 		facts, unknowns := factsource.PaymentFacts(cfg, p, asOf, "ledger")

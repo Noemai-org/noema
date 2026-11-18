@@ -9,8 +9,8 @@ import (
 
 // ContextSnapshotV1Reconciliation is generated from context-snapshot.v1.json#/properties/reconciliation.
 type ContextSnapshotV1Reconciliation struct {
-	ReconciliationId CommonV1ReconciliationId `json:"reconciliation_id"`
-	Classification   string                   `json:"classification"`
+	ReconciliationId CommonV1ReconciliationId         `json:"reconciliation_id"`
+	Classification   EnumsV1TransactionClassification `json:"classification"`
 }
 
 var ContextSnapshotV1ReconciliationShape = objectShape{name: "ContextSnapshotV1Reconciliation", props: map[string]bool{"reconciliation_id": true, "classification": true}, required: []string{"reconciliation_id", "classification"}, nonNull: map[string]bool{"reconciliation_id": true, "classification": true}, closed: true}

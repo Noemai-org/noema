@@ -394,3 +394,24 @@ func TestConfirmWithComparesTheRecordedEventWithTheSessionAndTheRequest(t *testi
 		}
 	}
 }
+
+// A243 (interim; migration 0029; REQ-STM-001, REQ-SEC-004; INV-12): the investigation names the principal that started it, so a route can refuse another principal's request.
+func TestAnInvestigationNamesThePrincipalThatStartedItAndAnotherPrincipalCannotStartIt(t *testing.T) {
+	w := newStoreWorld(t)
+	if _, _, err := w.storeA.Start(ctx(t), sessA, start("inv_AA11", "recev_AA11")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := w.storeA.PrincipalOf(ctx(t), sessA, "inv_AA11"); err != nil || got != "usr_01" {
+		t.Fatalf("principal %q, %v; want usr_01", got, err)
+	}
+	other := orchestrator.Session{TenantID: tenantA, PrincipalID: "usr_02"}
+	if _, _, err := w.storeA.Start(ctx(t), other, start("inv_BB22", "recev_AA11")); !errors.Is(err, investigations.ErrRequest) {
+		t.Errorf("another principal's Start of the same input: %v, want ErrRequest", err)
+	}
+	if _, err := w.storeA.PrincipalOf(ctx(t), sessA, "inv_ZZ99"); !errors.Is(err, investigations.ErrNoInvestigation) {
+		t.Errorf("an investigation that does not exist: %v, want ErrNoInvestigation", err)
+	}
+	if _, err := w.storeA.PrincipalOf(ctx(t), orchestrator.Session{TenantID: tenantB, PrincipalID: "usr_01"}, "inv_AA11"); err == nil {
+		t.Error("another tenant's session read the principal of an investigation")
+	}
+}
