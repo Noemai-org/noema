@@ -51,7 +51,32 @@ var (
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
+	// ErrDispositionNotValid is returned when a decision names a disposition that is not an existing ESCALATE decision of the same tenant (REQ-TRU-010). The caller cannot tell
+	// which of the three it is: a missing decision, another tenant's and one with another outcome are one answer. Nothing is written.
+	ErrDispositionNotValid = errors.New(errPrefix + "the disposition is not an existing escalation decision of the tenant")
+	// ErrStepOutsideEscalation is returned when a decision that names its ESCALATE disposition carries a step whose capability is not one of the pack's escalation plan (REQ-TRU-010,
+	// INV-25): an escalation disposition authorises the escalation plan's write steps and nothing else. Nothing is written.
+	ErrStepOutsideEscalation = errors.New(errPrefix + "a step is not a capability of the escalation plan")
 )
+
+// EscalationSet is the capability IDs of the pack's escalation plan: the only writes an ESCALATE disposition authorises (REQ-TRU-010). The composition root builds it from pack
+// data; this package holds no capability ID of its own (INV-14, SoT 51). The zero value is the empty set, under which no step is allowed after a disposition.
+type EscalationSet struct{ ids map[string]struct{} }
+
+// NewEscalationSet builds a set from capability IDs.
+func NewEscalationSet(ids ...string) EscalationSet {
+	s := EscalationSet{ids: make(map[string]struct{}, len(ids))}
+	for _, id := range ids {
+		s.ids[id] = struct{}{}
+	}
+	return s
+}
+
+// Contains reports whether the capability is one of the escalation plan.
+func (s EscalationSet) Contains(capabilityID string) bool {
+	_, ok := s.ids[capabilityID]
+	return ok
+}
 
 // IDs makes the decision ID.
 type IDs interface {
@@ -65,6 +90,7 @@ type Writer struct {
 	Appender       *chain.Appender
 	Clock          clock.Clock
 	IDs            IDs
+	Escalation     EscalationSet // the pack's escalation plan capabilities, from the composition root (REQ-TRU-010); empty means no step may follow a disposition
 	RecordLifetime time.Duration // how long a record is usable after issued_at (ruling A13); from configuration, never a literal here
 }
 
