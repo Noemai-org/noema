@@ -24,7 +24,6 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
 	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
-	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
 )
@@ -94,7 +93,7 @@ func ReconcilerAt(base reconciler.Config) ClassifierAt {
 			return nil, ErrConfig
 		}
 		c := base
-		c.Clock = clock.NewManual(at)
+		c.Clock = readingAt{at: at}
 		r, err := reconciler.New(c)
 		if err != nil {
 			return nil, err
@@ -102,6 +101,13 @@ func ReconcilerAt(base reconciler.Config) ClassifierAt {
 		return r, nil
 	}
 }
+
+// readingAt is a clock that always reads one instant, the snapshot's own. It is not the simulated clock of platform/clock (which only tests and replays build, TEN-05): it never advances, so the
+// classification made again is a function of the sealed items alone.
+type readingAt struct{ at time.Time }
+
+// Now returns the instant the clock was made for.
+func (r readingAt) Now() time.Time { return r.at }
 
 // Pack is the pack's routing of a classification, as data the composition loads (SoT 51): this package holds neither a reason code nor a capability ID.
 type Pack interface {

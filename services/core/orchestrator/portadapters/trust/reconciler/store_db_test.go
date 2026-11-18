@@ -176,10 +176,7 @@ func TestDBTheAdapterAnswersFromTheStoredSnapshotAlone(t *testing.T) {
 	}
 	t.Run("drift", func(t *testing.T) {
 		d := newDBWorld(t, agree()...)
-		other := newWorld(t, ledgerPosted(), switchIs("REJECTED"), destIs("CREDITED")) // the same three items would classify as a contradiction if their payloads were these
-		for ref, raw := range other.pay.byRef {
-			d.pay.byRef[ref] = raw
-		}
+		d.pay.byRef["pay_a"] = []byte(`{"entries": []}`) // the ledger payload is no longer the sealed one (A260): its item reads UNKNOWN, so the classification is no longer the sealed one
 		a, err := reconcilerport.New(reconcilerport.Config{Snapshots: d.store(t), Classifiers: reconcilerport.ReconcilerAt(d.baseConf), Pack: finPack(), Timeout: 10 * time.Second})
 		if err != nil {
 			t.Fatal(err)
