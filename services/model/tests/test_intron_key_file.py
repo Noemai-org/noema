@@ -92,3 +92,28 @@ def test_a_missing_file_and_a_directory_are_refused(tmp_path: Path) -> None:
     for target in (tmp_path / "absent", tmp_path):
         with pytest.raises(KeyFileError):
             key_reader({ENV_KEY_FILE: str(target)})()
+
+
+@POSIX
+def test_a_named_pipe_is_refused_without_blocking_on_open(tmp_path: Path) -> None:  # Codex P2 on noema#689: open(2) on a FIFO with no writer blocks until one appears
+    import threading
+
+    fifo = tmp_path / "pipe"
+    getattr(os, "mkfifo")(fifo, 0o600)  # POSIX only (the test is skipped elsewhere)
+    outcome: list[BaseException | str] = []
+
+    def attempt() -> None:
+        try:
+            outcome.append(key_reader({ENV_KEY_FILE: str(fifo)})())
+        except KeyFileError as error:
+            outcome.append(error)
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(timeout=5.0)
+    if worker.is_alive():  # unblock the stuck open so the test process can end, then fail
+        descriptor = os.open(fifo, os.O_WRONLY)
+        os.close(descriptor)
+        worker.join(timeout=5.0)
+        pytest.fail("opening a named pipe blocked")
+    assert len(outcome) == 1 and isinstance(outcome[0], KeyFileError)
