@@ -75,13 +75,10 @@ func TestCheckGivesTheVerdictOfEverySharedVector(t *testing.T) {
 	}
 }
 
-// Mask has no path and no money exemption (the rulings name the guard, the redactor and the UI scan): for every vector the exemption does not decide, Mask changes the string
-// exactly when the guard refuses it, because both use digitRun (A194).
-func TestMaskAgreesWithTheSharedVectorsThatNeedNoExemption(t *testing.T) {
+// A308: Mask has the same verdict as Check on every vector, the money vectors included: a stored money string is served as it is (`NGN 12,345.00`, not `NGN 12,*45.00`), and every
+// other string is changed exactly when the guard refuses it, because both use digitRun (A194).
+func TestMaskAgreesWithTheSharedVectors(t *testing.T) {
 	for _, v := range loadDigitRunVectors(t) {
-		if v.Exemption != "" {
-			continue
-		}
 		t.Run(v.Name, func(t *testing.T) {
 			if changed := payloadguard.Mask(v.Input) != v.Input; changed != v.Refused {
 				t.Errorf("%s: Mask changes the string = %v, the file says refused = %v", v.Name, changed, v.Refused)

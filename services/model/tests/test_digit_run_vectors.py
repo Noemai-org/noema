@@ -1,4 +1,4 @@
-"""A259, A279/A270 (REQ-SEC-003, AGENT-13): the redactor gives the verdict of the one shared vector file, `contracts/fixtures/digit_run_vectors.json`, which the Record guard (the source of
+"""A259, A279/A270, A308 (REQ-SEC-003, AGENT-13): the redactor and the assembler give the verdict of the one shared vector file, `contracts/fixtures/digit_run_vectors.json`, which the Record guard (the source of
 truth for the digit run) and the UI scan read as well. A string is refused when the redactor changes it (a run of more than four digits is masked). All data is SYNTHETIC."""
 
 import json
@@ -9,6 +9,7 @@ import pytest
 
 from noema_model.platform.masking import MaskingLimits
 from noema_model.platform.redaction import Redactor
+from noema_model.understanding.compiler.assemble import _surface
 
 FILE = Path(__file__).resolve().parents[3] / "contracts" / "fixtures" / "digit_run_vectors.json"
 R = Redactor.from_limits(MaskingLimits(4))
@@ -42,3 +43,11 @@ def test_the_redactor_gives_the_verdict_of_every_shared_vector(vector: dict[str,
 def test_redact_of_a_string_value_gives_the_same_verdict(vector: dict[str, Any]) -> None:
     text: str = vector["input"]
     assert (R.redact(text) != text) is vector["refused"], vector["proves"]
+
+
+@pytest.mark.parametrize("vector", [v for v in VECTORS if v["input"]], ids=[v["name"] for v in VECTORS if v["input"]])
+def test_assemble_keeps_a_surface_form_by_the_verdict_of_every_shared_vector(vector: dict[str, Any]) -> None:
+    """A308: the assembler withholds a model's surface form that holds a run of more than four digits, and a whole money string is not one. The empty string is no surface form at all and is
+    skipped; every vector is shorter than the lexicon's bound."""
+    text: str = vector["input"]
+    assert (_surface(text, text) is None) is vector["refused"], vector["proves"]
