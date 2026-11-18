@@ -442,6 +442,8 @@ def main():
                 "the --ssl option is on a continuation line of a CMD": text + chr(10) + "CMD [" + chr(34) + "--port" + chr(34) + ", " + chr(92) + chr(10) + "# a comment inside the instruction" + chr(10) + "  " + chr(34) + "--ssl-keyfile=/x" + chr(34) + "]" + chr(10),
                 "a later ENV sets UVICORN_SSL_CERT_REQS back to 0": text + chr(10) + "ENV UVICORN_SSL_CERT_REQS=0" + chr(10),
                 "the image changes its escape character": "# escape=`" + chr(10) + text,
+                "a later legacy ENV (key, space, value) sets UVICORN_SSL_CERT_REQS back to 0": text + chr(10) + "ENV UVICORN_SSL_CERT_REQS 0" + chr(10),
+                "a later ENV with several pairs sets it back to 0": text + chr(10) + "ENV A=1 UVICORN_SSL_CERT_REQS=0 B=2" + chr(10),
             }
             for label, mutant in mutants.items():
                 if mutant == text or not dockerfile_problems(mutant):

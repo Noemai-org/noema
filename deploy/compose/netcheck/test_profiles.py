@@ -9,6 +9,42 @@ spec = importlib.util.spec_from_file_location("matrix", pathlib.Path(__file__).r
 matrix = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(matrix)
 
+spec_p = importlib.util.spec_from_file_location("profiles", pathlib.Path(__file__).resolve().parent / "profiles.py")
+profiles = importlib.util.module_from_spec(spec_p)
+spec_p.loader.exec_module(profiles)
+
+BASE = "FROM python:3.13-slim\nENV UVICORN_SSL_CERT_REQS=2\nENTRYPOINT [\"python\"]\n"
+
+
+class ModelDockerfileRule(unittest.TestCase):  # Codex P2 on noema#670: Docker takes both ENV forms, so the rule reads both
+    def test_the_requirement_set_once_to_2_is_clean(self) -> None:
+        self.assertEqual(profiles.dockerfile_problems(BASE), [])
+
+    def test_a_later_legacy_env_assignment_of_0_is_a_problem(self) -> None:
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 0
+"))
+
+    def test_a_later_legacy_env_assignment_of_2_is_not(self) -> None:
+        self.assertEqual(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2
+"), [])
+
+    def test_a_legacy_env_value_is_everything_after_the_key(self) -> None:
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2 extra
+"))
+
+    def test_a_later_pair_among_several_on_one_line_is_read(self) -> None:
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV A=1 UVICORN_SSL_CERT_REQS=0 B=2
+"))
+
+    def test_a_quoted_legacy_value_is_unquoted(self) -> None:
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS \"0\"
+"))
+
+    def test_the_legacy_form_alone_with_2_satisfies_the_requirement(self) -> None:
+        self.assertEqual(profiles.dockerfile_problems("FROM x
+ENV UVICORN_SSL_CERT_REQS 2
+"), [])
+
 
 class LiveFindings(unittest.TestCase):
     def test_exactly_what_compose_declares_has_no_finding(self) -> None:
