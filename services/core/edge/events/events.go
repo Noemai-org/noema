@@ -237,9 +237,6 @@ func (h *Handler) frame(e Event, last int64) (string, error) {
 }
 
 func (h *Handler) payload(e Event) (name string, raw []byte, err error) {
-	if true {
-		return "", nil, errors.New("not built")
-	}
 	set := 0
 	var v any
 	var back any

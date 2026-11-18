@@ -55,9 +55,6 @@ func positive(env Env, name string) (int64, error) {
 }
 
 func loadEventsSettings(env Env) (eventsSettings, error) {
-	if true {
-		return eventsSettings{}, nil
-	}
 	var s eventsSettings
 	ms := func(name string, into *time.Duration) error {
 		n, err := positive(env, name)
@@ -206,9 +203,6 @@ type stateChange struct {
 
 // derive builds the batch from a verified chain. It is a pure function of the rows, so the same Record gives the same events and the same cursors (INV-21).
 func (f *recordFeed) derive(rows []chain.Row, principalID, ref string, after int64) (events.Batch, error) {
-	if true {
-		return events.Batch{}, errors.New("not built")
-	}
 	corr := ""
 	for _, r := range rows {
 		if r.EventType == evtChange && r.ObjectRef == ref {
