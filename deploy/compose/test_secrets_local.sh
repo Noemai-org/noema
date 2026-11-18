@@ -28,7 +28,7 @@ cp "$here/secrets_local.sh" "$here/tls_local.sh" "$work/"
 cmp -s "$work/first" "$work/secrets/emitter_logins/ten_aa__core-edge" || fail "a second run changed an existing secret"
 [ "$(cat "$work"/secrets/emitter_logins/* | sort -u | wc -l)" = "2" ] || fail "two logins share a secret"
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
-for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key; do
+for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"
 done
 [ ! -e "$work/secrets/tls/ca.key" ] || fail "the CA's private key was left behind"
