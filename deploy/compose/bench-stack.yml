@@ -44,7 +44,7 @@ services:
   hostility-proxy:
     environment:
       HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/routes.standin.json
-  # Temporal serves TLS in the bench profile (A296, interim): the frontend presents the stack's `temporal` certificate, so a plain client is refused (EL's "refuse plain" test follows this).
+  # Temporal serves server-side TLS in the bench profile (A296, interim; NO client authentication and not mTLS: DEBT-46): the frontend presents the stack's `temporal` certificate, so a plain client is refused (EL's "refuse plain" test follows this).
   # The names are the ones of the pinned image's config template (docker/config_template.yaml, release 1.29.7): TEMPORAL_TLS_FRONTEND_CERT and _KEY are the server certificate;
   # TEMPORAL_TLS_SERVER_CA_CERT and TEMPORAL_TLS_FRONTEND_SERVER_NAME are what the in-process worker trusts and verifies when it dials the frontend; TEMPORAL_TLS, TEMPORAL_TLS_CA and
   # TEMPORAL_TLS_SERVER_NAME are read by the image's `temporal` CLI (its default-namespace set-up and the healthcheck below) and are not the server's names.
@@ -56,6 +56,11 @@ services:
       TEMPORAL_TLS_FRONTEND_KEY: /run/tls/temporal.key
       TEMPORAL_TLS_SERVER_CA_CERT: /run/tls/ca.crt
       TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal
+      # The internode listeners present the same certificate: in the pinned template TEMPORAL_TLS_SERVER_CA_CERT is also the root of the internode client, so without a
+      # matching server certificate the services could not dial each other (Codex P1 on noema#698). Server-side TLS only, no client authentication (DEBT-46).
+      TEMPORAL_TLS_SERVER_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_SERVER_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_INTERNODE_SERVER_NAME: temporal
       TEMPORAL_TLS: "true"
       TEMPORAL_TLS_CA: /run/tls/ca.crt
       TEMPORAL_TLS_SERVER_NAME: temporal

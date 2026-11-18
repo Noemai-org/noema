@@ -26,3 +26,4 @@ jobs:
       - run: (cd tools/lint/golint && go vet ./... && go test ./...)
       - run: python3 -I tools/lint/run.py
       - run: python3 -I tools/lint/run.py --canaries
+      - run: python3 -I -m unittest discover -s tools/lint -p 'test_*.py'
