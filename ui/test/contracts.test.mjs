@@ -53,6 +53,21 @@ for (const name of names) {
   });
 }
 
+// A275 (REQ-UI-002, REQ-AMB-004): the core mints the id of "None of these" and the UI submits it as option_id. The card carries it, the parser refuses a card without it or with a
+// value that is not an option-ID form (lower case, digits and underscore, 1 to 32, and no more than four digits in all), so the UI never invents a sentinel. All data is SYNTHETIC.
+test("a clarification card carries the core-minted id of None of these, on the card and in the stream", () => {
+  const card = JSON.parse(readFileSync(join(FIXTURES, "valid", "overlay-card", "clarification_four_options.json"), "utf8"));
+  const event = JSON.parse(readFileSync(join(FIXTURES, "valid", "sse-event", "clarification.json"), "utf8"));
+  assert.equal(CUSTOMER_PARSERS["overlay-card.v1"](card).none_option_id, card.none_option_id);
+  assert.equal(CUSTOMER_PARSERS["sse-event.v1"](event).card.none_option_id, event.card.none_option_id);
+  const without = (c) => { const { none_option_id: _omitted, ...rest } = c; return rest; };
+  assert.throws(() => CUSTOMER_PARSERS["overlay-card.v1"](without(card)), ContractError);
+  assert.throws(() => CUSTOMER_PARSERS["sse-event.v1"]({ ...event, card: without(event.card) }), ContractError);
+  for (const bad of ["None Of These", "none of these", "n".repeat(33), "", "none_12345", 5, null]) {
+    assert.throws(() => CUSTOMER_PARSERS["overlay-card.v1"]({ ...card, none_option_id: bad }), ContractError, String(bad));
+  }
+});
+
 test("a pattern is the whole string: a trailing newline is refused", () => {
   assert.throws(() => str("clr_AB\n", "$", { pattern: /^clr_[0-9A-Za-z]{2,32}$/u }), ContractError);
   assert.equal(str("clr_AB", "$", { pattern: /^clr_[0-9A-Za-z]{2,32}$/u }), "clr_AB");

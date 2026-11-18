@@ -1,4 +1,7 @@
 {
+  "none_option_id_missing.json": "required",
+  "none_option_id_with_five_digits.json": "pattern",
+  "none_option_id_equals_an_option_id.json": "none_option_collision",
   "clarification_with_binding_hash.json": "additionalProperties",
   "confirmation_bad_policy_version.json": "pattern",
   "confirmation_carrying_clarification_id.json": "additionalProperties",
