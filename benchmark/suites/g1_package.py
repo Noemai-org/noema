@@ -53,6 +53,20 @@ def _linked(entry: Any) -> tuple[bool, str]:
     return True, str(entry["link"])
 
 
+def _leg_id(replay: Mapping[str, Any], which: str) -> str | None:
+    leg = replay.get(which)
+    run_id = leg.get("run_id") if isinstance(leg, Mapping) else None
+    return run_id if isinstance(run_id, str) and run_id else None
+
+
+def _compared(replay: Mapping[str, Any]) -> dict[str, Any] | None:
+    """case id to result for every row of the replay's `cases`; None when the list is missing or any row is unreadable (never a partial answer)."""
+    rows = replay.get("cases")
+    if not isinstance(rows, list) or not all(isinstance(r, Mapping) and isinstance(r.get("case_id"), str) for r in rows):
+        return None
+    return {r["case_id"]: r.get("result") for r in rows}
+
+
 def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str, Any], replay: Mapping[str, Any]) -> tuple[bool, str]:
     ok, link = _linked(inputs["rows"].get(str(n)))
     sha, checks = inputs["dispatch_sha"], inputs["check_runs"]
@@ -70,7 +84,9 @@ def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str
         return False, link
     if n == 10:
         named = {e["case_id"] for e in replay.get("open_exclusions", []) if isinstance(e, dict) and isinstance(e.get("case_id"), str)} - set(inputs["us06_cases"])
-        for name, card in (("a", a), ("b", b)):
+        for name, card, leg_id in (("a", a, _leg_id(replay, "first")), ("b", b, _leg_id(replay, "second"))):
+            if not isinstance(card, Mapping) or not isinstance(card.get("run_id"), str) or card["run_id"] != leg_id:
+                return False, f"scorecard {name} is not the scorecard of replay leg {leg_id!r} (run_id {card.get('run_id') if isinstance(card, Mapping) else None!r})"
             tier0 = card.get("tier0") if isinstance(card, Mapping) else None
             clean = isinstance(card, Mapping) and card.get("complete") is True and isinstance(tier0, Mapping) and tier0.get("all_zero") is True
             if not clean and not named_exclusion_only(card, named):
@@ -81,6 +97,12 @@ def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str
         gone = sorted(set(inputs["us06_cases"]) & {e["case_id"] for e in replay.get("open_exclusions", [])})
         if gone:
             return False, f"the unknown-outcome case is excluded: {', '.join(gone)}"
+        compared = _compared(replay)
+        if compared is None:
+            return False, "the replay report has no readable list of compared cases"
+        missing = sorted(c for c in inputs["us06_cases"] if compared.get(c) != "IDENTICAL")
+        if missing:
+            return False, f"the unknown-outcome case is not in the replay, or not IDENTICAL there: {', '.join(missing)}"
     return True, link
 
 

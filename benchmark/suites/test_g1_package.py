@@ -29,14 +29,24 @@ def card(complete: bool = True, zero: bool = True, errored: list[str] | None = N
     return {"complete": complete, "tier0": {"all_zero": zero}, "incomplete": incomplete}
 
 
-def report(verdict: str = "IDENTICAL", excluded: list[str] | None = None, sha: str = SHA) -> Json:
+SIX = ["BEN-A-0001", "BEN-A-0002", "BEN-CLEAN-0001", "BEN-CLEAN-1007", "BEN-TMO-0001", "BEN-TMO-1002"]
+
+
+def report(verdict: str = "IDENTICAL", excluded: list[str] | None = None, sha: str = SHA, cases: list[Json] | None = None) -> Json:
     ex = excluded or []
+    rows = cases if cases is not None else [{"case_id": c, "result": "IDENTICAL"} for c in SIX if c not in ex]
     return {"verdict": verdict, "full_coverage": not ex, "case_coverage": {"covered": 6 - len(ex), "of": 6}, "open_exclusions": [{"case_id": c} for c in ex],
-            "first": {"run_id": "g1-a"}, "second": {"run_id": "g1-b"}, "commit_sha": sha, "seed": 20261020}
+            "first": {"run_id": "g1-a"}, "second": {"run_id": "g1-b"}, "commit_sha": sha, "seed": 20261020, "cases": rows}
+
+
+def leg(scorecard: Json, run_id: str) -> Json:
+    """A scorecard of one replayed leg: it carries the leg's run id (scorecard.py)."""
+    return {**scorecard, "run_id": run_id}
 
 
 def make(i: Json | None = None, a: Json | None = None, b: Json | None = None, r: Json | None = None) -> str:
-    return render(i or inputs(), a or card(), b or card(), r or report())
+    a, b = a or card(), b or card()
+    return render(i or inputs(), a if "run_id" in a else leg(a, "g1-a"), b if "run_id" in b else leg(b, "g1-b"), r or report())
 
 
 def row(text: str, n: int) -> str:
@@ -157,7 +167,60 @@ class AttestationAndExclusions(unittest.TestCase):
     def test_a_scorecard_of_the_wrong_shape_is_not_met_and_never_raises(self) -> None:
         wrong: list[Any] = [{"complete": True, "tier0": None}, {"complete": True, "tier0": "zero"}, {}, [], None]
         for bad in wrong:
-            self.assertIn("**NOT MET**", row(render(inputs(), bad, card(), report()), 10))
+            self.assertIn("**NOT MET**", row(render(inputs(), leg(bad, "g1-a") if isinstance(bad, dict) else bad, leg(card(), "g1-b"), report()), 10))
+
+
+class ReplayEvidence(unittest.TestCase):
+    """Codex P2s on noema#717 at 088635bc: the replay must contain the unknown-outcome cases, and each scorecard must be the one of its replay leg."""
+
+    def test_row_11_needs_every_unknown_outcome_case_in_the_replay_with_an_identical_result(self) -> None:
+        limited = report(cases=[{"case_id": "BEN-CLEAN-0001", "result": "IDENTICAL"}])  # a replay limited to US-01: IDENTICAL, but it never compared US-06
+        self.assertIn("**NOT MET**", row(make(r=limited), 11))
+        self.assertIn("not in the replay", row(make(r=limited), 11))
+        for bad in ("DIFFERENT", "NOT_COMPARABLE", None):
+            r = report(cases=[{"case_id": "BEN-TMO-0001", "result": bad}])
+            self.assertIn("**NOT MET**", row(make(r=r), 11), str(bad))
+
+    def test_row_11_refuses_a_replay_without_a_readable_case_list(self) -> None:
+        for broken in (None, "x", [{"result": "IDENTICAL"}], [None], [{"case_id": 7, "result": "IDENTICAL"}]):
+            r = report()
+            r["cases"] = broken
+            self.assertIn("**NOT MET**", row(make(r=r), 11), str(broken))
+        r = report()
+        del r["cases"]
+        self.assertIn("**NOT MET**", row(make(r=r), 11))
+
+    def test_row_11_passes_when_every_unknown_outcome_case_is_compared_identical(self) -> None:
+        self.assertIn("**MET**", row(make(r=report(cases=[{"case_id": "BEN-TMO-0001", "result": "IDENTICAL"}])), 11))
+
+    def test_row_10_binds_each_scorecard_to_its_replay_leg(self) -> None:
+        self.assertIn("**NOT MET**", row(make(a=leg(card(), "g1-other")), 10))
+        self.assertIn("**NOT MET**", row(make(b=leg(card(), "g1-other")), 10))
+        self.assertIn("**NOT MET**", row(make(a=leg(card(), "g1-b"), b=leg(card(), "g1-a")), 10), "the legs swapped")
+        self.assertIn("**NOT MET**", row(make(a=card(), b=leg(card(), "g1-b")) if False else render(inputs(), card(), leg(card(), "g1-b"), report()), 10), "no run id")
+        self.assertIn("**NOT MET**", row(render(inputs(), leg(card(), "g1-a"), {**card(), "run_id": 7}, report()), 10), "a run id that is not a string")
+        self.assertIn("**MET**", row(make(), 10))
+
+    def test_an_empty_leg_id_matches_nothing_even_when_the_scorecard_carries_the_same_empty_id(self) -> None:
+        r = report()
+        r["first"] = {"run_id": ""}
+        self.assertIn("**NOT MET**", row(render(inputs(), leg(card(), ""), leg(card(), "g1-b"), r), 10))
+
+    def test_every_unknown_outcome_case_must_be_in_the_replay_not_only_the_first(self) -> None:
+        i = inputs()
+        i["us06_cases"] = ["BEN-TMO-0001", "BEN-TMO-1002"]
+        both = report()
+        self.assertIn("**MET**", row(make(i, r=both), 11))
+        second_missing = report(cases=[{"case_id": "BEN-TMO-0001", "result": "IDENTICAL"}])
+        self.assertIn("**NOT MET**", row(make(i, r=second_missing), 11))
+        self.assertIn("BEN-TMO-1002", row(make(i, r=second_missing), 11))
+
+    def test_the_binding_also_holds_for_a_leg_accepted_through_a_named_exclusion(self) -> None:
+        r = report(excluded=["BEN-CLEAN-1007"])
+        ok = make(a=leg(card(False, errored=["BEN-CLEAN-1007"]), "g1-a"), b=leg(card(False, errored=["BEN-CLEAN-1007"]), "g1-b"), r=r)
+        self.assertIn("**MET**", row(ok, 10))
+        wrong = make(a=leg(card(False, errored=["BEN-CLEAN-1007"]), "g1-zzz"), b=leg(card(False, errored=["BEN-CLEAN-1007"]), "g1-b"), r=r)
+        self.assertIn("**NOT MET**", row(wrong, 10))
 
 
 class Whole(unittest.TestCase):

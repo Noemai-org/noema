@@ -71,3 +71,14 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Files to read first: `benchmark/suites/g1_package.py`, `benchmark/suites/G1-EVIDENCE-PACKAGE.md`.
 - Do not touch: the gate conditions.
 
+# Session 2026-11-18 (second round) · BEN-05 · Codex P2s on the package at 088635bc
+
+## Session summary
+- What changed: `g1_package.py` row 11 now needs every configured unknown-outcome case to be in the replay's `cases` with result IDENTICAL (a replay limited to US-01 no longer passes; a missing or unreadable case list is NOT MET); row 10 binds scorecard a to replay leg `first` and scorecard b to `second` by `run_id` (a scorecard of another run, a swapped pair, a missing, empty or non-string id is NOT MET), for a clean leg and for a leg accepted through a named exclusion.
+- Tests: 6 new (written first, 4 failing before the fix); 12 mutations of the new guards each caught (two survived at first; a test now covers each).
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval.
+- Do not touch: the gate conditions.
+
