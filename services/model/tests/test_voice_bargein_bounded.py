@@ -7,7 +7,7 @@ the recorded AGENT-12 exception of noema#412; a hung close ends by itself after 
 
 import asyncio
 import time
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
@@ -208,3 +208,31 @@ def test_a_bad_bound_waits_for_each_close_to_run_to_its_end_before_the_error_is_
 
     run(asyncio.wait_for(call(), timeout=GUARD_S))
     assert answer.finished and microphone.finished  # aclose() was awaited, not abandoned after one turn
+
+
+# ---- Codex P2 on noema#621 at 20b6d355: a timed-out read is still running when the release starts; the close waits for it and is not lost ------------------------------
+
+
+async def slow_to_cancel_microphone(state: dict[str, bool]) -> "AsyncIterator[AudioChunk]":
+    """An async generator whose read takes 50 ms to finish after it is cancelled and then yields: closing it while that read runs raises RuntimeError."""
+    try:
+        while True:
+            try:
+                await asyncio.sleep(10)  # a stall
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.05)
+                yield chunk(0, 5)
+    finally:
+        state["closed"] = True
+
+
+def test_a_timed_out_read_that_ends_late_is_waited_for_and_the_stream_is_then_closed_not_left_open() -> None:
+    state = {"closed": False}
+    answer = Handle([1000] * 50)
+
+    async def call() -> BargeInResult:
+        return await play_until_barge_in(answer, slow_to_cancel_microphone(state), BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, close_s=0.5, read_s=0.05)  # type: ignore[arg-type]
+
+    result = run(asyncio.wait_for(call(), timeout=GUARD_S))  # no RuntimeError from closing a generator that is still running
+    assert result.stalled and answer.closed
+    assert state["closed"]  # the microphone was closed once its read ended
