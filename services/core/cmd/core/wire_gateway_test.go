@@ -326,3 +326,19 @@ func TestTheMountedRouteRecordsOnlyAsTheSessionsTenant(t *testing.T) {
 		t.Errorf("no gateway mounted %d routes", len(routes))
 	}
 }
+
+// Defence in depth: a map entry whose key is not a tenant ID of common.v1 is never served, even for an identity that carries exactly that key.
+func TestAnEntryThatIsNotATenantIDIsNeverServed(t *testing.T) {
+	f := &fakeRecord{}
+	rec := tenantRecorder{by: map[string]inputgateway.Recorder{"tnt_xx": f}}
+	idx := tenantIndex{by: map[string]inputgateway.Index{"tnt_xx": f}}
+	if _, err := rec.Received(t.Context(), ident("tnt_xx"), "corr_x", inputgateway.Received{}); !errors.Is(err, ErrNoGatewayForTenant) {
+		t.Errorf("recorder: %v", err)
+	}
+	if _, _, err := idx.Find(t.Context(), ident("tnt_xx"), "r"); !errors.Is(err, ErrNoGatewayForTenant) {
+		t.Errorf("index: %v", err)
+	}
+	if len(f.seen) != 0 {
+		t.Errorf("reached %v", f.seen)
+	}
+}
