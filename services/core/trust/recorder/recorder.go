@@ -56,6 +56,9 @@ var (
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
+	// ErrDispositionRequired is returned when a decision that carries steps, an ALLOW that issues grants, names no disposition (REQ-TRU-010, INV-25; ruling A317 to A328, interim): every
+	// grant-issuing action decision links its ESCALATE disposition. Nothing is written.
+	ErrDispositionRequired = errors.New(errPrefix + "a decision that issues grants must name its escalation disposition")
 	// ErrDispositionNotValid is returned when a decision names a disposition that is not an existing ESCALATE decision of the same tenant (REQ-TRU-010). The caller cannot tell
 	// which of the three it is: a missing decision, another tenant's and one with another outcome are one answer. Nothing is written.
 	ErrDispositionNotValid = errors.New(errPrefix + "the disposition is not an existing escalation decision of the tenant")
