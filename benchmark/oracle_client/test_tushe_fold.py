@@ -83,6 +83,26 @@ class Fold(unittest.TestCase):
         for bad in (CHAIN[0], {**CHAIN[0], "seq": "1"}, {**CHAIN[0], "seq": True}):
             self.assertEqual("UNREADABLE", fold_transitions([bad], "2026-11-02T00:00:00Z", seq).status, bad)
 
+    def test_a_conflict_entirely_after_the_cutoff_does_not_touch_the_earlier_answer(self) -> None:
+        """Codex P2 on noema#724 at 52fbc856: the conflict check ran on the whole input, so two future rows sharing an id changed a historical answer (the prefix property, PLAN section 3.2)."""
+        future = [row(4, "2026-11-03T00:00:00Z", "SETTLED", "A"), row(4, "2026-11-03T00:00:00Z", "SETTLED", "B")]
+        for at in ("2026-11-01T10:00:00Z", "2026-11-01T10:07:00Z", "2026-11-01T10:09:00Z", "2026-11-02T00:00:00Z"):
+            self.assertEqual(fold_transitions(CHAIN, at), fold_transitions([*CHAIN, *future], at), at)
+            self.assertEqual(fold_transitions(CHAIN, at), fold_transitions([*future, *CHAIN], at), at)
+        self.assertEqual("CHAIN_BROKEN", fold_transitions([*CHAIN, *future], "2026-11-03T00:00:00Z").status)  # once the cutoff reaches them the conflict is real
+        self.assertEqual("NOT_YET_EXISTING", fold_transitions(future, "2026-11-01T00:00:00Z").status)
+
+    def test_a_conflict_that_touches_the_prefix_still_breaks_the_chain(self) -> None:
+        """One id, two rows, one inside the prefix and one after the cutoff: the in-prefix row is the contested one, so there is no state."""
+        straddle = [*CHAIN, {**CHAIN[1], "occurred_at": "2026-11-05T00:00:00Z"}]
+        self.assertEqual("CHAIN_BROKEN", fold_transitions(straddle, "2026-11-01T10:07:00Z").status)
+        self.assertEqual("OK", fold_transitions(straddle, "2026-11-01T10:04:00Z").status)  # before either t2 row: both are in the future, so ignored
+
+    def test_an_unreadable_row_still_fails_closed_when_the_conflict_is_in_the_future(self) -> None:
+        bad = {"id": "t9", "occurred_at": "not a time", "from_state": "X", "to_state": "Y"}
+        future = [row(4, "2026-11-03T00:00:00Z", "S", "A"), row(4, "2026-11-03T00:00:00Z", "S", "B")]
+        self.assertEqual("UNREADABLE", fold_transitions([*CHAIN, *future, bad], "2026-11-01T10:07:00Z").status)
+
     def test_an_identical_duplicate_row_is_collapsed_and_said_a_conflicting_one_is_broken(self) -> None:
         got = fold_transitions([*CHAIN, dict(CHAIN[1])], "2026-11-02T00:00:00Z")
         self.assertEqual(("OK", "SETTLED", 1), (got.status, got.state, got.collapsed))

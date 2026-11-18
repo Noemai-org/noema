@@ -72,18 +72,28 @@ def fold_transitions(rows: Any, at: Any, shape: Shape = ASSUMED_SHAPE) -> Fold:
     moment = _instant(at)
     if moment is None or not isinstance(rows, (list, tuple)):
         return unreadable
-    parsed: dict[str, tuple[datetime.datetime, int, str, str, str]] = {}
-    collapsed = 0
+    # Every row is read first: an unreadable row has an unknown time, so it fails the whole answer wherever it sits.
+    read = []
     for row in rows:
         one = _parse(row, shape)
         if one is None:
             return unreadable
-        if one[2] in parsed:
-            if parsed[one[2]] != one:
-                return Fold("CHAIN_BROKEN", None, ())  # one id, two different rows
-            collapsed += 1
+        read.append(one)
+    by_id: dict[str, list[tuple[datetime.datetime, int, str, str, str]]] = {}
+    for one in read:
+        by_id.setdefault(one[2], []).append(one)
+    parsed: dict[str, tuple[datetime.datetime, int, str, str, str]] = {}
+    collapsed = 0
+    for ident, found in by_id.items():
+        distinct = set(found)
+        if len(distinct) > 1:
+            # One id, different rows. If every one of them is after the cutoff the id is simply not part of this answer (the prefix property, PLAN 3.2); if any is at or before it,
+            # the row inside the prefix is the contested one and there is no state.
+            if any(r[0] <= moment for r in distinct):
+                return Fold("CHAIN_BROKEN", None, ())
             continue
-        parsed[one[2]] = one
+        parsed[ident] = found[0]
+        collapsed += len(found) - 1
     prefix = sorted((p for p in parsed.values() if p[0] <= moment), key=lambda p: (p[0], p[1]))
     if not prefix:
         return Fold("NOT_YET_EXISTING", None, (), collapsed)
