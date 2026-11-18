@@ -216,7 +216,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		if err != nil {
 			return Result{}, fmt.Errorf("%sgrant %d: %w", errPrefix, i, err)
 		}
-		graw, err := json.Marshal(g)
+		graw, err := signedPart(g)
 		if err != nil {
 			return Result{}, fmt.Errorf("%smarshal grant: %w", errPrefix, err)
 		}
@@ -237,6 +237,21 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		res.Grants = append(res.Grants, g)
 	}
 	return res, nil
+}
+
+// signedPart is the grant document as it is stored in decision_grant.json: the document without its sig member. That is the part the signature covers and the form Execution
+// decodes (controller.Grant, strictly, and rebuilds its canonical JSON from it). The signature itself is stored in sig_key_id and sig_value, and lookup puts it back.
+func signedPart(g contracts.DecisionGrantV1) ([]byte, error) {
+	raw, err := json.Marshal(g)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	delete(doc, "sig")
+	return json.Marshal(doc)
 }
 
 // check refuses what cannot be honoured before anything is written, and returns the evaluated basis and the bound policy.
