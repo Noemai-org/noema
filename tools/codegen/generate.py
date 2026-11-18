@@ -94,16 +94,18 @@ def render_all(schemas: dict[str, dict]) -> dict[str, str]:
 
 
 def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str, str]:
-    """The UI's TypeScript: the roots of ts.json and every contract they refer to, each with its parsers, a runtime and an index."""
+    """The UI's TypeScript: the roots of ts.json and every contract they refer to, each with its parsers, a runtime and one index (entry point) per audience: `customer`, `operator` and
+    `benchmark` (the aggregate scorecard view of the benchmark UI, A250; noema#677). The benchmark list is its own: operator.ts holds the customer and operator roots and never the benchmark one."""
     cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
-    customer, operator = list(cfg["customer"]), list(cfg["operator"])
+    customer, operator, benchmark = list(cfg["customer"]), list(cfg["operator"]), list(cfg.get("benchmark", []))
     roots = customer + [r for r in operator if r not in customer]
-    for r in roots:
+    emitted = roots + [r for r in benchmark if r not in roots]
+    for r in emitted:
         if r not in every:
             raise ir.GenerationError(f"tools/codegen/ts.json names {r}, which is not a contract")
         if is_excluded(r):
             raise ir.GenerationError(f"tools/codegen/ts.json names {r}, which tools/codegen/excluded.json keeps out of the services")
-    needed, todo = set(), list(roots)
+    needed, todo = set(), list(emitted)
     while todo:
         f = todo.pop()
         if f in needed:
@@ -114,11 +116,13 @@ def render_ts(schemas: dict[str, dict], every: dict[str, ir.Built]) -> dict[str,
     if hidden:
         raise ir.GenerationError(f"ts.json reaches {hidden}, which tools/codegen/excluded.json keeps out of the services")
     t = ts.Ts({f: every[f] for f in sorted(needed)})
-    t.keep = t.reachable([every[r].root.name for r in roots])
+    t.keep = t.reachable([every[r].root.name for r in emitted])
     files = {f"{TS_DIR}/{py.module_name(f)}.ts": t.render_schema(every[f]) for f in sorted(needed) if set(every[f].named) & t.keep}
     files[f"{TS_DIR}/_runtime.ts"] = ts.RUNTIME
     files[f"{TS_DIR}/customer.ts"] = t.render_index(customer)
     files[f"{TS_DIR}/operator.ts"] = t.render_index(roots)
+    if benchmark:
+        files[f"{TS_DIR}/benchmark.ts"] = t.render_index(benchmark)
     return files
 
 
