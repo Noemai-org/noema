@@ -26,7 +26,7 @@ test("REQ-UI-001: the built overlay delivers its client module without browser e
   const server = createServer(async (request, response) => {
     const entry = files.get(request.url);
     if (!entry) { response.writeHead(404).end(); return; }
-    try { response.writeHead(200, { "content-type": entry[1] }).end(await readFile(entry[0])); }
+    try { const body = await readFile(entry[0]); response.writeHead(200, { "content-type": entry[1] }).end(body); }
     catch { response.writeHead(404).end(); }
   });
   server.listen(0, address);
