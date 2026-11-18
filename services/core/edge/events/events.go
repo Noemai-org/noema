@@ -1,8 +1,9 @@
 // Package events is the server-sent events route of the public API (EDG-02, ruling A170; PERD 39.2, REQ-API-001): GET /v1/conversations/{conversation_ref}/events streams
-// the progress, clarification, confirmation, answer and error events of one conversation. It writes only what a Feed has returned as committed state (PERD 40: "SSE
-// events are emitted from committed state only"), as the verified session's principal and tenant (INV-12) and never the request's.
+// the progress, clarification, confirmation, answer and error events of one conversation. Every event is a payload of sse-event.v1 (contracts/schemas/sse-event.v1.json),
+// built by a Feed from committed state only (PERD 40: "SSE events are emitted from committed state only"), as the verified session's principal and tenant (INV-12) and never
+// the request's. The payload types are the contract's: there is no member for anything else, so nothing internal can be added to the wire.
 //
-// May import: the standard library, edge/session, internal/contracts.
+// May import: the standard library, edge/session, internal/contracts, platform/clock.
 //
 // Must never: read a database, take an identity from the request, write an event the Feed did not return, or put free text on the wire unmasked (AGENT-13).
 package events
@@ -14,13 +15,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
@@ -30,29 +27,18 @@ import (
 // Route is the path of PERD 39.2 in net/http pattern form.
 const Route = "GET /v1/conversations/{conversation_ref}/events"
 
-// Kind is an event name of PERD 39.2.
-type Kind string
+// SchemaVersion is the schema_version every payload carries (sse-event.v1 is version 1.0 of its members).
+const SchemaVersion = "1.0"
 
-// The five event kinds.
-const (
-	KindProgress      Kind = "progress"
-	KindClarification Kind = "clarification"
-	KindConfirmation  Kind = "confirmation"
-	KindAnswer        Kind = "answer"
-	KindError         Kind = "error"
-)
-
-const maxKeys = 16 // the most members of each map of one event: a bound on the frame, not a policy
-
-// Event is one committed event of a conversation. The fields are typed so that nothing needs a list of exemptions: Refs are typed IDs (validated, never masked), Numbers
-// are integers, At is an instant; only Fields are free text, and they are masked.
+// Event is one committed event of a conversation: its cursor and exactly one sse-event.v1 payload. The handler sets the payload's `event` member itself, from which
+// field is set, so a Feed cannot name one kind and send another.
 type Event struct {
-	Cursor  int64             // above 0 and increasing; the SSE id and what Last-Event-ID resumes after
-	Kind    Kind              //
-	At      time.Time         // when it was committed
-	Refs    map[string]string // key to typed ID, for example "investigation_id": "inv_01J9"
-	Fields  map[string]string // key to free text, masked before it is written
-	Numbers map[string]int64  // key to number
+	Cursor        int64 // above 0 and increasing; the SSE id and what Last-Event-ID resumes after
+	Progress      *contracts.SseEventV1Progress
+	Clarification *contracts.SseEventV1Clarification
+	Confirmation  *contracts.SseEventV1Confirmation
+	Answer        *contracts.SseEventV1Answer
+	Error         *contracts.SseEventV1Error
 }
 
 // Batch is what the Feed returns: the committed events after a cursor, and whether the conversation is finished (no event will follow).
@@ -69,13 +55,6 @@ type Feed interface {
 	Since(ctx context.Context, p session.Principal, conversationRef string, after int64) (Batch, error)
 }
 
-// Vocabulary is what one kind of event may carry in its free-text and numeric members. A key that is not listed is a bad event; a number must be between 0 and the
-// maximum listed for its key. It is configuration with no default (AGENT-16): the contents of an event are a policy of whoever mounts the route, not of this package.
-type Vocabulary struct {
-	Fields  []string         // the keys of free text, which is masked
-	Numbers map[string]int64 // the keys of numbers, each with its largest allowed value
-}
-
 // Options is everything the handler needs. Nothing has a default (AGENT-16).
 type Options struct {
 	Feed                   Feed
@@ -89,8 +68,6 @@ type Options struct {
 	MaxStreams             int                                              // the most streams open at once
 	MaxStreamsPerPrincipal int                                              // the most streams one principal of one tenant has open
 	MaxBatch               int                                              // the most events one Feed answer may hold
-	Vocabulary             map[Kind]Vocabulary                              // for every kind, the keys its events may carry in Fields and Numbers
-	MaxNumberDigits        int                                              // the most decimal digits any allowed number may have (the masking limit of A154): no number can be an unmasked account-length run
 }
 
 // Handler serves Route. Mount it behind session.Middleware and session.RequireRole(customer); it checks the role itself too.
@@ -111,77 +88,18 @@ func New(o Options) (*Handler, error) {
 	case o.MaxStreams <= 0, o.MaxStreamsPerPrincipal <= 0, o.MaxStreamsPerPrincipal > o.MaxStreams, o.MaxBatch <= 0:
 		return nil, errors.New("events: the stream caps and the batch cap must be positive, the per-principal cap no larger than the global one")
 	}
-	if err := checkVocabulary(o); err != nil {
-		return nil, err
-	}
 	return &Handler{o: o, per: map[string]int{}}, nil
 }
 
-// refPrefix names, for each ref key an event may carry, the prefix of the contract ID it holds (common.v1: `^<prefix>_[0-9A-Za-z]{2,32}$`). A ref is exempt from masking only because it matches its own key's contract exactly (A154); a key not listed here, or a value of another shape, is a bad event.
-var refPrefix = map[string]string{
-	"investigation_id":        "inv",
-	"intent_id":               "int",
-	"candidate_set_id":        "cns",
-	"clarification_id":        "clr",
-	"decision_id":             "dec",
-	"confirmation_request_id": "cfr",
-	"confirmation_event_id":   "cfe",
-	"plan_id":                 "pln",
-	"grant_id":                "grt",
-	"receipt_id":              "rcp",
-	"verdict_id":              "ver",
-	"explanation_id":          "exp",
-	"record_event_id":         "recev",
-}
-
-// validRef reports whether value is exactly the contract ID of the type key names.
-func validRef(key, value string) bool {
-	prefix, ok := refPrefix[key]
-	if !ok {
-		return false
-	}
-	body, found := strings.CutPrefix(value, prefix+"_")
-	return found && idBodyRe.MatchString(body)
-}
-
 var (
-	conversationRe = regexp.MustCompile(`\Ainv_[0-9A-Za-z]{2,32}\z`)
-	keyRe          = regexp.MustCompile(`\A[a-z][a-z0-9_]{0,31}\z`)
-	idBodyRe       = regexp.MustCompile(`\A[0-9A-Za-z]{2,32}\z`)
-	cursorRe       = regexp.MustCompile(`\A(0|[1-9][0-9]{0,17})\z`)
+	conversationRe  = regexp.MustCompile(`\Ainv_[0-9A-Za-z]{2,32}\z`)
+	clarificationRe = regexp.MustCompile(`\Aclr_[0-9A-Za-z]{2,32}\z`)
+	confirmationRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	correlationRe   = regexp.MustCompile(`\Acorr_[0-9A-Za-z]{2,32}\z`)
+	cursorRe        = regexp.MustCompile(`\A(0|[1-9][0-9]{0,17})\z`)
 )
 
-const (
-	faultFrame       = "event: error\ndata: {\"code\":\"STREAM_FAULT\"}\n\n"
-	unavailableFrame = "event: error\ndata: {\"code\":\"STREAM_UNAVAILABLE\"}\n\n"
-	keepalive        = ": keepalive\n\n"
-)
-
-var allKinds = []Kind{KindProgress, KindClarification, KindConfirmation, KindAnswer, KindError}
-
-// checkVocabulary refuses a vocabulary that is missing a kind, names an unknown one, has a key out of form or lets a number exceed MaxNumberDigits digits.
-func checkVocabulary(o Options) error {
-	if o.MaxNumberDigits <= 0 || len(o.Vocabulary) != len(allKinds) {
-		return errors.New("events: a vocabulary for every kind and a positive digit bound for numbers are required")
-	}
-	for _, k := range allKinds {
-		v, ok := o.Vocabulary[k]
-		if !ok {
-			return errors.New("events: the vocabulary lacks a kind")
-		}
-		for _, f := range v.Fields {
-			if !keyRe.MatchString(f) {
-				return errors.New("events: a field key is out of form")
-			}
-		}
-		for n, max := range v.Numbers {
-			if !keyRe.MatchString(n) || max < 0 || len(strconv.FormatInt(max, 10)) > o.MaxNumberDigits {
-				return errors.New("events: a number key or its maximum is not allowed")
-			}
-		}
-	}
-	return nil
-}
+const keepalive = ": keepalive\n\n"
 
 // acquire takes one stream place for the principal, or reports that there is none: the caps are the limits of REQ-API-001's long-lived connections.
 func (h *Handler) acquire(key string) bool {
@@ -207,44 +125,45 @@ func (h *Handler) release(key string) {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p, ok := session.FromContext(r.Context())
 	if !ok {
-		fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.")
+		fail(w, http.StatusUnauthorized, contracts.ErrorsV3ErrorCodeUNAUTHENTICATED, "A session is required.")
 		return
 	}
 	if p.Role != session.RoleCustomer {
-		fail(w, http.StatusNotFound, contracts.ErrorsV2ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
+		fail(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
 		return
 	}
 	left := p.ExpiresAt.Sub(h.o.Clock.Now())
 	if left <= 0 {
-		fail(w, http.StatusUnauthorized, contracts.ErrorsV2ErrorCodeUNAUTHENTICATED, "A session is required.")
+		fail(w, http.StatusUnauthorized, contracts.ErrorsV3ErrorCodeUNAUTHENTICATED, "A session is required.")
 		return
 	}
 	ref := r.PathValue("conversation_ref")
 	if !conversationRe.MatchString(ref) {
-		fail(w, http.StatusNotFound, contracts.ErrorsV2ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
+		fail(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
 		return
 	}
 	after := int64(0)
 	if v := r.Header.Get("Last-Event-ID"); v != "" {
 		if !cursorRe.MatchString(v) {
-			fail(w, http.StatusBadRequest, contracts.ErrorsV2ErrorCodeINPUTINVALID, "The request is not valid.")
+			fail(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request is not valid.")
 			return
 		}
 		after, _ = strconv.ParseInt(v, 10, 64) // the pattern bounds it below 10^18
 	}
 	fl, ok := w.(http.Flusher)
 	if !ok {
-		fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
+		fail(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
 		return
 	}
+	corr := w.Header().Get(session.CorrelationHeader)
 	out := &sink{w: w, fl: fl, rc: http.NewResponseController(w), clk: h.o.Clock, timeout: h.o.WriteTimeout}
 	if out.deadline() != nil { // a writer that cannot take a write deadline cannot be protected from a slow consumer: no stream
-		fail(w, http.StatusInternalServerError, contracts.ErrorsV2ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
+		fail(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.")
 		return
 	}
 	key := p.Tenant + "|" + p.ID
 	if !h.acquire(key) {
-		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
+		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
 		return
 	}
 	defer h.release(key)
@@ -254,10 +173,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	batch, err := h.o.Feed.Since(ctx, p, ref, after)
 	switch {
 	case errors.Is(err, ErrNotFound):
-		fail(w, http.StatusNotFound, contracts.ErrorsV2ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
+		fail(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.")
 		return
 	case err != nil:
-		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV2ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
+		fail(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available.")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -267,13 +186,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	last := after
 	for {
 		if len(batch.Events) > h.o.MaxBatch {
-			out.write(faultFrame)
+			out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr))
 			return
 		}
 		for _, e := range batch.Events {
 			frame, err := h.frame(e, last)
 			if err != nil {
-				out.write(faultFrame)
+				out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr))
 				return
 			}
 			if out.write(frame) != nil {
@@ -293,55 +212,118 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		batch, err = h.o.Feed.Since(ctx, p, ref, last)
 		if err != nil {
 			if ctx.Err() == nil {
-				_ = out.write(unavailableFrame) // the stream ends either way
+				_ = out.write(h.errorFrame(contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)) // the stream ends either way
 			}
 			return
 		}
 	}
 }
 
-// frame validates one event and renders it as an SSE frame. Anything it cannot vouch for is an error and nothing of the event is written.
+// frame validates one event and renders it as an SSE frame. Anything it cannot vouch for is an error and nothing of the event is written: the payload must be exactly one
+// member of the Event, must decode under its own contract type (closed members, required members, the event name), must carry a canonical instant, and no free text in it may
+// hold a digit run the masker would change (A154: the contract's texts carry no run of five or more digits, so a text that the masker changes is a text that broke it).
 func (h *Handler) frame(e Event, last int64) (string, error) {
-	switch e.Kind {
-	case KindProgress, KindClarification, KindConfirmation, KindAnswer, KindError:
-	default:
-		return "", errors.New("kind")
+	if e.Cursor <= last {
+		return "", errors.New("cursor")
 	}
-	if e.Cursor <= last || e.At.IsZero() || len(e.Refs) > maxKeys || len(e.Fields) > maxKeys || len(e.Numbers) > maxKeys {
-		return "", errors.New("shape")
+	name, raw, err := h.payload(e)
+	if err != nil {
+		return "", err
 	}
-	data := struct {
-		At      string            `json:"at"`
-		Fields  map[string]string `json:"fields"`
-		Numbers map[string]int64  `json:"numbers"`
-		Refs    map[string]string `json:"refs"`
-	}{At: e.At.UTC().Format(time.RFC3339), Fields: map[string]string{}, Numbers: map[string]int64{}, Refs: map[string]string{}}
-	for k, v := range e.Refs {
-		if !keyRe.MatchString(k) || !validRef(k, v) {
-			return "", errors.New("ref")
-		}
-		data.Refs[k] = v
-	}
-	voc := h.o.Vocabulary[e.Kind]
-	for k, v := range e.Numbers {
-		max, ok := voc.Numbers[k]
-		if !ok || v < 0 || v > max {
-			return "", errors.New("number")
-		}
-		data.Numbers[k] = v
-	}
-	for k, v := range e.Fields {
-		m := h.o.Mask(v)
-		if !slices.Contains(voc.Fields, k) || !utf8.ValidString(m) || strings.IndexFunc(m, unicode.IsControl) >= 0 {
-			return "", errors.New("field")
-		}
-		data.Fields[k] = m
-	}
-	raw, err := json.Marshal(data)
-	if err != nil || len(raw) > h.o.MaxEventBytes {
+	if len(raw) > h.o.MaxEventBytes {
 		return "", errors.New("size")
 	}
-	return fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", e.Cursor, e.Kind, raw), nil
+	return fmt.Sprintf("id: %d\nevent: %s\ndata: %s\n\n", e.Cursor, name, raw), nil
+}
+
+func (h *Handler) payload(e Event) (name string, raw []byte, err error) {
+	if true {
+		return "", nil, errors.New("not built")
+	}
+	set := 0
+	var v any
+	var back any
+	if e.Progress != nil {
+		set++
+		e.Progress.Event, e.Progress.SchemaVersion = "progress", SchemaVersion
+		name, v, back = "progress", e.Progress, new(contracts.SseEventV1Progress)
+	}
+	if e.Clarification != nil {
+		set++
+		e.Clarification.Event, e.Clarification.SchemaVersion = "clarification", SchemaVersion
+		name, v, back = "clarification", e.Clarification, new(contracts.SseEventV1Clarification)
+	}
+	if e.Confirmation != nil {
+		set++
+		e.Confirmation.Event, e.Confirmation.SchemaVersion = "confirmation", SchemaVersion
+		name, v, back = "confirmation", e.Confirmation, new(contracts.SseEventV1Confirmation)
+	}
+	if e.Answer != nil {
+		set++
+		e.Answer.Event, e.Answer.SchemaVersion = "answer", SchemaVersion
+		name, v, back = "answer", e.Answer, new(contracts.SseEventV1Answer)
+	}
+	if e.Error != nil {
+		set++
+		e.Error.Event, e.Error.SchemaVersion = "error", SchemaVersion
+		name, v, back = "error", e.Error, new(contracts.SseEventV1Error)
+	}
+	if set != 1 {
+		return "", nil, errors.New("kind")
+	}
+	raw, err = json.Marshal(v)
+	if err != nil || json.Unmarshal(raw, back) != nil {
+		return "", nil, errors.New("shape")
+	}
+	var tree any
+	if json.Unmarshal(raw, &tree) != nil || !h.stable("", tree) {
+		return "", nil, errors.New("text")
+	}
+	return name, raw, nil
+}
+
+// stable reports whether every string in the tree is safe to send. The instants must be canonical; the three IDs a card carries must have their contract shape and are
+// exempt from masking only then (a ULID may hold a long digit run); every other string must be unchanged by the masker.
+func (h *Handler) stable(key string, v any) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, c := range t {
+			if !h.stable(k, c) {
+				return false
+			}
+		}
+	case []any:
+		for _, c := range t {
+			if !h.stable(key, c) {
+				return false
+			}
+		}
+	case string:
+		switch key {
+		case "at", "expires_at":
+			p, err := time.Parse(time.RFC3339Nano, t)
+			return err == nil && t == p.UTC().Format(time.RFC3339Nano) && len(t) > 0 && t[len(t)-1] == 'Z'
+		case "clarification_id":
+			return clarificationRe.MatchString(t)
+		case "confirmation_request_id":
+			return confirmationRe.MatchString(t)
+		case "correlation_id":
+			return correlationRe.MatchString(t)
+		}
+		return h.o.Mask(t) == t
+	}
+	return true
+}
+
+// errorFrame is the stream's own failure, an sse-event.v1 error event with the errors.v3 body: a catalogue code and a fixed safe sentence, never the cause (AGENT-13).
+func (h *Handler) errorFrame(code contracts.ErrorsV3ErrorCode, message, corr string) string {
+	e := contracts.SseEventV1Error{Event: "error", SchemaVersion: SchemaVersion, At: contracts.CommonV1Timestamp(h.o.Clock.Now().UTC().Format(time.RFC3339)),
+		Error: contracts.ErrorsV3ErrorBody{Code: code, Message: message, Retryable: code == contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
+	raw, err := json.Marshal(e)
+	if err != nil {
+		return keepalive // unreachable for these fixed members; a comment is the one frame that cannot mislead
+	}
+	return fmt.Sprintf("event: error\ndata: %s\n\n", raw)
 }
 
 // sink writes frames with a deadline on each write, from the injected clock.
@@ -369,10 +351,10 @@ func (s *sink) write(frame string) error {
 	return nil
 }
 
-func fail(w http.ResponseWriter, status int, code contracts.ErrorsV2ErrorCode, message string) {
+func fail(w http.ResponseWriter, status int, code contracts.ErrorsV3ErrorCode, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	corr := w.Header().Get(session.CorrelationHeader)
-	body := contracts.ErrorsV2ErrorEnvelope{Error: contracts.ErrorsV2ErrorBody{Code: code, Message: message, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
+	body := contracts.ErrorsV3ErrorEnvelope{Error: contracts.ErrorsV3ErrorBody{Code: code, Message: message, Retryable: code == contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, CorrelationId: contracts.CommonV1CorrelationId(corr)}}
 	_ = json.NewEncoder(w).Encode(body) // the status is already sent; a failed write has no one to tell
 }
