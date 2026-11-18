@@ -78,6 +78,18 @@ def logical_instructions(text: str) -> list[str]:
     return out
 
 
+def env_assignments(instruction: str) -> list[tuple[str, str]]:
+    """The (key, value) pairs one ENV instruction sets. Docker takes two forms (Codex P2 on noema#670): `ENV key=value [key=value ...]`, and the legacy `ENV key value`, whose value is
+    everything after the first space. Surrounding quotes are removed from a value."""
+    body = instruction.split(None, 1)[1] if len(instruction.split(None, 1)) == 2 else ""
+    first = body.split(None, 1)[0] if body.split() else ""
+    quotes = chr(34) + chr(39)
+    if "=" not in first:
+        parts = body.split(None, 1)
+        return [(parts[0], parts[1].strip().strip(quotes))] if len(parts) == 2 else []
+    return [(t.split("=", 1)[0], t.split("=", 1)[1].strip(quotes)) for t in body.split() if "=" in t]
+
+
 def dockerfile_problems(text: str) -> list[str]:
     """The model image requires a client certificate and starts uvicorn with no --ssl-* option of its own (noema#555, noema#635): UVICORN_SSL_CERT_REQS is set, its LAST assignment is 2,
     and no ENTRYPOINT or CMD (continued over lines or not) carries an --ssl-* option. A parser directive that changes the escape character fails closed: the continuation rule above
@@ -86,7 +98,7 @@ def dockerfile_problems(text: str) -> list[str]:
     if re.search(r"(?im)^\s*#\s*escape\s*=", text):
         bad.append("the model Dockerfile changes its escape character (# escape=): the checks of its instructions cannot be trusted; remove the directive")
     instructions = logical_instructions(text)
-    assigned = [t.split("=", 1)[1].strip(chr(34) + chr(39)) for ln in instructions if ln.upper().startswith("ENV ") for t in ln.split() if t.startswith("UVICORN_SSL_CERT_REQS=")]
+    assigned = [value for ln in instructions if ln.upper().startswith("ENV ") for key, value in env_assignments(ln) if key == "UVICORN_SSL_CERT_REQS"]
     if not assigned:
         bad.append("the model image does not set UVICORN_SSL_CERT_REQS=2")
     elif assigned[-1] != "2":

@@ -21,29 +21,22 @@ class ModelDockerfileRule(unittest.TestCase):  # Codex P2 on noema#670: Docker t
         self.assertEqual(profiles.dockerfile_problems(BASE), [])
 
     def test_a_later_legacy_env_assignment_of_0_is_a_problem(self) -> None:
-        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 0
-"))
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 0\n"))
 
     def test_a_later_legacy_env_assignment_of_2_is_not(self) -> None:
-        self.assertEqual(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2
-"), [])
+        self.assertEqual(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2\n"), [])
 
     def test_a_legacy_env_value_is_everything_after_the_key(self) -> None:
-        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2 extra
-"))
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS 2 extra\n"))
 
     def test_a_later_pair_among_several_on_one_line_is_read(self) -> None:
-        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV A=1 UVICORN_SSL_CERT_REQS=0 B=2
-"))
+        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV A=1 UVICORN_SSL_CERT_REQS=0 B=2\n"))
 
     def test_a_quoted_legacy_value_is_unquoted(self) -> None:
-        self.assertTrue(profiles.dockerfile_problems(BASE + "ENV UVICORN_SSL_CERT_REQS \"0\"
-"))
+        self.assertTrue(profiles.dockerfile_problems(BASE + 'ENV UVICORN_SSL_CERT_REQS "0"\n'))
 
     def test_the_legacy_form_alone_with_2_satisfies_the_requirement(self) -> None:
-        self.assertEqual(profiles.dockerfile_problems("FROM x
-ENV UVICORN_SSL_CERT_REQS 2
-"), [])
+        self.assertEqual(profiles.dockerfile_problems("FROM x\nENV UVICORN_SSL_CERT_REQS 2\n"), [])
 
 
 class LiveFindings(unittest.TestCase):
