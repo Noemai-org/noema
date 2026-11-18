@@ -4,15 +4,16 @@ import { parseCommonV1CorrelationId, type CommonV1CorrelationId, parseCommonV1Ha
 import { parseRecordEventV3, type RecordEventV3, parseRecordEventV3RecordEventType, type RecordEventV3RecordEventType } from "./record_event_v3.js";
 
 const PATTERN_0 = new RegExp("^[a-z]{2,6}_[0-9A-Za-z_]{2,64}$", "u");
-const PATTERN_1 = new RegExp("^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[\t-\r (-)\\--/:\\[\\]_{} ­·̀-ͯ҃-҉֊֑-ֿׁ-ׂׄ-ׇׅ؀-؅ؐ-ؚ؜ً-ٰٟۖ-۝۟-ۤۧ-۪ۨ-ۭ܏ܑܰ-݊ަ-ް߫-߽߳ࠖ-࠙ࠛ-ࠣࠥ-ࠧࠩ-࡙࠭-࡛࢐-࢑࢘-࢟࣊-ःऺ-़ा-ॏ॑-ॗॢ-ॣঁ-ঃ়া-ৄে-ৈো-্ৗৢ-ৣ৾ਁ-ਃ਼ਾ-ੂੇ-ੈੋ-੍ੑੰ-ੱੵઁ-ઃ઼ા-ૅે-ૉો-્ૢ-ૣૺ-૿ଁ-ଃ଼ା-ୄେ-ୈୋ-୍୕-ୗୢ-ୣஂா-ூெ-ைொ-்ௗఀ-ఄ఼ా-ౄె-ైొ-్ౕ-ౖౢ-ౣಁ-ಃ಼ಾ-ೄೆ-ೈೊ-್ೕ-ೖೢ-ೣೳഀ-ഃ഻-഼ാ-ൄെ-ൈൊ-്ൗൢ-ൣඁ-ඃ්ා-ුූෘ-ෟෲ-ෳัิ-ฺ็-๎ັິ-ຼ່-໎༘-༹༙༵༷-༿ཱ-྄྆-྇ྍ-ྗྙ-ྼ࿆ါ-ှၖ-ၙၞ-ၠၢ-ၤၧ-ၭၱ-ၴႂ-ႍႏႚ-ႝ፝-፟᐀ ᚛-᚜ᜒ-᜕ᜲ-᜴ᝒ-ᝓᝲ-ᝳ឴-៓៝᠆᠋-᠏ᢅ-ᢆᢩᤠ-ᤫᤰ-᤻ᨗ-ᨛᩕ-ᩞ᩠-᩿᩼᪰-ᫎᬀ-ᬄ᬴-᭄᭫-᭳ᮀ-ᮂᮡ-ᮭ᯦-᯳ᰤ-᰷᳐-᳔᳒-᳨᳭᳴᳷-᳹᷀-᷿ -―‚„ - ⁅-⁆ -⁤⁦-⁯⁽-⁾₍-₎⃐-⃰−⌈-⌋〈-〉❨-❵⟅-⟆⟦-⟯⦃-⦘⧘-⧛⧼-⧽⳯-⵿⳱ⷠ-ⷿ⸗⸚⸢-⸩⸺-⸻⹀⹂⹕-⹝　〈-】〔-〟〪-〰゙-゚゠・꙯-꙲ꙴ-꙽ꚞ-ꚟ꛰-꛱ꠂ꠆ꠋꠣ-ꠧ꠬ꢀ-ꢁꢴ-ꣅ꣠-꣱ꣿꤦ-꤭ꥇ-꥓ꦀ-ꦃ꦳-꧀ꧥꨩ-ꨶꩃꩌ-ꩍꩻ-ꩽꪰꪲ-ꪴꪷ-ꪸꪾ-꪿꫁ꫫ-ꫯꫵ-꫶ꯣ-ꯪ꯬-꯭ﬞ﴾-﴿︀-️︗-︘︠-︯︱-︲︵-﹄﹇-﹈﹘-﹞﹣﻿（-）－-／：［］＿｛｝｟-｠｢-｣￹-￻𐇽𐋠𐍶-𐍺𐨁-𐨃𐨅-𐨆𐨌-𐨏𐨸-𐨿𐨺𐫥-𐫦𐴤-𐴧𐺫-𐺭𐻽-𐻿𐽆-𐽐𐾂-𐾅𑀀-𑀂𑀸-𑁆𑁰𑁳-𑁴𑁿-𑂂𑂰-𑂺𑂽𑃂𑃍𑄀-𑄂𑄧-𑄴𑅅-𑅆𑅳𑆀-𑆂𑆳-𑇀𑇉-𑇌𑇎-𑇏𑈬-𑈷𑈾𑉁𑋟-𑋪𑌀-𑌃𑌻-𑌼𑌾-𑍄𑍇-𑍈𑍋-𑍍𑍗𑍢-𑍣𑍦-𑍬𑍰-𑍴𑐵-𑑆𑑞𑒰-𑓃𑖯-𑖵𑖸-𑗀𑗜-𑗝𑘰-𑙀𑚫-𑚷𑜝-𑜫𑠬-𑠺𑤰-𑤵𑤷-𑤸𑤻-𑤾𑥀𑥂-𑥃𑧑-𑧗𑧚-𑧠𑧤𑨁-𑨊𑨳-𑨹𑨻-𑨾𑩇𑩑-𑩛𑪊-𑪙𑰯-𑰶𑰸-𑰿𑲒-𑲧𑲩-𑲶𑴱-𑴶𑴺𑴼-𑴽𑴿-𑵅𑵇𑶊-𑶎𑶐-𑶑𑶓-𑶗𑻳-𑻶𑼀-𑼁𑼃𑼴-𑼺𑼾-𑽂𓐰-𓑀𓑇-𓑕𖫰-𖫴𖬰-𖬶𖽏𖽑-𖾇𖾏-𖾒𖿤𖿰-𖿱𛲝-𛲞𛲠-𛲣𜼀-𜼭𜼰-𜽆𝅥-𝅩𝅭-𝆂𝆅-𝆋𝆪-𝆭𝉂-𝉄𝨀-𝨶𝨻-𝩬𝩵𝪄𝪛-𝪟𝪡-𝪯𞀀-𞀆𞀈-𞀘𞀛-𞀡𞀣-𞀤𞀦-𞀪𞂏𞄰-𞄶𞊮𞋬-𞋯𞓬-𞣐𞓯-𞣖𞥄-𞥊󠀁󠀠-󠁿󠄀-󠇯]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$", "u");
-const PATTERN_2 = new RegExp("^[a-z][a-z0-9_]*$", "u");
+const PATTERN_1 = new RegExp("^[a-z][a-z0-9_]*$", "u");
+const PATTERN_2 = new RegExp("^(?:[a-z]{2,6}_(?=[0-9]*[A-Za-z])[0-9A-Za-z]{2,32}|[a-z][a-z0-9]*\\.[a-z][a-z0-9_]*:(?=[0-9_.-]*[A-Za-z])[A-Za-z0-9_.-]{1,64}|(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[\t-\r (-)\\--/:\\[\\]_{} ­·̀-ͯ҃-҉֊֑-ֿׁ-ׂׄ-ׇׅ؀-؅ؐ-ؚ؜ً-ٰٟۖ-۝۟-ۤۧ-۪ۨ-ۭ܏ܑܰ-݊ަ-ް߫-߽߳ࠖ-࠙ࠛ-ࠣࠥ-ࠧࠩ-࡙࠭-࡛࢐-࢑࢘-࢟࣊-ःऺ-़ा-ॏ॑-ॗॢ-ॣঁ-ঃ়া-ৄে-ৈো-্ৗৢ-ৣ৾ਁ-ਃ਼ਾ-ੂੇ-ੈੋ-੍ੑੰ-ੱੵઁ-ઃ઼ા-ૅે-ૉો-્ૢ-ૣૺ-૿ଁ-ଃ଼ା-ୄେ-ୈୋ-୍୕-ୗୢ-ୣஂா-ூெ-ைொ-்ௗఀ-ఄ఼ా-ౄె-ైొ-్ౕ-ౖౢ-ౣಁ-ಃ಼ಾ-ೄೆ-ೈೊ-್ೕ-ೖೢ-ೣೳഀ-ഃ഻-഼ാ-ൄെ-ൈൊ-്ൗൢ-ൣඁ-ඃ්ා-ුූෘ-ෟෲ-ෳัิ-ฺ็-๎ັິ-ຼ່-໎༘-༹༙༵༷-༿ཱ-྄྆-྇ྍ-ྗྙ-ྼ࿆ါ-ှၖ-ၙၞ-ၠၢ-ၤၧ-ၭၱ-ၴႂ-ႍႏႚ-ႝ፝-፟᐀ ᚛-᚜ᜒ-᜕ᜲ-᜴ᝒ-ᝓᝲ-ᝳ឴-៓៝᠆᠋-᠏ᢅ-ᢆᢩᤠ-ᤫᤰ-᤻ᨗ-ᨛᩕ-ᩞ᩠-᩿᩼᪰-ᫎᬀ-ᬄ᬴-᭄᭫-᭳ᮀ-ᮂᮡ-ᮭ᯦-᯳ᰤ-᰷᳐-᳔᳒-᳨᳭᳴᳷-᳹᷀-᷿ -―‚„ - ⁅-⁆ -⁤⁦-⁯⁽-⁾₍-₎⃐-⃰−⌈-⌋〈-〉❨-❵⟅-⟆⟦-⟯⦃-⦘⧘-⧛⧼-⧽⳯-⵿⳱ⷠ-ⷿ⸗⸚⸢-⸩⸺-⸻⹀⹂⹕-⹝　〈-】〔-〟〪-〰゙-゚゠・꙯-꙲ꙴ-꙽ꚞ-ꚟ꛰-꛱ꠂ꠆ꠋꠣ-ꠧ꠬ꢀ-ꢁꢴ-ꣅ꣠-꣱ꣿꤦ-꤭ꥇ-꥓ꦀ-ꦃ꦳-꧀ꧥꨩ-ꨶꩃꩌ-ꩍꩻ-ꩽꪰꪲ-ꪴꪷ-ꪸꪾ-꪿꫁ꫫ-ꫯꫵ-꫶ꯣ-ꯪ꯬-꯭ﬞ﴾-﴿︀-️︗-︘︠-︯︱-︲︵-﹄﹇-﹈﹘-﹞﹣﻿（-）－-／：［］＿｛｝｟-｠｢-｣￹-￻𐇽𐋠𐍶-𐍺𐨁-𐨃𐨅-𐨆𐨌-𐨏𐨸-𐨿𐨺𐫥-𐫦𐴤-𐴧𐺫-𐺭𐻽-𐻿𐽆-𐽐𐾂-𐾅𑀀-𑀂𑀸-𑁆𑁰𑁳-𑁴𑁿-𑂂𑂰-𑂺𑂽𑃂𑃍𑄀-𑄂𑄧-𑄴𑅅-𑅆𑅳𑆀-𑆂𑆳-𑇀𑇉-𑇌𑇎-𑇏𑈬-𑈷𑈾𑉁𑋟-𑋪𑌀-𑌃𑌻-𑌼𑌾-𑍄𑍇-𑍈𑍋-𑍍𑍗𑍢-𑍣𑍦-𑍬𑍰-𑍴𑐵-𑑆𑑞𑒰-𑓃𑖯-𑖵𑖸-𑗀𑗜-𑗝𑘰-𑙀𑚫-𑚷𑜝-𑜫𑠬-𑠺𑤰-𑤵𑤷-𑤸𑤻-𑤾𑥀𑥂-𑥃𑧑-𑧗𑧚-𑧠𑧤𑨁-𑨊𑨳-𑨹𑨻-𑨾𑩇𑩑-𑩛𑪊-𑪙𑰯-𑰶𑰸-𑰿𑲒-𑲧𑲩-𑲶𑴱-𑴶𑴺𑴼-𑴽𑴿-𑵅𑵇𑶊-𑶎𑶐-𑶑𑶓-𑶗𑻳-𑻶𑼀-𑼁𑼃𑼴-𑼺𑼾-𑽂𓐰-𓑀𓑇-𓑕𖫰-𖫴𖬰-𖬶𖽏𖽑-𖾇𖾏-𖾒𖿤𖿰-𖿱𛲝-𛲞𛲠-𛲣𜼀-𜼭𜼰-𜽆𝅥-𝅩𝅭-𝆂𝆅-𝆋𝆪-𝆭𝉂-𝉄𝨀-𝨶𝨻-𝩬𝩵𝪄𝪛-𝪟𝪡-𝪯𞀀-𞀆𞀈-𞀘𞀛-𞀡𞀣-𞀤𞀦-𞀪𞂏𞄰-𞄶𞊮𞋬-𞋯𞓬-𞣐𞓯-𞣖𞥄-𞥊󠀁󠀠-󠁿󠄀-󠇯]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*)$", "u");
+const PATTERN_3 = new RegExp("^(?![\\s\\S]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹](?:[\t-\r (-)\\--/:\\[\\]_{} ­·̀-ͯ҃-҉֊֑-ֿׁ-ׂׄ-ׇׅ؀-؅ؐ-ؚ؜ً-ٰٟۖ-۝۟-ۤۧ-۪ۨ-ۭ܏ܑܰ-݊ަ-ް߫-߽߳ࠖ-࠙ࠛ-ࠣࠥ-ࠧࠩ-࡙࠭-࡛࢐-࢑࢘-࢟࣊-ःऺ-़ा-ॏ॑-ॗॢ-ॣঁ-ঃ়া-ৄে-ৈো-্ৗৢ-ৣ৾ਁ-ਃ਼ਾ-ੂੇ-ੈੋ-੍ੑੰ-ੱੵઁ-ઃ઼ા-ૅે-ૉો-્ૢ-ૣૺ-૿ଁ-ଃ଼ା-ୄେ-ୈୋ-୍୕-ୗୢ-ୣஂா-ூெ-ைொ-்ௗఀ-ఄ఼ా-ౄె-ైొ-్ౕ-ౖౢ-ౣಁ-ಃ಼ಾ-ೄೆ-ೈೊ-್ೕ-ೖೢ-ೣೳഀ-ഃ഻-഼ാ-ൄെ-ൈൊ-്ൗൢ-ൣඁ-ඃ්ා-ුූෘ-ෟෲ-ෳัิ-ฺ็-๎ັິ-ຼ່-໎༘-༹༙༵༷-༿ཱ-྄྆-྇ྍ-ྗྙ-ྼ࿆ါ-ှၖ-ၙၞ-ၠၢ-ၤၧ-ၭၱ-ၴႂ-ႍႏႚ-ႝ፝-፟᐀ ᚛-᚜ᜒ-᜕ᜲ-᜴ᝒ-ᝓᝲ-ᝳ឴-៓៝᠆᠋-᠏ᢅ-ᢆᢩᤠ-ᤫᤰ-᤻ᨗ-ᨛᩕ-ᩞ᩠-᩿᩼᪰-ᫎᬀ-ᬄ᬴-᭄᭫-᭳ᮀ-ᮂᮡ-ᮭ᯦-᯳ᰤ-᰷᳐-᳔᳒-᳨᳭᳴᳷-᳹᷀-᷿ -―‚„ - ⁅-⁆ -⁤⁦-⁯⁽-⁾₍-₎⃐-⃰−⌈-⌋〈-〉❨-❵⟅-⟆⟦-⟯⦃-⦘⧘-⧛⧼-⧽⳯-⵿⳱ⷠ-ⷿ⸗⸚⸢-⸩⸺-⸻⹀⹂⹕-⹝　〈-】〔-〟〪-〰゙-゚゠・꙯-꙲ꙴ-꙽ꚞ-ꚟ꛰-꛱ꠂ꠆ꠋꠣ-ꠧ꠬ꢀ-ꢁꢴ-ꣅ꣠-꣱ꣿꤦ-꤭ꥇ-꥓ꦀ-ꦃ꦳-꧀ꧥꨩ-ꨶꩃꩌ-ꩍꩻ-ꩽꪰꪲ-ꪴꪷ-ꪸꪾ-꪿꫁ꫫ-ꫯꫵ-꫶ꯣ-ꯪ꯬-꯭ﬞ﴾-﴿︀-️︗-︘︠-︯︱-︲︵-﹄﹇-﹈﹘-﹞﹣﻿（-）－-／：［］＿｛｝｟-｠｢-｣￹-￻𐇽𐋠𐍶-𐍺𐨁-𐨃𐨅-𐨆𐨌-𐨏𐨸-𐨿𐨺𐫥-𐫦𐴤-𐴧𐺫-𐺭𐻽-𐻿𐽆-𐽐𐾂-𐾅𑀀-𑀂𑀸-𑁆𑁰𑁳-𑁴𑁿-𑂂𑂰-𑂺𑂽𑃂𑃍𑄀-𑄂𑄧-𑄴𑅅-𑅆𑅳𑆀-𑆂𑆳-𑇀𑇉-𑇌𑇎-𑇏𑈬-𑈷𑈾𑉁𑋟-𑋪𑌀-𑌃𑌻-𑌼𑌾-𑍄𑍇-𑍈𑍋-𑍍𑍗𑍢-𑍣𑍦-𑍬𑍰-𑍴𑐵-𑑆𑑞𑒰-𑓃𑖯-𑖵𑖸-𑗀𑗜-𑗝𑘰-𑙀𑚫-𑚷𑜝-𑜫𑠬-𑠺𑤰-𑤵𑤷-𑤸𑤻-𑤾𑥀𑥂-𑥃𑧑-𑧗𑧚-𑧠𑧤𑨁-𑨊𑨳-𑨹𑨻-𑨾𑩇𑩑-𑩛𑪊-𑪙𑰯-𑰶𑰸-𑰿𑲒-𑲧𑲩-𑲶𑴱-𑴶𑴺𑴼-𑴽𑴿-𑵅𑵇𑶊-𑶎𑶐-𑶑𑶓-𑶗𑻳-𑻶𑼀-𑼁𑼃𑼴-𑼺𑼾-𑽂𓐰-𓑀𓑇-𓑕𖫰-𖫴𖬰-𖬶𖽏𖽑-𖾇𖾏-𖾒𖿤𖿰-𖿱𛲝-𛲞𛲠-𛲣𜼀-𜼭𜼰-𜽆𝅥-𝅩𝅭-𝆂𝆅-𝆋𝆪-𝆭𝉂-𝉄𝨀-𝨶𝨻-𝩬𝩵𝪄𝪛-𝪟𝪡-𝪯𞀀-𞀆𞀈-𞀘𞀛-𞀡𞀣-𞀤𞀦-𞀪𞂏𞄰-𞄶𞊮𞋬-𞋯𞓬-𞣐𞓯-𞣖𞥄-𞥊󠀁󠀠-󠁿󠄀-󠇯]*[0-9٠-٩۰-۹߀-߉०-९০-৯੦-੯૦-૯୦-୯௦-௯౦-౯೦-೯൦-൯෦-෯๐-๙໐-໙༠-༩၀-၉႐-႙០-៩᠐-᠙᥆-᥏᧐-᧙᪀-᪉᪐-᪙᭐-᭙᮰-᮹᱀-᱉᱐-᱙꘠-꘩꣐-꣙꤀-꤉꧐-꧙꧰-꧹꩐-꩙꯰-꯹０-９𐒠-𐒩𐴰-𐴹𑁦-𑁯𑃰-𑃹𑄶-𑄿𑇐-𑇙𑋰-𑋹𑑐-𑑙𑓐-𑓙𑙐-𑙙𑛀-𑛉𑜰-𑜹𑣠-𑣩𑥐-𑥙𑱐-𑱙𑵐-𑵙𑶠-𑶩𑽐-𑽙𖩠-𖩩𖫀-𖫉𖭐-𖭙𝟎-𝟿𞅀-𞅉𞋰-𞋹𞓰-𞓹𞥐-𞥙🯰-🯹]){4})[\\s\\S]*$", "u");
 
 /** ReconstructionV3Item, generated from reconstruction.v3.json#$defs/Item. */
 export interface ReconstructionV3Item {
   record_event_id: CommonV1RecordEventId;
   object_ref: string;
   basis: ReconstructionV3ItemBasis;
-  facts: ReconstructionV3ItemFacts;
+  facts: Record<string, ReconstructionV3ItemFactsValue | null>;
 }
 
 export function parseReconstructionV3Item(v: unknown, p: string = "$"): ReconstructionV3Item {
@@ -22,7 +23,7 @@ export function parseReconstructionV3Item(v: unknown, p: string = "$"): Reconstr
     record_event_id: parseCommonV1RecordEventId(req(o, "record_event_id", p), p + ".record_event_id"),
     object_ref: str(req(o, "object_ref", p), p + ".object_ref", {pattern: PATTERN_0}),
     basis: parseReconstructionV3ItemBasis(req(o, "basis", p), p + ".basis"),
-    facts: parseReconstructionV3ItemFacts(req(o, "facts", p), p + ".facts"),
+    facts: mapOf(req(o, "facts", p), p + ".facts", (x, q) => (x === null ? null : parseReconstructionV3ItemFactsValue(x, q)), PATTERN_1),
   };
 }
 
@@ -33,28 +34,11 @@ export function parseReconstructionV3ItemBasis(v: unknown, p: string = "$"): Rec
   return oneOfLit(v, p, ["EVIDENCE", "RULE", "PRINCIPAL_ACTION"] as const);
 }
 
-/** ReconstructionV3ItemFacts, generated from reconstruction.v3.json#$defs/Item/properties/facts. (A272) Only free-text members carry the digit-run pattern: the fact `text` and each item of `reason_codes`. References, `disclosed_refs`, resolved targets, `*_id` facts and minted `<prefix>_<ULID>` IDs are served as w... */
-export interface ReconstructionV3ItemFacts {
-  text?: string;
-  reason_codes?: string[];
-  [member: string]: unknown;
-}
-
-export function parseReconstructionV3ItemFacts(v: unknown, p: string = "$"): ReconstructionV3ItemFacts {
-  const o = obj(v, p);
-  const rest = mapOf(Object.fromEntries(Object.entries(o).filter(([k]) => !["text", "reason_codes"].includes(k))), p, (x, q) => (x === null ? null : parseReconstructionV3ItemFactsValue(x, q)), PATTERN_2);
-  return {
-    ...rest,
-    ...(has(o, "text") ? { text: str(o["text"], p + ".text", {pattern: PATTERN_1, maxLength: 200}) } : {}),
-    ...(has(o, "reason_codes") ? { reason_codes: arr(o["reason_codes"], p + ".reason_codes", (x, q) => str(x, q, {pattern: PATTERN_1, maxLength: 200}), {maxItems: 50}) } : {}),
-  };
-}
-
 /** ReconstructionV3ItemFactsValue, generated from reconstruction.v3.json#$defs/Item/properties/facts/additionalProperties. */
 export type ReconstructionV3ItemFactsValue = string | number | boolean | string[] | null;
 
 export function parseReconstructionV3ItemFactsValue(v: unknown, p: string = "$"): ReconstructionV3ItemFactsValue {
-  return (v === null ? null : union<ReconstructionV3ItemFactsValue>(v, p, [(x, q) => str(x, q, {maxLength: 200}), (x, q) => int(x, q, {minimum: 0, maximum: 9007199254740991}), (x, q) => bool(x, q), (x, q) => arr(x, q, (x, q) => str(x, q, {maxLength: 200}), {maxItems: 50})]));
+  return (v === null ? null : union<ReconstructionV3ItemFactsValue>(v, p, [(x, q) => str(x, q, {pattern: PATTERN_2, maxLength: 200}), (x, q) => int(x, q, {minimum: 0, maximum: 9007199254740991}), (x, q) => bool(x, q), (x, q) => arr(x, q, (x, q) => str(x, q, {pattern: PATTERN_2, maxLength: 200}), {maxItems: 50})]));
 }
 
 /** ReconstructionV3Section, generated from reconstruction.v3.json#$defs/Section. */
@@ -94,7 +78,7 @@ export function parseReconstructionV3TimelineEntry(v: unknown, p: string = "$"):
     record_event_id: parseCommonV1RecordEventId(req(o, "record_event_id", p), p + ".record_event_id"),
     at: parseCommonV1Timestamp(req(o, "at", p), p + ".at"),
     event_type: parseRecordEventV3RecordEventType(req(o, "event_type", p), p + ".event_type"),
-    text: str(req(o, "text", p), p + ".text", {pattern: PATTERN_1, minLength: 1, maxLength: 300}),
+    text: str(req(o, "text", p), p + ".text", {pattern: PATTERN_3, minLength: 1, maxLength: 300}),
   };
 }
 
