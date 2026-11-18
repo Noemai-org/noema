@@ -46,13 +46,22 @@ func TestABadPackIsRefusedWholeAndNeverPartly(t *testing.T) {
 		{"an edge names a node the graph does not have", func(m map[string][]byte) {
 			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) { g["edges"].([]any)[0].(map[string]any)["depends_on"] = "no_such_node" })
 		}},
+		{"an edge has a dependent the graph does not have", func(m map[string][]byte) {
+			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) { g["edges"].([]any)[0].(map[string]any)["node_id"] = "no_such_node" })
+		}},
+		{"a graph has no root", func(m map[string][]byte) {
+			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) { g["roots"] = []any{} })
+		}},
+		{"a graph has no node", func(m map[string][]byte) {
+			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) { g["nodes"], g["edges"] = []any{}, []any{} })
+		}},
 		{"a root names a node the graph does not have", func(m map[string][]byte) {
 			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) { g["roots"] = []any{"no_such_node"} })
 		}},
 		{"a node ID repeats in a graph", func(m map[string][]byte) {
 			m[escalatePath] = edit(t, m[escalatePath], func(g map[string]any) {
 				ns := g["nodes"].([]any)
-				ns[1].(map[string]any)["node_id"] = ns[0].(map[string]any)["node_id"]
+				g["nodes"] = append(ns, ns[0]) // every edge and root still names an existing node
 			})
 		}},
 		{"two graph files carry one graph ID", func(m map[string][]byte) {

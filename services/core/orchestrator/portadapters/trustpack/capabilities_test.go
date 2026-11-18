@@ -1,6 +1,7 @@
 package trustpack_test
 
 import (
+	"context"
 	"errors"
 	"sort"
 	"testing"
@@ -375,4 +376,31 @@ func upper(s string) string {
 		}
 	}
 	return string(b)
+}
+
+// A call whose context is already done is an error, never an answer: no adapter answers a question nobody is waiting for (the context deadline of every call, AGENTS 7).
+func TestACancelledContextIsAnErrorForEveryAdapter(t *testing.T) {
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	node := firstNodeWithProfile(t).ID
+	spy := &remedySpy{id: allowedCaps(t)[0].ID, present: true}
+	c := newCaps(t, loadReal(t), spy)
+	if _, _, err := c.Requested(done, admitted(node)); !errors.Is(err, context.Canceled) {
+		t.Errorf("Requested: %v", err)
+	}
+	if _, err := c.Check(done, allowedCaps(t)[0].ID, "customer"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Check: %v", err)
+	}
+	if ids, err := c.Authorized(done, admitted(node)); !errors.Is(err, context.Canceled) || ids != nil {
+		t.Errorf("Authorized: %v, %v", ids, err)
+	}
+	if len(spy.asked) != 0 {
+		t.Errorf("the store was asked %d times under a done context", len(spy.asked))
+	}
+	if ok, err := newScope(t, loadReal(t)).InScope(done, tenant, node); ok || !errors.Is(err, context.Canceled) {
+		t.Errorf("InScope: %v, %v", ok, err)
+	}
+	if ok, err := newAuthority(t, loadReal(t)).RoleAllowed(done, node, "customer"); ok || !errors.Is(err, context.Canceled) {
+		t.Errorf("RoleAllowed: %v, %v", ok, err)
+	}
 }
