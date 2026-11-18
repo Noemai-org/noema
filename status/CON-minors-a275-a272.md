@@ -1,0 +1,29 @@
+# Status · CON-06 minor in-place contract changes: A275 (`none_option_id`) and A272 (`reconstruction.v3` classification)
+
+Updated 2026-11-18. Owner: C1 (Core Engineer 1). Local branch `prep/contract-minors`, not pushed, no pull request. Rulings are the Architect's, relayed by the user as interim (`DEC-2026-11-17-architect-rulings-a270-a277`: A272, A275; A278 and A317 to A328 as relayed, not read here).
+
+# Session 2026-11-18 · CON-06 minors (A275, A272)
+
+## Session summary
+- What changed (commits, local):
+  - `2ede25af` RED and `ba9ed008` GREEN, A272: `reconstruction.v3` `classification` fact (OBSERVED_STATE, the only classification member of that schema) refers to `enums.v1` `TransactionClassification`.
+  - `58166418` RED and `dfd2cdba` GREEN, A275: `none_option_id` on `clarification.v1` and the `ClarificationCard` of `overlay-card.v1` (carried by `sse-event.v1` and by the embedded clarification of `decision-record.v1/v2`).
+- Why: A272 (a receipt state such as `OUTCOME_UNKNOWN` was accepted as a classification) and A275 (noema#656: the UI must submit a core-minted id for "None of these", never a sentinel).
+- Risks, and how they are contained:
+  - A275 makes the member required, so every clarification, card, stream event and CLARIFY record without it stops validating. Nothing consumes the generated types (`decide.Clarification` is the core's own type), and every committed fixture was updated by adding the member only. The core still has to mint it (route work of noema#656).
+  - A272: the Go projector (`record/reconstruct` `patternFact`, `upperCodeRe`) still accepts any upper-case code for `classification`, and the Go and UI generators do not carry the OBSERVED_STATE if/then, so only JSON Schema validation holds the rule (the TypeScript parser accepts any value-shaped string). The golden `us01` held `SETTLED`; the test Record now writes `SUCCESS_CONFIRMED` and the golden was rewritten by the Go test (`-update`, real PostgreSQL). That touches a Record test and its golden: flagged for review.
+- Tests added: REQ-AMB-004, REQ-UI-002, REQ-API-001, REQ-AUD-003, AGENT-15, OD-P-10. `tools/contracts/test_none_option.py`; `services/core/internal/contracts/none_option_test.go`; `services/model/tests/test_none_option.py`; `ui/test/contracts.test.mjs` (A275 test); fixtures and `expectations.json`; `tools/contracts/validate.py` (`none_option_collisions`, expectation `none_option_collision`); `tools/record_chain_ref_v3.py` writes the two reconstruction fixtures.
+- Regression cases added: invalid `reconstruction.v3/classification_is_a_receipt_state`; invalid `clarification/none_option_id_*` (6), `overlay-card/none_option_id_*` (3), `sse-event/clarification_without_none_option_id`.
+- Seen red first: `2ede25af` fails `validate.py` for `classification_is_a_receipt_state` only; `58166418` fails `validate.py` (valid fixtures rejected for the unknown member), `test_none_option.py`, `test_shape_refusals`, `test_decision_record_v2`, the Go round trip, the Pydantic model tests and the UI parser tests. Mutants against the green state (all caught): `none_option_id` dropped from `required` in `clarification.v1` or in the card; the card's pattern loosened to the contract's; the collision check disabled.
+- Debt entries: none new. DEBT-42 (the Go pattern gap, A272) is C1's and is named in the migration note.
+- Conflicts raised: none. The parallel branch `prep/contract-digit-tightenings` edits `tools/contracts/digit_run.py` and the digit-run patterns: not touched here. Likely merge hot spots, kept small: `tools/record_chain_ref_v3.py` (`reconstruction_fixtures`, one block before the `id_fact_with_five_digits_in_a_row` line), `tools/contracts/test_public_api.py` (one statement after `PUBLIC_STAGES`), `contracts/README.md` (two sections appended), `ui/test/contracts.test.mjs` (one test before the trailing-newline test), the `expectations.json` files (entries inserted at the top) and `tools/codegen/shape_refusals.json` (regenerate after the merge: `python3 tools/codegen/shape_refusals.py --write`). The card's `none_option_id` copies the card's `option_id` pattern, and `test_none_option.py` fails if the two differ, so a change of one without the other shows at the merge.
+
+## Migration notes (also in `contracts/README.md`)
+- A272: a `reconstruction.v3` body whose `OBSERVED_STATE` classification is not one of the twelve stops validating (`OUTCOME_UNKNOWN` among them). `reconstruction.v1/v2` are not edited. Generated output unchanged.
+- A275: `none_option_id` required on `clarification.v1` and on the clarification card. The core mints it, unique per clarification and never equal to an option_id of the same clarification (checked by `validate.py` for fixtures; the core must refuse the collision). The UI submits it as `option_id`. The follow-up request body of PERD section 39.2 has no schema in `/contracts`; none was added (noema#656).
+
+## Pre-work for the next agent
+- Exact next step: C1 and EL decide whether to push this branch as one pull request (P0 contracts path: Tier 1 gates apply) or as two; the Architect confirms the "required also when `options` is empty" reading of A275 and the card carrying the member.
+- Open questions (owner): (1) the follow-up request schema and the route's server-side check that a submitted `option_id` is the clarification's own `none_option_id` (EL, C1; noema#656); (2) how the core mints the id (form, per-clarification uniqueness, replay) (EL, C1); (3) the Go projector `classification` pattern gap (DEBT-42, C1); (4) the Record test and golden change for `us01` (Record owner review).
+- Files to read first: `contracts/README.md` (last two sections), `tools/contracts/test_none_option.py`, `tools/contracts/validate.py` (`none_option_collisions`).
+- Do not touch: generated files by hand (`python3 -I tools/codegen/generate.py --write`, `python3 tools/codegen/shape_refusals.py --write`, `python3 -I tools/record_chain_ref_v3.py --write`).
