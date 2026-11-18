@@ -75,6 +75,17 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, r Request, b
 	if !sameGrants(res.Grants, r) {
 		return Result{}, false, ErrDecisionConflict
 	}
+	if r.Decision.Outcome() == decide.Allow {
+		// A233: the stored ALLOW followed the confirmation it spent (or none). A retry that names another is not the same input: a typed conflict, nothing spent or written.
+		var spent string
+		err := tx.QueryRow(ctx, `SELECT confirmation_event_id FROM confirmation_spend WHERE tenant_id = $1 AND decision_id = $2`, k.tenant, string(rec.DecisionId)).Scan(&spent)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Result{}, false, fmt.Errorf("%sread the stored confirmation spend: %w", errPrefix, err)
+		}
+		if spent != r.ConfirmationEventID {
+			return Result{}, false, ErrDecisionConflict
+		}
+	}
 	return res, true, nil
 }
 

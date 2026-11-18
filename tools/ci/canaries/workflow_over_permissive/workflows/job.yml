@@ -1,0 +1,10 @@
+# Canary: a workflow that runs fork code with a write token. check_workflow_permissions.py must fail.
+name: canary
+on: pull_request_target
+permissions:
+  contents: write
+jobs:
+  job:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "fork code with a write token"
