@@ -48,6 +48,10 @@ type Ledger struct {
 	// RollbackTimeout bounds the rollback of a failed transaction after the caller's context has ended (ruling A24). It comes from configuration and
 	// has no default: a Ledger without one refuses to start a transaction.
 	RollbackTimeout time.Duration
+	// SerializationAttempts is the total number of attempts Spend makes when the database refuses a transaction with a serialization failure (SQLSTATE 40001),
+	// the first included (noema#714, Architect rulings A317 to A328, relayed). It comes from the environment setting named by EnvSerializationAttempts and has no default
+	// (AGENT-16): a Ledger without a value of at least one refuses to spend.
+	SerializationAttempts int
 	// Boundary is called at each boundary inside a transaction (see Point). Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }
