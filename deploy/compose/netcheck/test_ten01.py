@@ -57,6 +57,16 @@ class Ten01(unittest.TestCase):
         cfg["services"]["core"]["secrets"] = ["noema_core_password", "postgres_superuser_password"]
         self.assertTrue(matrix.ten01_findings(CLEAN_OBSERVED, cfg))
 
+    def test_the_core_may_hold_the_two_grant_keys_and_no_other_service_may(self) -> None:
+        # SEC-09: the Decision Grant keys are the core's (INV-29). The compose job failed on them before RUNTIME_SECRETS named them.
+        cfg = copy.deepcopy(CLEAN_CONFIG)
+        cfg["services"]["core"]["secrets"] = ["noema_core_password", "grant_hmac_key_a", "grant_hmac_key_b"]
+        self.assertEqual(matrix.ten01_findings(CLEAN_OBSERVED, cfg), [])
+        for other in ("model", "ui"):
+            bad = copy.deepcopy(cfg)
+            bad["services"][other]["secrets"] = ["grant_hmac_key_a"]
+            self.assertTrue(matrix.ten01_findings(CLEAN_OBSERVED, bad), other)
+
 
 if __name__ == "__main__":
     unittest.main()

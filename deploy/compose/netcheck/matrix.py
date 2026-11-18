@@ -89,7 +89,7 @@ RUNTIME = ("core", "model", "ui")
 ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control", "standin-control")
 ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential", "standin_bench_credential"}
 ORACLE_MARKERS = ("ORACLE", "BENCH", "HELDOUT", "ADMIN", "FIXTURE_CRED")  # in a runtime service's variable names, values, secrets or volumes
-RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}
+RUNTIME_SECRETS = {"core": {"noema_core_password", "grant_hmac_key_a", "grant_hmac_key_b"}, "model": set(), "ui": set()}  # the grant keys are the core's (SEC-09, INV-29)
 failures: list[str] = []
 
 
