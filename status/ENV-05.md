@@ -60,3 +60,18 @@ Date: 2026-11-07 · Owner: Integration Lead role agent (A10: the stand-in and th
 - Open questions (owner): none.
 - Files to read first: `benchmark/hostility_proxy/internal/proxy/request_log_test.go`.
 - Do not touch: the assertion itself (it must keep failing if the query string is logged).
+
+# Session 2026-11-18 · ENV-05 · the transition-log and event-feed reader (IL)
+
+## Session summary
+- What changed (this PR): `adapters.TransitionLog` and `adapters.EventFeed` (neutral types, `adapters/tushe_log.go`) and `synthetic_tushe.TusheReader` with SYNTHETIC fixtures (`testdata/tushe_v1_3/`), for the two reads delta v1.3 names field by field. Ruling A310: build from the delta's fields; unknowns are parameters or left raw.
+- Why: ENV-05 (the switch's payout status and inbound events) cannot wait for the OpenAPI where the adopted delta already names the fields; the rest of ENV-03/05 waits on noema#690.
+- Risks, and how they are contained: nothing is observed against Tushe. The shapes are the delta's words; what it does not say is a required parameter (credential presentation, list envelope) with no default, so adoption of the real shape changes one value. A member the delta does not name is refused as drift (UNKNOWN), never ignored.
+- Tests added (REQ-ENV-001, REQ-ENV-006; INV-21): 6 test functions with their subtests: every documented member in both envelope shapes; 12 unreadable transition bodies each MALFORMED; a feed read forward to caught-up with the cursor on the sequence; an error for a page limit, a repeated or lower sequence, a missing id or trace id, a string or negative sequence; the credential never in an error or file; a real refused connection and a real stalled server are UNAVAILABLE; no deadline and bad input are INVALID. Mutations that fail a test: no order check, no cursor check, unknown members allowed, an empty page not ending the read.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: when the OpenAPI (noema#690) or a delta fixes the list envelopes, the credential presentation and the field types, set them in the caller and replace the synthetic fixtures with recorded exchanges. The normalised PERD 34.4 payloads (raw code and semantic status side by side) for the payout need the state vocabulary, which is not yet known.
+- Open questions (owner): the list envelopes, credential presentation, state vocabulary, the audit-events shape, and which member joins to `traceId` (Founders, with Tushe).
+- Files to read first: `services/core/adapters/tushe_log.go`, `services/core/adapters/synthetic_tushe/tushe_log_reader.go`.
+- Do not touch: the fixtures' members without a delta that names them.
