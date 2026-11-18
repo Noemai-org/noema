@@ -32,6 +32,10 @@ for f in grant_hmac_key_a grant_hmac_key_b; do
   [ -s "$work/secrets/$f" ] || fail "secrets/$f was not made"
 done
 [ "$(cat "$work/secrets/grant_hmac_key_a")" != "$(cat "$work/secrets/grant_hmac_key_b")" ] || fail "the two grant keys are the same"
+# Only root in the init container reads them, so they are not world-readable (mode 600).
+for f in grant_hmac_key_a grant_hmac_key_b; do
+  [ "$(stat -c %a "$work/secrets/$f")" = "600" ] || fail "secrets/$f is not mode 600"
+done
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
 for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"

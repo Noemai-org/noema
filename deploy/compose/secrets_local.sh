@@ -34,7 +34,7 @@ for name in grant_hmac_key_a grant_hmac_key_b; do
   if [ ! -s "$dir/$name" ]; then
     python3 -c 'import secrets; print(secrets.token_hex(32))' > "$dir/$name"
   fi
-  chmod 644 "$dir/$name"
+  chmod 600 "$dir/$name"
 done
 
 # One secret file per emitter login (ruling A4): NOEMA_TENANTS x NOEMA_EMITTERS (default core-edge). Missing files are made with a random value;
