@@ -176,7 +176,10 @@ class ProbePrincipals(unittest.TestCase):
             ids = row["probe_principals"]
             self.assertEqual(set(ids), {"control", "wrong_role", "foreign_tenant", "unknown_correlation"})
             for who in ids.values():
-                self.assertRegex(who, r"^prb[a-z]{20}$")
+                self.assertRegex(who, r"^usr_[a-z]{20}$")
+                # the synthetic IdP refuses any other principal (services/core/cmd/synthetic-idp/main.go: \Ausr_[0-9A-Za-z]{2,32}\z); the fake issuer of these tests does not, so the rule is asserted here (Codex P1 on noema#727)
+                self.assertRegex(who, r"\Ausr_[0-9A-Za-z]{2,32}\Z")
+                self.assertNotRegex(who, r"[0-9]")
                 self.assertNotIn(who, seen)
                 seen.add(who)
             self.assertRegex(row["unknown_correlation_id"], r"^corr_[0-9a-f]{26}$")
@@ -186,12 +189,12 @@ def log_line(principal: str, corr: str, outcome: str, tenant: str = "ten_alpha")
     return json.dumps({"time": "t", "level": "INFO", "msg": "RECORD_ACCESSED", "tenant_id": tenant, "principal": principal, "correlation_id": corr, "outcome": outcome})
 
 
-def probes_doc(*, control: str = "prbcontrolaaaaaaaaaaa", unknown: str = "prbunknownaaaaaaaaaaa", wrong: str = "prbwrongaaaaaaaaaaaaa", foreign: str = "prbforeignaaaaaaaaaaa") -> Json:
+def probes_doc(*, control: str = "usr_controlaaaaaaaaaaa", unknown: str = "usr_unknownaaaaaaaaaaa", wrong: str = "usr_wrongaaaaaaaaaaaaa", foreign: str = "usr_foreignaaaaaaaaaaa") -> Json:
     return {"met": True, "cases": [{"case_id": "A", "principal_id": "usr_synth009", "correlation_id": "corr_a1", "unknown_correlation_id": "corr_" + "b" * 26,
                                     "probe_principals": {"control": control, "wrong_role": wrong, "foreign_tenant": foreign, "unknown_correlation": unknown}}]}
 
 
-GOOD_LOG = "\n".join([log_line("auditor:prbcontrolaaaaaaaaaaa", "corr_a1", "SERVED"), log_line("auditor:prbunknownaaaaaaaaaaa", "corr_" + "b" * 26, "NOT_FOUND_OR_NOT_AUTHORIZED"),
+GOOD_LOG = "\n".join([log_line("auditor:usr_controlaaaaaaaaaaa", "corr_a1", "SERVED"), log_line("auditor:usr_unknownaaaaaaaaaaa", "corr_" + "b" * 26, "NOT_FOUND_OR_NOT_AUTHORIZED"),
                       "not json at all", log_line("auditor:someone", "corr_zz", "SERVED")])
 
 
@@ -207,8 +210,8 @@ class RecordAccess(unittest.TestCase):
         self.assertEqual(doc["cases"][0], {"case_id": "A", "control": 1, "unknown_correlation": 1, "wrong_role": 0, "foreign_tenant": 0})
 
     def test_a_refusal_that_reached_the_handler_is_not_met(self) -> None:
-        for label, extra in {"wrong role": log_line("customer:prbwrongaaaaaaaaaaaaa", "corr_a1", "NOT_FOUND_OR_NOT_AUTHORIZED"),
-                             "foreign tenant": log_line("auditor:prbforeignaaaaaaaaaaa", "corr_a1", "SERVED", "ten_other")}.items():
+        for label, extra in {"wrong role": log_line("customer:usr_wrongaaaaaaaaaaaaa", "corr_a1", "NOT_FOUND_OR_NOT_AUTHORIZED"),
+                             "foreign tenant": log_line("auditor:usr_foreignaaaaaaaaaaa", "corr_a1", "SERVED", "ten_other")}.items():
             with self.subTest(label):
                 doc = self.evidence(GOOD_LOG + "\n" + extra)
                 self.assertFalse(doc["met"])
@@ -231,7 +234,7 @@ class RecordAccess(unittest.TestCase):
 
     def test_the_principal_is_matched_exactly_and_the_control_must_be_an_auditor(self) -> None:
         control = GOOD_LOG.split("\n")[0]
-        self.assertTrue(self.evidence(GOOD_LOG + "\n" + control.replace("prbcontrolaaaaaaaaaaa", "prbcontrolaaaaaaaaaaaZZ"))["met"], "another principal with the same start is not a second control line")
+        self.assertTrue(self.evidence(GOOD_LOG + "\n" + control.replace("usr_controlaaaaaaaaaaa", "usr_controlaaaaaaaaaaaZZ"))["met"], "another principal with the same start is not a second control line")
         self.assertFalse(self.evidence(GOOD_LOG.replace(control, control.replace("auditor:", "operator:")))["met"], "the control asked as an auditor")
 
     def test_a_probe_with_no_principal_recorded_or_no_cases_is_not_met(self) -> None:
@@ -246,7 +249,7 @@ class RecordAccess(unittest.TestCase):
                 self.evidence(log)
 
     def test_a_line_that_names_a_principal_only_in_another_member_does_not_count_as_the_handler_running(self) -> None:
-        sneaky = json.dumps({"msg": "something else", "principal": "customer:prbwrongaaaaaaaaaaaaa"})
+        sneaky = json.dumps({"msg": "something else", "principal": "customer:usr_wrongaaaaaaaaaaaaa"})
         self.assertTrue(self.evidence(GOOD_LOG + "\n" + sneaky)["met"])
 
     def test_the_command_reads_the_files_and_exits_0_1_or_3(self) -> None:
@@ -258,7 +261,7 @@ class RecordAccess(unittest.TestCase):
             (root / "core.log").write_text(GOOD_LOG + "\n", encoding="utf-8")
             self.assertEqual(main(args), 0)
             self.assertTrue(json.loads((root / "out" / "record-access.json").read_text())["met"])
-            (root / "core.log").write_text(GOOD_LOG + "\n" + log_line("customer:prbwrongaaaaaaaaaaaaa", "corr_a1", "SERVED") + "\n", encoding="utf-8")
+            (root / "core.log").write_text(GOOD_LOG + "\n" + log_line("customer:usr_wrongaaaaaaaaaaaaa", "corr_a1", "SERVED") + "\n", encoding="utf-8")
             self.assertEqual(main(args), 1)
             self.assertEqual(main(args[:-2] + ["--out", str(root / "out"), "--other-tenant-id", "ten_alpha"]), 2)  # the other tenant must differ
 

@@ -113,9 +113,10 @@ def _record_problems(body: Json, tenant: str, principal: str, correlation_id: st
 
 
 def probe_principal() -> str:
-    """A session principal of one probe's own: letters only, so no digit run can reach the core's log or the leak scan, and unique, so the access log can say whether the handler ran for
-    this probe alone. It fits the reconstruction handler's principal pattern after the kind (`auditor:`)."""
-    return "prb" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(20))
+    """A session principal of one probe's own: `usr_` and letters only, so the synthetic IdP accepts it (it refuses any principal outside `usr_[0-9A-Za-z]{2,32}`), no digit run can reach
+    the core's log or the leak scan, and it is unique, so the access log can say whether the handler ran for this probe alone. It fits the reconstruction handler's principal pattern
+    after the kind (`auditor:`)."""
+    return "usr_" + "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(20))
 
 
 def negative_probes(base_url: str, issue: Callable[[str, str, str], str], cases: list[tuple[str, str, str]], tenant: str, other_tenant: str, *, timeout: float = 10.0,

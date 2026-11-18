@@ -171,7 +171,7 @@ class G1StackWorkflow(unittest.TestCase):
 
     def test_the_leak_scan_allow_file_names_only_numeric_fields_and_the_scorers_metadata_lines(self) -> None:
         allow = (WORKFLOW.parents[2] / "tools" / "ci" / "g1_leakscan.allow").read_text().splitlines()
-        self.assertEqual(len([l for l in allow if l.strip()]), 13)
+        self.assertEqual(len([l for l in allow if l.strip()]), 14)
         for line in allow:
             if line.strip():
                 self.assertTrue(line.startswith("^") and line.endswith("$"), f"unanchored allow pattern: {line}")
