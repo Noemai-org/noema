@@ -19,7 +19,7 @@ from noema_model.providers.speech.base import (
 from noema_model.providers.speech.errors import ProviderFailure
 from noema_model.providers.speech.tts import SynthesisRequest
 from noema_model.voice.answer import DeliveryMode, deliver_answer
-from tests.support import run
+from tests.support import MASKING, run
 
 CAPS = ProviderCapabilities("fake", PipelineMode.TRANSCRIBE_ONLY, Support.YES, (), tuple((loc, Support.YES) for loc in Locale),
                             None, Support.YES, "v1", True)
@@ -42,7 +42,7 @@ class Exploding:
 @pytest.mark.parametrize("error", [RuntimeError("boom"), OSError("socket closed"), KeyError("x"), ValueError("bad")])
 @pytest.mark.parametrize("after", [0, 2])
 def test_an_unexpected_synthesizer_error_still_delivers_the_text(error: Exception, after: int) -> None:
-    result = run(deliver_answer(Exploding(error, after), REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(Exploding(error, after), REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.text == REQUEST.text
     assert result.audio == ()
@@ -51,7 +51,7 @@ def test_an_unexpected_synthesizer_error_still_delivers_the_text(error: Exceptio
 
 
 def test_the_diagnostic_never_carries_the_error_message() -> None:
-    result = run(deliver_answer(Exploding(RuntimeError("secret text of the answer")), REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(Exploding(RuntimeError("secret text of the answer")), REQUEST, deadline_s=5.0, masking=MASKING))
     assert "secret" not in repr(result).replace(REQUEST.text, "")
 
 
@@ -59,7 +59,7 @@ def test_a_cancellation_is_not_swallowed() -> None:
     import asyncio
 
     with pytest.raises(asyncio.CancelledError):
-        run(deliver_answer(Exploding(asyncio.CancelledError()), REQUEST, deadline_s=5.0))
+        run(deliver_answer(Exploding(asyncio.CancelledError()), REQUEST, deadline_s=5.0, masking=MASKING))
 
 
 # ---- Codex P2 on #213: a synthesizer's own shutdown cannot hold the text fallback back ---------------------------------------------------------------
@@ -98,7 +98,7 @@ def test_the_text_fallback_does_not_wait_for_the_synthesizers_shutdown(cleanup: 
 
     async def call() -> tuple[object, float, bool]:
         started = time.monotonic()
-        result = await asyncio.wait_for(deliver_answer(synth, REQUEST, deadline_s=0.05, cleanup_s=0.05), timeout=5.0)
+        result = await asyncio.wait_for(deliver_answer(synth, REQUEST, deadline_s=0.05, masking=MASKING, cleanup_s=0.05), timeout=5.0)
         elapsed = time.monotonic() - started
         return result, elapsed, synth.cleaning  # read before the loop is torn down, which would cancel the task by itself
 
