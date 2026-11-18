@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 )
@@ -35,26 +36,32 @@ func ParseSerializationAttempts(raw string) (int, error) {
 	return n, nil
 }
 
-// spendWithRetry runs the whole spend transaction, and runs it again, as a fresh transaction, while the database refuses it with a serialization failure (SQLSTATE 40001)
-// and attempts remain. A serialization failure, at a statement or at the commit, rolled the transaction back: nothing was spent, written or dispatched, so trying again is
-// safe, and the first statement of the new transaction reads the grant again, so a grant that an earlier winner spent is answered as a replay. No other error is retried
-// (a unique violation, a deadlock and every other error end the call as before). The context bounds all the attempts: no attempt starts once it is done. There is no pause
-// between attempts: the transaction that made this one fail has already committed.
+// spendWithRetry takes the tenant's spend lock (withSpendLock) and, holding it, runs the whole spend transaction, and runs it again, as a fresh transaction, while the
+// database refuses it with a serialization failure (SQLSTATE 40001) and attempts remain. A serialization failure, at a statement or at the commit, rolled the transaction
+// back: nothing was spent, written or dispatched, so trying again is safe, and the first statement of the new transaction reads the grant again, so a grant that an earlier
+// winner spent is answered as a replay. No other error is retried (a unique violation, a deadlock and every other error end the call as before). The context bounds the wait
+// for the lock and all the attempts: no attempt starts once it is done. There is no pause between attempts: the transaction that made this one fail has already committed.
+//
+// The lock removes the failure for the spends of one tenant, which are the ones that raced each other on the Record chain head; the retry covers the writers that do not take
+// the lock (Trust's and Execution's other appends) and any other serialization failure.
 func (l *Ledger) spendWithRetry(ctx context.Context, cmd controller.SpendCommand) (controller.SpendResult, error) {
 	var res controller.SpendResult
-	var err error
-	for attempt := 1; ; attempt++ {
-		res = controller.SpendResult{}
-		err = l.inTx(ctx, pgx.Serializable, func(tx pgx.Tx) error {
-			r, serr := l.spend(ctx, tx, cmd)
-			res = r
-			if serr == nil && !r.Spent {
-				return errNothingWritten
+	err := l.withSpendLock(ctx, cmd.Grant.TenantID, func(conn *pgxpool.Conn) error {
+		var err error
+		for attempt := 1; ; attempt++ {
+			res = controller.SpendResult{}
+			err = l.inTxOn(ctx, conn, pgx.Serializable, func(tx pgx.Tx) error {
+				r, serr := l.spend(ctx, tx, cmd)
+				res = r
+				if serr == nil && !r.Spent {
+					return errNothingWritten
+				}
+				return serr
+			})
+			if pgCode(err) != pgSerializationFailure || attempt >= l.SerializationAttempts || ctx.Err() != nil {
+				return err
 			}
-			return serr
-		})
-		if pgCode(err) != pgSerializationFailure || attempt >= l.SerializationAttempts || ctx.Err() != nil {
-			return res, err
 		}
-	}
+	})
+	return res, err
 }

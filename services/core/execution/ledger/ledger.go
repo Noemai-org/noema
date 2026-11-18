@@ -92,15 +92,25 @@ func needDeadline(ctx context.Context) error {
 	return nil
 }
 
+// txStarter is what inTxOn needs to begin a transaction: a pool, or one connection taken from it.
+type txStarter interface {
+	BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error)
+}
+
 // inTx runs fn in a transaction at the given isolation level. fn returning a nil error commits; any error rolls back.
 func (l *Ledger) inTx(ctx context.Context, level pgx.TxIsoLevel, fn func(pgx.Tx) error) error {
+	return l.inTxOn(ctx, l.Pool, level, fn)
+}
+
+// inTxOn is inTx on a given pool or connection.
+func (l *Ledger) inTxOn(ctx context.Context, from txStarter, level pgx.TxIsoLevel, fn func(pgx.Tx) error) error {
 	if err := needDeadline(ctx); err != nil {
 		return err
 	}
 	if l.RollbackTimeout <= 0 {
 		return errNoRollbackBound
 	}
-	tx, err := l.Pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: level})
+	tx, err := from.BeginTx(ctx, pgx.TxOptions{IsoLevel: level})
 	if err != nil {
 		return fmt.Errorf("%sbegin: %w", errPrefix, err)
 	}

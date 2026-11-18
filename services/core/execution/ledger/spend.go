@@ -23,8 +23,10 @@ const (
 // Spend is E8 (PERD 27.1): in one SERIALIZABLE transaction, check the grant is still unspent, read the kill switch,
 // upsert the idempotency record (DISPATCHING, attempt + 1), insert grant_spend (unique grant ID and nonce), mark
 // the grant SPENT and append GRANT_SPENT and DISPATCH_ATTEMPTED. All or nothing: if any step fails, nothing is
-// dispatched. A grant that was already spent or voided, or that loses a race to a concurrent spend, is a Replay. A transaction the database refuses with a
-// serialization failure is run again as a fresh transaction, up to SerializationAttempts attempts in all (spendWithRetry); after the last, the error below is returned.
+// dispatched. A grant that was already spent or voided, or that loses a race to a concurrent spend, is a Replay. The spends of one tenant take turns on that tenant's
+// advisory lock (withSpendLock), so they do not race each other on the Record chain head. A transaction the database still refuses with a serialization failure is run
+// again as a fresh transaction, up to SerializationAttempts attempts in all (spendWithRetry); after the last, the error is controller.ErrSpendRetryable around the
+// database's own: nothing was spent and the grant is still ISSUED.
 func (l *Ledger) Spend(ctx context.Context, cmd controller.SpendCommand) (controller.SpendResult, error) {
 	if l.SerializationAttempts < 1 {
 		return controller.SpendResult{}, errNoSerializationAttempts
@@ -42,6 +44,10 @@ func (l *Ledger) Spend(ctx context.Context, cmd controller.SpendCommand) (contro
 		// ISSUED the answer is a replay; if it still is, nothing was spent and the caller may try again (a serialization failure only after the last attempt).
 		if final, ferr := l.grantIsFinal(ctx, cmd.Grant.TenantID, cmd.Grant.GrantID); ferr == nil && final {
 			return controller.SpendResult{Replay: true}, nil
+		}
+		if pgCode(err) == pgSerializationFailure {
+			// The database kept refusing the spend through every attempt: the typed answer "present the grant again" (ruling A339), around the database's own error.
+			return controller.SpendResult{}, fmt.Errorf("%sspend %s did not commit: %w: %w", errPrefix, cmd.Grant.GrantID, controller.ErrSpendRetryable, err)
 		}
 		return controller.SpendResult{}, fmt.Errorf("%sspend %s did not commit: %w", errPrefix, cmd.Grant.GrantID, err)
 	case err != nil:
