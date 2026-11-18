@@ -1,0 +1,38 @@
+# MEM-02 (REQ-MEM-002, REQ-BEN-006; AGENTS.md section 8): a fix pull request carries "Regression case: <ref>" in its body, a benchmark case ID, or (ruling A156, committed in docs#157) a test
+# file the pull request changes. The rule is tools/ci/check_regression_link.py; this workflow only runs it, on every event that can change its answer: a label added or removed, the description
+# edited, a push. It reads the LIVE pull request through the API, never the event payload (a re-run replays the original payload), and puts no untrusted text into a script: the number is
+# the only expression, and the body, title, head ref, labels and files go through jq into variables.
+name: regression-link
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}-${{ github.event.action == 'edited' && 'metadata' || 'code' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  regression-link:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Regression link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          HEAD_REF="$(jq -r '.head.ref' <<<"$pr")"
+          PR_TITLE="$(jq -r '.title' <<<"$pr")"
+          PR_BODY="$(jq -r '.body // ""' <<<"$pr")"
+          PR_LABELS="$(jq -r '.labels[].name' <<<"$pr")"
+          CHANGED_FILES="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
+          export HEAD_REF PR_TITLE PR_BODY PR_LABELS CHANGED_FILES
+          REGRESSION_ALLOW_TEST_FILE=1 python3 -I tools/ci/check_regression_link.py

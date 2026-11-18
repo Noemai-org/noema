@@ -13,7 +13,9 @@ a different set of services (ci, bench, demo), so this check reads the resolved 
   4. no privileged container, host network or PID/IPC namespace, added capability, or Docker socket mount;
   5. the networks that are not Docker-internal are exactly provider_egress, ui_publish_net and tushe_egress;
   6. profile placement: the evil provider only in bench; the hostility proxy and the stand-in only in ci and bench; the webhook relay only in ci;
-  7. the exact set of services each profile builds: a missing or an extra service fails.
+  7. the exact set of services each profile builds: a missing or an extra service fails;
+  8. provider credentials live only in the model service (INV-29): an environment variable or Compose secret named like a provider key or endpoint (`*_API_KEY`, `INTRON_*`,
+     `OPENAI_*`, ...) on any other service fails, and the provider side (model, evil provider) holds no database, Temporal or grant-key setting. Names only: no value is read.
 
 `--self-test` mutates a resolved configuration and requires that each rule fires. Exit status 1 on any failure. Standard library only.
 """
@@ -101,6 +103,15 @@ NETWORKS = {
 SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
+# Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
+# endpoint setting is allowed on `model` and on no other service; and the provider side holds no credential of the core's database, Temporal or grants (PERD 41.1). Names only: a value
+# is never read here. `evil-provider` is the synthetic provider of the bench and holds no real key, so it is not allowed one either.
+# The prefixes are the providers of .env.example, the repository's inventory of secret and setting names (Codex P2 on noema#641: AZURE_FOUNDRY_ENDPOINT, OPENROUTER_ and TYPESAFE_ were missed);
+# self_test() reads that file and fails when a name ending in _API_KEY or _ENDPOINT there is not classified as a provider name, so a new provider cannot be added unseen.
+PROVIDER_NAME = re.compile(r"(?i)(^|_)(api_?key|secret_?key|access_?token|endpoint|api_base_url)$|^(intron|openai|aethex|indigenius|n_?atlas|anthropic|gemini|google|openrouter|azure_foundry|typesafe)_")
+# Any name that holds a password (NOEMA_DB_PASSWORD_FILE, POSTGRES_PASSWORD_FILE, the Compose secret noema_core_password; Codex P1 on noema#641) is refused on the provider side: the model has no
+# database login of any kind, so a password name there is wrong whatever it is called. (NOEMA_CORE_ADDR is not a credential: the model may be told where the core is.)
+CORE_CREDENTIAL_NAME = re.compile(r"(?i)(dsn|database_url|password|passwd|pgpass|pguser|postgres_|temporal_|grant_key|signing_key)")
 # The volumes that hold a bench credential: only the oracle side (and the sidecars that write them) may mount them. The core in particular holds the stand-in's runtime
 # credential and principal key, never a bench credential (REQ-ENV-002: the key that loads never reads).
 BENCH_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "standin_bench_credential", "hostility_proxy_credentials"}
@@ -204,11 +215,24 @@ def check(cfg, profile):
                     bad.append(f"{profile}: the model mounts {target!r}: only /bench-out/cost may be shared with it (the suite and the oracle live beside it)")
                 if target == "/bench-out/cost" and not source.replace("\\", "/").rstrip("/").endswith("/cost"):
                     bad.append(f"{profile}: the model's /bench-out/cost comes from {source!r}, not from a directory named cost")
+        credential_names = list((svc.get("environment") or {}).keys()) + [str(s.get("source", s) if isinstance(s, dict) else s) for s in (svc.get("secrets") or [])]
+        for cred in sorted(credential_names):
+            if PROVIDER_NAME.search(cred) and name != "model":
+                bad.append(f"{profile}: {name} holds {cred!r}, a provider credential or endpoint setting: only the model service may (INV-29, AGENT-05)")
+            if name in PROVIDER_SIDE and CORE_CREDENTIAL_NAME.search(cred):
+                bad.append(f"{profile}: {name} holds {cred!r}, a credential of the core's database, Temporal or grants: the provider side never does (INV-29, PERD 41.1)")
         if name == "core":
             env = svc.get("environment") or {}
             for setting in MODEL_CLIENT_SETTINGS:
                 if not str(env.get(setting, "")).strip():
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        # Intron's key (A249): a file mount read by the model service only. No service may carry it as an environment variable, and no service but the model may name a setting or a mount for it.
+        env_names = set((svc.get("environment") or {}).keys()) if isinstance(svc.get("environment"), dict) else set()
+        mounts = [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])] + [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])]
+        if "INTRON_API_KEY" in env_names:
+            bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
+        if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
+            bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
@@ -256,6 +280,22 @@ def self_test(configs):
         "dev loses the model": ("dev", lambda c: c["services"].pop("model")),
         "ci loses the webhook relay": ("ci", lambda c: c["services"].pop("webhook-relay")),
         "bench loses the evil provider": ("bench", lambda c: c["services"].pop("evil-provider")),
+        "the core holds a provider key (INV-29)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_KEY": "x"})),
+        "the core holds a provider endpoint setting": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"INTRON_API_BASE_URL": "x"})),
+        "the ui holds a provider key in bench": ("bench", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENAI_API_KEY": "x"})),
+        "the evil provider holds a real provider key": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"AETHEX_API_KEY": "x"})),
+        "the core mounts a provider key as a Compose secret": ("dev", lambda c: c["services"]["core"].update({"secrets": [{"source": "intron_api_key"}]})),
+        "postgres holds a provider setting": ("demo", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"ANTHROPIC_API_KEY": "x"})),
+        "the core holds the Azure Foundry endpoint (Codex P2 on noema#641)": ("dev", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_ENDPOINT": "x"})),
+        "the core holds the Azure Foundry key": ("ci", lambda c: c["services"]["core"].setdefault("environment", {}).update({"AZURE_FOUNDRY_API_KEY": "x"})),
+        "the ui holds an OpenRouter key": ("demo", lambda c: c["services"]["ui"].setdefault("environment", {}).update({"OPENROUTER_API_KEY": "x"})),
+        "postgres holds a Typesafe key": ("dev", lambda c: c["services"]["postgres"].setdefault("environment", {}).update({"TYPESAFE_API_KEY": "x"})),
+        "the model holds the core's database password file (Codex P1 on noema#641)": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_DB_PASSWORD_FILE": "/run/secrets/noema_core_password"})),
+        "the model mounts the core's database password as a Compose secret": ("ci", lambda c: c["services"]["model"].update({"secrets": [{"source": "noema_core_password"}]})),
+        "the evil provider holds a Postgres password file": ("bench", lambda c: c["services"]["evil-provider"].setdefault("environment", {}).update({"POSTGRES_PASSWORD_FILE": "x"})),
+        "the model holds the core's database DSN": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_CORE_DSN": "x"})),
+        "the model holds a Temporal setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"TEMPORAL_ADDRESS": "x"})),
+        "the model holds a grant signing key": ("demo", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "x"})),
         "demo loses mock-case": ("demo", lambda c: c["services"].pop("mock-case")),
         # profile placement, one case per ONLY_IN rule
         "the evil provider appears in dev": ("dev", lambda c: c["services"].update({"evil-provider": {"networks": {"provider_egress": None}}})),
@@ -298,6 +338,9 @@ def self_test(configs):
         "the ui mounts the mTLS CA": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/x/secrets/tls/ca.crt", "target": "/run/tls/ca.crt"})),
         "the model loses its server certificate mount": ("dev", lambda c: c["services"]["model"].update({"volumes": [v for v in c["services"]["model"]["volumes"] if not str(v.get("source", "")).endswith("model.crt")]})),
         "the core loses its client key mount": ("ci", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not str(v.get("source", "")).endswith("core-client.key")]})),
+        "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
+        "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
+        "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
         "the bench model starts uvicorn with --ssl-cert-reqs 0": ("bench", lambda c: c["services"]["model"].update({"entrypoint": list(c["services"]["model"]["entrypoint"]) + ["--ssl-cert-reqs", "0"]})),
         "the dev model's command carries an --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["--ssl-keyfile", "/x"]})),
@@ -319,6 +362,21 @@ def self_test(configs):
     for profile, cfg in configs.items():
         if check(cfg, profile):
             missed.append(f"unmutated {profile} is not clean")
+    # The inventory: every name of .env.example that is a key or an endpoint must be classified as a provider name, or this rule would not know it (Codex P2 on noema#641).
+    env_example = COMPOSE_FILE.parent.parent.parent / ".env.example"
+    if env_example.is_file():
+        for line in env_example.read_text(encoding="utf-8").splitlines():
+            name = line.split("=", 1)[0].strip()
+            if "=" in line and re.fullmatch(r"[A-Z][A-Z0-9_]*", name) and re.search(r"(API_KEY|_ENDPOINT)$", name) and not PROVIDER_NAME.search(name):
+                missed.append(f".env.example names {name}, which the provider-credential rule does not classify as a provider name: add its prefix to PROVIDER_NAME")
+    else:
+        missed.append(".env.example is missing: the provider inventory cannot be checked")
+    # Positive control for the credential rule: the model service IS allowed its provider key, endpoint and secret (a rule that refused it would make the allowed place unusable).
+    allowed = copy.deepcopy(configs["dev"])
+    allowed["services"]["model"].setdefault("environment", {}).update({"INTRON_API_KEY": "x", "INTRON_API_BASE_URL": "x", "OPENAI_API_KEY": "x"})
+    allowed["services"]["model"]["secrets"] = [{"source": "intron_api_key"}]
+    if any("credential" in item for item in check(allowed, "dev")):
+        missed.append("the model service is refused its own provider credentials")
     return missed, len(cases)
 
 

@@ -43,6 +43,8 @@ var mxRows = []mxRow{
 	{"GET /v1/reconstructions/{cid}", "/v1/reconstructions/corr_1", []session.Role{session.RoleAudit}, ""},
 	{"GET /v1/record/verify", "/v1/record/verify", []session.Role{session.RoleAudit}, ""},
 	{"GET /v1/outcomes/{verdict_id}", "/v1/outcomes/vrd_1", []session.Role{session.RoleCustomer, session.RoleOps, session.RoleAudit}, ""},
+	// EDG-01 (noema#601, A243): the investigation's public stage: customer only.
+	{"GET /v1/investigations/{id}", "/v1/investigations/inv_1", []session.Role{session.RoleCustomer}, ""},
 	// STM-01 (noema#601, SR on #617): the first customer route, POST /v1/conversations: customer only (PERD 39.4).
 	{"POST /v1/conversations", "/v1/conversations", []session.Role{session.RoleCustomer}, `{"request_id":"3f2a9c1e-5b7d-4e8f-9a1c-2d4b6e8f0a1b","channel":"text","text":"x"}`},
 }
