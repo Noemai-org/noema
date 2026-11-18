@@ -52,6 +52,39 @@ class Writing(unittest.TestCase):
             doc = json.loads((Path(tmp) / "out" / "recordings" / "rec-0001.json").read_text())
             self.assertEqual((doc["status"], doc["failure"], doc["reply"], doc["reported_model_id"]), (None, "TIMEOUT", None, None))
 
+    # SR's condition on noema#654 (A320): the reply body of a provider response that is not 2xx is never recorded. A provider's error body can echo the request, name the account
+    # or carry a key's tail; the status and the failure label say what happened, and nothing in the body is needed to replay it (UND-15).
+    def test_the_reply_body_of_a_response_that_is_not_2xx_is_never_written(self) -> None:
+        body = json.dumps({"error": {"message": "Incorrect API key provided: sk-live-ZZZZ9999. Account acct_SECRET is over its quota.", "model": "gpt-6-luna-2026-10-01"}}).encode()
+        for status in (199, 300, 301, 400, 401, 403, 404, 408, 409, 422, 429, 500, 502, 503, 504):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                r = recorder(Path(tmp))
+                r.case_id = "G-A"
+                r.record_call(url="https://api.example.invalid/v1/responses", request=REQUEST, status=status, reply=body, failure=None, projected_micros=500, cost_micros=500)
+                path = Path(tmp) / "out" / "recordings" / "rec-0001.json"
+                text = path.read_text()
+                doc = json.loads(text)
+                self.assertEqual((doc["status"], doc["reply"], doc["reported_model_id"]), (status, None, None))
+                for leaked in ("sk-live-ZZZZ9999", "acct_SECRET", "Incorrect API key", "over its quota"):
+                    self.assertNotIn(leaked, text)
+                manifest = json.loads(r.write_manifest({"pin": "x"}).read_text())
+                self.assertNotIn("acct_SECRET", json.dumps(manifest))
+
+    def test_a_2xx_reply_is_still_recorded_and_a_reply_with_no_status_is_not(self) -> None:
+        for status in (200, 201, 202):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                r = recorder(Path(tmp))
+                r.case_id = "G-A"
+                r.record_call(url="https://api.example.invalid/v1/responses", request=REQUEST, status=status, reply=REPLY, failure=None, projected_micros=500, cost_micros=190)
+                doc = json.loads((Path(tmp) / "out" / "recordings" / "rec-0001.json").read_text())
+                self.assertEqual((doc["reply"], doc["reported_model_id"]), (json.loads(REPLY), "gpt-6-luna-2026-10-01"))
+        with tempfile.TemporaryDirectory() as tmp:
+            r = recorder(Path(tmp))
+            r.case_id = "G-A"
+            r.record_call(url="https://api.example.invalid/v1/responses", request=REQUEST, status=None, reply=REPLY, failure=None, projected_micros=500, cost_micros=500)
+            doc = json.loads((Path(tmp) / "out" / "recordings" / "rec-0001.json").read_text())
+            self.assertEqual((doc["reply"], doc["reported_model_id"]), (None, None))
+
     def test_a_body_that_is_not_json_is_kept_as_text_and_never_dropped(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             r = recorder(Path(tmp))
