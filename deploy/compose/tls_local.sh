@@ -18,7 +18,7 @@ dir="${1:-$here/secrets/tls}"
 # copy failed and the trap left the CA's private key behind in the work area).
 mkdir -p "$dir"
 dir="$(cd "$dir" && pwd)"
-files="ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key"
+files="ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key"
 complete=1
 for f in $files; do
   [ -s "$dir/$f" ] || complete=0
@@ -57,9 +57,11 @@ extendedKeyUsage=%s
 issue model model serverAuth "DNS:model,DNS:localhost,IP:127.0.0.1"
 issue core-client core clientAuth ""
 issue model-health model-health clientAuth ""
+# The Temporal frontend's server certificate (A296): the name the clients verify is "temporal"; localhost and the loopback address are there for the container's own healthcheck.
+issue temporal temporal serverAuth "DNS:temporal,DNS:localhost,IP:127.0.0.1"
 
 cp ca.crt "$dir/ca.crt"
-for n in model core-client model-health; do
+for n in model core-client model-health temporal; do
   cp "$n.crt" "$dir/$n.crt"
   cp "$n.key" "$dir/$n.key"
 done
