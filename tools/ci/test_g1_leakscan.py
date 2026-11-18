@@ -58,7 +58,7 @@ class G1Leakscan(unittest.TestCase):
 
     def test_the_case_generators_own_summary_line_is_allowed_and_a_look_alike_is_not(self) -> None:  # Codex P1 on noema#727: the seed it prints is a digit run in the job log
         allow = HERE / "g1_leakscan.allow"
-        line = "noema-casegen 1.3.3 seed 20261020: 118 cases written to /tmp/bench-out/cases (manifest " + "ab12" * 16 + ")"
+        line = "noema-casegen 1.3.3 seed 20261020: 118 cases written to /tmp/bench-out/cases (manifest sha256:" + "ab12" * 16 + ")"
         (self.art / "generate.log").write_text(line + "\n", encoding="utf-8")
         self.assertEqual(run(["--allow", str(allow), "--workdir", str(self.work), str(self.art)])[0], 0)
         self.assertEqual(run(["--workdir", str(self.root / "w2"), str(self.art)])[0], 1, "without the allow file the line is a finding")
