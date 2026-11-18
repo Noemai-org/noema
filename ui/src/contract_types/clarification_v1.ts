@@ -37,6 +37,7 @@ export interface ClarificationV1 {
   question_key: string;
   options: ClarificationV1OptionsItem[];
   allow_none: true;
+  none_option_id: string;
   expires_at: CommonV1Timestamp;
   round: number;
   mode?: ClarificationV1Mode;
@@ -45,7 +46,7 @@ export interface ClarificationV1 {
 
 export function parseClarificationV1(v: unknown, p: string = "$"): ClarificationV1 {
   const o = obj(v, p);
-  closed(o, ["clarification_id", "candidate_set_id", "candidate_set_version", "slot", "question_key", "options", "allow_none", "expires_at", "round", "mode", "attribute"], p);
+  closed(o, ["clarification_id", "candidate_set_id", "candidate_set_version", "slot", "question_key", "options", "allow_none", "none_option_id", "expires_at", "round", "mode", "attribute"], p);
   return {
     clarification_id: parseCommonV1ClarificationId(req(o, "clarification_id", p), p + ".clarification_id"),
     candidate_set_id: parseCommonV1CandidateSetId(req(o, "candidate_set_id", p), p + ".candidate_set_id"),
@@ -54,6 +55,7 @@ export function parseClarificationV1(v: unknown, p: string = "$"): Clarification
     question_key: str(req(o, "question_key", p), p + ".question_key", {pattern: PATTERN_2}),
     options: arr(req(o, "options", p), p + ".options", (x, q) => parseClarificationV1OptionsItem(x, q), {maxItems: 4}),
     allow_none: lit(req(o, "allow_none", p), p + ".allow_none", true),
+    none_option_id: str(req(o, "none_option_id", p), p + ".none_option_id", {pattern: PATTERN_0}),
     expires_at: parseCommonV1Timestamp(req(o, "expires_at", p), p + ".expires_at"),
     round: int(req(o, "round", p), p + ".round", {minimum: 1, maximum: 2}),
     ...(has(o, "mode") ? { mode: parseClarificationV1Mode(o["mode"], p + ".mode") } : {}),

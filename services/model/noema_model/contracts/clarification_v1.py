@@ -35,6 +35,7 @@ class ClarificationV1(ContractModel):
     question_key: Annotated[str, StringConstraints(pattern='\\A[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+\\Z')]
     options: Annotated[list[ClarificationV1OptionsItem], Field(max_length=4)]
     allow_none: Literal[True]
+    none_option_id: Annotated[str, StringConstraints(pattern='\\A[a-z0-9_]{1,32}\\Z')]
     expires_at: CommonV1Timestamp
     round: Annotated[int, Field(ge=1, le=2)]
     mode: ClarificationV1Mode | None = Field(default=None)

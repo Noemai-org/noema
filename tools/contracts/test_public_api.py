@@ -67,6 +67,9 @@ def walk(node, path=()):
 # is the frontend owner. The core maps its internal states to these (the investigation route is not built yet).
 PUBLIC_STAGES = ["understanding", "needs_input", "needs_confirmation", "working", "answered", "unavailable"]
 
+# A275: the core-minted id of "None of these" is an option key of the same form as option_id (KEYED_STRINGS above), added here so that its definition stays one statement.
+KEYED_STRINGS["none_option_id"] = OPTION_ID
+
 
 def internal_states() -> list[str]:
     text = (ROOT / "services" / "core" / "orchestrator" / "transitions.yaml").read_text(encoding="utf-8")

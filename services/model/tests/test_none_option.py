@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from noema_model.contracts._base import ContractModel
 from noema_model.contracts.clarification_v1 import ClarificationV1
 from noema_model.contracts.overlay_card_v1 import OverlayCardV1ClarificationCard
 from pydantic import ValidationError
@@ -15,14 +16,14 @@ CARD = json.loads((FIXTURES / "overlay-card" / "clarification_four_options.json"
 
 
 @pytest.mark.parametrize(("model", "doc"), [(ClarificationV1, CLARIFICATION), (OverlayCardV1ClarificationCard, CARD)])
-def test_the_model_reads_and_writes_the_id_of_none_of_these(model: type, doc: dict[str, object]) -> None:
+def test_the_model_reads_and_writes_the_id_of_none_of_these(model: type[ContractModel], doc: dict[str, object]) -> None:
     parsed = model.model_validate(doc)
-    assert parsed.none_option_id == doc["none_option_id"]
+    assert getattr(parsed, "none_option_id") == doc["none_option_id"]
     assert json.loads(parsed.model_dump_json(exclude_none=True))["none_option_id"] == doc["none_option_id"]
 
 
 @pytest.mark.parametrize(("model", "doc"), [(ClarificationV1, CLARIFICATION), (OverlayCardV1ClarificationCard, CARD)])
-def test_the_model_refuses_a_clarification_without_the_id_and_one_with_a_malformed_id(model: type, doc: dict[str, object]) -> None:
+def test_the_model_refuses_a_clarification_without_the_id_and_one_with_a_malformed_id(model: type[ContractModel], doc: dict[str, object]) -> None:
     without = {k: v for k, v in doc.items() if k != "none_option_id"}
     with pytest.raises(ValidationError):
         model.model_validate(without)
