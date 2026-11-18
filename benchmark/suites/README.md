@@ -52,3 +52,8 @@ Suite name, run ID, status (`NOT_RUN`, `COMPLETE`, `INCOMPLETE_OR_GATE_NOT_ZERO`
 ## The G1 evidence package
 
 `G1-EVIDENCE-PACKAGE.md` is the template for the G1 evidence package and the list of what must be merged before the Benchmark Owner posts READY TO DISPATCH. It is built from the Security Reviewer's twelve criteria (noema#436, 14 Nov 2026). It holds no result.
+
+## The `smoke` suite (TST-02, 17 Nov 2026)
+
+`python -m benchmark.suites run smoke ...` (the `suites` command, as for the other suites; `make bench-smoke` is a different, older target) runs 30 cases chosen by a rule, not a list (`greedy_cover` in `select.py`): first every user story, then as many fault effects as fit, then capabilities and edge cases, each pick the case that adds the most not-yet-covered tags, ties to the category with the fewest picks and then the lowest case id. At seed 20261020 it selects 30 cases that cover **22 of 22 user stories, 24 of 28 fault effects, 16 of 20 capabilities, 25 of 105 edge cases and all 10 categories**; the selection digest is `sha256:2a2e2bbf1d752155fe6d4e32be333582c313a85703c4ab5adff196355e642986`. It is a smoke, not coverage: 80 edge cases and 4 fault effects have no case in it, which is what `full` and `chaos` are for. The plan row also says "on every merge" and "full suite nightly"; running the smoke on every merge needs the stack up in CI and a change to a workflow, which needs a Founder's approval and is a separate change.
+

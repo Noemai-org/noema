@@ -94,6 +94,27 @@
         ]
       },
       "min_cases": 2
+    },
+    "smoke": {
+      "purpose": "TST-02: the 30-case smoke suite for every merge, chosen by a rule and not by hand: first every user story, then as many fault effects as fit, then the rest of the identifiers; the fewest cases that touch the most (benchmark/suites/select.py, greedy_cover). It is a smoke, not coverage: see the README for what 30 cases leave out",
+      "select": {
+        "greedy_cover": {
+          "n": 30,
+          "stages": [
+            [
+              "US-"
+            ],
+            [
+              "FAULT:"
+            ],
+            [
+              "CAP:",
+              "EC-"
+            ]
+          ]
+        }
+      },
+      "min_cases": 30
     }
   }
 }
