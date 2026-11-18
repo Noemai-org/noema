@@ -78,6 +78,10 @@ type Capabilities interface {
 	// Check is the registry's answer for one capability ID and the role of the session: the capabilities of a plan's steps are checked here at T14, one by one, not only the
 	// one the intent names, and each for the role (A255, the safer reading: the role of the session is never assumed to be allowed).
 	Check(ctx context.Context, capabilityID, role string) (Capability, error)
+	// Authorized is the set of capability IDs the intent and the tenant's policy authorize for this intent node, as pack data (the capabilities of the pack's action graph the
+	// intent's capability roots; a pack names them, the core holds no capability ID, INV-14). A plan step outside it, with the intent's own capability, is PLAN_INVALID (Codex P1 on
+	// noema#572), and the dispatch budget is asked for every one of them at T12 (Codex P2). An error is never "none": the evaluation ends in UNKNOWN.
+	Authorized(ctx context.Context, a AdmittedIntent) ([]string, error)
 }
 
 // Scope answers T5: is the intent node in scope for the tenant.

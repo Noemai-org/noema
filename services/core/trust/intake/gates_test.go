@@ -112,6 +112,9 @@ func (s *spy) Enabled(context.Context, string) (bool, error) {
 func (s *spy) Check(_ context.Context, id, _ string) (intake.Capability, error) {
 	return intake.Capability{ID: id, Registered: true}, s.hit("Capabilities.Check")
 }
+func (s *spy) Authorized(context.Context, intake.AdmittedIntent) ([]string, error) {
+	return nil, nil
+}
 func (s *spy) Requested(context.Context, intake.AdmittedIntent) (intake.Capability, bool, error) {
 	return s.capability, s.capPresent, s.hit("Capabilities.Requested")
 }

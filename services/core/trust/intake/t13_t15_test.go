@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,10 @@ type f13 struct {
 	capErr  error
 	checked []string
 	roles   []string // the role each Check was asked about (A255)
+	// the authorized set (Codex P1 on noema#572): nil means every capability the registry above knows
+	authorized []string
+	authErr    error
+	authAsked  int
 	// the dispatch budget (A224): the count the ledger would answer for any key, and what it was asked
 	dispatch    DispatchCount
 	dispatchErr error
@@ -86,6 +91,22 @@ func (f *f13) Check(ctx context.Context, id, role string) (Capability, error) {
 		return Capability{}, f.capErr
 	}
 	return f.caps[id], nil
+}
+
+func (f *f13) Authorized(context.Context, AdmittedIntent) ([]string, error) {
+	f.authAsked++
+	if f.authErr != nil {
+		return nil, f.authErr
+	}
+	if f.authorized != nil {
+		return append([]string(nil), f.authorized...), nil
+	}
+	out := make([]string, 0, len(f.caps))
+	for id := range f.caps {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 func (f *f13) Plan(ctx context.Context, r PlanRequest) (Plan, error) {

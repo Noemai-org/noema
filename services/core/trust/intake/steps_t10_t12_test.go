@@ -60,10 +60,27 @@ type fake struct {
 
 	dispatch    DispatchCount // what the ledger answers for any key (A224)
 	gotDispatch []DispatchKey
+	// the authorized set (Codex P1 and P2 on noema#572) and the budget of single keys
+	authorized []string
+	authErr    error
+	spent      map[string]bool // capability IDs whose budget is spent, whatever dispatch says
+}
+
+func (f *fake) Authorized(context.Context, AdmittedIntent) ([]string, error) {
+	return append([]string(nil), f.authorized...), f.authErr
+}
+
+func (f *fake) Check(context.Context, string, string) (Capability, error) { return Capability{}, nil }
+
+func (f *fake) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
+	return Capability{}, false, nil
 }
 
 func (f *fake) Count(_ context.Context, k DispatchKey) (DispatchCount, error) {
 	f.gotDispatch = append(f.gotDispatch, k)
+	if f.spent[k.CapabilityID] {
+		return DispatchCount{Used: 1, Limit: 1}, f.hit("Count")
+	}
 	return f.dispatch, f.hit("Count")
 }
 
@@ -110,7 +127,7 @@ func (f *fake) Route(_ context.Context, _ ClockQuery, statuses []clocks.Status) 
 // newEv is an evaluation at the synthetic clock reading with the intent T1 would have read and no capability.
 func newEv(t *testing.T, f *fake) *evaluation {
 	t.Helper()
-	svc := &Service{Ports: Ports{Reconciler: f, Policies: f, Clocks: f, Dispatches: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	svc := &Service{Ports: Ports{Capabilities: f, Reconciler: f, Policies: f, Clocks: f, Dispatches: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 	ev, err := svc.newEvaluation(Request{Session: Session{TenantID: tTenant, PrincipalID: "usr_synth01", Role: "customer"}, EvidenceSnapshotID: tSnapshot}, tIntentID, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -913,11 +930,12 @@ type noPorts struct{}
 func (noPorts) Get(context.Context, string, string, int) (AdmittedIntent, error) {
 	return AdmittedIntent{}, ErrNotFound
 }
-func (noPorts) LatestVersion(context.Context, string, string) (int, error) { return 0, ErrNotFound }
-func (noPorts) Verify(context.Context, AdmittedIntent) error               { return ErrInvalid }
-func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)   { return false, nil }
-func (noPorts) Enabled(context.Context, string) (bool, error)              { return false, nil }
-func (noPorts) Check(context.Context, string, string) (Capability, error)  { return Capability{}, nil }
+func (noPorts) LatestVersion(context.Context, string, string) (int, error)   { return 0, ErrNotFound }
+func (noPorts) Verify(context.Context, AdmittedIntent) error                 { return ErrInvalid }
+func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)     { return false, nil }
+func (noPorts) Enabled(context.Context, string) (bool, error)                { return false, nil }
+func (noPorts) Check(context.Context, string, string) (Capability, error)    { return Capability{}, nil }
+func (noPorts) Authorized(context.Context, AdmittedIntent) ([]string, error) { return nil, nil }
 func (noPorts) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
 	return Capability{}, false, nil
 }
