@@ -122,11 +122,12 @@ func waitForLockWaiters(t *testing.T, w *world, n int) {
 	}
 }
 
-// The contention is real. A transaction holds the Record chain head of the tenant and commits an event; eight spends of eight distinct unspent grants of that tenant
-// are started behind it. The pool has a fixed number of connections, one of them the holder's, so as many spends as the pool has other connections are in their
-// transactions, queued on the lock, when the holder commits. With one attempt, every one of those is refused with 40001 although its grant is still ISSUED: the defect of
-// noema#714, reproduced without an injected fault. (A spend that had not yet got a connection starts after the commit and is not refused.)
-func TestWithOneAttemptASpendThatLosesTheHeadRaceIsRefusedWhileItsGrantIsStillIssued(t *testing.T) {
+// The contention is real. A transaction outside the spends holds the Record chain head of the tenant and commits an event; eight spends of eight distinct unspent grants of
+// that tenant are started behind it. With one attempt and the tenant's spend lock (ruling A339), exactly one of them is on the head when the writer commits, the one whose
+// turn it is: it is refused with 40001 although its grant is still ISSUED (the defect of noema#714, reproduced without an injected fault, for the one writer the lock does
+// not cover). The other seven were queued on the lock, not on the head: they begin their transactions after the commit, see it, and spend. Before the lock every spend
+// that had a connection was on the head and was refused.
+func TestWithOneAttemptOnlyTheSpendWhoseTurnItIsLosesTheHeadToAWriterOutsideTheLock(t *testing.T) {
 	w := newWorld(t)
 	w.led.SerializationAttempts = 1
 	const n = 8
@@ -134,7 +135,7 @@ func TestWithOneAttemptASpendThatLosesTheHeadRaceIsRefusedWhileItsGrantIsStillIs
 	if queued < 2 || queued > n {
 		t.Fatalf("the pool has %d connections: the test needs between 3 and %d", queued+1, n+1)
 	}
-	grants := issueN(t, w, n)
+	grants, cmd := distinct(t, w, n)
 	blocker, err := w.exec.Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
@@ -144,25 +145,27 @@ func TestWithOneAttemptASpendThatLosesTheHeadRaceIsRefusedWhileItsGrantIsStillIs
 		EventType: "REVALIDATION_PASSED", ObjectRef: grants[0].GrantID}); err != nil {
 		t.Fatal(err)
 	}
-	wait := spendAll(t, w, grants)
+	wait := spendEach(t, w, grants, cmd)
 	waitForLockWaiters(t, w, queued)
 	if err := blocker.Commit(ctx(t)); err != nil {
 		t.Fatal(err)
 	}
-	refused := 0
+	refused, spent := 0, 0
 	for i, o := range wait() {
 		switch {
 		case isDidNotCommit40001(o.err):
 			refused++
 		case o.err != nil:
 			t.Errorf("spend %d: %v; want success or the 40001 refusal", i, o.err)
+		case o.res.Spent:
+			spent++
 		}
 	}
-	if refused < queued {
-		t.Fatalf("%d spends were refused with 40001, want at least the %d that were queued on the lock", refused, queued)
+	if refused != 1 || spent != n-1 {
+		t.Fatalf("%d spends were refused with 40001 and %d spent, want exactly 1 and %d", refused, spent, n-1)
 	}
-	if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE status = 'ISSUED'`); got < refused {
-		t.Fatalf("%d grants are ISSUED but %d spends were refused: a refused spend must leave its grant ISSUED", got, refused)
+	if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE status = 'ISSUED'`); got != 1 {
+		t.Fatalf("%d grants are ISSUED, want exactly the refused one", got)
 	}
 	verifyChain(t, w)
 }

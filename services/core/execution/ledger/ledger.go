@@ -61,6 +61,14 @@ var (
 	_ controller.GrantSource = (*Ledger)(nil)
 )
 
+// SpendLockNamespace and SpendLockName(tenant) are the two texts whose hashtext values are the two keys of the advisory lock that serialises the spends of one tenant. The
+// two-key form of PostgreSQL's advisory locks is a key space of its own: no lock of the one-key form, which every other advisory lock of the system uses, can ever be the same
+// lock. Within the two-key form the first key names this use, so no other use can be the same lock unless it picked the same text.
+const SpendLockNamespace = "noema:spend-lock"
+
+// SpendLockName is the second text: one per tenant, so that the spends of two tenants never wait for each other.
+func SpendLockName(tenantID string) string { return "noema:spend:" + tenantID }
+
 var errNoRollbackBound = errors.New(errPrefix + "RollbackTimeout is required: a rollback after a cancelled context must be bounded")
 
 // rolledBack is what rollbackBounded needs of a transaction.
