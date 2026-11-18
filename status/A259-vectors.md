@@ -2,7 +2,7 @@
 
 Updated 2026-11-18. Task: ruling A259 (one definition of a digit run for three consumers, tied by one shared vector file) with A279/A270 (money exemption). Tier 1 (the Record guard is a P0 path). Rulings are INTERIM, relayed by the user, and not committed to `docs/decisions/` yet; this work follows them as written and does not make them authoritative.
 
-## State: three code commits and this note on local branch `prep/a259-vectors`; not pushed, no PR. Draft until the Architect confirms the points under "Open for the Architect" and the founders review (protected paths: `services/core/record/`, `contracts/`).
+## State: commits on local branch `prep/a259-vectors` (PR noema#709 is pushed at 8f865f9c; later commits are local only). Draft until the Architect confirms the points under "A308" below and the founders review (protected paths: `services/core/record/`, `contracts/`).
 
 ## Plan (written before the first edit)
 
@@ -49,21 +49,23 @@ A `$` with `fullmatch` in Python is equivalent and is not counted. Bytecode cach
 
 ### Differences between the three consumers (found by reading, then measured over every code point)
 1. UI separators narrower than the guard's: fixed (above).
-2. Python joins U+001C to U+001F (`str.isspace`); the guard does not. Not in the vector file, because making them agree means either the guard adds four characters (P0 path, Architect) or the redactor drops them (looser). Left as is.
+2. Python joined U+001C to U+001F (`str.isspace`) and the guard did not: resolved by A308 (the guard now joins them).
 3. Existing exemptions live in the guard only (typed IDs, content hashes, the client request UUID, RFC 3339 timestamps, key IDs, signature values, receipt transport classes, target references). The redactor and the UI scan have none, so the vector file holds none of them (their tests stay in `guard_test.go`). Money is now in all three, whole string, at any path.
 4. The verdict has three shapes (guard: refuse; redactor: change the string; UI: a finding named `digit-run`); the file's `refused` is the one meaning.
 5. Unicode versions: Go 1.24 is Unicode 15.0, Python 3.13 is 15.1, Node 22.23 is 17.0. Node knows 90 decimal digits and 94 separators the guard does not (stricter in the UI). The vectors use only characters of Unicode 15.0 or older. Digits and separators of the guard still agree exactly with Python's.
-6. Go `Mask` (the display mask of `record/reconstruct`) and the model service's `assemble.py` (uses `longest_digit_run`) have no money exemption. The rulings name the guard, the redactor and the UI scan only.
+6. Go `Mask` (the display mask of `record/reconstruct`) and the model service's `assemble.py` had no money exemption: resolved by A308 (both have it now).
 
-### Open for the Architect (not decided here)
-- Whether `Mask` should leave a stored money string alone: today a Record that holds `NGN 12,345.00` serves it as `NGN 12,*45.00` through reconstruction.
-- Whether `assemble.py` should accept a money string a model proposes.
-- U+001C to U+001F (difference 2).
-- A grouped amount with no decimals holds no run, so `NGN 123,456,789,012` (twelve integer digits) is accepted by the comma rule, not by the money rule; the nine-digit bound only decides amounts with decimals. A vector pins this (`money_shape_ten_integer_digits_grouped_without_decimals_hold_no_run`).
-- The money rule is not tied to `currencies.json` (it takes any three capitals, as ruled).
+### A308 (relayed by the user, interim): the open points above, decided
+
+- U+001C to U+001F join digit runs in every consumer: the guard's `separators` gains `\x{1c}-\x{1f}`, the UI class gains `\x1c-\x1f`, the Python redactor already joined them (`str.isspace`; docstring corrected), and the vector file has four more vectors (`joins_u001c_file_separator` to `joins_u001f_unit_separator`, refused).
+- The money exemption applies in every consumer: `Mask` (Go) now returns a whole money string as it is, so `record/reconstruct` serves a stored `NGN 12,345.00` unchanged (`project_vectors_test.go`: every vector as a plain scalar fact), and the assembler's `_surface` keeps a money surface form (`test_digit_run_vectors.py`, every non-empty vector).
+- The money prefix stays any three capitals.
+- **Consequence on the explanation path, for the Architect to confirm:** `explanation/factsource` accepts a fact value only if `Mask` leaves it unchanged, so `TestTheAmountIsFormattedFromIntegerMinorUnits` changed: `NGN 1,234.50`, `NGN 1,234,567.89` and `NGN 1,000.50` were unknowns (noema#586, "until the Architect words such an amount") and are now shown; `NGN 1,000,000,000.50` (ten integer digits with decimals) is still an unknown. That test change is its own commit so that it can be reverted if A308 was not meant to reach the explanation.
+- **Not done, stopped (AGENT-15):** `tools/contracts/digit_run.py` `DIGIT_RUN`, the pattern in 17 members of `customer-answer.v1`, `overlay-card.v1`, `errors.v3` and `reconstruction.v3` (and `FACT_VALUE`), does NOT join U+001C to U+001F (measured: `1234\x1c5` is accepted by it). Aligning it rewrites four published schemas and their generated models; that is a contract change (version bump and migration note, or a ruling that it is fixed in place as A258 did for `reconstruction.v3`). Nothing was changed there.
+- Still open: the money rule is not tied to `currencies.json` (any three capitals, as ruled); a grouped amount with no decimals holds no run, so `NGN 123,456,789,012` is accepted by the comma rule (a vector pins it).
 
 ## Pre-work for the next agent
 - Exact next step: review, then push when told. Commands: `cd services/core && go test ./record/payloadguard/ ./record/chain/ ./record/reconstruct/`; `cd services/model && python -m pytest tests/test_digit_run_vectors.py && python -m mypy`; `cd ui && npm run build && node --test test/*.test.mjs`; `python3 tools/lint/run.py`.
-- Open questions (owner): the four points above (Architect).
+- Open questions (owner): the explanation-path consequence and the schema pattern (Architect), both under A308 above.
 - Files to read first: `contracts/fixtures/README.md` (digit-run section), `services/core/record/payloadguard/guard.go` (`separators`, `isMoney`).
 - Do not touch: `testdata/rapid` files; `golden_vectors.json`.

@@ -29,10 +29,14 @@ const Limit = 4
 
 // Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
 // Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
-// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path and so no exemption, and no money exemption either (the rulings of A259 name the guard, the redactor and the UI scan): a transport class that holds
-// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below), and so would a stored money string. Masking is idempotent. record/reconstruct serves its facts
+// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path, so it has no path-based exemption: a transport class that holds
+// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). It has the money exemption, because that one is by the whole string and not by path
+// (A308): a stored `NGN 12,345.00` is served as it is, not `NGN 12,*45.00`. Masking is idempotent. record/reconstruct serves its facts
 // through this function (A194).
 func Mask(s string) string {
+	if isMoney(s) {
+		return s
+	}
 	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
 		total := 0
 		for _, r := range run {
@@ -60,13 +64,14 @@ func Mask(s string) string {
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
-// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the next-line character
+// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the four ASCII information separators U+001C to U+001F (A308: the file, group, record and unit separators; the redactor's class already joined them; the
+// UI scan's now does), the next-line character
 // and the line and paragraph separators (\p{Z}); every dash (\p{Pd}) and the minus sign; every bracket (\p{Ps}, \p{Pe}); the dot, the slash, the colon and the underscore, with their
 // full-width forms and the middle dots; every Unicode format character (soft hyphen, zero-width characters, joiners) and every combining mark. "4111 1111 1111 1111",
 // "4111-1111-1111-1111", "4111_1111_1111_1111" and "(4111)(1111)(1111)(1111)" are each one run of 16. A comma is not in it, so an amount such as "20,000,000" is not one run. The guard
 // and the display mask use this set and no other; the earlier guard left out the underscore, the colon and the brackets so that a code such as VERSION_CONFLICT_409_412 was not
 // refused, and A231 replaced that with the one exemption of isReasonCode.
-const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
+const separators = `\s\x0b\x{1c}-\x{1f}\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
 
 // digitRun is a run of digits in any script joined by the separators. It is the one definition: Check refuses by it and Mask masks by it.
 var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)

@@ -1,7 +1,7 @@
 // A run of digits is digits of any script (Unicode Nd) joined by any number of separators. The separators are those of the Record guard (`separators` in
-// services/core/record/payloadguard, the source of truth; A259): every kind of space, dash and bracket, every format character and combining mark, the dot, slash, colon and underscore with
+// services/core/record/payloadguard, the source of truth; A259): every kind of space (the four ASCII information separators U+001C to U+001F too, A308), dash and bracket, every format character and combining mark, the dot, slash, colon and underscore with
 // their full-width forms, the minus sign and the middle dots. A comma ends a run. contracts/fixtures/digit_run_vectors.json holds the shared vectors that keep this and the guard together.
-const SEPARATORS = String.raw`\t\n\f\r \x0b\x85\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\u2212\u00b7\u30fb\uff0e\uff0f\uff1a\uff3f`;
+const SEPARATORS = String.raw`\t\n\f\r \x0b\x1c-\x1f\x85\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\u2212\u00b7\u30fb\uff0e\uff0f\uff1a\uff3f`;
 const FIVE_DIGITS = new RegExp(String.raw`\p{Nd}(?:[${SEPARATORS}]*\p{Nd}){4}`, "u");
 
 // An amount the core renders from integer minor units (A279, A270): the whole string is three capital letters, a space, an integer part of one to three digits and groups of three after
