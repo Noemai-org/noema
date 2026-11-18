@@ -30,36 +30,8 @@ SCHEMAS = load_schemas()
 NAMES = ("investigation-response.v1.json", "customer-answer.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json")
 
 
-def _ranges(predicate) -> list[tuple[int, int]]:
-    out: list[tuple[int, int]] = []
-    for cp in range(sys.maxunicode + 1):
-        if predicate(cp):
-            if out and out[-1][1] == cp - 1:
-                out[-1] = (out[-1][0], cp)
-            else:
-                out.append((cp, cp))
-    return out
+from digit_run import DIGIT, DIGIT_RUN, FACT_VALUE, NOT_DIGIT, ND, SEPARATOR_CLASS, SEPARATORS, _ranges  # noqa: E402  (one definition of the pattern, tools/contracts/digit_run.py; A258)
 
-
-def _class(ranges: list[tuple[int, int]], negate: bool = False) -> str:
-    body = "".join(chr(a) if a == b else f"{chr(a)}-{chr(b)}" for a, b in ranges)
-    return "[" + ("^" if negate else "") + body + "]"
-
-
-ND = _ranges(lambda cp: unicodedata.category(chr(cp)) == "Nd")
-ZS = _ranges(lambda cp: unicodedata.category(chr(cp)) == "Zs")
-# The separators the core's Record mask joins digits across (record/reconstruct/project.go `digitRun`, the leak scanner's set of noema#222 and noema#492; ruling A194, relayed):
-# the ASCII white space (tab, line feed, form feed, carriage return), every space separator (category Zs), dot, hyphen, slash, underscore, brackets, colon, the soft hyphen, the
-# combining grapheme joiner, the Mongolian vowel separator, the zero-width characters, the dashes U+2010 to U+2015, the word joiner, the minus sign and the byte order mark. Any
-# NUMBER of them may sit between two digits. A comma ends a run ("20,000,000" is groups of three). The hyphen is escaped inside the class.
-_SEP_RANGES = ZS + [(0x09, 0x0A), (0x0C, 0x0D), (0x2E, 0x2F), (0x3A, 0x3A), (0x28, 0x29), (0x5F, 0x5F), (0xAD, 0xAD), (0x34F, 0x34F), (0x180E, 0x180E), (0x200B, 0x200D),
-                    (0x2010, 0x2015), (0x2060, 0x2060), (0x2212, 0x2212), (0xFEFF, 0xFEFF)]
-SEPARATORS = "".join(chr(a) if a == b else f"{chr(a)}-{chr(b)}" for a, b in sorted(set(_SEP_RANGES))) + "\\-"
-SEPARATOR_CLASS = "[" + SEPARATORS + "]"
-DIGIT = _class(ND)
-NOT_DIGIT = _class(ND, negate=True)
-# Five digits of any script, with any number of separators between two digits: the run A154 forbids.
-DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
 # A masked case reference shows at most four digits in all (A187), of any script, and carries a mask character (A207: the core masks it before it reaches the client).
 MASK_CHARS = "*\u2022\u2026"
 AT_MOST_FOUR_DIGITS = rf"^(?=[\s\S]*[{MASK_CHARS}])(?:{NOT_DIGIT}*{DIGIT}){{0,4}}{NOT_DIGIT}*$"
@@ -234,6 +206,49 @@ class PublicApi(unittest.TestCase):
     def test_the_earlier_contracts_are_not_edited(self):
         for name in ("clarification.v1.json", "confirmation-request.v1.json", "errors.v2.json", "noema-resolution.v1.json"):
             self.assertIn(name, SCHEMAS)  # the new set only references them; the drift and fixture checks hold their content
+
+
+class WidenedAndBounded(unittest.TestCase):
+    """A258 (interim): the digit-run pattern uses the core's whole separator set (marks, brackets, dashes, the middle dot), and reconstruction.v3 is bounded."""
+
+    def test_five_digits_joined_by_any_separator_of_the_cores_set_are_refused(self):
+        joiners = ["\u0301", "(", ")", "[", "]", "{", "}", "\u00b7", "\u30fb", "\uff0e", "\uff0f", "\uff1a", "\uff3f", "\u2212", "\u2014", "\u0085", "\x0b", "\u2028", "\u200b", "-", "/", "_", ":", "."]
+        for j in joiners:
+            self.assertTrue(refused(DIGIT_RUN, j.join("12345")), f"digits joined by U+{ord(j[0]):04X} were accepted")
+        self.assertFalse(refused(DIGIT_RUN, "1,2,3,4,5"), "a comma ends a run")
+        self.assertFalse(refused(DIGIT_RUN, "1234 words 5678"))
+
+    def test_a_fact_value_is_an_id_or_a_reference_with_a_letter_or_a_string_without_five_joined_digits(self):
+        ok = ["recev_1005", "obj_01HX12345ABCDEFGHJKMNPQRST", "fin.transaction:TX88213", "held for review", "the amount ending 1234", "dec_01HXZ", "1,2,3,4,5", "usr_8821"]
+        no = ["usr_88213", "4111 1111 1111 1111", "fin.account:0123456789012345", "41111111-1111-4111-8111-11111111111a", "card 4111 1111 1111 1111 expired", "4111_1111_1111_1111",
+              "1\u03012\u03013\u03014\u03015", "rec_12345", "fin.transaction:12345", "ab_" + "1" * 30]
+        for v in ok:
+            self.assertFalse(refused(FACT_VALUE, v), f"{v!r} was refused")
+        for v in no:
+            self.assertTrue(refused(FACT_VALUE, v), f"{v!r} was accepted")
+
+    def test_the_schemas_hold_exactly_the_pattern_of_this_module(self):
+        for name in NAMES:
+            for path, node in walk(SCHEMAS[name]):
+                if node.get("pattern", "").startswith("^(?![\\s\\S]*[0-9"):
+                    self.assertEqual(node["pattern"], DIGIT_RUN, f"{name}: {'/'.join(path)}")
+
+    def test_reconstruction_v3_lists_are_bounded_and_its_text_carries_the_pattern(self):
+        d = SCHEMAS["reconstruction.v3.json"]
+        for node, what in ((d["properties"]["events"], "events"), (d["properties"]["timeline"], "timeline"), (d["$defs"]["Section"]["properties"]["items"], "items")):
+            self.assertIn("maxItems", node, what)
+        self.assertIn("maxProperties", d["$defs"]["Item"]["properties"]["facts"])
+        self.assertEqual(d["$defs"]["TimelineEntry"]["properties"]["text"]["pattern"], DIGIT_RUN)
+        facts = d["$defs"]["Item"]["properties"]["facts"]
+        # A278: by value, under any key; no key is named
+        self.assertNotIn("properties", facts)
+        for alt in facts["additionalProperties"]["oneOf"]:
+            if alt.get("type") == "string":
+                self.assertEqual(alt["pattern"], FACT_VALUE)
+            if alt.get("type") == "array":
+                self.assertEqual(alt["items"]["pattern"], FACT_VALUE)
+        reason = SCHEMAS["record-event.v3.json"]["$defs"]["RecordEvent"]["properties"]["reason"]
+        self.assertEqual((reason["pattern"], reason["maxLength"]), ("^[A-Z_]{1,64}$", 64))
 
 
 if __name__ == "__main__":

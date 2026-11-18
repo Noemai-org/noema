@@ -197,7 +197,7 @@ func newStack(t *testing.T, mc mockCase) *stack {
 	}
 	signingtest.Register(t, admin, ring)
 	led.Rec.Signers = recordsig.All(t, admin, "e2e", map[string]chain.Signer{"core-execution": ring})
-	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases},
+	ctl := &controller.Controller{Clock: clk, Keys: keys, Receipts: ring, Grants: led, Bind: trust, Reval: bridge.CaseRevalidator{Case: cases, Records: cases},
 		Ledger: led, Out: bridge.CaseDispatcher{Case: cases, Records: cases}, IDs: gen}
 	return &stack{admin: admin, dsn: dsn, exec: exec, led: led, ctl: ctl, trust: trust, cases: cases, clk: clk,
 		acts: &workflows.EscalateActivities{Executor: bridge.GrantExecutor{Controller: ctl}, Reader: bridge.CaseReadBack{Case: cases}, Issuer: trust}}

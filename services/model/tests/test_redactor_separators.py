@@ -39,11 +39,14 @@ def test_a_mixed_script_and_separator_run_is_one_run() -> None:
     assert R.mask_account_numbers("4111‑1111 ١٢٣٤") == "*" * 8 + "١٢٣٤"
 
 
-def test_a_comma_and_a_newline_still_end_a_run() -> None:
+def test_a_comma_a_plus_and_a_letter_still_end_a_run() -> None:
     assert R.mask_account_numbers("20,000,000") == "20,000,000"
-    assert R.mask_account_numbers("1234\n5678") == "1234\n5678"
-    assert R.mask_account_numbers("1234\t5678") == "1234\t5678"
+    assert R.mask_account_numbers("1234+5678") == "1234+5678"
+    assert R.mask_account_numbers("1234x5678") == "1234x5678"
 
 
-def test_two_separators_in_a_row_end_a_run() -> None:
-    assert R.mask_account_numbers("1234‑ 5678") == "1234‑ 5678"
+@pytest.mark.parametrize("text", ["1234\n5678", "1234\t5678", "1234\r\n5678", "1234‑ 5678", "1234 - 5678", "1234 \n \t 5678"])
+def test_a_newline_a_tab_and_any_number_of_separators_join_a_run(text: str) -> None:
+    """Changed from the earlier tests (a newline, a tab and two separators in a row ended a run) so that the redactor has the one definition of a digit run, `digit_runs`
+    (the Record guard's separators; the CONFLICT block on noema#598). The change is stricter: more text is masked, none less. It waits for the Architect's or EL's decision on that block."""
+    assert R.mask_account_numbers(text) == "****5678"

@@ -33,6 +33,22 @@ class Ts:
         self.built = built
         self.all: dict[str, ir.Named] = {n: nm for b in built.values() for n, nm in b.named.items()}
         self.module_of = {n: module_name(nm.schema) for n, nm in self.all.items()}
+        self.keep: set[str] | None = None  # when set, only these named types are emitted (see reachable)
+
+    def reachable(self, root_names: list[str]) -> set[str]:
+        """The named types the roots use, directly or through another: what the bundle holds. A shared contract file (enums.v1) is read in part, never whole, so a definition no root
+        reaches (the core reason codes) does not reach the client bundle (REQ-UI-001, INV-02)."""
+        seen: set[str] = set()
+        todo = list(root_names)
+        while todo:
+            n = todo.pop()
+            if n in seen:
+                continue
+            seen.add(n)
+            use: set[str] = set()
+            self.named(self.all[n], use, [])
+            todo.extend(use)
+        return seen
 
     # -- type expressions -------------------------------------------------------------------------------------------------
     def tname(self, t: Any, use: set[str]) -> str:
@@ -61,8 +77,8 @@ class Ts:
         raise ir.GenerationError(f"no TypeScript expression for {type(t).__name__}")
 
     # -- parser expressions: code that turns `v` at `p` into the type -------------------------------------------------------
-    def pexpr(self, t: Any, v: str, p: str, use: set[str], pats: list[str]) -> str:
-        e = self.pbase(t, v, p, use, pats)
+    def pexpr(self, t: Any, v: str, p: str, use: set[str], pats: list[str], name: str | None = None) -> str:
+        e = self.pbase(t, v, p, use, pats, name)
         if getattr(t, "nullable", False):
             return f"({v} === null ? null : {e})"
         return e
@@ -72,7 +88,7 @@ class Ts:
             pats.append(pattern)
         return f"PATTERN_{pats.index(pattern)}"
 
-    def pbase(self, t: Any, v: str, p: str, use: set[str], pats: list[str]) -> str:
+    def pbase(self, t: Any, v: str, p: str, use: set[str], pats: list[str], name: str | None = None) -> str:
         if isinstance(t, ir.Prim):
             c = t.constraints
             if t.kind == "string":
@@ -105,10 +121,13 @@ class Ts:
             return f"arr({v}, {p}, (x, q) => {item}{', {' + ', '.join(opts) + '}' if opts else ''})"
         if isinstance(t, ir.MapOf):
             item = self.pexpr(t.value, "x", "q", use, pats)
-            return f"mapOf({v}, {p}, (x, q) => {item})"
+            key = f", {self.pat(t.key_pattern, pats)}" if t.key_pattern else ""
+            return f"mapOf({v}, {p}, (x, q) => {item}{key})"
         if isinstance(t, ir.Union):
             alts = ", ".join(f"(x, q) => {self.pexpr(a, 'x', 'q', use, pats)}" for a in t.alts)
-            return f"union({v}, {p}, [{alts}])"
+            # The union names its own type: without it TypeScript infers T from the first alternative and refuses the others (a oneOf of different object shapes).
+            own = name or ("string" if all(isinstance(a, ir.Prim) and a.kind == "string" for a in t.alts) else self.tbase(t, use))
+            return f"union<{own}>({v}, {p}, [{alts}])"
         raise ir.GenerationError(f"no TypeScript parser for {type(t).__name__}")
 
     # -- named types ------------------------------------------------------------------------------------------------------
@@ -136,7 +155,15 @@ class Ts:
                 else:
                     value = self.pexpr(f.type, f"o[{js(f.prop)}]", path, use, pats)
                     items.append(f"    ...(has(o, {js(f.prop)}) ? {{ {key(f.prop)}: {value} }} : {{}}),")
-            spread = "    ...o,\n" if not t.closed else ""
+            if not t.closed and not (isinstance(t.extra, ir.Prim) and t.extra.kind == "any"):
+                # the other members have a type (and maybe a key pattern): they are parsed as a map of the members the object does not declare
+                declared = ", ".join(js(f.prop) for f in t.fields)
+                item = self.pexpr(t.extra, "x", "q", use, pats)
+                key_arg = f", {self.pat(t.key_pattern, pats)}" if t.key_pattern else ""
+                body.append(f"  const rest = mapOf(Object.fromEntries(Object.entries(o).filter(([k]) => ![{declared}].includes(k))), p, (x, q) => {item}{key_arg});")
+                spread = "    ...rest,\n"
+            else:
+                spread = "    ...o,\n" if not t.closed else ""
             body.append("  return {\n" + spread + "\n".join(items) + "\n  };")
             return (head + f"export interface {n} {{\n" + "\n".join(fields) + "\n}\n\n"
                     + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n" + "\n".join(body) + "\n}\n")
@@ -144,14 +171,15 @@ class Ts:
         if isinstance(t, ir.Union) and all(isinstance(a, ir.Prim) and a.kind == "string" for a in t.alts):
             expr_t = "string"
         return (head + f"export type {n} = {expr_t};\n\n"
-                + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n  return {self.pexpr(t, 'v', 'p', use, pats)};\n}}\n")
+                + f"export function parse{n}(v: unknown, p: string = \"$\"): {n} {{\n  return {self.pexpr(t, 'v', 'p', use, pats, n)};\n}}\n")
 
     def render_schema(self, b: ir.Built) -> str:
         mod = module_name(b.file)
         use: set[str] = set()
         pats: list[str] = []
-        parts = [self.named(nm, use, pats) for nm in b.named.values()]
-        mine = set(b.named)
+        named = {n: nm for n, nm in b.named.items() if self.keep is None or n in self.keep}
+        parts = [self.named(nm, use, pats) for nm in named.values()]
+        mine = set(named)
         imports: dict[str, list[str]] = {}
         for name in sorted(use - mine):
             imports.setdefault(self.module_of[name], []).append(name)
@@ -262,10 +290,13 @@ export function arr<T>(v: unknown, p: string, item: (x: unknown, q: string) => T
   return v.map((x, i) => item(x, `${p}[${i}]`));
 }
 
-export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T): Record<string, T> {
+export function mapOf<T>(v: unknown, p: string, item: (x: unknown, q: string) => T, keyPattern?: RegExp): Record<string, T> {
   const o = obj(v, p);
   const out: Record<string, T> = {};
-  for (const k of Object.keys(o)) Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  for (const k of Object.keys(o)) {
+    if (keyPattern !== undefined && !keyPattern.test(k)) fail(p, "has a key that is not in the form the contract allows");
+    Object.defineProperty(out, k, { value: item(o[k], `${p}.${k}`), enumerable: true, writable: true, configurable: true });
+  }
   return out;
 }
 

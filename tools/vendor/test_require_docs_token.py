@@ -53,6 +53,16 @@ class Workflow(unittest.TestCase):
         checkout = self.text.index("repository: Noemai-org/docs")
         self.assertLess(check, checkout)
 
+    def test_the_job_runs_in_the_docs_read_environment_only(self):
+        # The token lives in the Environment `docs-read` (deployment branches: main only), not in a repository secret (noema#530).
+        self.assertEqual(re.findall(r"^    environment: (.+)$", self.text, re.M), ["docs-read"])
+
+    def test_no_checkout_keeps_a_credential_in_the_workspace(self):
+        # Every checkout sets persist-credentials: false, so the docs-read token is never written to .git/config for a later step.
+        checkouts = self.text.count("actions/checkout@")
+        self.assertEqual(checkouts, 2)
+        self.assertEqual(len(re.findall(r"persist-credentials: false", self.text)), checkouts)
+
     def test_the_check_script_is_the_one_in_this_folder(self):
         self.assertIn("python3 -I tools/vendor/require_docs_token.py", self.text)
 
