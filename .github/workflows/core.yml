@@ -111,14 +111,16 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
-      - name: TEN-02 results with their seeds (G0-N, ENV-14)
+      - name: TEN-02 and TEN-05 results (G0-N, ENV-14)
         working-directory: services/core
         run: |
           # The lines are checked, not only printed: a renamed test would make -run match nothing and still pass (Security Reviewer's note 3 on noema#578).
-          go test -count=1 -run '^TestTEN02' -v ./outcome/verifier/ ./trust/decide/ > "$RUNNER_TEMP/ten02.txt"
+          go test -count=1 -run '^TestTEN0[25]' -v ./outcome/verifier/ ./trust/decide/ ./workflows/ > "$RUNNER_TEMP/ten02.txt"
           cat "$RUNNER_TEMP/ten02.txt"
           grep -Eq 'TEN_RESULT id=TEN-02 part=trust-decisions seed=[0-9]+ replays=[0-9]+ pass=true( |$)' "$RUNNER_TEMP/ten02.txt"
           grep -Eq 'TEN_RESULT id=TEN-02 part=outcome-verdicts seed=[0-9]+ replays=[0-9]+ scenarios=[0-9]+ pass=true$' "$RUNNER_TEMP/ten02.txt"
+          # TEN-05 (noema#657): the simulated clock advances with Temporal test time. It has no seed (none is used) and is SYNTHETIC; the line is checked like the others (A274).
+          grep -Eq 'TEN_RESULT id=TEN-05 seed=none clock=SYNTHETIC skipped=[^ ]+ pass=true$' "$RUNNER_TEMP/ten02.txt"
       - name: Build the core image
         run: docker build -t noema-core:ci services/core
 
