@@ -60,7 +60,6 @@ func TestAVoidedGrantIsAVoidedReceiptAndNothingElseIsGuessed(t *testing.T) {
 	for name, out := range map[string]controller.Outcome{
 		"replayed":      {Replayed: true},
 		"raced":         {Raced: true},
-		"budget spent":  {BudgetSpent: true},
 		"nothing set":   {},
 		"unknown state": {Receipt: &controller.Receipt{State: "SUCCEEDED"}}, // Execution never writes SUCCEEDED
 	} {
@@ -102,5 +101,13 @@ func TestAControllerErrorIsReturnedAndNoSessionOrGrantIsRefusedFirst(t *testing.
 	}
 	if c.grant != "" {
 		t.Errorf("the Controller was called with %q although the call was refused", c.grant)
+	}
+}
+
+// A216, A217: a dispatch budget the database refused is a receipt class of its own, not an error and not an unknown outcome (nothing was written, so there is nothing to verify).
+func TestASpentDispatchBudgetIsItsOwnReceiptClass(t *testing.T) {
+	got, err := port(&ctl{out: controller.Outcome{BudgetSpent: true}}).Execute(context.Background(), sess, "grt_AA11")
+	if err != nil || got.Class != orchestrator.ReceiptBudgetSpent || got.GrantID != "grt_AA11" {
+		t.Fatalf("got %+v, %v; want a BUDGET_SPENT receipt for the grant", got, err)
 	}
 }

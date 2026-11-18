@@ -40,7 +40,10 @@ type AdmittedIntent struct {
 	IntentHash    string
 	CorrelationID string
 	PrincipalID   string // the principal the document names: the session's, written by the gate (INV-12)
-	View          decide.IntentView
+	// TargetRef is the target the stored intent names, resolved by the adapter from the intent store (never from the request): the target T8 checks the principal owns and the
+	// only target a plan step may act on. Empty for an intent that names none.
+	TargetRef string
+	View      decide.IntentView
 }
 
 // Intents reads admitted intents. Get returns ErrNotFound for an unknown intent and for another tenant's, the same answer for both.
@@ -63,12 +66,22 @@ type Capability struct {
 	ID         string
 	Registered bool
 	Prohibited bool
+	// RoleAllowed is the registry's answer for the role of the session (A255): whether a session with that role may use this capability (the capability descriptor's roles).
+	// Check fills it; Requested does not need it (T6 already checked the role for the intent node).
+	RoleAllowed bool
 }
 
 // Capabilities answers T4: the capability the intent asks for, if it asks for one (the `requested_remedy` slot), with whether the registry knows it and whether it is
 // prohibited. present is false when the intent names none.
 type Capabilities interface {
 	Requested(ctx context.Context, a AdmittedIntent) (c Capability, present bool, err error)
+	// Check is the registry's answer for one capability ID and the role of the session: the capabilities of a plan's steps are checked here at T14, one by one, not only the
+	// one the intent names, and each for the role (A255, the safer reading: the role of the session is never assumed to be allowed).
+	Check(ctx context.Context, capabilityID, role string) (Capability, error)
+	// Authorized is the set of capability IDs the intent and the tenant's policy authorize for this intent node, as pack data (the capabilities of the pack's action graph the
+	// intent's capability roots; a pack names them, the core holds no capability ID, INV-14). A plan step outside it, with the intent's own capability, is PLAN_INVALID (Codex P1 on
+	// noema#572), and the dispatch budget is asked for every one of them at T12 (Codex P2). An error is never "none": the evaluation ends in UNKNOWN.
+	Authorized(ctx context.Context, a AdmittedIntent) ([]string, error)
 }
 
 // Scope answers T5: is the intent node in scope for the tenant.
@@ -81,18 +94,22 @@ type Authority interface {
 	RoleAllowed(ctx context.Context, intentNode, role string) (bool, error)
 }
 
-// Ports are the adapters the intake needs for T1 to T12: ports.go for T1 to T6, ports_t7_t9.go (Candidates, Ownership and Evidence, the only ports that read about a target,
-// held only by T7, T8 and T9) and ports_t10_t12.go. A nil port makes Evaluate refuse to run.
+// Ports are the adapters the intake needs: ports.go for T1 to T6, ports_t7_t9.go (Candidates, Ownership and Evidence, the only ports that read about a target, held only by
+// T7, T8 and T9), ports_t10_t12.go and ports_t13_t15.go (Confirmations, Planner and Recorder). A nil port makes Evaluate refuse to run.
 type Ports struct {
-	Intents      Intents
-	Writes       Writes
-	Capabilities Capabilities
-	Scope        Scope
-	Authority    Authority
-	Candidates   Candidates
-	Ownership    Ownership
-	Evidence     Evidence
-	Reconciler   Reconciler
-	Policies     Policies
-	Clocks       Clocks
+	Intents       Intents
+	Writes        Writes
+	Capabilities  Capabilities
+	Scope         Scope
+	Authority     Authority
+	Candidates    Candidates
+	Ownership     Ownership
+	Evidence      Evidence
+	Reconciler    Reconciler
+	Policies      Policies
+	Clocks        Clocks
+	Confirmations Confirmations
+	Planner       Planner
+	Recorder      Recorder
+	Dispatches    Dispatches
 }
