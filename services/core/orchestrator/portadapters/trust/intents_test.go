@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
@@ -241,7 +242,7 @@ func TestAnExpiredOrCancelledContextIsThatErrorAndNotARefusal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expired, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	expired, stop := context.WithDeadline(context.Background(), time.Unix(1, 0))
 	defer stop()
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -411,5 +412,41 @@ func TestEveryCallRefusesWhatIsNotAnIntentOfATenant(t *testing.T) {
 	}
 	if _, err := s.LatestVersion(tctx(t), "", intentID); !errors.Is(err, trustport.ErrSession) {
 		t.Errorf("latest, no tenant: got %v, want ErrSession", err)
+	}
+}
+
+// scripted answers every query with one fixed row, as a store that did not bind the tenant would.
+type scripted struct{ vals []any }
+
+func (s scripted) QueryRow(context.Context, string, ...any) pgx.Row { return s }
+
+func (s scripted) Scan(dest ...any) error {
+	for i, v := range s.vals {
+		switch d := dest[i].(type) {
+		case *string:
+			*d = v.(string)
+		case *int:
+			*d = v.(int)
+		}
+	}
+	return nil
+}
+
+type scriptedPools struct{ q trustport.Querier }
+
+func (p scriptedPools) For(string) (trustport.Querier, error) { return p.q, nil }
+
+// A store that answers a question with another tenant's row, or another intent's, has not answered it: the adapter does not pass the row on, whatever the statement was.
+func TestARowOfAnotherTenantOrIntentThatAStoreReturnsIsNotAnAnswer(t *testing.T) {
+	w := newWorld(t)
+	for name, row := range map[string][]any{
+		"another tenant":  {tenantB, intentID, 1, "", "fin.payments.exception.investigate", "sha256:" + strings.Repeat("a", 64), "corr_x", "{}"},
+		"another intent":  {tenantA, "int_other", 1, "", "fin.payments.exception.investigate", "sha256:" + strings.Repeat("a", 64), "corr_x", "{}"},
+		"another version": {tenantA, intentID, 2, "", "fin.payments.exception.investigate", "sha256:" + strings.Repeat("a", 64), "corr_x", "{}"},
+	} {
+		s := w.intents(scriptedPools{scripted{row}}, fintechPack(t))
+		if _, err := s.Get(tctx(t), tenantA, intentID, 1); !errors.Is(err, intake.ErrNotFound) {
+			t.Errorf("%s: got %v, want ErrNotFound", name, err)
+		}
 	}
 }

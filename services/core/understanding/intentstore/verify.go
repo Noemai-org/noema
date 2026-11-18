@@ -69,5 +69,7 @@ func verify(a Admitted) error {
 	return nil
 }
 
-// Verify is the check Save makes before it appends, for a caller that holds an Admitted it did not write. It is not built yet.
-func Verify(a Admitted) error { return nil }
+// Verify is the check Save makes before it appends, exported for a caller that holds an Admitted it did not write: Trust's T1 reads an intent back and verifies it with this very
+// check, so no second copy of the hash and binding rules exists. `a.JSON` must be the canonical form, which is what Save writes; the database returns jsonb's text, so a reader
+// makes the canonical form of it first. It returns ErrNotBound, naming the member that disagrees and never quoting the document.
+func Verify(a Admitted) error { return verify(a) }

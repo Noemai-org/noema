@@ -89,7 +89,7 @@ func TestAStoreFailureIsAnErrorAndNeverEnabled(t *testing.T) {
 func TestEnabledRespectsTheContextDeadline(t *testing.T) {
 	w := newWorld(t)
 	k := w.killSwitch(w.trustPools())
-	expired, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	expired, stop := context.WithDeadline(context.Background(), time.Unix(1, 0))
 	defer stop()
 	if on, err := k.Enabled(expired, tenantA); on || !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expired: got %v %v, want false and DeadlineExceeded", on, err)
