@@ -55,6 +55,7 @@
  "confirmation-request/display_missing_policy_version.json": "required",
  "confirmation-request/unknown_field.json": "additionalProperties",
  "confirmation-request/unsigned.json": "required",
+ "context-snapshot/classification_is_a_receipt_state.json": "enum",
  "context-snapshot/not_sealed.json": "required",
  "context-snapshot/reconciliation_missing.json": "required",
  "customer-answer/confidence_member.json": "additionalProperties",

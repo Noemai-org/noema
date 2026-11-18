@@ -124,3 +124,20 @@ Date: 2026-11-10 · Owner: Security Reviewer · Status: in review (noema#222) ·
 ## Pre-work for the next agent
 - Exact next step: EL installs `Handler` in `cmd/core` with a test that the logger it builds masks a card number in a message and an attribute; the shared vector file (A259) in a later PR.
 - Do not touch: the exemption list without a Founder's approval (AGENT-16).
+
+## Session 2026-11-16 15:10 WAT · SEC-03 · the redactor masks the runs `digit_runs` finds (noema#468 follow-up; the CONFLICT block on noema#598)
+
+## Session summary
+- What changed (PR links): `noema_model/platform/redaction/__init__.py` no longer holds a regex of its own: it masks exactly the spans `digit_runs` returns (digits of every script, joined by any number of separators). The model service has one definition of a digit run, shared with the assembler. A newline, a tab and two separators in a row now join a run (they ended it before).
+- Why: the redactor joined digits across one separator only, so `1234 - 5678`, a number split by a line break and digits joined by a zero-width space were not masked while the Record's guard in the core counts each of them as one run. Masking is the line before a provider call (REQ-SEC-003, AGENT-13).
+- Risks, and how they are contained: more text is masked, none less. The change is on a decision that is not yet committed (the CONFLICT block on noema#598 asked the Architect or EL); the PR is a draft until it is. Two assertions of EL's `test_redactor_separators.py` (a newline and a tab end a run; two separators in a row end a run) change, with the reason in the test.
+- Tests added (REQ-SEC-003, AGENT-13): `tests/test_redactor_digit_runs.py` (every code point as the separator of a five-digit run: the redactor joins exactly where `is_digit_separator` says; the masked text equals the `digit_runs` spans; no run over the limit survives); `tests/test_redactor_separators.py` (the changed assertions and a parametrised join test).
+- Regression cases added: the same files.
+- Debt entries: none.
+- Conflicts raised: none new (the block on noema#598 is the one this answers).
+
+## Pre-work for the next agent
+- Exact next step: the shared test-vector file that both the core's `separators` and `digit_runs` read (proposed on noema#600); no other surface in the model service holds its own run.
+- Open questions (owner): the Architect or EL accepts the change of the two assertions (noema#598).
+- Files to read first: `noema_model/platform/redaction/digit_runs.py`, `tests/test_redactor_digit_runs.py`.
+- Do not touch: `benchmark/decisions/harness-*.json` (frozen, see the 2026-11-12 section).

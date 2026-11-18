@@ -30,7 +30,7 @@ SCHEMAS = load_schemas()
 NAMES = ("investigation-response.v1.json", "customer-answer.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json")
 
 
-from digit_run import DIGIT, DIGIT_RUN, NOT_DIGIT, ND, SEPARATOR_CLASS, SEPARATORS, _ranges  # noqa: E402  (one definition of the pattern, tools/contracts/digit_run.py; A258)
+from digit_run import DIGIT, DIGIT_RUN, FACT_VALUE, NOT_DIGIT, ND, SEPARATOR_CLASS, SEPARATORS, _ranges  # noqa: E402  (one definition of the pattern, tools/contracts/digit_run.py; A258)
 
 # A masked case reference shows at most four digits in all (A187), of any script, and carries a mask character (A207: the core masks it before it reaches the client).
 MASK_CHARS = "*\u2022\u2026"
@@ -218,6 +218,15 @@ class WidenedAndBounded(unittest.TestCase):
         self.assertFalse(refused(DIGIT_RUN, "1,2,3,4,5"), "a comma ends a run")
         self.assertFalse(refused(DIGIT_RUN, "1234 words 5678"))
 
+    def test_a_fact_value_is_an_id_or_a_reference_with_a_letter_or_a_string_without_five_joined_digits(self):
+        ok = ["recev_1005", "obj_01HX12345ABCDEFGHJKMNPQRST", "fin.transaction:TX88213", "held for review", "the amount ending 1234", "dec_01HXZ", "1,2,3,4,5", "usr_8821"]
+        no = ["usr_88213", "4111 1111 1111 1111", "fin.account:0123456789012345", "41111111-1111-4111-8111-11111111111a", "card 4111 1111 1111 1111 expired", "4111_1111_1111_1111",
+              "1\u03012\u03013\u03014\u03015", "rec_12345", "fin.transaction:12345", "ab_" + "1" * 30]
+        for v in ok:
+            self.assertFalse(refused(FACT_VALUE, v), f"{v!r} was refused")
+        for v in no:
+            self.assertTrue(refused(FACT_VALUE, v), f"{v!r} was accepted")
+
     def test_the_schemas_hold_exactly_the_pattern_of_this_module(self):
         for name in NAMES:
             for path, node in walk(SCHEMAS[name]):
@@ -231,13 +240,13 @@ class WidenedAndBounded(unittest.TestCase):
         self.assertIn("maxProperties", d["$defs"]["Item"]["properties"]["facts"])
         self.assertEqual(d["$defs"]["TimelineEntry"]["properties"]["text"]["pattern"], DIGIT_RUN)
         facts = d["$defs"]["Item"]["properties"]["facts"]
-        # A272: the pattern is on the free-text facts only, named here; a reference, a *_id fact or a minted ID is served as written
-        self.assertEqual(sorted(facts["properties"]), ["reason_codes", "text"])
-        self.assertEqual(facts["properties"]["text"]["pattern"], DIGIT_RUN)
-        self.assertEqual(facts["properties"]["reason_codes"]["items"]["pattern"], DIGIT_RUN)
+        # A278: by value, under any key; no key is named
+        self.assertNotIn("properties", facts)
         for alt in facts["additionalProperties"]["oneOf"]:
-            self.assertNotIn("pattern", alt)
-            self.assertNotIn("pattern", alt.get("items", {}))
+            if alt.get("type") == "string":
+                self.assertEqual(alt["pattern"], FACT_VALUE)
+            if alt.get("type") == "array":
+                self.assertEqual(alt["items"]["pattern"], FACT_VALUE)
         reason = SCHEMAS["record-event.v3.json"]["$defs"]["RecordEvent"]["properties"]["reason"]
         self.assertEqual((reason["pattern"], reason["maxLength"]), ("^[A-Z_]{1,64}$", 64))
 
