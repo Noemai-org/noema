@@ -39,7 +39,9 @@ class Recorder:
     def record_call(self, *, url: str, request: bytes, status: int | None, reply: bytes | None, failure: str | None, projected_micros: int, cost_micros: int) -> str:
         self._dir.mkdir(parents=True, exist_ok=True)
         rid = f"rec-{len(self._rows) + 1:04d}"
-        parsed_reply = _body(reply)
+        # SR's condition on noema#654 (A320): only a 2xx reply body is written. A provider's error body can echo the request, name the account or carry the tail of a key; the status and
+        # the failure label say what happened, and replay (UND-15) keys on the request hash, not on an error body. A reply that arrives with no status is not written either.
+        parsed_reply = _body(reply) if status is not None and 200 <= status < 300 else None
         reported = parsed_reply.get("model") if isinstance(parsed_reply, dict) and isinstance(parsed_reply.get("model"), str) else None
         digest = "sha256:" + hashlib.sha256(request).hexdigest()
         doc = {
