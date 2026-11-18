@@ -23,17 +23,13 @@ const (
 // Spend is E8 (PERD 27.1): in one SERIALIZABLE transaction, check the grant is still unspent, read the kill switch,
 // upsert the idempotency record (DISPATCHING, attempt + 1), insert grant_spend (unique grant ID and nonce), mark
 // the grant SPENT and append GRANT_SPENT and DISPATCH_ATTEMPTED. All or nothing: if any step fails, nothing is
-// dispatched. A grant that was already spent or voided, or that loses a race to a concurrent spend, is a Replay.
+// dispatched. A grant that was already spent or voided, or that loses a race to a concurrent spend, is a Replay. A transaction the database refuses with a
+// serialization failure is run again as a fresh transaction, up to SerializationAttempts attempts in all (spendWithRetry); after the last, the error below is returned.
 func (l *Ledger) Spend(ctx context.Context, cmd controller.SpendCommand) (controller.SpendResult, error) {
-	var res controller.SpendResult
-	err := l.inTx(ctx, pgx.Serializable, func(tx pgx.Tx) error {
-		r, err := l.spend(ctx, tx, cmd)
-		res = r
-		if err == nil && !r.Spent {
-			return errNothingWritten
-		}
-		return err
-	})
+	if l.SerializationAttempts < 1 {
+		return controller.SpendResult{}, errNoSerializationAttempts
+	}
+	res, err := l.spendWithRetry(ctx, cmd)
 	switch {
 	case errors.Is(err, errNothingWritten):
 		return res, nil
@@ -43,7 +39,7 @@ func (l *Ledger) Spend(ctx context.Context, cmd controller.SpendCommand) (contro
 		return controller.SpendResult{}, l.raiseCollision(ctx, cmd, err)
 	case pgCode(err) == pgUniqueViolation || pgCode(err) == pgSerializationFailure || pgCode(err) == pgDeadlockDetected:
 		// Another spend got there first, or the database could not serialise this one. If the grant is no longer
-		// ISSUED the answer is a replay; if it still is, nothing was spent and the caller may try again.
+		// ISSUED the answer is a replay; if it still is, nothing was spent and the caller may try again (a serialization failure only after the last attempt).
 		if final, ferr := l.grantIsFinal(ctx, cmd.Grant.TenantID, cmd.Grant.GrantID); ferr == nil && final {
 			return controller.SpendResult{Replay: true}, nil
 		}
