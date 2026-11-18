@@ -18,3 +18,12 @@ State: skeleton in review. The live run waits for the Intron key file and the tw
 - Open questions (owner): the audio budget for the first run (Founder: 60 free minutes is about 240 utterances of 15 s; budget the first calls before spending); where the synthetic utterances come from (Intron TTS is the plan; VOI-17 simulation covers noise and channel).
 - Files to read first: `voice/latency.py`, `voice/bench.py`, `tests/test_voice_bench.py`.
 - Do not touch: the target or any threshold.
+
+# Session 2026-11-18 · VOI-16 (Codex round at 6ef05e82)
+
+## Session summary
+- What changed: the speech-to-text, core and text-to-speech stages each have a deadline and each close a cleanup bound, all required arguments with no default (A324: the baseline run decides their values); the first audio is marked the moment it arrives and the stream is closed after, within the cleanup bound; end of speech is marked when the last frame is handed over, so a provider that finalises without reading to the end is timed correctly.
+- Tests: 5 new in `tests/test_voice_bench.py` (red first at 964338a4). Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: the live runner (after noema#640 and noema#689 merge).
