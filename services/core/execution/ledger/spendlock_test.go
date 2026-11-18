@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
@@ -67,10 +69,12 @@ func spendEach(t *testing.T, w *world, gs []controller.Grant, cmd func(controlle
 }
 
 // lockCounts reads the advisory locks of the spend key space (the two-key form, objsubid 2, namespace SpendLockNamespace), for one tenant's name or, with an empty name, for all.
+// pg_locks is cluster-wide and the packages of one test run share the server, so only the locks of this test's own database are counted (noema#748: another package's spend of a
+// tenant of the same name was counted as this test's).
 func lockCounts(t *testing.T, w *world, name string) (granted, waiting int) {
 	t.Helper()
 	q := `SELECT count(*) FILTER (WHERE granted), count(*) FILTER (WHERE NOT granted) FROM pg_locks
-		WHERE locktype = 'advisory' AND objsubid = 2 AND classid::bigint = (hashtext($1)::bigint & 4294967295) AND ($2 = '' OR objid::bigint = (hashtext($2)::bigint & 4294967295))`
+		WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND objsubid = 2 AND classid::bigint = (hashtext($1)::bigint & 4294967295) AND ($2 = '' OR objid::bigint = (hashtext($2)::bigint & 4294967295))`
 	if err := w.admin.QueryRow(ctx(t), q, ledger.SpendLockNamespace, name).Scan(&granted, &waiting); err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +338,7 @@ func TestAnAdvisoryXactLockAsTheFirstStatementOfASerializableTransactionDoesNotR
 	}()
 	waitFor(t, "the second transaction to wait for the lock", func() bool {
 		var n int
-		_ = w.admin.QueryRow(c, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).Scan(&n)
+		_ = w.admin.QueryRow(c, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`).Scan(&n)
 		return n == 1
 	})
 	if _, err := first.Exec(c, `UPDATE lock_probe SET v = 1 WHERE id = 1`); err != nil {
@@ -407,5 +411,33 @@ func TestTheControllerReturnsTheTypedErrorAndDispatchesNothing(t *testing.T) {
 	}
 	if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'ISSUED'`, g.GrantID); got != 1 {
 		t.Fatal("the grant is not ISSUED")
+	}
+}
+
+// noema#748 (CI): pg_locks is cluster-wide and the test packages of one run share the server, so a spend of another package's tenant of the same name was counted as this
+// test's lock. The count is of this database only: a lock of the same two numbers taken in another database is not counted.
+func TestTheLockCountsIgnoreTheLocksOfAnotherDatabase(t *testing.T) {
+	w := newWorld(t)
+	c := ctx(t)
+	const other = "noema_lockcount_other"
+	if _, err := w.admin.Exec(c, "CREATE DATABASE "+other); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = w.admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+other+" WITH (FORCE)") })
+	cfg := w.admin.Config().ConnConfig.Copy()
+	cfg.Database = other
+	conn, err := pgx.ConnectConfig(c, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	if _, err := conn.Exec(c, `SELECT pg_advisory_lock(hashtext($1), hashtext($2))`, ledger.SpendLockNamespace, ledger.SpendLockName(tenant)); err != nil {
+		t.Fatal(err)
+	}
+	if g, wt := lockCounts(t, w, ""); g != 0 || wt != 0 {
+		t.Fatalf("a lock of another database was counted: %d held, %d awaited, want none", g, wt)
+	}
+	if g, _ := lockCounts(t, w, ledger.SpendLockName(tenant)); g != 0 {
+		t.Fatalf("a lock of another database was counted for the tenant: %d held, want none", g)
 	}
 }
