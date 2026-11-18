@@ -399,8 +399,7 @@
                     "facts": {
                       "properties": {
                         "classification": {
-                          "type": "string",
-                          "pattern": "^[A-Z][A-Z0-9_]*$"
+                          "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/TransactionClassification"
                         }
                       }
                     }

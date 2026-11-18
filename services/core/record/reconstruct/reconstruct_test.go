@@ -186,7 +186,7 @@ func us01() []ev {
 		{writtenBy: "core-edge", actor: customer, eventType: "INTENT_ADMITTED", objectRef: "int_synth0001", payload: map[string]any{"intent_node": "test.intent.locate_transfer", "intent_id": "int_synth0001"}},
 		{writtenBy: "core-evidence", eventType: "CANDIDATES_RESOLVED", objectRef: "cns_synth0001", payload: map[string]any{"resolved_target": target, "candidate_count": 1, "margin": "0.41"}},
 		{writtenBy: "core-evidence", eventType: "EVIDENCE_READ", objectRef: "evr_synth0001", payload: map[string]any{"fact_status": "KNOWN", "source": "mock-ledger"}},
-		{writtenBy: "core-trust", eventType: "STATE_RECONCILED", objectRef: "rec_synth0001", payload: map[string]any{"classification": "SETTLED", "fact_status": "KNOWN"}},
+		{writtenBy: "core-trust", eventType: "STATE_RECONCILED", objectRef: "rec_synth0001", payload: map[string]any{"classification": "SUCCESS_CONFIRMED", "fact_status": "KNOWN"}},
 		{writtenBy: "core-trust", eventType: "POLICY_EVALUATED", objectRef: "dec_synth0001", payload: map[string]any{"policy_id": "test.policy.read_only", "policy_version": "3"}},
 		{writtenBy: "core-trust", eventType: "DECISION_MADE", objectRef: "dec_synth0001", payload: map[string]any{"decision_outcome": "ALLOW", "reason_codes": []any{"STATE_KNOWN"}, "decision_id": "dec_synth0001"}},
 		{writtenBy: "core-edge", eventType: "EXPLANATION_RENDERED", objectRef: "exp_synth0001", payload: map[string]any{"claims": []any{
