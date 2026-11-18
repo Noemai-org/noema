@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/trust/clocks"
@@ -55,13 +56,18 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 	if rec.Classification == "" {
 		return decide.FailStep(errAnswer)
 	}
+	e.frozen, e.allowedUnderFreeze = rec.Frozen, append([]string(nil), rec.AllowedUnderFreeze...) // T14 checks the plan's capabilities against the freeze
 	if rec.EscalateReason == "" {
-		// Nothing maps this classification to an escalation. A frozen target goes on only with a capability the pack allows under the freeze; an intent that names none has
-		// nothing that says what it may do (its plan's capabilities are checked against the freeze again at T14). Any other target goes on only on a settled classification.
-		if rec.Frozen && (e.capability == nil || freezeBlocks(rec, e.capability)) {
-			return decide.FailStep(errNoMapping)
+		// Nothing maps this classification to an escalation. A frozen target: reads continue, and only a write the freeze blocks is refused, as a typed refusal and not an internal
+		// error (A225, A254: TARGET_FROZEN); an intent that names no capability asks for no write (the plan's capabilities are checked against the freeze again at T14). Any other
+		// target goes on only on a settled classification.
+		if rec.Frozen {
+			if e.capability != nil && freezeBlocks(rec, e.capability) {
+				return escalateCore(r, "TARGET_FROZEN", decide.Authority{Technical: decide.Pass, Policy: decide.NotEvaluated, Business: decide.Pass})
+			}
+			return decide.Continue()
 		}
-		if !rec.Frozen && !goesOnUnmapped(rec.Classification) {
+		if !goesOnUnmapped(rec.Classification) {
 			return decide.FailStep(errNoMapping)
 		}
 		return decide.Continue()
@@ -72,11 +78,11 @@ func (e *evaluation) t10(ctx context.Context) decide.StepResult {
 // goesOnUnmapped reports whether a classification the pack maps to nothing lets the evaluation go on. Only the classifications that name a settled, understood state do;
 // a contradiction, an unknown outcome, a possible duplicate, an uncertain event order, insufficient evidence and a value that is not a classification at all stop it, so
 // the pack may add escalations and is never the only thing between a contradiction and an ALLOW (INV-16, REQ-RES-001; the Security Reviewer's blocking finding on
-// noema#570). The split of the twelve into these two sets is accepted by ruling A218 (relayed: not on `docs` main yet).
+// noema#570). The split of the twelve into these two sets is accepted by ruling A218, refined by A225: a Partial classification is unsettled and fails closed (both relayed: not on `docs` main yet).
 func goesOnUnmapped(c reconcile.Classification) bool {
 	switch c {
 	case reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
-		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial:
+		reconcile.SettlementPending, reconcile.ReversalPending:
 		return true
 	}
 	return false
@@ -90,6 +96,19 @@ func freezeBlocks(rec Reconciliation, c *Capability) bool {
 	}
 	_, err := reconcile.NewFreezeGate(rec.AllowedUnderFreeze).Permit(rec.Frozen, c.ID)
 	return err != nil
+}
+
+// escalateCore is the ESCALATE with one core reason code that Trust itself gives when the pack routes nothing (A225) or the dispatch budget is spent (A224).
+func escalateCore(r decide.ResolvedIntent, code string, a decide.Authority) decide.StepResult {
+	reason, err := decide.Core(code)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	d, err := r.Escalate(a, reason)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	return decide.Stop(d)
 }
 
 // escalate is the ESCALATE that a pack reason code asks for.
@@ -217,14 +236,76 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 		statuses = append(statuses, st)
 	}
 	if len(statuses) == 0 {
-		return decide.Continue()
+		return e.dispatchBudget(ctx, r)
 	}
 	routing, err := e.svc.Ports.Clocks.Route(ctx, q, statuses)
 	if err != nil {
 		return decide.FailStep(err)
 	}
 	if !routing.Escalate {
-		return decide.Continue()
+		// A225: a breached clock the pack's routing does not route is not a clock to ignore; T12 escalates by itself, with the core code.
+		for _, st := range statuses {
+			if st.Phase == clocks.Breached {
+				return escalateCore(r, "CLOCK_BREACHED_UNROUTED", passed())
+			}
+		}
+		return e.dispatchBudget(ctx, r)
 	}
 	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
+}
+
+// dispatchBudget is the last question of T12 for a write: has any capability the intent authorizes used the ledger's dispatch budget on the target (A224, A254; Codex P2 on
+// noema#572). Trust itself decides ESCALATE DISPATCH_BUDGET_EXHAUSTED; the runner's refusal is only the backstop. It runs here, where an ESCALATE may end the evaluation (the stop
+// sets of PERD 23.3 give T14 none), and asks for every capability of the authorized set, the only ones a plan may use, so no step can receive an ALLOW grant for a capability whose
+// budget is spent. It is fail closed and may escalate for a capability the plan would not use. A read asks nothing. The intake holds no limit: the ledger answers both numbers.
+func (e *evaluation) dispatchBudget(ctx context.Context, r decide.ResolvedIntent) decide.StepResult {
+	if e.intent == nil || e.intent.TargetRef == "" || (e.capability == nil && !e.late.needsWrite) {
+		return decide.Continue()
+	}
+	set, err := e.authorizedCapabilities(ctx)
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	for _, id := range set {
+		c, err := e.svc.Ports.Dispatches.Count(ctx, DispatchKey{TenantID: e.intent.TenantID, CorrelationID: e.intent.CorrelationID, CapabilityID: id, TargetRef: e.intent.TargetRef})
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		if c.Limit < 1 || c.Used < 0 {
+			return decide.FailStep(errAnswer)
+		}
+		if c.Used >= c.Limit {
+			return escalateCore(r, "DISPATCH_BUDGET_EXHAUSTED", passed())
+		}
+	}
+	return decide.Continue()
+}
+
+// authorizedCapabilities reads the authorized set once per evaluation: the port's answer and the intent's own capability, without repeats, sorted. An error from the port is an
+// error, never an empty set.
+func (e *evaluation) authorizedCapabilities(ctx context.Context) ([]string, error) {
+	if e.authorized != nil {
+		return e.authorized, nil
+	}
+	if e.intent == nil {
+		return nil, errNoIntent
+	}
+	ids, err := e.svc.Ports.Capabilities.Authorized(ctx, *e.intent)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	set := make([]string, 0, len(ids)+1)
+	if e.capability != nil && e.capability.ID != "" {
+		ids = append(ids, e.capability.ID)
+	}
+	for _, id := range ids {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			set = append(set, id)
+		}
+	}
+	sort.Strings(set)
+	e.authorized = set
+	return set, nil
 }
