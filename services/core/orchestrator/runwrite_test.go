@@ -678,3 +678,20 @@ func TestADecisionWithNoIntentKeepsTheIntentOfTheEvaluation(t *testing.T) {
 		t.Fatalf("evidence was read for %v; want the interpreter's intent int_AA11 both times", w.intents)
 	}
 }
+
+// A216, A217, A224 (the follow-up to noema#576; INV-03, AGENT-08, REQ-RCV-003): a spent dispatch budget is its own receipt class. Nothing was dispatched, so the runner does not verify,
+// does not evaluate again and does not move the investigation: it stops with ErrRecoveryBudgetSpent for a person, and the grant that was issued is never spent (it expires by TTL).
+func TestASpentDispatchBudgetIsItsOwnReceiptClassThatStopsTheRunWithoutVerifying(t *testing.T) {
+	w := newWfakes()
+	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptBudgetSpent}}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+	if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) {
+		t.Fatalf("err %v, want ErrRecoveryBudgetSpent", err)
+	}
+	if w.nExec != 1 || w.nVerify != 0 || w.nDecide != 1 {
+		t.Errorf("executes %d, verifies %d, decisions %d; want 1, 0, 1: nothing was dispatched, so nothing is verified and no new decision is asked", w.nExec, w.nVerify, w.nDecide)
+	}
+	if res.Investigation.State != "PLANNED" {
+		t.Errorf("state %s, want PLANNED: no arrow to a hand-over exists for it (A216) and none is invented here", res.Investigation.State)
+	}
+}

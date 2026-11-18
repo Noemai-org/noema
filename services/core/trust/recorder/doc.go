@@ -1,6 +1,6 @@
 // Package recorder writes a Decision Record and the grants of an ALLOW into the Record, in one transaction the caller supplies (TRU-05).
 //
-// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005.
+// Implements: REQ-TRU-008, REQ-TRU-001, REQ-AUD-001, REQ-SEC-005, REQ-TRU-010, REQ-EXE-008 (Trust side only), REQ-OPS-002 (Trust side only).
 //
 // May import: platform/{clock,crypto,ids}, internal/contracts, record/chain, trust/decide, trust/grants.
 //
@@ -24,6 +24,24 @@
 // What the database does NOT enforce (Security Reviewer, noema#603 note 1): that an ALLOW for a profile that requires a confirmation carries one. An ALLOW with an empty ConfirmationEventID
 // writes no spend and is not checked here; that rule is the intake's (T13, which stops with CONFIRM when the profile requires one) and the Recorder adapter's, and a composition test of the two
 // owes the case "confirmation required, none named, ALLOW refused" (EL's adapter, with noema#572).
+//
+// The tenant's kill switch (EXE-06, PUS-06; REQ-EXE-008, REQ-OPS-002; ruling A297, interim): a request with steps is refused with ErrWritesDisabled, before anything is written, while
+// tenant.kill_switch is on for the request's tenant. The writer reads the column on the caller's transaction (it has no other connection) after taking the input lock and before the
+// stored decision is read or anything is appended, so a refusal leaves no decision row, no grant and no event, and a retry of a stored decision with steps is refused too. A request with no
+// step is not refused: a read, an explanation or a refusal records as before. A switch that cannot be read is an error, never "off". The read is a plain SELECT at the transaction's own
+// isolation level and holds no lock on the tenant row (the Trust login has SELECT only, and FOR SHARE needs UPDATE), so a switch turned on after the read and before the commit is not seen
+// here; Execution reads it again inside the spend (E6, E8) and voids the grant, so the window never reaches a write. Not built here: the control plane that sets and clears the switch, and
+// any KILL_SWITCH_* event (KILL_SWITCH_CHANGED, KILL_SWITCH_CLEARED, KILL_SWITCH_CLEAR_REFUSED are in contracts/perd-32-2-event-types.md; this writer emits none of them).
+//
+// Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; ruling A297, interim). An action decision is the per-write-step decision of an escalation: the decision of one step of the
+// escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Two rules, both refused before anything is written (no row, no Record event; the caller still
+// rolls back). (1) A decision that names a disposition names an existing ESCALATE decision of its own tenant (read in the caller's transaction; a missing decision, another tenant's and one
+// with another outcome are one answer, ErrDispositionNotValid). The database's foreign key (migration 0012) says the same behind it and its failure maps to the same error. (2) Every step of
+// such a decision must carry a capability of the pack's escalation plan, which the composition root injects as Writer.Escalation (an EscalationSet built from pack data; this package holds no
+// capability ID, INV-14). A step outside the set is ErrStepOutsideEscalation; the zero set allows no step. A decision that names no disposition is written as before, with or without steps: PERD
+// 23.1 does not say whether such an ALLOW (the complaint write of another graph, for one) needs a disposition, so none is required (open reading, status/TRU-10.md). Building the set from the
+// pack's escalation plan is the production adapter's job and is not built here. The disposition's intent is not compared with the action decision's: the PERD gives the disposition "for the
+// investigation intent" and each step its own decision, so the two need not share an intent ID.
 //
 // Not built here: CLARIFY (its clarification is not mapped to the contract), a refusal before any evidence is read (decision-record.v2 requires a snapshot
 // and a policy, which T1 to T6 do not have: a gap in the contract, named in status/TRU-05.md), KEY_ROTATED and key loading.

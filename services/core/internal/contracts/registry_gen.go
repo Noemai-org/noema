@@ -91,6 +91,7 @@ var Types = map[string]func() any{
 	"enums.v1#LimitSetBy":                                   func() any { return new(EnumsV1LimitSetBy) },
 	"enums.v1#Mode":                                         func() any { return new(EnumsV1Mode) },
 	"enums.v1#RetrySafety":                                  func() any { return new(EnumsV1RetrySafety) },
+	"enums.v1#TransactionClassification":                    func() any { return new(EnumsV1TransactionClassification) },
 	"enums.v1#Verdict":                                      func() any { return new(EnumsV1Verdict) },
 	"errors.v1":                                             func() any { return new(ErrorsV1) },
 	"errors.v1#ErrorBody":                                   func() any { return new(ErrorsV1ErrorBody) },

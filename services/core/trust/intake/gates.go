@@ -21,10 +21,17 @@ type evaluation struct {
 	bb         *decide.BasisBuilder
 	// policyVersions are the policy versions T11 used, kept for the Decision Input (REQ-TRU-007).
 	policyVersions []decide.PolicyVersionRef
+	late           lateState // what T3 and T13 to T15 learn
+	// frozen and allowedUnderFreeze are what T10 saw: the target carries a contradiction freeze, and the capabilities the pack allows on it. T14 checks the plan against them.
+	frozen             bool
+	allowedUnderFreeze []string
+	// authorized is the capabilities the intent and the tenant's policy authorize (Capabilities.Authorized plus the intent's own capability), sorted, read once per evaluation
+	// by the first step that needs it (T11 for a write): T11 asks the policy about each (A306), T12 asks the dispatch budget for each, T14 refuses a plan step outside it
+	// (Codex P1 and P2 on noema#572). nil until first read.
+	authorized []string
 }
 
 func (e *evaluation) steps() decide.Steps {
-	notBuilt := func(context.Context) decide.StepResult { return decide.FailStep(ErrNotBuilt) }
 	return decide.Steps{
 		decide.T1AdmittedIntent - 1:     e.t1,
 		decide.T2Session - 1:            e.t2,
@@ -38,9 +45,9 @@ func (e *evaluation) steps() decide.Steps {
 		decide.T10Reconciliation - 1:    e.t10,
 		decide.T11Policy - 1:            e.t11,
 		decide.T12Clocks - 1:            e.t12,
-		decide.T13Confirmation - 1:      notBuilt,
-		decide.T14Plan - 1:              notBuilt,
-		decide.T15DecisionRecorded - 1:  notBuilt,
+		decide.T13Confirmation - 1:      e.t13,
+		decide.T14Plan - 1:              e.t14,
+		decide.T15DecisionRecorded - 1:  e.t15,
 	}
 }
 
@@ -68,6 +75,10 @@ func (e *evaluation) t1(ctx context.Context) decide.StepResult {
 		return decide.FailStep(err)
 	}
 	if a.TenantID != s.TenantID || a.IntentID != e.intentID || a.Version != e.version {
+		return e.refuse(decide.T1AdmittedIntent)
+	}
+	// The intent was admitted under one correlation; a request under another is not this intent's request (A226). An empty correlation never matches.
+	if e.req.CorrelationID == "" || a.CorrelationID != e.req.CorrelationID {
 		return e.refuse(decide.T1AdmittedIntent)
 	}
 	latest, err := e.svc.Ports.Intents.LatestVersion(ctx, s.TenantID, e.intentID)
@@ -102,6 +113,7 @@ func (e *evaluation) t3(ctx context.Context) decide.StepResult {
 	if err != nil {
 		return decide.FailStep(err)
 	}
+	e.late.needsWrite = needs
 	if !needs {
 		return decide.Continue()
 	}
