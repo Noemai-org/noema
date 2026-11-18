@@ -201,6 +201,10 @@ func (u *wrun) execute(d Decision) (Result, error) {
 		}
 		u.voids++
 		return u.evaluate(d.IntentRef)
+	case ReceiptBudgetSpent:
+		// The database refused the dispatch because the key's budget is used up (A153, A216): nothing was dispatched, so there is nothing to verify and no reason to ask Trust
+		// again. The run stops for a person; the grant is never spent and expires by TTL. No arrow to a hand-over exists from PLANNED, so none is invented (A216).
+		return u.result(""), ErrRecoveryBudgetSpent
 	case ReceiptApplied, ReceiptUnknown:
 	default:
 		return u.result(""), fmt.Errorf("%w: receipt class %q", ErrBadPortAnswer, rc.Class)
