@@ -30,6 +30,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 )
 
+// TestMain stops the PostgreSQL server the package's database tests start, so a run leaves no server and no data directory behind (internal/testpg).
+func TestMain(m *testing.M) { testpg.Main(m) }
+
 const (
 	wireInvA1 = "inv_01ARZ3NDEKTSV4RRFFQ69G5FAA" // tenant A, started by prn_1, EXECUTING
 	wireInvA2 = "inv_01ARZ3NDEKTSV4RRFFQ69G5FBB" // tenant A, started by prn_2, COMPLETED
