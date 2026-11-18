@@ -30,11 +30,31 @@ COMPOSE_FILE = Path(__file__).resolve().parent.parent / "docker-compose.yml"
 MODEL_DOCKERFILE = COMPOSE_FILE.parent.parent.parent / "services" / "model" / "Dockerfile"
 
 
+SHELLS = {"sh", "bash", "dash", "ash", "zsh", "ksh", "busybox"}
+
+
+def _tokens(argv) -> list[str]:
+    """Every word of a launch command, whether it is a list or one string, and whether one list element holds a whole command line (`["sh", "-c", "uvicorn ... --ssl-cert-reqs 0"]`).
+    Elements are split on whitespace, `=` and quotes, so `--ssl-cert-reqs=0`, `'--ssl-cert-reqs' 0` and a word inside a shell string are all seen."""
+    parts = argv.split() if isinstance(argv, str) else [str(a) for a in (argv or [])]
+    return [t for part in parts for t in re.findall(r"[^\s='\"]+", part)]
+
+
 def listener_flags(argv) -> list[str]:
-    """The `--ssl-*` options in a launch command (a list, or one string). uvicorn gives a command-line option precedence over its UVICORN_SSL_* variable, so one of these can switch off
-    the client-certificate requirement while the variable still says 2: and the service's own startup check (`require_mtls_listener`, noema#635) reads only the variable."""
-    words = argv.split() if isinstance(argv, str) else [str(a) for a in (argv or [])]
-    return [w for w in words if w.startswith("--ssl-")]
+    """The `--ssl-*` options in a launch command (a list, or one string; one list element may hold a whole command). uvicorn gives a command-line option precedence over its UVICORN_SSL_*
+    variable, so one of these can switch off the client-certificate requirement while the variable still says 2: and the service's own startup check (`require_mtls_listener`, noema#635)
+    reads only the variable. Codex and the Security Reviewer on noema#670: the shell-wrapped list form was not seen."""
+    return [t for t in _tokens(argv) if t.startswith("--ssl-")]
+
+
+def shell_wrapper(argv) -> str | None:
+    """The shell the launch command runs through, if any. A shell can build an option string at run time (`sh -c "uvicorn $(...)"`), which no scan of the text can see; the model starts
+    uvicorn directly, so a shell wrapper is refused outright (noema#670)."""
+    toks = _tokens(argv)
+    for t in toks[:1]:
+        if t.rsplit("/", 1)[-1] in SHELLS:
+            return t
+    return None
 
 
 def logical_instructions(text: str) -> list[str]:
@@ -236,6 +256,9 @@ def check(cfg, profile):
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
+            for field in ("entrypoint", "command"):
+                if shell_wrapper(svc.get(field)):
+                    bad.append(f"{profile}: the model's {field} runs through a shell ({shell_wrapper(svc.get(field))}); a shell can build a --ssl-* option at run time that no check can see, so uvicorn must be started directly")
             for flag in listener_flags(svc.get("entrypoint")) + listener_flags(svc.get("command")):
                 bad.append(f"{profile}: the model starts uvicorn with {flag}, which overrides its UVICORN_SSL_* settings (the client-certificate requirement can be switched off without the service's own check seeing it)")
             reqs = (svc.get("environment") or {}).get("UVICORN_SSL_CERT_REQS")
@@ -345,6 +368,11 @@ def self_test(configs):
         "the bench model starts uvicorn with --ssl-cert-reqs 0": ("bench", lambda c: c["services"]["model"].update({"entrypoint": list(c["services"]["model"]["entrypoint"]) + ["--ssl-cert-reqs", "0"]})),
         "the dev model's command carries an --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["--ssl-keyfile", "/x"]})),
         "the ci model's command is one string with --ssl-cert-reqs=0": ("ci", lambda c: c["services"]["model"].update({"command": "--port 8081 --ssl-cert-reqs=0"})),
+        "the dev model's command is a shell wrapper carrying --ssl-cert-reqs 0 (list form)": ("dev", lambda c: c["services"]["model"].update({"command": ["sh", "-c", "uvicorn noema_model.main:app --ssl-cert-reqs 0"]})),
+        "the ci model's entrypoint is a shell wrapper with no visible --ssl option": ("ci", lambda c: c["services"]["model"].update({"entrypoint": ["sh", "-c", "exec python -m uvicorn noema_model.main:app --port 8081"]})),
+        "the dev model's entrypoint is bash -lc": ("dev", lambda c: c["services"]["model"].update({"entrypoint": ["/bin/bash", "-lc", "uvicorn noema_model.main:app"]})),
+        "the dev model's command is a shell wrapper in string form": ("dev", lambda c: c["services"]["model"].update({"command": "sh -c 'uvicorn noema_model.main:app --ssl-cert-reqs=0'"})),
+        "the dev model's list element holds a quoted --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["uvicorn noema_model.main:app '--ssl-keyfile' /x"]})),
         "the model's UVICORN_SSL_CERT_REQS is 0": ("dev", lambda c: c["services"]["model"].setdefault("environment", {}).update({"UVICORN_SSL_CERT_REQS": "0"})),
         "the bench core loses the evidence payload bound": ("bench", lambda c: c["services"]["core"]["environment"].pop("NOEMA_PAYLOAD_MAX_BYTES")),
         "the core loses the model response bound": ("dev", lambda c: c["services"]["core"]["environment"].pop("NOEMA_MODEL_MAX_RESPONSE_BYTES")),
