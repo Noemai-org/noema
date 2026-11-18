@@ -229,6 +229,11 @@ class RecordAccess(unittest.TestCase):
             with self.subTest(label):
                 self.assertFalse(self.evidence(log)["met"], label)
 
+    def test_the_principal_is_matched_exactly_and_the_control_must_be_an_auditor(self) -> None:
+        control = GOOD_LOG.split("\n")[0]
+        self.assertTrue(self.evidence(GOOD_LOG + "\n" + control.replace("prbcontrolaaaaaaaaaaa", "prbcontrolaaaaaaaaaaaZZ"))["met"], "another principal with the same start is not a second control line")
+        self.assertFalse(self.evidence(GOOD_LOG.replace(control, control.replace("auditor:", "operator:")))["met"], "the control asked as an auditor")
+
     def test_a_probe_with_no_principal_recorded_or_no_cases_is_not_met(self) -> None:
         doc = probes_doc()
         del doc["cases"][0]["probe_principals"]
