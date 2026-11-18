@@ -254,8 +254,8 @@ func policiesOnTenant(t *testing.T, pool *pgxpool.Pool) []tenantPolicy {
 	return out
 }
 
-// (d) The catalog: `tenant` has row security enabled and forced, and exactly three policies, one per role group (the five power logins' groups, the verifier's read, the
-// verifier's stop). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
+// (d) The catalog: `tenant` has row security enabled and forced, and exactly three policies, one per role group (the five power groups and record_read, which holds no privilege on
+// the table and is in the list only so that a mistaken grant still reaches the kill switch guard; the verifier's read; the verifier's stop). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
 func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 	pool := migrated(t)
 	var enabled, forced bool
@@ -266,7 +266,7 @@ func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 		t.Errorf("tenant: row security enabled=%v forced=%v, want both", enabled, forced)
 	}
 	want := []tenantPolicy{
-		{"tenant_own_row", "*", "evidence_rw,execution_rw,orchestrator_rw,outcome_rw,trust_rw", "(tenant_id = decision_login_tenant())", "(tenant_id = decision_login_tenant())"},
+		{"tenant_own_row", "*", "evidence_rw,execution_rw,orchestrator_rw,outcome_rw,record_read,trust_rw", "(tenant_id = decision_login_tenant())", "(tenant_id = decision_login_tenant())"},
 		{"tenant_verify_halt", "w", "record_verify", "true", "kill_switch"},
 		{"tenant_verify_read", "r", "record_verify", "true", ""},
 	}
