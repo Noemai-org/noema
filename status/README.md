@@ -12,6 +12,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 - `status/roles/` (31 Oct 2026): one file per role agent, each written only by its role, so that role status never conflicts. These task files above stay as history.
+- `CON-digit-tightenings.md` (Core Engineer 1, 18 Nov 2026): three tightenings of the public digit-run pattern (U+001C to U+001F, comma-joined ten digits, the exact ULID minted-ID branch), the migration note, the open reference-branch question and what noema#709's consumers must do.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
 
