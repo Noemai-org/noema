@@ -185,6 +185,9 @@
     {"name": "money_negative_sign_before_amount", "group": "money_refused", "proves": "A279/A270: a sign is not part of the shape", "input": "NGN -12,345.00", "refused": true},
     {"name": "money_negative_sign_before_prefix", "group": "money_refused", "proves": "A279/A270: a sign is not part of the shape", "input": "-NGN 12,345.00", "refused": true},
     {"name": "money_arabic_indic_digits", "group": "money_refused", "proves": "A279/A270: the digits are ASCII 0 to 9 only", "input": "NGN \u0661\u0662,\u0663\u0664\u0665.\u0660\u0660", "refused": true},
+    {"name": "money_arabic_indic_digits_in_the_first_group_only", "group": "money_refused", "proves": "A279/A270: the first group is ASCII 0 to 9 only", "input": "NGN \u0661\u0662,345.00", "refused": true},
+    {"name": "money_arabic_indic_digits_in_a_later_group_only", "group": "money_refused", "proves": "A279/A270: every group is ASCII 0 to 9 only", "input": "NGN 12,\u0663\u0664\u0665.00", "refused": true},
+    {"name": "money_arabic_indic_digits_in_the_decimals_only", "group": "money_refused", "proves": "A279/A270: the decimals are ASCII 0 to 9 only", "input": "NGN 12,345.\u0660\u0660", "refused": true},
     {"name": "money_fullwidth_decimal_point", "group": "money_refused", "proves": "A279/A270: the decimal point is U+002E only", "input": "NGN 12,345\uff0e00", "refused": true},
     {"name": "money_decimal_comma", "group": "money_refused", "proves": "A279/A270: a dot grouping with a decimal comma is not the shape", "input": "NGN 12.345,00", "refused": true},
     {"name": "money_two_dots", "group": "money_refused", "proves": "A279/A270: one decimal point only", "input": "NGN 12,345.00.00", "refused": true}
