@@ -500,3 +500,34 @@ func TestARequiredSlotWithNoStatusIsResolvedOnlyWhenItIsAReference(t *testing.T)
 		t.Error("an intent with a required Quantity of no status is admitted as resolved")
 	}
 }
+
+// A resolved owned slot that names no target (here a Reference, resolved by having no status, but with no `resolved_ref`) leaves T8 nothing to check ownership of: not usable
+// (fail closed), never "no target".
+func TestAResolvedOwnedSlotThatNamesNoTargetIsNotUsable(t *testing.T) {
+	w := newWorld(t)
+	pack := []byte(strings.Replace(strings.Replace(string(miniPack(`"fin.trust.test"`, "first_resource")), `"principal_must_own":["first_resource"]`, `"principal_must_own":["reason"]`, 1),
+		`{"name":"second_resource","type":"Resource","required":false}`, `{"name":"reason","type":"Reference","required":false}`, 1))
+	w.save(pack, tenantA, proposal(tenantA, "int_notarget", 1, func(m map[string]any) {
+		miniProposal(nil)(m)
+		m["slots"].(map[string]any)["reason"] = map[string]any{"type": "Reference", "value": "WHY"}
+	}))
+	if _, err := w.intents(w.trustPools(), pack).Get(tctx(t), tenantA, "int_notarget", 1); !errors.Is(err, trustport.ErrStoredIntent) {
+		t.Errorf("got %v, want ErrStoredIntent", err)
+	}
+}
+
+// A stored document that names no principal (written around the gate, by the administrator) is not usable: T2 compares the intent's principal with the session's, and an empty one
+// must never stand for "any".
+func TestAStoredDocumentThatNamesNoPrincipalIsNotUsable(t *testing.T) {
+	w := newWorld(t)
+	pack := fintechPack(t)
+	w.save(pack, tenantA, proposal(tenantA, intentID, 1, nil))
+	if _, err := w.admin.Exec(tctx(t), `INSERT INTO admitted_intent (tenant_id, intent_id, version, intent_node, intent_hash, correlation_id, json)
+		SELECT tenant_id, 'int_nobody', 1, intent_node, intent_hash, 'corr_nobody',
+		jsonb_set(jsonb_set(jsonb_set(json, '{intent_id}', '"int_nobody"'), '{correlation_id}', '"corr_nobody"'), '{principal,principal_id}', '""') FROM admitted_intent WHERE intent_id = $1`, intentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.intents(w.trustPools(), pack).Get(tctx(t), tenantA, "int_nobody", 1); !errors.Is(err, trustport.ErrStoredIntent) {
+		t.Errorf("got %v, want ErrStoredIntent", err)
+	}
+}
