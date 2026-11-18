@@ -89,9 +89,11 @@ class Writing(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             r = recorder(Path(tmp))
             r.case_id = "G-C"
-            r.record_call(url="https://h.invalid/p", request=b"not json", status=502, reply=b"<html>bad gateway</html>", failure=None, projected_micros=1, cost_micros=1)
+            # A320 changed the premise: this test used a 502 "bad gateway" body and expected it kept, which is the behaviour SR asked to remove (a non-2xx body is never written, see the
+            # test above). What it still guards is that a 2xx reply that is not JSON is kept as text and never dropped.
+            r.record_call(url="https://h.invalid/p", request=b"not json", status=200, reply=b"<html>ok</html>", failure=None, projected_micros=1, cost_micros=1)
             doc = json.loads((Path(tmp) / "out" / "recordings" / "rec-0001.json").read_text())
-            self.assertEqual((doc["request"], doc["reply"]), ({"text": "not json"}, {"text": "<html>bad gateway</html>"}))
+            self.assertEqual((doc["request"], doc["reply"]), ({"text": "not json"}, {"text": "<html>ok</html>"}))
 
     def test_ids_count_up_and_the_files_are_pretty_with_sorted_keys_so_a_line_is_one_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

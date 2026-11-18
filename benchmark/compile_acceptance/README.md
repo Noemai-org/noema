@@ -7,7 +7,7 @@ The compile acceptance run (UND-16; noema#546; ruling A198). It runs the five go
 | File | What it holds |
 |---|---|
 | `golden.py` | the five examples as synthetic canonical inputs, and `check`: what each proposal must hold (the node, `question_type`, the amount in minor units, the counterparty, the time phrase, the prohibited remedy of G-E, and what must be absent). A problem names a slot, never a number or a piece of the utterance |
-| `recording.py` | `Recorder`: one `recordings/rec-NNNN.json` per call (provider, model pin, run id, date, SHA-256 of the exact request bytes, both bodies parsed, cost) and `manifest.json` |
+| `recording.py` | `Recorder`: one `recordings/rec-NNNN.json` per call (provider, model pin, run id, date, SHA-256 of the exact request bytes, both bodies parsed, cost) and `manifest.json` | Only a 2xx reply body is written: the body of any other response is not recorded (SR's condition on noema#654, A320); its status and failure label are.
 | `runner.py` | `run_cases`: each example once, in order; the stop stays; `RunResult.exit_code`; `run.json` |
 | `build.py` | the live side: `RecordingTransport` (the budget guard decides before a request is sent), `DryTransport` (prices the first request of each example, sends nothing), `build_backend` (the real harness for one frozen harness configuration, the real pack, lexicon and masking limits, a synthetic candidate source) |
 | `__main__.py` | the command, below |
