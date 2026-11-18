@@ -65,3 +65,16 @@ Updated 2026-11-14. The Trust intake's last three steps (the G1 card of noema#43
 - Not done: nothing of A225, A226 or the notes is left except note 3 and 4 (TRU-14, the end-to-end ALLOW test, both on the debt list).
 - Tests (REQ-TRU-002, REQ-TRU-006, REQ-RES-002; INV-03, INV-16, INV-21): ten new in `a255_round_test.go`, one in `decide/basis_sealed_test.go`; red first at `6fa6dae0` (seven failed). Mutant: a Record request with a constant plan hash fails the new determinism test.
 - Adapters (EL): `Capabilities.Check` fills `RoleAllowed`; `Dispatches.Count` answers from the ledger's dispatch events (the limit is the ledger's).
+
+# Session 2026-11-18 · TRU-07 · the third round of noema#572 (Codex P1 and P2, C2's note)
+
+## Session summary
+- What changed (noema#572): `Capabilities.Authorized` (pack data, read once per evaluation, with the intent's own capability); T12 asks the dispatch budget for every capability of the set; T14 refuses a step outside it; T15 refuses a repeated grant ID.
+- Why: Codex P1 (a planner could substitute another valid, role-allowed capability on the same target and get a grant) and P2 (the budget was asked only for the intent's capability, so a plan's other capability could receive an ALLOW grant with its budget spent); C2's note (repeated grant IDs passed the shape check).
+- Risks, and how they are contained: the authorized set is a proposed default (the capabilities of the pack action graph the intent's capability roots) and is not yet confirmed by the Architect; the port has no production adapter yet, so nothing runs with it; an unreadable set fails closed; the budget check is conservative (may escalate for a capability the plan would not use).
+- Tests added (REQ-TRU-003, REQ-TRU-004, REQ-CAP-002; INV-03, INV-17, INV-18): `plan_authorization_test.go` (seven red at `13137944`, one guard, one shared-read test added green). Mutants killed: no authorization check, budget asks nobody, duplicate grant IDs accepted, set read every time, budget off by one.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the Architect confirms the authorized-set definition (or gives another) on noema#572; the production adapter of `Capabilities.Authorized` reads the pack action graph rooted at the intent's capability.
+- Do not touch: the stop sets of PERD 23.3.

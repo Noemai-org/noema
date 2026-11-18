@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/Noemai-org/noema/services/core/trust/clocks"
@@ -253,23 +254,58 @@ func (e *evaluation) t12(ctx context.Context) decide.StepResult {
 	return escalate(r, routing.ReasonCode, decide.Authority{Technical: decide.Pass, Policy: decide.Pass, Business: decide.Pass})
 }
 
-// dispatchBudget is the last question of T12 for a write: has the logical write the intent asks for used the ledger's dispatch budget (A224, A254). Trust itself decides ESCALATE
-// DISPATCH_BUDGET_EXHAUSTED; the runner's refusal is only the backstop. It runs here, where an ESCALATE may end the evaluation (the stop sets of PERD 23.3 give T14 none), and asks
-// for the capability and the target the intent names; a plan step on another capability is checked against the budget by the runner (a question for the Architect, in the PR). A read
-// asks nothing. The intake holds no limit: the ledger answers both numbers.
+// dispatchBudget is the last question of T12 for a write: has any capability the intent authorizes used the ledger's dispatch budget on the target (A224, A254; Codex P2 on
+// noema#572). Trust itself decides ESCALATE DISPATCH_BUDGET_EXHAUSTED; the runner's refusal is only the backstop. It runs here, where an ESCALATE may end the evaluation (the stop
+// sets of PERD 23.3 give T14 none), and asks for every capability of the authorized set, the only ones a plan may use, so no step can receive an ALLOW grant for a capability whose
+// budget is spent. It is fail closed and may escalate for a capability the plan would not use. A read asks nothing. The intake holds no limit: the ledger answers both numbers.
 func (e *evaluation) dispatchBudget(ctx context.Context, r decide.ResolvedIntent) decide.StepResult {
-	if e.capability == nil || e.intent == nil || e.intent.TargetRef == "" {
+	if e.intent == nil || e.intent.TargetRef == "" || (e.capability == nil && !e.late.needsWrite) {
 		return decide.Continue()
 	}
-	c, err := e.svc.Ports.Dispatches.Count(ctx, DispatchKey{TenantID: e.intent.TenantID, CorrelationID: e.intent.CorrelationID, CapabilityID: e.capability.ID, TargetRef: e.intent.TargetRef})
+	set, err := e.authorizedCapabilities(ctx)
 	if err != nil {
 		return decide.FailStep(err)
 	}
-	if c.Limit < 1 || c.Used < 0 {
-		return decide.FailStep(errAnswer)
-	}
-	if c.Used >= c.Limit {
-		return escalateCore(r, "DISPATCH_BUDGET_EXHAUSTED", passed())
+	for _, id := range set {
+		c, err := e.svc.Ports.Dispatches.Count(ctx, DispatchKey{TenantID: e.intent.TenantID, CorrelationID: e.intent.CorrelationID, CapabilityID: id, TargetRef: e.intent.TargetRef})
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		if c.Limit < 1 || c.Used < 0 {
+			return decide.FailStep(errAnswer)
+		}
+		if c.Used >= c.Limit {
+			return escalateCore(r, "DISPATCH_BUDGET_EXHAUSTED", passed())
+		}
 	}
 	return decide.Continue()
+}
+
+// authorizedCapabilities reads the authorized set once per evaluation: the port's answer and the intent's own capability, without repeats, sorted. An error from the port is an
+// error, never an empty set.
+func (e *evaluation) authorizedCapabilities(ctx context.Context) ([]string, error) {
+	if e.authorized != nil {
+		return e.authorized, nil
+	}
+	if e.intent == nil {
+		return nil, errNoIntent
+	}
+	ids, err := e.svc.Ports.Capabilities.Authorized(ctx, *e.intent)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	set := make([]string, 0, len(ids)+1)
+	if e.capability != nil && e.capability.ID != "" {
+		ids = append(ids, e.capability.ID)
+	}
+	for _, id := range ids {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			set = append(set, id)
+		}
+	}
+	sort.Strings(set)
+	e.authorized = set
+	return set, nil
 }

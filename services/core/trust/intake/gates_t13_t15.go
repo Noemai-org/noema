@@ -135,12 +135,22 @@ func (e *evaluation) wellFormed(p Plan) bool {
 // target frozen for a contradiction (T10) its capability is one the pack allows under the freeze. A plan that disagrees is PLAN_INVALID and nothing is recorded; a registry
 // that cannot answer is an error, never a pass.
 func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
+	if len(p.Steps) == 0 {
+		return true, nil
+	}
+	authorized, err := e.authorizedCapabilities(ctx)
+	if err != nil {
+		return false, err
+	}
 	for _, s := range p.Steps {
 		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID, e.req.Session.Role)
 		if err != nil {
 			return false, err
 		}
 		if !c.Registered || c.Prohibited || !c.RoleAllowed { // A255: the role of the session is never assumed to be allowed
+			return false, nil
+		}
+		if !slices.Contains(authorized, s.CapabilityID) { // Codex P1 on noema#572: the intent and the tenant's policy do not authorize this capability, whatever the registry says
 			return false, nil
 		}
 		if e.intent.TargetRef == "" || s.TargetRef != e.intent.TargetRef {
@@ -205,10 +215,12 @@ func (e *evaluation) t15(ctx context.Context) decide.StepResult {
 	if !decisionIDRe.MatchString(res.DecisionID) || len(res.GrantIDs) != len(steps) {
 		return decide.FailStep(errAnswer)
 	}
+	distinct := map[string]bool{}
 	for _, g := range res.GrantIDs {
-		if !grantIDRe.MatchString(g) {
+		if !grantIDRe.MatchString(g) || distinct[g] { // C2's note on noema#572: one grant for each write step, each named once
 			return decide.FailStep(errAnswer)
 		}
+		distinct[g] = true
 	}
 	e.late.recorded = RecordResult{DecisionID: res.DecisionID, GrantIDs: append([]string(nil), res.GrantIDs...)}
 	return decide.Stop(d)

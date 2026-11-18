@@ -117,3 +117,21 @@ func TestT15ARecorderThatRepeatsAGrantIDIsUnknown(t *testing.T) {
 	f.rec = RecordResult{DecisionID: "dec_synth0001", GrantIDs: []string{"grt_synth0001", "grt_synth0001"}}
 	wantUnknown(t, "a repeated grant ID", run13(t, newEval13(t, f)), "INTERNAL_ERROR", decide.T15DecisionRecorded, decide.StepFailed)
 }
+
+// T12 and T14 read the same authorized set: the port is asked once for the whole evaluation, so the budget asked at T12 and the plan checked at T14 cannot disagree about it.
+func TestT12AndT14ShareOneReadOfTheAuthorizedSet(t *testing.T) {
+	f := newFake13()
+	ev := newEval13(t, f)
+	first, err := ev.authorizedCapabilities(tctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.authorized = []string{capCase} // the registry changes between the two questions
+	res := run13(t, ev)
+	if f.authAsked != 1 {
+		t.Errorf("the authorized set was read %d times, want once for the evaluation (first %v)", f.authAsked, first)
+	}
+	if res.Decision.Outcome() != decide.Allow {
+		t.Errorf("%s %v: the plan was checked against another read of the set", res.Decision.Outcome(), codes13(res.Decision))
+	}
+}
