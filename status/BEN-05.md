@@ -55,3 +55,19 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Files to read first: `benchmark/suites/G1-EVIDENCE-PACKAGE.md`.
 - Do not touch: the gate conditions; they are the gate record's.
 - 2026-11-16: the template is updated after the Security Reviewer's three requests (prose not code-enforced; an explicit `--- PASS` line per property test; item 11 names every excluded case), EL's corrections (item 9 follows ruling A220: wrong role 404, foreign tenant 401, and a 401 is not the isolation proof; noema#601 blocks mounting `POST /v1/conversations`; the worker registration is the composition PR, not noema#576; the Reconciler is not built) and Voice's note (the compiler is noema#598; #581, #582 and #584 are merged).
+
+# Session 2026-11-18 · BEN-05 · the package skeleton is built; READY TO DISPATCH is still not posted
+
+## Session summary
+- What changed: `benchmark/suites/g1_package.py` and 11 tests. `python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --out D` renders the section 4 package (twelve rows, the data label, the excluded cases, what was not tested) from the run's own files, so it is written in minutes after the run.
+- Rules: a row is MET only with an https link the Benchmark Owner opened and says they read; row 5 (one final head: the dispatch SHA is a full SHA, the check runs and the run were made at it, every check run green), row 10 (both legs complete, Tier 0 at zero) and row 11 (replay IDENTICAL, the unknown-outcome case not excluded) are computed and no hand-written verdict overrides them; an empty "what was not tested" fails the package; the headline keeps STAND-IN data, not Tushe. Exit 0 only when every row is MET.
+- Tests: 11 written first and seen failing; 13 mutations each caught (the first run left the SHA-shape check alive; a test now covers it).
+- Preconditions of noema#566 section 3 on main at 18 Nov: 1 met (#444, #577, #591); 7 met (#563, #568); 8 met (#591, #577); 2 open (#572 merged, the Trust.Decide adapter #710 is open); 3 open (RunWrite #576 merged; the worker registration #676 is open); 4, 5 and 6 and 9 not verified as met by me (the compile-acceptance run, noema#546, has not run; G0 not confirmed). READY TO DISPATCH is not posted.
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: when all nine hold at one SHA, post READY TO DISPATCH; after the run, fill `package-inputs.json` (links and the read attestations), run the command, and ask the Security Reviewer to read the result.
+- Open questions (owner): none new.
+- Files to read first: `benchmark/suites/g1_package.py`, `benchmark/suites/G1-EVIDENCE-PACKAGE.md`.
+- Do not touch: the gate conditions.
+
