@@ -339,3 +339,15 @@ func TestOrdinaryTextIsNotMistakenForASecretInAValue(t *testing.T) {
 		}
 	}
 }
+
+// A308 (noema#709): the Record guard joins U+001C to U+001F, and the redactor masks by the same rule ("we mask more, never less"). The regression case for the red `main` of 18 Nov 2026
+// (noema#719): the redactor of noema#457 was written before the guard changed and did not join them.
+func TestTheFourASCIIInformationSeparatorsJoinDigitsLikeTheRecordGuard(t *testing.T) {
+	r := redaction.New()
+	for c := rune(0x1c); c <= 0x1f; c++ {
+		in := "1111" + string(c) + "1111"
+		if got := r.MaskAccountNumbers(in); got != "****1111" {
+			t.Errorf("U+%04X between two groups of four digits: %q -> %q, want ****1111", c, in, got)
+		}
+	}
+}
