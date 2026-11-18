@@ -50,6 +50,9 @@ var (
 	ErrConfirmationNotValid = errors.New(errPrefix + "the confirmation is not valid for this action")
 	// ErrConfirmationPlanMismatch is returned when the confirmation an ALLOW follows was given for another plan than the one its steps carry (A230).
 	ErrConfirmationPlanMismatch = errors.New(errPrefix + "the confirmation was given for another plan")
+	// ErrWritesDisabled is returned when the tenant's kill switch is on and the decision would issue grants (REQ-EXE-008, REQ-OPS-002; the contract's WRITES_DISABLED, errors.v3).
+	// Nothing is written: no decision record, no grant, no event. A decision with no write step is not refused.
+	ErrWritesDisabled = errors.New(errPrefix + "the tenant's kill switch is on: no grant is issued")
 	// ErrConfirmationSpent is returned when the confirmation event the request names has already been spent by another decision of the tenant (INV-17: a given
 	// confirmation is used once). Nothing is written; the caller rolls back.
 	ErrConfirmationSpent = errors.New(errPrefix + "the confirmation was already spent by another decision")
@@ -157,6 +160,18 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, key.lockName()); err != nil {
 		return Result{}, fmt.Errorf("%slock the input: %w", errPrefix, err)
 	}
+	// REQ-EXE-008, REQ-OPS-002: while the tenant's kill switch is on, no grant is issued. The switch is read here, on the caller's transaction (Write holds no other connection), at the
+	// write itself and before the first statement that writes, so a refusal leaves nothing behind. It is the tenant of the request, which the database ties to the login, and only a
+	// decision with steps is refused: a read, an explanation or a refusal has no grant and records as before. A switch that cannot be read is an error, never "off".
+	if len(r.Steps) > 0 {
+		var killed bool
+		if err := tx.QueryRow(ctx, `SELECT kill_switch FROM tenant WHERE tenant_id = $1`, r.TenantID).Scan(&killed); err != nil {
+			return Result{}, fmt.Errorf("%sread the kill switch: %w", errPrefix, err)
+		}
+		if killed {
+			return Result{}, ErrWritesDisabled
+		}
+	}
 	stored, found, err := w.lookup(ctx, tx, key, r, basis)
 	if err != nil {
 		return Result{}, err
@@ -253,7 +268,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		if err != nil {
 			return Result{}, fmt.Errorf("%sgrant %d: %w", errPrefix, i, err)
 		}
-		graw, err := json.Marshal(g)
+		graw, err := signedPart(g)
 		if err != nil {
 			return Result{}, fmt.Errorf("%smarshal grant: %w", errPrefix, err)
 		}
@@ -274,6 +289,21 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		res.Grants = append(res.Grants, g)
 	}
 	return res, nil
+}
+
+// signedPart is the grant document as it is stored in decision_grant.json: the document without its sig member. That is the part the signature covers and the form Execution
+// decodes (controller.Grant, strictly, and rebuilds its canonical JSON from it). The signature itself is stored in sig_key_id and sig_value, and lookup puts it back.
+func signedPart(g contracts.DecisionGrantV1) ([]byte, error) {
+	raw, err := json.Marshal(g)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	delete(doc, "sig")
+	return json.Marshal(doc)
 }
 
 // check refuses what cannot be honoured before anything is written, and returns the evaluated basis and the bound policy.
