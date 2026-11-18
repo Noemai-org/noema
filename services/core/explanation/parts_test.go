@@ -68,7 +68,7 @@ func TestAPartIsRenderedFromItsOwnKey(t *testing.T) {
 	}
 	for part, want := range map[explanation.Part]string{explanation.PartFound: "Your account was debited.", explanation.PartAdviceDoNot: "Do not send the money again yet."} {
 		r, err := explanation.FallbackPart(tpl, f, part)
-		if err != nil || r.Text != want || r.TemplateID != "en-NG/"+key+"/"+string(part) || len(r.Claims) != 1 || r.Claims[0].TemplateID != r.TemplateID {
+		if err != nil || r.Text != want || r.TemplateID != "en-NG/"+key+"/"+string(part) || len(r.Claims) != 1 || r.Claims[0].TemplateID != r.TemplateID || !r.FromRenderer() {
 			t.Errorf("%s: %+v, %v", part, r, err)
 		}
 		if p := explanation.Validate(tpl, r, f, nil); len(p) != 0 {

@@ -170,6 +170,23 @@ class EnumsV1RetrySafety(StrEnum):
     NONE = 'NONE'
 
 
+class EnumsV1TransactionClassification(StrEnum):
+    """The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOW... Source: enums.v1.json#$defs/TransactionClassification"""
+
+    SUCCESS_CONFIRMED = 'SUCCESS_CONFIRMED'
+    REJECTED_CONFIRMED = 'REJECTED_CONFIRMED'
+    DEBIT_POSTED_CREDIT_UNCONFIRMED = 'DEBIT_POSTED_CREDIT_UNCONFIRMED'
+    SETTLEMENT_PENDING = 'SETTLEMENT_PENDING'
+    REVERSAL_PENDING = 'REVERSAL_PENDING'
+    REVERSED_CONFIRMED = 'REVERSED_CONFIRMED'
+    POSSIBLE_DUPLICATE = 'POSSIBLE_DUPLICATE'
+    PARTIAL = 'PARTIAL'
+    EXECUTION_OUTCOME_UNKNOWN = 'EXECUTION_OUTCOME_UNKNOWN'
+    CONTRADICTORY_STATE = 'CONTRADICTORY_STATE'
+    EVENT_ORDER_UNCERTAIN = 'EVENT_ORDER_UNCERTAIN'
+    INSUFFICIENT_EVIDENCE = 'INSUFFICIENT_EVIDENCE'
+
+
 class EnumsV1Verdict(StrEnum):
     """Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust. Source: enums.v1.json#$defs/Verdict"""
 
