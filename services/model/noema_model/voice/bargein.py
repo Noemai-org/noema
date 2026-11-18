@@ -122,10 +122,9 @@ async def _release(
     """Release both streams. A stream whose read is still running is first given `close_s` for that read to end (it was cancelled); if it does, it is closed with the other, side by side, each
     within `close_s`. If it does not, its close is handed to `close_when_read_ends` (closed the moment the read ends, abandoned and reported after `hold_s`) and the release counts as failed.
     Returns (some release did not complete within its bound, the first error a close raised). Bounded: about three times `close_s`, plus nothing for the handed-over source."""
-    running = {source: read for source, read in outstanding}
-    if running:
-        await asyncio.wait(set(running.values()), timeout=bounds.close_s)
-    deferred = [(source, read) for source, read in running.items() if not read.done()]
+    if outstanding:
+        await asyncio.wait({read for _, read in outstanding}, timeout=bounds.close_s)  # pairs, not a mapping: a source need not be hashable (Codex P2 on #621 at d07c012d)
+    deferred = [(source, read) for source, read in outstanding if not read.done()]
     for source, read in deferred:
         close_when_read_ends(read, source, bounds.hold_s, bounds.close_s, report)
     deferred_sources = {id(source) for source, _ in deferred}
