@@ -33,3 +33,18 @@ Owner: C2 · Task: UND-16 (IL, C2): the live compile acceptance run (A198); noem
 - Exact next step: the workflow change (dry run accepts exit 3 and still fails on 1 or 2), then the Founder's word for the dry run.
 - Files to read first: `.github/workflows/bench-live-compile.yml`, `tools/ci/test_bench_live_compile.py`.
 - Do not touch: `benchmark/decisions/harness-*.json` (frozen).
+
+# Session 2026-11-18 · UND-16 · only a 2xx reply body is recorded (noema#720; SR's condition on noema#654; A320)
+
+## Session summary
+- What changed (noema#720): `benchmark/compile_acceptance/recording.py` writes the parsed reply only for a 2xx status; any other status, and a reply that arrives with no status, is recorded with its status and failure label and `reply` and `reported_model_id` null. README: one sentence.
+- Why: a provider's error body can echo the request, name the account or carry the tail of a key; replay (UND-15) keys on the request hash, not on an error body. It must merge before the live compile run (A320).
+- Risks, and how they are contained: it only removes data from a recording. The cost of a non-2xx call is still settled at its projection by the transport; nothing else reads the body of a non-2xx reply.
+- Tests added (REQ-SEC-003; AGENT-13, INV-29): `test_the_reply_body_of_a_response_that_is_not_2xx_is_never_written` (15 non-2xx statuses, each checking the file and the manifest for four leaked strings) and `test_a_2xx_reply_is_still_recorded_and_a_reply_with_no_status_is_not`. Red in CI at `91049f9f`: the `benchmark` job, step `make bench-test`: 1,356 tests, 16 failures, all the new ones. 7 hand mutants of the status condition, all killed.
+- One existing test changed its premise, and I say so here: `test_a_body_that_is_not_json_is_kept_as_text_and_never_dropped` recorded a 502 "bad gateway" body and expected it kept, which is the behaviour SR asked to remove. It now uses a 2xx non-JSON body, so it still guards that a 2xx reply that is not JSON is kept as text.
+- Regression cases added: the two tests above.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: UND-15 (the recorded-replay Understanding provider) after the Founder dispatches the live compile run: key on `request_sha256`, manifest and labels per A261; a recorded non-2xx call has a status and no reply body.
+- Do not touch: the leakscan allow file without a reason.

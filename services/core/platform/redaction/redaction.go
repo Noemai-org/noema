@@ -65,11 +65,11 @@ const (
 var numericSuffixes = []string{"_minor", "_count", "_bytes", "_ms", "_s", "_seconds", "_minutes", "_micros"}
 
 // separators is the class of characters that join the digits of a run: the one definition of the Record's append guard (record/payloadguard, A194, A231), adopted here by ruling A289 (A259:
-// one separator definition on every surface). Every kind of space (\s, \p{Z}, the vertical tab, the next-line character), every dash (\p{Pd}) and the minus sign, every bracket (\p{Ps},
+// one separator definition on every surface). Every kind of space (\s, \p{Z}, the vertical tab, the next-line character), the four ASCII information separators U+001C to U+001F (A308: we mask more, never less), every dash (\p{Pd}) and the minus sign, every bracket (\p{Ps},
 // \p{Pe}), the dot, the slash, the colon and the underscore with their full-width forms and the middle dots, every format character (\p{Cf}: zero-width characters, soft hyphen, joiners) and
 // every combining mark (\p{M}); any NUMBER of them between two digits. A comma is not in it. It is a copy, not an import: record/ is a P0 path and platform/ imports the standard library
 // only; TestEveryCodePointJoinsDigitsExactlyWhenTheRecordGuardSaysSo asks both about every code point and fails when they differ.
-const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
+const separators = `\s\x0b\x{1c}-\x{1f}\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
 
 var (
 	runPattern = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
