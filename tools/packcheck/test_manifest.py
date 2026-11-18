@@ -156,6 +156,9 @@ class GoodTree(Base):
         (root / "fintech/evidence_mapping/notes.txt").write_text("SYNTHETIC", encoding="utf-8")
         (root / "conformance").mkdir()
         (root / "conformance/conformance_telecom.json").write_text("{}", encoding="utf-8")
+        (root / "fintech/other").mkdir()
+        os.symlink(root / MAPPING, root / "unrelated_link.txt")  # a link in the pack folder that is not named like a pack file
+        (root / "fintech/other/fintech_v2.json").write_text("{}", encoding="utf-8")  # the pack kind is the pack folder's own files only
         self.assertEqual(self.check(manifest, root), [])
 
 
@@ -254,31 +257,43 @@ class UnlistedFile(Base):
         os.symlink(root / MAPPING, root / "fintech/evidence_mapping/alias.json")
         self.fails(root, manifest, "alias.json", "symlink")
 
-    def test_a_listed_kind_entry_must_sit_where_its_kind_lives(self):
-        # The rules file listed as a mapping: the id of the file would not save it, the place is wrong.
+    def test_an_unlisted_symlinked_folder_in_a_kind_folder_fails(self):
         root, manifest = self.tree()
-        self.edit(root, manifest, lambda d: entry(d, "evidence_mapping").update(path=RULES, sha256=sha256(root / RULES)))
-        self.assertTrue(self.check(manifest, root))
+        (root.parent / "elsewhere").mkdir()
+        (root.parent / "elsewhere/inner.json").write_text("{}", encoding="utf-8")
+        os.symlink(root.parent / "elsewhere", root / "fintech/recon_rules/more")
+        self.fails(root, manifest, "fintech/recon_rules/more", "symlink")
+        self.assertNotIn("inner.json", self.messages(self.check(manifest, root)), "the link is reported, not followed")
+
+    def test_a_listed_kind_entry_must_sit_where_its_kind_lives(self):
+        # A real mapping (right bytes, right id) listed from the wrong folder, and the pack listed from a subfolder.
+        for kind, rel, copy_to in (("evidence_mapping", MAPPING, "fintech/recon_rules/mapping_copy.json"), ("pack", PACK, "fintech/fintech_v1.json"), ("recon_rules", RULES, "fintech/evidence_mapping/rules_copy.json")):
+            with self.subTest(kind):
+                root, manifest = self.tree()
+                shutil.copyfile(root / rel, root / copy_to)
+                self.edit(root, manifest, lambda d, k=kind, c=copy_to: entry(d, k).__setitem__("path", c))
+                self.fails(root, manifest, copy_to, "lives at")
 
     def test_listing_the_same_path_twice_fails(self):
         root, manifest = self.tree()
         self.edit(root, manifest, lambda d: d["files"].append(copy.deepcopy(entry(d, "recon_rules"))))
-        self.assertTrue(self.check(manifest, root))
+        self.fails(root, manifest, RULES, "listed twice")
 
     def test_a_missing_kind_fails(self):
         for kind in LISTED:
             with self.subTest(kind):
                 root, manifest = self.tree()
                 self.edit(root, manifest, lambda d, k=kind: d["files"].remove(entry(d, k)))
-                self.fails(root, manifest, kind)
+                self.fails(root, manifest, f"exactly one {kind} file, it lists 0")
 
     def test_two_entries_of_one_kind_fail(self):
         root, manifest = self.tree()
-        (root / "fintech/recon_rules/rules.v2.json").write_text("{}", encoding="utf-8")
+        # A second rule set with the right bytes and the right id, listed: only the one-per-kind rule can refuse it.
+        shutil.copyfile(root / RULES, root / "fintech/recon_rules/rules.v2.json")
         def add(doc):
-            doc["files"].append({"kind": "recon_rules", "path": "fintech/recon_rules/rules.v2.json", "sha256": sha256(root / "fintech/recon_rules/rules.v2.json")})
+            doc["files"].append({"kind": "recon_rules", "path": "fintech/recon_rules/rules.v2.json", "sha256": sha256(root / RULES)})
         self.edit(root, manifest, add)
-        self.fails(root, manifest, "recon_rules")
+        self.fails(root, manifest, "exactly one recon_rules file, it lists 2")
 
 
 class IdMatch(Base):

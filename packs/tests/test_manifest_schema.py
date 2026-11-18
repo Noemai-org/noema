@@ -81,7 +81,7 @@ class ManifestSchema(unittest.TestCase):
             "extra expected field": put(["expected", "x"], "a@1"),
             "wrong label": put(["label"], "REAL"),
             "version 0": put(["version"], 0),
-            "version float": put(["version"], 1.0),
+            "version float": put(["version"], 1.5),
             "no files": put(["files"], []),
             "too many files": put(["files"], [good()["files"][0]] * 17),
             "unknown kind": put(["files", 0, "kind"], "lexicon"),
