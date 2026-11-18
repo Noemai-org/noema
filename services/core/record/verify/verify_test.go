@@ -189,6 +189,74 @@ func TestEveryTamperingIsDetectedAlertedAndStopsThatTenantOnly(t *testing.T) {
 	}
 }
 
+// REQ-AUD-005, INV-11 (noema#687, finding 1; regression case). The chain head row is made by the tenant's first append
+// (record_lock_head_t), so a tenant that is provisioned and has never written has a tenant row and no head row and no
+// event. That is an unused tenant, not a tampered one: reporting HEAD_MISMATCH would stop its writes (the kill switch) at
+// the first run against a real database. The Record of every other tenant is verified as before.
+func TestAProvisionedTenantThatHasNeverWrittenIsCleanAndIsNotStopped(t *testing.T) {
+	w := newWorld(t, "ten_aa", "ten_bb")
+	w.appendN(t, "ten_bb", 3)
+	var heads int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM record_chain_head WHERE tenant_id = 'ten_aa'`).Scan(&heads); err != nil || heads != 0 {
+		t.Fatalf("ten_aa has %d head rows (err %v); the case needs a tenant with none", heads, err)
+	}
+	rep, err := w.v.Run(ctx(t))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(rep.Results) != 2 {
+		t.Fatalf("report = %+v, want both tenants verified", rep)
+	}
+	a, b := rep.Results[0], rep.Results[1]
+	if a.TenantID != "ten_aa" || a.Status != verify.StatusOK || a.Checked != 0 || a.Finding != nil {
+		t.Fatalf("ten_aa = %+v, want OK with no events and no finding", a)
+	}
+	if b.Status != verify.StatusOK || b.Checked != 3 || !rep.Clean() {
+		t.Fatalf("ten_bb = %+v (clean: %v), want OK with 3 events", b, rep.Clean())
+	}
+	if len(w.alert.findings)+len(w.met.kinds) != 0 || w.killed(t, "ten_aa") || w.killed(t, "ten_bb") {
+		t.Fatal("an unused tenant raised an alert, a metric or the kill switch")
+	}
+}
+
+// The neighbours of the case above stay breaks (REQ-AUD-005): a head row that is missing while events exist, and a head
+// that is kept after every event has been deleted, are each HEAD_MISMATCH. Only "no head row and no event" is clean.
+func TestAMissingOrStaleHeadStaysABreakWheneverTheTenantHasOrHadEvents(t *testing.T) {
+	cases := []struct{ name, sql string }{
+		{"the head row removed while events exist", `DELETE FROM record_chain_head WHERE tenant_id = 'ten_aa'`},
+		{"every event deleted while the head is kept", `DELETE FROM record_event WHERE tenant_id = 'ten_aa'`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t, "ten_aa")
+			w.appendN(t, "ten_aa", 2)
+			w.tamper(t, c.sql)
+			rep, err := w.v.Run(ctx(t))
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			if r := rep.Results[0]; r.Status != verify.StatusBreak || r.Finding == nil || r.Finding.Kind != verify.BreakHeadMismatch {
+				t.Fatalf("result = %+v, want a HEAD_MISMATCH break", r)
+			}
+			if !w.killed(t, "ten_aa") {
+				t.Fatal("the tenant was not stopped")
+			}
+		})
+	}
+}
+
+// A head row at the genesis with no event (a first append that locked the head and wrote nothing) is clean.
+func TestAHeadAtTheGenesisWithNoEventIsClean(t *testing.T) {
+	w := newWorld(t, "ten_aa")
+	if _, err := w.admin.Exec(ctx(t), `INSERT INTO record_chain_head (tenant_id, seq, hash) VALUES ('ten_aa', 0, $1)`, chain.GenesisHash("ten_aa")); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := w.v.Run(ctx(t))
+	if err != nil || !rep.Clean() || w.killed(t, "ten_aa") {
+		t.Fatalf("Run = %+v, %v (killed %v), want clean", rep, err, w.killed(t, "ten_aa"))
+	}
+}
+
 // If the alert cannot be delivered, the tenant is already stopped, the failure is returned, and nothing is swallowed.
 func TestAnAlertThatCannotBeDeliveredIsAnErrorAndTheTenantIsStillStopped(t *testing.T) {
 	w := newWorld(t, "ten_aa")

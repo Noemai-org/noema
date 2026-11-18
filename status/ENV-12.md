@@ -65,3 +65,7 @@ Items 1 to 7 are what the response should settle for the adapters (ruling A10: t
 - Purpose: prepare the Tushe response items for 11 Nov, including the REVERSAL_PENDING question and the account-state request; pre-build ENV-07 and ENV-12 against the stand-in.
 - Used it for: this file. The "account-state request" is read as in item 4 and needs confirmation. The stand-in pre-build is the readiness matrix, not a runner (the routes are unknown).
 - Evidence: this pull request.
+# Session 2026-11-20 · ENV-12 · the harness guard made content-based (IL)
+- docs#213 item 7: the guard no longer models one flag syntax. It reads every workflow (`.yml` and `.yaml`, reusable and composite ones included), Compose file, env file, the Makefile and the Compose scripts and fails on: the name Terra anywhere; another `harness-gpt-` file or a built `harness-` name; a `--harness-config` flag (full, an argparse prefix, quoted, split from its value by a line break, a backslash or a folded scalar) whose value is anything but the one fixed luna path; a YAML key or an `inputs` reference with `harness` in its name. The file is renamed `test_harness_selection_is_closed.py` (its old name made the guard fail itself on the word) and cites A362, not A374.
+- The parsers of `benchmark/runner/*` and `compile_acceptance/__main__.py` pass `allow_abbrev=False`; a test reads their source so a new parser without it fails. BO's area: told by message.
+- Not verified: only the offline tests ran; the workflows themselves did not.

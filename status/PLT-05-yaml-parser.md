@@ -1,0 +1,16 @@
+
+# Session 2026-11-18 · PLT-05 the workflow safeguards read parsed YAML (OD-P-95, ruling A283)
+
+## Session summary
+- What changed: `tools/ci/yamlload.py` (new), `tools/ci/check_checkout_credentials.py` and `tools/ci/check_workflow_permissions.py` rewritten to read the parsed document, both test files rewritten, `tools/ci/requirements.lock` (new), one install step in `.github/workflows/safeguards.yml`, two README rows.
+- Why: A283 said to stop reading YAML by lines. Each Codex round on noema#622 and noema#629 found another spelling the line scanners missed (a quoted key, a flow mapping, `permissions :`, a quoted `#`, an escaped key). The Founder approved PyYAML on noema#667 (hash-pinned, `safe_load`, `safeguards` job only); it is OD-P-95, closed, merged in docs#203.
+- Risks, and how they are contained: a new dependency in CI. One package, one hash for the CPython 3.13 manylinux wheel (checked with `pip download --require-hashes` for that platform), installed in the one job with `--only-binary=:all: --no-deps`, `SafeLoader` subclass only. If it is missing the two checks FAIL; they never pass unread. A file that is not plain YAML (an anchor, an alias, a repeated key, a second document, over 1 MiB) fails: anchors and aliases are refused because an alias can expand a small file into a very large one, and a repeated key because PyYAML keeps the last without a word while GitHub refuses the file.
+- Behaviour changes, stated: (1) `id-token` is refused only as a permission name, no longer as a word in a script; the same for `write-all`/`read-all` (a scalar `permissions` value). (2) Messages name `jobs.<id>.steps[n]` and the step's name instead of a line number. (3) The input name is matched without regard to case and the string "false" is accepted for `persist-credentials` (the same input for the action); an `INPUT_PERSIST-CREDENTIALS` variable on the step is refused. Nothing was relaxed that a line scanner refused for a real reason: the spelling classes it could not read are now read.
+- A finding on the way: the install step I wrote first held `--only-binary=:all:` as a plain scalar (`: ` inside it makes a mapping value): invalid YAML that GitHub would have refused. The new check caught it before the push (the old line scanner would not have).
+- Tests added (REQ-SEC-007, PLT-05): 50 for permissions and 37 for checkout, including every spelling class of #622 and #629, `on` read as the boolean true, a JSON-style job, a composite action, a repeated key, an anchor, a second document, a Python tag, a missing parser. Mutations: 24 of 24 mutants (the two checks and the loader) are caught. The two canaries (`checkout_persists_credentials`, `workflow_over_permissive`) still fire. Both checks pass on all 30 workflows of this repository.
+- Regression cases added: the spelling classes above. Debt entries: none. Conflicts raised: none.
+- Not run locally: the `safeguards` job itself (it installs from PyPI on Linux).
+
+## Pre-work for the next agent
+- Exact next step: after merge, delete nothing (the line scanners are gone in this change); EL or IL may point other YAML checks at `yamlload` (`check_no_admin_in_workflows.py` is text-based by design: it matches names anywhere, comments included).
+- Do not touch: `tools/ci/requirements.lock` without a reviewed change of both lines.

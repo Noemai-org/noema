@@ -81,9 +81,11 @@ func (b *builder) unknown(kind, why string) {
 	b.unkn = append(b.unkn, contracts.ExplanationFactsV2UnknownsItem{FactId: id("unk_", kind), Kind: kind, Status: st, WhyCode: why})
 }
 
-// add records a fact when its value is safe to show: bounded, no run of more than four digits by the one definition, and unchanged by it (already masked).
+// add records a fact when its value is safe to show: bounded, no run of more than four digits by the one definition, and unchanged by it (already masked). A whole money string is safe
+// (payment.amount): MaskText keeps it. This fact value is structured, not customer-visible text, so A331 ("money in customer-visible text only") would not exempt it; the exemption is kept
+// here because the explanation templates render the customer's amount from it, and dropping it makes every amount with decimals an unknown. The Architect is asked to decide (status/CON-digit-tightenings.md).
 func (b *builder) add(kind, value string) {
-	if value == "" || utf8.RuneCountInString(value) > maxValue || payloadguard.Mask(value) != value || fiveASCII.MatchString(value) {
+	if value == "" || utf8.RuneCountInString(value) > maxValue || payloadguard.MaskText(value) != value || fiveASCII.MatchString(value) {
 		b.unknown(kind, "VALUE_NOT_SAFE")
 		return
 	}

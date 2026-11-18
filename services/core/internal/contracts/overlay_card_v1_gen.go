@@ -15,10 +15,11 @@ type OverlayCardV1ClarificationCard struct {
 	Question        string                                      `json:"question"`
 	Options         []OverlayCardV1ClarificationCardOptionsItem `json:"options"`
 	AllowNone       bool                                        `json:"allow_none"`
+	NoneOptionId    string                                      `json:"none_option_id"`
 	ExpiresAt       CommonV1Timestamp                           `json:"expires_at"`
 }
 
-var OverlayCardV1ClarificationCardShape = objectShape{name: "OverlayCardV1ClarificationCard", props: map[string]bool{"card_type": true, "schema_version": true, "clarification_id": true, "question": true, "options": true, "allow_none": true, "expires_at": true}, required: []string{"card_type", "schema_version", "clarification_id", "question", "options", "allow_none", "expires_at"}, nonNull: map[string]bool{"card_type": true, "schema_version": true, "clarification_id": true, "question": true, "options": true, "allow_none": true, "expires_at": true}, closed: true}
+var OverlayCardV1ClarificationCardShape = objectShape{name: "OverlayCardV1ClarificationCard", props: map[string]bool{"card_type": true, "schema_version": true, "clarification_id": true, "question": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true}, required: []string{"card_type", "schema_version", "clarification_id", "question", "options", "allow_none", "none_option_id", "expires_at"}, nonNull: map[string]bool{"card_type": true, "schema_version": true, "clarification_id": true, "question": true, "options": true, "allow_none": true, "none_option_id": true, "expires_at": true}, closed: true}
 
 func (t *OverlayCardV1ClarificationCard) UnmarshalJSON(b []byte) error {
 	raw, err := OverlayCardV1ClarificationCardShape.check(b)

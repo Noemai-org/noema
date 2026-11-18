@@ -1,0 +1,230 @@
+{
+  "canonical_locale_rule": "canonical_locale is en-NG for every case (A460: what the UI sends); locale_mix stays a tag only and is not sent, and no locale hint is sent",
+  "cases": [
+    {
+      "candidates": {
+        "beneficiaries": [
+          {
+            "account_last4": "3644",
+            "aliases": [
+              "Chidi"
+            ],
+            "beneficiary_id": "ben_0001",
+            "name": "Chidi Okonkwo"
+          }
+        ],
+        "transactions": [
+          {
+            "age_minutes": 150,
+            "amount_minor": 250000,
+            "beneficiary": "ben_0001",
+            "currency": "NGN",
+            "direction": "OUTGOING",
+            "ref": "fin.transaction:TX7992"
+          }
+        ]
+      },
+      "canonical_locale": "en-NG",
+      "case_id": "BEN-CLEAN-0001",
+      "case_sha256": "sha256:03c32413d917585e917500d9e1bd30f3cff2c5f5138f0f96a716313a472f4bc6",
+      "channel": "text",
+      "locale_mix": [
+        "pcm"
+      ],
+      "principal": {
+        "principal_id": "usr_synth009",
+        "roles": [
+          "customer"
+        ]
+      },
+      "utterances": [
+        {
+          "text": "Wetin happen to the N2,500 wey I send Chidi dis morning?",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "candidates": {
+        "beneficiaries": [
+          {
+            "account_last4": "4309",
+            "aliases": [
+              "Ibrahim"
+            ],
+            "beneficiary_id": "ben_0001",
+            "name": "Ibrahim Bakare"
+          }
+        ],
+        "transactions": [
+          {
+            "age_minutes": 151,
+            "amount_minor": 2000000,
+            "beneficiary": "ben_0001",
+            "currency": "NGN",
+            "direction": "OUTGOING",
+            "ref": "fin.transaction:TX7381"
+          }
+        ]
+      },
+      "canonical_locale": "en-NG",
+      "case_id": "BEN-CLEAN-0014",
+      "case_sha256": "sha256:e98433cf836b505e32f543b8c5e6a7cad16c0d66138887b3c213eb754d147e04",
+      "channel": "text",
+      "locale_mix": [
+        "en-NG"
+      ],
+      "principal": {
+        "principal_id": "usr_synth037",
+        "roles": [
+          "customer"
+        ]
+      },
+      "utterances": [
+        {
+          "text": "Where is the 20k I sent to Ibrahim this morning?",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "candidates": {
+        "beneficiaries": [
+          {
+            "account_last4": "7962",
+            "aliases": [
+              "Amina"
+            ],
+            "beneficiary_id": "ben_0001",
+            "name": "Amina Nwosu"
+          }
+        ],
+        "transactions": [
+          {
+            "age_minutes": 154,
+            "amount_minor": 3000000,
+            "beneficiary": "ben_0001",
+            "currency": "NGN",
+            "direction": "OUTGOING",
+            "ref": "fin.transaction:TX7185"
+          }
+        ]
+      },
+      "canonical_locale": "en-NG",
+      "case_id": "BEN-CLEAN-0027",
+      "case_sha256": "sha256:30c714ea3c3d88932900de32f5a43754c5f542bcf81434c12aa61eab65833c83",
+      "channel": "text",
+      "locale_mix": [
+        "pcm",
+        "en-NG"
+      ],
+      "principal": {
+        "principal_id": "usr_synth117",
+        "roles": [
+          "customer"
+        ]
+      },
+      "utterances": [
+        {
+          "text": "Abeg where is the 30k wey I send Amina dis morning?",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "candidates": {
+        "beneficiaries": [
+          {
+            "account_last4": "7420",
+            "aliases": [
+              "Bola"
+            ],
+            "beneficiary_id": "ben_0001",
+            "name": "Bola Musa"
+          }
+        ],
+        "transactions": [
+          {
+            "age_minutes": 154,
+            "amount_minor": 1000000,
+            "beneficiary": "ben_0001",
+            "currency": "NGN",
+            "direction": "OUTGOING",
+            "ref": "fin.transaction:TX6996"
+          }
+        ]
+      },
+      "canonical_locale": "en-NG",
+      "case_id": "BEN-TMO-0001",
+      "case_sha256": "sha256:3c42544ebe5d76f63aa1c92ba5c5f46f019079b3920a9de370fc23663ee40b7d",
+      "channel": "text",
+      "locale_mix": [
+        "pcm"
+      ],
+      "principal": {
+        "principal_id": "usr_synth049",
+        "roles": [
+          "customer"
+        ]
+      },
+      "utterances": [
+        {
+          "text": "Wetin happen to the 10k wey I send Bola dis morning?",
+          "turn": 1
+        }
+      ]
+    },
+    {
+      "candidates": {
+        "beneficiaries": [
+          {
+            "account_last4": "9771",
+            "aliases": [
+              "Bola"
+            ],
+            "beneficiary_id": "ben_0001",
+            "name": "Bola Salami"
+          }
+        ],
+        "transactions": [
+          {
+            "age_minutes": 155,
+            "amount_minor": 5000000,
+            "beneficiary": "ben_0001",
+            "currency": "NGN",
+            "direction": "OUTGOING",
+            "ref": "fin.transaction:TX7684"
+          }
+        ]
+      },
+      "canonical_locale": "en-NG",
+      "case_id": "BEN-TMO-0018",
+      "case_sha256": "sha256:d403a8b47870c7683e7291d7d1ac68fa56bc07124c6378dc9e9ff3c88c7f2eb1",
+      "channel": "text",
+      "locale_mix": [
+        "en-NG"
+      ],
+      "principal": {
+        "principal_id": "usr_synth002",
+        "roles": [
+          "customer"
+        ]
+      },
+      "utterances": [
+        {
+          "text": "Where is the N50,000 I sent to Bola this morning?",
+          "turn": 1
+        }
+      ]
+    }
+  ],
+  "inputs_sha256": "sha256:874b2289874ded40d780ce28e96669ed15aa145f39d13356b6df4b74dabfcf26",
+  "label": "SYNTHETIC generated cases, inputs only: no expectation and no oracle reference (INV-22); for recording compile outputs for the replay provider",
+  "suite": {
+    "generator": "noema-casegen",
+    "generator_version": "1.3.3",
+    "manifest_sha256": "sha256:c6bdd3a63e4da29487100251bef33ad1dba36561a17ecaa170dc211bc57f0191",
+    "seed": 20261020,
+    "tree_sha256": "sha256:54503ef7f9550a926a281d8ae95bc76b9b40f268f264c2eac7488084a112fa74"
+  }
+}

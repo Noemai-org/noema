@@ -68,6 +68,7 @@ type Candidates interface {
 // A target that does not exist and a target the principal does not own are the same answer (REQ-TRU-003): the adapter returns owned=false or ErrNotFound for either, and Trust
 // treats the two identically.
 type Ownership interface {
+	// OwnsTarget checks the target the stored intent names (AdmittedIntent.TargetRef), for the session's principal; T14 then lets a plan step act on that target and no other.
 	OwnsTarget(ctx context.Context, tenantID, principalID string, a AdmittedIntent) (owned bool, err error)
 }
 
@@ -80,10 +81,22 @@ type SourceItem struct {
 // SnapshotEvidence is what the Evidence port reports for a sealed snapshot. It is the state after the Evidence Layer's refresh attempt (REQ-CTX-003: a refresh that fails makes
 // the fact UNAVAILABLE), so an item still past its limit is one that could not be refreshed.
 type SnapshotEvidence struct {
+	// IntentID and IntentVersion name the intent the snapshot was sealed for. T9 refuses a snapshot that is not this evaluation's intent's: a snapshot is not interchangeable between
+	// intents (A226).
+	IntentID      string
+	IntentVersion int
 	// Items holds one entry per required source item.
 	Items []SourceItem
 	// RequiredUnavailable is true when a required source could not be read at all.
 	RequiredUnavailable bool
+	// EvidenceSetHash is the snapshot's own set hash (evidence/snapshot.SetHash over the evidence IDs and payload hashes), as the Decision Record and the grant keep it; empty when the
+	// adapter does not give it. It is never the binding's evidence value (A435). T9 refuses a value that is not empty and not in the contract's Hash form (sha256: and 64 lower-case hex).
+	EvidenceSetHash string
+	// ConfirmationBindingEvidenceHash is the evidence component of a confirmation binding (A435; the contract's field is still named evidence_set_hash): the CONTENT digest of the
+	// items the decision used (evidence/snapshot.ContentHash: the sorted source, source record ID, facts digest and status of each item, independent of the evidence IDs minted for
+	// each read), in the contract's Hash form; empty when the adapter does not give it. T9 refuses a value that is not empty and not in that form, keeps it, and T13 passes it on in
+	// FreshBinding.
+	ConfirmationBindingEvidenceHash string
 }
 
 // Evidence is the T9 read: the freshness of each required source item of the sealed snapshot the orchestrator named.

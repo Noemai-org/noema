@@ -1,9 +1,11 @@
 """The shape of a contract, extracted from its JSON Schema (CON-03, REQ-API-001).
 
-The generator models structure: objects, arrays, maps, enums, constants, references, nullable values and unions. It does
-not model validation: patterns, bounds, `if`/`then`/`else`, `not`, `contains`. The JSON Schema validator owns those, at
-every boundary. It never guesses: a keyword it does not know, or a combination it does not model, is a GenerationError
-that names the schema and the path. Standard library only.
+The generator models structure: objects, arrays, maps, enums, constants, references, nullable values and unions. The Go and
+Pydantic output does not model validation: patterns, bounds, `if`/`then`/`else`, `not`, `contains`. The JSON Schema
+validator owns those, at every boundary. The TypeScript output does hold them (noema#682): every keyword of a node that the
+structure above does not carry is kept on the node as `rules` (raw schema, `$ref` resolved), and tools/codegen/ts.py writes a
+check for each or refuses. It never guesses: a keyword it does not know, or a combination it does not model, is a
+GenerationError that names the schema and the path. Standard library only.
 """
 from __future__ import annotations
 
@@ -27,23 +29,32 @@ VALIDATION = {"pattern", "minLength", "maxLength", "minimum", "maximum", "exclus
 META = {"$schema", "$id", "title", "description", "default", "$defs", "examples", "$comment"}
 
 
+def _rules() -> Any:
+    """Rules the structure of a type does not carry: raw schema nodes (`$ref` resolved to `Ref`), all of which must hold. Go and Python ignore them; TypeScript writes a check
+    for each (tools/codegen/ts.py). Not part of equality: two nodes of the same shape are the same type."""
+    return field(default_factory=list, compare=False, repr=False)
+
+
 @dataclass
 class Prim:
     kind: str  # string, integer, number, boolean, null, any
     nullable: bool = False
     constraints: dict[str, Any] = field(default_factory=dict)
+    rules: list[dict] = _rules()
 
 
 @dataclass
 class Const:
     value: Any
     nullable: bool = False
+    rules: list[dict] = _rules()
 
 
 @dataclass
 class Enum:
     values: list[Any]
     nullable: bool = False
+    rules: list[dict] = _rules()
 
 
 @dataclass
@@ -51,6 +62,7 @@ class Ref:
     schema: str  # file name
     name: str  # name of the target Named type
     nullable: bool = False
+    rules: list[dict] = _rules()
 
 
 @dataclass
@@ -58,6 +70,7 @@ class Arr:
     item: Any
     constraints: dict[str, Any] = field(default_factory=dict)
     nullable: bool = False
+    rules: list[dict] = _rules()
 
 
 @dataclass
@@ -65,6 +78,7 @@ class MapOf:
     value: Any
     nullable: bool = False
     key_pattern: str | None = None  # propertyNames.pattern: the TypeScript parser refuses a key that does not match (the types of Go and Python hold no key rule)
+    rules: list[dict] = _rules()
 
 
 @dataclass
@@ -80,6 +94,7 @@ class Obj:
     extra: Any = None  # None: closed (additionalProperties: false). Prim("any"): open. Any other type: the type of the other members.
     nullable: bool = False
     key_pattern: str | None = None  # propertyNames.pattern of the other members (the TypeScript parser refuses a key that does not match)
+    rules: list[dict] = _rules()
 
     @property
     def closed(self) -> bool:
@@ -90,6 +105,7 @@ class Obj:
 class Union:
     alts: list[Any]
     nullable: bool = False
+    rules: list[dict] = _rules()
 
 
 @dataclass
@@ -123,6 +139,18 @@ def root_name(file: str) -> str:
 
 def is_null(node: Any) -> bool:
     return isinstance(node, dict) and node.get("type") == "null" and set(node) <= {"type", "description"}
+
+
+class Take:
+    """What shape() consumed of a schema node: the keywords the structure carries, and rules it split off (an allOf member beside a `$ref`)."""
+
+    def __init__(self) -> None:
+        self.keys: set[str] = set()
+        self.rules: list[dict] = []
+
+
+# What a Prim of each kind carries into the TypeScript parser (tools/codegen/ts.py pbase). Any other constraint on the node is a rule.
+PRIM_CARRIED = {"string": {"pattern", "minLength", "maxLength"}, "integer": {"minimum", "maximum", "exclusiveMinimum"}, "number": {"minimum", "maximum", "exclusiveMinimum"}}
 
 
 class Builder:
@@ -174,7 +202,9 @@ class Builder:
         for k in n:
             if k not in SHAPE and k not in VALIDATION and k not in META:
                 raise self.err(path, f"keyword {k!r} is not modelled by the generator")
-        t = self.shape(n, path, hint)
+        take = Take()
+        t = self.shape(n, path, hint, take)
+        t.rules.extend(self.rules_of(n, take, path))
         if hoist and isinstance(t, (Obj, Enum, Union)):
             name = hint
             if name in self.named:
@@ -186,15 +216,41 @@ class Builder:
             return Ref(self.cur, name, nullable)
         return t
 
-    def shape(self, n: dict, path: str, hint: str) -> Any:
+    def rules_of(self, n: dict, take: Take, path: str) -> list[dict]:
+        """The keywords of n that the type built from it does not carry, with every `$ref` resolved: the rules the TypeScript parser must still hold (noema#682)."""
+        rest = {k: v for k, v in n.items() if k not in META and k not in take.keys}
+        return [self.resolve_refs(r, path) for r in ([rest] if rest else []) + take.rules]
+
+    def resolve_refs(self, n: Any, path: str) -> Any:
+        """A copy of a schema node in which every `$ref` is a Ref. Only schema positions are walked: enum, const and required hold data."""
+        if isinstance(n, list):
+            return [self.resolve_refs(x, path) for x in n]
+        if not isinstance(n, dict):
+            return n
+        out: dict[str, Any] = {}
+        for k, v in n.items():
+            if k == "$ref" and isinstance(v, str):
+                out[k] = self.resolve(v, path)
+            elif k in ("properties", "$defs", "patternProperties"):
+                out[k] = {name: self.resolve_refs(sub, path) for name, sub in v.items()}
+            elif k in ("enum", "const", "required", "examples", "default"):
+                out[k] = v
+            else:
+                out[k] = self.resolve_refs(v, path)
+        return out
+
+    def shape(self, n: dict, path: str, hint: str, take: Take) -> Any:
         if "$ref" in n:
             extra = [k for k in n if k in SHAPE and k != "$ref"]
             if extra:
                 raise self.err(path, f"$ref beside {extra} is not modelled")
+            take.keys.add("$ref")
             return self.resolve(n["$ref"], path)
         if "const" in n:
+            take.keys |= {"const", "type"}
             return Const(n["const"])
         if "enum" in n:
+            take.keys |= {"enum", "type"}
             values = [v for v in n["enum"] if v is not None]
             return Enum(values, nullable=len(values) != len(n["enum"]))
         for kw in ("oneOf", "anyOf"):
@@ -207,6 +263,7 @@ class Builder:
                     break  # constraint-only alternatives; the node's own shape stands
                 if len(shaped) != len(rest):
                     raise self.err(path, f"{kw} mixes shaped and constraint-only alternatives")
+                take.keys.add(kw)
                 if len(rest) == 1:
                     t = self.node(rest[0], path, hint, hoist=False)
                     t.nullable = nullable or t.nullable
@@ -222,10 +279,13 @@ class Builder:
             if refs and (own or typed or len(refs) > 1):
                 raise self.err(path, "allOf with a $ref beside another shape is not modelled")
             if refs:
+                take.keys.add("allOf")
+                take.rules.extend({"allOf": [m]} for m in n["allOf"] if m not in refs)  # the members beside the $ref are rules
                 return self.resolve(refs[0]["$ref"], path)
             if typed:
                 raise self.err(path, "allOf with a typed member is not modelled")
         types = n.get("type")
+        take.keys.add("type")
         nullable = False
         if isinstance(types, list):
             nullable = "null" in types
@@ -247,14 +307,23 @@ class Builder:
             return Union([Prim(k) for k in types], nullable)  # a scalar union such as ["string", "integer"]
         constraints = {k: n[k] for k in ("pattern", "minLength", "maxLength", "minimum", "maximum", "exclusiveMinimum", "minItems", "maxItems") if k in n}
         if types == "object":
-            return self.obj(n, path, hint, nullable)
+            t = self.obj(n, path, hint, nullable)
+            take.keys |= {"properties", "required", "additionalProperties"}
+            names = n.get("propertyNames")
+            holds_names = isinstance(t, MapOf) or (isinstance(t, Obj) and not t.closed and not (isinstance(t.extra, Prim) and t.extra.kind == "any"))
+            if isinstance(names, dict) and set(names) - META <= {"pattern"} and holds_names:
+                take.keys.add("propertyNames")  # the parser holds a key pattern, nothing else about the keys
+            return t
         if types == "array":
+            take.keys |= {"minItems", "maxItems"}
             if "prefixItems" in n and n.get("items", False) is False:
                 members = [self.node(m, f"{path}/prefixItems/{i}", f"{hint}Item", hoist=False) for i, m in enumerate(n["prefixItems"])]
                 if any(m != members[0] for m in members):
                     raise self.err(path, "prefixItems with different member types is not modelled")
                 item = members[0]
+                item.rules.clear()  # a member's own rules (the kind of a section) hold at its position only: they stay with prefixItems, a rule of the array
             elif "items" in n:
+                take.keys.add("items")
                 item = self.node(n["items"], f"{path}/items", f"{hint}Item")
             else:
                 item = Prim("any")
@@ -262,6 +331,7 @@ class Builder:
         if types == "null":
             return Const(None)
         if types in ("string", "integer", "number", "boolean"):
+            take.keys |= PRIM_CARRIED.get(types, set())
             return Prim(types, nullable, constraints)
         raise self.err(path, f"type {types!r} is not modelled")
 
