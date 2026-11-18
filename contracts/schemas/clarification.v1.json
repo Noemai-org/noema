@@ -30,7 +30,7 @@
         "properties": {
           "option_id": {
             "type": "string",
-            "pattern": "^[a-z0-9_]{1,32}$"
+            "pattern": "^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
           },
           "label": {
             "type": "string",
@@ -53,7 +53,7 @@
     "none_option_id": {
       "description": "A275: the ID of the 'None of these' choice, minted by core, unique per clarification and never equal to an option_id of the same clarification (not expressible in JSON Schema; tools/contracts/validate.py checks it). The UI submits it as option_id (PERD section 39.2) and never invents a sentinel.",
       "type": "string",
-      "pattern": "^[a-z0-9_]{1,32}$"
+      "pattern": "^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$"
     },
     "expires_at": {
       "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/Timestamp"

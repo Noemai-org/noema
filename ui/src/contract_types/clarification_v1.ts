@@ -2,7 +2,7 @@
 import { arr, bool, closed, has, int, lit, mapOf, num, obj, oneOfLit, req, str, union } from "./_runtime.js";
 import { parseCommonV1CandidateSetId, type CommonV1CandidateSetId, parseCommonV1ClarificationId, type CommonV1ClarificationId, parseCommonV1PositiveInt, type CommonV1PositiveInt, parseCommonV1SlotName, type CommonV1SlotName, parseCommonV1Timestamp, type CommonV1Timestamp } from "./common_v1.js";
 
-const PATTERN_0 = new RegExp("^[a-z0-9_]{1,32}$", "u");
+const PATTERN_0 = new RegExp("^(?![a-z_]*(?:[0-9][a-z_]*){5})[a-z0-9_]{1,32}$", "u");
 const PATTERN_1 = new RegExp("^(?![\\s\\S]*[0-9]{5})[\\s\\S]*$", "u");
 const PATTERN_2 = new RegExp("^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$", "u");
 
