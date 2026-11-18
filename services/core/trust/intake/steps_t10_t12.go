@@ -124,8 +124,9 @@ func escalate(r decide.ResolvedIntent, packCode string, a decide.Authority) deci
 	return decide.Stop(d)
 }
 
-// t11: evaluate the tenant's active policy set. The rules that decided are recorded in the basis once, whatever the effect; each effect is its own outcome; no
-// permitting rule is REJECT NO_PERMITTING_RULE (default deny, PERD 23.4); a CONFIRM stands only with a PERMIT matched (INV-03).
+// t11: evaluate the tenant's active policy set for every capability a plan may use, and combine the answers into the one outcome (A306; policy_combine.go). The rules that
+// decided are recorded in the basis once, whatever the effect; each effect is its own outcome; no permitting rule is REJECT NO_PERMITTING_RULE (default deny, PERD 23.4); a CONFIRM
+// stands only with a PERMIT matched for every capability (INV-03). The Policies port stays the one place policy is evaluated: the intake asks it once for each capability.
 func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 	r, err := e.resolved()
 	if err != nil {
@@ -134,18 +135,27 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 	if e.bb == nil {
 		return decide.FailStep(errNotReady)
 	}
-	q := PolicyQuery{TenantID: e.req.Session.TenantID, IntentID: e.intentID, IntentVersion: e.version, IntentNode: e.intent.IntentNode, SnapshotID: e.snapshotID, Now: e.now}
-	if e.capability != nil {
-		q.CapabilityID = e.capability.ID
-	}
-	res, err := e.svc.Ports.Policies.Evaluate(ctx, q)
+	ids, err := e.policyCapabilities(ctx)
 	if err != nil {
 		return decide.FailStep(err)
 	}
-	for _, rule := range res.Rules {
-		if rule.RuleID == "" || rule.PolicyID == "" || rule.Version == "" {
-			return decide.FailStep(errAnswer)
+	answers := make([]PolicyEvaluation, 0, len(ids))
+	for _, id := range ids {
+		res, err := e.svc.Ports.Policies.Evaluate(ctx, PolicyQuery{TenantID: e.req.Session.TenantID, IntentID: e.intentID, IntentVersion: e.version, IntentNode: e.intent.IntentNode,
+			CapabilityID: id, SnapshotID: e.snapshotID, Now: e.now})
+		if err != nil {
+			return decide.FailStep(err)
 		}
+		for _, rule := range res.Rules {
+			if rule.RuleID == "" || rule.PolicyID == "" || rule.Version == "" {
+				return decide.FailStep(errAnswer)
+			}
+		}
+		answers = append(answers, res)
+	}
+	res, err := combinePolicies(answers)
+	if err != nil {
+		return decide.FailStep(err)
 	}
 	d, goOn, err := e.policyOutcome(r, res)
 	if err != nil {
@@ -164,6 +174,27 @@ func (e *evaluation) t11(ctx context.Context) decide.StepResult {
 		}
 	}
 	return decide.Stop(d)
+}
+
+// policyCapabilities is the capability IDs T11 asks the policy about. A write may use any capability of the authorized set (T14 refuses the rest), so the policy is asked about each
+// of them, sorted; the set is read here once for the evaluation and T12 and T14 reuse it. A read has an empty plan, so only the intent's own capability is asked about, as the
+// intent names it (empty when it names none); so does a write whose set is empty, which has nothing but the intent node to be judged by.
+func (e *evaluation) policyCapabilities(ctx context.Context) ([]string, error) {
+	own := ""
+	if e.capability != nil {
+		own = e.capability.ID
+	}
+	if !e.late.needsWrite {
+		return []string{own}, nil
+	}
+	set, err := e.authorizedCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(set) == 0 {
+		return []string{own}, nil
+	}
+	return set, nil
 }
 
 // policyOutcome turns the winning effect into a decision, or reports that the evaluation goes on (a PERMIT that names the rule that permits).
@@ -281,8 +312,8 @@ func (e *evaluation) dispatchBudget(ctx context.Context, r decide.ResolvedIntent
 	return decide.Continue()
 }
 
-// authorizedCapabilities reads the authorized set once per evaluation: the port's answer and the intent's own capability, without repeats, sorted. An error from the port is an
-// error, never an empty set.
+// authorizedCapabilities reads the authorized set once per evaluation, whichever step asks first (T11, T12 or T14): the port's answer and the intent's own capability, without
+// repeats, sorted. An error from the port is an error, never an empty set.  T11 reads it only for a write (a request T3 says leads to one); T12 and T14 as they did.
 func (e *evaluation) authorizedCapabilities(ctx context.Context) ([]string, error) {
 	if e.authorized != nil {
 		return e.authorized, nil
