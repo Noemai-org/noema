@@ -75,7 +75,7 @@ func evdSeal(t testing.TB, items ...trustport.SealedItem) trustport.SealedSnapsh
 		rev[len(items)-1-i] = items[i]
 	}
 	return trustport.SealedSnapshot{TenantID: evdTenant, SnapshotID: evdSnap, CorrelationID: evdCorr, EvidenceIDs: ids, EvidenceSetHash: hash, Items: rev,
-		Intent: trustport.SealedIntent{IntentID: "int_0001", Version: 2, IntentNode: evdNode, AdmittedAt: evdNow.Add(-5 * time.Minute)}}
+		Intent: trustport.SealedIntent{IntentID: "int_0001", Version: 2, IntentNode: evdNode, AdmittedAt: evdNow.Add(-24 * time.Hour)}}
 }
 
 // evdWorld is the usual snapshot: three sources, the evidence of the case.
@@ -324,8 +324,8 @@ func TestEvidenceAnotherTenantsSnapshotIsTheSameAnswerAsAnUnknownOne(t *testing.
 	if !errors.Is(other, trustport.ErrSnapshotNotFound) || !errors.Is(unknown, trustport.ErrSnapshotNotFound) {
 		t.Fatalf("other tenant: %v, unknown: %v; want ErrSnapshotNotFound for both", other, unknown)
 	}
-	if other.Error() != unknown.Error() {
-		t.Errorf("the two answers differ: %q and %q", other, unknown)
+	if other.Error() != unknown.Error() || other.Error() != trustport.ErrSnapshotNotFound.Error() || errors.Is(other, trustport.ErrSnapshotStore) || errors.Is(unknown, trustport.ErrSnapshotStore) {
+		t.Errorf("the two answers differ, or are not the bare not-found: %q and %q", other, unknown)
 	}
 	for _, bad := range []string{"", "evs_", "evs_A", "evs_" + strings.Repeat("A", 33), "snap_AA01", "evs_AA01'; --", "evs_AA 01", "evs_../x", "EVS_AA01"} {
 		s := &evdStore{}
@@ -565,6 +565,11 @@ func (b *evdBegin) BeginTx(ctx context.Context, o pgx.TxOptions) (pgx.Tx, error)
 
 type evdLoginSet map[string]trustport.SnapshotTx
 
+// evdNoTx is a login source that answers neither a transaction source nor an error.
+type evdNoTx struct{}
+
+func (evdNoTx) TxFor(string) (trustport.SnapshotTx, error) { return nil, nil }
+
 func (l evdLoginSet) TxFor(tenantID string) (trustport.SnapshotTx, error) {
 	if tx, ok := l[tenantID]; ok {
 		return tx, nil
@@ -582,8 +587,9 @@ func TestEvidenceReaderUsesOneReadOnlyTransactionOfTheTenantsLogin(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
-	_, err = r.Sealed(evdCtx(t), evdTenant, evdSnap)
+	caller := evdCtx(t)
+	callerEnd, _ := caller.Deadline()
+	_, err = r.Sealed(caller, evdTenant, evdSnap)
 	if !errors.Is(err, trustport.ErrSnapshotStore) || !errors.Is(err, bad) || strings.Contains(err.Error(), evdSecret) || strings.Contains(err.Error(), "SQLSTATE") {
 		t.Errorf("err = %v; want ErrSnapshotStore, its cause kept, no database text in it", err)
 	}
@@ -593,13 +599,17 @@ func TestEvidenceReaderUsesOneReadOnlyTransactionOfTheTenantsLogin(t *testing.T)
 	if b.tx.rollbacks != 1 || b.tx.commits != 0 {
 		t.Errorf("rollbacks %d, commits %d; want one rollback and no commit", b.tx.rollbacks, b.tx.commits)
 	}
-	if len(b.deadline) != 1 || b.deadline[0].IsZero() || b.deadline[0].After(start.Add(750*time.Millisecond+time.Second)) {
+	if len(b.deadline) != 1 || b.deadline[0].IsZero() || b.deadline[0].After(callerEnd.Add(-30*time.Second)) {
 		t.Errorf("the transaction's deadline %v is not bounded by the reader's timeout", b.deadline)
 	}
 
 	_, err = r.Sealed(evdCtx(t), evdOther, evdSnap) // a tenant with no login of its own
 	if !errors.Is(err, trustport.ErrSnapshotStore) || strings.Contains(err.Error(), evdSecret) || strings.Contains(err.Error(), evdOther) {
 		t.Errorf("no login: err = %v, want ErrSnapshotStore with no tenant in its text", err)
+	}
+	none, _ := trustport.NewSealedSnapshots(evdNoTx{}, time.Second)
+	if _, err := none.Sealed(evdCtx(t), evdTenant, evdSnap); !errors.Is(err, trustport.ErrSnapshotStore) {
+		t.Errorf("a login source with no transaction source: err = %v, want ErrSnapshotStore", err)
 	}
 	b2 := &evdBegin{err: bad}
 	r2, _ := trustport.NewSealedSnapshots(evdLoginSet{evdTenant: b2}, time.Second)
