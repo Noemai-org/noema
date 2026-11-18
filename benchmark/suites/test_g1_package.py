@@ -22,8 +22,11 @@ def inputs() -> Json:
     }
 
 
-def card(complete: bool = True, zero: bool = True) -> Json:
-    return {"complete": complete, "tier0": {"all_zero": zero}}
+def card(complete: bool = True, zero: bool = True, errored: list[str] | None = None, other: str | None = None) -> Json:
+    incomplete: Json = {"missing": [], "errored": errored or [], "stale_version": [], "duplicate": [], "unknown": [], "invalid_case": []}
+    if other:
+        incomplete[other] = ["BEN-CLEAN-0001"]
+    return {"complete": complete, "tier0": {"all_zero": zero}, "incomplete": incomplete}
 
 
 def report(verdict: str = "IDENTICAL", excluded: list[str] | None = None, sha: str = SHA) -> Json:
@@ -99,6 +102,62 @@ class ComputedRows(unittest.TestCase):
         i = inputs()
         i["rows"]["10"]["verdict"] = "MET"
         self.assertIn("**NOT MET**", row(make(i, a=card(zero=False)), 10))
+
+
+class AttestationAndExclusions(unittest.TestCase):
+    """Codex P2s on noema#717 (ruling A322): row 5 needs the owner's attestation like every row, and row 10 accepts the registry-named exclusion exactly as `g1.accept_named_exclusions` does."""
+
+    def test_row_5_needs_the_owners_attestation_and_a_link_even_when_every_computed_check_passes(self) -> None:
+        missing = inputs()
+        del missing["rows"]["5"]
+        unread = inputs()
+        unread["rows"]["5"]["read_by_bo"] = False
+        nolink = inputs()
+        del nolink["rows"]["5"]["link"]
+        for i in (missing, unread, nolink):
+            text = make(i)
+            self.assertIn("**NOT MET**", row(text, 5))
+            self.assertIn("G1: NOT MET", text)
+
+    def test_row_5_still_fails_a_computed_check_when_the_owner_attests(self) -> None:
+        i = inputs()
+        i["check_runs"]["all_success"] = False
+        self.assertIn("**NOT MET**", row(make(i), 5))
+
+    def test_a_leg_whose_only_incompleteness_is_a_named_exclusion_is_met(self) -> None:
+        a, b = card(False, errored=["BEN-CLEAN-1007"]), card(False, errored=["BEN-CLEAN-1007"])
+        text = make(a=a, b=b, r=report(excluded=["BEN-CLEAN-1007"]))
+        self.assertIn("**MET**", row(text, 10))
+        self.assertIn("G1: MET", text)
+
+    def test_an_error_that_is_not_a_named_exclusion_is_not_met(self) -> None:
+        self.assertIn("**NOT MET**", row(make(a=card(False, errored=["BEN-CLEAN-1007", "BEN-CLEAN-0001"]), r=report(excluded=["BEN-CLEAN-1007"])), 10))
+        self.assertIn("**NOT MET**", row(make(a=card(False, errored=["BEN-CLEAN-0001"]), r=report(excluded=["BEN-CLEAN-1007"])), 10))
+        self.assertIn("**NOT MET**", row(make(a=card(False, errored=["BEN-CLEAN-1007"]), r=report()), 10), "the replay names no exclusion")
+
+    def test_any_other_incomplete_reason_or_a_tier_0_gate_still_fails_even_with_the_exclusion(self) -> None:
+        r = report(excluded=["BEN-CLEAN-1007"])
+        for reason in ("missing", "stale_version", "duplicate", "unknown", "invalid_case"):
+            self.assertIn("**NOT MET**", row(make(a=card(False, errored=["BEN-CLEAN-1007"], other=reason), r=r), 10), reason)
+        self.assertIn("**NOT MET**", row(make(a=card(False, zero=False, errored=["BEN-CLEAN-1007"]), r=r), 10))
+        self.assertIn("**NOT MET**", row(make(b=card(False, errored=["BEN-CLEAN-1007"], zero=False), r=r), 10))
+
+    def test_the_unknown_outcome_case_is_never_an_accepted_exclusion(self) -> None:
+        r = report(excluded=["BEN-TMO-0001"])
+        self.assertIn("**NOT MET**", row(make(a=card(False, errored=["BEN-TMO-0001"]), r=r), 10))
+
+    def test_an_incomplete_leg_with_no_errored_case_is_not_rescued(self) -> None:
+        self.assertIn("**NOT MET**", row(make(a=card(False), r=report(excluded=["BEN-CLEAN-1007"])), 10))
+
+    def test_a_malformed_scorecard_fails_closed(self) -> None:
+        for bad in ({"complete": False}, {"complete": False, "tier0": {"all_zero": True}}, {"complete": False, "tier0": {"all_zero": True}, "incomplete": {"errored": "BEN-CLEAN-1007"}}):
+            self.assertIn("**NOT MET**", row(make(a=bad, r=report(excluded=["BEN-CLEAN-1007"])), 10))
+
+
+    def test_a_scorecard_of_the_wrong_shape_is_not_met_and_never_raises(self) -> None:
+        wrong: list[Any] = [{"complete": True, "tier0": None}, {"complete": True, "tier0": "zero"}, {}, [], None]
+        for bad in wrong:
+            self.assertIn("**NOT MET**", row(render(inputs(), bad, card(), report()), 10))
 
 
 class Whole(unittest.TestCase):

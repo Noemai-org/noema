@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from benchmark.suites.g1 import named_exclusion_only
+
 Json = dict[str, Any]
 LABELS = ("stand-in", "tushe")
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -55,6 +57,8 @@ def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str
     ok, link = _linked(inputs["rows"].get(str(n)))
     sha, checks = inputs["dispatch_sha"], inputs["check_runs"]
     if n == 5:
+        if not ok:
+            return False, f"row 5 needs the owner's attestation like every row: {link}"
         if not SHA.fullmatch(sha):
             return False, "the dispatch SHA is not a full lowercase 40-hex SHA"
         if checks.get("head_sha") != sha or replay.get("commit_sha") != sha:
@@ -65,9 +69,12 @@ def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str
     if not ok:
         return False, link
     if n == 10:
+        named = {e["case_id"] for e in replay.get("open_exclusions", []) if isinstance(e, dict) and isinstance(e.get("case_id"), str)} - set(inputs["us06_cases"])
         for name, card in (("a", a), ("b", b)):
-            if card.get("complete") is not True or card.get("tier0", {}).get("all_zero") is not True:
-                return False, f"leg {name} is incomplete or Tier 0 is not at zero"
+            tier0 = card.get("tier0") if isinstance(card, Mapping) else None
+            clean = isinstance(card, Mapping) and card.get("complete") is True and isinstance(tier0, Mapping) and tier0.get("all_zero") is True
+            if not clean and not named_exclusion_only(card, named):
+                return False, f"leg {name} is incomplete for a reason that is not a named exclusion, or Tier 0 is not at zero"
     if n == 11:
         if replay.get("verdict") != "IDENTICAL":
             return False, f"replay verdict {replay.get('verdict')}"
