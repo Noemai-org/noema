@@ -260,3 +260,14 @@ func (s *Store) PrincipalOf(ctx context.Context, sess orchestrator.Session, inve
 	}
 	return principal, nil
 }
+
+// Snapshot is what Read returns: the state and the principal of one investigation.
+type Snapshot struct {
+	State     orchestrator.State
+	Principal string
+}
+
+// Read is the read-only method of A243. Stub for the red commit.
+func (s *Store) Read(ctx context.Context, sess orchestrator.Session, investigationID string) (Snapshot, error) {
+	return Snapshot{}, errors.New(errPrefix + "not implemented")
+}
