@@ -11,7 +11,7 @@ Updated 2026-11-18. Owner: Engineering Lead. REQ-TRU-009, REQ-RCV-003; INV-03, I
 
 ## Open
 
-1. The intake service (`trust/intake.Service`) is not built here: 13 of its 15 ports (all but Intents and Dispatches; and the Intents it needs is not the reader built here) have no adapter on `main`. `buildTrust` takes the `Evaluator` as an argument and fails closed when it is nil.
+1. The intake service (`trust/intake.Service`) is not built here: 14 of its 15 ports have no adapter on `main` (only Dispatches has one, noema#710; the intake's own Intents port needs the intent view and target, which the reader built here does not fill). `buildTrust` takes the `Evaluator` as an argument and fails closed when it is nil.
 2. `keyfiles.Load` is on noema#708, not on `main`; `buildTrust` takes a `KeyLoader` so this PR compiles without it. main.go passes `keyfiles.Load` once #708 merges.
 3. Out of scope, follow-up after #710: the CorrelationID signature change of `Trust.Decide`.
 
