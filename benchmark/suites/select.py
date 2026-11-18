@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 Json = dict[str, Any]
-SELECTOR_KEYS = frozenset({"all", "covers_any", "covers_prefix", "except_covers", "families_any", "categories_any", "each_must_match"})
-MATCHERS = frozenset({"all", "covers_any", "covers_prefix", "families_any", "categories_any"})
+SELECTOR_KEYS = frozenset({"all", "covers_any", "covers_prefix", "except_covers", "families_any", "categories_any", "each_must_match", "greedy_cover"})
+MATCHERS = frozenset({"all", "covers_any", "covers_prefix", "families_any", "categories_any", "greedy_cover"})
 
 
 class SelectionError(Exception):
@@ -55,6 +55,38 @@ def _matches(entry: Json, selector: Json, families: Mapping[str, Sequence[str]] 
     return False
 
 
+def _greedy(entries: Sequence[Json], rule: Any, name: str) -> list[str]:
+    """TST-02: the fewest cases that touch the most identifiers, chosen by a rule, not typed by hand. `rule` is {"n": int, "stages": [[tag prefix, ...], ...]}. For each stage in turn the case
+    that adds the most tags of that stage not yet covered is picked (`FAULT:NONE` never counts); ties go to the category with the fewest picks so far, then to the lowest case id. Each stage runs until it adds no
+    tag of its prefixes, so a later stage never revisits an earlier one. It stops at `n` cases, or when nothing adds a tag. The result is sorted, so the manifest's order does not matter."""
+    if not isinstance(rule, dict) or set(rule) != {"n", "stages"}:
+        raise SelectionError(f"suite {name}: greedy_cover needs exactly n and stages")
+    n, stages = rule["n"], rule["stages"]
+    if type(n) is not int or n < 1:
+        raise SelectionError(f"suite {name}: greedy_cover n must be a positive integer, not {n!r}")
+    if not isinstance(stages, list) or not stages or not all(isinstance(s, list) and s and all(isinstance(p, str) and p for p in s) for s in stages):
+        raise SelectionError(f"suite {name}: greedy_cover stages must be a non-empty list of non-empty lists of prefixes")
+    every = [p for stage in stages for p in stage]  # the tags that count towards a pick's category bookkeeping and later stages' coverage
+
+    def tags(entry: Json, prefixes: Sequence[str]) -> set[str]:
+        return {c for c in entry["covers"] if c != "FAULT:NONE" and c.startswith(tuple(prefixes))}
+
+    pool = sorted(entries, key=lambda e: e["case_id"])
+    picked: list[Json] = []
+    covered: set[str] = set()
+    per_category: dict[str, int] = {}
+    for prefixes in stages:
+        while len(picked) < n:
+            best = min(pool, key=lambda e: (-len(tags(e, prefixes) - covered), per_category.get(e["category"], 0), e["case_id"]), default=None)
+            if best is None or not tags(best, prefixes) - covered:
+                break
+            picked.append(best)
+            pool.remove(best)
+            covered |= tags(best, every)
+            per_category[best["category"]] = per_category.get(best["category"], 0) + 1
+    return sorted(e["case_id"] for e in picked)
+
+
 def select(manifest: Json, definition: Json, name: str, families: Mapping[str, Sequence[str]] | None = None) -> list[str]:
     selector = definition.get("select")
     if not isinstance(selector, dict):
@@ -64,7 +96,12 @@ def select(manifest: Json, definition: Json, name: str, families: Mapping[str, S
         raise SelectionError(f"suite {name}: unknown selector key {', '.join(unknown)}")
     if not set(selector) & MATCHERS:
         raise SelectionError(f"suite {name}: the selector names no way to match a case ({sorted(MATCHERS)})")
-    chosen = [e for e in manifest["cases"] if _matches(e, selector, families)]
+    if "greedy_cover" in selector:
+        if set(selector) != {"greedy_cover"}:
+            raise SelectionError(f"suite {name}: greedy_cover cannot be combined with another selector key")
+        chosen = [e for e in manifest["cases"] if e["case_id"] in set(_greedy(manifest["cases"], selector["greedy_cover"], name))]
+    else:
+        chosen = [e for e in manifest["cases"] if _matches(e, selector, families)]
     ids = sorted(e["case_id"] for e in chosen)
     if not ids:
         raise SelectionError(f"suite {name} selects no case")

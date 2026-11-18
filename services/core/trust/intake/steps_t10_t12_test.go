@@ -57,6 +57,31 @@ type fake struct {
 	routing     ClockRouting
 	gotClockQ   ClockQuery
 	gotStatuses []clocks.Status
+
+	dispatch    DispatchCount // what the ledger answers for any key (A224)
+	gotDispatch []DispatchKey
+	// the authorized set (Codex P1 and P2 on noema#572) and the budget of single keys
+	authorized []string
+	authErr    error
+	spent      map[string]bool // capability IDs whose budget is spent, whatever dispatch says
+}
+
+func (f *fake) Authorized(context.Context, AdmittedIntent) ([]string, error) {
+	return append([]string(nil), f.authorized...), f.authErr
+}
+
+func (f *fake) Check(context.Context, string, string) (Capability, error) { return Capability{}, nil }
+
+func (f *fake) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
+	return Capability{}, false, nil
+}
+
+func (f *fake) Count(_ context.Context, k DispatchKey) (DispatchCount, error) {
+	f.gotDispatch = append(f.gotDispatch, k)
+	if f.spent[k.CapabilityID] {
+		return DispatchCount{Used: 1, Limit: 1}, f.hit("Count")
+	}
+	return f.dispatch, f.hit("Count")
 }
 
 func (f *fake) hit(name string) error {
@@ -102,7 +127,7 @@ func (f *fake) Route(_ context.Context, _ ClockQuery, statuses []clocks.Status) 
 // newEv is an evaluation at the synthetic clock reading with the intent T1 would have read and no capability.
 func newEv(t *testing.T, f *fake) *evaluation {
 	t.Helper()
-	svc := &Service{Ports: Ports{Reconciler: f, Policies: f, Clocks: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	svc := &Service{Ports: Ports{Capabilities: f, Reconciler: f, Policies: f, Clocks: f, Dispatches: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 	ev, err := svc.newEvaluation(Request{Session: Session{TenantID: tTenant, PrincipalID: "usr_synth01", Role: "customer"}, EvidenceSnapshotID: tSnapshot}, tIntentID, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +250,7 @@ func TestT10AsksTheReconcilerAboutTheTenantAndTheSealedSnapshot(t *testing.T) {
 // A classification that names a settled, understood state and that the pack maps to nothing lets the evaluation go on.
 func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
 	for _, c := range []reconcile.Classification{reconcile.SuccessConfirmed, reconcile.RejectedConfirmed, reconcile.ReversedConfirmed, reconcile.DebitPostedCreditUnconfirmed,
-		reconcile.SettlementPending, reconcile.ReversalPending, reconcile.Partial} {
+		reconcile.SettlementPending, reconcile.ReversalPending} {
 		f := &fake{rec: Reconciliation{Classification: c}}
 		_, trace := run(t, newEv(t, f), decide.T10Reconciliation)
 		wentOn(t, string(c), trace, decide.T10Reconciliation)
@@ -238,7 +263,7 @@ func TestT10GoesOnWhenThePackMapsNothingToASettledClassification(t *testing.T) {
 // The split into the two sets is accepted by ruling A218 (relayed: not on docs main yet).
 func TestT10AClassificationThatMustNotGoOnFailsClosedWhenThePackMapsNothing(t *testing.T) {
 	for _, c := range []reconcile.Classification{reconcile.ContradictoryState, reconcile.ExecutionOutcomeUnknown, reconcile.PossibleDuplicate, reconcile.EventOrderUncertain,
-		reconcile.InsufficientEvidence, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
+		reconcile.InsufficientEvidence, reconcile.Partial, "MADE_UP_BY_AN_ADAPTER", "success_confirmed"} {
 		for name, ev := range map[string]func(*evaluation) *evaluation{
 			"no capability named":       func(e *evaluation) *evaluation { return e },
 			"a write capability named":  func(e *evaluation) *evaluation { return e.withCapability(tWriteCap) },
@@ -265,7 +290,7 @@ func TestT10EveryDeclaredClassificationIsEitherSettledOrStopsWhenUnmapped(t *tes
 }
 
 // stopsWhenUnmapped is the other half of the table, written out again here and not read from the step.
-var stopsWhenUnmapped = map[string]bool{"CONTRADICTORY_STATE": true, "EXECUTION_OUTCOME_UNKNOWN": true, "POSSIBLE_DUPLICATE": true, "EVENT_ORDER_UNCERTAIN": true, "INSUFFICIENT_EVIDENCE": true}
+var stopsWhenUnmapped = map[string]bool{"CONTRADICTORY_STATE": true, "EXECUTION_OUTCOME_UNKNOWN": true, "POSSIBLE_DUPLICATE": true, "EVENT_ORDER_UNCERTAIN": true, "INSUFFICIENT_EVIDENCE": true, "PARTIAL": true}
 
 // declaredClassifications reads the Classification constants out of reconcile/types.go.
 func declaredClassifications(t *testing.T) []string {
@@ -301,13 +326,8 @@ func declaredClassifications(t *testing.T) []string {
 	return out
 }
 
-// REQ-RES-002: a frozen target and a capability the pack does not allow under the freeze never goes on. With no pack reason to escalate with, the step cannot build an
-// ESCALATE, so it fails closed: UNKNOWN.
-func TestT10TheFreezeStopsACapabilityThePackDoesNotAllowUnderIt(t *testing.T) {
-	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
-	d, trace := run(t, newEv(t, f).withCapability(tWriteCap), decide.T10Reconciliation)
-	failedClosed(t, "frozen, capability not allowed, no pack mapping", d, trace, decide.T10Reconciliation)
-}
+// A225, A254: a write the freeze blocks is a typed ESCALATE (TARGET_FROZEN), and a read continues: TestT10AFrozenTargetEscalatesAWriteTheFreezeBlocksWithATypedReason and
+// TestT10AReadContinuesOnAFrozenTarget (a255_round_test.go) replace the two tests that expected UNKNOWN INTERNAL_ERROR here.
 
 func TestT10TheFreezeEscalatesWithThePackReasonWhenThePackMapsIt(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}, EscalateReason: tPackCode}}
@@ -332,12 +352,25 @@ func TestT10TheFreezeLetsThroughACapabilityThePackAllowsUnderIt(t *testing.T) {
 	}
 }
 
-// SR blocking finding on noema#570: a frozen target with an intent that names no capability asks for no grant, but nothing says what it may do either, and a plan's
-// capabilities are only known at T14. With no pack mapping to escalate with, it fails closed here; the plan's own capabilities are checked against the freeze at T14.
-func TestT10AFrozenTargetWithNoNamedCapabilityAndNoPackMappingFailsClosed(t *testing.T) {
-	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}}}
-	d, trace := run(t, newEv(t, f), decide.T10Reconciliation)
-	failedClosed(t, "frozen, no capability named, no mapping", d, trace, decide.T10Reconciliation)
+// What T10 saw of the freeze is kept for T14, which checks the plan's capabilities against it (the Security Reviewer's blocking finding 2 on noema#572): the evaluation holds
+// the frozen flag and a copy of the capabilities the pack allows under the freeze; an unfrozen target keeps nothing.
+func TestT10KeepsTheFreezeForTheCheckOfThePlan(t *testing.T) {
+	f := &fake{rec: Reconciliation{Classification: reconcile.ContradictoryState, Frozen: true, AllowedUnderFreeze: []string{tCreateCap}, EscalateReason: tPackCode}}
+	ev := newEv(t, f)
+	run(t, ev.withCapability(tCreateCap), decide.T10Reconciliation)
+	if !ev.frozen || !reflect.DeepEqual(ev.allowedUnderFreeze, []string{tCreateCap}) {
+		t.Errorf("frozen %v, allowed %v; want the freeze T10 saw", ev.frozen, ev.allowedUnderFreeze)
+	}
+	f.rec.AllowedUnderFreeze[0] = "fin.cap.changed_after"
+	if ev.allowedUnderFreeze[0] != tCreateCap {
+		t.Error("the evaluation shares the port's slice: a later change by the adapter would change what T14 checks")
+	}
+	g := &fake{rec: Reconciliation{Classification: reconcile.SuccessConfirmed}}
+	ev = newEv(t, g)
+	run(t, ev, decide.T10Reconciliation)
+	if ev.frozen || len(ev.allowedUnderFreeze) != 0 {
+		t.Errorf("an unfrozen target kept a freeze: %v %v", ev.frozen, ev.allowedUnderFreeze)
+	}
 }
 
 // INV-16, REQ-NFR-002: everything else is UNKNOWN, never ALLOW and never a guess.
@@ -683,8 +716,9 @@ func TestT12EvaluatesEveryClockAtTheServiceClockWithThePortsAtRiskFraction(t *te
 		clockAt("fin.clock.at_risk", 200),
 		clockAt("fin.clock.breached", 0),
 	}}}
-	_, trace := run(t, newEv(t, f), decide.T12Clocks)
-	wentOn(t, "no escalation", trace, decide.T12Clocks)
+	d, trace := run(t, newEv(t, f), decide.T12Clocks)
+	// the breached clock has no routing, so T12 escalates by itself (A225); the statuses below are what the routing was asked about
+	stopped(t, "breached clock, no routing", d, trace, decide.T12Clocks, decide.Escalate, []string{"CLOCK_BREACHED_UNROUTED"}, escalateAtT12)
 	var got []clocks.Phase
 	var ids []string
 	for _, s := range f.gotStatuses {
@@ -754,7 +788,8 @@ func TestT12EscalatesOnlyWhenThePackRoutingSaysSo(t *testing.T) {
 	if len(f.gotStatuses) != 1 || f.gotStatuses[0].Phase != clocks.Breached {
 		t.Errorf("the routing saw %+v, want the BREACHED status", f.gotStatuses)
 	}
-	f = &fake{set: set, routing: ClockRouting{Escalate: false, ReasonCode: "fin.reason.sla_breached"}}
+	// a clock that is not breached, with a routing that does not escalate, goes on (a breached one the pack omits escalates by itself: a255_round_test.go, A225)
+	f = &fake{set: ClockSet{AtRisk: quarterOf, Clocks: []ClockInstance{clockAt("fin.clock.a", 100)}}, routing: ClockRouting{Escalate: false}}
 	_, trace = run(t, newEv(t, f), decide.T12Clocks)
 	wentOn(t, "routing does not escalate", trace, decide.T12Clocks)
 }
@@ -854,9 +889,8 @@ func TestT12IsDeterministic(t *testing.T) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Wiring
 
-// T10 to T12 are in the fixed order's table, not notBuilt: the steps the evaluation runs call their ports. T7 to T9 are wired and tested in t7_t9_test.go; T13 to T15 are
-// still not built.
-func TestTheEvaluationOrderRunsT10ToT12AndLeavesT13ToT15NotBuilt(t *testing.T) {
+// T10 to T12 are in the fixed order's table, not notBuilt: the steps the evaluation runs call their ports. T7 to T9 and T13 to T15 are wired and tested in their own files.
+func TestTheEvaluationOrderRunsT10ToT12(t *testing.T) {
 	f := &fake{rec: Reconciliation{Classification: reconcile.SuccessConfirmed}, pol: decided(policy.Permit, ""), set: ClockSet{AtRisk: quarterOf}}
 	ev := newEv(t, f)
 	steps := ev.steps()
@@ -866,11 +900,6 @@ func TestTheEvaluationOrderRunsT10ToT12AndLeavesT13ToT15NotBuilt(t *testing.T) {
 		steps[step-1](ctx)
 		if !f.called(port) {
 			t.Errorf("%v: %s was not called: the step is not wired", step, port)
-		}
-	}
-	for _, step := range []decide.GateStep{decide.T13Confirmation, decide.T14Plan, decide.T15DecisionRecorded} {
-		if err := steps[step-1](ctx).Err(); !errors.Is(err, ErrNotBuilt) {
-			t.Errorf("%v: %v, want ErrNotBuilt", step, err)
 		}
 	}
 }
@@ -901,15 +930,20 @@ type noPorts struct{}
 func (noPorts) Get(context.Context, string, string, int) (AdmittedIntent, error) {
 	return AdmittedIntent{}, ErrNotFound
 }
-func (noPorts) LatestVersion(context.Context, string, string) (int, error) { return 0, ErrNotFound }
-func (noPorts) Verify(context.Context, AdmittedIntent) error               { return ErrInvalid }
-func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)   { return false, nil }
-func (noPorts) Enabled(context.Context, string) (bool, error)              { return false, nil }
+func (noPorts) LatestVersion(context.Context, string, string) (int, error)   { return 0, ErrNotFound }
+func (noPorts) Verify(context.Context, AdmittedIntent) error                 { return ErrInvalid }
+func (noPorts) NeedsWrite(context.Context, AdmittedIntent) (bool, error)     { return false, nil }
+func (noPorts) Enabled(context.Context, string) (bool, error)                { return false, nil }
+func (noPorts) Check(context.Context, string, string) (Capability, error)    { return Capability{}, nil }
+func (noPorts) Authorized(context.Context, AdmittedIntent) ([]string, error) { return nil, nil }
 func (noPorts) Requested(context.Context, AdmittedIntent) (Capability, bool, error) {
 	return Capability{}, false, nil
 }
 func (noPorts) InScope(context.Context, string, string) (bool, error)     { return false, nil }
 func (noPorts) RoleAllowed(context.Context, string, string) (bool, error) { return false, nil }
+func (noPorts) Count(context.Context, DispatchKey) (DispatchCount, error) {
+	return DispatchCount{}, nil
+}
 func (noPorts) ScopedCandidates(context.Context, string, string, AdmittedIntent) (TargetCandidates, error) {
 	return TargetCandidates{}, nil
 }
@@ -922,5 +956,5 @@ func (noPorts) SnapshotFreshness(context.Context, string, string) (SnapshotEvide
 
 func configuredService(f *fake) *Service {
 	n := noPorts{}
-	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
+	return &Service{Ports: Ports{Intents: n, Writes: n, Capabilities: n, Scope: n, Authority: n, Candidates: n, Ownership: n, Evidence: n, Reconciler: f, Policies: f, Clocks: f, Confirmations: &f13{}, Planner: &f13{}, Recorder: &f13{}, Dispatches: &f13{}}, Clock: clock.NewManual(t0), PackVersion: "1.0.0"}
 }

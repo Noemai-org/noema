@@ -222,6 +222,25 @@ class TemplateCoverage(unittest.TestCase):
             self.assertIn(victim, problems[0][1])
             self.assertIn("yo", problems[0][1])
 
+    def test_a_template_for_a_part_of_the_answer_is_allowed_and_checked_like_the_summary(self):
+        # A271: <outcome_id>/<classification>/<part> for a part of the closed list. A part is optional for now; when present it must be non-empty text, and a part name that is not
+        # on the list, a part of a key the pack does not have, and a deeper path each fail. SYNTHETIC text.
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = sorted(checks.required_template_keys(json.loads((PACKS / "fintech_v1.json").read_text()), PACKS))
+            good = f"{keys[0]}/found"
+            pack = self.pack_dir(Path(tmp), extra=("en-NG", good))
+            self.assertEqual(checks.check_templates(pack, Path(tmp)), [])
+            self.assertEqual(checks.TEMPLATE_PARTS, ("found", "not_known_what", "not_known_why", "advice_do", "advice_do_not", "next_what", "next_when"))
+        for bad in (f"{keys[0]}/nope", f"{keys[0]}/summary", f"{keys[0]}/found/found", "fin.outcome.nope/SUCCESS_CONFIRMED/found", f"{keys[0]}/FOUND"):
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = self.pack_dir(Path(tmp), extra=("en-NG", bad))
+                problems = checks.check_templates(pack, Path(tmp))
+                self.assertTrue(any(bad in m for _, m in problems), (bad, problems))
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), empty=("en-NG", good))
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertTrue(any(good in m and "empty" in m for _, m in problems), problems)
+
     def test_a_missing_locale_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             pack = self.pack_dir(Path(tmp), skip_locale="ig")

@@ -46,6 +46,6 @@ func TestTheCoreReasonCodesTrustAcceptsAreExactlyTheContractsClosedList(t *testi
 		t.Error("Trust accepts a code no contract lists")
 	}
 	if len(listed) != 20 {
-		t.Errorf("the contract lists %d core codes, want 20: the 17 of v1.2 and the three of A254 (the fourth name of A254 is DECLINED_BY_APPROVER, already one of the 17; the Architect confirms 20)", len(listed))
+		t.Errorf("the contract lists %d core codes, want 20: the 17 of v1.2 and the three of A254 (the fourth name of A254, DECLINED_BY_APPROVER, was already one of the 17; A280 confirms 20)", len(listed))
 	}
 }
