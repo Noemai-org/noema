@@ -1,5 +1,5 @@
 {
-  "comment": "The contracts the UI reads (REQ-UI-001; A258). Two entry points are generated to ui/src/contract_types: customer.ts (the four public contracts and errors.v3: all a customer-facing page may import) and operator.ts (the customer set plus the operator and auditor contracts, among them reconstruction.v3 and record-event.v3, which carry tenant_id, the full events and their hashes). Each root is generated as TypeScript types and parsers with every contract it refers to; a contract the UI does not read is not listed, so it does not reach the client bundle.",
+  "comment": "The contracts the UI reads (REQ-UI-001; A258). Three entry points are generated to ui/src/contract_types: customer.ts (the four public contracts and errors.v3: all a customer-facing page may import) and operator.ts (the customer set plus the operator and auditor contracts, among them reconstruction.v3 and record-event.v3, which carry tenant_id, the full events and their hashes) and benchmark.ts (the benchmark UI only, REQ-UI-004, A250: scorecard-view.v1, the aggregate numbers of a run with no case id, oracle reference or failure list, INV-22; it reaches no customer or operator contract and neither of those reaches it; operator.ts does not include it). Each root is generated as TypeScript types and parsers with every contract it refers to; a contract the UI does not read is not listed, so it does not reach the client bundle.",
   "customer": [
     "customer-answer.v1.json",
     "errors.v3.json",
@@ -14,5 +14,8 @@
     "noema-resolution.v1.json",
     "reconstruction.v3.json",
     "record-event.v3.json"
+  ],
+  "benchmark": [
+    "scorecard-view.v1.json"
   ]
 }
