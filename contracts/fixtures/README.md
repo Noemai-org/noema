@@ -46,3 +46,13 @@ python3 -I tools/check_vectors.py contracts/fixtures/golden_vectors.json
 ```
 
 `tools/check_vectors.py` is a standard-library reference check, written from the PERD text and not from this file. It prints one PASS or FAIL line per vector and exits 0 only if every vector matches. It is a check on the fixtures, not production code and not a substitute for the Go and Python implementations, which CON-04 requires. Its `jcs` helper covers only the value types listed above, and it sorts keys by code point, which equals RFC 8785's UTF-16 order for every key in this file.
+
+## Digit-run vectors (`digit_run_vectors.json`)
+
+A fixture, not a contract: no schema, no codegen. Owner: Core Engineer 1. Rulings A259, A279 and A270 (interim, relayed, not yet committed to `docs/decisions/`). Everything in it is **synthetic**.
+
+The one definition of a run of digits (digits of any script, Unicode Nd, joined by any number of separators; a comma ends a run; more than four is refused) has three consumers: the Record guard (`services/core/record/payloadguard`, Go, whose class is the source of truth), the model service's redactor (`services/model/noema_model/platform/redaction`, Python) and the UI scan (`ui/src/privacy.ts`, TypeScript). Each has its own copy of the code, in its own language and with no new dependency. This file is what ties them: every vector has a `name`, a `group`, a `proves` sentence, an `input` and a `refused` verdict, and each consumer's test loads this file and asserts the same verdict for every vector (`payloadguard/vectors_test.go`, `services/model/tests/test_digit_run_vectors.py`, `ui/test/digit_run_vectors.test.mjs`). The verdict is the one of a string at a path with no exemption of its own, so the Record guard's other exemptions (typed IDs, hashes, RFC 3339 timestamps, receipt transport classes, signatures, target references) are not in the file: the redactor and the UI scan have none of them.
+
+Money (A279, A270): a string is exempt only if the whole string matches `^[A-Z]{3} [0-9]{1,3}(,[0-9]{3})*(\.[0-9]{2})?$` (ASCII, anchored to the end of the string) with at most nine digits before the point. A vector with `"exemption": "money"` is accepted only because of that rule.
+
+Groups: `length`, `separator_joins` (one vector per member of the guard's separator class), `ends_a_run`, `separators_in_a_row`, `scripts` (ASCII, other scripts, astral digits, mixed, and digit-like characters that are not Nd), `comma`, `money_accepted`, `money_plain` (money-shaped strings that hold no run anyway), `money_refused`. A new vector needs a unique name and a verdict that the Go guard gives; the three tests fail on any consumer that disagrees. The file is edited by hand and is not generated.
