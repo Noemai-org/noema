@@ -17,7 +17,6 @@ ADMIN = ["/partner/events", "/partners/api-keys/scopes"]
 
 
 class FakeTushe(BaseHTTPRequestHandler):
-    mode = "edge"
     expects = "Authorization"  # the header the fake wants the credential in
     methods: list[str] = []
 
@@ -36,16 +35,11 @@ class FakeTushe(BaseHTTPRequestHandler):
         type(self).methods.append(self.command)
         presented = self.headers.get(self.expects, "")
         ok = presented.endswith(SECRET) if self.expects == "Authorization" else presented == SECRET
-        mode = type(self).mode
+        # The fake only serves the ordinary edge: the control read is served to the credential in the header it wants, and an administration route is refused. It never fakes a
+        # failure (a served route, a refused control, a scope refusal, a stall): those answers come from the hostility proxy's FaultPlans (partner_probe_test.go; AGENT-12, REQ-TST-004).
         if self.path.startswith(CONTROL) or self.path == "/v1/audit-events":
-            if mode == "events-refused" and self.path.startswith(CONTROL):
-                return self._answer(403)  # this credential may not read the event feed, but may read the audit trail
-            return self._answer(200 if ok and mode != "refuses-control" else 401)
-        if not ok:
-            return self._answer(401)
-        if mode == "serves-admin":
-            return self._answer(200)
-        self._answer(403)
+            return self._answer(200 if ok else 401)
+        self._answer(403 if ok else 401)
 
     do_GET = _handle
     do_POST = _handle
@@ -55,7 +49,7 @@ class FakeTushe(BaseHTTPRequestHandler):
 
 class Probe(unittest.TestCase):
     def setUp(self) -> None:
-        FakeTushe.mode, FakeTushe.expects, FakeTushe.methods = "edge", "Authorization", []
+        FakeTushe.expects, FakeTushe.methods = "Authorization", []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), FakeTushe)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -87,21 +81,12 @@ class Probe(unittest.TestCase):
         self.assertIn("MET", text)
         self.assertNotIn(SECRET, text)
 
-    def test_a_served_administration_route_is_not_met(self) -> None:
-        FakeTushe.mode = "serves-admin"
-        code, text = self.run_cli()
-        self.assertEqual(code, 1, text)
-        self.assertIn("SERVED", text)
-
-    def test_a_refused_control_is_not_run_and_a_refusal_is_not_read_as_a_pass(self) -> None:
+    def test_a_credential_presented_the_wrong_way_is_not_run_and_a_refusal_is_not_read_as_a_pass(self) -> None:
         # The credential is presented the wrong way (the fake wants X-API-Key): every route answers 401, which looks like a refusal and means nothing.
         FakeTushe.expects = "X-API-Key"
         code, text = self.run_cli(scheme="bearer")
         self.assertEqual(code, 3, text)
         self.assertIn("no control read was served", text)
-        FakeTushe.mode = "refuses-control"
-        FakeTushe.expects = "Authorization"
-        self.assertEqual(self.run_cli()[0], 3)
 
     def test_the_other_scheme_works_when_the_server_wants_it(self) -> None:
         FakeTushe.expects = "X-API-Key"
@@ -118,19 +103,6 @@ class Probe(unittest.TestCase):
                 self.assertIn(f'"scheme": "{scheme}"', text)
                 self.assertIn("/partners/api-keys/scopes", text)
                 self.assertIn("/partner/events", text)
-
-    def test_the_audit_trail_is_the_control_when_the_event_feed_is_refused(self) -> None:
-        FakeTushe.mode = "events-refused"
-        code, text = self.run_cli(defaults=True)
-        self.assertEqual(code, 0, text)
-        self.assertIn('"path": "/v1/audit-events"', text)
-
-    def test_when_no_scheme_and_no_control_is_served_nothing_is_read_as_a_refusal(self) -> None:
-        FakeTushe.mode = "refuses-control"
-        code, text = self.run_cli(defaults=True)
-        self.assertEqual(code, 3, text)
-        self.assertIn("no control read was served", text)
-        self.assertEqual(len(FakeTushe.methods), 4, "two schemes by two controls, and no probe request after a refused control")
 
     def test_every_status_is_classified_by_one_pure_function(self) -> None:
         # No server and no manufactured failure: the meaning of each status is a table. Failure ANSWERS from a real system are produced by the hostility proxy's FaultPlans, in
@@ -167,9 +139,7 @@ class Probe(unittest.TestCase):
         self.assertEqual(FakeTushe.methods, [], "no request was made with it")
 
     def test_it_makes_get_requests_only(self) -> None:
-        for mode in ("edge", "serves-admin"):
-            FakeTushe.mode = mode
-            self.run_cli()
+        self.run_cli()
         self.assertEqual(set(FakeTushe.methods), {"GET"})
 
     def test_http_is_refused_unless_the_test_flag_is_set_and_a_bad_input_is_refused(self) -> None:
