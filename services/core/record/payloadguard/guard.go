@@ -61,6 +61,12 @@ func Mask(s string) string {
 	})
 }
 
+// CustomerVisibleTextPaths and MaskText are stubs of the red commit (A331): the list is empty and MaskText is Mask.
+func CustomerVisibleTextPaths() []string { return nil }
+
+// MaskText is Mask for customer-visible text.
+func MaskText(s string) string { return Mask(s) }
+
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
