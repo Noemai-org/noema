@@ -46,13 +46,20 @@ class Stt:
     name = "fake-stt"
     capabilities = CAPS
 
-    def __init__(self, clock: Clock, stt_ms: int = 600, fail: bool = False) -> None:
+    def __init__(self, clock: Clock, stt_ms: int = 600, fail: bool = False, stop_after: int | None = None) -> None:
         self.clock, self.stt_ms, self.fail, self.calls = clock, stt_ms, fail, 0
+        self.stop_after = stop_after  # emit the final right after this many frames, without reading on to the end of the stream
+        self.paced = 0  # frames whose own length passes on the clock before the last one is handed over (set by the session helper)
 
     async def transcribe(self, request: StreamRequest, audio: AsyncIterator[AudioChunk]) -> AsyncIterator[SpeechEvent]:
         self.calls += 1
+        index = 0
         async for _ in audio:
-            self.clock.now += 500  # audio plays in real time: the clock moves while frames are read
+            if index < self.paced:
+                self.clock.now += 500  # audio plays in real time: the clock moves until the last frame is handed over
+            index += 1
+            if self.stop_after is not None and index == self.stop_after:
+                break
         if self.fail:
             raise ProviderError(ProviderFailure.UNAVAILABLE)
         self.clock.now += self.stt_ms
@@ -64,33 +71,46 @@ class Tts:
     name = "fake-tts"
     capabilities = CAPS
 
-    def __init__(self, clock: Clock, tts_ms: int = 500, empty: bool = False) -> None:
+    def __init__(self, clock: Clock, tts_ms: int = 500, empty: bool = False, close_ms: int = 0, hang: str | None = None) -> None:
         self.clock, self.tts_ms, self.empty, self.calls = clock, tts_ms, empty, 0
+        self.close_ms, self.hang = close_ms, hang  # hang: "first" (no audio ever) or "close" (the stream cannot be closed)
 
     async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
         self.calls += 1
-        self.clock.now += self.tts_ms
-        if not self.empty:
-            yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, b"\x00\x01" * 100)
+        try:
+            self.clock.now += self.tts_ms
+            if self.hang == "first":
+                await asyncio.Event().wait()
+            if not self.empty:
+                yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, b"\x00\x01" * 100)
+        finally:
+            self.clock.now += self.close_ms  # cleanup takes time on the clock
+            if self.hang == "close":
+                await asyncio.Event().wait()
 
 
 class FakeCore:
-    def __init__(self, clock: Clock, admit_ms: int = 100, answer_ms: int = 300) -> None:
-        self.clock, self.admit_ms, self.answer_ms = clock, admit_ms, answer_ms
+    def __init__(self, clock: Clock, admit_ms: int = 100, answer_ms: int = 300, hang: str | None = None) -> None:
+        self.clock, self.admit_ms, self.answer_ms, self.hang = clock, admit_ms, answer_ms, hang  # hang: "admit" or "answer"
         self.texts: list[str] = []
 
     async def admit(self, text: str) -> None:
         self.texts.append(text)
+        if self.hang == "admit":
+            await asyncio.Event().wait()
         self.clock.now += self.admit_ms
 
     async def answer(self) -> str:
+        if self.hang == "answer":
+            await asyncio.Event().wait()
         self.clock.now += self.answer_ms
         return "We found your transfer."
 
 
 async def session(clock: Clock, stt: Stt, tts: Tts, core: Core, item: SyntheticUtterance, budget: AudioBudget | None = None) -> SessionResult:
-    return await measure_session(stt=stt, tts=tts, core=core, utterance=item, stt_request=REQUEST, tts_model_version="pinned-1", clock_ms=clock, deadline_s=GUARD_S, bounds_s=BOUNDS,
-                                 budget=budget or AudioBudget(total_s=600.0))
+    stt.paced = len(item.frames) - 1
+    return await measure_session(stt=stt, tts=tts, core=core, utterance=item, stt_request=REQUEST, tts_model_version="pinned-1", clock_ms=clock, deadline_s=GUARD_S, core_deadline_s=0.15,
+                                 tts_deadline_s=0.15, cleanup_s=0.15, bounds_s=BOUNDS, budget=budget or AudioBudget(total_s=600.0))
 
 
 def test_each_stage_is_timed_separately_from_end_of_speech_to_first_audio() -> None:
@@ -181,3 +201,45 @@ def test_a_batch_is_summarised_against_the_callers_target_and_a_failure_counts_a
 def test_a_batch_with_no_sessions_is_refused() -> None:
     with pytest.raises(ValueError):
         measure_batch([], target_ms=1800)
+
+
+# ---- Codex P2s on noema#694 at 6ef05e82 -----------------------------------------------------------------------------------------------------------------------------------
+
+
+def test_the_first_audio_mark_does_not_include_the_time_the_stream_takes_to_close() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), Tts(clock, close_ms=400), FakeCore(clock), utterance()), timeout=GUARD_S))
+    assert result.timeline.durations()[Stage.FIRST_AUDIO] == 500 and result.timeline.total_ms() == 1500  # cleanup after the first chunk is not latency
+
+
+def test_end_of_speech_is_marked_when_the_last_frame_is_handed_over_even_if_the_provider_finalises_without_reading_to_the_end() -> None:
+    clock = Clock()
+    item = utterance(8.0)
+    result = run(asyncio.wait_for(session(clock, Stt(clock, stop_after=len(item.frames)), Tts(clock), FakeCore(clock), item), timeout=GUARD_S))
+    assert result.timeline.durations()[Stage.FINAL_TRANSCRIPT] == 600  # the stream was never exhausted; the stage still starts at the last frame
+
+
+@pytest.mark.parametrize("which", ["admit", "answer"])
+def test_a_core_that_never_answers_ends_the_session_at_its_deadline_as_a_timeout(which: str) -> None:
+    clock = Clock()
+    tts = Tts(clock)
+    result = run(asyncio.wait_for(session(clock, Stt(clock), tts, FakeCore(clock, hang=which), utterance()), timeout=GUARD_S))
+    assert not result.timeline.complete and result.failure is ProviderFailure.TIMEOUT and tts.calls == 0
+
+
+def test_text_to_speech_that_never_yields_audio_ends_the_session_at_its_deadline_as_a_timeout() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), Tts(clock, hang="first"), FakeCore(clock), utterance()), timeout=GUARD_S))
+    assert not result.timeline.complete and result.failure is ProviderFailure.TIMEOUT
+
+
+def test_a_stream_that_cannot_be_closed_does_not_hold_a_complete_session_past_the_cleanup_bound() -> None:
+    clock = Clock()
+
+    async def go() -> tuple[bool, float]:
+        started = asyncio.get_running_loop().time()
+        result = await session(clock, Stt(clock), Tts(clock, hang="close"), FakeCore(clock), utterance())
+        return result.timeline.complete, asyncio.get_running_loop().time() - started
+
+    complete, elapsed = run(asyncio.wait_for(go(), timeout=GUARD_S))
+    assert complete and elapsed < 1.5  # the first chunk was heard; the close is abandoned at the cleanup bound
