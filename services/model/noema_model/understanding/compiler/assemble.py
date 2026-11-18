@@ -19,6 +19,7 @@ from typing import Any
 
 from noema_model.platform.masking import CONTRACT_VALUE
 from noema_model.platform.redaction.digit_runs import longest_digit_run
+from noema_model.platform.redaction.money import is_money
 from noema_model.understanding.compiler.lexicon import MAX_SURFACE
 from noema_model.understanding.pipeline import MentionProposal, NodeCatalogue, NormalisedSlots, Outcome, PipelineResult, Proposal
 from noema_model.understanding.pipeline.catalogue import SlotInfo
@@ -47,8 +48,8 @@ class Identifiers:
 MAX_DIGIT_RUN = CONTRACT_VALUE  # the Record guard's limit (noema#536), the one value masking-limits.v1 admits: a stored string holds no run of more than four digits
 def _surface(surface: str, text: str) -> str | None:
     """The customer's own words, or nothing. A surface form the model proposes enters the object only if it is a span of the text the model was given, is no longer than the lexicon's bound and holds no run of
-    more than four digits (the Record's guard would refuse such a stored string: an unknown outcome for a harmless request, and a way to carry model text into the Record). The model is unreviewed output; this is the boundary."""
-    if not surface or len(surface) > MAX_SURFACE or surface not in text or longest_digit_run(surface) > MAX_DIGIT_RUN:
+    more than four digits, unless the whole of it is an amount such as "NGN 12,345.00" (A308; `is_money`, as in the Record's guard) (the Record's guard would refuse such a stored string: an unknown outcome for a harmless request, and a way to carry model text into the Record). The model is unreviewed output; this is the boundary."""
+    if not surface or len(surface) > MAX_SURFACE or surface not in text or (longest_digit_run(surface) > MAX_DIGIT_RUN and not is_money(surface)):
         return None
     return surface
 

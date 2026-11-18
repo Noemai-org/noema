@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -78,6 +79,26 @@ class CompileWorkflow(unittest.TestCase):
         dry = job_block(self.code, "dry-run")
         self.assertIn("set -euo pipefail", dry)
         self.assertNotRegex(dry, r"(?m)^\s+set -eu$")
+
+    @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's text")
+    def test_the_dry_run_accepts_exit_3_and_no_other_code(self) -> None:
+        # A285 and Codex P2 on noema#654: the runner's `--dry-run` calls no provider, so it exits 3 (NOT RUN). The job treats exactly that as "dry run complete"; 0, 1 and 2 fail it,
+        # so a changed runner cannot turn the job green by accident. The real text of the call and the check runs here with the runner replaced by a stub that exits N.
+        block = job_block(self.text, "dry-run")
+        step = re.search(r"(?ms)^        run: \|\n((?:(?!^      - ).*\n)*?          code=0\n.*?)(?=^          \{ echo)", block)
+        assert step, "the dry-run step has no `code=0` guard"
+        lines = [line[10:] for line in step.group(1).splitlines()]
+        start = next(i for i, line in enumerate(lines) if line == "code=0")
+        text = "\n".join(lines[start:])
+        self.assertEqual(len(re.findall(r"\| tee out/dry-run.txt", text)), 1)
+        for n, ok in ((0, False), (1, False), (2, False), (3, True), (4, False)):
+            stub = re.sub(r"(?s)/tmp/venv/bin/python -m benchmark\.compile_acceptance .*?(?= \| tee out/dry-run.txt)", f"(echo dry-run-output; exit {n})", text)
+            with self.subTest(runner_exit=n):
+                self.assertNotEqual(stub, text, "the runner call was not replaced")
+                with tempfile.TemporaryDirectory() as tmp:
+                    r = subprocess.run(["bash", "-c", "set -euo pipefail\nmkdir -p out\n" + stub + "\necho STEP_PASSED"], cwd=tmp, capture_output=True, text=True, check=False)
+                    self.assertEqual(r.returncode == 0 and "STEP_PASSED" in r.stdout, ok, (r.returncode, r.stdout, r.stderr))
+                    self.assertIn("dry-run-output", Path(tmp, "out", "dry-run.txt").read_text())
 
     def test_the_manifest_reaches_the_step_summary_only_after_a_clean_scan(self) -> None:
         # Codex P1 and the Security Reviewer's blocking 2 on noema#569: the summary is public like the artifact.
