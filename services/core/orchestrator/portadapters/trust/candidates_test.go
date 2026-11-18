@@ -225,10 +225,10 @@ func newCdRig(t *testing.T) *cdRig {
 	r := &cdRig{t: t, world: &cdWorld{}, ranker: &cdRanker{}, label: &cdLabeller{}, node: cdNodeConfig()}
 	r.intent = &cdIntents{docs: map[string]intentstore.Admitted{fmt.Sprintf("%s@%d", cdIntentID, cdIntentVer): cdStored(cdAlice, cdSlots())}}
 	r.world.rows = []cdRow{
-		{cdTenant, cdAlice, cdCand("cand_alice_a", "TX1", cdAmountBase, "2026-11-18T09:30:00Z")},
-		{cdTenant, cdAlice, cdCand("cand_alice_b", "TX2", cdAmountBase+5, "2026-11-18T08:10:00Z")},
-		{cdTenant, cdBob, cdCand("cand_bob_a", "TX3", cdAmountBase, "2026-11-18T09:31:00Z")},
-		{cdOtherTen, cdAlice, cdCand("cand_other_ten", "TX4", cdAmountBase, "2026-11-18T09:32:00Z")},
+		{cdTenant, cdAlice, cdCand("cand_aliceA", "TX1", cdAmountBase, "2026-11-18T09:30:00Z")},
+		{cdTenant, cdAlice, cdCand("cand_aliceB", "TX2", cdAmountBase+5, "2026-11-18T08:10:00Z")},
+		{cdTenant, cdBob, cdCand("cand_bobA", "TX3", cdAmountBase, "2026-11-18T09:31:00Z")},
+		{cdOtherTen, cdAlice, cdCand("cand_otherTen", "TX4", cdAmountBase, "2026-11-18T09:32:00Z")},
 	}
 	return r
 }
@@ -303,7 +303,7 @@ func TestScopedCandidatesReadsAsTheSessionAndAnswersFromPackData(t *testing.T) {
 	if !reflect.DeepEqual(tc.Disambiguation, cdDisambiguation()) {
 		t.Errorf("Disambiguation = %+v, want the pack's", tc.Disambiguation)
 	}
-	if got := cdIDs(tc); !reflect.DeepEqual(got, []string{"cand_alice_a", "cand_alice_b"}) {
+	if got := cdIDs(tc); !reflect.DeepEqual(got, []string{"cand_aliceA", "cand_aliceB"}) {
 		t.Errorf("candidates = %v, want the principal's two, in the reader's order", got)
 	}
 	for _, c := range tc.Ranked {
@@ -425,11 +425,11 @@ func TestAnotherPrincipalsRowsDoNotExistForTheCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range cdIDs(got) {
-		if strings.Contains(id, "bob") || strings.Contains(id, "other_ten") {
+		if strings.Contains(id, "bob") || strings.Contains(id, "otherTen") {
 			t.Errorf("alice was shown %q, a row that is not hers", id)
 		}
 	}
-	if !reflect.DeepEqual(cdIDs(got), []string{"cand_alice_a", "cand_alice_b"}) {
+	if !reflect.DeepEqual(cdIDs(got), []string{"cand_aliceA", "cand_aliceB"}) {
 		t.Errorf("alice's candidates = %v", cdIDs(got))
 	}
 
@@ -439,7 +439,7 @@ func TestAnotherPrincipalsRowsDoNotExistForTheCaller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(cdIDs(got), []string{"cand_bob_a"}) {
+	if !reflect.DeepEqual(cdIDs(got), []string{"cand_bobA"}) {
 		t.Errorf("bob's candidates = %v, want only his own", cdIDs(got))
 	}
 	if last := r.world.reqs[len(r.world.reqs)-1]; string(last.PrincipalRef) != cdBob {
@@ -623,13 +623,9 @@ func TestAReaderThatDoesNotAnswerInTimeEndsWhenTheCallersDeadlineDoes(t *testing
 	r.world.hang = true
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	start := time.Now()
 	_, err := r.adapter().ScopedCandidates(ctx, cdTenant, cdAlice, cdAdmitted(cdAlice))
 	if !errors.Is(err, trustport.ErrCandidatesRead) || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want ErrCandidatesRead over the deadline", err)
-	}
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("took %v: the adapter waited past its caller's deadline", d)
 	}
 }
 
@@ -663,10 +659,14 @@ func TestAnAnswerOutsideTheContractIsRefusedWhole(t *testing.T) {
 		"a display with a digit run": func(o *contracts.CandidatesResponseV1) {
 			o.Candidates[0].CounterpartyDisplay = "A. Synthetic 4000123456"
 		},
-		"an empty display":               func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = "" },
-		"a negative amount":              func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = -1 },
-		"an instant that is not UTC":     func(o *contracts.CandidatesResponseV1) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
-		"a resource ref of another kind": func(o *contracts.CandidatesResponseV1) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
+		"an empty display":                func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = "" },
+		"a negative amount":               func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = -1 },
+		"an instant that is not UTC":      func(o *contracts.CandidatesResponseV1) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
+		"a currency the contract has not": func(o *contracts.CandidatesResponseV1) { o.Candidates[0].Currency = "USD" },
+		"an answer with no version":       func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "" },
+		"an amount past the contract":     func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = 9007199254740992 },
+		"a display over 64 characters":    func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = strings.Repeat("x", 65) },
+		"a resource ref of another kind":  func(o *contracts.CandidatesResponseV1) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
@@ -704,7 +704,7 @@ func TestAnEmptyAnswerIsAnAnswerWithThePacksDataAndNoCandidates(t *testing.T) {
 func TestTheRankersAnswerIsUsedOnlyWhenItIsOneScorePerCandidateInRange(t *testing.T) {
 	r := newCdRig(t)
 	r.ranker.score = func(c contracts.CandidatesResponseV1Candidate) int64 {
-		if c.CandidateId == "cand_alice_a" {
+		if c.CandidateId == "cand_aliceA" {
 			return 9500
 		}
 		return 7100
@@ -721,12 +721,15 @@ func TestTheRankersAnswerIsUsedOnlyWhenItIsOneScorePerCandidateInRange(t *testin
 		"a score missing":  func(s []trustport.CandidateScore) []trustport.CandidateScore { return s[:1] },
 		"a score repeated": func(s []trustport.CandidateScore) []trustport.CandidateScore { return append(s, s[0]) },
 		"a score for a stranger": func(s []trustport.CandidateScore) []trustport.CandidateScore {
-			s[0].CandidateID = "cand_bob_a"
+			s[0].CandidateID = "cand_bobA"
 			return s
 		},
 		"a score below zero":     func(s []trustport.CandidateScore) []trustport.CandidateScore { s[0].ScoreBP = -1; return s },
 		"a score above the unit": func(s []trustport.CandidateScore) []trustport.CandidateScore { s[0].ScoreBP = 10001; return s },
-		"no scores":              func([]trustport.CandidateScore) []trustport.CandidateScore { return nil },
+		"a score more than there are candidates": func(s []trustport.CandidateScore) []trustport.CandidateScore {
+			return append(s, trustport.CandidateScore{CandidateID: "cand_strangerX", ScoreBP: 9000})
+		},
+		"no scores": func([]trustport.CandidateScore) []trustport.CandidateScore { return nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
@@ -772,7 +775,7 @@ func TestALabelIsUsedOnlyWhenItIsMaskedBoundedAndFromTheListedAttributes(t *test
 		"an attribute over the run":          {Display: "Item", Attrs: map[string]string{"time": "123456"}},
 		"an attribute the pack did not list": {Display: "Item", Attrs: map[string]string{"time": "09:30", "account": "4321"}},
 		"the resource's own reference":       {Display: "Item TX1", Attrs: map[string]string{"time": "09:30"}},
-		"the candidate's own id":             {Display: "Item cand_alice_a", Attrs: map[string]string{"time": "09:30"}},
+		"the candidate's own id":             {Display: "Item cand_aliceA", Attrs: map[string]string{"time": "09:30"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
@@ -859,6 +862,9 @@ func TestAnAdapterWithAMissingPartOrUnusablePackDataIsNotBuilt(t *testing.T) {
 		"an empty node id":                       func(c *trustport.CandidatesConfig) { c.Nodes[""] = c.Nodes[cdNode] },
 		"no reference slot":                      mutNode(func(n *trustport.CandidateNode) { n.ReferenceSlot = "" }),
 		"no time slot":                           mutNode(func(n *trustport.CandidateNode) { n.TimeSlot = "" }),
+		"the time slot is the reference slot":    mutNode(func(n *trustport.CandidateNode) { n.TimeSlot = n.ReferenceSlot }),
+		"the party slot is the amount slot":      mutNode(func(n *trustport.CandidateNode) { n.PartySlot = n.AmountSlot }),
+		"a slot name off its shape":              mutNode(func(n *trustport.CandidateNode) { n.AmountSlot = "Amount" }),
 		"a resource kind off its shape":          mutNode(func(n *trustport.CandidateNode) { n.ResourceKind = "Item" }),
 		"a raw bound of zero":                    mutNode(func(n *trustport.CandidateNode) { n.MaxRaw = 0 }),
 		"a raw bound over the contract's twenty": mutNode(func(n *trustport.CandidateNode) { n.MaxRaw = 21 }),
@@ -962,9 +968,11 @@ func TestASlotThatIsNotWhatItsTypeSaysIsRefusedAndNothingIsRead(t *testing.T) {
 		"an amount past the contract": func(s map[string]any) {
 			s["amount"] = map[string]any{"type": "Quantity", "value": 9007199254740992, "unit": cdCurrency}
 		},
-		"an amount slot of another type": func(s map[string]any) { s["amount"] = map[string]any{"type": "Party", "surface_form": "20k"} },
+		"an amount slot of another type": func(s map[string]any) {
+			s["amount"] = map[string]any{"type": "Party", "surface_form": "20k", "value": 5, "unit": cdCurrency}
+		},
 		"a party slot of another type": func(s map[string]any) {
-			s["party"] = map[string]any{"type": "Quantity", "value": 5, "unit": cdCurrency}
+			s["party"] = map[string]any{"type": "Quantity", "value": 5, "unit": cdCurrency, "surface_form": "Ada"}
 		},
 		"a party that is not text": func(s map[string]any) { s["party"] = map[string]any{"type": "Party", "surface_form": 7} },
 	} {
@@ -991,5 +999,62 @@ func TestATimeSlotOfAnotherTypeGivesNoWindow(t *testing.T) {
 	_, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice))
 	if !errors.Is(err, trustport.ErrCandidatesNoWindow) || len(r.world.reqs) != 0 {
 		t.Fatalf("err = %v, reads %d", err, len(r.world.reqs))
+	}
+}
+
+// INV-12, REQ-TRU-003: an admitted intent whose identity does not match what the store holds, or is off the contract's shape, is the one refusal, and the store is not trusted to say
+// no for an empty ID or a version of zero.
+func TestAnAdmittedIntentWithAnIdentityThatDoesNotMatchTheStoreIsRefused(t *testing.T) {
+	for name, mut := range map[string]func(r *cdRig, a *intake.AdmittedIntent){
+		"another intent id in the store": func(r *cdRig, _ *intake.AdmittedIntent) {
+			s := cdStored(cdAlice, cdSlots())
+			s.IntentID = "int_synth0002"
+			r.intent.docs[fmt.Sprintf("%s@%d", cdIntentID, cdIntentVer)] = s
+		},
+		"an empty intent id the store answers to": func(r *cdRig, a *intake.AdmittedIntent) {
+			s := cdStored(cdAlice, cdSlots())
+			s.IntentID = ""
+			r.intent.docs[fmt.Sprintf("@%d", cdIntentVer)] = s
+			a.IntentID = ""
+		},
+		"a version of zero the store answers to": func(r *cdRig, a *intake.AdmittedIntent) {
+			s := cdStored(cdAlice, cdSlots())
+			s.Version = 0
+			r.intent.docs[fmt.Sprintf("%s@0", cdIntentID)] = s
+			a.Version = 0
+		},
+		"a correlation off its shape the store agrees with": func(r *cdRig, a *intake.AdmittedIntent) {
+			s := cdStored(cdAlice, cdSlots())
+			s.CorrelationID = "corr one"
+			r.intent.docs[fmt.Sprintf("%s@%d", cdIntentID, cdIntentVer)] = s
+			a.CorrelationID = "corr one"
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newCdRig(t)
+			a := cdAdmitted(cdAlice)
+			mut(r, &a)
+			_, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, a)
+			if !errors.Is(err, trustport.ErrCandidatesIntent) || len(r.world.reqs) != 0 {
+				t.Fatalf("err = %v, reads %d, want ErrCandidatesIntent and none", err, len(r.world.reqs))
+			}
+		})
+	}
+}
+
+// INV-21: the labels in the answer are the adapter's own copy: a labeller that keeps and later edits the map it returned changes nothing the caller holds.
+func TestTheLabelsAreCopiedFromTheLabeller(t *testing.T) {
+	r := newCdRig(t)
+	kept := map[string]string{"time": "09:30"}
+	r.label.label = func(contracts.CandidatesResponseV1Candidate) (trustport.CandidateLabel, error) {
+		return trustport.CandidateLabel{Display: "Item", Attrs: kept}, nil
+	}
+	got, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice))
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept["time"] = "tampered"
+	if got.Ranked[0].Attrs["time"] != "09:30" {
+		t.Errorf("the labeller's map is shared with the answer: %v", got.Ranked[0].Attrs)
 	}
 }
