@@ -143,6 +143,10 @@ func TestAPublishedVersionWithNoDocumentIsAnErrorWhereverItIsNeeded(t *testing.T
 	if got := evaluate(t, w.policies(t, b, &adm{at: t3 + 1}, facts), query(lookup, late)); got.Effect != policy.Permit {
 		t.Fatalf("only the newest is needed: %+v", got)
 	}
+	// admitted at the second 3.3 was published: 3.3 was in force then, so the version before it is not needed
+	if got := evaluate(t, w.policies(t, b, &adm{at: t3}, facts), query(lookup, late)); got.Effect != policy.Permit {
+		t.Fatalf("admitted at the second of the newest publication: %+v", got)
+	}
 }
 
 // REQ-TRU-004, PERD 23.4: a tenant with no publication has no rule that permits: REJECT NO_PERMITTING_RULE, with no rule and no version to name.
@@ -385,8 +389,8 @@ func TestTheAdmissionTimeIsAskedForTheEvaluatedIntentAndAnUnusableOneIsAnError(t
 	boom := errors.New("the intent store is unreadable")
 	for name, a := range map[string]*adm{"an error": {err: boom}, "zero": {at: 0}, "a negative time": {at: -4}, "an admission after the reading": {at: late + 1}} {
 		got, err := w.policies(t, book(t, realPack(t)), a, &facts{master: resolvedMaster()}).Evaluate(ctx(t), query(lookup, late))
-		if err == nil || !reflect.DeepEqual(got, intake.PolicyEvaluation{}) {
-			t.Errorf("%s: %+v, %v; want an error and no answer", name, got, err)
+		if err == nil || !reflect.DeepEqual(got, intake.PolicyEvaluation{}) || (name == "an error") != errors.Is(err, boom) || (name != "an error") != errors.Is(err, ErrQuery) {
+			t.Errorf("%s: %+v, %v; want an error and no answer (the port's own error for an error, ErrQuery for a time that is not usable)", name, got, err)
 		}
 	}
 }

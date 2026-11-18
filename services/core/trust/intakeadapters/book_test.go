@@ -65,6 +65,7 @@ func TestAPackWhoseDocumentsCannotBeUsedIsRefused(t *testing.T) {
 			var m map[string]any
 			_ = json.Unmarshal(realPack(t), &m)
 			m["policy"].(map[string]any)["policy_id"] = "fin.other"
+			m["policy"].(map[string]any)["version"] = "3.2"
 			out, _ := json.Marshal(m)
 			return out
 		}()},
@@ -90,5 +91,21 @@ func TestSeveralVersionsOfThePolicyLoadInOneBook(t *testing.T) {
 		if _, ok := b.versions[v]; !ok {
 			t.Errorf("version %s is not in the book", v)
 		}
+	}
+}
+
+// The facts a condition reads are the words that are declared variables or entities, outside quotation: text inside quotes is a value, not a read.
+func TestAConditionReadsTheDeclaredWordsOutsideQuotes(t *testing.T) {
+	b := book(t, realPack(t))
+	vars, ents := reads("subject_resource.status == 'case_id' and exists(case where case.status in ['case', 'subject_resource'])", b.scope)
+	if !reflect.DeepEqual(vars, []string{"subject_resource.status"}) || !reflect.DeepEqual(ents, []string{"case"}) {
+		t.Fatalf("reads %v and %v", vars, ents)
+	}
+}
+
+// A WAIT with no winning rule gives no time (the engine never gives one; the adapter does not make one up).
+func TestAWaitWithNoWinningRuleGivesNoTime(t *testing.T) {
+	if at, err := reevaluateAt(nil, late); !errors.Is(err, ErrRule) || at != 0 {
+		t.Fatalf("%d, %v", at, err)
 	}
 }

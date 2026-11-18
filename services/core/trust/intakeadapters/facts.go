@@ -2,6 +2,8 @@ package intakeadapters
 
 import (
 	"context"
+	"fmt"
+	"slices"
 
 	"github.com/Noemai-org/noema/services/core/internal/predicate"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
@@ -26,4 +28,62 @@ type FactSet struct {
 // case system for the policy (see status/TRU-adapters-policies-clocks.md). The adapter asks for the minimum (FactNeed) and checks the answer against the pack's declared types.
 type FactSource interface {
 	PolicyFacts(ctx context.Context, q intake.PolicyQuery, need FactNeed) (FactSet, error)
+}
+
+// checkFacts builds the environment the conditions are evaluated in, or refuses the facts (ErrFacts). Everything needed must be there; nothing may be undeclared; each value must
+// be of its declared type, an enum value one of the declared values. A null is allowed where a fact was read and is null. Nothing is added, defaulted or repaired.
+func checkFacts(given FactSet, need FactNeed, sc predicate.Scope) (predicate.Env, error) {
+	env := predicate.Env{Variables: make(map[string]predicate.Value, len(given.Variables)), Entities: make(map[string][]predicate.Row, len(given.Entities))}
+	for _, name := range need.Variables {
+		if _, ok := given.Variables[name]; !ok {
+			return predicate.Env{}, fmt.Errorf("%w: the variable %s was not given", ErrFacts, name)
+		}
+	}
+	for _, name := range need.Entities {
+		if _, ok := given.Entities[name]; !ok {
+			return predicate.Env{}, fmt.Errorf("%w: the entity %s was not read", ErrFacts, name)
+		}
+	}
+	for name, v := range given.Variables {
+		t, ok := sc.Variables[name]
+		if !ok {
+			return predicate.Env{}, fmt.Errorf("%w: the variable %s is not declared by the pack", ErrFacts, name)
+		}
+		if err := checkValue(t, v); err != nil {
+			return predicate.Env{}, fmt.Errorf("%w: variable %s: %v", ErrFacts, name, err)
+		}
+		env.Variables[name] = v
+	}
+	for name, rows := range given.Entities {
+		fields, ok := sc.Entities[name]
+		if !ok {
+			return predicate.Env{}, fmt.Errorf("%w: the entity %s is not declared by the pack", ErrFacts, name)
+		}
+		for _, row := range rows {
+			for field, v := range row {
+				t, ok := fields[field]
+				if !ok {
+					return predicate.Env{}, fmt.Errorf("%w: the entity %s has no field %s", ErrFacts, name, field)
+				}
+				if err := checkValue(t, v); err != nil {
+					return predicate.Env{}, fmt.Errorf("%w: %s.%s: %v", ErrFacts, name, field, err)
+				}
+			}
+		}
+		env.Entities[name] = rows
+	}
+	return env, nil
+}
+
+func checkValue(t predicate.Type, v predicate.Value) error {
+	if v.IsNull() {
+		return nil
+	}
+	if v.Kind != t.Kind {
+		return fmt.Errorf("the value is a %s and the pack declares a %s", v.Kind, t.Kind)
+	}
+	if t.Kind == predicate.KindEnum && !slices.Contains(t.Values, v.S) {
+		return fmt.Errorf("%q is not a declared value", v.S)
+	}
+	return nil
 }

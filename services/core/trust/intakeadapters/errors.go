@@ -18,6 +18,4 @@ var (
 	ErrFacts = errors.New("intakeadapters: the facts are not usable")
 	// ErrRule marks a winning rule whose parameters cannot give the answer the effect needs (a WAIT with no usable wait_seconds).
 	ErrRule = errors.New("intakeadapters: the winning rule cannot be turned into an answer")
-	// ErrNotBuilt marks a part that is not built yet.
-	ErrNotBuilt = errors.New("intakeadapters: not built")
 )
