@@ -2,6 +2,8 @@
   "none_option_id_missing.json": "required",
   "none_option_id_missing_without_options.json": "required",
   "none_option_id_bad_form.json": "pattern",
+  "none_option_id_five_digits.json": "pattern",
+  "option_id_five_digits.json": "pattern",
   "none_option_id_too_long.json": "pattern",
   "none_option_id_not_a_string.json": "type",
   "none_option_id_equals_an_option_id.json": "none_option_collision",

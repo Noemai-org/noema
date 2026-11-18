@@ -48,15 +48,27 @@ class NoneOptionSchema(unittest.TestCase):
 
     def test_the_id_on_a_card_cannot_carry_a_number_and_on_either_is_bounded(self):
         # the card reaches the customer as written (A211): at most four digits in all. Both contracts bound it to 32 characters of lower case, digits and underscore.
-        for schema, accepted in ((CLARIFICATION, ("opt_none", "none", "n", "n" * 32, "x_" + "1" * 20)), (CARD, ("opt_none", "none", "n", "n" * 32, "none_1234", "a1b2c3d4"))):
+        for schema, accepted in ((CLARIFICATION, ("opt_none", "none", "n", "n" * 32, "none_1234", "a1b2c3d4")), (CARD, ("opt_none", "none", "n", "n" * 32, "none_1234", "a1b2c3d4"))):
             pattern = fully_anchored(schema["properties"]["none_option_id"]["pattern"])
             for text in accepted:
                 self.assertIsNotNone(re.search(pattern, text), text)
             for text in ("", "n" * 33, "None", "none of these", "none-of-these", "none\n", "\u0664"):
                 self.assertIsNone(re.search(pattern, text), repr(text))
-        card = fully_anchored(CARD["properties"]["none_option_id"]["pattern"])
-        for text in ("none_12345", "4" * 32, "n1o2n3e4_5"):
-            self.assertIsNone(re.search(card, text), text)
+        for schema in (CLARIFICATION, CARD):
+            pattern = fully_anchored(schema["properties"]["none_option_id"]["pattern"])
+            for text in ("none_12345", "4" * 32, "n1o2n3e4_5", "opt_12345", "x_" + "1" * 20):
+                self.assertIsNone(re.search(pattern, text), text)
+
+    def test_one_option_id_form_across_the_source_and_the_card_contracts(self):
+        # noema#736 review, P2: a value core mints in the clarification (an option_id or the none_option_id) is submitted as option_id (PERD section 39.2) and must be accepted by every
+        # contract that carries it. All four members hold the same pattern, so `opt_12345` cannot validate at the source and be refused at the card or in the request.
+        forms = {
+            "clarification option_id": CLARIFICATION["properties"]["options"]["items"]["properties"]["option_id"]["pattern"],
+            "clarification none_option_id": CLARIFICATION["properties"]["none_option_id"]["pattern"],
+            "card option_id": CARD["properties"]["options"]["items"]["properties"]["option_id"]["pattern"],
+            "card none_option_id": CARD["properties"]["none_option_id"]["pattern"],
+        }
+        self.assertEqual(len(set(forms.values())), 1, forms)
 
     def test_no_other_contract_defines_a_second_none_member(self):
         for name, schema in SCHEMAS.items():
