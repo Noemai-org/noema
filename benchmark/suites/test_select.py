@@ -90,7 +90,7 @@ class NamedSuites(unittest.TestCase):
         cls.suites = load_suites(SUITES)
 
     def test_the_named_suites_exist(self) -> None:
-        self.assertEqual({"us", "chaos", "evil", "full", "g1"}, set(self.suites))
+        self.assertEqual({"us", "chaos", "evil", "full", "g1", "smoke"}, set(self.suites))
 
     def test_g1_is_every_case_covering_us_01_or_us_06_and_nothing_else(self) -> None:
         # BEN-05: the G1 evidence run. All six, mutated included; the open exclusion is named by benchmark/replay, never dropped here.
@@ -126,3 +126,100 @@ class NamedSuites(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GreedyCover(unittest.TestCase):
+    """TST-02 ("30-case smoke benchmark on every merge"): a smoke suite is the FEWEST cases that still touch the most identifiers, chosen by a deterministic rule from the manifest, not a list typed by
+    hand. `greedy_cover` takes stages of tag prefixes; for each stage in turn it picks the case that adds the most tags of that stage not yet covered, ties broken by the category with the fewest
+    picks so far and then by case id. `FAULT:NONE` never counts. It stops at `n` cases or when nothing adds a tag."""
+
+    SMALL: Json = {"cases": [
+        entry("BEN-A-0001", ["US-01", "FAULT:NONE"], "CLEAN_UNIQUE"),
+        entry("BEN-A-0002", ["US-01", "US-02", "US-03"], "CLEAN_UNIQUE"),
+        entry("BEN-B-0001", ["US-04", "FAULT:LATENCY"], "TIMEOUT_UNKNOWN"),
+        entry("BEN-B-0002", ["US-04", "FAULT:LATENCY", "FAULT:DROP_RESPONSE"], "TIMEOUT_UNKNOWN"),
+        entry("BEN-C-0001", ["US-02", "FAULT:DROP_RESPONSE"], "AMBIGUITY"),
+    ]}
+
+    def suite(self, n: int, stages: list[list[str]], **extra: Any) -> Json:
+        return {"select": {"greedy_cover": {"n": n, "stages": stages}}, "min_cases": 1, **extra}
+
+    def test_the_case_that_adds_the_most_new_tags_of_the_stage_comes_first(self) -> None:
+        ids = select(self.SMALL, self.suite(1, [["US-"]]), "smoke")
+        self.assertEqual(["BEN-A-0002"], ids)
+
+    def test_a_later_stage_adds_what_the_earlier_one_did_not_need(self) -> None:
+        ids = select(self.SMALL, self.suite(3, [["US-"], ["FAULT:"]]), "smoke")
+        # US stage: A-0002 (three new), then B-0001 (US-04; ties with B-0002 on gain, lower id wins). FAULT stage: C-0001 (DROP_RESPONSE; ties with B-0002, but AMBIGUITY has no pick yet).
+        self.assertEqual(["BEN-A-0002", "BEN-B-0001", "BEN-C-0001"], ids)
+        covered = {t for e in self.SMALL["cases"] if e["case_id"] in ids for t in e["covers"]}
+        self.assertTrue({"US-01", "US-02", "US-03", "US-04"} <= covered)
+        self.assertTrue({"FAULT:LATENCY", "FAULT:DROP_RESPONSE"} <= covered)
+
+    def test_fault_none_never_counts_as_a_tag(self) -> None:
+        ids = select(self.SMALL, self.suite(5, [["FAULT:"]]), "smoke")
+        self.assertNotIn("BEN-A-0001", ids)
+
+    def test_it_stops_at_n_and_when_nothing_adds_a_tag(self) -> None:
+        self.assertEqual(2, len(select(self.SMALL, self.suite(2, [["US-"], ["FAULT:"]]), "smoke")))
+        self.assertLessEqual(len(select(self.SMALL, self.suite(5, [["US-"], ["FAULT:"]]), "smoke")), 4)
+
+    def test_ties_go_to_the_category_with_fewest_picks_then_the_lowest_case_id(self) -> None:
+        manifest: Json = {"cases": [entry("BEN-A-0002", ["US-01"], "X"), entry("BEN-A-0001", ["US-02"], "X"), entry("BEN-B-0001", ["US-03"], "Y")]}
+        ids = select(manifest, self.suite(3, [["US-"]]), "smoke")
+        self.assertEqual(["BEN-A-0001", "BEN-A-0002", "BEN-B-0001"], ids)  # all three are needed; the result is sorted
+        self.assertEqual(["BEN-A-0001", "BEN-B-0001"], select(manifest, self.suite(2, [["US-"]]), "smoke"))  # tie on gain: A-0001 (lowest id), then Y has fewest picks
+
+    def test_the_result_is_sorted_and_deterministic_whatever_the_manifest_order(self) -> None:
+        shuffled: Json = {"cases": list(reversed(self.SMALL["cases"]))}
+        a = select(self.SMALL, self.suite(4, [["US-"], ["FAULT:"]]), "smoke")
+        self.assertEqual(a, select(shuffled, self.suite(4, [["US-"], ["FAULT:"]]), "smoke"))
+        self.assertEqual(a, sorted(a))
+
+    def test_a_malformed_rule_is_an_error_never_a_quiet_default(self) -> None:
+        for bad in ({"n": 0, "stages": [["US-"]]}, {"n": "3", "stages": [["US-"]]}, {"n": True, "stages": [["US-"]]}, {"n": 3, "stages": []}, {"n": 3, "stages": [[]]},
+                    {"n": 3, "stages": [["US-"]], "extra": 1}, {"stages": [["US-"]]}, {"n": 3}, "all"):
+            with self.assertRaises(SelectionError, msg=str(bad)):
+                select(self.SMALL, {"select": {"greedy_cover": bad}, "min_cases": 1}, "smoke")
+
+    def test_it_cannot_be_combined_with_another_matcher(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(self.SMALL, {"select": {"greedy_cover": {"n": 2, "stages": [["US-"]]}, "covers_any": ["US-01"]}, "min_cases": 1}, "smoke")
+
+    def test_a_suite_that_falls_below_its_minimum_is_an_error(self) -> None:
+        with self.assertRaises(SelectionError):
+            select(self.SMALL, self.suite(5, [["US-"]], min_cases=30), "smoke")
+
+
+class SmokeSuite(unittest.TestCase):
+    """The real `smoke` suite (seed 20261020): exactly 30 cases, every user story covered, the same ids every time."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from benchmark.generator.generate import generate
+        cls.manifest = generate(20261020).manifest
+        cls.definition = load_suites(SUITES)["smoke"]
+
+    manifest: Json
+    definition: Json
+
+    def test_it_selects_exactly_thirty_cases_and_says_why(self) -> None:
+        ids = select(self.manifest, self.definition, "smoke")
+        self.assertEqual(30, len(ids))
+        self.assertEqual(30, self.definition["min_cases"])
+        self.assertIn("TST-02", self.definition["purpose"])
+
+    def test_every_user_story_has_a_case_in_it(self) -> None:
+        ids = set(select(self.manifest, self.definition, "smoke"))
+        covered = {t for e in self.manifest["cases"] if e["case_id"] in ids for t in e["covers"]}
+        self.assertEqual(set(), {f"US-{n:02d}" for n in range(1, 23)} - covered)
+
+    def test_the_selection_is_the_same_on_every_call(self) -> None:
+        a = select(self.manifest, self.definition, "smoke")
+        self.assertEqual(a, select(self.manifest, self.definition, "smoke"))
+        self.assertEqual(selection_digest(a), selection_digest(select(self.manifest, self.definition, "smoke")))
+
+    def test_it_holds_only_generated_cases(self) -> None:
+        ids = set(select(self.manifest, self.definition, "smoke"))
+        layers = {e["suite_layer"] for e in self.manifest["cases"] if e["case_id"] in ids}
+        self.assertEqual({"GENERATED"}, layers)
