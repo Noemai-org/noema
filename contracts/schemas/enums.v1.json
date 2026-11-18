@@ -170,6 +170,24 @@
         "FAILED_TERMINAL"
       ]
     },
+    "TransactionClassification": {
+      "description": "The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOWN is a receipt state, and neither is accepted where the other is expected (OD-P-10).",
+      "type": "string",
+      "enum": [
+        "SUCCESS_CONFIRMED",
+        "REJECTED_CONFIRMED",
+        "DEBIT_POSTED_CREDIT_UNCONFIRMED",
+        "SETTLEMENT_PENDING",
+        "REVERSAL_PENDING",
+        "REVERSED_CONFIRMED",
+        "POSSIBLE_DUPLICATE",
+        "PARTIAL",
+        "EXECUTION_OUTCOME_UNKNOWN",
+        "CONTRADICTORY_STATE",
+        "EVENT_ORDER_UNCERTAIN",
+        "INSUFFICIENT_EVIDENCE"
+      ]
+    },
     "Verdict": {
       "description": "Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust.",
       "type": "string",
