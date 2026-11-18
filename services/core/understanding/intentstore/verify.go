@@ -68,3 +68,6 @@ func verify(a Admitted) error {
 	}
 	return nil
 }
+
+// Verify is the check Save makes before it appends, for a caller that holds an Admitted it did not write. It is not built yet.
+func Verify(a Admitted) error { return nil }
