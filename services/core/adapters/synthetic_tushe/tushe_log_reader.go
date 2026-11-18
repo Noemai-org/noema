@@ -31,7 +31,9 @@ type TusheReader struct {
 type Presenter func(req *http.Request, secret string)
 
 // PresentBearer sends `Authorization: Bearer <secret>`.
-func PresentBearer(req *http.Request, secret string) { req.Header.Set("Authorization", "Bearer "+secret) }
+func PresentBearer(req *http.Request, secret string) {
+	req.Header.Set("Authorization", "Bearer "+secret)
+}
 
 // PresentAPIKeyHeader sends `X-API-Key: <secret>`.
 func PresentAPIKeyHeader(req *http.Request, secret string) { req.Header.Set("X-API-Key", secret) }
@@ -95,7 +97,12 @@ func (r *TusheReader) get(ctx context.Context, path string, query url.Values) (i
 	}
 	defer func() { _ = res.Body.Close() }() // read in full below; a failed close afterwards is not actionable
 	raw, err := io.ReadAll(io.LimitReader(res.Body, maxBody+1))
-	if err != nil || len(raw) > maxBody {
+	if err != nil {
+		// A body that cannot be read to its end is a transport failure (a stall until the deadline, a reset, a short body under its Content-Length), never schema corruption
+		// (Codex P2 on noema#711): it is UNAVAILABLE with the same codes as a failure before the headers.
+		return 0, nil, nil, &adapters.ReadError{Failure: adapters.ReadUnavailable, RawCode: transportFailure(ctx, err).RawCode}
+	}
+	if len(raw) > maxBody {
 		return 0, nil, nil, &adapters.ReadError{Failure: adapters.ReadMalformed, RawCode: strconv.Itoa(res.StatusCode) + ":TOO_LARGE_OR_CUT"}
 	}
 	return res.StatusCode, res.Header, raw, nil
@@ -208,8 +215,8 @@ func feedEvent(el json.RawMessage) (adapters.FeedEvent, bool) {
 		return adapters.FeedEvent{}, false
 	}
 	var ev adapters.FeedEvent
-	var seq int64 // an int64 member: a number held in a string ("16") is refused, as json.Number would have accepted it
-	if json.Unmarshal(m["id"], &ev.ID) != nil || json.Unmarshal(m["traceId"], &ev.TraceID) != nil || json.Unmarshal(m["sequence"], &seq) != nil || ev.ID == "" || seq < 0 {
+	var seq int64                                                                                                                                                                               // an int64 member: a number held in a string ("16") is refused, as json.Number would have accepted it
+	if json.Unmarshal(m["id"], &ev.ID) != nil || json.Unmarshal(m["traceId"], &ev.TraceID) != nil || json.Unmarshal(m["sequence"], &seq) != nil || ev.ID == "" || ev.TraceID == "" || seq < 0 { // a null or empty trace id decodes to "" and cannot join the trace (Codex P2 on noema#711)
 		return adapters.FeedEvent{}, false
 	}
 	ev.Sequence = seq

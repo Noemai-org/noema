@@ -75,3 +75,20 @@ Date: 2026-11-07 · Owner: Integration Lead role agent (A10: the stand-in and th
 - Open questions (owner): the list envelopes, credential presentation, state vocabulary, the audit-events shape, and which member joins to `traceId` (Founders, with Tushe).
 - Files to read first: `services/core/adapters/tushe_log.go`, `services/core/adapters/synthetic_tushe/tushe_log_reader.go`.
 - Do not touch: the fixtures' members without a delta that names them.
+
+# Session 2026-11-18 · ENV-05
+
+## Session summary
+- What changed (PR links): noema#711 review fixes: a null or empty `traceId` is MALFORMED (it cannot join the trace); a body read that fails (stall to the deadline, reset, short body) is UNAVAILABLE with the transport codes, not MALFORMED `TOO_LARGE_OR_CUT`. An over-size body is still MALFORMED.
+- Why: Codex P2 and P2 on noema#711.
+- Risks, and how they are contained: classification only; no new request, retry or dependency.
+- Tests added (REQ, INV, US or EC IDs): ENV-05 reader tests: null and empty trace id; stall after headers; drop after headers, on a real TCP server (AGENT-12). Seen failing first.
+- Regression cases added: the four cases above.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: CI at the new head, then Codex.
+- Open questions (owner): the `core` check that was red before this push is not attributed by me; read its log at the new head.
+- Files to read first: services/core/adapters/synthetic_tushe/tushe_log_reader.go
+- Do not touch: the frozen Tushe specification.

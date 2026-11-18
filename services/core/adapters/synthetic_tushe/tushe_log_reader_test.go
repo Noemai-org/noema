@@ -129,18 +129,18 @@ func TestTheTransitionLogIsReadWithEveryDocumentedMemberInEachEnvelopeShape(t *t
 func TestAnUnreadableTransitionLogIsUnknownNeverRowsOrNone(t *testing.T) {
 	good := string(fixture(t, "transitions.json"))
 	cases := map[string]string{
-		"an unnamed member (drift)":            strings.Replace(good, `"actor": "syn-actor-1"`, `"actor": "syn-actor-1", "surprise": 1`, 1),
-		"the sequence does not rise":           strings.Replace(good, `"seq": 2,`, `"seq": 1,`, 1),
-		"the sequence falls":                   strings.Replace(good, `"seq": 3,`, `"seq": 0,`, 1),
-		"a row without a sequence":             strings.Replace(good, `"seq": 2, `, ``, 1),
-		"a row without a to-state":             strings.Replace(good, `"toState": "SUBMITTED"`, `"toState": ""`, 1),
-		"an occurredAt that is not a time":     strings.Replace(good, `"occurredAt": "2026-11-01T09:00:05.000Z"`, `"occurredAt": "yesterday"`, 1),
-		"an observedAt that is not a time":     strings.Replace(good, `"observedAt": "2026-11-01T09:00:05.050Z"`, `"observedAt": "soon"`, 1),
-		"a sequence that is a string":          strings.Replace(good, `"seq": 2,`, `"seq": "2",`, 1),
-		"JSON null where the array should be":  `null`,
-		"an object where an array was agreed":  `{"transitions": []}`,
-		"not JSON":                             `<html>maintenance</html>`,
-		"trailing data after a row's JSON":     `[{"seq":1,"toState":"X","occurredAt":"2026-11-01T09:00:00Z"}] []`,
+		"an unnamed member (drift)":           strings.Replace(good, `"actor": "syn-actor-1"`, `"actor": "syn-actor-1", "surprise": 1`, 1),
+		"the sequence does not rise":          strings.Replace(good, `"seq": 2,`, `"seq": 1,`, 1),
+		"the sequence falls":                  strings.Replace(good, `"seq": 3,`, `"seq": 0,`, 1),
+		"a row without a sequence":            strings.Replace(good, `"seq": 2, `, ``, 1),
+		"a row without a to-state":            strings.Replace(good, `"toState": "SUBMITTED"`, `"toState": ""`, 1),
+		"an occurredAt that is not a time":    strings.Replace(good, `"occurredAt": "2026-11-01T09:00:05.000Z"`, `"occurredAt": "yesterday"`, 1),
+		"an observedAt that is not a time":    strings.Replace(good, `"observedAt": "2026-11-01T09:00:05.050Z"`, `"observedAt": "soon"`, 1),
+		"a sequence that is a string":         strings.Replace(good, `"seq": 2,`, `"seq": "2",`, 1),
+		"JSON null where the array should be": `null`,
+		"an object where an array was agreed": `{"transitions": []}`,
+		"not JSON":                            `<html>maintenance</html>`,
+		"trailing data after a row's JSON":    `[{"seq":1,"toState":"X","occurredAt":"2026-11-01T09:00:00Z"}] []`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -238,12 +238,14 @@ func TestAFeedThatDoesNotAdvanceOrIsNotCaughtUpIsAnErrorNeverATruncatedResult(t 
 		}
 	})
 	for name, replace := range map[string][2]string{
-		"a repeated sequence":                {`"sequence": 11`, `"sequence": 10`},
-		"a lower sequence":                   {`"sequence": 15`, `"sequence": 9`},
-		"an event without a trace id":        {`"traceId": "syn-trace-1", "type": "payout.submitted"`, `"type": "payout.submitted"`},
-		"an event without an id":             {`"id": "syn-evt-2", `, ``},
-		"a sequence that is not a number":    {`"sequence": 16`, `"sequence": "16"`},
-		"a negative sequence":                {`"sequence": 20`, `"sequence": -1`},
+		"a repeated sequence":             {`"sequence": 11`, `"sequence": 10`},
+		"a lower sequence":                {`"sequence": 15`, `"sequence": 9`},
+		"an event without a trace id":     {`"traceId": "syn-trace-1", "type": "payout.submitted"`, `"type": "payout.submitted"`},
+		"an event with a null trace id":   {`"traceId": "syn-trace-1"`, `"traceId": null`},
+		"an event with an empty trace id": {`"traceId": "syn-trace-1"`, `"traceId": ""`},
+		"an event without an id":          {`"id": "syn-evt-2", `, ``},
+		"a sequence that is not a number": {`"sequence": 16`, `"sequence": "16"`},
+		"a negative sequence":             {`"sequence": 20`, `"sequence": -1`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			body := strings.Replace(string(events), replace[0], replace[1], 1)
@@ -310,5 +312,73 @@ func TestRealTransportFailuresAreUnavailableAndNoDeadlineIsInvalid(t *testing.T)
 	}
 	if _, err := stalled.EventsAfter(deadline(t), -1, 10); asReadError(t, err).Failure != adapters.ReadInvalid {
 		t.Fatal("a negative cursor was sent")
+	}
+}
+
+// rawServer is a real TCP server that answers each connection with the bytes given and then does what `after` says: nothing (the response stalls open), or a close. It is the real behaviour of
+// a server that sends headers and then stalls or drops, not a manufactured status (AGENT-12). SYNTHETIC.
+func rawServer(t *testing.T, response string, after func(c net.Conn, done <-chan struct{})) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() { close(done); _ = l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				buf := make([]byte, 4096)
+				_, _ = c.Read(buf)
+				_, _ = c.Write([]byte(response))
+				after(c, done)
+			}()
+		}
+	}()
+	return "http://" + l.Addr().String()
+}
+
+func TestAFailureWhileReadingTheBodyIsUnavailableNotMalformed(t *testing.T) {
+	// Codex P2 on noema#711: a dependency that sent its headers and then stalled or dropped was reported as schema corruption (MALFORMED 200:TOO_LARGE_OR_CUT).
+	head := "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n[{"
+	tok := filepath.Join(t.TempDir(), "cred")
+	_ = os.WriteFile(tok, []byte(readerSecret), 0o600)
+	for name, tc := range map[string]struct {
+		after func(c net.Conn, done <-chan struct{})
+		want  string
+		ctxMs time.Duration
+	}{
+		"headers then a stall until the deadline": {func(_ net.Conn, done <-chan struct{}) { <-done }, "TIMEOUT", 400 * time.Millisecond},
+		"headers then a dropped connection":       {func(c net.Conn, _ <-chan struct{}) { _ = c.Close() }, "", 3000 * time.Millisecond},
+	} {
+		t.Run(name, func(t *testing.T) {
+			base := rawServer(t, head, tc.after)
+			r, err := synthetic_tushe.NewTusheReader(base, tok, synthetic_tushe.PresentBearer, synthetic_tushe.ListShapes{}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), tc.ctxMs)
+			defer cancel()
+			for _, call := range []func() error{
+				func() error { _, e := r.EventsAfter(ctx, 0, 10); return e },
+				func() error { _, e := r.PayoutTransitions(ctx, "a", "p"); return e },
+			} {
+				re := asReadError(t, call())
+				if re.Failure != adapters.ReadUnavailable {
+					t.Fatalf("want UNAVAILABLE, got %v %q", re.Failure, re.RawCode)
+				}
+				if tc.want != "" && re.RawCode != tc.want {
+					t.Fatalf("want %s, got %q", tc.want, re.RawCode)
+				}
+				if strings.Contains(re.RawCode, "TOO_LARGE_OR_CUT") {
+					t.Fatal("a transport failure was classed as a cut body")
+				}
+			}
+		})
 	}
 }
