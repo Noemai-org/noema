@@ -19,9 +19,23 @@ services:
       NOEMA_STANDIN_TENANT_ID: "${STANDIN_TENANT_ID:-ten_alpha}"
       NOEMA_STANDIN_RUNTIME_TOKEN_FILE: /run/standin/runtime/token
       NOEMA_STANDIN_PRINCIPAL_KEY_FILE: /run/standin/principal/key
+      # The session settings of the protected /v1 API (EDG-01; all six or none, no defaults, AGENT-16): the synthetic IdP's PUBLIC key under its key id, the audience, the one tenant,
+      # the pack's session limits, and the body limit, which a person gives at dispatch (no value is approved in the repository). `make bench-tokens` makes the key pair under
+      # $NOEMA_BENCH_OUT/idp: the core mounts the public key only, never the private key or the issuer binary, which only the runner reads.
+      NOEMA_SESSION_PUBLIC_KEY_FILE: /run/idp/public.pem
+      NOEMA_SESSION_KID: "${BENCH_KID:-bench-k1}"
+      NOEMA_SESSION_AUDIENCE: "${BENCH_AUDIENCE:-noema-core}"
+      NOEMA_SESSION_TENANTS: "${STANDIN_TENANT_ID:-ten_alpha}"
+      NOEMA_SESSION_LIMITS_FILE: /run/idp/session_limits.json
+      NOEMA_MAX_BODY_BYTES: "${NOEMA_BENCH_MAX_BODY_BYTES:?set by make bench-up from BENCH_MAX_BODY_BYTES}"
+      # The most bytes the core reads of one evidence payload (noema#606). No default in the core (AGENT-16): this number is the Architect's, ruling A236 (interim, relayed; docs#187),
+      # for the bench profile only and provisional; a production value goes through an [OPEN] entry. The core reads it only when its Trust-login DSN directory is set.
+      NOEMA_PAYLOAD_MAX_BYTES: "262144"
     volumes:
       - standin_runtime_credential:/run/standin/runtime:ro
       - standin_principal_key:/run/standin/principal:ro
+      - ${NOEMA_BENCH_OUT:?set by make bench-up}/idp/key/public.pem:/run/idp/public.pem:ro
+      - ../../packs/fintech/limits/session_limits.json:/run/idp/session_limits.json:ro
     depends_on:
       hostility-proxy:
         condition: service_healthy
@@ -30,6 +44,32 @@ services:
   hostility-proxy:
     environment:
       HOSTILITY_PROXY_ROUTES_FILE: /etc/hostility-proxy/config/routes.standin.json
+  # Temporal serves server-side TLS in the bench profile (A296, interim; NO client authentication and not mTLS: DEBT-46): the frontend presents the stack's `temporal` certificate, so a plain client is refused (EL's "refuse plain" test follows this).
+  # The names are the ones of the pinned image's config template (docker/config_template.yaml, release 1.29.7): TEMPORAL_TLS_FRONTEND_CERT and _KEY are the server certificate;
+  # TEMPORAL_TLS_SERVER_CA_CERT and TEMPORAL_TLS_FRONTEND_SERVER_NAME are what the in-process worker trusts and verifies when it dials the frontend; TEMPORAL_TLS, TEMPORAL_TLS_CA and
+  # TEMPORAL_TLS_SERVER_NAME are read by the image's `temporal` CLI (its default-namespace set-up and the healthcheck below) and are not the server's names.
+  # What this is NOT: client authentication. The frontend does not require a client certificate (TEMPORAL_TLS_REQUIRE_CLIENT_AUTH stays false): with it the combined auto-setup server's
+  # own worker would need a client certificate its template cannot give it, and the clean answer is an internal-frontend split, which is a decision for EL and the Architect, not a setting here.
+  temporal:
+    environment:
+      TEMPORAL_TLS_FRONTEND_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_FRONTEND_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_SERVER_CA_CERT: /run/tls/ca.crt
+      TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal
+      # The internode listeners present the same certificate: in the pinned template TEMPORAL_TLS_SERVER_CA_CERT is also the root of the internode client, so without a
+      # matching server certificate the services could not dial each other (Codex P1 on noema#698). Server-side TLS only, no client authentication (DEBT-46).
+      TEMPORAL_TLS_SERVER_CERT: /run/tls/temporal.crt
+      TEMPORAL_TLS_SERVER_KEY: /run/tls/temporal.key
+      TEMPORAL_TLS_INTERNODE_SERVER_NAME: temporal
+      TEMPORAL_TLS: "true"
+      TEMPORAL_TLS_CA: /run/tls/ca.crt
+      TEMPORAL_TLS_SERVER_NAME: temporal
+    volumes:
+      - ./secrets/tls/ca.crt:/run/tls/ca.crt:ro
+      - ./secrets/tls/temporal.crt:/run/tls/temporal.crt:ro
+      - ./secrets/tls/temporal.key:/run/tls/temporal.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233 --tls --tls-ca-path /run/tls/ca.crt --tls-server-name temporal"]
   # The runner writes the suite, the run and the score into the same directory the model writes its cost files to, and reads the live mock-case log from it.
   # The invoking user, so the files on the host are theirs. NOEMA_BENCH_* are set by `make bench-up`.
   bench-runner:

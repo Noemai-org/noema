@@ -8,8 +8,7 @@ Must never: act; hold credentials; see policy rules or thresholds; set identity;
 
 What is built (UND-05, slice 1): the compile route `POST /internal/v1/understanding:compile` and the `CompileService` it calls. The route is the seam the core's client
 (the core's compile client) speaks to: it validates the request, calls a `Compiler`, holds the reply to the schema gate and answers `{intent_object, canonical_input}`
-or an errors.v2 envelope. The compiler itself (prompt templates, the lexicon, the pipeline's assembly of an `intent-object.v3` proposal) is the next slice; the route takes it through
-the `Compiler` protocol and is complete without it.
+or an errors.v2 envelope. The compiler (`compiler.py`: `PipelineCompiler`) joins the pipeline, the lexicon and the assembler behind the `Compiler` protocol; the route is complete without it, and it is not wired in `main.py`.
 """
 
 from noema_model.understanding.compiler.service import (
@@ -20,4 +19,4 @@ from noema_model.understanding.compiler.service import (
     ProviderUnavailable,
 )
 
-__all__ = ["CompileService", "Compiler", "InputInvalid", "PackResolver", "ProviderUnavailable"]
+__all__ = ["CompileService", "Compiler", "InputInvalid", "PackResolver", "ProviderUnavailable"]  # PipelineCompiler is imported from .compiler (it needs the pipeline and the lexicon)

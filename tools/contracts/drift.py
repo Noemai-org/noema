@@ -25,6 +25,7 @@ ROWS = {
     "Confirmation request · terminal state on expiry": ("ConfirmationTerminalState", "all"),
     "Evidence item · `fact_status`": ("FactStatus", "all"),
     "Execution Receipt · `execution_state`": ("ExecutionState", "all"),
+    "Transaction · derived state `classification`": ("TransactionClassification", "all"),
     "Capability descriptor · `retry_safety`": ("RetrySafety", "all"),
     "Capability descriptor · `concurrency_control`": ("ConcurrencyControl", "all"),
     "Capability descriptor · `consequence_profile` dimensions": ("ConsequenceLevel", "all"),

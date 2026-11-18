@@ -5,6 +5,7 @@ Canonical, versioned contracts (JSON Schema 2020-12, `<name>.v<major>.json`). Ow
 - `schemas/`: the schemas (CON-01: C-1 to C-6, the candidates read contract and the reconstruction response contract).
 - `fixtures/valid/` and `fixtures/invalid/`: one of each per schema.
 - `fixtures/golden_vectors.json`: existing evidence-set hash vectors; see `fixtures/README.md`.
+- `fixtures/digit_run_vectors.json`: the shared vectors of the digit-run rule for the Record guard, the model service's redactor and the UI scan (a fixture, not a contract); see `fixtures/README.md`.
 
 Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: version bump, migration note, regenerated models.
 
@@ -105,3 +106,21 @@ Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: ver
 - **Built:** every schema in `INVENTORY.md`, with a valid and an invalid fixture each, the golden vectors, and the drift checks (`tools/contracts`, `tools/check_vectors.py`). Error codes are in `schemas/errors.v1.json`.
 - **Constraints:** both founders review changes (CODEOWNERS). The PERD §32.2 and state-registry files here are vendored copies; do not edit them.
 - **Open:** `INVENTORY.md` is also changed by #57; the second PR to merge merges `main` in. #59 adds the pack `understanding` schema fields.
+
+## common.v1, minor correction of three ID definitions (noema#543, ruling A203, relayed)
+
+- **What changed.** `IdempotencyKeyId` is `^idk_v1_[0-9a-f]{64}$` (the real key, PERD 27.2: 71 characters; the old pattern `^idk_[0-9A-Za-z]{2,32}$` matched no real key). `RequestId` keeps its pattern and says what it is: the ID the core mints for an input, `req_` and a ULID (A184). New `ClientRequestId` is the client's lower-case UUID; `canonical-input.v2`'s `request_id` now references it (the same pattern, so validation is unchanged).
+- **Migration note.** No schema referenced `IdempotencyKeyId` or `RequestId`, and no code outside the generated files used their generated types, so no document and no consumer changes meaning; `ClientRequestId` is additive. **`IdempotencyKeyId` is a narrowing, not a widening** (the Security Reviewer's note): the old shape (`idk_` and 2 to 32 letters or digits) is refused now; the real key never had it, so nothing that existed stops validating. This is a correction in place, not a new major: a minor change (an addition, or a correction in place) keeps the file name, is recorded in this file with a migration note, and moves the pin of any test that pins the file, so the file stays `common.v1.json` and the pin of its hash in `tools/contracts/test_intent_object_v3.py` moves to this edit (it is the only edit since v3). Regenerated: the Go and Pydantic models.
+- **Tests.** `tools/contracts/test_common_ids.py`: a real key validates and eight non-keys are refused; a core-minted `req_<ULID>` validates and a UUID does not; `ClientRequestId` accepts a lower-case UUID and refuses five non-UUIDs; `canonical-input.v2` references it.
+
+## enums.v1, three core reason codes added (ruling A254, interim)
+
+- **What changed.** `CoreReasonCode` gains `TARGET_FROZEN`, `CLOCK_BREACHED_UNROUTED` and `DISPATCH_BUDGET_EXHAUSTED` (additive, so the file stays `enums.v1.json`). The fourth name of A254, `DECLINED_BY_APPROVER`, was already in the list, so the list goes from 17 to 20 (the Architect confirmed 20 in A280; the 21 of A254 was a slip). The three are [REC] until the founders confirm them. The registry row (`state-registry.md`), the Go set `decide.coreCodes` and the generated Go, Pydantic and TypeScript types are updated together; `tools/contracts/drift.py` and `TestTheCoreReasonCodesTrustAcceptsAreExactlyTheContractsClosedList` hold them equal.
+- **Migration note.** Nothing that validated before stops validating: no schema or fixture uses the three words, and the Decision Record's `reason_codes` is an array of core or pack codes, so an old record is still valid. A consumer with its own copy of the closed list (a switch on `CoreReasonCode`) must add the three; the core's is `decide.coreCodes`. Packs may not reuse a core code (`packcheck`): no shipped pack holds the three. Regenerated: the Go, Pydantic and TypeScript models.
+- **Tests.** The Go test above; a valid fixture for each of the three (`contracts/fixtures/valid/enums/`).
+
+## enums.v1, the transaction classification is its own closed list (OD-P-10, A272, A280)
+
+- **What changed.** `enums.v1.json` gains `TransactionClassification`, the twelve derived-state classifications of the PERD v1.18 state table, equal to `reconcile.Classification` in the core. `context-snapshot.v1` (`reconciliation.classification`) and `benchmark-case.v2` (`expected.classification`, nullable) refer to it instead of the pattern `^[A-Z][A-Z0-9_]*$`, which accepted any upper-case word, among them `OUTCOME_UNKNOWN`, an Execution Receipt state. Edited in place before the tag (A272), so the files keep their names.
+- **Migration note.** A narrowing: a document whose classification is not one of the twelve stops validating. No committed fixture held another value except the existing invalid `success_confirmed` (lower case). Not changed here: `benchmark-case.v1`, which a test pins unedited (v2 supersedes it), and, for the Architect to scope, `benchmark-case-result.v1/v2`, `benchmark-arm-result.v1`, `explanation-facts.v2` (a pack-named classification) and `reconstruction.v1/v2/v3` keep the pattern. Regenerated: Go, Pydantic and TypeScript.
+- **Tests.** Two invalid fixtures (`classification_is_a_receipt_state`), the CON-06 matrices of both languages (which now hold the new list), and `TestTheClassificationsOfTheReconcilerAreExactlyTheContractsTransactionClassification`.

@@ -9,6 +9,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -36,8 +37,28 @@ type Server struct {
 	token string
 	now   func() time.Time
 
+	hold time.Duration
+	wait func(context.Context, time.Duration)
+
 	mu       sync.Mutex
 	counters map[string]int64
+}
+
+// WithHold makes the server hold its 200 for d after a delivery is stored (the bench's timeout fault, A240 and A247). wait is the way it waits and gives up when the sender does;
+// nil means a real timer. A refused delivery is never held and never stored.
+func (s *Server) WithHold(d time.Duration, wait func(context.Context, time.Duration)) *Server {
+	if wait == nil {
+		wait = func(ctx context.Context, d time.Duration) {
+			t := time.NewTimer(d)
+			defer t.Stop()
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+			}
+		}
+	}
+	s.hold, s.wait = d, wait
+	return s
 }
 
 // New returns a Server. now is the clock the tolerance window is measured against.
@@ -98,6 +119,11 @@ func (s *Server) webhook(w http.ResponseWriter, r *http.Request) {
 		s.count("store_errors")
 		writeJSON(w, 500, map[string]string{"error": "not_stored"}) // the sender retries; nothing was acknowledged
 		return
+	}
+	if s.hold > 0 && out != store.Conflict {
+		// The delivery is on disk (fsync) before the wait: a sender that gives up and sends it again gets "duplicate", and it is stored once.
+		s.count("held")
+		s.wait(r.Context(), s.hold)
 	}
 	switch out {
 	case store.Conflict:

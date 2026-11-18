@@ -49,6 +49,7 @@ The signing secret itself is not accepted as a pull token (tested).
 | `WEBHOOK_RELAY_SIGNING_SECRET_FILE` | required; `whsec_<base64>` (as Standard Webhooks writes it) or raw bytes, at least 24 bytes |
 | `WEBHOOK_RELAY_STORE_FILE` | required; the JSON-lines store |
 | `WEBHOOK_RELAY_LISTEN` | default `:8090` |
+| `WEBHOOK_RELAY_HOLD_SECONDS` | optional, **bench only**; no default. A whole number of seconds strictly above Tushe's 12-second delivery timeout (the bench value is 15, ruling A247; Tushe's number is from its addendum of 15 Nov 2026, A240). The relay stores the delivery first (on disk), then holds its 200 for that long, so Tushe records a timeout and may send the message again; the second delivery is answered `duplicate` and stored once. A refused delivery is never held. Unset means no hold; any other value is refused at start. The listener's write timeout is extended by the hold. `/v1/stats` counts `held`. What this shows is the relay's side; whether Tushe records a distinct timeout is Tushe's, shown in the joint session |
 
 ## Compose
 

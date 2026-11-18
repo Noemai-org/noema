@@ -221,17 +221,161 @@ class TypeScriptOutput(unittest.TestCase):
         files = generate.render_all(generate.load_schemas())
         ts_files = {p for p in files if p.startswith(generate.TS_DIR + "/")}
         self.assertIn(f"{generate.TS_DIR}/_runtime.ts", ts_files)
-        self.assertIn(f"{generate.TS_DIR}/index.ts", ts_files)
-        roots = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))["roots"]
+        self.assertIn(f"{generate.TS_DIR}/customer.ts", ts_files)
+        self.assertIn(f"{generate.TS_DIR}/operator.ts", ts_files)
+        self.assertNotIn(f"{generate.TS_DIR}/index.ts", ts_files)  # one entry point for everything would defeat the two audiences (A258)
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
         for r in roots:
             self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", ts_files)
         self.assertNotIn(f"{generate.TS_DIR}/benchmark_case_v1.ts", ts_files)  # a contract the UI does not read does not reach the bundle
+
+    def test_the_front_end_reads_the_four_public_contracts_the_errors_and_the_reconstruction(self):
+        # REQ-UI-001, REQ-API-001: the roots the UI reads. errors.v3 (the public error envelope) and reconstruction.v3 (the case view) are roots in their own right, not only
+        # dependencies of another root, so the front end can import them by name.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        roots = cfg["customer"] + cfg["operator"]
+        files = generate.render_all(generate.load_schemas())
+        for r in ("customer-answer.v1.json", "investigation-response.v1.json", "overlay-card.v1.json", "sse-event.v1.json", "errors.v3.json", "reconstruction.v3.json"):
+            self.assertIn(r, roots, f"{r} is not a root of ts.json")
+            self.assertIn(f"{generate.TS_DIR}/{generate.py.module_name(r)}.ts", files)
+
+    def test_a_map_whose_keys_have_a_pattern_refuses_a_key_that_does_not_match(self):
+        # reconstruction.v3 facts: propertyNames { pattern } with additionalProperties. The TypeScript parser must refuse a key outside the pattern, as the validator does
+        # (the front end read an invalid fixture, fact_key_not_snake_case, as valid before this).
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn("keyPattern?: RegExp", files[f"{generate.TS_DIR}/_runtime.ts"])
+        self.assertRegex(files[f"{generate.TS_DIR}/reconstruction_v3.ts"], r"mapOf\([^\n]*, PATTERN_\d+\)")
+
+    def test_the_customer_entry_point_reaches_no_operator_contract(self):
+        # A258 (the Security Reviewer's question on noema#615): reconstruction.v3 and record-event.v3 carry tenant_id, the full events and their hashes: the operator and auditor UI
+        # only. The customer entry point imports the four public contracts and errors.v3, and nothing it imports leads to those two.
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        todo, seen = [base + "customer.ts"], set()
+        while todo:
+            f = todo.pop()
+            if f in seen:
+                continue
+            seen.add(f)
+            todo.extend(base + m + ".ts" for m in re.findall(r'from "\./(\w+)\.js"', files[f]))
+        names = {f[len(base):-3] for f in seen}
+        self.assertTrue({"errors_v3", "customer_answer_v1", "overlay_card_v1", "investigation_response_v1", "sse_event_v1"} <= names)
+        self.assertFalse(names & {"reconstruction_v3", "record_event_v3", "operator"}, names)
+        parsers = set(re.findall(r'^  "([^"]+)": parse', files[base + "customer.ts"], re.M))
+        self.assertEqual(parsers, {"customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"})
+
+    def test_the_front_end_bundle_holds_only_what_a_root_reaches(self):
+        # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
+        # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
+        files = generate.render_all(generate.load_schemas())
+        entries = (f"{generate.TS_DIR}/operator.ts", f"{generate.TS_DIR}/benchmark.ts")
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts", "benchmark.ts"))}
+        defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
+        roots = {"parse" + m for f, text in files.items() if f in entries for m in re.findall(r"import \{ parse(\w+) \}", text)}
+        every = "\n".join(ts.values())
+        for fn, f in sorted(defined.items()):
+            uses = len(re.findall(rf"\b{fn}\(", every)) - 1  # the definition itself
+            self.assertTrue(fn in roots or uses > 0, f"{fn} in {f} is reached by no root: it would ship in the bundle unused")
+        self.assertNotIn("CoreReasonCode", "".join(ts.values()))
+        self.assertIn("parseEnumsV1Verdict", defined)  # noema-resolution.v1 uses it, so it stays
+
+    def test_the_benchmark_scorecard_stays_out_of_the_ui_bundle(self):
+        # INV-22, PERD 65.1: benchmark-scorecard.v3 refers to benchmark-case.v1 (the case with its expected block and its oracle reference), which no bundle may hold. Asking for it as
+        # a root is the generator's refusal, with the reason, and the committed ts.json does not list it.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertNotIn("benchmark-scorecard.v3.json", cfg["customer"] + cfg["operator"])
+        every = ir.build_schemas(generate.load_schemas())
+        original = generate.HERE
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-scorecard.v3.json"], "operator": []}), encoding="utf-8")
+            (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
+            generate.HERE = Path(d)
+            try:
+                with self.assertRaisesRegex(ir.GenerationError, "keeps out"):
+                    generate.render_ts(generate.load_schemas(), every)
+            finally:
+                generate.HERE = original
+
+    # -- the benchmark entry point (noema#677; REQ-UI-004, REQ-BEN-004, INV-22, A250, A258) ---------------------------------------------------------------
+    @staticmethod
+    def _closure(files: dict[str, str], entry: str) -> set[str]:
+        """The generated modules an entry point (`customer`, `operator`, `benchmark`) imports, directly or through another: names without the folder and the extension, the entry included."""
+        todo, seen = [entry], set()
+        while todo:
+            m = todo.pop()
+            if m in seen:
+                continue
+            seen.add(m)
+            todo.extend(re.findall(r'from "\./(\w+)\.js"', files[f"{generate.TS_DIR}/{m}.ts"]))
+        return seen
+
+    def test_the_benchmark_entry_point_holds_the_scorecard_view_and_only_that(self):
+        # noema#677: scorecard-view.v1 (the approved aggregate view, A250) is read by the benchmark UI (REQ-UI-004) through its own entry point, `benchmark.ts`: a third audience beside
+        # customer and operator. It is a root of ts.json under its own list, and of neither of the others.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertEqual(cfg["benchmark"], ["scorecard-view.v1.json"])
+        self.assertNotIn("scorecard-view.v1.json", cfg["customer"] + cfg["operator"])
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        self.assertIn(base + "scorecard_view_v1.ts", files)
+        self.assertIn(base + "benchmark.ts", files)
+        self.assertEqual(set(re.findall(r'^  "([^"]+)": parse', files[base + "benchmark.ts"], re.M)), {"scorecard-view.v1"})
+        # the view refers to no other contract, so the entry point is the view, the runtime and itself
+        self.assertEqual(self._closure(files, "benchmark"), {"benchmark", "scorecard_view_v1", "_runtime"})
+
+    def test_the_three_entry_points_do_not_leak_into_each_other(self):
+        # A258 and noema#677: the benchmark entry point reaches no contract of the customer or the operator set (apart from the runtime every parser needs), and neither of those two reaches
+        # the scorecard view or the benchmark entry point. A customer page cannot import the benchmark view by following imports, and the benchmark view carries nothing of a customer.
+        files = generate.render_all(generate.load_schemas())
+        self.assertIn(f"{generate.TS_DIR}/benchmark.ts", files, "no benchmark entry point")
+        customer, operator, bench = (self._closure(files, e) for e in ("customer", "operator", "benchmark"))
+        shared = {"_runtime"}
+        self.assertEqual((customer | operator) & bench, shared, "the benchmark entry point shares more than the runtime")
+        self.assertFalse((customer | operator) & {"scorecard_view_v1", "benchmark"}, customer | operator)
+        self.assertFalse(bench & {"customer", "operator", "reconstruction_v3", "record_event_v3", "customer_answer_v1", "errors_v3", "errors_v2"}, bench)
+
+    def test_the_benchmark_entry_point_reaches_no_case_id_oracle_or_write_access(self):
+        # INV-22, REQ-UI-004: the view is "the numbers of scorecard v3 and nothing that names a case". The type closure of the entry point holds no case id, no list of ids, no failure list, no
+        # structural evidence, no oracle or held-out reference, no tenant, and nothing a write role or a credential would be named by. (`writes_idempotent_and_verified` is a diagnostic rate, not write access.) The scan reads the names of the emitted types and of their
+        # members, not the enum values (a Tier 0 gate is *named* ORACLE_ACCESS: it is a count, not a reference) and not the doc comments (the schema says what it leaves out).
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        self.assertIn(base + "benchmark.ts", files, "no benchmark entry point")
+        modules = self._closure(files, "benchmark") - {"_runtime"}
+        self.assertEqual(modules, {"benchmark", "scorecard_view_v1"})
+        names, members, lists = [], [], []
+        for m in sorted(modules):
+            text = files[base + m + ".ts"]
+            names += re.findall(r"^export (?:interface|type) (\w+)", text, re.M)
+            members += re.findall(r'^  "?([A-Za-z0-9_$]+)"?\??: ', text, re.M)
+            lists += re.findall(r"^export type \w+ = string\[\];|^  \S+\??: string\[\];", text, re.M)
+        self.assertIn("ScorecardViewV1", names)
+        self.assertTrue({"failure_count", "failing_case_count", "incomplete_counts"} <= set(members), "the scan does not see the members it is meant to inspect")
+        forbidden = ("caseid", "oracle", "heldout", "expected", "benchmarkcase", "failurelist", "failingcases", "structural", "evidence", "human", "tenant", "credential", "secret", "token", "role",
+                     "writer", "writeaccess", "grant", "session")
+        for n in names + members:
+            flat = re.sub(r"[^a-z0-9]", "", n.lower())
+            self.assertFalse([w for w in forbidden if w in flat], f"{n} names something INV-22 keeps out of the benchmark view")
+        self.assertEqual(lists, [], "a list of free strings (a list of ids) would carry what the view leaves out")
+        # nothing is imported but the view and the runtime: no client, no fetch, no other contract
+        for m in modules:
+            for imported in re.findall(r'from "\./([\w.]+)"', files[base + m + ".ts"]):
+                self.assertIn(imported, {"_runtime.js", "scorecard_view_v1.js"}, f"{m} imports {imported}")
+
+    def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
+        # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first
+        # alternative, so `tsc` refused the second one. The parser names the union's own type: `union<T>(...)`.
+        files = generate.render_all(generate.load_schemas())
+        for module, name in (("overlay_card_v1", "OverlayCardV1"), ("sse_event_v1", "SseEventV1")):
+            text = files[f"{generate.TS_DIR}/{module}.ts"]
+            self.assertIn(f"return union<{name}>(v, p, [", text, f"{module}: the union does not name its type")
 
     def test_a_root_that_is_not_a_contract_is_an_error(self):
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["nothing.v1.json"]}), encoding="utf-8")
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["nothing.v1.json"], "operator": []}), encoding="utf-8")
             generate.HERE = Path(d)
             try:
                 with self.assertRaisesRegex(ir.GenerationError, "nothing.v1.json"):
@@ -243,7 +387,7 @@ class TypeScriptOutput(unittest.TestCase):
         every = ir.build_schemas(generate.load_schemas())
         original = generate.HERE
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "ts.json").write_text(json.dumps({"roots": ["benchmark-case.v1.json"]}), encoding="utf-8")
+            (Path(d) / "ts.json").write_text(json.dumps({"customer": ["benchmark-case.v1.json"], "operator": []}), encoding="utf-8")
             (Path(d) / "excluded.json").write_text((HERE / "excluded.json").read_text(encoding="utf-8"), encoding="utf-8")
             generate.HERE = Path(d)
             try:
