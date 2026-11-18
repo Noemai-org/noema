@@ -1,0 +1,6 @@
+# The one third-party dependency of tools/ci: PyYAML, for the workflow safeguards (OD-P-95, closed 18 Nov 2026; ruling A283). Hand-pinned, one package, no transitive dependency.
+# Installed in the `safeguards` job ONLY, with: python3 -m pip install --require-hashes --only-binary=:all: --no-deps -r tools/ci/requirements.lock
+# Used through tools/ci/yamlload.py (safe_load semantics only). The hash is the CPython 3.13 manylinux x86_64 wheel of 25 Sep 2025 (the runner: ubuntu-24.04); a source build is refused.
+# To update: pick the release, take the wheel's sha256 from PyPI, change both lines in one reviewed pull request, run the two workflow-check test files.
+pyyaml==6.0.3 \
+    --hash=sha256:0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6
