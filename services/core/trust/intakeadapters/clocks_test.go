@@ -330,7 +330,7 @@ func TestAPackWhoseClocksCannotBeUsedIsRefused(t *testing.T) {
 		"a clock with a zero duration":  badClock(func(c map[string]any) { c["duration_seconds"] = 0 }),
 		"a clock with an unknown label": badClock(func(c map[string]any) { c["label"] = "GUESSED" }),
 		"a clock with no anchor event":  badClock(func(c map[string]any) { delete(c, "anchor_event") }),
-		"a clock with an unknown field": badClock(func(c map[string]any) { c["at_risk"] = 0.25 }),
+		"a clock with an unknown field": badClock(func(c map[string]any) { c["at_risk"] = "a quarter" }),
 		"a clock defined twice":         editPack(t, func(m map[string]any) { m["clocks"] = append(m["clocks"].([]any), m["clocks"].([]any)[0]) }),
 		"a profile naming an unknown clock": editPack(t, func(m map[string]any) {
 			m["trust_profiles"].([]any)[0].(map[string]any)["clocks"] = []any{"fin.clock.ghost"}
@@ -362,10 +362,16 @@ func TestTwoClocksOfOneProfileAreBothAnsweredInTheProfilesOrder(t *testing.T) {
 		m["clocks"] = append(m["clocks"].([]any), map[string]any{"clock_id": string(second.ClockId), "anchor_event": second.AnchorEvent, "duration_seconds": second.DurationSeconds, "label": "SYNTHETIC"})
 		m["trust_profiles"].([]any)[0].(map[string]any)["clocks"] = []any{string(second.ClockId), string(first.ClockId)}
 	})
-	a := &anchors{at: map[string]int64{second.AnchorEvent: t3}}
+	a := &anchors{at: map[string]int64{second.AnchorEvent: t3, first.AnchorEvent: t2}}
 	set, err := newClocks(t, clockBook(t, raw), a, nil).Applicable(ctx(t), clockQuery())
 	if err != nil || len(set.Clocks) != 2 || set.Clocks[0].Clock != second || set.Clocks[1].Clock != first ||
-		set.Clocks[0].Anchor == nil || *set.Clocks[0].Anchor != t3 || set.Clocks[1].Anchor != nil {
+		set.Clocks[0].Anchor == nil || *set.Clocks[0].Anchor != t3 || set.Clocks[1].Anchor == nil || *set.Clocks[1].Anchor != t2 {
+		t.Fatalf("%+v, %v", set.Clocks, err)
+	}
+	// one clock that has started and one that has not
+	a.at = map[string]int64{second.AnchorEvent: t3}
+	set, err = newClocks(t, clockBook(t, raw), a, nil).Applicable(ctx(t), clockQuery())
+	if err != nil || set.Clocks[0].Anchor == nil || set.Clocks[1].Anchor != nil {
 		t.Fatalf("%+v, %v", set.Clocks, err)
 	}
 }

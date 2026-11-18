@@ -18,8 +18,6 @@ var (
 	ErrFacts = errors.New("intakeadapters: the facts are not usable")
 	// ErrAnchor marks an anchor time that is not a time (zero or negative) for an event the source says happened.
 	ErrAnchor = errors.New("intakeadapters: the anchor time is not usable")
-	// ErrNotBuilt marks a part that is not built yet.
-	ErrNotBuilt = errors.New("intakeadapters: not built")
 	// ErrRule marks a winning rule whose parameters cannot give the answer the effect needs (a WAIT with no usable wait_seconds).
 	ErrRule = errors.New("intakeadapters: the winning rule cannot be turned into an answer")
 )
