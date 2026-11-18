@@ -3,8 +3,13 @@
 
 `actions/checkout` writes the job's token into `.git/config` unless the step says `persist-credentials: false`. Every later step of the job, and every script or test the job runs
 (a benchmark, a model adapter, a build script), can then read that token from the workspace. A token that nothing needs should not be there. This check fails when any `actions/checkout`
-step under `.github/` (workflows and composite actions) does not set `persist-credentials: false` in its own `with:` block. The value must be the literal `false`: an expression, `true`,
-a quoted string or a comment that only mentions the key does not count. Unreadable files and unlistable directories fail.
+step under `.github/` (workflows and composite actions) does not set `persist-credentials: false` in its own `with:` mapping. The value must be the boolean `false` or the string "false":
+an expression, `true`, `no`, a missing mapping or a comment that only mentions the key does not count. A file that cannot be read, parsed or that repeats a key fails.
+
+The files are PARSED, not scanned by line (A283, OD-P-95 D1): a checkout written in a flow mapping, with quoted or escaped keys, an anchor or a quoted `#` is the same document whatever its
+layout. PyYAML is the one approved parser (hash-pinned in tools/ci/requirements.lock, installed in the safeguards job only); the loader is `yaml.SafeLoader` with two changes that only
+refuse more: a repeated key is an error (GitHub refuses it, and a last-key-wins read could hide a `true`), and a boolean is only true or false in any capitalisation (YAML 1.2, as GitHub reads it:
+`no` and `off` are strings, not false). Without PyYAML the check fails closed.
 
 A job that really needs git credentials (a push, a fetch of a private repository) is not allowed to rely on the persisted one: it passes the token to the step that needs it. There is no
 exemption list: a new one would be a reviewed change of this file.
@@ -15,103 +20,104 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Any
+
+try:
+    import yaml
+except ImportError:  # fail closed: a check that cannot read the files must not pass them
+    yaml = None  # type: ignore[assignment]
 
 SUFFIXES = {".yml", ".yaml"}
-USES = re.compile(r"^(?P<indent>\s*)(?P<dash>-\s+)?['\"]?uses['\"]?:\s*['\"]?actions/checkout@")
-DASH = re.compile(r"^(?P<indent>\s*)-\s")
-KEY = re.compile(r"^(?P<indent>\s*)(?P<q>['\"]?)(?P<key>[A-Za-z0-9_-]+)(?P=q):(?P<rest>.*)$")  # a key may be quoted: `"persist-credentials": false` is the same YAML
-FALSE = re.compile(r"^\s*false\s*(#.*)?$")
+MAX_DEPTH = 64
+BOOL = re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$")
 
 
-def code_of(line: str) -> str:
-    """The line without its YAML comment: a `#` starts one only outside a quoted string and at the start of the line or after a space or tab, so `{name: '# label', uses: ...}` keeps its
-    `uses` (Codex P2 on noema#622)."""
-    quote = ""
-    for index, char in enumerate(line):
-        if quote:
-            if char == quote and not (quote == '"' and line[index - 1] == chr(92)):
-                quote = ""
-        elif char in "'\"":
-            quote = char
-        elif char == "#" and (index == 0 or line[index - 1] in " " + chr(9)):
-            return line[:index]
-    return line
+def make_loader() -> Any:
+    """yaml.SafeLoader that refuses a repeated key and reads booleans as YAML 1.2 does. Never the unsafe `yaml.load` loaders."""
+    assert yaml is not None
+
+    class StrictLoader(yaml.SafeLoader):  # type: ignore[name-defined, misc]
+        pass
+
+    StrictLoader.yaml_implicit_resolvers = {k: [r for r in v if r[0] != "tag:yaml.org,2002:bool"] for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()}
+    StrictLoader.add_implicit_resolver("tag:yaml.org,2002:bool", BOOL, list("tTfF"))
+
+    def construct_mapping(loader: Any, node: Any, deep: bool = False) -> Any:
+        seen: set[Any] = set()
+        for key_node, _value in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue
+            key = loader.construct_object(key_node, deep=True)
+            try:
+                repeated = key in seen
+            except TypeError:
+                raise yaml.constructor.ConstructorError(None, None, "a mapping key that cannot be compared", key_node.start_mark) from None
+            if repeated:
+                raise yaml.constructor.ConstructorError(None, None, f"the key {key!r} is repeated in one mapping", key_node.start_mark)
+            seen.add(key)
+        return yaml.SafeLoader.construct_mapping(loader, node, deep)
+
+    StrictLoader.add_constructor("tag:yaml.org,2002:map", construct_mapping)
+    return StrictLoader
 
 
-def indent_of(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
+def documents(text: str) -> list[Any]:
+    return list(yaml.load_all(text, Loader=make_loader()))  # SafeLoader subclass: no object construction beyond plain data
 
 
-def meaningful(line: str) -> bool:
-    stripped = line.strip()
-    return bool(stripped) and not stripped.startswith("#")
+def is_checkout(uses: Any) -> bool:
+    return isinstance(uses, str) and uses.strip().lower().startswith("actions/checkout")
 
 
-def step_bounds(lines: list[str], uses_at: int) -> tuple[int, int, int]:
-    """The first line, the line after the last, and the indent of the keys of the step that holds the `uses:` line."""
-    match = USES.match(lines[uses_at])
-    assert match is not None
-    key_indent = len(match.group("indent")) + (len(match.group("dash")) if match.group("dash") else 0)
-    start = uses_at
-    if not match.group("dash"):
-        start = uses_at - 1
-        while start >= 0 and not (meaningful(lines[start]) and DASH.match(lines[start]) and len(DASH.match(lines[start]).group("indent")) + 2 <= key_indent):  # type: ignore[union-attr]
-            start -= 1
-        start = max(start, 0)
-    dash_indent = len(DASH.match(lines[start]).group("indent")) if DASH.match(lines[start]) else key_indent  # type: ignore[union-attr]
-    end = uses_at + 1
-    while end < len(lines) and (not meaningful(lines[end]) or indent_of(lines[end]) > dash_indent):
-        end += 1
-    return start, end, key_indent
+def sets_false(step: dict[Any, Any]) -> bool:
+    """True when the step's own `with` mapping carries persist-credentials as false (the key in any capitalisation, once, with the boolean or the string "false")."""
+    withs = [v for k, v in step.items() if isinstance(k, str) and k.lower() == "with"]
+    if len(withs) != 1 or not isinstance(withs[0], dict):
+        return False
+    values = [v for k, v in withs[0].items() if isinstance(k, str) and k.lower() == "persist-credentials"]
+    return len(values) == 1 and (values[0] is False or values[0] == "false")
 
 
-def sets_false(lines: list[str], start: int, end: int, key_indent: int) -> bool:
-    """True when the step's own `with:` block carries `persist-credentials: false` (the key at the block's depth, the literal value)."""
-    index = start
-    while index < end:
-        line = lines[index]
-        match = KEY.match(line.replace("- ", "  ", 1) if index == start and DASH.match(line) else line)
-        if match and match.group("key") == "with" and len(match.group("indent")) == key_indent and not match.group("rest").strip().split("#")[0].strip():
-            block_indent = None
-            for inner in lines[index + 1:end]:
-                if not meaningful(inner):
-                    continue
-                depth = indent_of(inner)
-                if depth <= key_indent:
-                    break
-                block_indent = depth if block_indent is None else block_indent
-                item = KEY.match(inner)
-                if item and len(item.group("indent")) == block_indent and item.group("key") == "persist-credentials" and FALSE.match(item.group("rest")):
-                    return True
-            return False
-        index += 1
-    return False
+def walk(node: Any, path: str, found: list[str], depth: int = 0) -> None:
+    if depth > MAX_DEPTH:
+        found.append(f"{path}: nested deeper than {MAX_DEPTH}: this check does not read it")
+        return
+    if isinstance(node, dict):
+        uses = [v for k, v in node.items() if isinstance(k, str) and k.lower() == "uses"]
+        if any(is_checkout(u) for u in uses) and not sets_false(node):
+            name = next((v for k, v in node.items() if isinstance(k, str) and k.lower() == "name" and isinstance(v, str)), "")
+            found.append(f"{path}{' (' + name[:60] + ')' if name else ''}: actions/checkout without `persist-credentials: false` in its own `with:` mapping")
+        for key, value in node.items():
+            walk(value, f"{path}.{key}" if path else str(key), found, depth + 1)
+    elif isinstance(node, list):
+        for index, item in enumerate(node):
+            walk(item, f"{path}[{index}]", found, depth + 1)
 
 
 def violations(github_dir: Path) -> list[str]:
     found: list[str] = []
+    if yaml is None:
+        return ["PyYAML is not installed: the check cannot read the workflow files (the safeguards job installs tools/ci/requirements.lock)"]
 
     def on_error(exc: OSError) -> None:
         found.append(f"{exc.filename}: directory cannot be listed ({exc.__class__.__name__})")
 
     files = sorted(Path(d) / n for d, _dirs, names in os.walk(github_dir, onerror=on_error) for n in names)
     for path in (p for p in files if p.suffix.lower() in SUFFIXES):
+        rel = path.relative_to(github_dir).as_posix()
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            docs = documents(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError) as exc:
-            found.append(f"{path.relative_to(github_dir).as_posix()}: cannot be read ({exc})")
+            found.append(f"{rel}: cannot be read ({exc.__class__.__name__})")
             continue
-        for number, line in enumerate(lines):
-            if meaningful(line) and "actions/checkout" in code_of(line) and not USES.match(line):
-                # A checkout written as a flow mapping (`- {uses: actions/checkout@...}`), as `uses :` or in any other shape this reader does not parse could hide a persisted token: refuse it
-                # instead of skipping it (Codex P2 on noema#622). Write the step in block style.
-                found.append(f"{path.relative_to(github_dir).as_posix()}:{number + 1}: actions/checkout written in a form this check does not read (a flow mapping or an odd spelling): use block style")
-                continue
-            if not meaningful(line) or not USES.match(line):
-                continue
-            start, end, key_indent = step_bounds(lines, number)
-            if not sets_false(lines, start, end, key_indent):
-                found.append(f"{path.relative_to(github_dir).as_posix()}:{number + 1}: actions/checkout without `persist-credentials: false` in its own `with:` block")
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            found.append(f"{rel}: cannot be parsed ({getattr(exc, 'problem', 'invalid YAML')}{', line ' + str(mark.line + 1) if mark else ''})")
+            continue
+        problems: list[str] = []
+        for number, doc in enumerate(docs):
+            walk(doc, f"document {number}" if len(docs) > 1 else "", problems)
+        found += [f"{rel}: {p.lstrip(':').strip()}" if p.startswith(":") else f"{rel}: {p}" for p in problems]
     return found
 
 

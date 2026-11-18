@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""The workflow-permissions check fails for the right reason and passes for the right shape (REQ-SEC-007; PLT-02).
+"""The workflow-permissions check fails for the right reason and passes for the right shape (REQ-SEC-007; PLT-02; A283, OD-P-95 D1).
 
-Each case writes small workflows into a temporary directory and runs the check on them. Every refusal changes exactly one thing from a passing document, so it cannot pass because the check
-refuses everything. The last class runs the check on this repository's own workflows.
+The files are parsed, so each case is a document, not a layout: every refusal changes exactly one thing from a passing document, so it cannot pass because the check refuses everything.
+The same grant in the other layouts (flow mapping, quoted or escaped keys, a space before the colon, an anchor, a quoted `#`) must get the same answer. The last class runs the check on this
+repository's own workflows.
 
 Run: python3 -I tools/ci/test_check_workflow_permissions.py
 """
@@ -34,7 +35,7 @@ def run(files: dict[str, str]) -> list[str]:
 
 
 def only(found: list[str], *needles: str) -> None:
-    """Exactly one problem was found, and it mentions every needle (explicit raises: the check must not depend on `assert` surviving `python -O`)."""
+    """Exactly one problem was found and it mentions every needle (explicit raises: the check must not depend on `assert` surviving `python -O`)."""
     if len(found) != 1:
         raise AssertionError(f"want exactly one problem, got {found}")
     for needle in needles:
@@ -52,223 +53,154 @@ class Passes(unittest.TestCase):
     def test_an_empty_mapping_is_the_strictest_block(self) -> None:
         self.assertEqual(run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", "permissions: {}\n")}), [])
 
-    def test_a_comment_after_a_value_and_a_comment_line_do_not_matter(self) -> None:
-        text = GOOD.replace("  contents: read\n", "  # nothing may write\n  contents: read  # the token reads the repository only\n")
-        self.assertEqual(run({"t.yml": text}), [])
-
-    def test_a_comment_that_names_the_forbidden_words_passes(self) -> None:
-        text = "# not pull_request_target, not write-all, no id-token\n" + GOOD
-        self.assertEqual(run({"t.yml": text}), [])
+    def test_the_same_document_in_other_layouts_passes(self) -> None:
+        for label, text in {
+            "flow mapping": GOOD.replace("permissions:\n  contents: read\n", "permissions: {contents: read}\n"), "space before the colon": GOOD.replace("permissions:", "permissions :"),
+            "quoted keys": GOOD.replace("permissions:\n  contents: read\n", '"permissions":\n  "contents": read\n'), "quoted value": GOOD.replace("contents: read", "contents: 'read'"),
+            "json style": '{"name": "t", "on": "push", "permissions": {"contents": "read"}, "jobs": {"one": {"runs-on": "x", "steps": [{"run": "echo"}]}}}\n',
+            "comment after the value": GOOD.replace("contents: read", "contents: read # least privilege"),
+            "anchor": GOOD.replace("permissions:\n  contents: read\n", "x-ro: &ro\n  contents: read\npermissions: *ro\n"),
+            "a comment that names the forbidden words": GOOD + "# write-all, pull_request_target and id-token are not used\n",
+            "a script that names them": GOOD.replace("echo hello", "echo pull_request_target write-all id-token"),
+        }.items():
+            with self.subTest(label):
+                self.assertEqual(run({"t.yml": text}), [], label)
 
     def test_a_reviewed_write_in_its_own_workflow_passes(self) -> None:
         text = GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n")
-        with unittest_allow({("t.yml", "issues"): "test"}):
-            self.assertEqual(run({"t.yml": text}), [])
+        self.assertEqual(run({"bench-nightly.yml": text, "main-merge-audit.yml": text}), [])
 
     def test_a_reviewed_write_at_job_level_passes(self) -> None:
         text = GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions:\n      issues: write\n")
-        with unittest_allow({("t.yml", "issues"): "test"}):
-            self.assertEqual(run({"t.yml": text}), [])
+        self.assertEqual(run({"bench-nightly.yml": text.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\n  issues: read\n"), "main-merge-audit.yml": text}), [])
+
+    def test_a_trigger_that_only_resembles_the_forbidden_one_passes(self) -> None:
+        self.assertEqual(run({"t.yml": GOOD.replace("on: push", "on:\n  pull_request:\n  workflow_dispatch:\n")}), [])
 
 
 class Refuses(unittest.TestCase):
     def test_no_permissions_block(self) -> None:
-        only(run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", "")}), "t.yml", "no top-level `permissions:`")
+        only(run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", "")}), "t.yml", "no top-level")
 
     def test_a_block_that_exists_only_at_job_level_is_not_top_level(self) -> None:
         text = GOOD.replace("permissions:\n  contents: read\n", "").replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n")
-        only(run({"t.yml": text}), "no top-level `permissions:`")
+        only(run({"t.yml": text}), "no top-level")
 
     def test_a_scalar_block(self) -> None:
-        for scalar in ("write-all", "read-all", "read"):
-            with self.subTest(scalar=scalar):
-                found = run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", f"permissions: {scalar}\n")})
-                self.assertTrue(any("must be a mapping" in item for item in found), found)
+        for scalar in ("write-all", "read-all", "read", "'write-all'", "~", "[contents]"):
+            with self.subTest(scalar):
+                only(run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", f"permissions: {scalar}\n")}), "must be a mapping")
 
-    def test_top_level_contents_write(self) -> None:
+    def test_a_scalar_block_at_job_level(self) -> None:
+        text = GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions: write-all\n")
+        only(run({"t.yml": text}), "job `one`", "must be a mapping")
+
+    def test_top_level_contents_write_and_an_unlisted_write(self) -> None:
         found = run({"t.yml": GOOD.replace("contents: read", "contents: write")})
-        self.assertTrue(any("top-level `contents` must be read or none" in item for item in found), found)
-        self.assertTrue(any("not in ALLOW_WRITE" in item for item in found), found)
+        self.assertEqual(len(found), 2, found)
+        self.assertTrue(any("must be read or none" in f for f in found) and any("ALLOW_WRITE" in f for f in found))
 
     def test_a_write_that_is_not_listed(self) -> None:
-        only(run({"t.yml": GOOD.replace("  contents: read\n", "  contents: read\n  pull-requests: write\n")}), "t.yml:5", "pull-requests: write", "ALLOW_WRITE")
+        only(run({"t.yml": GOOD.replace("  contents: read\n", "  contents: read\n  packages: write\n")}), "`packages: write`", "ALLOW_WRITE")
 
     def test_a_listed_write_in_another_workflow_is_not_listed_for_this_one(self) -> None:
-        text = GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n")
-        only(run({"other.yml": text}), "other.yml:5", "issues: write")
+        only(run({"other.yml": GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n")}), "other.yml", "ALLOW_WRITE")
 
     def test_a_listed_permission_with_another_name_is_not_covered(self) -> None:
-        text = GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n  packages: write\n")
-        with unittest_allow({("t.yml", "issues"): "test"}):
-            only(run({"t.yml": text}), "packages: write")
+        only(run({"bench-nightly.yml": GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n  pull-requests: write\n"),
+                  "main-merge-audit.yml": GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n")}), "pull-requests: write")
 
     def test_a_job_level_write_that_is_not_listed(self) -> None:
-        text = GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions:\n      actions: write\n")
-        only(run({"t.yml": text}), "actions: write")
+        only(run({"t.yml": GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions:\n      contents: write\n")}), "job `one`", "ALLOW_WRITE")
 
     def test_an_unknown_value(self) -> None:
-        only(run({"t.yml": GOOD.replace("  contents: read\n", "  contents: read\n  packages: admin\n")}), "packages: admin", "not read, write or none")
+        for value in ("admin", "true", "READ", "'write '", "1"):
+            with self.subTest(value):
+                only(run({"t.yml": GOOD.replace("contents: read", f"contents: {value}")}), "is not read, write or none")
 
     def test_id_token_in_any_form(self) -> None:
-        for value in ("write", "read"):
-            with self.subTest(value=value):
-                found = run({"t.yml": GOOD.replace("  contents: read\n", f"  contents: read\n  id-token: {value}\n")})
-                self.assertTrue(any("`id-token` is not allowed" in item for item in found), found)
+        for line in ("id-token: write", "id-token: read", "id-token: none", "ID-Token: write", '"id-token": write'):
+            with self.subTest(line):
+                only(run({"t.yml": GOOD.replace("  contents: read\n", f"  contents: read\n  {line}\n")}), "id-token")
 
-    def test_pull_request_target(self) -> None:
-        for trigger in ("on: pull_request_target\n", "on:\n  pull_request_target:\n    branches: [main]\n", "on: [push, pull_request_target]\n"):
-            with self.subTest(trigger=trigger):
-                found = run({"t.yml": GOOD.replace("on: push\n", trigger)})
-                self.assertTrue(any("pull_request_target" in item for item in found), found)
+    def test_pull_request_target_in_each_shape_of_on(self) -> None:
+        for trigger in ("on: pull_request_target", "on: [push, pull_request_target]", "on:\n  pull_request_target:\n    types: [opened]", "'on': pull_request_target", '"on":\n  pull_request_target: {}',
+                        "on: {pull_request_target: {}}", "on: Pull_Request_Target"):
+            with self.subTest(trigger):
+                only(run({"t.yml": GOOD.replace("on: push", trigger)}), "pull_request_target")
 
-    def test_write_all_on_a_job(self) -> None:
-        text = GOOD.replace("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions: write-all\n")
-        found = run({"t.yml": text})
-        self.assertTrue(any("write-all" in item for item in found), found)
+    def test_the_grant_hidden_in_another_layout_is_still_read(self) -> None:
+        for label, text in {
+            "flow mapping": GOOD.replace("permissions:\n  contents: read\n", "permissions: {contents: read, packages: write}\n"),
+            "space before the colon": GOOD.replace("  contents: read\n", "  contents: read\n  packages : write\n"),
+            "quoted key and value": GOOD.replace("  contents: read\n", '  contents: read\n  "packages": "write"\n'),
+            "json style": '{"name": "t", "on": "push", "permissions": {"contents": "read", "packages": "write"}, "jobs": {"one": {"runs-on": "x"}}}\n',
+            "inline job": GOOD.replace("  one:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo hello\n", "  one: {runs-on: x, permissions: {packages: write}}\n"),
+            "anchor and merge key": GOOD.replace("permissions:\n  contents: read\n", "x-w: &w\n  packages: write\npermissions:\n  <<: *w\n  contents: read\n"),
+            "escaped key": GOOD.replace("  contents: read\n", '  contents: read\n  "pack\\x61ges": write\n'),
+            "a quoted hash before the key": GOOD.replace("  contents: read\n", "  contents: read\n  x: '# not a comment'\n  packages: write\n"),
+            "a hash after a value": GOOD.replace("  contents: read\n", "  contents: read\n  packages: write # a real comment\n"),
+            "a hash inside a word": GOOD.replace("  contents: read\n", "  contents: read\n  packages: write#notacomment\n"),
+        }.items():
+            with self.subTest(label):
+                found = run({"t.yml": text})
+                self.assertTrue(found, label)
+                self.assertTrue(any("packages" in f or "write#notacomment" in f for f in found), found)
 
     def test_each_bad_workflow_is_named(self) -> None:
-        bad = GOOD.replace("permissions:\n  contents: read\n", "")
-        found = run({"a.yml": bad, "b.yml": GOOD, "c.yml": bad})
-        self.assertEqual([item.split(":")[0] for item in found], ["a.yml", "c.yml"])
+        found = run({"a.yml": GOOD, "b.yml": GOOD.replace("contents: read", "contents: write"), "c.yml": GOOD.replace("permissions:\n  contents: read\n", "")})
+        self.assertTrue(any(f.startswith("b.yml") for f in found) and any(f.startswith("c.yml") for f in found))
+        self.assertFalse(any(f.startswith("a.yml") for f in found))
 
     def test_an_allow_entry_that_is_no_longer_used_is_refused(self) -> None:
-        with unittest_allow({("t.yml", "issues"): "test"}):
-            only(run({"t.yml": GOOD}), "t.yml", "ALLOW_WRITE", "remove the entry")
+        only(run({"bench-nightly.yml": GOOD, "main-merge-audit.yml": GOOD.replace("  contents: read\n", "  contents: read\n  issues: write\n")}), "bench-nightly.yml", "no longer asks")
+
+
+class Unreadable(unittest.TestCase):
+    def test_a_repeated_key_is_an_error_not_last_wins(self) -> None:
+        # Last-key-wins would read the second block and pass a document GitHub refuses; either order is refused.
+        for text in (GOOD.replace("permissions:\n  contents: read\n", "permissions:\n  contents: write\npermissions:\n  contents: read\n"),
+                     GOOD.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\n  contents: write\n")):
+            with self.subTest(text[:80]):
+                only(run({"t.yml": text}), "t.yml", "repeated")
+
+    def test_two_permissions_keys_that_differ_only_in_case_are_not_one_block(self) -> None:
+        found = run({"t.yml": GOOD.replace("permissions:\n  contents: read\n", "permissions:\n  contents: read\nPermissions:\n  contents: write\n")})
+        self.assertTrue(any("no top-level" in f for f in found), found)
+        self.assertTrue(any("`contents: write`" in f for f in found), found)
+
+    def test_invalid_yaml_and_several_documents_and_a_non_mapping(self) -> None:
+        only(run({"t.yml": "jobs: [unclosed\n"}), "cannot be parsed")
+        only(run({"t.yml": GOOD + "---\n" + GOOD}), "exactly one YAML mapping")
+        only(run({"t.yml": "- a\n- b\n"}), "exactly one YAML mapping")
+        only(run({"t.yml": ""}), "exactly one YAML mapping")
 
     def test_a_file_that_cannot_be_decoded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "t.yml").write_bytes(b"\xff\xfe\x00bad")
-            only(check.violations(Path(tmp)), "cannot be read")
+            only(check.violations(Path(tmp)), "t.yml", "cannot be read")
+
+    def test_a_tag_that_would_build_an_object_is_refused(self) -> None:
+        only(run({"t.yml": GOOD + "x: !!python/object/apply:os.system ['echo hi']\n"}), "cannot be parsed")
+
+    def test_without_pyyaml_the_check_fails_closed(self) -> None:
+        saved = check.yaml
+        check.yaml = None
+        try:
+            only(check.violations(Path(".")), "PyYAML is not installed")
+        finally:
+            check.yaml = saved
 
 
-class unittest_allow:
-    """Swap ALLOW_WRITE for one test and put it back."""
-
-    def __init__(self, allow: dict[tuple[str, str], str]) -> None:
-        self.allow = allow
-
-    def __enter__(self) -> None:
-        self.saved = dict(check.ALLOW_WRITE)
-        check.ALLOW_WRITE.clear()
-        check.ALLOW_WRITE.update(self.allow)
-
-    def __exit__(self, *_: object) -> None:
-        check.ALLOW_WRITE.clear()
-        check.ALLOW_WRITE.update(self.saved)
-
-
-class QuotedAndUnsupportedSyntax(unittest.TestCase):
-    """YAML allows quoted keys, and a block this reader cannot parse must not be skipped (Codex P2 on noema#629): quoted spellings are read, and an unrecognised line inside a
-    permissions block is refused (fail closed)."""
-
-    def test_a_quoted_write_is_the_same_as_a_bare_one(self) -> None:
-        for mark in ('"', "'"):
-            with self.subTest(mark=mark):
-                text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + f"  {mark}packages{mark}: write" + chr(10))
-                only(run({"t.yml": text}), "packages: write", "ALLOW_WRITE")
-
-    def test_a_quoted_read_passes(self) -> None:
-        text = GOOD.replace("  contents: read" + chr(10), '  "contents": read' + chr(10) + "  'pull-requests': read" + chr(10))
-        self.assertEqual(run({"t.yml": text}), [])
-
-    def test_a_quoted_top_level_block_is_found(self) -> None:
-        self.assertEqual(run({"t.yml": GOOD.replace("permissions:", '"permissions":')}), [])
-
-    def test_a_quoted_job_level_block_is_read(self) -> None:
-        text = GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + '    "permissions":' + chr(10) + '      "actions": write' + chr(10))
-        only(run({"t.yml": text}), "actions: write")
-
-    def test_a_quoted_top_level_block_with_contents_write_is_refused(self) -> None:
-        found = run({"t.yml": GOOD.replace("permissions:", '"permissions":').replace("contents: read", '"contents": write')})
-        self.assertTrue(any("top-level `contents` must be read or none" in item for item in found), found)
-
-    def test_a_line_the_check_does_not_understand_is_refused(self) -> None:
-        for line in ("  <<: *wide", "  - contents", "  {packages: write}", "  ? packages"):
-            with self.subTest(line=line):
-                text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + line + chr(10))
-                found = run({"t.yml": text})
-                self.assertEqual(len(found), 1, found)
-                self.assertIn("does not understand", found[0])
-
-    def test_a_flow_mapping_on_the_key_line_is_still_refused(self) -> None:
-        found = run({"t.yml": GOOD.replace("permissions:" + chr(10) + "  contents: read" + chr(10), "permissions: {packages: write}" + chr(10))})
-        self.assertTrue(any("must be a mapping" in item for item in found), found)
-
-
-class LayoutsTheBlockReaderDoesNotParse(unittest.TestCase):
-    """A permissions key in any layout the block reader does not parse is refused, never skipped (Codex P2 on noema#629)."""
-
-    def refused(self, text: str) -> None:
-        found = run({"t.yml": text})
-        self.assertTrue(any("does not read" in item for item in found), found)
-
-    def test_a_space_before_the_colon_at_job_level(self) -> None:
-        self.refused(GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + "    permissions : " + chr(10) + "      contents: write" + chr(10)))
-
-    def test_an_inline_job_mapping(self) -> None:
-        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {runs-on: ubuntu-24.04, permissions: {contents: write}, steps: [{run: echo}]}" + chr(10)
-        self.refused(text)
-
-    def test_a_json_style_job(self) -> None:
-        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + '  "one": {"permissions": {"contents": "write"}}' + chr(10)
-        self.refused(text)
-
-    def test_a_flow_mapping_at_the_top_of_the_file(self) -> None:
-        self.refused("{name: t, permissions: {contents: write}, jobs: {}}" + chr(10))
-
-    def test_a_top_level_block_with_a_space_before_the_colon_does_not_count_as_the_block(self) -> None:
-        found = run({"t.yml": GOOD.replace("permissions:", "permissions :")})
-        self.assertTrue(any("does not read" in item for item in found), found)
-        self.assertTrue(any("no top-level" in item for item in found), found)
-
-    def test_a_comment_or_another_word_is_not_a_permissions_key(self) -> None:
-        text = GOOD + "      - run: echo needs permissions" + chr(10) + "      # permissions : write" + chr(10) + "      - name: no-permissions-here" + chr(10) + "        run: echo ok" + chr(10)
-        self.assertEqual(run({"t.yml": text}), [])
-
-    def test_a_quoted_hash_before_the_permissions_key_does_not_hide_it(self) -> None:
-        for quote in ("'", '"'):
-            with self.subTest(quote=quote):
-                text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {name: " + quote + "# x" + quote + ", permissions: {contents: write}}" + chr(10)
-                self.refused(text)
-
-    def test_a_quoted_hash_in_a_permissions_value_line_does_not_hide_a_write(self) -> None:
-        text = GOOD.replace("  contents: read" + chr(10), "  contents: read" + chr(10) + "  packages: write # '# reviewed'" + chr(10))
-        found = run({"t.yml": text})
-        self.assertTrue(any("packages: write" in item for item in found), found)
-
-    def test_a_hash_inside_a_word_is_not_a_comment(self) -> None:
-        text = GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {name: a#b, permissions: {contents: write}}" + chr(10)
-        self.refused(text)
-
-
-    def test_an_escaped_key_spelling_is_refused(self) -> None:
-        key = "permiss" + chr(92) + "u0069ons"
-        for text in (
-            GOOD.replace("    runs-on: ubuntu-24.04" + chr(10), "    runs-on: ubuntu-24.04" + chr(10) + "    " + chr(34) + key + chr(34) + ":" + chr(10) + "      contents: write" + chr(10)),
-            GOOD.split("jobs:")[0] + "jobs:" + chr(10) + "  one: {" + chr(34) + key + chr(34) + ": {contents: write}}" + chr(10),
-            GOOD.replace("permissions:", chr(34) + key + chr(34) + ":"),
-        ):
-            found = run({"t.yml": text})
-            self.assertTrue(any("YAML escapes" in item for item in found), found)
-
-    def test_an_escape_in_a_value_or_a_text_is_not_a_key(self) -> None:
-        text = GOOD + "      - name: " + chr(34) + "a\tb" + chr(34) + chr(10) + "        run: echo " + chr(34) + "x\ny" + chr(34) + chr(10)
-        self.assertEqual(run({"t.yml": text}), [])
-
-
-    def test_a_token_that_ends_in_an_escaped_backslash_still_ends(self) -> None:
-        key = chr(34) + "a" + chr(92) + chr(92) + chr(34) + ": 1"
-        text = GOOD.replace("      - run: echo hello" + chr(10), "      - {" + key + ", permissions: {contents: write}}" + chr(10))
-        found = run({"t.yml": text})
-        self.assertTrue(any("YAML escapes" in item for item in found), found)
+class TheLoader(unittest.TestCase):
+    def test_booleans_are_read_as_yaml_one_two_and_the_loader_is_safe(self) -> None:
+        self.assertTrue(issubclass(check.make_loader(), check.yaml.SafeLoader))
+        self.assertEqual(check.documents("on: push\na: [no, off, true, False]\n"), [{"on": "push", "a": ["no", "off", True, False]}])
 
 
 class ThisRepository(unittest.TestCase):
-    workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
-
     def test_every_workflow_of_this_repository_passes(self) -> None:
-        self.assertGreaterEqual(len(list(self.workflows.glob("*.yml"))), 20)
-        self.assertEqual(check.violations(self.workflows), [])
+        self.assertEqual(check.violations(Path(__file__).resolve().parents[2] / ".github" / "workflows"), [])
 
     def test_the_reviewed_writes_are_exactly_the_two_issue_filers(self) -> None:
         self.assertEqual(sorted(check.ALLOW_WRITE), [("bench-nightly.yml", "issues"), ("main-merge-audit.yml", "issues")])
