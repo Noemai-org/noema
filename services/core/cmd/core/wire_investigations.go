@@ -32,6 +32,14 @@ type investigationReader struct{ stores investigationStores }
 
 var _ InvestigationReader = investigationReader{}
 
+// EnvReadTimeoutMS names the bound of one investigation read, in whole milliseconds (A319: 2000, set by deployment). Stub for the red commit.
+const EnvReadTimeoutMS = "NOEMA_READ_TIMEOUT_MS"
+
+// buildInvestigationReader is the reader the process plugs in. Stub for the red commit: it ignores the setting.
+func buildInvestigationReader(_ Env, stores investigationStores) (InvestigationReader, error) {
+	return newInvestigationReader(stores), nil
+}
+
 // newInvestigationReader makes the reader over the stores of the orchestrator's Recorder.
 func newInvestigationReader(stores investigationStores) InvestigationReader {
 	return investigationReader{stores: stores}
