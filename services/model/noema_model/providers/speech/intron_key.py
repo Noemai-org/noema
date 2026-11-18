@@ -26,7 +26,7 @@ def key_reader(environ: Mapping[str, str]) -> Callable[[], str]:
         if not path:
             raise KeyFileError("the Intron key file is not configured")
         try:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))  # O_NONBLOCK: opening a named pipe must not wait for a writer (Codex P2 on #689); the type is checked next
         except OSError:
             raise KeyFileError("the Intron key file cannot be opened") from None
         try:
