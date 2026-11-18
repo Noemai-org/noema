@@ -206,3 +206,41 @@ def test_a_bad_bound_cannot_be_built_so_a_call_never_holds_streams_with_one() ->
         for bad in (0.0, -1.0, float("nan"), float("inf"), True):
             with pytest.raises(ValueError):
                 PlaybackBounds(**({"read_s": 0.1, "close_s": 0.1, "hold_s": 0.1} | {field: bad}))
+
+
+# ---- Codex P2 on noema#621 at c23a5f45: a source that cannot be weakly referenced is refused before playback and both streams are released ---------------------------------
+
+
+class Slotted:
+    """A source with __slots__ and no __weakref__ slot: the deferred-release retry cannot hold it weakly."""
+
+    __slots__ = ("closed", "reads")
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.reads = 0
+
+    def __aiter__(self) -> "Slotted":
+        return self
+
+    async def __anext__(self) -> AudioChunk:
+        self.reads += 1
+        return chunk(self.reads, 1000)
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.parametrize("which", ["answer", "microphone"])
+def test_a_source_that_cannot_be_weakly_referenced_is_refused_before_playback_and_both_streams_are_released(which: str) -> None:
+    other = Handle([1000] * 6)
+    slotted = Slotted()
+    answer, microphone = (slotted, other) if which == "answer" else (other, slotted)
+
+    async def call() -> None:
+        with pytest.raises(TypeError):
+            await play_until_barge_in(answer, microphone, BargeInMonitor(VAD, max_stop_ms=300), lambda _: None, bounds=PlaybackBounds(read_s=0.1, close_s=0.2, hold_s=0.2))
+        await asyncio.sleep(0.05)
+
+    run(asyncio.wait_for(call(), timeout=GUARD_S))
+    assert slotted.closed and slotted.reads == 0 and other.closed  # nothing was played and both were released
