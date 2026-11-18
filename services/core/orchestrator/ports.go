@@ -107,6 +107,8 @@ const (
 	ReceiptApplied ReceiptClass = "APPLIED"
 	ReceiptVoided  ReceiptClass = "VOIDED"
 	ReceiptUnknown ReceiptClass = "UNKNOWN"
+	// ReceiptBudgetSpent: the database refused the dispatch because the key's budget is used up (A153). Nothing was spent, written or dispatched (A216, A217).
+	ReceiptBudgetSpent ReceiptClass = "BUDGET_SPENT"
 )
 
 // Receipt is the Controller's answer for one grant.

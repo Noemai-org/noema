@@ -54,7 +54,8 @@ func (p Port) Execute(ctx context.Context, s orchestrator.Session, grantID strin
 	case out.Raced:
 		return orchestrator.Receipt{}, fmt.Errorf("%w: another writer wrote this attempt's receipt", ErrNotDispatched)
 	case out.BudgetSpent:
-		return orchestrator.Receipt{}, fmt.Errorf("%w: the key's dispatch budget is spent", ErrNotDispatched)
+		// the database refused the dispatch: nothing was spent, written or dispatched (A153); a receipt class of its own, so the runner stops and hands over (A216, A217)
+		return orchestrator.Receipt{GrantID: grantID, Class: orchestrator.ReceiptBudgetSpent}, nil
 	case out.Receipt == nil:
 		return orchestrator.Receipt{}, fmt.Errorf("%w: no receipt", ErrNotDispatched)
 	}

@@ -35,6 +35,7 @@ var closedEnums = map[string]func([]byte) error{
 	"ConfirmationTerminalState": decoderOf[contracts.EnumsV1ConfirmationTerminalState],
 	"FactStatus":                decoderOf[contracts.EnumsV1FactStatus],
 	"ExecutionState":            decoderOf[contracts.EnumsV1ExecutionState],
+	"TransactionClassification": decoderOf[contracts.EnumsV1TransactionClassification],
 	"Verdict":                   decoderOf[contracts.EnumsV1Verdict],
 	"FindingSeverity":           decoderOf[contracts.EnumsV1FindingSeverity],
 	"Mode":                      decoderOf[contracts.EnumsV1Mode],
