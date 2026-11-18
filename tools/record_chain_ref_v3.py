@@ -245,6 +245,13 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
         "reference_fact_with_sixteen_digits_after_the_colon": {"resolved_target": "fin.account:0123456789012345"},  # a bare account number with a prefix
         "unlisted_key_with_a_card_number_in_a_sentence": {"note": "card 4111 1111 1111 1111 expired"},
         "array_fact_item_with_a_card_number": {"counterparties": ["fin.transaction:TX8213", "4111-1111-1111-1111"]},
+        # Tightenings (A308, A317 to A328, interim): the information separators U+001C to U+001F join digits; ten digits joined by commas are refused; a minted ID is exactly
+        # `<prefix>_<ULID>`, and every other typed ID meets the five-digit rule (the Security Reviewer's case on noema#664: a letter at the end of a long digit string).
+        "text_fact_with_unit_separator_joined_digits": {"text": "the amount 1234\u001f5678 was held"},
+        "text_fact_with_ten_comma_joined_digits": {"text": "card 4111, 1111, 1111, 1111 expired"},
+        "minted_id_of_31_characters_ending_in_a_letter": {"object_id": "ab_" + "1" * 30 + "a"},
+        "typed_id_with_sixteen_digits_and_a_letter_at_the_end": {"payer_id": "ten_4111111111111111a"},
+        "minted_id_whose_first_ulid_character_is_8": {"object_id": "obj_81HX12345ABCDEFGHJKMNPQRST"},
     }
     for name, facts in refused.items():
         invalid[name] = with_fact(**facts)
@@ -254,6 +261,7 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
         "reference_fact_with_digits_and_a_letter": {"resolved_target": "fin.transaction:TX88213"},  # five digits, but a reference with a letter in its body (A242)
         "text_fact_with_four_digits": {"text": "the amount ending 1234 was held"},
         "unlisted_key_with_a_sentence": {"note": "held for review"},
+        "text_fact_with_a_comma_grouped_amount": {"text": "the amount 20,000,000 was held"},  # eight digits, commas end no run of five, and ten are not reached
     }
     for name, facts in accepted.items():
         valid[name] = with_fact(**facts)
