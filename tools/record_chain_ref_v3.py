@@ -234,8 +234,29 @@ def reconstruction_fixtures() -> tuple[dict[str, dict], dict[str, dict], str]:
     valid["id_fact_with_five_digits_in_a_row"] = with_fact(object_id="obj_01HX12345ABCDEFGHJKMNPQRST")  # a minted <prefix>_<ULID> is served as written (A193)
     invalid["text_fact_with_five_joined_digits"] = with_fact(text="the amount 12 345 was held")
     invalid["reason_codes_item_with_five_joined_digits"] = with_fact(reason_codes=["STATE_KNOWN", "ACCOUNT_1234-5678"])
-    expect["text_fact_with_five_joined_digits.json"] = "pattern"
-    expect["reason_codes_item_with_five_joined_digits.json"] = "pattern"
+    expect["text_fact_with_five_joined_digits.json"] = "oneOf"
+    expect["reason_codes_item_with_five_joined_digits.json"] = "oneOf"
+    # A278 (final): the rule is by VALUE, not by key. A fact value is a typed or minted ID by shape with a letter in its body, a resource reference with a letter in its body, or a
+    # string without five digits joined by separators; any key. The values below are refused or accepted for what they are, under keys the contract does not name.
+    refused = {
+        "request_id_uuid_of_31_digits_joined_by_dashes": {"request_id": "41111111-1111-4111-8111-11111111111a"},  # the client's own UUID: a customer-typed string
+        "id_fact_holding_a_card_number": {"payer_id": "4111 1111 1111 1111"},  # not an ID by shape: digits only
+        "typed_id_with_digits_only_in_its_body": {"payer_id": "usr_88213"},  # a prefix on a number is a number
+        "reference_fact_with_sixteen_digits_after_the_colon": {"resolved_target": "fin.account:0123456789012345"},  # a bare account number with a prefix
+        "unlisted_key_with_a_card_number_in_a_sentence": {"note": "card 4111 1111 1111 1111 expired"},
+        "array_fact_item_with_a_card_number": {"counterparties": ["fin.transaction:TX8213", "4111-1111-1111-1111"]},
+    }
+    for name, facts in refused.items():
+        invalid[name] = with_fact(**facts)
+        expect[name + ".json"] = "oneOf"
+    accepted = {
+        "id_fact_recev_1005": {"receipt_id": "recev_1005"},  # an ID with a letter in its body and at most four digits in a row
+        "reference_fact_with_digits_and_a_letter": {"resolved_target": "fin.transaction:TX88213"},  # five digits, but a reference with a letter in its body (A242)
+        "text_fact_with_four_digits": {"text": "the amount ending 1234 was held"},
+        "unlisted_key_with_a_sentence": {"note": "held for review"},
+    }
+    for name, facts in accepted.items():
+        valid[name] = with_fact(**facts)
     return valid, invalid, json.dumps(expect, indent=2) + "\n"
 
 

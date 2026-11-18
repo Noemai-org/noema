@@ -154,3 +154,14 @@ test("the customer entry point parses the public contracts only and imports no o
   for (const operator of ["reconstruction_v3.js", "record_event_v3.js", "operator.js"]) assert.ok(!seen.has(operator), `${operator} is reachable from the customer entry point`);
   assert.ok(Object.keys(PARSERS).includes("reconstruction.v3") && Object.keys(PARSERS).includes("record-event.v3"));
 });
+
+// A278: the facts of reconstruction.v3 are checked by value, under any key. The `oneOf` fixtures are not in the generic loop above (that keeps the bounds and the shape keywords), so
+// the ones about a fact value are named here: the browser parser must refuse each, whatever the key.
+test("reconstruction.v3: a fact value that is a number in disguise is refused under any key", () => {
+  const names = ["request_id_uuid_of_31_digits_joined_by_dashes", "id_fact_holding_a_card_number", "typed_id_with_digits_only_in_its_body", "reference_fact_with_sixteen_digits_after_the_colon",
+    "unlisted_key_with_a_card_number_in_a_sentence", "array_fact_item_with_a_card_number", "text_fact_with_five_joined_digits", "reason_codes_item_with_five_joined_digits"];
+  for (const n of names) {
+    const doc = JSON.parse(readFileSync(join(FIXTURES, "invalid", "reconstruction.v3", `${n}.json`), "utf8"));
+    assert.throws(() => PARSERS["reconstruction.v3"](doc), ContractError, `${n} was accepted`);
+  }
+});
