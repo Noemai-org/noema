@@ -254,8 +254,7 @@ func policiesOnTenant(t *testing.T, pool *pgxpool.Pool) []tenantPolicy {
 	return out
 }
 
-// (d) The catalog: `tenant` has row security enabled and forced, and exactly three policies, one per role group (the five power groups and record_read, which holds no privilege on
-// the table and is in the list only so that a mistaken grant still reaches the kill switch guard; the verifier's read; the verifier's stop). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
+// (d) The catalog: `tenant` has row security enabled and forced, and exactly three policies, one per role group (the five power groups, the verifier's read, the verifier's stop). The expectation is the whole set, so a policy that is loosened, widened to another role, added or dropped fails it.
 func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 	pool := migrated(t)
 	var enabled, forced bool
@@ -266,7 +265,7 @@ func TestTenantForcesRowSecurityWithOnePolicyPerRoleGroup(t *testing.T) {
 		t.Errorf("tenant: row security enabled=%v forced=%v, want both", enabled, forced)
 	}
 	want := []tenantPolicy{
-		{"tenant_own_row", "*", "evidence_rw,execution_rw,orchestrator_rw,outcome_rw,record_read,trust_rw", "(tenant_id = decision_login_tenant())", "(tenant_id = decision_login_tenant())"},
+		{"tenant_own_row", "*", "evidence_rw,execution_rw,orchestrator_rw,outcome_rw,trust_rw", "(tenant_id = decision_login_tenant())", "(tenant_id = decision_login_tenant())"},
 		{"tenant_verify_halt", "w", "record_verify", "true", "kill_switch"},
 		{"tenant_verify_read", "r", "record_verify", "true", ""},
 	}
@@ -313,4 +312,26 @@ func TestForcedRowSecurityOnTenantDoesNotBreakForeignKeyChecksOfANonSuperuserOwn
 	if err := tx.QueryRow(ctx(t), `SELECT count(*) FROM tenant`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("the owner with no tenant mapping counts %d tenants (%v), want none: FORCE applies to the owner", n, err)
 	}
+}
+
+// Tenant creation is an init-time step of the operator's superuser (ruling on noema#716): no policy and no role exists for it. The migration login is not a superuser, so under FORCE
+// it cannot insert a tenant row, and a login of a power cannot either. This documents the intended behaviour: it passes the day 0030 lands and fails if a policy is added for the owner.
+func TestOnlyASuperuserCreatesATenant(t *testing.T) {
+	admin, _ := migratedDSN(t)
+	if _, err := admin.Exec(ctx(t), `ALTER TABLE tenant OWNER TO noema_migrator`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_su', 'Created by the superuser')`); err != nil {
+		t.Fatalf("the superuser creates a tenant: %v", err)
+	}
+	tx, err := admin.Begin(ctx(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx(t)) }()
+	if _, err := tx.Exec(ctx(t), `SET LOCAL ROLE noema_migrator`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ('ten_mig', 'Created by the migration role')`)
+	wantCode(t, err, denied, "the non-superuser owner inserting a tenant under FORCE")
 }
