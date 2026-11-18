@@ -14,6 +14,13 @@ on:
         description: "Run ID to record (letters, digits, dot, dash, underscore; default g1-stack-gh<github run id>)"
         type: string
         default: ""
+      mode:
+        description: "full: the whole G1 run (scored; the only mode that can be evidence). smoke: bring the stack up and check that every service is running and healthy; it runs no suite, scores nothing and is NOT EVIDENCE for G1 (A325, relayed)."
+        type: choice
+        options:
+          - full
+          - smoke
+        default: full
       max_body_bytes:
         description: "The core's request body limit in bytes (NOEMA_MAX_BODY_BYTES). No default: no value is approved in the repository, so the person who dispatches gives it."
         type: string
@@ -30,6 +37,7 @@ jobs:
     env:
       BENCH_MAX_BODY_BYTES: ${{ inputs.max_body_bytes }}
       GIVEN_RUN_ID: ${{ inputs.run_id }}
+      MODE: ${{ inputs.mode }}
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -42,6 +50,7 @@ jobs:
         run: |
           set -eu
           case "$GIVEN_RUN_ID" in *[!A-Za-z0-9_.-]*) echo "run_id may hold only letters, digits, dot, dash and underscore"; exit 2 ;; esac
+          case "$MODE" in full|smoke) ;; *) echo "mode must be full or smoke"; exit 2 ;; esac
           [ "${#GIVEN_RUN_ID}" -le 64 ] || { echo "run_id must be at most 64 characters"; exit 2; }
           case "$BENCH_MAX_BODY_BYTES" in ''|0*|*[!0-9]*) echo "max_body_bytes must be a positive whole number without a leading zero"; exit 2 ;; esac
           [ "${#BENCH_MAX_BODY_BYTES}" -le 16 ] || { echo "max_body_bytes has more than 16 digits"; exit 2; }
@@ -73,10 +82,24 @@ jobs:
           sleep 2
           collector_dead=0
           kill -0 "$logpid" 2>/dev/null || collector_dead=1
-          $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
-          gen=$?
           code=2
-          if [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
+          gen=1
+          if [ "$MODE" = smoke ]; then
+            # SMOKE: not evidence. It proves only that the stack came up: each service the run needs is running and, where it has a health check, healthy. No suite is generated or run.
+            code=0
+            for svc in core model postgres temporal ui mock-case hostility-proxy standin; do
+              row="$($compose ps --all --format '{{.Service}} {{.State}} {{.Health}}' "$svc" 2>/dev/null | head -n 1)"
+              case "$row" in
+                "$svc running healthy"|"$svc running") ;;
+                *) echo "::error::smoke: $svc is not running and healthy (${row:-no row})"; code=3 ;;
+              esac
+            done
+            [ "$collector_dead" -eq 0 ] || code=3
+          else
+            $compose exec -T bench-runner python -m benchmark.generator generate --seed 20261020 --out /bench-out/suite
+            gen=$?
+          fi
+          if [ "$MODE" = full ] && [ "$gen" -eq 0 ] && [ "$collector_dead" -eq 0 ]; then
             $compose exec -T bench-runner python -m benchmark.runner \
               --suite /bench-out/suite --out /bench-out/run --run-id "$run_id" --commit-sha "$COMMIT" \
               --api-url http://core:8080 \
@@ -94,7 +117,7 @@ jobs:
           [ "$collector_dead" -eq 1 ] && code=3
           # The scorer decides the result when the run ran (Codex P1 on noema#444). Runner exit 0 or 1 is scored, as `make bench` does; 2 (bad input) and 3 (NOT RUN) are never
           # scored. The scorer exits 0 only when the run is complete and Tier 0 is all zero (SoT 38.3), so that exit becomes the recorded code and a non-zero Tier 0 fails the job.
-          if [ "$code" -le 1 ]; then
+          if [ "$MODE" = full ] && [ "$code" -le 1 ]; then
             $compose exec -T bench-runner python -m benchmark.scoring \
               --cases /bench-out/suite/cases --oracles /bench-out/suite/oracle --results /bench-out/run/results \
               --pack packs/fintech_v1.json --manifest /bench-out/suite/manifest.json --run-id "$run_id" --out /bench-out/score
@@ -108,7 +131,7 @@ jobs:
       # Each exits 0 (met), 1 (not met), 2 (bad input) or 3 (NOT RUN); anything but 0 fails the job.
       - id: evidence
         name: Record the FaultPlans and probe identity and tenant (criteria 6 and 9)
-        if: always()
+        if: always() && inputs.mode == 'full'
         run: |
           set +e
           export NOEMA_BENCH_OUT="$PWD/benchmark/out" NOEMA_BENCH_UID="$(id -u)" NOEMA_BENCH_GID="$(id -g)" NOEMA_BENCH_MAX_BODY_BYTES="${BENCH_MAX_BODY_BYTES:-1}" STANDIN_TENANT_ID=ten_alpha
@@ -136,16 +159,29 @@ jobs:
           done
           echo "collected=$collected" >> "$GITHUB_OUTPUT"
           exit 0
+      # SR's first-dispatch condition 1: every Record read wrote one RECORD_ACCESSED line (REQ-AUD-003). Each case's control read has exactly one SERVED line and no line carries Record content.
+      # 0 met, 1 not met, 3 not run (an empty log is never a pass). Smoke reads no Record, so it is skipped there.
+      - id: access
+        name: Count the RECORD_ACCESSED lines in the core log (SR condition 1)
+        if: always() && inputs.mode == 'full'
+        shell: bash
+        run: |
+          set +e
+          python3 -I tools/ci/g1_record_access.py --core-log benchmark/out/service-logs/core.log --correlations benchmark/out/run/correlations.json | tee benchmark/out/record-accessed.txt
+          echo "record_accessed=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          exit 0
       - name: Summary
         if: always()
         env:
+          MODE: ${{ inputs.mode }}
           CODE: ${{ steps.run.outputs.code }}
           RUN_ID: ${{ steps.run.outputs.run_id }}
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
         run: |
           {
-            echo "## bench-g1-stack: run id $RUN_ID, exit code $CODE"
+            echo "## bench-g1-stack: mode $MODE, run id $RUN_ID, exit code $CODE"
+            [ "$MODE" = smoke ] && echo "**SMOKE: the stack came up (or did not). This is NOT EVIDENCE for G1: no suite ran and nothing was scored.**"
             case "$CODE" in
               0) echo "Complete, scored, and Tier 0 is all zero." ;;
               3) echo "**NOT RUN: no access. This is not a pass and not evidence.** The reason is in the run manifest below; nothing was faked. This job fails on purpose." ;;
@@ -171,7 +207,7 @@ jobs:
           set +e
           mkdir -p benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs
           python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" \
-            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
+            benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/record-accessed.txt benchmark/out/summary.md
           echo "scan=$?" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)
@@ -186,6 +222,7 @@ jobs:
             benchmark/out/service-logs/
             benchmark/out/mock-case.log
             benchmark/out/mock-case-collector.err
+            benchmark/out/record-accessed.txt
           if-no-files-found: warn
           retention-days: 30
       - name: Publish the step summary (only if the leak scan is clean)
@@ -200,13 +237,23 @@ jobs:
           fi
       - name: Result (only a run that ran, complete, scored, with the evidence met and a clean leak scan, passes)
         env:
+          MODE: ${{ inputs.mode }}
           CODE: ${{ steps.run.outputs.code }}
           FAULT_PLANS: ${{ steps.evidence.outputs.fault_plans }}
           PROBES: ${{ steps.evidence.outputs.probes }}
           SCAN: ${{ steps.scan.outputs.scan }}
           COLLECTED: ${{ steps.logs.outputs.collected }}
+          RECORD_ACCESSED: ${{ steps.access.outputs.record_accessed }}
         run: |
           fail=0
+          if [ "$MODE" = smoke ]; then
+            [ "$CODE" = 0 ] || { echo "::error::smoke: the stack did not come up (code ${CODE:-missing})."; fail=1; }
+            [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::smoke: a service's log could not be collected."; fail=1; }
+            [ "${SCAN:-missing}" = 0 ] || { echo "::error::smoke: the leak scan (exit ${SCAN:-missing})."; fail=1; }
+            echo "SMOKE only: not evidence for G1."
+            exit "$fail"
+          fi
+          [ "${RECORD_ACCESSED:-missing}" = 0 ] || { echo "::error::SR condition 1 not met: the RECORD_ACCESSED count (exit ${RECORD_ACCESSED:-missing})."; fail=1; }
           [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::Criterion 8 not met: a service's log could not be collected, so the scan did not see it (collected=${COLLECTED:-missing})."; fail=1; }
           [ "${FAULT_PLANS:-missing}" = 0 ] || { echo "::error::Criterion 6 not met: the recorded FaultPlans (exit ${FAULT_PLANS:-missing})."; fail=1; }
           [ "${PROBES:-missing}" = 0 ] || { echo "::error::Criterion 9 not met: the negative probes (exit ${PROBES:-missing})."; fail=1; }
@@ -217,3 +264,35 @@ jobs:
             *) echo "::error::The run ended with exit code $CODE."; fail=1 ;;
           esac
           exit "$fail"
+
+  # SR's first-dispatch condition 2: the job's own log is public like the artifacts and was never scanned. A second job starts after the first has ended, reads its log through the API,
+  # and runs the same scanner with a planted canary. A finding or a scanner that found nothing fails it; the run is then not evidence, and nothing here edits or hides the log.
+  joblog-scan:
+    needs: g1-stack
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      RUN: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Scan the g1-stack job log, with a planted canary
+        run: |
+          set -eu
+          id="$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.name == "g1-stack") | .id' | head -n 1)"
+          case "$id" in ''|*[!0-9]*) echo "::error::the g1-stack job id could not be found"; exit 3 ;; esac
+          mkdir -p "$RUNNER_TEMP/joblog"
+          ok=0
+          for _ in 1 2 3 4 5 6; do
+            if gh api "repos/$REPO/actions/jobs/$id/logs" > "$RUNNER_TEMP/joblog/g1-stack.log" 2>/dev/null && [ -s "$RUNNER_TEMP/joblog/g1-stack.log" ]; then ok=1; break; fi
+            sleep 10
+          done
+          [ "$ok" = 1 ] || { echo "::error::the job log could not be read; it was not scanned"; exit 3; }
+          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-joblog-scan" "$RUNNER_TEMP/joblog/g1-stack.log"

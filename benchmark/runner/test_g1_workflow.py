@@ -39,12 +39,12 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertNotRegex(block.group(1), r"(?m)^\s+default:")
         self.assertIn('case "$BENCH_MAX_BODY_BYTES" in', self.script)
 
-    def validate(self, run_id: str, body: str) -> int:
+    def validate(self, run_id: str, body: str, mode: str = "full") -> int:
         """Runs the workflow's own 'Validate the inputs' step in bash with these two values."""
         step = re.search(r"(?ms)- name: Validate the inputs\n\s+run: \|\n(.*?)(?=^      - )", self.text)
         assert step
         script = "\n".join(line[10:] for line in step.group(1).splitlines())
-        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body}, capture_output=True, check=False).returncode
+        return subprocess.run(["bash", "-c", script], env={"PATH": os.environ.get("PATH", ""), "GIVEN_RUN_ID": run_id, "BENCH_MAX_BODY_BYTES": body, "MODE": mode}, capture_output=True, check=False).returncode
 
     @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation step")
 
@@ -54,6 +54,9 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertEqual(self.validate(run_id, "16384"), 0, repr(run_id))
         for run_id in ("ok\nGITHUB_OUTPUT_INJECTION=1", "ok\n", "\nok", "a b", "a;b", "$(x)", "a" * 65, "x/y", "x\ry"):
             self.assertEqual(self.validate(run_id, "16384"), 2, repr(run_id))
+        self.assertEqual(self.validate("", "16384", "smoke"), 0)
+        for mode in ("", "FULL", "full\nsmoke", "smoke;x", "other"):
+            self.assertEqual(self.validate("", "16384", mode), 2, repr(mode))
         for body in ("1", "16384", "9" * 16):
             self.assertEqual(self.validate("", body), 0, repr(body))
         for body in ("", "0", "016384", "16384\n99", "16384\n", "-1", "1.5", "1e3", "9" * 17, "1 2"):
@@ -259,6 +262,41 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("benchmark/out/score/", self.text)
         self.assertNotRegex(self.text, r"secrets\.")
         self.assertNotIn("heldout", self.text.lower().replace("never mounted or read", ""))
+
+    # SR's first-dispatch conditions and the smoke mode (A323, A325 as relayed; noema#436).
+    def test_mode_is_a_choice_of_full_or_smoke_and_defaults_to_full(self) -> None:
+        block = re.search(r"(?ms)^      mode:\n(.*?)(?=^      [a-z_]+:\n|^permissions:)", self.text)
+        assert block
+        self.assertIn("type: choice", block.group(1))
+        self.assertIn("default: full", block.group(1))
+        for option in ("- full", "- smoke"):
+            self.assertIn(option, block.group(1))
+
+    def test_smoke_never_runs_the_suite_and_never_counts_as_evidence(self) -> None:
+        self.assertRegex(self.script, r'MODE" = smoke')
+        self.assertIn("SMOKE", self.text)
+        self.assertIn("not evidence", self.text.lower())
+        evidence = re.search(r"(?ms)- id: evidence\n(.*?)(?=^      - )", self.text)
+        assert evidence
+        self.assertIn("inputs.mode == 'full'", evidence.group(1))
+
+    def test_every_record_read_is_counted_in_the_core_log_in_full_mode(self) -> None:
+        self.assertIn("tools/ci/g1_record_access.py", self.script)
+        self.assertIn("--core-log benchmark/out/service-logs/core.log", self.script)
+        self.assertIn("--correlations benchmark/out/run/correlations.json", self.script)
+        self.assertIn("RECORD_ACCESSED", self.text)
+        self.assertIn("steps.access.outputs.record_accessed", self.script)
+
+    def test_the_job_log_is_scanned_by_a_job_that_starts_after_it_ends(self) -> None:
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job, "no joblog-scan job"
+        body = job.group(1)
+        self.assertIn("needs: g1-stack", body)
+        self.assertIn("if: always()", body)
+        self.assertIn("actions: read", body)
+        self.assertIn("tools/ci/g1_leakscan.py", body)
+        self.assertIn("/logs", body)
+        self.assertNotIn("contents: write", body)
 
 
 if __name__ == "__main__":

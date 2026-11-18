@@ -179,3 +179,17 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - **Tamper signal (open, not decided):** a payload that does not match its sealed hash becomes UNKNOWN silently (A260). Where it is surfaced (a Record event or a metric) is for REC and SEC to decide; this package does not emit one. It is DEBT-44 (the Founder's order of 17 Nov 2026); A287 settles the earlier findings.
 - **EL note 2 (done):** README says the freshness bound is the layer's. **EL note 3 (answered, not coded):** in the real mapping each source feeds exactly one row, so "one row's field missing while another row of the same source is present" cannot occur end to end; the per-row path is in `internal_test.go`. A test with a second row for a source needs a mapping row the Architect has not approved (A245).
 - Debt: DEBT-44 (the tamper signal). Conflicts raised: none.
+
+# Session 2026-11-18 · ENV-04
+
+## Session summary
+- What changed: `bench-g1-stack.yml` gains `mode` (full or smoke), SR's first-dispatch condition 1 (`tools/ci/g1_record_access.py`: exactly one SERVED RECORD_ACCESSED line per case, IDs and outcome only, empty log is NOT RUN) and condition 2 (a `joblog-scan` job that reads the finished job's log through the API and runs the leak scanner with its canary).
+- Why: A323 and A325 as relayed by the Founders; the rulings are not yet committed in `docs`, so the exact conditions are my reading of SR's words (see Open questions).
+- Risks, and how they are contained: smoke runs no suite and is labelled NOT EVIDENCE in the summary and the Result step; the new job has `actions: read` only.
+- Tests added: `tools/ci/test_g1_record_access.py` (8), four workflow guards and mode validation cases in `benchmark/runner/test_g1_workflow.py`. Seen failing first.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: first live run is the proof; the `joblog-scan` log endpoint and the smoke health rows are unverified (no Docker or Actions here).
+- Open questions (SR): is "exactly one SERVED per case" the intended count, and is the g1-stack job log the full scope of condition 2?
+- Do not touch: the held-out set.
