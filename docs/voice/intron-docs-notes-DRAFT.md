@@ -7,7 +7,13 @@ Status key: **VERIFIED** = on an official Intron page (URL given). **UNVERIFIED*
 ## Sources read
 | Page (title as shown; all read 16 Nov 2026) | Result |
 |---|---|
-| Intron Voice API documentation, pages "Introduction", "Speech-to-text supported languages", "Streaming speech-to-text", "Text-to-speech supported languages and accents", "Streaming text-to-speech", "Generate text-to-speech" and "Credits balance" | read |
+| "Introduction" (Intron Voice API documentation): https://docs.voice.intron.io/docs/index/introduction | read |
+| "Speech-to-text supported languages": https://docs.voice.intron.io/docs/stt/supported-languages | read |
+| "Streaming speech-to-text": https://docs.voice.intron.io/docs/stt/streaming | read |
+| "Text-to-speech supported languages and accents": https://docs.voice.intron.io/docs/tts/supported-languages-and-accents | read |
+| "Streaming text-to-speech": https://docs.voice.intron.io/docs/tts/tts-streaming | read |
+| "Generate text-to-speech": https://docs.voice.intron.io/docs/tts/tts-generate | read |
+| "Credits balance": https://docs.voice.intron.io/docs/accounts/credits_balance | read |
 | Intron homepage (Sahara v2.5) and the older Sahara launch page | read; marketing |
 | the "Intron Data Vault" page (the contributor login, an older address) | a contributor login page ("Intron Data Vault"), no API docs |
 | two other addresses tried (an older docs host and a developers page) | does not resolve / 404 |
