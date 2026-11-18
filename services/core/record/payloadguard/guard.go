@@ -1,5 +1,5 @@
 // Package payloadguard is the Record's append guard (A184, A154, REQ-AUD-003, REQ-SEC-003): a string in an event payload never holds a run of more than four digits,
-// unless the whole string is a typed ID of the contract, an RFC 3339 timestamp or a content hash. A number-typed field is a number, not a string, and is not
+// unless the whole string is a typed ID of the contract, an RFC 3339 timestamp, a content hash or a money string (A279/A270, below). A number-typed field is a number, not a string, and is not
 // examined. The limit is four, as on every outward surface (AGENTS.md section 7: mask to the last four digits); a Record that never holds a longer run needs no
 // masking of its own, so the hashed `events` array can be served as stored.
 //
@@ -29,10 +29,14 @@ const Limit = 4
 
 // Mask keeps only the last Limit digits of every run of digits in s and replaces the others with '*' (REQ-AUD-003 "Masked", AGENTS section 7: mask to the last four). A digit is any
 // Unicode Nd character, so full-width, Arabic-Indic and Devanagari runs, and runs that mix scripts, are masked like ASCII ones (A154); the separators stay where they are. A run is
-// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path and so no exemption: a transport class that holds
-// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). Masking is idempotent. record/reconstruct serves its facts
+// found with digitRun, the same definition the guard refuses by (A194, A231): there is one, with no second mode. Mask has no path, so it has no path-based exemption: a transport class that holds
+// digits shows partly masked in a served fact (the guard accepts it only at its two receipt paths, exempt below). It has the money exemption, because that one is by the whole string and not by path
+// (A308): a stored `NGN 12,345.00` is served as it is, not `NGN 12,*45.00`. Masking is idempotent. record/reconstruct serves its facts
 // through this function (A194).
 func Mask(s string) string {
+	if isMoney(s) {
+		return s
+	}
 	return digitRun.ReplaceAllStringFunc(s, func(run string) string {
 		total := 0
 		for _, r := range run {
@@ -60,13 +64,14 @@ func Mask(s string) string {
 // ErrDigitRun is wrapped by every violation.
 var ErrDigitRun = errors.New("payloadguard: a payload string holds a run of more than four digits")
 
-// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the next-line character
+// separators is the one set of characters that join the digits of a number in this package (A194, A231): every kind of space, including the vertical tab, the four ASCII information separators U+001C to U+001F (A308: the file, group, record and unit separators; the redactor's class already joined them; the
+// UI scan's now does), the next-line character
 // and the line and paragraph separators (\p{Z}); every dash (\p{Pd}) and the minus sign; every bracket (\p{Ps}, \p{Pe}); the dot, the slash, the colon and the underscore, with their
 // full-width forms and the middle dots; every Unicode format character (soft hyphen, zero-width characters, joiners) and every combining mark. "4111 1111 1111 1111",
 // "4111-1111-1111-1111", "4111_1111_1111_1111" and "(4111)(1111)(1111)(1111)" are each one run of 16. A comma is not in it, so an amount such as "20,000,000" is not one run. The guard
 // and the display mask use this set and no other; the earlier guard left out the underscore, the colon and the brackets so that a code such as VERSION_CONFLICT_409_412 was not
 // refused, and A231 replaced that with the one exemption of isReasonCode.
-const separators = `\s\x0b\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
+const separators = `\s\x0b\x{1c}-\x{1f}\x{85}\p{Z}\p{Cf}\p{M}\p{Pd}\p{Ps}\p{Pe}.\-/_:\x{2212}\x{b7}\x{30fb}\x{ff0e}\x{ff0f}\x{ff1a}\x{ff3f}`
 
 // digitRun is a run of digits in any script joined by the separators. It is the one definition: Check refuses by it and Mask masks by it.
 var digitRun = regexp.MustCompile(`\p{Nd}(?:[` + separators + `]*\p{Nd})*`)
@@ -198,6 +203,24 @@ func hasLetter(s string) bool {
 // but it is a value the client chose, so it is not a core-minted ID: the CI scan does not treat a payload that cites it as the object's own ID.
 var clientRequestID = regexp.MustCompile(`\A([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\z`)
 
+// moneyShape is the whole-string shape of an amount the core renders from integer minor units (A279, A270; the shared vectors of A259, contracts/fixtures/digit_run_vectors.json): three
+// capital letters, one space, an integer part of one to three digits and then groups of three digits each with a comma before them, and exactly two decimals or none. ASCII digits and letters
+// only; `\z` is the end of the string, not a place before a final newline. The same pattern is in the model service's redactor and in the UI scan; the vector file is what keeps the three together.
+var moneyShape = regexp.MustCompile(`\A[A-Z]{3} [0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?\z`)
+
+// maxMoneyIntegerDigits is the most digits the integer part of a money string may hold (A279, A270). A longer amount is refused, like any other long run.
+const maxMoneyIntegerDigits = 9
+
+// isMoney reports whether the whole of s is a money string: moneyShape, and at most maxMoneyIntegerDigits digits before the decimal point. A comma ends a digit run, so a grouped amount with
+// no decimals holds no run over four anyway; the exemption matters for the dot, which joins the last group to its decimals ("12,345.00" holds the run "345.00" of five).
+func isMoney(s string) bool {
+	if !moneyShape.MatchString(s) {
+		return false
+	}
+	integer, _, _ := strings.Cut(s[len("NGN "):], ".")
+	return countDigits(integer) <= maxMoneyIntegerDigits
+}
+
 // signatureValues are the shapes of the value of a `sig` object (common.v1 Sig): the hex of an HMAC-SHA-256 (the POC's signature) or a base64 form of 32 bytes or more.
 // A signature is cryptographic output, not text, and its digits are random. It is exempt only at a path that ends in /sig/value (A184 names no such exemption: see the PR).
 var signatureValues = []*regexp.Regexp{
@@ -304,7 +327,7 @@ func longestRun(s string) int {
 // audit and ops surfaces only, never on the customer overlay or in an arm.
 var targetReference = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,63}\z`)
 
-// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
+// exempt reports whether the whole string is a typed value of the contract (an ID, a hash, a nonce), an RFC 3339 timestamp, a money string (A279, A270), the transport class of a receipt at its two exact paths (A231 as narrowed), the value of a
 // signature at /sig/value or the target's acknowledgement reference at /external_ack.
 func exempt(path, s string) bool {
 	if (strings.HasSuffix(path, "/external_ack") || strings.HasSuffix(path, "/target_ref")) && targetReference.MatchString(s) {
@@ -320,7 +343,7 @@ func exempt(path, s string) bool {
 			}
 		}
 	}
-	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s)
+	return isReceiptTransportValue(path, s) || isTypedID(s) || bodyHasLetter(clientRequestID, s) || isRFC3339(s) || isMoney(s)
 }
 
 // isRFC3339 is true for a timestamp in RFC 3339 form (a date, a "T", a time and an offset or Z), with or without fractional seconds.
