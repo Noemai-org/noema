@@ -55,6 +55,14 @@ NOT_DIGIT = _class(ND, negate=True)
 DIGIT_RUN = rf"^(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*$"
 
 
+# A278 (final; the Security Reviewer's challenge on noema#615): the rule for a fact value of reconstruction.v3 is by VALUE, under any key. The value is a typed or minted ID by shape with
+# a letter in its body (so `recev_1005` and a ULID pass, `usr_88213` does not), a resource reference with a letter in its body (`fin.transaction:TX88213` passes,
+# `fin.account:0123456789012345` does not), or a string without five digits joined by separators. The first two are the ID rule of the Record guard and common.v1 ResourceRef.
+_ID = r"[a-z]{2,6}_(?=[0-9]*[A-Za-z])[0-9A-Za-z]{2,32}"
+_REF = r"[a-z][a-z0-9]*\.[a-z][a-z0-9_]*:(?=[0-9_.-]*[A-Za-z])[A-Za-z0-9_.-]{1,64}"
+FACT_VALUE = rf"^(?:{_ID}|{_REF}|(?![\s\S]*{DIGIT}(?:{SEPARATOR_CLASS}*{DIGIT}){{4}})[\s\S]*)$"
+
+
 def rewrite_schemas(old: str) -> list[str]:
     """Replace the old digit-run pattern by this one in every schema that holds it. Returns the files changed."""
     changed = []
