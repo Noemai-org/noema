@@ -55,8 +55,6 @@ func (d gwDirs) env() envMap {
 		edge.EnvMaxBody: "16384", EnvRecordReadDSNDir: d.readDSN}
 }
 
-func osEnv(e envMap) Env { return Env{Getenv: e.get, ReadFile: os.ReadFile, ReadDir: os.ReadDir} }
-
 func noStart(context.Context, inputgateway.Turn) error { return nil }
 
 func buildGW(t *testing.T, e envMap, records reconstruct.TenantDBs, start func(context.Context, inputgateway.Turn) error) (*inputgateway.Gateway, func(), error) {
