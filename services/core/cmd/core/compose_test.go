@@ -42,6 +42,8 @@ func full() Components {
 	return Components{
 		Ports:   orchestrator.Ports{Interpreter: p, Evidence: p, Trust: p, Explainer: p, Recorder: p, Admissions: p},
 		Records: &failingDBs{},
+		// The investigation reader (A243): GET /v1/investigations/{id} is part of the slice, so a composition without it is not complete.
+		Investigations: &fakeReader{},
 	}
 }
 
@@ -63,6 +65,7 @@ func TestAnyMissingComponentMeansNoCompositionAndNamesWhatIsMissing(t *testing.T
 		"interpreter": func(c *Components) { c.Ports.Interpreter = nil }, "evidence": func(c *Components) { c.Ports.Evidence = nil },
 		"trust": func(c *Components) { c.Ports.Trust = nil }, "explainer": func(c *Components) { c.Ports.Explainer = nil },
 		"recorder": func(c *Components) { c.Ports.Recorder = nil }, "admissions": func(c *Components) { c.Ports.Admissions = nil }, "record reader": func(c *Components) { c.Records = nil },
+		"investigations": func(c *Components) { c.Investigations = nil },
 	}
 	for name, drop := range cases {
 		c := full()

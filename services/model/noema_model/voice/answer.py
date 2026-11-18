@@ -11,9 +11,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from noema_model.platform.masking import MaskingLimits
+from noema_model.platform.redaction.digit_runs import longest_digit_run
 from noema_model.providers.speech.base import AudioChunk, Locale, ProviderCapabilities, Support
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.tts import SpeechSynthesizer, SynthesisRequest
+
+
+UNMASKED_DIGITS = "VOI_TTS_UNMASKED_DIGITS"  # fixed code: the answer text was withheld from the provider because it holds a longer digit run than the pack allows (A246)
 
 
 class DeliveryMode(StrEnum):
@@ -28,6 +33,7 @@ class Delivery:
     audio: tuple[AudioChunk, ...]
     failure: ProviderFailure | None
     error_type: str | None = None  # set only for a failure the adapter did not normalise to ProviderError
+    withheld: str | None = None  # a fixed code when the text was not sent to any provider (UNMASKED_DIGITS); the failure is then None
 
 
 def plan_delivery(locale: Locale, capabilities: ProviderCapabilities) -> DeliveryMode:
@@ -70,14 +76,18 @@ def _mark_retrieved(task: "asyncio.Future[Any]") -> None:
         task.exception()
 
 
-async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisRequest, *, deadline_s: float, cleanup_s: float | None = None) -> Delivery:
+async def deliver_answer(synthesizer: SpeechSynthesizer, request: SynthesisRequest, *, deadline_s: float, masking: MaskingLimits, cleanup_s: float | None = None) -> Delivery:
     """The answer text, with audio when the locale is covered and the synthesizer works within `deadline_s`.
 
     The synthesis runs as a task of its own. At the deadline it is cancelled and given `cleanup_s` (default: `deadline_s`) to stop; one that does not is
     abandoned, so the text fallback never waits for a synthesizer's own shutdown (Codex P2 on #213).
+
+    `masking` is the pack's masking limit (A154): text holding a longer run of digits, by the model service's one definition of a run (A246), is never sent to the synthesizer.
     """
     if plan_delivery(request.locale, synthesizer.capabilities) is DeliveryMode.TEXT_ONLY:
         return _text_only(request, None)
+    if longest_digit_run(request.text) > masking.max_unmasked_run:
+        return Delivery(DeliveryMode.TEXT_ONLY, request.text, (), None, None, UNMASKED_DIGITS)  # the core masks first (A181); this is the last line of defence, and no provider sees the text
     bound_s = deadline_s if cleanup_s is None else cleanup_s
     task = asyncio.ensure_future(_collect(synthesizer, request, bound_s))
     task.add_done_callback(_mark_retrieved)
