@@ -79,8 +79,11 @@ type Capabilities interface {
 	// one the intent names, and each for the role (A255, the safer reading: the role of the session is never assumed to be allowed).
 	Check(ctx context.Context, capabilityID, role string) (Capability, error)
 	// Authorized is the set of capability IDs the intent and the tenant's policy authorize for this intent node, as pack data (the capabilities of the pack's action graph the
-	// intent's capability roots; a pack names them, the core holds no capability ID, INV-14). A plan step outside it, with the intent's own capability, is PLAN_INVALID (Codex P1 on
-	// noema#572), and the dispatch budget is asked for every one of them at T12 (Codex P2). An error is never "none": the evaluation ends in UNKNOWN.
+	// intent's capability roots, reads included; a pack names them, the core holds no capability ID, INV-14). The intake adds the intent's own capability and reads the set once per
+	// evaluation, at T11 for a write. For a write it is what the evaluation checks, each capability of it: T11 asks the tenant's policy about every one (A306: a capability the
+	// policy denies for the session's role ends the evaluation, whichever step of the graph uses it), T12 asks the dispatch budget of every one (Codex P2 on noema#572; the Dispatches
+	// adapter must answer Limit >= 1 for a read capability, a Limit of 0 is UNKNOWN), and T14 refuses (PLAN_INVALID) a plan step outside it (Codex P1) or one the registry and the
+	// role do not allow. For a read (T3: no write) T11 asks the policy about the intent's own capability only, as before. An error is never "none": the evaluation ends in UNKNOWN.
 	Authorized(ctx context.Context, a AdmittedIntent) ([]string, error)
 }
 

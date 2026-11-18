@@ -1,9 +1,28 @@
 # platform/redaction
 
-**What it does.** The mandatory redactor.
+**What it does.** The mandatory redactor of the core (ruling A154, PERD §44.2). The longest digit run that reaches an outward surface is **four**. `MaskAccountNumbers` masks every run longer than four digits to asterisks plus its last four, Unicode digits included (full-width, Arabic-Indic, Devanagari). A run is digits joined by **any number of separators** between two digits, the separator set of the Record's append guard (`record/payloadguard`; A289, A259): every kind of space, every dash and bracket, `. / _ :` and their full-width forms, the middle dots, every format character and every combining mark. A comma is not one. `Handler(inner)` wraps an `slog.Handler` so that no log message or attribute (groups, errors, stringers, numbers, maps and slices of plain values) reaches it unmasked; `FilterAttributes` is the trace attribute filter. The value under a secret-looking key (`token`, `secret`, `password`, `passwd`, `pwd`, `authorization`, `api_key`, `credential`, `bearer`, `cookie`, the word `pin` and the like; `pin` is matched as a word, so `shipping` and `mapping` keep their values), everything inside a secret-looking group (including one opened with `WithGroup`), and any value it cannot read safely (a struct, a pointer, a byte slice) is replaced by `[REDACTED]`.
 
-**REQs.** REQ-SEC-003.
+**No threshold.** `New()` takes nothing: the limit is the PERD's, not a setting (A154). Free text and string-valued fields are strict.
 
-**Status.** Empty boundary package (PLT-01). REC-02. The import rules and prohibitions are in `doc.go`.
+**The exemptions (an AGENT-16 constant; `redaction.Exemptions()`).** By type only; a Founder approves the list. Each has its own tests, and a test fails when the list and the tests differ.
 
-**Tests.** `go test ./platform/redaction/...` from `services/core/` (none yet).
+| Name | What is left alone | What stays strict |
+|---|---|---|
+| `typed_id` | A whole token `<prefix>_<ULID>`: 2 to 6 lowercase letters, `_`, 26 Crockford characters (first one 0 to 7, at least one a letter), not touching a letter, digit or underscore | Ten digits in a string field; an ID-shaped token of digits only; a token one character too long or short; a token glued to other characters |
+| `rfc3339_timestamp` | A whole token that parses as an RFC 3339 date-time, at most nine fraction digits, not touching a letter, digit, underscore or hyphen; a `time.Time` attribute is written this way | A date alone (`2026-11-12`); `2026111210`; a date-time that is not a time |
+| `minor_money_field` | An integer or float attribute whose key ends in `_minor` | A string under that key; the same number under another key |
+| `count_field` | An integer or float attribute whose key ends in `_count` | as above |
+| `size_field` | An integer or float attribute whose key ends in `_bytes` | as above |
+| `duration_field` | A `time.Duration` attribute; an integer or float attribute whose key ends in `_ms`, `_s`, `_seconds`, `_minutes` or `_micros` | as above |
+
+The keys of the numeric exemptions are chosen by code, never by a user, a model or an enterprise field, and every suffix but `_bytes` already names fields in `contracts/schemas`. The trace filter takes strings only, so the numeric exemptions never apply to it.
+
+**Bounds.** A map or slice is read member by member to a depth of 8 and at most 4096 members per attribute; anything past that, and any cycle, is `[REDACTED]` (they stop a crash or a blow-up, they are not safety thresholds). A number of a named type under an exempt key is written as a plain `int64`, `uint64` or `float64`, never by its own `MarshalJSON`.
+
+**Secrets in a value.** The key list alone is a name guess, so a string value (a message, an error, a string attribute, a trace value) is also scanned for three known forms, whatever key it sits under: `Authorization: Bearer <token>` and `bearer <token of 8 or more characters>`, and a pair `<secret word> = <value>` or `: <value>` (a URL query, a JSON body, a header dump). The credential is replaced by `[REDACTED]`. This is a small scan of known forms, not a guarantee: a secret in free text with no key word next to it, or under a name that is not in the list (`x_session=...`), is not found.
+
+**Known limits, stated.** (1) A comma ends a run, so an amount written `20,000,000` stays readable; a card number written with commas between groups of four would also survive. The same width that masks `4111  1111  1111  1111` masks `20.000.000`, `192.168.100.200` and a clock time `10:00:00` in free text; only a whole RFC 3339 time is exempt. (2) A typed ID or timestamp token can carry digits of its own choosing inside the shape (a timestamp has up to nine fraction digits; a typed ID up to 25 characters of which some may be digits); the shape rules above are what keep this narrow, and the leak scanner (`tools/ci/leakscan.py`) is the second wall. (3) A date alone is masked: write it as a full RFC 3339 time. (4) Not yet installed in `cmd/core` (`slog.New(slog.NewJSONHandler(os.Stdout, nil))` there has no redactor): the composition root, EL's module, installs `Handler` on the core's logger and the telemetry filter; until then nothing the core logs goes through this package. (5) The separator class is a copy of the guard's, not an import (`record/` is a P0 path and `platform/` imports the standard library only); `TestEveryCodePointJoinsDigitsExactlyWhenTheRecordGuardSaysSo` asks both about every code point and fails when they differ.
+
+**REQs.** REQ-SEC-003, REQ-OBS-002 (AGENT-13, POC-NFR-06).
+
+**Tests.** `go test ./platform/redaction/...` from `services/core/`. The oracle for "no run of five" is `payloadguard.Mask` (any script, any separators), not `[0-9]{5,}`. Thirty mutations of the redactor each turn the suite red; the follow-up added 59 more (each separator class, the quantifier, ASCII-only digits, each secret-key word, the `pin` word rules, each value scan and each place it is applied), of which three are equivalent and survive by design (`\-` is also in `\p{Pd}`; `authorization` is also matched by `auth`; scanning before or after masking removes the same value). The first set: (the limit, ASCII-only digits, each exemption removed, loosened or widened, the secret-key rules, nested containers, `WithGroup`, `WithAttrs`, the message, the trace filter, the time kind). `edge/session/no_echo_test.go` plants a number in a refused request (path, query, bearer token, header, body) and checks no run of five digits comes back in the response body or headers.

@@ -368,6 +368,11 @@ def required_template_keys(pack: dict, pack_dir: Path) -> list[str]:
     return [f"{o['outcome_id']}/{c}" for o in pack["outcome_definitions"] for c in classes]
 
 
+# The parts of the customer's answer besides its summary (A271): a template for a part is keyed <outcome_id>/<classification>/<part>. The closed list is the Go loader's
+# (services/core/explanation Parts); a test in that package compares the two. A part is optional for now: coverage of every part is required when the Founder-approved wording lands.
+TEMPLATE_PARTS = ("found", "not_known_what", "not_known_why", "advice_do", "advice_do_not", "next_what", "next_when")
+
+
 def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
     """REQ-EXP-002: one JSON file per locale, <pack>/templates/<locale>.json, an object keyed <outcome_id>/<classification> whose values are
     non-empty text. A missing file, a missing key, an empty text, a key that is not required and a file that is not JSON each fail, and each
@@ -390,9 +395,10 @@ def check_templates(pack: dict, pack_dir: Path) -> list[Problem]:
             continue
         for key in sorted(required - doc.keys()):
             out.append(("templates", f"{loc}: no template for {key}"))
-        for key in sorted(doc.keys() - required):
-            out.append(("templates", f"{loc}: template key {key} is not an outcome/classification of this pack"))
-        for key in sorted(k for k in doc.keys() & required if not isinstance(doc[k], str) or not doc[k].strip()):
+        allowed = required | {f"{k}/{p}" for k in required for p in TEMPLATE_PARTS}
+        for key in sorted(doc.keys() - allowed):
+            out.append(("templates", f"{loc}: template key {key} is not an outcome/classification (or one of its parts) of this pack"))
+        for key in sorted(k for k in doc.keys() & allowed if not isinstance(doc[k], str) or not doc[k].strip()):
             out.append(("templates", f"{loc}: the template for {key} is empty"))
     return out
 

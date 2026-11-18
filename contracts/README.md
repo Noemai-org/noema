@@ -5,6 +5,7 @@ Canonical, versioned contracts (JSON Schema 2020-12, `<name>.v<major>.json`). Ow
 - `schemas/`: the schemas (CON-01: C-1 to C-6, the candidates read contract and the reconstruction response contract).
 - `fixtures/valid/` and `fixtures/invalid/`: one of each per schema.
 - `fixtures/golden_vectors.json`: existing evidence-set hash vectors; see `fixtures/README.md`.
+- `fixtures/digit_run_vectors.json`: the shared vectors of the digit-run rule for the Record guard, the model service's redactor and the UI scan (a fixture, not a contract); see `fixtures/README.md`.
 
 Changes need both founders (CODEOWNERS). A contract change follows AGENT-15: version bump, migration note, regenerated models.
 
