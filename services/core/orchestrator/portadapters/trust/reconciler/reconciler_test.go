@@ -26,6 +26,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	reconcilerport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust/reconciler"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
@@ -488,6 +489,11 @@ func TestASnapshotThatIsNotIntactIsRefusedBeforeAnythingIsClassified(t *testing.
 		"a repeated item":                func(s *reconcilerport.Sealed) { s.Items[2] = s.Items[1] },
 		"an item that is not in the set": func(s *reconcilerport.Sealed) { s.Items[2].EvidenceID = "evr_zz" },
 		"an empty evidence set":          func(s *reconcilerport.Sealed) { s.EvidenceIDs, s.Items = nil, nil },
+		"an empty set with its own honest hash": func(s *reconcilerport.Sealed) {
+			s.EvidenceIDs, s.Items = nil, nil
+			s.EvidenceSetHash, _ = snapshot.SetHash(nil)
+		},
+		"a snapshot with no seal time": func(s *reconcilerport.Sealed) { s.SealedAt = time.Time{} },
 		"an id that is not sorted": func(s *reconcilerport.Sealed) {
 			s.EvidenceIDs[0], s.EvidenceIDs[1] = s.EvidenceIDs[1], s.EvidenceIDs[0]
 		},
@@ -596,10 +602,11 @@ func TestThereIsNoCallWithoutADeadlineAndTheCallIsBoundedByTheTimeout(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := time.Now()
+	wall := clock.System{}
+	start := wall.Now()
 	_, err = a.Reconcile(ctx(t), tenant, snapID) // the caller's deadline is a minute away
-	if !errors.Is(err, reconcilerport.ErrRead) || !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 10*time.Second {
-		t.Fatalf("err = %v after %v, want ErrRead over a deadline well before the caller's", err, time.Since(start))
+	if !errors.Is(err, reconcilerport.ErrRead) || !errors.Is(err, context.DeadlineExceeded) || wall.Now().Sub(start) > 10*time.Second {
+		t.Fatalf("err = %v after %v, want ErrRead over a deadline well before the caller's", err, wall.Now().Sub(start))
 	}
 }
 
