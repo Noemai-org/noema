@@ -450,3 +450,53 @@ func TestARowOfAnotherTenantOrIntentThatAStoreReturnsIsNotAnAnswer(t *testing.T)
 		}
 	}
 }
+
+// The configured timeout bounds every read on its own, on top of the caller's context (a Go call has a deadline: AGENTS.md section 7): a read that cannot finish in it is an error.
+func TestTheConfiguredTimeoutBoundsEveryReadAndIsNotARefusal(t *testing.T) {
+	w := newWorld(t)
+	pack := fintechPack(t)
+	w.save(pack, tenantA, proposal(tenantA, intentID, 1, nil))
+	good := w.intents(w.trustPools(), pack)
+	got, err := good.Get(tctx(t), tenantA, intentID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := trustport.NewStoredIntents(w.trustPools(), pack, time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Get(tctx(t), tenantA, intentID, 1); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, intake.ErrNotFound) {
+		t.Errorf("Get: got %v", err)
+	}
+	if _, err := s.LatestVersion(tctx(t), tenantA, intentID); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, intake.ErrNotFound) {
+		t.Errorf("LatestVersion: got %v", err)
+	}
+	if err := s.Verify(tctx(t), got); !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, intake.ErrInvalid) {
+		t.Errorf("Verify: got %v", err)
+	}
+}
+
+// A required slot with no `status` is resolved only when it is a Reference, the one type the contract gives none (INV-06): a Quantity that is present but says nothing about its status
+// is not resolved, so the intent is not admitted as resolved.
+func TestARequiredSlotWithNoStatusIsResolvedOnlyWhenItIsAReference(t *testing.T) {
+	w := newWorld(t)
+	pack := []byte(strings.Replace(string(miniPack(`"fin.trust.test"`, "first_resource")), `{"name":"second_resource","type":"Resource","required":false}`,
+		`{"name":"amount","type":"Quantity","required":true},{"name":"reason","type":"Reference","required":true}`, 1))
+	s := w.intents(w.trustPools(), pack)
+	w.save(pack, tenantA, proposal(tenantA, "int_nostatus", 1, func(m map[string]any) {
+		miniProposal(nil)(m)
+		slots := m["slots"].(map[string]any)
+		slots["amount"] = map[string]any{"type": "Quantity", "value": 100, "unit": "NGN"}
+		slots["reason"] = map[string]any{"type": "Reference", "value": "WHY"}
+	}))
+	got, err := s.Get(tctx(t), tenantA, "int_nostatus", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.View.RequiredSlots["amount"] != decide.SlotUnresolved || got.View.RequiredSlots["reason"] != decide.SlotResolved {
+		t.Errorf("view %+v", got.View.RequiredSlots)
+	}
+	if _, ok := decide.Admit(got.View).Unresolved(); !ok {
+		t.Error("an intent with a required Quantity of no status is admitted as resolved")
+	}
+}

@@ -120,3 +120,14 @@ func TestTheKillSwitchIsNotBuiltWithoutAPackOrALoginOrADeadline(t *testing.T) {
 		}
 	}
 }
+
+func TestTheConfiguredTimeoutBoundsTheKillSwitchRead(t *testing.T) {
+	w := newWorld(t)
+	k, err := trustport.NewKillSwitch(w.trustPools(), "fin@1.0.0", time.Nanosecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if on, err := k.Enabled(tctx(t), tenantA); on || !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("got %v %v, want false and DeadlineExceeded", on, err)
+	}
+}
