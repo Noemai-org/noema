@@ -89,3 +89,16 @@ func TestABrokenTLSInputIsRefusedByNameWithNoPathInTheError(t *testing.T) {
 		}
 	}
 }
+
+// A310: with no client pair the configuration still verifies the server (the CA) and is TLS 1.3, and offers no client certificate.
+func TestTheTemporalTLSConfigWithNoClientPairStillVerifiesTheServer(t *testing.T) {
+	dir := t.TempDir()
+	cert, _ := writePair(t, dir)
+	tc, err := temporalTLS(&WorkerConfig{Address: "temporal.internal:7233", TLS: WorkerTLS{CAFile: cert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tc.Certificates) != 0 || tc.RootCAs == nil || tc.ServerName != "temporal.internal" || tc.MinVersion != tls.VersionTLS13 || tc.InsecureSkipVerify {
+		t.Errorf("%+v", tc)
+	}
+}

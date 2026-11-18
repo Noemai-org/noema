@@ -91,33 +91,35 @@ func TestEveryMissingOrBadTemporalSettingIsRefusedByName(t *testing.T) {
 	}
 }
 
-// Codex P2 on #676 and the ruling for the bench profile: a configured worker uses mutual TLS. All three TLS files are required; a worker with none (a plain connection), or with one or two,
-// is refused naming the first missing file, so a configured worker can never run without transport authentication (INV-29, PERD 36.1).
-func TestAConfiguredWorkerRequiresMutualTLS(t *testing.T) {
-	files := []string{"NOEMA_TEMPORAL_TLS_CERT_FILE", "NOEMA_TEMPORAL_TLS_KEY_FILE", "NOEMA_TEMPORAL_TLS_CA_FILE"}
-	for i, missing := range files {
+// A310 (relayed; DEBT-46): a configured worker always uses TLS and verifies the server with the CA, so the CA file is required and a plain connection is refused (Codex P2 on #676). The
+// bench Temporal does not authenticate its clients for now, so the client certificate and key are an optional PAIR: both or neither, never one without the other.
+func TestAConfiguredWorkerRequiresTheCAAndAClientCertificateOnlyAsAPair(t *testing.T) {
+	const cert, key, ca = "NOEMA_TEMPORAL_TLS_CERT_FILE", "NOEMA_TEMPORAL_TLS_KEY_FILE", "NOEMA_TEMPORAL_TLS_CA_FILE"
+	// no CA: a plain connection (or one that would trust nothing) is refused, with or without a client pair
+	for name, drop := range map[string][]string{"no TLS at all": {cert, key, ca}, "a pair and no CA": {ca}} {
 		set := goodWorker()
-		delete(set, missing)
-		if cfg, err := LoadWorkerConfig(workerEnv(set)); cfg != nil || err == nil || !strings.Contains(err.Error(), missing) {
+		for _, f := range drop {
+			delete(set, f)
+		}
+		if cfg, err := LoadWorkerConfig(workerEnv(set)); cfg != nil || err == nil || !strings.Contains(err.Error(), ca) {
+			t.Errorf("%s: %+v, %v; want a refusal naming the CA file", name, cfg, err)
+		}
+	}
+	// the CA alone is allowed: server-verified TLS with no client authentication (the bench Temporal, A310)
+	set := goodWorker()
+	delete(set, cert)
+	delete(set, key)
+	cfg, err := LoadWorkerConfig(workerEnv(set))
+	if err != nil || cfg == nil || cfg.TLS.CAFile == "" || cfg.TLS.CertFile != "" || cfg.TLS.KeyFile != "" {
+		t.Fatalf("the CA alone: %+v, %v", cfg, err)
+	}
+	// a certificate without its key, or a key without its certificate, is refused naming the missing one
+	for _, missing := range []string{cert, key} {
+		half := goodWorker()
+		delete(half, missing)
+		if cfg, err := LoadWorkerConfig(workerEnv(half)); cfg != nil || err == nil || !strings.Contains(err.Error(), missing) {
 			t.Errorf("without %s: %+v, %v", missing, cfg, err)
 		}
-		only := goodWorker()
-		for j, f := range files {
-			if j != i {
-				delete(only, f)
-			}
-		}
-		if cfg, err := LoadWorkerConfig(workerEnv(only)); cfg != nil || err == nil {
-			t.Errorf("only %s: %+v, %v", missing, cfg, err)
-		}
-	}
-	plain := goodWorker()
-	for _, f := range files {
-		delete(plain, f)
-	}
-	cfg, err := LoadWorkerConfig(workerEnv(plain))
-	if cfg != nil || err == nil || !strings.Contains(err.Error(), files[0]) {
-		t.Errorf("a plain connection: %+v, %v; want a refusal naming the first TLS file", cfg, err)
 	}
 }
 

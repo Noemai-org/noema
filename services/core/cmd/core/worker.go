@@ -29,7 +29,7 @@ const (
 	EnvTemporalTLSCA           = "NOEMA_TEMPORAL_TLS_CA_FILE"
 )
 
-// WorkerTLS names the client certificate, key and CA files of the Temporal connection.
+// WorkerTLS names the CA file that verifies the Temporal server and, optionally, the client certificate and key (both or neither).
 type WorkerTLS struct{ CertFile, KeyFile, CAFile string }
 
 // WorkerConfig is what the worker is built from.
@@ -38,13 +38,13 @@ type WorkerConfig struct {
 	Namespace       string
 	TaskQueue       string
 	ActivityTimeout time.Duration
-	TLS             WorkerTLS // required: a configured worker uses mutual TLS (PERD 36.1; Codex P2 on noema#676)
+	TLS             WorkerTLS // required: a configured worker uses TLS and verifies the server (Codex P2 on noema#676); the client pair is optional (A310, DEBT-46)
 }
 
 var temporalName = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\z`)
 
 // LoadWorkerConfig reads the settings. With none of them it returns nil and no error (there is no worker); with some, or any wrong, it returns an error that names the setting and the
-// process does not start. The three TLS files are required: a configured worker never runs without transport authentication.
+// process does not start. The CA file is required (a configured worker never runs without TLS and server verification); the client certificate and key are an optional pair (A310: the bench Temporal does not authenticate clients for now, DEBT-46).
 func LoadWorkerConfig(e Env) (*WorkerConfig, error) {
 	names := []string{EnvTemporalAddress, EnvTemporalNamespace, EnvTemporalTaskQueue, EnvTemporalActivityTimeout, EnvTemporalTLSCert, EnvTemporalTLSKey, EnvTemporalTLSCA}
 	anySet := false
@@ -73,12 +73,12 @@ func LoadWorkerConfig(e Env) (*WorkerConfig, error) {
 	cfg.ActivityTimeout = time.Duration(ms) * time.Millisecond
 	cert, key, ca := e.Getenv(EnvTemporalTLSCert), e.Getenv(EnvTemporalTLSKey), e.Getenv(EnvTemporalTLSCA)
 	switch {
-	case cert == "":
-		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSCert)
-	case key == "":
-		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSKey)
 	case ca == "":
-		return nil, fmt.Errorf("%s: is required (mutual TLS)", EnvTemporalTLSCA)
+		return nil, fmt.Errorf("%s: is required (the CA that signs the Temporal server)", EnvTemporalTLSCA)
+	case cert != "" && key == "":
+		return nil, fmt.Errorf("%s: is required when %s is set (a client certificate needs its key)", EnvTemporalTLSKey, EnvTemporalTLSCert)
+	case cert == "" && key != "":
+		return nil, fmt.Errorf("%s: is required when %s is set (a client key needs its certificate)", EnvTemporalTLSCert, EnvTemporalTLSKey)
 	}
 	cfg.TLS = WorkerTLS{CertFile: cert, KeyFile: key, CAFile: ca}
 	return cfg, nil
