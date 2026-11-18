@@ -260,3 +260,41 @@ func (s *Store) PrincipalOf(ctx context.Context, sess orchestrator.Session, inve
 	}
 	return principal, nil
 }
+
+// Snapshot is what Read returns: the state and the principal of one investigation, as the row holds them. A row from before migration 0029 holds an empty principal.
+type Snapshot struct {
+	State     orchestrator.State
+	Principal string
+}
+
+// Read is the read-only method of the investigation route (A243): the state and the principal of one investigation of the session's tenant, in a read-only transaction. It
+// says what the row says and does not decide who may see it: the caller compares the principal with the authenticated session's. An investigation of another tenant, or none,
+// is ErrNoInvestigation: the two are not told apart. The session must name a principal, but the principal never selects the row.
+func (s *Store) Read(ctx context.Context, sess orchestrator.Session, investigationID string) (Snapshot, error) {
+	if err := needDeadline(ctx); err != nil {
+		return Snapshot{}, err
+	}
+	if err := s.ready(); err != nil {
+		return Snapshot{}, err
+	}
+	if err := checkSession(sess); err != nil {
+		return Snapshot{}, err
+	}
+	if !investigationRe.MatchString(investigationID) {
+		return Snapshot{}, fmt.Errorf("%w: an investigation is outside its pattern", ErrRequest)
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("%sbegin: %w", errPrefix, err)
+	}
+	defer rollback(ctx, tx)
+	var state, principal string
+	err = tx.QueryRow(ctx, `SELECT state, principal_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = $2`, sess.TenantID, investigationID).Scan(&state, &principal)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Snapshot{}, ErrNoInvestigation
+	}
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("%sread: %w", errPrefix, err)
+	}
+	return Snapshot{State: orchestrator.State(state), Principal: principal}, nil
+}
