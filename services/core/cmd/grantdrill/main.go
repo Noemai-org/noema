@@ -46,21 +46,37 @@ func writeKey(dir string, version string, secret []byte) error {
 	return os.WriteFile(filepath.Join(dir, "grant.hmac."+version+".key"), []byte(hex.EncodeToString(secret)+"\n"), 0o400)
 }
 
+// newMount writes the three key directories in a fixed order. On an error it still returns the mount with every directory made so far (Codex P2 on noema#708), so the
+// caller's cleanup removes a partial write too; the error says only that it failed.
 func newMount(work string, oldSecret, newSecret []byte) (*mount, error) {
 	m := &mount{dirs: map[string]string{}, rings: map[string]*grants.Keys{}}
-	for name, keys := range map[string]map[string][]byte{"one": {"1": oldSecret}, "both": {"1": oldSecret, "2": newSecret}, "new": {"2": newSecret}} {
-		dir := filepath.Join(work, name)
+	layout := []struct {
+		name string
+		keys map[string][]byte
+	}{{"one", map[string][]byte{"1": oldSecret}}, {"both", map[string][]byte{"1": oldSecret, "2": newSecret}}, {"new", map[string][]byte{"2": newSecret}}}
+	for _, d := range layout {
+		dir := filepath.Join(work, d.name)
 		if err := os.Mkdir(dir, 0o700); err != nil {
-			return nil, err
+			return m, err
 		}
-		m.dirs[name] = dir
-		for version, secret := range keys {
+		m.dirs[d.name] = dir
+		for version, secret := range d.keys {
 			if err := writeKey(dir, version, secret); err != nil {
-				return nil, err
+				return m, err
 			}
 		}
 	}
 	return m, nil
+}
+
+// cleanup removes every directory the mount made, whether or not the mount is complete. A nil mount has none.
+func (m *mount) cleanup() {
+	if m == nil {
+		return
+	}
+	for _, dir := range m.dirs {
+		_ = os.RemoveAll(dir)
+	}
 }
 
 func (m *mount) load(name string) (*grants.Keys, error) {
@@ -116,13 +132,7 @@ func runCommand(args []string, out, errw io.Writer) int {
 		return exitCannot
 	}
 	m, err := newMount(*work, oldSecret, newSecret)
-	defer func() {
-		if m != nil {
-			for _, dir := range m.dirs {
-				_ = os.RemoveAll(dir)
-			}
-		}
-	}()
+	defer m.cleanup()
 	if err != nil {
 		fmt.Fprintln(errw, "grantdrill: cannot write the key files")
 		return exitCannot
