@@ -13,9 +13,9 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// TRU-12, the full confirmation path (founder decision of 19 Nov 2026, interim, relayed, not yet committed). Proves REQ-TRU-009, REQ-AMB-004; INV-12, INV-17, INV-25.
-// The store here is an in-memory stand-in for the unit logic; the Postgres store is tested against a real database in trustpg2. The pack fixture is a test-only
-// profile (no industry terms in core). All data is SYNTHETIC (AGENT-25).
+// TRU-12, the confirmation adapter conforming to the merged port of noema#757 (founder order of 19 Nov 2026, A341, interim, relayed, not yet committed). Proves REQ-TRU-009,
+// REQ-AMB-004; INV-12, INV-17, INV-25. Status is PURE: the store has only a read method, so a write is impossible by construction; the tests pin what Status answers. The pack
+// fixture is a test-only profile (no industry terms in core). All data is SYNTHETIC (AGENT-25).
 
 var cpNow = time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
 
@@ -30,69 +30,21 @@ func (p *cpPolicy) Terms(context.Context, intake.AdmittedIntent) (trustport.Conf
 	return p.terms, p.err
 }
 
-type cpPlanner struct {
-	plan  intake.Plan
-	err   error
-	calls []intake.PlanRequest
-}
-
-func (p *cpPlanner) Plan(_ context.Context, r intake.PlanRequest) (intake.Plan, error) {
-	p.calls = append(p.calls, r)
-	return p.plan, p.err
-}
-
-type cpFresh struct {
-	v   trustport.FreshValues
-	err error
-}
-
-func (f *cpFresh) Fresh(context.Context, intake.AdmittedIntent, intake.Plan) (trustport.FreshValues, error) {
-	return f.v, f.err
-}
-
 type cpStore struct {
-	req     trustport.StoredRequest
-	found   bool
-	opened  []trustport.NewConfirmationRequest
-	expired []string
-	err     error
-	seq     int
+	req   trustport.StoredRequest
+	found bool
+	err   error
+	reads int
 }
 
 func (s *cpStore) Latest(context.Context, string, string, string, int) (trustport.StoredRequest, bool, error) {
+	s.reads++
 	return s.req, s.found, s.err
-}
-
-func (s *cpStore) Open(_ context.Context, r trustport.NewConfirmationRequest) (string, error) {
-	if s.err != nil {
-		return "", s.err
-	}
-	s.opened = append(s.opened, r)
-	s.seq++
-	return "cfr_new" + string(rune('A'+s.seq)), nil
-}
-
-func (s *cpStore) Expire(_ context.Context, _, id string) error {
-	s.expired = append(s.expired, id)
-	return s.err
-}
-
-type cpResolutions struct {
-	got []trustport.ResolvedConfirmation
-	err error
-}
-
-func (r *cpResolutions) Record(_ context.Context, c trustport.ResolvedConfirmation) error {
-	r.got = append(r.got, c)
-	return r.err
 }
 
 type cpWorld struct {
 	pol  *cpPolicy
-	plan *cpPlanner
-	fr   *cpFresh
 	st   *cpStore
-	res  *cpResolutions
 	path trustport.ConfirmationPath
 }
 
@@ -100,8 +52,8 @@ func cpAdmitted() intake.AdmittedIntent {
 	return intake.AdmittedIntent{TenantID: "ten_1", IntentID: "int_1", Version: 1, IntentNode: "node_1", IntentHash: "sha256:aa", PrincipalID: "prn_1", CorrelationID: "cor_1", TargetRef: "acct_1"}
 }
 
-func cpPlan() intake.Plan {
-	return intake.Plan{Hash: "sha256:dd", Steps: []intake.PlanStep{{CapabilityID: "cap_1", TargetRef: "acct_1", ParamsHash: "sha256:bb"}}}
+func cpFresh() intake.FreshBinding {
+	return intake.FreshBinding{EvidenceSetHash: "sha256:cc", PolicyVersion: "pol_1"}
 }
 
 func cpBinding() confirm.BindingInput {
@@ -125,13 +77,8 @@ func cpAccept(by string, roles ...string) confirm.Event {
 
 func cpBuild(t *testing.T, requirement string, st *cpStore) *cpWorld {
 	t.Helper()
-	w := &cpWorld{
-		pol:  &cpPolicy{terms: trustport.ConfirmationTerms{Required: true, Requirement: requirement, ExpiresIn: cpTTL}},
-		plan: &cpPlanner{plan: cpPlan()},
-		fr:   &cpFresh{v: trustport.FreshValues{EvidenceSetHash: "sha256:cc", PolicyVersion: "pol_1"}},
-		st:   st, res: &cpResolutions{},
-	}
-	p, err := trustport.NewConfirmationPath(trustport.ConfirmationDeps{Policy: w.pol, Planner: w.plan, Fresh: w.fr, Store: w.st, Resolutions: w.res, Clock: clock.NewManual(cpNow)})
+	w := &cpWorld{pol: &cpPolicy{terms: trustport.ConfirmationTerms{Required: true, Requirement: requirement, ExpiresIn: cpTTL}}, st: st}
+	p, err := trustport.NewConfirmationPath(trustport.ConfirmationDeps{Policy: w.pol, Store: w.st, Clock: clock.NewManual(cpNow)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,163 +93,121 @@ func cpCtx(t *testing.T) context.Context {
 	return c
 }
 
-func TestPathNotRequiredWhenThePolicyAsksForNone(t *testing.T) {
+func cpNewRequest(requirement string) *intake.RequestSpec {
+	return &intake.RequestSpec{Requirement: requirement, TTL: cpTTL}
+}
+
+func TestStatusNotRequiredWhenThePolicyAsksForNone(t *testing.T) {
 	w := cpBuild(t, "SELF", &cpStore{err: errors.New("must not be read")})
 	w.pol.terms.Required = false
-	got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if err != nil || got.State != trustport.ConfirmationStateNotRequired || len(w.plan.calls) != 0 {
-		t.Fatalf("got %+v %v planner calls %d", got, err, len(w.plan.calls))
-	}
-	st, err := w.path.Status(cpCtx(t), cpAdmitted())
-	if err != nil || st.Status != intake.ConfirmationNotRequired {
-		t.Fatalf("status %+v %v", st, err)
+	got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+	if err != nil || got != (intake.Confirmation{Status: intake.ConfirmationNotRequired}) || w.st.reads != 0 {
+		t.Fatalf("got %+v %v reads %d", got, err, w.st.reads)
 	}
 }
 
-func TestPathNoRequestYetOpensOneWithTheEightBindingValues(t *testing.T) {
+func TestStatusNoRequestYetIsPendingWithANewRequestSpecAndNoID(t *testing.T) {
 	w := cpBuild(t, "MAKER_CHECKER", &cpStore{})
-	got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if err != nil || got.State != trustport.ConfirmationStatePending || got.RequestID != "cfr_newB" {
+	got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+	if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.EventID != "" || got.NewRequest == nil || *got.NewRequest != *cpNewRequest("MAKER_CHECKER") {
 		t.Fatalf("got %+v %v", got, err)
 	}
-	if len(w.st.opened) != 1 {
-		t.Fatalf("%d requests opened, want 1", len(w.st.opened))
-	}
-	o := w.st.opened[0]
-	if o.Binding != cpBinding() || o.Requirement != "MAKER_CHECKER" || o.RequesterID != "prn_1" || o.ExpiresAt != cpNow.Add(cpTTL).Unix() || o.TenantID != "ten_1" ||
-		o.CorrelationID != "cor_1" || o.Supersedes != "" {
-		t.Fatalf("opened %+v", o)
-	}
-	if len(w.plan.calls) != 1 || !w.plan.calls[0].WriteRequired || w.plan.calls[0].IntentHash != "sha256:aa" || w.plan.calls[0].TenantID != "ten_1" {
-		t.Fatalf("planner asked %+v", w.plan.calls)
-	}
-	st, err := w.path.Status(cpCtx(t), cpAdmitted())
-	if err != nil || st.Status != intake.ConfirmationPending || st.EventID != "" {
-		t.Fatalf("status %+v %v", st, err)
-	}
 }
 
-func TestPathAnOpenUnexpiredRequestWithNoAnswerIsPendingWithItsIDAndNeverASecondRequest(t *testing.T) {
+func TestStatusAnOpenUnexpiredRequestWithNoAnswerIsPendingWithItsIDAndNoNewRequest(t *testing.T) {
 	w := cpBuild(t, "SELF", &cpStore{req: cpOpen("SELF"), found: true})
 	for i := 0; i < 3; i++ {
-		got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-		if err != nil || got.State != trustport.ConfirmationStatePending || got.RequestID != "cfr_1" {
+		got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+		if err != nil || got != (intake.Confirmation{Status: intake.ConfirmationPending, RequestID: "cfr_1"}) {
 			t.Fatalf("round %d: %+v %v", i, got, err)
 		}
 	}
-	if len(w.st.opened) != 0 || len(w.st.expired) != 0 || len(w.res.got) != 0 {
-		t.Fatalf("opened %d expired %d resolutions %d, want none", len(w.st.opened), len(w.st.expired), len(w.res.got))
-	}
 }
 
-func TestPathAcceptThatResolvesToProceedIsGivenAndRecordsTheResolution(t *testing.T) {
+func TestStatusAcceptThatResolvesToProceedIsGivenWithEventPlanHashAndRequestID(t *testing.T) {
 	w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
-	got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if err != nil || got.State != trustport.ConfirmationStateGiven || got.EventID != "cfe_1" || got.PlanHash != "sha256:dd" {
+	got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+	if err != nil || got != (intake.Confirmation{Status: intake.ConfirmationGiven, EventID: "cfe_1", PlanHash: "sha256:dd", RequestID: "cfr_1"}) {
 		t.Fatalf("got %+v %v", got, err)
 	}
-	want, _ := confirm.BindingHash(cpBinding())
-	if len(w.res.got) != 1 {
-		t.Fatalf("%d resolutions", len(w.res.got))
-	}
-	r := w.res.got[0]
-	if r.TenantID != "ten_1" || r.EventID != "cfe_1" || r.RequestID != "cfr_1" || r.BindingHash != want || !r.ExpiresAt.Equal(cpNow.Add(cpTTL)) || !r.AcceptedAt.Equal(cpNow.Add(-time.Minute)) {
-		t.Fatalf("resolution %+v", r)
-	}
-	st, err := w.path.Status(cpCtx(t), cpAdmitted())
-	if err != nil || st.Status != intake.ConfirmationGiven || st.EventID != "cfe_1" || st.PlanHash != "sha256:dd" {
-		t.Fatalf("status %+v %v", st, err)
-	}
 }
 
-func TestPathDoubleAcceptIsIdempotentAndNeverOpensARequest(t *testing.T) {
+func TestStatusIsPureAndRepeatable(t *testing.T) {
 	w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
-	a, errA := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	b, errB := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if errA != nil || errB != nil || a != b || a.State != trustport.ConfirmationStateGiven || len(w.st.opened) != 0 {
-		t.Fatalf("%+v %v / %+v %v opened %d", a, errA, b, errB, len(w.st.opened))
-	}
-	if len(w.res.got) != 2 || w.res.got[0] != w.res.got[1] {
-		t.Fatalf("the two calls must hand the store the same row (the store inserts it once): %+v", w.res.got)
+	a, errA := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+	b, errB := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+	if errA != nil || errB != nil || a != b || a.Status != intake.ConfirmationGiven || w.st.reads != 2 {
+		t.Fatalf("%+v %v / %+v %v reads %d", a, errA, b, errB, w.st.reads)
 	}
 }
 
-func TestPathDeclineIsDeclinedWithNoNewRequest(t *testing.T) {
+func TestStatusAGivenAnswerWithAnEmptyFreshValueIsRefusedNeverGiven(t *testing.T) {
+	for name, f := range map[string]intake.FreshBinding{
+		"no evidence hash":  {PolicyVersion: "pol_1"},
+		"no policy version": {EvidenceSetHash: "sha256:cc"},
+		"both empty":        {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), f)
+			if !errors.Is(err, trustport.ErrBadAnswer) || got != (intake.Confirmation{}) {
+				t.Fatalf("got %+v %v", got, err)
+			}
+		})
+	}
+}
+
+func TestStatusDeclineIsDeclinedWithTheRequestIDEvenWithEmptyFreshValues(t *testing.T) {
 	ev := cpAccept("prn_1")
 	ev.Response = confirm.Decline
-	w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", ev), found: true})
-	got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if err != nil || got.State != trustport.ConfirmationStateDeclined || got.EventID != "" || got.PlanHash != "" {
-		t.Fatalf("got %+v %v", got, err)
-	}
-	if len(w.st.opened) != 0 || len(w.res.got) != 0 {
-		t.Fatal("a decline opens no request and records no resolution")
-	}
-	st, err := w.path.Status(cpCtx(t), cpAdmitted())
-	if !errors.Is(err, trustport.ErrDeclined) || st.Status != 0 {
-		t.Fatalf("status %+v %v: the intake has no Declined status, so Status fails closed", st, err)
+	for _, f := range []intake.FreshBinding{cpFresh(), {}} {
+		w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", ev), found: true})
+		got, err := w.path.Status(cpCtx(t), cpAdmitted(), f)
+		if err != nil || got != (intake.Confirmation{Status: intake.ConfirmationDeclined, RequestID: "cfr_1"}) {
+			t.Fatalf("got %+v %v", got, err)
+		}
 	}
 }
 
-func TestPathExpiredRecordsTheOldRequestsExpiryAndOpensAFreshOne(t *testing.T) {
+func TestStatusExpiredIsPendingWithANewRequestAndNeverGiven(t *testing.T) {
 	late := cpOpen("SELF")
 	late.Request.ExpiresAt = cpNow.Add(-time.Second).Unix()
 	answeredLate := cpAnswered("SELF", cpAccept("prn_1"))
 	answeredLate.Request.ExpiresAt = cpNow.Add(-time.Second).Unix()
 	answeredLate.Answer.Event.At = answeredLate.Request.ExpiresAt + 1
-	for name, req := range map[string]trustport.StoredRequest{"no answer, past expiry": late, "answer after expiry": answeredLate} {
+	usedLate := cpAnswered("SELF", cpAccept("prn_1"))
+	usedLate.Request.ExpiresAt = cpNow.Add(-time.Second).Unix()
+	usedLate.Answer.Event.At = usedLate.Request.ExpiresAt - 5
+	for name, req := range map[string]trustport.StoredRequest{"no answer, past expiry": late, "answer after expiry": answeredLate, "accepted in time, used after expiry": usedLate} {
 		t.Run(name, func(t *testing.T) {
 			w := cpBuild(t, "SELF", &cpStore{req: req, found: true})
-			got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-			if err != nil || got.State != trustport.ConfirmationStatePending || got.RequestID != "cfr_newB" || got.Expired != "cfr_1" || got.Superseded != "cfr_1" {
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+			if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.EventID != "" || got.NewRequest == nil || *got.NewRequest != *cpNewRequest("SELF") {
 				t.Fatalf("got %+v %v", got, err)
-			}
-			if len(w.st.expired) != 1 || w.st.expired[0] != "cfr_1" || len(w.st.opened) != 1 || w.st.opened[0].Supersedes != "cfr_1" || len(w.res.got) != 0 {
-				t.Fatalf("expired %v opened %+v resolutions %d", w.st.expired, w.st.opened, len(w.res.got))
 			}
 		})
 	}
 }
 
-func TestPathAnAcceptGivenJustBeforeExpiryButUsedAfterItIsExpiredNotGiven(t *testing.T) {
-	req := cpAnswered("SELF", cpAccept("prn_1"))
-	req.Request.ExpiresAt = cpNow.Add(-time.Second).Unix()
-	req.Answer.Event.At = req.Request.ExpiresAt - 5
-	w := cpBuild(t, "SELF", &cpStore{req: req, found: true})
-	got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-	if err != nil || got.State != trustport.ConfirmationStatePending || len(w.res.got) != 0 || len(w.st.expired) != 1 {
-		t.Fatalf("got %+v %v resolutions %d", got, err, len(w.res.got))
-	}
-}
-
-func TestPathBindingChangedAndPolicyChangedSupersedeWithAFreshRequestAndRecordNoNewEventType(t *testing.T) {
-	cases := map[string]func(*cpWorld){
-		"params changed (plan step)": func(w *cpWorld) { w.plan.plan.Steps[0].ParamsHash = "sha256:ee" },
-		"plan changed":               func(w *cpWorld) { w.plan.plan.Hash = "sha256:99" },
-		"target changed":             func(w *cpWorld) { w.plan.plan.Steps[0].TargetRef = "acct_9" },
-		"evidence changed":           func(w *cpWorld) { w.fr.v.EvidenceSetHash = "sha256:ff" },
-		"policy changed":             func(w *cpWorld) { w.fr.v.PolicyVersion = "pol_2" },
+func TestStatusBindingChangedAndPolicyChangedAreAPendingNewRequest(t *testing.T) {
+	cases := map[string]func(*intake.FreshBinding){
+		"evidence changed": func(f *intake.FreshBinding) { f.EvidenceSetHash = "sha256:ff" },
+		"policy changed":   func(f *intake.FreshBinding) { f.PolicyVersion = "pol_2" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
-			mutate(w)
-			a := cpAdmitted()
-			if name == "target changed" {
-				a.TargetRef = "acct_9"
-			}
-			got, err := w.path.Evaluate(cpCtx(t), a)
-			if err != nil || got.State != trustport.ConfirmationStatePending || got.RequestID != "cfr_newB" || got.Superseded != "cfr_1" || got.Expired != "" {
+			f := cpFresh()
+			mutate(&f)
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), f)
+			if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.EventID != "" || got.NewRequest == nil || *got.NewRequest != *cpNewRequest("SELF") {
 				t.Fatalf("got %+v %v", got, err)
-			}
-			if len(w.st.opened) != 1 || w.st.opened[0].Supersedes != "cfr_1" || len(w.st.expired) != 0 || len(w.res.got) != 0 {
-				t.Fatalf("opened %+v expired %v resolutions %d", w.st.opened, w.st.expired, len(w.res.got))
 			}
 		})
 	}
 }
 
-func TestPathNotEligibleAndWrongRequestFailClosedAndOpenNothing(t *testing.T) {
+func TestStatusNotEligibleAndWrongRequestFailClosed(t *testing.T) {
 	other := cpAccept("prn_1")
 	other.RequestID = "cfr_9"
 	maybe := cpAccept("prn_1")
@@ -320,19 +225,15 @@ func TestPathNotEligibleAndWrongRequestFailClosedAndOpenNothing(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			w := cpBuild(t, "SELF", &cpStore{req: c.req, found: true})
-			got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-			if !errors.Is(err, c.want) || got.State != 0 || len(w.st.opened) != 0 || len(w.res.got) != 0 {
-				t.Fatalf("got %+v %v", got, err)
-			}
-			st, err := w.path.Status(cpCtx(t), cpAdmitted())
-			if !errors.Is(err, c.want) || st.Status != 0 {
+			st, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+			if !errors.Is(err, c.want) || st != (intake.Confirmation{}) {
 				t.Fatalf("status %+v %v", st, err)
 			}
 		})
 	}
 }
 
-func TestPathEligibilityBySelfMakerCheckerAndRole(t *testing.T) {
+func TestStatusEligibilityBySelfMakerCheckerAndRole(t *testing.T) {
 	cases := []struct {
 		requirement string
 		approver    string
@@ -345,8 +246,8 @@ func TestPathEligibilityBySelfMakerCheckerAndRole(t *testing.T) {
 	}
 	for _, c := range cases {
 		w := cpBuild(t, c.requirement, &cpStore{req: cpAnswered(c.requirement, cpAccept(c.approver, c.roles...)), found: true})
-		got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-		if c.given && (err != nil || got.State != trustport.ConfirmationStateGiven) {
+		got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+		if c.given && (err != nil || got.Status != intake.ConfirmationGiven) {
 			t.Fatalf("%+v: got %+v %v", c, got, err)
 		}
 		if !c.given && !errors.Is(err, trustport.ErrApproverNotEligible) {
@@ -355,9 +256,9 @@ func TestPathEligibilityBySelfMakerCheckerAndRole(t *testing.T) {
 	}
 }
 
-// INV-25: a grant can follow only a Proceed. Whatever the stored answer and the fresh values, Given (and a resolution row) appear exactly when confirm.Resolve says Proceed,
-// and never otherwise. Seeded, so a failure reproduces.
-func TestPathPropertyNoGivenFromANonProceed(t *testing.T) {
+// INV-25: a grant can follow only a Proceed. Whatever the stored answer and the fresh values, Given appears exactly when confirm.Resolve says Proceed against the binding
+// rebuilt from the stored six values and f, and never otherwise. Seeded, so a failure reproduces.
+func TestStatusPropertyNoGivenFromANonProceed(t *testing.T) {
 	rng := rand.New(rand.NewSource(25))
 	reqs := []string{"SELF", "MAKER_CHECKER", "ROLE:checker", "ROLE:", "BOGUS"}
 	pick := func(xs ...string) string { return xs[rng.Intn(len(xs))] }
@@ -367,62 +268,53 @@ func TestPathPropertyNoGivenFromANonProceed(t *testing.T) {
 			Response: confirm.Response(pick("ACCEPT", "ACCEPT", "DECLINE", "MAYBE", "")), At: cpNow.Add(time.Duration(rng.Intn(7200)-3600) * time.Second).Unix()})
 		stored.Request.ExpiresAt = cpNow.Add(time.Duration(rng.Intn(7200)-3600) * time.Second).Unix()
 		w := cpBuild(t, req, &cpStore{req: stored, found: true})
-		w.fr.v = trustport.FreshValues{EvidenceSetHash: pick("sha256:cc", "sha256:c2"), PolicyVersion: pick("pol_1", "pol_2")}
-		w.plan.plan.Steps[0].ParamsHash = pick("sha256:bb", "sha256:b2")
-		got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
+		f := intake.FreshBinding{EvidenceSetHash: pick("sha256:cc", "sha256:c2", ""), PolicyVersion: pick("pol_1", "pol_2", "")}
+		got, err := w.path.Status(cpCtx(t), cpAdmitted(), f)
 		fresh := cpBinding()
-		fresh.EvidenceSetHash, fresh.PolicyVersion, fresh.ParamsHash = w.fr.v.EvidenceSetHash, w.fr.v.PolicyVersion, w.plan.plan.Steps[0].ParamsHash
+		fresh.EvidenceSetHash, fresh.PolicyVersion = f.EvidenceSetHash, f.PolicyVersion
 		res, rerr := confirm.Resolve(stored.Request, stored.Answer.Event, fresh)
 		wantGiven := rerr == nil && res == confirm.Proceed && cpNow.Unix() <= stored.Request.ExpiresAt
-		isGiven := err == nil && got.State == trustport.ConfirmationStateGiven
-		if isGiven != wantGiven || (isGiven && got.EventID == "") || (len(w.res.got) > 0) != wantGiven {
-			t.Fatalf("iteration %d: %+v %+v -> %+v %v; resolve %v %v; resolutions %d", i, stored.Request, stored.Answer.Event, got, err, res, rerr, len(w.res.got))
+		isGiven := err == nil && got.Status == intake.ConfirmationGiven
+		if isGiven != wantGiven || (isGiven && (got.EventID == "" || got.RequestID != "cfr_1")) {
+			t.Fatalf("iteration %d: %+v %+v %+v -> %+v %v; resolve %v %v", i, stored.Request, stored.Answer.Event, f, got, err, res, rerr)
 		}
-		if !isGiven && got.State == 0 && err == nil {
-			t.Fatalf("iteration %d: a zero state with no error", i)
+		if err == nil && got.Status == 0 {
+			t.Fatalf("iteration %d: a zero status with no error", i)
+		}
+		if err == nil && got.Status != intake.ConfirmationPending && got.NewRequest != nil {
+			t.Fatalf("iteration %d: NewRequest set on %v", i, got.Status)
 		}
 	}
 }
 
-func TestPathEveryDependencyFailureIsAnErrorNeverPendingOrGiven(t *testing.T) {
+func TestStatusEveryDependencyFailureIsAnErrorNeverPendingOrGiven(t *testing.T) {
 	boom := errors.New("down")
 	cases := map[string]func(*cpWorld){
-		"policy":      func(w *cpWorld) { w.pol.err = boom },
-		"planner":     func(w *cpWorld) { w.plan.err = boom },
-		"fresh":       func(w *cpWorld) { w.fr.err = boom },
-		"store":       func(w *cpWorld) { w.st.err = boom },
-		"resolutions": func(w *cpWorld) { w.res.err = boom },
+		"policy": func(w *cpWorld) { w.pol.err = boom },
+		"store":  func(w *cpWorld) { w.st.err = boom },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
 			mutate(w)
-			got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-			if !errors.Is(err, boom) || got.State != 0 || got.EventID != "" {
-				t.Fatalf("got %+v %v", got, err)
-			}
-			if st, err := w.path.Status(cpCtx(t), cpAdmitted()); !errors.Is(err, boom) || st.Status != 0 {
+			if st, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh()); !errors.Is(err, boom) || st != (intake.Confirmation{}) {
 				t.Fatalf("status %+v %v", st, err)
 			}
 		})
 	}
 }
 
-func TestPathRefusesABadPolicyAPlanWithNoOrManyStepsAndABadAdmittedIntent(t *testing.T) {
+func TestStatusRefusesABadPolicyAndABadAdmittedIntent(t *testing.T) {
 	for name, mutate := range map[string]func(*cpWorld){
 		"unknown requirement": func(w *cpWorld) { w.pol.terms.Requirement = "ANYONE" },
 		"no expiry":           func(w *cpWorld) { w.pol.terms.ExpiresIn = 0 },
-		"no step":             func(w *cpWorld) { w.plan.plan.Steps = nil },
-		"two steps":           func(w *cpWorld) { w.plan.plan.Steps = append(w.plan.plan.Steps, w.plan.plan.Steps[0]) },
-		"unsafe value":        func(w *cpWorld) { w.fr.v.PolicyVersion = "bad value" },
-		"plan invalid":        func(w *cpWorld) { w.plan.err = intake.ErrPlanInvalid },
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := cpBuild(t, "SELF", &cpStore{})
 			mutate(w)
-			got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-			if err == nil || got.State != 0 || len(w.st.opened) != 0 {
-				t.Fatalf("got %+v %v opened %d", got, err, len(w.st.opened))
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+			if !errors.Is(err, trustport.ErrBadAnswer) || got != (intake.Confirmation{}) {
+				t.Fatalf("got %+v %v", got, err)
 			}
 		})
 	}
@@ -435,7 +327,7 @@ func TestPathRefusesABadPolicyAPlanWithNoOrManyStepsAndABadAdmittedIntent(t *tes
 			a := cpAdmitted()
 			mutate(&a)
 			w := cpBuild(t, "SELF", &cpStore{})
-			if _, err := w.path.Evaluate(cpCtx(t), a); !errors.Is(err, trustport.ErrSession) {
+			if _, err := w.path.Status(cpCtx(t), a, cpFresh()); !errors.Is(err, trustport.ErrSession) {
 				t.Fatalf("%v", err)
 			}
 		})
@@ -444,12 +336,12 @@ func TestPathRefusesABadPolicyAPlanWithNoOrManyStepsAndABadAdmittedIntent(t *tes
 		t.Fatalf("no ports: %v", err)
 	}
 	var zero trustport.ConfirmationPath
-	if _, err := zero.Evaluate(cpCtx(t), cpAdmitted()); !errors.Is(err, trustport.ErrConfig) {
+	if _, err := zero.Status(cpCtx(t), cpAdmitted(), cpFresh()); !errors.Is(err, trustport.ErrConfig) {
 		t.Fatalf("zero value: %v", err)
 	}
 }
 
-func TestPathAStoredRequestOfAnotherPrincipalOrIntentIsSupersededNeverGiven(t *testing.T) {
+func TestStatusAStoredRequestOfAnotherPrincipalOrIntentIsANewRequestNeverGiven(t *testing.T) {
 	for name, mutate := range map[string]func(*trustport.StoredRequest){
 		"principal": func(r *trustport.StoredRequest) { r.Request.Binding.PrincipalID = "prn_9" },
 		"requester": func(r *trustport.StoredRequest) { r.Request.RequesterID = "prn_9" },
@@ -459,10 +351,21 @@ func TestPathAStoredRequestOfAnotherPrincipalOrIntentIsSupersededNeverGiven(t *t
 			req := cpAnswered("SELF", cpAccept("prn_1"))
 			mutate(&req)
 			w := cpBuild(t, "SELF", &cpStore{req: req, found: true})
-			got, err := w.path.Evaluate(cpCtx(t), cpAdmitted())
-			if err != nil || got.State != trustport.ConfirmationStatePending || len(w.res.got) != 0 || len(w.st.opened) != 1 {
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+			if err != nil || got.Status != intake.ConfirmationPending || got.NewRequest == nil || got.EventID != "" {
 				t.Fatalf("got %+v %v", got, err)
 			}
 		})
+	}
+}
+
+// The hand-over: what the Recorder persists for a Pending answer with a NewRequest. The requester is the admitted intent's principal (INV-12), never taken from the spec.
+func TestNewRequestForCarriesThePrincipalOfTheAdmittedIntentAndTheSpec(t *testing.T) {
+	a := cpAdmitted()
+	got := trustport.NewRequestFor(a, cpNewRequest("ROLE:checker"))
+	want := trustport.NewConfirmationRequest{TenantID: "ten_1", CorrelationID: "cor_1", IntentID: "int_1", IntentVersion: 1, IntentHash: "sha256:aa", RequesterID: "prn_1",
+		Requirement: "ROLE:checker", TTL: cpTTL}
+	if got != want {
+		t.Fatalf("got %+v want %+v", got, want)
 	}
 }
