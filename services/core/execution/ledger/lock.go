@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -31,8 +32,15 @@ const (
 // is cancelled and the connection is destroyed, so a spend gives up when its caller's time is up and leaves no waiter in the lock queue (TestTheWaitForTheLockEndsWithThe
 // Context). A lock_timeout would need a SET statement of its own and a second bound next to the context's; a try-lock loop would poll and queue nobody.
 //
-// A connection that cannot be shown to hold no lock and no transaction is never returned to the pool: it is closed, and closing the session releases the lock. That covers
-// a cancelled lock call (the lock may have been granted as the cancel arrived), an unlock that fails or finds nothing to release, and a transaction that was not rolled back.
+// The release (Architect ruling A348 as refined, relayed, interim). It is ONE deferred step that runs on every way out of withSpendLock (a commit, a replay, a rollback, a
+// serialization failure on every attempt, a context that expired or was already cancelled, a panic, a goroutine that exits), on the SAME connection that took the lock, with a
+// FRESH bounded context (context.WithoutCancel(ctx) plus RollbackTimeout), never the caller's, which may be done. A connection that cannot be shown to hold no lock and no
+// transaction is never returned to the pool: it is closed, and closing the session releases the lock. That covers a lock call that was cancelled (the lock may have been granted as
+// the cancel arrived), an unlock that fails or finds nothing to release, and a transaction that was left open (a panic inside it).
+//
+// A failed release never changes the answer of the spend. If the spend committed, the committed result is returned with no error (the grant is SPENT and its dispatch is owed:
+// turning a clean spend into an error would only make the sweeper make an unknown outcome of a write that can still be made); if it did not commit, the spend's own error is
+// returned; a panic goes on to the caller with its own stack. The failure is logged as one line of fixed text (releaseFailed) and the connection is closed.
 //
 // A waiting spend holds one connection of the pool, so a burst of spends of one tenant can occupy the pool; the holder needs no connection besides its own.
 func (l *Ledger) withSpendLock(ctx context.Context, tenantID string, fn func(*pgxpool.Conn) error) error {
@@ -47,38 +55,40 @@ func (l *Ledger) withSpendLock(ctx context.Context, tenantID string, fn func(*pg
 		return fixed("no connection could be acquired for the spend lock", err)
 	}
 	name := SpendLockName(tenantID)
+	held := false
+	defer func() { l.releaseSpendLock(ctx, conn, name, held) }()
 	if _, err := conn.Exec(ctx, spendLockStatement, SpendLockNamespace, name); err != nil {
-		l.destroy(ctx, conn)
 		return fixed("the wait for the spend lock did not complete", err)
 	}
-	ferr := l.runHeld(ctx, conn, fn)
+	held = true
+	return fn(conn)
+}
+
+// The fixed text of the one log line of a release that could not be shown clean: no tenant, grant, key, nonce, SQLSTATE or driver text, and no attribute that could carry one
+// (PERD 44.2 lists a tenant_id field; this line leaves it out on purpose, A347).
+const (
+	releaseFailedMsg   = errPrefix + "the spend lock could not be released cleanly: the connection was closed"
+	releaseFailedEvent = "SPEND_LOCK_RELEASE_FAILED"
+)
+
+// releaseSpendLock is the deferred step of withSpendLock; held says the lock call completed. It never panics on a logger that is nil and returns nothing: the answer of the
+// spend is not its to change.
+func (l *Ledger) releaseSpendLock(ctx context.Context, conn *pgxpool.Conn, name string, held bool) {
+	if !held {
+		l.destroy(ctx, conn) // the lock call did not complete: it may have been granted as the cancel arrived; closing the session ends it
+		return
+	}
 	uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.RollbackTimeout)
 	defer cancel()
 	var released bool
-	if uerr := conn.QueryRow(uctx, spendUnlockStatement, SpendLockNamespace, name).Scan(&released); uerr != nil || !released || conn.Conn().PgConn().TxStatus() != txIdle {
-		l.destroy(ctx, conn)
-		if ferr == nil {
-			ferr = fixed("the spend lock could not be released cleanly: the connection was closed", uerr)
-		}
-		return ferr
+	if err := conn.QueryRow(uctx, spendUnlockStatement, SpendLockNamespace, name).Scan(&released); err == nil && released && conn.Conn().PgConn().TxStatus() == txIdle {
+		conn.Release()
+		return
 	}
-	conn.Release()
-	return ferr
-}
-
-// runHeld runs fn on the connection that holds the lock. If fn does not return (it panics, or ends its goroutine), the connection is in an unknown state, a transaction may be open
-// and the lock is held: it is destroyed, which ends its session and with it the lock, and the panic goes on to the caller with its own stack. Without this the connection would
-// never go back to the pool and every later spend of the tenant would wait for a lock that nothing releases.
-func (l *Ledger) runHeld(ctx context.Context, conn *pgxpool.Conn, fn func(*pgxpool.Conn) error) error {
-	returned := false
-	defer func() {
-		if !returned {
-			l.destroy(ctx, conn)
-		}
-	}()
-	err := fn(conn)
-	returned = true
-	return err
+	l.destroy(ctx, conn)
+	if l.Log != nil {
+		l.Log.LogAttrs(context.WithoutCancel(ctx), slog.LevelWarn, releaseFailedMsg, slog.String("event", releaseFailedEvent))
+	}
 }
 
 // destroy takes the connection out of the pool and closes it, which ends its session and with it every lock of the session. The close is bounded like a rollback.

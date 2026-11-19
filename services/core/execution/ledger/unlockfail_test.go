@@ -154,7 +154,7 @@ func TestACommittedSpendWhoseUnlockFailsReturnsTheCommittedResultAndLogsOneFixed
 	}
 
 	// The tenant's next spend is not held up by the failed release.
-	next, nerr := led.Spend(ctx(t), controller.SpendCommand{Grant: w.issue(t, 3), IdempotencyKey: "idem-3", LogicalAction: "ESCALATE_CASE"})
+	next, nerr := led.Spend(ctx(t), controller.SpendCommand{Grant: w.issue(t, 3, func(g *controller.Grant) { g.TargetRef = "TX3" }), IdempotencyKey: "idem-3", LogicalAction: "ESCALATE_CASE"})
 	if nerr != nil || !next.Spent {
 		t.Fatalf("the next spend of the tenant = %+v, %v; want spent", next, nerr)
 	}
@@ -352,7 +352,8 @@ func TestAnUnlockThatFailsAfterASpendThatDidNotCommitReturnsTheSpendsError(t *te
 		}
 		wantPg(t, err, "40001")
 		requireReleaseLog(t, sink, 1)
-		requireNoConnectionKept(t, pool, "three refused attempts whose unlock failed")
+		// Not requireNoConnectionKept: after the lock is gone Spend reads the grant's status on a connection of its own (grantIsFinal), which the pool keeps. The one that held the
+		// lock is the one that was closed: nothing is out and the lock is gone.
 		requireReleased(t, w, "three refused attempts whose unlock failed", 5*time.Second, pool)
 	})
 	t.Run("a replay", func(t *testing.T) {
