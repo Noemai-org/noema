@@ -146,12 +146,17 @@ func TestConfirmationDeclinedIsItsOwnStatus(t *testing.T) {
 // REQ-TRU-009 (interim): in this version T13 does not decide on Declined: it ends in UNKNOWN like any status it does not handle, and nothing is planned or recorded. A later
 // change turns it into a REJECT; this test then changes with it.
 func TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded(t *testing.T) {
-	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationDeclined, RequestID: "cfr_synth0001"}
-	res := run13(t, newEval13(t, f))
-	wantUnknown(t, "declined", res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
-	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
-		t.Errorf("the planner or the recorder was called after a decline: %v", f.calls)
+	for name, c := range map[string]Confirmation{
+		"a bare decline":                {Status: ConfirmationDeclined, RequestID: "cfr_synth0001"},
+		"a decline that names an event": {Status: ConfirmationDeclined, RequestID: "cfr_synth0001", EventID: "cfe_synth0001", PlanHash: tPlanHash},
+	} {
+		f := newFake13()
+		f.conf = c
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+			t.Errorf("%s: the planner or the recorder was called after a decline: %v", name, f.calls)
+		}
 	}
 }
 

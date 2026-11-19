@@ -47,12 +47,13 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 }
 
 // t13: the trust profile's approver confirmation. Required and not resolved: CONFIRM, which rests on the evaluated set. Required and resolved (a valid ACCEPT that the
-// confirmation store turned into this fresh evaluation, INV-25): continue, and the grant will follow its event. Not required: continue. Any other answer is not an answer.
+// confirmation store turned into this fresh evaluation, INV-25): continue, and the grant will follow its event. Not required: continue. Any other answer is not an answer: that
+// includes Declined, which in this version ends in UNKNOWN like a status Trust does not know (a later change turns it into a REJECT).
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
 	}
-	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent, FreshBinding{})
+	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent, e.freshBinding())
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -80,6 +81,20 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		return decide.Stop(d)
 	}
 	return decide.FailStep(errAnswer)
+}
+
+// freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy T11 used. The policy is
+// "policy_id@version" when exactly one policy version took part, and empty otherwise: Trust does not choose between policies. (trust/grants.BoundPolicy applies the same rule
+// to the basis, but this package may not import it.) Empty values are passed on as empty.
+func (e *evaluation) freshBinding() FreshBinding {
+	b := FreshBinding{EvidenceSetHash: e.evidenceSetHash}
+	if len(e.policyVersions) > 0 {
+		first := e.policyVersions[0]
+		if slices.IndexFunc(e.policyVersions, func(v decide.PolicyVersionRef) bool { return v != first }) < 0 {
+			b.PolicyVersion = first.PolicyID + "@" + first.Version
+		}
+	}
+	return b
 }
 
 // t14: ask the Planner for the plan and validate what comes back. A plan the Planner calls invalid, or one that is not well formed, is UNKNOWN PLAN_INVALID. For a read
