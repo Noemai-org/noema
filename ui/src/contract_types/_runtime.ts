@@ -172,6 +172,25 @@ export const cCount = (c: { minItems?: number; maxItems?: number }): Check => (v
   return null;
 };
 
+/** uniqueItems: no two items are the same JSON value (object members compared by name, not by order). */
+const canonical = (v: unknown): string =>
+  Array.isArray(v)
+    ? `[${v.map(canonical).join(",")}]`
+    : isObject(v)
+      ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`
+      : JSON.stringify(v);
+
+export const cUnique: Check = (v, p) => {
+  if (!Array.isArray(v)) return null;
+  const seen = new Set<string>();
+  for (const x of v) {
+    const key = canonical(x);
+    if (seen.has(key)) return problem(p, "has an item more than once");
+    seen.add(key);
+  }
+  return null;
+};
+
 export const cSize = (c: { minProperties?: number; maxProperties?: number }): Check => (v, p) => {
   if (!isObject(v)) return null;
   const size = Object.keys(v).length;

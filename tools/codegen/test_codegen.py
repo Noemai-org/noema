@@ -466,9 +466,18 @@ class TypeScriptConditionals(unittest.TestCase):
         self.assertEqual(sorted(ir.VALIDATION - set(self.SAMPLES)), [], "a keyword was added to ir.VALIDATION without a case in SAMPLES")
 
     def test_the_keywords_the_emitter_does_not_implement_are_refused(self):
-        for kw in ("uniqueItems", "format", "then", "else"):
+        for kw in ("format", "then", "else"):
             with self.assertRaisesRegex(ir.GenerationError, kw, msg=kw):
                 self.render(type="object", properties={"a": self.SAMPLES[kw]})
+
+    def test_unique_items_is_written_as_a_check_and_false_is_nothing(self):
+        """uniqueItems: true is enforced by the parser (cUnique); uniqueItems: false constrains nothing and writes nothing; any other value is refused."""
+        on = self.render(type="object", properties={"a": self.SAMPLES["uniqueItems"]})
+        self.assertIn("cUnique", on)
+        off = self.render(type="object", properties={"a": {**self.SAMPLES["uniqueItems"], "uniqueItems": False}})
+        self.assertNotIn("cUnique", off)
+        with self.assertRaisesRegex(ir.GenerationError, "uniqueItems"):
+            self.render(type="object", properties={"a": {**self.SAMPLES["uniqueItems"], "uniqueItems": "yes"}})
 
     def test_an_unknown_keyword_inside_a_conditional_is_refused(self):
         s = {"type": "object", "properties": {"a": {"type": "string"}}, "allOf": [{"if": {"properties": {"a": {"frobnicate": 1}}}, "then": {"required": ["a"]}}]}
@@ -477,8 +486,8 @@ class TypeScriptConditionals(unittest.TestCase):
 
     def test_a_keyword_the_emitter_does_not_implement_in_a_real_contract_stops_generation(self):
         schemas = generate.load_schemas()
-        schemas["reconstruction.v3.json"]["properties"]["events"]["uniqueItems"] = True
-        with self.assertRaisesRegex(ir.GenerationError, r"reconstruction\.v3\.json.*uniqueItems"):
+        schemas["reconstruction.v3.json"]["properties"]["events"]["format"] = "date-time"
+        with self.assertRaisesRegex(ir.GenerationError, r"reconstruction\.v3\.json.*format"):
             generate.render_all(schemas)
 
     def test_prefix_items_and_a_conditional_are_written_as_checks(self):
@@ -498,7 +507,8 @@ class TypeScriptConditionals(unittest.TestCase):
         sections = next(f for f in built.root.type.fields if f.prop == "sections").type
         self.assertEqual([sorted(r) for r in sections.rules], [["items", "prefixItems"]])
         self.assertEqual(sections.item.rules, [], "a member's own rules hold at its position only: they stay with prefixItems")
-        self.assertEqual([sorted(r) for r in built.named["ReconstructionV3ItemFacts"].type.rules], [["maxProperties"]])
+        facts = next(f for f in built.named["ReconstructionV3Item"].type.fields if f.prop == "facts").type
+        self.assertEqual([sorted(r) for r in facts.rules], [["maxProperties"]])
 
     def test_go_and_python_output_does_not_depend_on_the_rules(self):
         # The rules are for TypeScript. Dropping them all from the IR must not change a byte of the Go or the Pydantic output (noema#682 changed no file of either).
