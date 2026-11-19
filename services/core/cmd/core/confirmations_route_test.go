@@ -1,8 +1,10 @@
 package main
 
-// TRU-12: POST /v1/confirmations/{confirmation_request_id} (PERD 39.2; REQ-TRU-009, INV-12, INV-25, EC-U04). Body {request_id, response: ACCEPT|DECLINE}. The approver's identity and
-// role come from the verified session only; CONFIRMATION_RECEIVED is appended before anything is answered, and an append that fails ends the request. Fakes are SYNTHETIC.
-// Safer readings (listed in the PR): a refused reply (not eligible, wrong request, expired) is not recorded; a customer session may answer only a SELF request.
+// TRU-12 (A341): POST /v1/confirmations/{confirmation_request_id} (PERD 39.2; REQ-TRU-009, INV-12, INV-25, EC-U04). Body {request_id, response: ACCEPT|DECLINE}. The approver's identity and
+// role come from the verified session only. The STORE owns CONFIRMATION_RECEIVED: the route calls the store's one Answer method, which records the answer and appends the event in one
+// transaction; the route appends nothing itself. FIRST ANSWER WINS: a second answer is 409, the identical first answer again returns the stored result. Fakes are SYNTHETIC.
+// Safer readings (listed in the PR): a refused reply (not eligible, wrong request, expired) is not recorded; a customer session may answer only a SELF request; a second answer is
+// CONTRADICTORY_STATE.
 
 import (
 	"bytes"
@@ -12,9 +14,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/edge"
 	"github.com/Noemai-org/noema/services/core/edge/edgetest"
@@ -45,18 +47,33 @@ func (f *confRequests) Lookup(_ context.Context, tenant, id string) (confirm.Req
 	return f.req, f.found, f.err
 }
 
-type confReceipts struct {
-	err  error
-	got  []ConfirmationReceipt
-	fail bool
+// confAnswers is a SYNTHETIC store with the first-answer-wins rule: one answer per request; the same approver with the same response again returns the stored event ID.
+type confAnswers struct {
+	err   error
+	got   []ConfirmationAnswerInput
+	first *ConfirmationAnswerInput
+	event string
+	calls int
+	noDL  bool
 }
 
-func (f *confReceipts) Receive(_ context.Context, r ConfirmationReceipt) error {
-	if f.err != nil {
-		return f.err
+func (f *confAnswers) Answer(ctx context.Context, a ConfirmationAnswerInput) (string, error) {
+	f.calls++
+	if _, ok := ctx.Deadline(); !ok {
+		f.noDL = true
 	}
-	f.got = append(f.got, r)
-	return nil
+	if f.err != nil {
+		return "", f.err
+	}
+	if f.first != nil {
+		if f.first.ApproverID == a.ApproverID && f.first.Response == a.Response {
+			return f.event, nil
+		}
+		return "", ErrConfirmationAnswered
+	}
+	f.first, f.event = &a, "cfe_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	f.got = append(f.got, a)
+	return f.event, nil
 }
 
 func confRequest(requirement string) *confRequests {
@@ -64,11 +81,11 @@ func confRequest(requirement string) *confRequests {
 		Binding: confirm.BindingInput{PrincipalID: confRequester, IntentHash: "sha256:a", CapabilityID: "cap.x", TargetRef: "tgt_1", ParamsHash: "sha256:b", EvidenceSetHash: "sha256:c", PlanHash: "sha256:d", PolicyVersion: "pol_1"}}}
 }
 
-func confAPI(t *testing.T, iss *edgetest.Issuer, clk *clock.Manual, rq ConfirmationRequests, rc ConfirmationReceipts) http.Handler {
+func confAPI(t *testing.T, iss *edgetest.Issuer, clk *clock.Manual, rq ConfirmationRequests, rc ConfirmationAnswers) http.Handler {
 	t.Helper()
 	e := sessionEnv(t, iss)
 	e[edge.EnvTenants] = confTenant
-	cfg := confirmationRouteConfig{Requests: rq, Receipts: rc, Clock: clk, IDs: ids.New(clk, nil), Decode: nil}
+	cfg := confirmationRouteConfig{Requests: rq, Answers: rc, Clock: clk, Timeout: time.Second, Decode: nil}
 	h, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{confirmationRoute(cfg)})
 	if err != nil || h == nil {
 		t.Fatalf("edge: %v, %v", h, err)
@@ -97,35 +114,37 @@ func confAnswer(id, response string) string {
 	return `{"request_id":"` + id + `","response":"` + response + `"}`
 }
 
-func confSetup(t *testing.T, requirement string) (http.Handler, *edgetest.Issuer, *clock.Manual, *confRequests, *confReceipts) {
+func confSetup(t *testing.T, requirement string) (http.Handler, *edgetest.Issuer, *clock.Manual, *confRequests, *confAnswers) {
 	t.Helper()
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(apiEpoch)
-	rq, rc := confRequest(requirement), &confReceipts{}
+	rq, rc := confRequest(requirement), &confAnswers{}
 	return confAPI(t, iss, clk, rq, rc), iss, clk, rq, rc
 }
 
 const confPath = "/v1/confirmations/" + confRequestID
 
-// An approver's ACCEPT is recorded once, with the session's tenant and principal and the session's role never read from the body (INV-12); the answer is 202 and never a grant.
+// An approver's ACCEPT is handed to the store once (the store records it and appends CONFIRMATION_RECEIVED), with the session's tenant, principal and role, never read from the body (INV-12); the answer is 202 and never a grant.
 func TestAnAcceptIsRecordedAsTheSessionsApprover(t *testing.T) {
 	h, iss, clk, rq, rc := confSetup(t, "MAKER_CHECKER")
 	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
 	}
-	if len(rc.got) != 1 {
-		t.Fatalf("receipts %d, want 1", len(rc.got))
+	if len(rc.got) != 1 || rc.calls != 1 {
+		t.Fatalf("answers %d (calls %d), want 1", len(rc.got), rc.calls)
 	}
 	g := rc.got[0]
-	if g.TenantID != confTenant || g.ApproverID != "prn_apr" || g.RequestID != confRequestID || g.Response != confirm.Accept || !g.At.Equal(clk.Now()) ||
-		!regexp.MustCompile(`^cfe_[0-9A-Z]{26}$`).MatchString(g.EventID) || !regexp.MustCompile(`^corr_[0-9A-Z]{26}$`).MatchString(g.CorrelationID) || !regexp.MustCompile(`^[a-z][a-z0-9_]*$`).MatchString(g.Channel) {
-		t.Errorf("receipt %+v", g)
+	if g.TenantID != confTenant || g.ApproverID != "prn_apr" || g.RequestID != confRequestID || g.Response != confirm.Accept || g.At != clk.Now().Unix() || len(g.Roles) != 1 || g.Roles[0] != "approver" {
+		t.Errorf("answer %+v", g)
+	}
+	if rc.noDL {
+		t.Error("the store was called without a context deadline")
 	}
 	if rq.tenant != confTenant || rq.id != confRequestID {
 		t.Errorf("lookup asked %q %q", rq.tenant, rq.id)
 	}
-	if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get(session.CorrelationHeader) != g.CorrelationID {
+	if rec.Header().Get("Cache-Control") != "no-store" || rec.Header().Get(session.CorrelationHeader) == "" {
 		t.Errorf("headers %v", rec.Header())
 	}
 	var body map[string]any
@@ -234,7 +253,7 @@ func TestEligibilityMatrix(t *testing.T) {
 func TestAFailedAppendEndsTheRequest(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(apiEpoch)
-	rc := &confReceipts{err: errors.New("pgx: connection refused to postgres://record_rw:secret@db")}
+	rc := &confAnswers{err: errors.New("pgx: connection refused to postgres://record_rw:secret@db")}
 	h := confAPI(t, iss, clk, confRequest("MAKER_CHECKER"), rc)
 	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
 	code, corr := errBody(t, rec)
@@ -246,19 +265,71 @@ func TestAFailedAppendEndsTheRequest(t *testing.T) {
 	}
 }
 
-// A replayed ACCEPT is not an error at the route and is handed to the Record as the same reply (same tenant, request, approver and response); the single resolution row and the single
-// spend are the store's (confirmation_spend), not the route's.
-func TestAReplayedAcceptIsTheSameReply(t *testing.T) {
+// FIRST ANSWER WINS (A341). The identical first answer by the same approver again returns the stored result (202, idempotent) and stores nothing new.
+func TestAReplayedAcceptReturnsTheStoredResult(t *testing.T) {
 	h, iss, _, _, rc := confSetup(t, "MAKER_CHECKER")
 	auth := confToken(iss, session.RoleApprover, "prn_apr")
+	var first string
 	for i := 0; i < 2; i++ {
-		if rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT")); rec.Code != http.StatusAccepted {
+		rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT"))
+		if rec.Code != http.StatusAccepted {
 			t.Fatalf("call %d: %d", i, rec.Code)
 		}
+		if i == 0 {
+			first = rec.Body.String()
+		} else if rec.Body.String() != first {
+			t.Errorf("replay body %s, first %s", rec.Body.String(), first)
+		}
 	}
-	a, b := rc.got[0], rc.got[1]
-	if a.TenantID != b.TenantID || a.RequestID != b.RequestID || a.ApproverID != b.ApproverID || a.Response != b.Response || a.EventID == b.EventID {
-		t.Errorf("replay receipts %+v %+v", a, b)
+	if len(rc.got) != 1 || rc.calls != 2 {
+		t.Errorf("stored %d, calls %d", len(rc.got), rc.calls)
+	}
+}
+
+// FIRST ANSWER WINS: a second answer to the same request is 409 CONTRADICTORY_STATE, from another approver, or from the same approver with the other response; the first stands.
+func TestASecondAnswerIs409(t *testing.T) {
+	for name, second := range map[string]struct{ sub, resp string }{
+		"another approver, same response":  {"prn_apr2", "ACCEPT"},
+		"another approver, other response": {"prn_apr2", "DECLINE"},
+		"same approver, other response":    {"prn_apr", "DECLINE"},
+	} {
+		h, iss, _, _, rc := confSetup(t, "MAKER_CHECKER")
+		if rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT")); rec.Code != http.StatusAccepted {
+			t.Fatalf("%s: first %d", name, rec.Code)
+		}
+		rec := confPost(h, confToken(iss, session.RoleApprover, second.sub), confPath, confAnswer(confRequestID, second.resp))
+		if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONTRADICTORY_STATE" || strings.Contains(rec.Body.String(), "state\":\"received") {
+			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
+		}
+		if len(rc.got) != 1 || rc.first.ApproverID != "prn_apr" || rc.first.Response != confirm.Accept {
+			t.Errorf("%s: the first answer did not stand: %+v", name, rc.first)
+		}
+	}
+}
+
+// An ineligible second answerer is refused as ineligible (403) before the store is asked; the store is only asked about eligible replies.
+func TestAnIneligibleReplyNeverReachesTheStore(t *testing.T) {
+	h, iss, _, _, rc := confSetup(t, "MAKER_CHECKER")
+	rec := confPost(h, confToken(iss, session.RoleApprover, confRequester), confPath, confAnswer(confRequestID, "ACCEPT"))
+	if code, _ := errBody(t, rec); rec.Code != http.StatusForbidden || code != "APPROVER_NOT_ELIGIBLE" || rc.calls != 0 {
+		t.Errorf("%d %s calls %d", rec.Code, rec.Body.String(), rc.calls)
+	}
+}
+
+// The route appends no event itself: it has no Record port, only the store's Answer. A store that cannot answer without a deadline gets one, and a missing bound is 503.
+func TestTheStoreIsCalledWithABoundedContext(t *testing.T) {
+	iss := edgetest.NewIssuer(t)
+	clk := clock.NewManual(apiEpoch)
+	rc := &confAnswers{}
+	e := sessionEnv(t, iss)
+	e[edge.EnvTenants] = confTenant
+	h, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{confirmationRoute(confirmationRouteConfig{Requests: confRequest("MAKER_CHECKER"), Answers: rc, Clock: clk})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
+	if code, _ := errBody(t, rec); rec.Code != http.StatusServiceUnavailable || code != "DEPENDENCY_UNAVAILABLE" || rc.calls != 0 {
+		t.Errorf("no timeout configured: %d %s calls %d", rec.Code, rec.Body.String(), rc.calls)
 	}
 }
 
@@ -318,11 +389,11 @@ func TestAFailingOrMissingStoreIs503(t *testing.T) {
 	auth := confToken(iss, session.RoleApprover, "prn_apr")
 	rq := confRequest("MAKER_CHECKER")
 	rq.err = errors.New("pgx: down")
-	rc := &confReceipts{}
+	rc := &confAnswers{}
 	for name, h := range map[string]http.Handler{
 		"lookup fails": confAPI(t, iss, clk, rq, rc),
 		"no requests":  confAPI(t, iss, clk, nil, rc),
-		"no receipts":  confAPI(t, iss, clk, confRequest("MAKER_CHECKER"), nil),
+		"no answers":   confAPI(t, iss, clk, confRequest("MAKER_CHECKER"), nil),
 	} {
 		rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT"))
 		if code, _ := errBody(t, rec); rec.Code != http.StatusServiceUnavailable || code != "DEPENDENCY_UNAVAILABLE" || strings.Contains(rec.Body.String(), "pgx") {
@@ -338,10 +409,10 @@ func TestAFailingOrMissingStoreIs503(t *testing.T) {
 func TestTheDecoderSeamIsHonoured(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	clk := clock.NewManual(apiEpoch)
-	rq, rc := confRequest("MAKER_CHECKER"), &confReceipts{}
+	rq, rc := confRequest("MAKER_CHECKER"), &confAnswers{}
 	e := sessionEnv(t, iss)
 	e[edge.EnvTenants] = confTenant
-	cfg := confirmationRouteConfig{Requests: rq, Receipts: rc, Clock: clk, IDs: ids.New(clk, nil),
+	cfg := confirmationRouteConfig{Requests: rq, Answers: rc, Clock: clk, Timeout: time.Second,
 		Decode: func([]byte) (ConfirmationAnswer, error) { return ConfirmationAnswer{}, errors.New("contract says no") }}
 	h, err := edge.Load(e.get, os.ReadFile, clk, ids.New(clk, nil), []edge.Route{confirmationRoute(cfg)})
 	if err != nil {
@@ -360,6 +431,15 @@ func TestTheStandInDecoderIsStrict(t *testing.T) {
 		t.Fatalf("good: %+v %v", a, err)
 	}
 	for name, body := range map[string]string{"trailing": good + `{}`, "trailing text": good + ` x`, "unknown": `{"request_id":"` + confRequestID + `","response":"ACCEPT","x":1}`, "null": `{"request_id":null,"response":null}`} {
+		if _, err := decodeConfirmationAnswer([]byte(body)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+// The default decoder is confirmation-answer.v1's generated type (INV-12): a request ID outside the contract's form is refused even when the members are right.
+func TestTheDefaultDecoderIsTheContractsType(t *testing.T) {
+	for name, body := range map[string]string{"short id": confAnswer("cfr_", "ACCEPT"), "wrong prefix": confAnswer("inv_01ARZ3NDEKTSV4RRFFQ69G5FAV", "ACCEPT"), "enum": confAnswer(confRequestID, "APPROVE")} {
 		if _, err := decodeConfirmationAnswer([]byte(body)); err == nil {
 			t.Errorf("%s accepted", name)
 		}

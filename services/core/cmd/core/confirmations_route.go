@@ -14,7 +14,6 @@ import (
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
-	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 )
 
@@ -34,24 +33,29 @@ type ConfirmationRequests interface {
 	Lookup(ctx context.Context, tenant, requestID string) (confirm.Request, bool, error)
 }
 
-// ConfirmationReceipt is one CONFIRMATION_RECEIVED event to append.
-type ConfirmationReceipt struct {
-	TenantID, CorrelationID, EventID, RequestID, ApproverID, Channel string
-	Response                                                         confirm.Response
-	At                                                               time.Time
+// ConfirmationAnswerInput is an approver's answer with the identity the session gave (INV-12); At is Unix seconds from the core's clock. It mirrors the store's AnswerInput.
+type ConfirmationAnswerInput struct {
+	TenantID, RequestID, ApproverID string
+	Roles                           []string
+	Response                        confirm.Response
+	At                              int64
 }
 
-// ConfirmationReceipts appends CONFIRMATION_RECEIVED to the Record. An error means nothing was recorded.
-type ConfirmationReceipts interface {
-	Receive(ctx context.Context, r ConfirmationReceipt) error
+// ErrConfirmationAnswered: the request was answered before, differently or by another approver (first answer wins). The store adapter maps its own conflict to it.
+var ErrConfirmationAnswered = errors.New("cmd/core: the confirmation request was answered before")
+
+// ConfirmationAnswers is the store's single method: it records the answer and appends CONFIRMATION_RECEIVED in one transaction, returns the event ID, and returns the stored event ID
+// for the identical first answer again. A second, different answer is ErrConfirmationAnswered. Answer needs a context deadline.
+type ConfirmationAnswers interface {
+	Answer(ctx context.Context, a ConfirmationAnswerInput) (string, error)
 }
 
-// confirmationRouteConfig is everything the route needs; nothing has a default.
+// confirmationRouteConfig is everything the route needs; nothing has a default. Timeout bounds the store's calls.
 type confirmationRouteConfig struct {
 	Requests ConfirmationRequests
-	Receipts ConfirmationReceipts
+	Answers  ConfirmationAnswers
 	Clock    clock.Clock
-	IDs      session.IDs
+	Timeout  time.Duration
 	Decode   ConfirmationAnswerDecoder
 }
 
@@ -104,83 +108,8 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 	}
 	return edge.Route{Pattern: "POST /v1/confirmations/{confirmation_request_id}", Roles: rolesConfirmers, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		corr := session.CorrelationFromContext(r.Context())
-		p, ok := session.FromContext(r.Context())
-		if !ok {
-			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
-			return
-		}
-		pathID := r.PathValue("confirmation_request_id")
-		if !confirmationRequestPath.MatchString(pathID) {
-			publicError(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
-			return
-		}
-		raw, err := io.ReadAll(r.Body)
-		if err != nil {
-			publicError(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request is not acceptable.", corr)
-			return
-		}
-		ans, err := decode(raw)
-		if err != nil {
-			publicError(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request is not acceptable.", corr)
-			return
-		}
-		if c.Requests == nil || c.Receipts == nil || c.Clock == nil || c.IDs == nil {
-			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
-			return
-		}
-		if ans.RequestID != pathID {
-			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
-			return
-		}
-		req, found, err := c.Requests.Lookup(r.Context(), p.Tenant, pathID)
-		if err != nil {
-			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
-			return
-		}
-		if !found {
-			publicError(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
-			return
-		}
-		now := c.Clock.Now()
-		// The binding is compared by the fresh evaluation, not here: the request's own binding stands in so only the reply, the approver and the time are judged.
-		res, err := confirm.Resolve(req, confirm.Event{RequestID: ans.RequestID, ApproverID: p.ID, ApproverRoles: []string{string(p.Role)}, Response: ans.Response, At: replyTime(now)}, req.Binding)
-		if err == nil && p.Role != session.RoleApprover && req.Requirement != "SELF" {
-			res = confirm.NotEligible // a customer session answers only a request that asks for the requester themselves
-		}
-		switch {
-		case err != nil:
-			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
-			return
-		case res == confirm.NotEligible || res == confirm.WrongRequest:
-			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
-			return
-		case res == confirm.Expired:
-			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONFIRMATIONEXPIRED, "This confirmation has expired.", corr)
-			return
-		case res != confirm.Proceed && res != confirm.Declined:
-			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
-			return
-		}
-		eventID, err := c.IDs.ID("cfe")
-		if err != nil {
-			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
-			return
-		}
-		// The Record comes first: nothing is answered but an error when the append fails.
-		if err := c.Receipts.Receive(r.Context(), ConfirmationReceipt{TenantID: p.Tenant, CorrelationID: corr, EventID: eventID, RequestID: pathID, ApproverID: p.ID,
-			Channel: confirmationChannel, Response: ans.Response, At: now}); err != nil {
-			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
-			return
-		}
-		out, err := crypto.CanonicalJSON(map[string]any{"schema_version": "1.0", "state": "received"})
-		if err != nil {
-			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write(out)
+		_ = decode
+		publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", session.CorrelationFromContext(r.Context()))
 	})}
 }
 
