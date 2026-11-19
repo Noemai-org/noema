@@ -45,7 +45,6 @@ services:
       NOEMA_GRANT_KEY_MAX_ACTIVE: "2"
       NOEMA_DB_SERIALIZATION_ATTEMPTS: "3"
       NOEMA_OUTBOX_INTERVAL_MS: "1000"
-      NOEMA_TRUST_AT_RISK_BPS: "2500"
       # The three paths. The grant keys are the grant_keys volume of docker-compose.yml (written by grant-keys-init, SEC-09); the pack is the repository's packs folder, read-only; the Trust logins
       # are the trust_dsns volume below (one file per tenant, written by trust-dsn-init), so the core never holds the tenant login password as a secret of its own.
       NOEMA_GRANT_KEY_DIR: /run/grant-keys
