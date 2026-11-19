@@ -15,7 +15,7 @@ type lateSpy struct {
 	allow bool
 }
 
-func (l *lateSpy) Status(context.Context, intake.AdmittedIntent) (intake.Confirmation, error) {
+func (l *lateSpy) Status(context.Context, intake.AdmittedIntent, intake.FreshBinding) (intake.Confirmation, error) {
 	l.calls = append(l.calls, "Confirmations.Status")
 	return intake.Confirmation{Status: intake.ConfirmationNotRequired}, nil
 }

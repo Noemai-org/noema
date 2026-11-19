@@ -7,8 +7,8 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// KeyDispatches is how many times the ledger has spent a grant for the key (the GRANT_SPENT events that name the key's idempotency key, REQ-RCV-003). It counts and
-// decides nothing.
+// KeyDispatches is how many DISPATCH_ATTEMPTED events the Record holds against the key (tenant, correlation, capability, target), counted as the database budget of
+// migration 0023 counts them (A153, REQ-RCV-003). It counts and decides nothing.
 type KeyDispatches interface {
 	Used(ctx context.Context, k intake.DispatchKey) (int, error)
 }

@@ -7,8 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -65,8 +63,6 @@ var (
 	_ orchestrator.Bindings = Port{}
 )
 
-var intentRefRe = regexp.MustCompile(`\A(int_[0-9A-Za-z]{2,32})@([1-9][0-9]{0,8})\z`)
-
 // OutcomeOf maps a Trust outcome to the contract enum. Any other value is ErrBadAnswer.
 func OutcomeOf(o decide.Outcome) (contracts.EnumsV1DecisionOutcome, error) {
 	switch o {
@@ -104,15 +100,11 @@ func (p Port) Decide(ctx context.Context, s orchestrator.Session, intentRef stri
 	if s.TenantID == "" || s.PrincipalID == "" {
 		return orchestrator.Decision{}, ErrSession
 	}
-	m := intentRefRe.FindStringSubmatch(intentRef)
-	if m == nil {
+	intentID, version, err := contracts.ParseIntentRef(intentRef)
+	if err != nil {
 		return orchestrator.Decision{}, fmt.Errorf("%w: the reference is not int_<id>@<version>", ErrIntentRef)
 	}
-	version, err := strconv.Atoi(m[2])
-	if err != nil {
-		return orchestrator.Decision{}, fmt.Errorf("%w: the version: %v", ErrIntentRef, err)
-	}
-	stored, err := p.Intents.Get(ctx, s.TenantID, m[1], version)
+	stored, err := p.Intents.Get(ctx, s.TenantID, intentID, version)
 	if err != nil {
 		return orchestrator.Decision{}, fmt.Errorf("trustport: read the intent: %w", err)
 	}
