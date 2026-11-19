@@ -267,6 +267,14 @@ def check_graphs(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
     return out
 
 
+def check_graph_permits(pack: dict, graphs: dict[str, dict]) -> list[Problem]:
+    """Every capability a graph node names has a PERMIT rule in the policy (REQ-TRU-005; PERD 23.3 T11). Trust asks the policy for each capability of a plan, and a
+    capability with no PERMIT ends NO_PERMITTING_RULE, so such a node could never be planned. Whether a rule's condition holds is decided at run time, not here."""
+    permitted = {c for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" for c in r["applies_to"]}
+    return [("graph", f"{g['graph_id']}.{n['node_id']}: capability {n['capability_id']} has no PERMIT rule in the policy")
+            for g in graphs.values() for n in g["nodes"] if n["capability_id"] not in permitted]
+
+
 def check_graph_shape(g: dict, known: set[str]) -> list[Problem]:
     """A graph, never a list of endpoints (PERD v1.19 REQ-AG-001, DEC-2026-10-31 D9; roots and connectedness committed in
     DEC-2026-11-03-action-graph-shape D1 to D4). Edges naming unknown nodes are reported by check_graphs and ignored here."""
@@ -586,7 +594,7 @@ def run(pack_path: Path, conformance: bool = False, pack: dict | None = None, gr
     if problems:  # the other checks assume a well-formed pack
         return problems
     problems += check_references(pack) + check_reasons(pack) + check_capabilities(pack) + check_predicates(pack, graphs)
-    problems += check_graphs(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
+    problems += check_graphs(pack, graphs) + check_graph_permits(pack, graphs) + check_routing(pack) + check_understanding(pack, pack_path.parent, conformance)
     if conformance:
         problems += check_conformance(pack)
     if templates == "enforce":
