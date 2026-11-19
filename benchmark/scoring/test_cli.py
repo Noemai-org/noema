@@ -58,6 +58,19 @@ def write_repeat(root: Path, name: str, run_id: str) -> Path:
 
 
 class CliTest(unittest.TestCase):
+    def test_story_table_flag_writes_the_g2_table_beside_the_scorecard_and_is_absent_without_it(self) -> None:
+        """BEN-12 (A300): `--story-table` writes story-table.json and story-table.md (22 story rows, the by-family rollup, the G2 verdict) from the same inputs; no flag, no file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_tree(root)
+            run_cli(root, root / "plain")
+            self.assertFalse((root / "plain" / "story-table.json").exists())
+            run_cli(root, root / "out", "--story-table")
+            table = json.loads((root / "out" / "story-table.json").read_text())
+            self.assertEqual(22, len(table["stories"]))
+            self.assertIn(table["g2"]["status"], ("ALL_PASS", "NOT_PASSING"))
+            self.assertIn("G2:", (root / "out" / "story-table.md").read_text())
+
     def test_four_repeat_runs_make_pass_k_available(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -31,6 +31,9 @@ const (
 // spy records every call, by port and method, in order; its answers are set per test, and a fault is injected by name.
 type spy struct {
 	calls []string
+	// the intent the intake asked the Intents port for (contracts.ParseIntentRef's answer, REQ-TRU-009)
+	gotID      string
+	gotVersion int
 	// the answers
 	intent      intake.AdmittedIntent
 	latest      int
@@ -42,6 +45,7 @@ type spy struct {
 	capPresent  bool
 	inScope     bool
 	roleAllowed bool
+	late        *lateSpy // the T13 to T15 ports, which no T1 to T6 test may reach
 	candidates  intake.TargetCandidates
 	candErr     error
 	owned       bool
@@ -54,11 +58,12 @@ type spy struct {
 
 func newSpy() *spy {
 	return &spy{
+		late: &lateSpy{},
 		intent: intake.AdmittedIntent{TenantID: tenant, IntentID: "int_synth0001", Version: 2, IntentNode: node, IntentHash: "sha256:" + hex64(), CorrelationID: "corr_synth0001",
 			PrincipalID: principal, View: decide.IntentView{Version: 2}},
 		latest: 2, enabled: true, capability: intake.Capability{ID: "fin.cap.lookup_transaction", Registered: true}, capPresent: true, inScope: true, roleAllowed: true,
 		owned: true,
-		evidence: intake.SnapshotEvidence{Items: []intake.SourceItem{{
+		evidence: intake.SnapshotEvidence{IntentID: "int_synth0001", IntentVersion: 2, Items: []intake.SourceItem{{
 			Freshness: decide.Freshness{EvidenceID: "evi_synth0001", EffectiveAt: 1_700_000_000, Source: "fin.src.ledger", AgeSeconds: 10, EffectiveLimitSeconds: 60, LimitSetBy: decide.LimitBySource},
 			Status:    contracts.EnumsV1FactStatusKNOWN,
 		}}},
@@ -86,7 +91,8 @@ func (s *spy) hit(name string) error {
 	return nil
 }
 
-func (s *spy) Get(_ context.Context, _, _ string, _ int) (intake.AdmittedIntent, error) {
+func (s *spy) Get(_ context.Context, _, id string, version int) (intake.AdmittedIntent, error) {
+	s.gotID, s.gotVersion = id, version
 	if err := s.hit("Intents.Get"); err != nil {
 		return intake.AdmittedIntent{}, err
 	}
@@ -106,6 +112,12 @@ func (s *spy) NeedsWrite(context.Context, intake.AdmittedIntent) (bool, error) {
 }
 func (s *spy) Enabled(context.Context, string) (bool, error) {
 	return s.enabled, s.hit("Writes.Enabled")
+}
+func (s *spy) Check(_ context.Context, id, _ string) (intake.Capability, error) {
+	return intake.Capability{ID: id, Registered: true}, s.hit("Capabilities.Check")
+}
+func (s *spy) Authorized(context.Context, intake.AdmittedIntent) ([]string, error) {
+	return nil, nil
 }
 func (s *spy) Requested(context.Context, intake.AdmittedIntent) (intake.Capability, bool, error) {
 	return s.capability, s.capPresent, s.hit("Capabilities.Requested")
@@ -155,7 +167,7 @@ func (s *spy) Route(context.Context, intake.ClockQuery, []clocks.Status) (intake
 
 func (s *spy) service() *intake.Service {
 	return &intake.Service{
-		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s},
+		Ports:       intake.Ports{Intents: s, Writes: s, Capabilities: s, Scope: s, Authority: s, Candidates: s, Ownership: s, Evidence: s, Reconciler: s, Policies: s, Clocks: s, Confirmations: s.late, Planner: s.late, Recorder: s.late, Dispatches: s.late},
 		Clock:       clock.NewManual(time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)), // SYNTHETIC
 		PackVersion: "1.0.0",
 	}
@@ -206,6 +218,28 @@ func want(t *testing.T, name string, res intake.Result, outcome decide.Outcome, 
 	}
 }
 
+// REQ-TRU-009: the intake asks the Intents port for the ID and the version that the reference names, and a reference that is not int_<id>@<version> (parsed by contracts.ParseIntentRef) is
+// refused at T1 before any port is called.
+func TestT1TheIntentPortIsAskedForTheReferencesIDAndVersionAndAMalformedReferenceCallsNothing(t *testing.T) {
+	s := newSpy()
+	r := request()
+	r.IntentRef = "int_synth0001@2"
+	eval(t, s, r)
+	if s.gotID != "int_synth0001" || s.gotVersion != 2 {
+		t.Errorf("Intents.Get(%q, %d), want (int_synth0001, 2)", s.gotID, s.gotVersion)
+	}
+	for _, bad := range []string{"", "int_synth0001", "int_synth0001@0", "int_synth0001@01", "int_synth0001@1000000000", "usr_synth0001@2", "int_synth0001@2\n"} {
+		s := newSpy()
+		r := request()
+		r.IntentRef = bad
+		res := eval(t, s, r)
+		want(t, "a malformed reference "+bad, res, decide.Reject, "INTENT_INVALID", decide.T1AdmittedIntent)
+		if len(s.calls) != 0 {
+			t.Errorf("%q: the intake called %v for a malformed reference, want nothing", bad, s.calls)
+		}
+	}
+}
+
 func TestEveryGateStepRefusesWithItsOwnOutcomeAndReasonCode(t *testing.T) {
 	for _, c := range []struct {
 		name    string
@@ -241,6 +275,20 @@ func TestEveryGateStepRefusesWithItsOwnOutcomeAndReasonCode(t *testing.T) {
 	}
 }
 
+// A226 (carried from the Security Reviewer's note on noema#567): the request's correlation ID must be the stored intent's. An intent admitted under another correlation is not this
+// request's intent: T1 refuses it as every other intent that is not the caller's (REJECT INTENT_INVALID), and nothing after T1 is reached. An empty correlation is the same refusal.
+func TestT1ARequestWhoseCorrelationIsNotTheIntentsIsRefused(t *testing.T) {
+	for name, corr := range map[string]string{"another correlation": "corr_other0001", "none": ""} {
+		s := newSpy()
+		r := request()
+		r.CorrelationID = corr
+		res := eval(t, s, r)
+		if res.Decision.Outcome() != decide.Reject || !reflect.DeepEqual(reasons(res.Decision), []string{"INTENT_INVALID"}) || last(res).Step != decide.T1AdmittedIntent {
+			t.Errorf("%s: %s %v, trace %v; want REJECT INTENT_INVALID at T1", name, res.Decision.Outcome(), reasons(res.Decision), res.Trace)
+		}
+	}
+}
+
 // T3: reads continue when writes are disabled: the switch refuses only a request that leads to a write.
 func TestAReadContinuesWhenWritesAreDisabled(t *testing.T) {
 	s := newSpy()
@@ -251,19 +299,42 @@ func TestAReadContinuesWhenWritesAreDisabled(t *testing.T) {
 	}
 }
 
-// With every port answering well, T1 to T12 pass and the evaluation ends at T13, which is not built: UNKNOWN INTERNAL_ERROR, never ALLOW.
-func TestARequestThatPassesT1ToT12EndsUnknownAtT13BecauseNoLaterStepIsBuilt(t *testing.T) {
-	res := eval(t, newSpy(), request())
-	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(reasons(res.Decision), []string{"INTERNAL_ERROR"}) {
-		t.Fatalf("decision %s %v, want UNKNOWN INTERNAL_ERROR", res.Decision.Outcome(), reasons(res.Decision))
+// The full path, T1 to T15, for a read: with every port answering well the evaluation is ALLOW, and the Decision Record was written (the Recorder was called, last) before the
+// ALLOW was returned (PERD 32.4, EC-E16). A read has an empty plan with its hash (A205 Q3) and so no grant.
+func TestAReadThatPassesEveryStepIsAllowedAfterTheDecisionRecordIsWritten(t *testing.T) {
+	s := newSpy()
+	s.late.allow = true
+	res := eval(t, s, request())
+	if res.Decision.Outcome() != decide.Allow || res.DecisionID != "dec_synth0001" || len(res.GrantIDs) != 0 {
+		t.Fatalf("decision %s %v, id %q, grants %v; want ALLOW with the recorded decision ID and no grant", res.Decision.Outcome(), reasons(res.Decision), res.DecisionID, res.GrantIDs)
 	}
-	if len(res.Trace) != 13 || last(res).Step != decide.T13Confirmation || last(res).Result != decide.StepFailed {
-		t.Fatalf("trace %v, want T1 to T12 passed and T13 failed", res.Trace)
+	if len(res.Trace) != 15 {
+		t.Fatalf("trace %v, want every one of the fifteen steps", res.Trace)
 	}
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 14; i++ {
 		if res.Trace[i].Result != decide.StepPassed {
 			t.Errorf("step %d: %v, want PASSED", i+1, res.Trace[i])
 		}
+	}
+	if want := []string{"Confirmations.Status", "Planner.Plan", "Recorder.Record"}; !reflect.DeepEqual(s.late.calls, want) {
+		t.Errorf("late ports called %v, want %v", s.late.calls, want)
+	}
+}
+
+// The same request when the Planner refuses ends UNKNOWN PLAN_INVALID at T14: the Recorder is never called, so nothing is written and nothing is allowed (REQ-NFR-002, EC-E16).
+func TestAPlannerThatRefusesEndsUnknownAtT14AndNothingIsWritten(t *testing.T) {
+	s := newSpy()
+	res := eval(t, s, request())
+	if res.Decision.Outcome() != decide.Unknown || !reflect.DeepEqual(reasons(res.Decision), []string{"PLAN_INVALID"}) || last(res).Step != decide.T14Plan {
+		t.Fatalf("decision %s %v, trace %v, want UNKNOWN PLAN_INVALID at T14", res.Decision.Outcome(), reasons(res.Decision), res.Trace)
+	}
+	for _, c := range s.late.calls {
+		if c == "Recorder.Record" {
+			t.Errorf("the Recorder was called: %v", s.late.calls)
+		}
+	}
+	if res.DecisionID != "" || len(res.GrantIDs) != 0 {
+		t.Errorf("an ID was returned: %q %v", res.DecisionID, res.GrantIDs)
 	}
 }
 

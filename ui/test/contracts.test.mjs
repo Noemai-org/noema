@@ -134,9 +134,9 @@ for (const [surface, [build, root]] of Object.entries(SURFACES)) {
   });
 }
 
-// A258: the customer entry point holds the four public contracts and errors.v3 and nothing that leads to the operator contracts (they carry tenant_id, events and hashes).
+// A258: the customer entry point holds the public contracts (the four it reads, the one it sends, message-request.v1) and errors.v3 and nothing that leads to the operator contracts (they carry tenant_id, events and hashes).
 test("the customer entry point parses the public contracts only and imports no operator contract", () => {
-  assert.deepEqual(Object.keys(CUSTOMER_PARSERS).sort(), ["customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"]);
+  assert.deepEqual(Object.keys(CUSTOMER_PARSERS).sort(), ["customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"]);
   const dir = fileURLToPath(new URL("../build/js/contract_types/", import.meta.url));
   const seen = new Set();
   const todo = ["customer.js"];
@@ -223,4 +223,15 @@ test("reconstruction.v3: a rule of one section kind does not apply to another (n
   const doc = read("valid/reconstruction.v3/full_write_case.json");
   item(doc, "REQUEST", { decision_outcome: "NOT_AN_OUTCOME" });  // REQUEST has no conditional rule on this member: accepted (positive control)
   assert.doesNotThrow(() => parseReconstructionV3(doc));
+});
+
+// A278: the facts of reconstruction.v3 are checked by value, under any key. The `oneOf` fixtures are not in the generic loop above (that keeps the bounds and the shape keywords), so
+// the ones about a fact value are named here: the browser parser must refuse each, whatever the key.
+test("reconstruction.v3: a fact value that is a number in disguise is refused under any key", () => {
+  const names = ["request_id_uuid_of_31_digits_joined_by_dashes", "id_fact_holding_a_card_number", "typed_id_with_digits_only_in_its_body", "reference_fact_with_sixteen_digits_after_the_colon",
+    "unlisted_key_with_a_card_number_in_a_sentence", "array_fact_item_with_a_card_number", "text_fact_with_five_joined_digits", "reason_codes_item_with_five_joined_digits"];
+  for (const n of names) {
+    const doc = JSON.parse(readFileSync(join(FIXTURES, "invalid", "reconstruction.v3", `${n}.json`), "utf8"));
+    assert.throws(() => PARSERS["reconstruction.v3"](doc), ContractError, `${n} was accepted`);
+  }
 });

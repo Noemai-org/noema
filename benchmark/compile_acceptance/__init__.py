@@ -1,0 +1,2 @@
+"""The compile acceptance run (UND-16; noema#546; ruling A198; REQ-INT-001, REQ-INT-002; INV-22, INV-29; AGENT-25): the five golden examples G-A to G-E, run once each through the model service's compile
+service with the real provider adapter, every provider call recorded for the replay provider (UND-15, A261). Synthetic inputs only. Not the bake-off and not a G1 result. It reads no oracle and no held-out case."""

@@ -59,6 +59,32 @@ class RealPacks(unittest.TestCase):
                 self.assertEqual(checks.run(path, conformance=True), [])
 
 
+class GraphPermits(unittest.TestCase):
+    """REQ-TRU-005, PERD 23.3 T11: every capability a graph node names has a PERMIT rule in its pack's policy. Trust evaluates the policy for each capability a plan uses, so a node
+    whose capability has none could never be planned (NO_PERMITTING_RULE). The expectation is computed here from the pack's own files, not from the check under test."""
+
+    def test_every_graph_capability_of_every_real_pack_has_a_permit(self):
+        for path in [PACKS / "fintech_v1.json", *CONFORMANCE]:
+            pack = json.loads(path.read_text())
+            permitted = {c for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" for c in r["applies_to"]}
+            for rel in pack.get("action_graph_files", []):
+                graph = json.loads((PACKS / rel).read_text())
+                for node in graph["nodes"]:
+                    with self.subTest(f"{path.name} {graph['graph_id']}.{node['node_id']}"):
+                        self.assertIn(node["capability_id"], permitted)
+
+    def test_a_node_whose_capability_loses_its_permit_is_named(self):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        for rule in pack["policy"]["rules"]:
+            if rule["effect"] == "PERMIT" and "fin.cap.lookup_account" in rule["applies_to"]:
+                rule["applies_to"] = [c for c in rule["applies_to"] if c != "fin.cap.lookup_account"]
+        hits = [m for c, m in checks.check_graph_permits(pack, graphs) if c == "graph"]
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("fin.graph.investigate.lookup_account", hits[0])
+        self.assertIn("fin.cap.lookup_account", hits[0])
+
+
 class BadPacks(unittest.TestCase):
     def test_there_are_enough_fixtures(self):
         self.assertGreaterEqual(len(BAD), 8)  # REQ-CAP-001: 8 crafted invalid descriptors
@@ -221,6 +247,25 @@ class TemplateCoverage(unittest.TestCase):
             self.assertEqual(problems[0][0], "templates")
             self.assertIn(victim, problems[0][1])
             self.assertIn("yo", problems[0][1])
+
+    def test_a_template_for_a_part_of_the_answer_is_allowed_and_checked_like_the_summary(self):
+        # A271: <outcome_id>/<classification>/<part> for a part of the closed list. A part is optional for now; when present it must be non-empty text, and a part name that is not
+        # on the list, a part of a key the pack does not have, and a deeper path each fail. SYNTHETIC text.
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = sorted(checks.required_template_keys(json.loads((PACKS / "fintech_v1.json").read_text()), PACKS))
+            good = f"{keys[0]}/found"
+            pack = self.pack_dir(Path(tmp), extra=("en-NG", good))
+            self.assertEqual(checks.check_templates(pack, Path(tmp)), [])
+            self.assertEqual(checks.TEMPLATE_PARTS, ("found", "not_known_what", "not_known_why", "advice_do", "advice_do_not", "next_what", "next_when"))
+        for bad in (f"{keys[0]}/nope", f"{keys[0]}/summary", f"{keys[0]}/found/found", "fin.outcome.nope/SUCCESS_CONFIRMED/found", f"{keys[0]}/FOUND"):
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = self.pack_dir(Path(tmp), extra=("en-NG", bad))
+                problems = checks.check_templates(pack, Path(tmp))
+                self.assertTrue(any(bad in m for _, m in problems), (bad, problems))
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), empty=("en-NG", good))
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertTrue(any(good in m and "empty" in m for _, m in problems), problems)
 
     def test_a_missing_locale_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

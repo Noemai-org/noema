@@ -428,6 +428,38 @@ func (e *EnumsV1RetrySafety) UnmarshalJSON(b []byte) error {
 	return fmt.Errorf("contracts: EnumsV1RetrySafety: %q is not one of its values", s)
 }
 
+// EnumsV1TransactionClassification is generated from enums.v1.json#$defs/TransactionClassification.
+// The derived state classification of a transaction (PERD v1.18 state table): a closed list of twelve. It is not an Execution Receipt state (ExecutionState): EXECUTION_OUTCOME_UNKNOWN is a classification, OUTCOME_UNKNOW...
+type EnumsV1TransactionClassification string
+
+const (
+	EnumsV1TransactionClassificationSUCCESSCONFIRMED             EnumsV1TransactionClassification = "SUCCESS_CONFIRMED"
+	EnumsV1TransactionClassificationREJECTEDCONFIRMED            EnumsV1TransactionClassification = "REJECTED_CONFIRMED"
+	EnumsV1TransactionClassificationDEBITPOSTEDCREDITUNCONFIRMED EnumsV1TransactionClassification = "DEBIT_POSTED_CREDIT_UNCONFIRMED"
+	EnumsV1TransactionClassificationSETTLEMENTPENDING            EnumsV1TransactionClassification = "SETTLEMENT_PENDING"
+	EnumsV1TransactionClassificationREVERSALPENDING              EnumsV1TransactionClassification = "REVERSAL_PENDING"
+	EnumsV1TransactionClassificationREVERSEDCONFIRMED            EnumsV1TransactionClassification = "REVERSED_CONFIRMED"
+	EnumsV1TransactionClassificationPOSSIBLEDUPLICATE            EnumsV1TransactionClassification = "POSSIBLE_DUPLICATE"
+	EnumsV1TransactionClassificationPARTIAL                      EnumsV1TransactionClassification = "PARTIAL"
+	EnumsV1TransactionClassificationEXECUTIONOUTCOMEUNKNOWN      EnumsV1TransactionClassification = "EXECUTION_OUTCOME_UNKNOWN"
+	EnumsV1TransactionClassificationCONTRADICTORYSTATE           EnumsV1TransactionClassification = "CONTRADICTORY_STATE"
+	EnumsV1TransactionClassificationEVENTORDERUNCERTAIN          EnumsV1TransactionClassification = "EVENT_ORDER_UNCERTAIN"
+	EnumsV1TransactionClassificationINSUFFICIENTEVIDENCE         EnumsV1TransactionClassification = "INSUFFICIENT_EVIDENCE"
+)
+
+func (e *EnumsV1TransactionClassification) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return fmt.Errorf("contracts: EnumsV1TransactionClassification: %w", err)
+	}
+	switch v := EnumsV1TransactionClassification(s); v {
+	case EnumsV1TransactionClassificationSUCCESSCONFIRMED, EnumsV1TransactionClassificationREJECTEDCONFIRMED, EnumsV1TransactionClassificationDEBITPOSTEDCREDITUNCONFIRMED, EnumsV1TransactionClassificationSETTLEMENTPENDING, EnumsV1TransactionClassificationREVERSALPENDING, EnumsV1TransactionClassificationREVERSEDCONFIRMED, EnumsV1TransactionClassificationPOSSIBLEDUPLICATE, EnumsV1TransactionClassificationPARTIAL, EnumsV1TransactionClassificationEXECUTIONOUTCOMEUNKNOWN, EnumsV1TransactionClassificationCONTRADICTORYSTATE, EnumsV1TransactionClassificationEVENTORDERUNCERTAIN, EnumsV1TransactionClassificationINSUFFICIENTEVIDENCE:
+		*e = v
+		return nil
+	}
+	return fmt.Errorf("contracts: EnumsV1TransactionClassification: %q is not one of its values", s)
+}
+
 // EnumsV1Verdict is generated from enums.v1.json#$defs/Verdict.
 // Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust.
 type EnumsV1Verdict string

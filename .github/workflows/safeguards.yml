@@ -29,6 +29,10 @@ jobs:
       - name: Install pinned scanners
         if: github.event.action != 'edited'
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
+      # The YAML parser of the two workflow checks (OD-P-95, ruling A283): one hash-pinned wheel, this job only. Without it the checks fail; they never pass unread.
+      - name: Install the pinned YAML parser
+        if: github.event.action != 'edited'
+        run: python3 -m pip install --require-hashes "--only-binary=:all:" --no-deps -r tools/ci/requirements.lock
       # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
       # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
       - name: Secret scan (gitleaks), the commits of this change only
@@ -54,6 +58,9 @@ jobs:
       - name: Secret-name check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
+      - name: Every TEN_RESULT line is checked by a workflow (A274)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_ten_result_grep.py
       - name: Leak scanner tests (SEC-03)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_leakscan.py
@@ -63,6 +70,10 @@ jobs:
       - name: Workflow concurrency groups (CI speed)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_workflow_concurrency.py
+      - name: Regression-link check and its workflow guard (MEM-02)
+        if: github.event.action != 'edited'
+        # Not -I: these tests import `tools.ci...` from the checkout root (a namespace package), which isolated mode would hide.
+        run: python3 -m unittest tools.ci.test_check_regression_link tools.ci.test_regression_link_workflow
       - name: Workflow permissions (least privilege, REQ-SEC-007)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/check_workflow_permissions.py
