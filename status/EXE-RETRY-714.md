@@ -103,3 +103,32 @@ A339 (second session): red commit `6dca1160` (nine tests fail, for the right rea
 - Purpose: A347 fixed-text errors sweep (interim); A348 conditions on #748 (release test).
 - Receiver used it for: the fixed texts, the release suite, the panic fix.
 - Evidence (PR or commit): local commits on `prep/r6-748`, not pushed.
+
+# Session 2026-11-19 17:00 WAT · EXE-RETRY-714 (A348 refined: a failed unlock never changes the answer, noema#748)
+
+## Session summary
+- What changed (PR links): local commits on `prep/r6-748` (main merged, no conflict), not pushed. `execution/ledger/lock.go` (one deferred release; `runHeld` removed), `ledger.go` (optional `Log *slog.Logger`), tests `unlockfail_test.go` (new), `execution/e2e/unlockfail_dispatch_test.go` (new), `spendlock_test.go` (one subtest), ledger README, this file.
+- Why: the refined ruling of A348, relayed by the user, interim, not committed (AGENTS.md section 2 item 3): return the committed result on unlock failure, log fixed text, close the connection; three attempts are enough; release on the same dedicated connection in a defer on every path with a fresh bounded context.
+- What it does now. The release is one `defer` of `withSpendLock`, run on the same connection with `context.WithoutCancel(ctx)` plus `RollbackTimeout`. If the unlock errors, returns false (nothing to release) or leaves the connection's transaction not idle, the connection is closed (never returned to the pool) and ONE line is logged. The answer of the spend is never changed by the release: committed result with no error; the spend's own error when it did not commit; a replay stays a replay; a panic continues. The controller needed no change: it dispatches on `Spent` true with no error (the e2e test shows the write reaches the mock-case once).
+- **Open item 7 of the earlier session: closed by the ruling.** The unlock failing after a commit used to return the lock error with `Spent` false.
+- The log line: `slog` WARN, message `ledger: the spend lock could not be released cleanly: the connection was closed`, one attribute `event=SPEND_LOCK_RELEASE_FAILED`. I left out `tenant_id`, `correlation_id` and every other id although PERD 44.2 lists them as log fields: the ruling says fixed text, and an id from a failed path is the thing A347 sweeps. If EL wants `correlation_id` on the line (an operator cannot tie the line to a request without it), that is a one-attribute change and a decision for EL.
+- **For EL's composition root (nothing builds a `Ledger` in `cmd/core` yet):** set `Ledger.Log` to the process logger wrapped by `platform/redaction.Handler` (PERD 44.2 mandatory redactor); nil logs nothing, so an unwired root loses the line silently. No new dependency (`log/slog` is the standard library and is what `record/reconstruct` already uses), no global, no reflection. The existing wiring notes stay: `NOEMA_DB_SERIALIZATION_ATTEMPTS=3` and `RollbackTimeout` (no default).
+- Three attempts stay unchanged (`SerializationAttempts` is the configured 3; no code change).
+- Tests (REQ-EXE-001, REQ-EXE-002, INV-03, INV-07, AGENT-13, AGENT-16), real PostgreSQL 16 and the real mock-case, nothing mocked: unlock refused (EXECUTE on `pg_advisory_unlock` revoked), unlock that finds nothing (a trigger runs `pg_advisory_unlock_all()` in the spend), panic with and without a failing unlock, caller context cancelled by a pgx tracer right after the commit is acknowledged (with a working unlock and with a failing one), spend that did not commit (non-40001 fault; 40001 on every attempt; a replay), a Ledger with no logger, e2e dispatch. RED commits `efce2b65` and `6d6eff32` (eight ledger tests and the e2e test fail on assertions), GREEN `3dadfcc6`.
+- **Test changed.** The subtest "the unlock itself fails" of `TestTheSpendLockIsReleasedOnEveryPath` accepted either answer (an error or none); it now requires the committed result and no error. Nothing else was weakened or deleted. One test of mine was corrected in the green commit (the next spend used a target whose dispatch budget was already spent; the 40001 subtest does not count the pool connection that the grant-status read after the lock keeps).
+- Pin, not red: `TestTheUnlockRunsOnAFreshContextWhenTheCallersContextIsCancelledAfterTheCommit` passed before the change (the unlock already used a fresh context); it kills the mutant that uses the caller's context.
+- Regression case: the tests above; the defect fixed in this session's scope is the changed answer on a failed unlock.
+- Debt entries: none. Conflicts raised: none.
+
+## Item 9 of the earlier session: what else in `execution/ledger` still returns identifiers or driver text (listed, not changed)
+`Load` (`ledger: grant %s does not exist for tenant %s`, and the driver's error with `%w`), `Void`, `Complete`, `Append`, the binder methods (`WritesEnabled` and the others) and `inTxOn` itself (`fmt.Errorf("%sbegin: %w")` and `commit: %w` wrap the driver's error and its text; `Spend` hides them behind `publicSpendError`, the other methods do not), `needDeadline`'s callers, and `chain.Appender`'s errors (it names the tenant and the driver). `inTx` of those methods also has no cleanup for a panic inside the callback (the connection of a transaction is then returned by pgx's own handling only when the pool sees it non-idle; not measured). Not changed here.
+
+## Pre-work for the next agent
+- Exact next step: C1 verifies and pushes; EL wires `Ledger.Log` in the composition root; EL decides whether the line carries `correlation_id`.
+- Files to read first: `execution/ledger/lock.go`, `unlockfail_test.go`, README "Release on every path".
+- Do not touch: `deploy/`, `.github/`.
+
+### 2026-11-19 sent/accepted · user → Core Engineer 1 (relayed refinement of A348)
+- Purpose: return the committed result on unlock failure; one fixed log line; close the connection; release in a defer on the same connection with a fresh bounded context.
+- Receiver used it for: lock.go, the tests above.
+- Evidence (PR or commit): local commits `efce2b65`, `6d6eff32`, `3dadfcc6` and the docs commit on `prep/r6-748`; not pushed.
