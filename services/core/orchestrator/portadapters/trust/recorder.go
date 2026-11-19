@@ -38,8 +38,12 @@ var (
 )
 
 // rollbackBound is how long a rollback may take once the request's own context has ended. The rollback runs on a context that keeps the request's values and not its
-// cancellation, so that a cancelled request still releases its transaction.
-const rollbackBound = 5 * time.Second
+// cancellation, so that a cancelled request still releases its transaction. commitBound is the same for the commit: once the adapter has decided to commit, the commit is
+// finished, not abandoned halfway by a cancellation that arrives in the window (that would leave the outcome unknown for no reason); it is still bounded.
+const (
+	rollbackBound = 5 * time.Second
+	commitBound   = 5 * time.Second
+)
 
 var (
 	recDecisionRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
@@ -109,7 +113,7 @@ var _ intake.Recorder = (*RecorderAdapter)(nil)
 
 // NewRecorderAdapter builds the adapter and its recorder.Writer. A missing port, key, clock, ID source, entropy or lifetime is ErrConfig.
 func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
-	if c.Begin == nil || c.Facts == nil || c.Keys == nil || c.Appender == nil || c.Clock == nil || c.IDs == nil || c.Entropy == nil || c.GrantLifetime <= 0 || c.RecordLifetime <= 0 {
+	if c.Begin == nil || c.Facts == nil || c.Keys == nil || c.Appender == nil || c.Clock == nil || c.IDs == nil || c.Entropy == nil || c.GrantLifetime <= 0 || c.RecordLifetime <= 0 || c.TxTimeout <= 0 {
 		return nil, ErrConfig
 	}
 	issuer, err := grants.NewIssuer(c.Keys, c.IDs, c.Entropy, c.GrantLifetime)
@@ -117,16 +121,19 @@ func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
 		return nil, fmt.Errorf("%w: %v", ErrConfig, err)
 	}
 	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime}
-	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w}, nil
+	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w, txTimeout: c.TxTimeout}, nil
 }
 
 // Record writes the decision and its grants in one transaction. The checks that need no database run first, so a refused request opens no transaction. If the context ends
 // while the transaction runs, the transaction is rolled back and the context's error is returned: nothing is written (the other choice, returning the stored ALLOW on a retry,
-// is what a failed commit leaves, see ErrCommit). A returned error other than ErrCommit means nothing was written. A context with no deadline is refused first (ErrNoDeadline).
+// is what a failed commit leaves, see ErrCommit). A returned error other than ErrCommit means nothing was written. A context with no deadline is refused first (ErrNoDeadline); the facts, Begin and the write run under the earlier of the caller's deadline and TxTimeout.
 func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (intake.RecordResult, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return intake.RecordResult{}, ErrNoDeadline
 	}
+	// The earlier of the caller's deadline and the adapter's own TxTimeout bounds the facts, Begin and the write.
+	ctx, cancel := context.WithTimeout(ctx, a.txTimeout)
+	defer cancel()
 	req, err := a.request(ctx, r)
 	if err != nil {
 		return intake.RecordResult{}, err
@@ -149,7 +156,9 @@ func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (i
 		rollback(ctx, tx)
 		return intake.RecordResult{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
+	cc, ccancel := context.WithTimeout(context.WithoutCancel(ctx), commitBound)
+	defer ccancel()
+	if err := tx.Commit(cc); err != nil {
 		rollback(ctx, tx)
 		return intake.RecordResult{}, fmt.Errorf("%w: %w", ErrCommit, err)
 	}

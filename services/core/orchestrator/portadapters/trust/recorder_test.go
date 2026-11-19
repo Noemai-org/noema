@@ -479,23 +479,26 @@ func TestACallersNearerDeadlineIsNeverExtended(t *testing.T) {
 }
 
 // The commit and the rollback end the transaction, so they run on a context that is not the request's: bounded, never later than their own bound, and not cancelled by the
-// request. The commit's bound is not the write's TxTimeout (a commit that has begun is finished, not abandoned halfway).
+// request. The commit's bound is its own, not the write's (a commit that has begun is finished, not abandoned halfway).
 func TestTheCommitRunsOnABoundedContextThatTheRequestDoesNotCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(recCtx(t))
 	defer cancel()
 	b, w := &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(1)}
+	var errAtCommit error
+	b.tx.onCommit = func() { // the request is cancelled while the commit runs; the commit's own context must not notice
+		cancel()
+		errAtCommit = b.tx.commitCtx.Err()
+	}
 	if _, err := recAdapter(t, b, newRecFacts(), w).Record(ctx, recRequest(t, 1)); err != nil {
 		t.Fatal(err)
 	}
-	cc := b.tx.commitCtx
-	d, ok := cc.Deadline()
+	d, ok := b.tx.commitCtx.Deadline()
 	wd, _ := w.ctxs[0].Deadline()
-	if cc == nil || !ok || !d.After(wd) {
-		t.Fatalf("commit context %v deadline %v present %v, want a deadline of its own, later than the write's %v", cc, d, ok, wd)
+	if !ok || d.Equal(wd) {
+		t.Errorf("commit deadline %v present %v, want one of its own, not the write's %v", d, ok, wd)
 	}
-	cancel()
-	if cc.Err() != nil {
-		t.Errorf("the commit context was cancelled with the request: %v", cc.Err())
+	if errAtCommit != nil {
+		t.Errorf("the commit context was cancelled with the request: %v", errAtCommit)
 	}
 }
 
