@@ -22,13 +22,21 @@ var smallOrderHex = []string{
 }
 
 // errSmallOrderTable is returned when the small-order table does not load. The package then refuses every key (fail closed) instead of panicking at start-up.
-var _ = hex.DecodeString // STUB (red commit)
-
 var errSmallOrderTable = errors.New("crypto: the small-order key table did not load")
 
 // loadSmallOrderY decodes the table. A constant that is not 32 bytes of hex refuses the whole table.
 func loadSmallOrderY(hexes []string) ([][32]byte, error) {
-	return nil, errSmallOrderTable // STUB (red commit): replaced in the next commit
+	out := make([][32]byte, 0, len(hexes))
+	for _, h := range hexes {
+		b, err := hex.DecodeString(h)
+		if err != nil || len(b) != 32 {
+			return nil, errSmallOrderTable
+		}
+		var y [32]byte
+		copy(y[:], b)
+		out = append(out, y)
+	}
+	return out, nil
 }
 
 var smallOrderY, smallOrderErr = loadSmallOrderY(smallOrderHex)

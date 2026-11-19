@@ -103,7 +103,7 @@ func run(env func(string) string, out, errw io.Writer, open opener, clk clock.Cl
 		line.Events += r.Checked
 	}
 	if err := writeJSON(out, line); err != nil && code == exitClean {
-		fmt.Fprintln(errw, "record-verify: the result could not be written")
+		_, _ = fmt.Fprintln(errw, "record-verify: the result could not be written")
 		return exitNotVerified
 	}
 	return code
@@ -119,14 +119,14 @@ func verifyRecord(env func(string) string, errw, out io.Writer, open opener, clk
 	o := jobOutcome{m: newMetrics()}
 	dsn := strings.TrimSpace(env(envDSN))
 	if dsn == "" {
-		fmt.Fprintf(errw, "record-verify: %s is not set\n", envDSN)
+		_, _ = fmt.Fprintf(errw, "record-verify: %s is not set\n", envDSN)
 		return o, exitNotVerified
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
 	defer cancel()
 	r, closeDB, err := open(ctx, dsn, newAlerts(out), o.m, clk)
 	if err != nil {
-		fmt.Fprintln(errw, openFailure(err))
+		_, _ = fmt.Fprintln(errw, openFailure(err))
 		return o, exitNotVerified
 	}
 	defer closeDB()
@@ -141,10 +141,10 @@ func verifyRecord(env func(string) string, errw, out io.Writer, open opener, clk
 	case o.breaks > 0:
 		return o, exitBreak
 	case err != nil:
-		fmt.Fprintln(errw, "record-verify: the verification did not complete"+sqlState(err))
+		_, _ = fmt.Fprintln(errw, "record-verify: the verification did not complete"+sqlState(err))
 		return o, exitNotVerified
 	case !rep.Clean():
-		fmt.Fprintln(errw, "record-verify: nothing was verified, or a tenant could not be read")
+		_, _ = fmt.Fprintln(errw, "record-verify: nothing was verified, or a tenant could not be read")
 		return o, exitNotVerified
 	}
 	return o, exitClean
