@@ -64,6 +64,7 @@ var Types = map[string]func() any{
 	"common.v1#VerdictId":                                   func() any { return new(CommonV1VerdictId) },
 	"common.v1#Vertical":                                    func() any { return new(CommonV1Vertical) },
 	"common.v1#WatchId":                                     func() any { return new(CommonV1WatchId) },
+	"confirmation-answer.v1":                                func() any { return new(ConfirmationAnswerV1) },
 	"confirmation-event.v1":                                 func() any { return new(ConfirmationEventV1) },
 	"confirmation-request.v1":                               func() any { return new(ConfirmationRequestV1) },
 	"context-snapshot.v1":                                   func() any { return new(ContextSnapshotV1) },

@@ -72,6 +72,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `decision-grant.v1.json` | §43.2 | §23 (REQ-TRU-008) | REQ-TRU-008, REQ-EXE-001 | Single use; binds principal, intent, capability, target, params, evidence set, plan step, versions |
 | `confirmation-request.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Bound to the exact action by `binding_hash` |
 | `confirmation-event.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Approver identity from authentication; `ACCEPT` or `DECLINE` |
+| `confirmation-answer.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009, INV-25, INV-12 | The approver's request body: `request_id` (`ConfirmationRequestId`) and `response` (`ConfirmationResponse`, `ACCEPT` or `DECLINE`), nothing else. No identity, role, channel or time member: they come from the session (SoT §43.2a). New; edits no existing contract |
 
 ## C-5 · Plan, Receipt, Verdict, recovery
 
