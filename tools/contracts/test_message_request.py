@@ -48,6 +48,15 @@ class MessageRequestShape(unittest.TestCase):
         self.assertFalse(refused({"request_id": UUID, "option_id": "opt_1", "clarification_id": "clr_01J9X5"}))
         self.assertFalse(refused({"request_id": UUID, "text": "hello"}))
 
+    def test_an_explicit_null_is_refused_in_every_optional_member(self):
+        # Not fixtures: the generated Pydantic models take null for an optional member (a generator property), so shape_refusals.json cannot list them.
+        # The schema and the Go type (Opt[T]) refuse it.
+        for member, value in (("text", None), ("option_id", None), ("clarification_id", None)):
+            with self.subTest(member):
+                doc = {"request_id": UUID, "text": "hello", "option_id": "opt_1", "clarification_id": "clr_01J9X5"}
+                doc[member] = value
+                self.assertTrue(refused(doc))
+
     def test_a_trailing_newline_is_not_an_id(self):
         self.assertTrue(refused({"request_id": UUID + "\n", "text": "hello"}))
         self.assertTrue(refused({"request_id": UUID, "option_id": "opt_1\n", "clarification_id": "clr_01J9X5"}))

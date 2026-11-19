@@ -1,17 +1,15 @@
 {
-  "clarification_id_null.json": "type",
   "clarification_id_only.json": "anyOf",
   "clarification_id_too_short.json": "pattern",
   "clarification_id_wrong_prefix.json": "pattern",
   "conversation_ref_in_body.json": "additionalProperties",
   "locale_hint_not_defined.json": "additionalProperties",
   "no_text_no_option.json": "anyOf",
-  "option_and_text_without_clarification.json": "dependentRequired",
+  "option_and_text_without_clarification.json": "required",
   "option_id_33_characters.json": "pattern",
   "option_id_empty.json": "pattern",
-  "option_id_null.json": "type",
   "option_id_upper_case.json": "pattern",
-  "option_without_clarification.json": "dependentRequired",
+  "option_without_clarification.json": "required",
   "principal_in_body.json": "additionalProperties",
   "request_id_missing.json": "required",
   "request_id_not_uuid.json": "pattern",
@@ -21,7 +19,6 @@
   "tenant_in_body.json": "additionalProperties",
   "text_2001_characters.json": "maxLength",
   "text_empty.json": "minLength",
-  "text_null.json": "type",
   "text_number.json": "type",
   "unknown_field.json": "additionalProperties"
 }

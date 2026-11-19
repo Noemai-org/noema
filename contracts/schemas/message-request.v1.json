@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/message-request.v1.json",
+  "title": "Message request",
+  "description": "PERD v1.23 section 39.2: the body of POST /v1/conversations/{conversation_ref}/messages, a follow-up in an open investigation (an answer to a clarification, or a new turn; REQ-INP-004). Exactly the four members the PERD lists, and no others: `request_id`, `text?`, `option_id?` and `clarification_id?`. The principal, the tenant, the session and the conversation come from the authenticated session and the path, never from this body (INV-12), so any other member is refused. Two rules join the members, both the strictest reading the PERD text supports (see the migration note in contracts/README.md): at least one of `text` and `option_id` is present, and an `option_id` is only meaningful with the `clarification_id` it answers. That the clarification is open, that the option is one of its options, and that the principal owns the conversation are checked by core against the stored clarification, not by this shape. `text` is the raw customer text, 1 to 2000 characters as in canonical-input.v2 (the Gateway normalises it).",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClientRequestId"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "option_id": {
+      "description": "The option the customer chose; the same pattern as clarification.v1 options.",
+      "type": "string",
+      "pattern": "^[a-z0-9_]{1,32}$"
+    },
+    "clarification_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ClarificationId"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "anyOf": [
+    {
+      "required": [
+        "text"
+      ]
+    },
+    {
+      "required": [
+        "option_id"
+      ]
+    }
+  ],
+  "if": {
+    "required": [
+      "option_id"
+    ]
+  },
+  "then": {
+    "required": [
+      "clarification_id"
+    ]
+  }
+}
