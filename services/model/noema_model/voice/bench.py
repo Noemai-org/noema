@@ -170,7 +170,17 @@ def measure_batch(results: Sequence[SessionResult], *, target_ms: int) -> Latenc
     """The 95th-percentile summary of the sessions against the caller's target; an incomplete session counts as the worst case."""
     if not results:
         raise ValueError("no sessions")
-    return summarise([result.timeline for result in results], target_ms=target_ms)
+    return summarise([_counted(result) for result in results], target_ms=target_ms)
+
+
+def _counted(result: SessionResult) -> StageTimeline:
+    """The timeline a session counts as. A session with a recorded failure is never complete, even if its timeline reached the last stage (a failure while the stream was closed after the first
+    audio): it counts as the worst case, like any other failed session, so a failure cannot improve the percentile (Codex P2 on #694)."""
+    if result.failure is None:
+        return result.timeline
+    lost = StageTimeline(lambda: 0)
+    lost.mark(Stage.END_OF_SPEECH)  # only the first stage: incomplete by construction
+    return lost
 
 
 __all__ = ("AudioBudget", "BenchError", "Core", "SessionResult", "SyntheticUtterance", "measure_batch", "measure_session")
