@@ -11,12 +11,12 @@ import (
 
 const tSetHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-// The composite policy versions (A341, interim): "ps:" and the SHA-256 hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, computed by an
+// The composite policy versions (A341, interim): "sha256:" and the SHA-256 hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, computed by an
 // independent Python implementation (see trust/decide policyset_test.go). SYNTHETIC policies.
 const (
-	tPolicySet     = "ps:50ca8c31e714463c1257e6e3f8b3f6c57fdb0c3fe471e8a2f015fa2b4f539ebb" // ["pol_synth01@3"]
-	tPolicySetTwo  = "ps:f81f4a1916c40274bfeb88b814e9b98bc36d43393b9cff1249f6b39c1fe364d1" // ["pol_synth01@3","pol_synth02@1"]
-	tPolicySetVers = "ps:52a779a7fd72828f57e07726d30090c0beacc19b4b76fc1f06573b45d1d0c5d7" // ["pol_synth01@2","pol_synth01@3"]
+	tPolicySet     = "sha256:50ca8c31e714463c1257e6e3f8b3f6c57fdb0c3fe471e8a2f015fa2b4f539ebb" // ["pol_synth01@3"]
+	tPolicySetTwo  = "sha256:f81f4a1916c40274bfeb88b814e9b98bc36d43393b9cff1249f6b39c1fe364d1" // ["pol_synth01@3","pol_synth02@1"]
+	tPolicySetVers = "sha256:52a779a7fd72828f57e07726d30090c0beacc19b4b76fc1f06573b45d1d0c5d7" // ["pol_synth01@2","pol_synth01@3"]
 )
 
 func given13() Confirmation {
@@ -56,7 +56,7 @@ func TestT13ThePolicyVersionIsTheSameWhenOnePolicyVersionIsListedTwice(t *testin
 	}
 }
 
-// A341 (interim), INV-25: the policy version of the binding is the composite of EVERY policy version that took part in T11 ("ps:" and the hash of the sorted, distinct list), whether
+// A341 (interim), INV-25: the policy version of the binding is the composite of EVERY policy version that took part in T11 ("sha256:" and the hash of the sorted, distinct list), whether
 // there is one, several policies or several versions of one policy; no policy, or one that cannot be bound, gives an empty value (decide.CompositePolicyVersion refuses it). The
 // answer does not depend on the order T11 listed them in. The status is NotRequired so that the test looks at what was passed only.
 func TestT13ThePolicyVersionIsTheCompositeOfEveryPolicyVersionOfT11(t *testing.T) {

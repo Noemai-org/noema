@@ -1,7 +1,7 @@
 package decide_test
 
 // TRU-07 (A341, interim; REQ-TRU-009, REQ-TRU-007, INV-25, INV-21; SoT 43.2a): the policy version a confirmation binds is the COMPOSITE of every policy version that took part in T11:
-// "ps:" and the lower-case SHA-256 hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings. The vectors were computed by an independent Python
+// "sha256:" and the lower-case SHA-256 hex (A367: the content-hash form, an exempt typed value of the payload guard, A184) of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings. The vectors were computed by an independent Python
 // implementation (json.dumps(sorted(set(list)), separators=(",", ":")) hashed with hashlib.sha256). All data is SYNTHETIC.
 
 import (
@@ -22,10 +22,10 @@ func refs(pairs ...string) []decide.PolicyVersionRef {
 }
 
 const (
-	vecOne    = "ps:50ca8c31e714463c1257e6e3f8b3f6c57fdb0c3fe471e8a2f015fa2b4f539ebb" // ["pol_synth01@3"]
-	vecTwo    = "ps:f81f4a1916c40274bfeb88b814e9b98bc36d43393b9cff1249f6b39c1fe364d1" // ["pol_synth01@3","pol_synth02@1"]
-	vecTwoVer = "ps:52a779a7fd72828f57e07726d30090c0beacc19b4b76fc1f06573b45d1d0c5d7" // ["pol_synth01@2","pol_synth01@3"]
-	vecDotted = "ps:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e" // ["fin.pol@3.1"]
+	vecOne    = "sha256:50ca8c31e714463c1257e6e3f8b3f6c57fdb0c3fe471e8a2f015fa2b4f539ebb" // ["pol_synth01@3"]
+	vecTwo    = "sha256:f81f4a1916c40274bfeb88b814e9b98bc36d43393b9cff1249f6b39c1fe364d1" // ["pol_synth01@3","pol_synth02@1"]
+	vecTwoVer = "sha256:52a779a7fd72828f57e07726d30090c0beacc19b4b76fc1f06573b45d1d0c5d7" // ["pol_synth01@2","pol_synth01@3"]
+	vecDotted = "sha256:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e" // ["fin.pol@3.1"]
 )
 
 // One policy version is still a composite: one rule, no special case.
@@ -51,7 +51,7 @@ func TestCompositePolicyVersionGoldenVectors(t *testing.T) {
 // The list is sorted as whole "policy_id@version" strings, in byte order, not by (id, version): "a.b@1" sorts before "a@1" because '.' (0x2e) is below '@' (0x40), while sorting by
 // the id alone would put "a" first. The vector was computed with the independent implementation.
 func TestCompositePolicyVersionSortsTheWholeStringsInByteOrder(t *testing.T) {
-	const want = "ps:130485d2518500b88d985d8c3ffb4e0d5d0f1ae2129c4fecf0c226428bcc984e"
+	const want = "sha256:130485d2518500b88d985d8c3ffb4e0d5d0f1ae2129c4fecf0c226428bcc984e"
 	a, err1 := decide.CompositePolicyVersion(refs("a", "1", "a.b", "1"))
 	b, err2 := decide.CompositePolicyVersion(refs("a.b", "1", "a", "1"))
 	if err1 != nil || err2 != nil || a != b {
@@ -62,15 +62,15 @@ func TestCompositePolicyVersionSortsTheWholeStringsInByteOrder(t *testing.T) {
 	}
 }
 
-// INV-25: any change to any policy version, or one more, is another composite; the form is "ps:" and 64 lower-case hex characters.
+// INV-25: any change to any policy version, or one more, is another composite; the form is "sha256:" and 64 lower-case hex characters (A367).
 func TestCompositePolicyVersionChangesWithAnyMemberAndHasItsForm(t *testing.T) {
 	base := refs("pol_synth01", "3", "pol_synth02", "1")
 	want, err := decide.CompositePolicyVersion(base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(want) != 3+64 || !strings.HasPrefix(want, "ps:") || strings.ToLower(want) != want {
-		t.Errorf("composite %q is not ps: and 64 lower-case hex", want)
+	if len(want) != 7+64 || !strings.HasPrefix(want, "sha256:") || strings.ToLower(want) != want {
+		t.Errorf("composite %q is not sha256: and 64 lower-case hex", want)
 	}
 	for name, other := range map[string][]decide.PolicyVersionRef{
 		"another version":        refs("pol_synth01", "4", "pol_synth02", "1"),

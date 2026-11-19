@@ -49,13 +49,13 @@ func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
 // through platform/clock, the one place that reads the system clock (lint [clock]).
 func realNow() time.Time { return clock.System{}.Now() }
 
-// policyVersion is the policy version a confirmation binds for evaluatedWith(t, _, "3.1") (A341, interim): the composite of every policy version of the basis, "ps:" and the SHA-256
+// policyVersion is the policy version a confirmation binds for evaluatedWith(t, _, "3.1") (A341, interim): the composite of every policy version of the basis, "sha256:" and the SHA-256
 // hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, here ["fin.pol@3.1"]. The literal was computed by an independent Python implementation, not by
 // the function under test. (The decision record and the grant still bind the single policy fin.pol@3.1.)
-const policyVersion = "ps:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e"
+const policyVersion = "sha256:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e"
 
 // policyVersionTwo is the composite for a basis of two policies, fin.pol@3.1 and fin.other@2.0: ["fin.other@2.0","fin.pol@3.1"] (independent Python).
-const policyVersionTwo = "ps:ec91c19602ebb2caf6db5ffb9113f0c26e54328be6d9c03c1c064485ac94a2cb"
+const policyVersionTwo = "sha256:ec91c19602ebb2caf6db5ffb9113f0c26e54328be6d9c03c1c064485ac94a2cb"
 
 // validBinding is the binding of the one step of allowWith, as the confirmation store computes it when it creates the request (SoT 43.2a, trust/confirm).
 func validBinding() confirm.BindingInput {
