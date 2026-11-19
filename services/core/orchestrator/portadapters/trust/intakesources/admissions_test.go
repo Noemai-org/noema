@@ -137,15 +137,15 @@ func TestAdmittedAtHidesTheDriversTextAndKeepsTheCause(t *testing.T) {
 }
 
 func TestAdmittedAtIsBoundedByTheConfiguredTimeout(t *testing.T) {
-	a, err := intakesources.NewAdmissions(loginFunc(func(string) (intakesources.Querier, error) { return blockingLogin{}, nil }), 50*time.Millisecond)
+	var seen time.Time
+	a, err := intakesources.NewAdmissions(loginFunc(func(string) (intakesources.Querier, error) { return blockingLogin{&seen}, nil }), 50*time.Millisecond)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	start := time.Now()
 	_, err = a.AdmittedAt(c, tenantA, "int_adm1", 1)
-	if !errors.Is(err, intakesources.ErrStore) || !errors.Is(err, context.DeadlineExceeded) || time.Since(start) > 10*time.Second {
-		t.Errorf("a read that hangs must end at the timeout: %v after %v", err, time.Since(start))
+	if !errors.Is(err, intakesources.ErrStore) || !errors.Is(err, context.DeadlineExceeded) || !boundedBy(c, seen) {
+		t.Errorf("a read that hangs must end at the timeout, inside the caller's deadline: %v", err)
 	}
 }

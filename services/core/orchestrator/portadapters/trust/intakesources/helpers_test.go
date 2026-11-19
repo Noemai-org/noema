@@ -110,11 +110,23 @@ type loginFunc func(tenantID string) (intakesources.Querier, error)
 
 func (f loginFunc) For(tenantID string) (intakesources.Querier, error) { return f(tenantID) }
 
-// blockingLogin answers a read only when its context is over, as a database that hangs does.
+// blockingLogin answers a read only when its context is over, as a database that hangs does, and keeps the deadline of the context it was given, so that a test can tell
+// the bound of the reader from the caller's own without reading a clock.
 type blockingRow struct{ ctx context.Context }
 
 func (r blockingRow) Scan(...any) error { <-r.ctx.Done(); return r.ctx.Err() }
 
-type blockingLogin struct{}
+type blockingLogin struct{ seen *time.Time }
 
-func (blockingLogin) QueryRow(c context.Context, _ string, _ ...any) pgx.Row { return blockingRow{c} }
+func (b blockingLogin) QueryRow(c context.Context, _ string, _ ...any) pgx.Row {
+	if d, ok := c.Deadline(); ok {
+		*b.seen = d
+	}
+	return blockingRow{c}
+}
+
+// boundedBy reports that the context the database was given ends well before the caller's own deadline: the reader's timeout is applied.
+func boundedBy(caller context.Context, seen time.Time) bool {
+	d, ok := caller.Deadline()
+	return ok && !seen.IsZero() && d.Sub(seen) > time.Second
+}
