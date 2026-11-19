@@ -59,6 +59,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `intent-object.v3.json` | §43.1 | §20.1 | REQ-INT-001, REQ-INP-002 | intent-object.v2 with `schema_version` major 3, slots from `intent-slot.v2` and `source.asr_confidence` as `BasisPoints` (ruling A166 (2), A173). v1 and v2 are not edited |
 | `clarification.v1.json` | §43.2 | §22.1 (REQ-AMB-004) | REQ-AMB-004, REQ-UI-002 | At most 4 options, no label with 5 or more consecutive digits, at most 2 rounds |
 | `clarification-answer.v1.json` | §43.2 | §22.1 (REQ-AMB-005) | REQ-AMB-005 | Base fields, `clarification_id` and `answers` (slot name to a typed slot value); only slots the clarification requested (DEC-2026-10-18) |
+| `message-request.v1.json` | §14, INV-12 | §39.2 (REQ-API-001, REQ-INP-003, REQ-AMB-005) | REQ-API-001, REQ-INP-001, REQ-INP-003, REQ-AMB-005, REQ-UI-002 | The body of a customer's message, first or follow-up: `request_id` (the client's UUID), `text` (1 to 2,000), `locale_hint`, `option_id` (the overlay card's shape; "None of these" is the core-minted `none_option_id`, ruling A275) and `clarification_id` (required with `option_id`); no identity member (INV-12); closed. Interim safer readings of what PERD 39.2 leaves open (text or option, not both; free text may answer) are in the schema description. New file, AGENT-15 migration note: additive |
 
 `common.v1.json` gains one ID type per PERD §32.3 prefix (`IntentId`, `DecisionId`, `GrantId`, and so on), `IntentRef`, `ResourceRef`, `Ratio` and `PositiveInt`, so C-4 to C-6 add no change to it.
 
@@ -71,6 +72,7 @@ M10 rows and where they are proven. Fixtures here cover the schema-level rows. T
 | `decision-grant.v1.json` | §43.2 | §23 (REQ-TRU-008) | REQ-TRU-008, REQ-EXE-001 | Single use; binds principal, intent, capability, target, params, evidence set, plan step, versions |
 | `confirmation-request.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Bound to the exact action by `binding_hash` |
 | `confirmation-event.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009 | Approver identity from authentication; `ACCEPT` or `DECLINE` |
+| `confirmation-answer.v1.json` | §43.2a | §23 (REQ-TRU-009) | REQ-TRU-009, INV-25, INV-12 | The approver's request body: `request_id` (`ConfirmationRequestId`) and `response` (`ConfirmationResponse`, `ACCEPT` or `DECLINE`), nothing else. No identity, role, channel or time member: they come from the session (SoT §43.2a). New; edits no existing contract |
 
 ## C-5 · Plan, Receipt, Verdict, recovery
 

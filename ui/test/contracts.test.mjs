@@ -154,9 +154,9 @@ for (const [surface, [build, root]] of Object.entries(SURFACES)) {
   });
 }
 
-// A258: the customer entry point holds the four public contracts and errors.v3 and nothing that leads to the operator contracts (they carry tenant_id, events and hashes).
+// A258: the customer entry point holds the public contracts (the four it reads, the one it sends, message-request.v1) and errors.v3 and nothing that leads to the operator contracts (they carry tenant_id, events and hashes).
 test("the customer entry point parses the public contracts only and imports no operator contract", () => {
-  assert.deepEqual(Object.keys(CUSTOMER_PARSERS).sort(), ["customer-answer.v1", "errors.v3", "investigation-response.v1", "overlay-card.v1", "sse-event.v1"]);
+  assert.deepEqual(Object.keys(CUSTOMER_PARSERS).sort(), ["customer-answer.v1", "errors.v3", "investigation-response.v1", "message-request.v1", "overlay-card.v1", "sse-event.v1"]);
   const dir = fileURLToPath(new URL("../build/js/contract_types/", import.meta.url));
   const seen = new Set();
   const todo = ["customer.js"];
