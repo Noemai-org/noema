@@ -20,6 +20,7 @@ if out="$(NOEMA_TENANTS='ten_aa x' NOEMA_ENV_FILE="$work/none" PROVISION_DRY_RUN
 if grep -nE 'PGPASSWORD|PGPASSFILE|--password|-W ' "$here/create-tenants.sh"; then echo "create-tenants.sh handles a password itself" >&2; exit 1; fi
 # Nothing but create-tenants.sh creates a tenant row outside the tests (tenant forces row-level security with no INSERT policy, migration 0030): a second creator would be a second path.
 root="$(cd "$here/../../.." && pwd)"
-found="$(cd "$root" && grep -rIliE 'insert[[:space:]]+into[[:space:]]+(public\.)?tenant([[:space:]]|\()' --exclude-dir=.git --exclude-dir=node_modules --exclude='*_test.go' --exclude='test_*.sh' --exclude='*.md' . | sort)"
+# find and xargs, not grep -r with --exclude options: the CI image's grep is a BusyBox one that has none of them.
+found="$(cd "$root" && find . \( -name .git -o -name node_modules \) -prune -o -type f ! -name '*_test.go' ! -name 'test_*.sh' ! -name '*.md' -print0 | xargs -0 grep -liE 'insert[[:space:]]+into[[:space:]]+(public\.)?tenant([[:space:]]|\()' | sort)"
 [ "$found" = "./deploy/compose/postgres/create-tenants.sh" ] || { echo "files that create a tenant row: '$found'" >&2; exit 1; }
 echo "provision env: ok"
