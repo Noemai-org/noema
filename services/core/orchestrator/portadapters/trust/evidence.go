@@ -58,7 +58,7 @@ type ItemFacts interface {
 var _ ItemFacts = (*reconciler.Reconciler)(nil)
 
 // Evidence implements intake.Evidence: the T9 read of the Trust intake. It reports the freshness and the fact status of the items of a sealed snapshot as the Decision Record
-// keeps them, from what was sealed and verified, never from a payload and never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004).
+// keeps them, from what was sealed and verified, never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004). The freshness and the status are the stored columns; the value the confirmation binds is the digest of the facts the mapping gives from the stored payloads (the facts source).
 type Evidence struct {
 	snapshots SnapshotReader
 	profiles  SourceProfiles
@@ -118,7 +118,7 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	if err := usable(rules); err != nil {
 		return intake.SnapshotEvidence{}, err
 	}
-	content, err := contentHash(ordered)
+	content, err := e.contentHash(ctx, tenantID, ordered)
 	if err != nil {
 		return intake.SnapshotEvidence{}, err
 	}
@@ -141,17 +141,35 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	return out, nil
 }
 
-// contentHash is the evidence value the confirmation binds (A365): the content hash of the items' (source, source record ID, payload hash), which a re-read of unchanged evidence
-// under new evidence IDs leaves as it was. The set hash the snapshot stores (over the evidence IDs) is verified by intact and is not what is given. An item that cannot be bound by
-// its content (no source record ID) makes the snapshot unusable as evidence.
-func contentHash(items []SealedItem) (string, error) {
+// contentHash is the evidence value the confirmation binds (A365 refined): the content hash of the items' (source, source record ID, facts digest), where an item's facts digest is the
+// digest of its MAPPED, NORMALIZED facts, which the facts source (the Reconciler) reads from the stored payload and maps with the evidence mapping the Reconciler classifies with. A re-read
+// of unchanged facts gives the same value under new evidence IDs and whatever differs in the raw payload (a volatile or unmapped field); a changed mapped fact gives another. The set
+// hash the snapshot stores (over the evidence IDs) is verified by intact and is not what is given.
+//
+// Fail closed (INV-19, REQ-NFR-002): an item with no source record ID, whose payload cannot be read or is not the sealed one, that the mapping cannot use, or whose facts cannot be
+// digested makes the snapshot unusable as evidence. The cause stays reachable behind the fixed text. No payload is read before every item has a record ID.
+func (e Evidence) contentHash(ctx context.Context, tenantID string, items []SealedItem) (string, error) {
+	for _, it := range items {
+		if it.SourceRecordID == "" {
+			return "", notIntact()
+		}
+	}
 	in := make([]snapshot.ContentItem, len(items))
 	for i, it := range items {
-		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: it.PayloadHash}
+		facts, err := e.facts.Facts(ctx, tenantID, layer.Item{EvidenceID: it.EvidenceID, PayloadRef: it.PayloadRef, PayloadHash: it.PayloadHash, Status: contracts.EnumsV1FactStatus(it.Status),
+			Source: it.Source, ReadAt: it.ReadAt, EffectiveAt: it.EffectiveAt})
+		if err != nil {
+			return "", wrapped(ErrSnapshotNotIntact, err)
+		}
+		digest, err := snapshot.FactsDigest(facts)
+		if err != nil {
+			return "", wrapped(ErrSnapshotNotIntact, err)
+		}
+		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: digest}
 	}
 	h, err := snapshot.ContentHash(in)
 	if err != nil {
-		return "", notIntact()
+		return "", wrapped(ErrSnapshotNotIntact, err)
 	}
 	return h, nil
 }

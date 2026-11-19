@@ -10,15 +10,15 @@ import (
 )
 
 // What the Evidence adapter (A329) reads about one sealed snapshot, and the reader that reads it as the tenant's own Trust login (trust_rw). The sealed snapshot is
-// context_snapshot (migration 0020), its items are evidence_item (0008) and the intent is the latest admitted_intent of the snapshot's correlation (0026). Nothing is read
-// from evidence_payload: the decision needs the item's own columns and never its body.
+// context_snapshot (migration 0020), its items are evidence_item (0008) and the intent is the latest admitted_intent of the snapshot's correlation (0026). This reader reads
+// nothing from evidence_payload: the facts of an item are read by the facts source (ItemFacts), as the tenant's own Trust login, and verified against the item's payload hash.
 
 // SealedItem is one evidence item of a sealed snapshot as the database holds it. Status is the stored text, checked against the contract's enum by the adapter.
 type SealedItem struct {
 	EvidenceID    string
 	CorrelationID string
 	Source        string
-	// SourceRecordID is the record of the source the item was read from (`source_record_id`, required by the evidence item contract): with the source and the payload hash it is the
+	// SourceRecordID is the record of the source the item was read from (`source_record_id`, required by the evidence item contract): with the source and the digest of the item's mapped facts it is the
 	// item's content, the part of it that does not depend on the evidence ID minted for the read (A365).
 	SourceRecordID string
 	// PayloadRef is the reference of the item's stored payload (`payload_ref`), which the facts source reads as the tenant and verifies against PayloadHash (A365 refined).
