@@ -57,6 +57,18 @@ test("REQ-UI-003 POC-FR-17: reconstruction sections and masked explanation are p
   assert.deepEqual(scanVisibleText(html), []);
 });
 
+test("REQ-UI-003: operator sees supplied decision, grant, execution and outcome without raw references", async () => {
+  const value = await load("full_write_case");
+  const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+  assert.match(html, /Decision: Allowed/);
+  assert.match(html, /Execution: Acknowledged/);
+  assert.match(html, /Grant: Valid/);
+  assert.match(html, /Verdict: Achieved/);
+  assert.match(html, /Candidates: 1/);
+  assert.ok(!html.includes(value.sections.find((section) => section.kind === "RESOLUTION").items[0].facts.resolved_target));
+  assert.deepEqual(scanVisibleText(html), []);
+});
+
 test("REQ-UI-003: unsafe explanation digits cause refusal before rendering", async () => {
   const value = await load("full_write_case");
   value.sections.find((section) => section.kind === "EXPLANATION").items[0].facts.text = "Account 12345";
