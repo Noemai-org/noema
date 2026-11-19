@@ -52,6 +52,8 @@ class ScreenRefusingModel(ScriptedModel):
                 raise ProviderError(ProviderFailure.TIMEOUT)
             if self.mode == "not_json":
                 return ProviderResponse("this is not json", self.version, 50, 10, FinishReason.COMPLETE)
+            if self.mode == "crash":
+                raise RuntimeError("a defect in the model client, not a refusal")
             if self.mode == "no_answers":
                 return ProviderResponse('{"answers": []}', self.version, 50, 10, FinishReason.COMPLETE)
             raise AssertionError(self.mode)
@@ -132,3 +134,11 @@ def test_a_screen_that_ran_and_found_nothing_still_proposes() -> None:
     result = run(run_pipeline(make_input(), CONFIG, harness, FakeSource((candidate("a"),)), normaliser, no_errors))
     assert result.outcome is Outcome.PROPOSED and result.injection_signals == {"utterance": False, "candidate:a": False}
     assert result.resolution is not None and result.resolution.state is ResolutionState.AUTO_RESOLVED
+
+
+@pytest.mark.parametrize("only", [None, HOSTILE_CANDIDATE])
+def test_a_defect_in_the_screen_is_raised_and_never_taken_for_a_quiet_screen(only: str | None) -> None:
+    """A bug is not a refusal and not a clean answer: it surfaces to the caller, as every other step's defect does."""
+    harness, _ = harness_for(refusing("crash", only_containing=only))
+    with pytest.raises(RuntimeError):
+        run(run_pipeline(make_input(), CONFIG, harness, FakeSource((candidate("a", HOSTILE_CANDIDATE),)), normaliser, no_errors))
