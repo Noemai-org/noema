@@ -25,6 +25,12 @@ on:
         options: [openai]
         required: true
         default: openai
+      harness:
+        description: "The frozen harness configuration to run (A360): the model, its rate card and its token ceiling are that file's (benchmark/decisions/harness-<name>.json)"
+        type: choice
+        options: [gpt-6-luna, gpt-6.1-terra]
+        required: true
+        default: gpt-6-luna
       pack_ref:
         description: "Pack reference of the compile route, name@x.y.z"
         type: string
@@ -68,6 +74,7 @@ jobs:
         env:
           PROVIDER: ${{ inputs.provider }}
           PACK_REF: ${{ inputs.pack_ref }}
+          HARNESS: ${{ inputs.harness }}
           PRIOR: ${{ inputs.prior_spent_micros }}
           HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
           GIVEN_RUN_ID: ${{ inputs.run_id }}
@@ -80,13 +87,14 @@ jobs:
           [[ "$run_id" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || { echo "run_id must match ^[A-Za-z0-9_.-]{1,64}$"; exit 2; }
           [[ "$PACK_REF" =~ ^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "pack_ref must look like fin@1.0.0"; exit 2; }
           case "$PROVIDER" in openai) ;; *) echo "provider must be openai"; exit 2;; esac
+          case "$HARNESS" in gpt-6-luna|gpt-6.1-terra) ;; *) echo "harness must be gpt-6-luna or gpt-6.1-terra"; exit 2;; esac
           case "$PRIOR" in ''|*[!0-9]*) echo "prior_spent_micros must be a non-negative integer"; exit 2;; esac
           [ "$PRIOR" -ge 326693 ] || { echo "prior_spent_micros must be at least 326693 (already spent, noema#338): a run may not start with an unknown spend"; exit 2; }
           case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) echo "hard_stop_usd must be a whole number from 1 to 5"; exit 2;; esac
           mkdir -p out
           # A dry run calls no provider, so the runner exits 3 (NOT RUN, A285). Here that is "dry run complete"; any other code, including 0, fails the job, so the paid job never starts without a cost.
           code=0
-          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt || code=${PIPESTATUS[0]}
+          /tmp/venv/bin/python -m benchmark.compile_acceptance --dry-run --pack-ref "$PACK_REF" --provider "$PROVIDER" --harness-config "benchmark/decisions/harness-$HARNESS.json" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/dry-run --run-id "$run_id" | tee out/dry-run.txt || code=${PIPESTATUS[0]}
           [ "$code" -eq 3 ] || { echo "the dry run must exit 3 (NOT RUN); it exited $code"; exit 1; }
           { echo "## bench-live-compile dry run (no provider call, no secret)"; echo; echo '```'; cat out/dry-run.txt; echo '```'; echo; echo "Approve the \`run\` job only if this cost is inside the Founders' ceiling."; } >> "$GITHUB_STEP_SUMMARY"
   run:
@@ -112,6 +120,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           PROVIDER: ${{ inputs.provider }}
           PACK_REF: ${{ inputs.pack_ref }}
+          HARNESS: ${{ inputs.harness }}
           PRIOR: ${{ inputs.prior_spent_micros }}
           HARD_STOP_USD: ${{ inputs.hard_stop_usd }}
           GIVEN_RUN_ID: ${{ inputs.run_id }}
@@ -125,13 +134,14 @@ jobs:
           [[ "$run_id" =~ ^[A-Za-z0-9_.-]{1,64}$ ]] || valid=0
           [[ "$PACK_REF" =~ ^[a-z][a-z0-9_]*@[0-9]+\.[0-9]+\.[0-9]+$ ]] || valid=0
           [ "$PROVIDER" = openai ] || valid=0
+          case "$HARNESS" in gpt-6-luna|gpt-6.1-terra) ;; *) valid=0 ;; esac
           case "$PRIOR" in ''|*[!0-9]*) valid=0 ;; *) [ "${#PRIOR}" -le 15 ] && [ "$PRIOR" -ge 326693 ] || valid=0 ;; esac
           case "$HARD_STOP_USD" in 1|2|3|4|5) ;; *) valid=0 ;; esac
           code=2
           if [ "$valid" = 1 ]; then
             mkdir -p out
             set +e
-            /tmp/venv/bin/python -m benchmark.compile_acceptance --pack-ref "$PACK_REF" --provider "$PROVIDER" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
+            /tmp/venv/bin/python -m benchmark.compile_acceptance --pack-ref "$PACK_REF" --provider "$PROVIDER" --harness-config "benchmark/decisions/harness-$HARNESS.json" --hard-stop-usd "$HARD_STOP_USD" --prior-spent-micros "$PRIOR" --out out/compile-acceptance --run-id "$run_id"
             code=$?
             set -e
           else

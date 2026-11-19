@@ -59,6 +59,20 @@ class CompileWorkflow(unittest.TestCase):
             self.assertIn(fragment, self.code, fragment)
         self.assertNotRegex(self.code, r"hard_stop_usd\s*\*|HARD_STOP_USD \* ")  # the runner takes whole dollars; no arithmetic that could widen it here
 
+    def test_the_harness_input_selects_only_a_frozen_configuration_file(self) -> None:
+        # A360: the frozen harness configuration of each model is selectable, and nothing else. The value is a choice, is validated on the whole string, and names the file the runner reads.
+        inp = re.search(r"(?ms)^      harness:\n(.*?)(?=^      \w+:\n|^permissions:)", self.text)
+        assert inp, "no harness input"
+        options = re.search(r"options: \[(.*?)\]", inp.group(1))
+        assert options
+        names = [x.strip() for x in options.group(1).split(",")]
+        self.assertEqual(names, ["gpt-6-luna", "gpt-6.1-terra"])
+        self.assertIn("default: gpt-6-luna", inp.group(1))
+        for name in names:
+            self.assertTrue((Path(__file__).resolve().parents[2] / "benchmark" / "decisions" / f"harness-{name}.json").is_file(), name)
+        self.assertEqual(len(re.findall(r"HARNESS: \$\{\{ inputs\.harness \}\}", self.text)), 2)
+        self.assertEqual(len(re.findall(r'--harness-config "benchmark/decisions/harness-\$HARNESS\.json"', self.text)), 2)
+
     def test_the_leak_scan_comes_before_the_upload_and_gates_it(self) -> None:
         self.assertLess(self.code.index("tools/ci/leakscan.py"), self.code.index("actions/upload-artifact"))
         self.assertIn("steps.scan.outputs.scan == '0'", self.code)
@@ -114,7 +128,7 @@ class CompileWorkflow(unittest.TestCase):
         self.assertEqual(len(checkouts), len(re.findall(r"uses: actions/checkout@", self.code)))
         self.assertEqual(len(checkouts), 2)
 
-    GOOD = {"PROVIDER": "openai", "PACK_REF": "fin@1.0.0", "PRIOR": "326693", "HARD_STOP_USD": "5", "GIVEN_RUN_ID": "", "GITHUB_RUN": "42"}
+    GOOD = {"PROVIDER": "openai", "PACK_REF": "fin@1.0.0", "PRIOR": "326693", "HARD_STOP_USD": "5", "GIVEN_RUN_ID": "", "GITHUB_RUN": "42", "HARNESS": "gpt-6-luna"}
 
     def validation(self, job: str, stop: str) -> str:
         """The workflow's own input checks: the step's script from its first line up to the line that starts the call (`stop`), so the tests run the real text, not a copy."""
@@ -137,8 +151,10 @@ class CompileWorkflow(unittest.TestCase):
         bad = [{"GIVEN_RUN_ID": v} for v in ("ok\nINJECT=1", "ok\n", "\nok", "a b", "a;b", "x/y", "a" * 65)]
         bad += [{"PACK_REF": v} for v in ("fin@1.0.0\nx", "fin@1.0.0\n", "Fin@1.0.0", "fin@1.0", "fin@1.0.0 ")]
         bad += [{"PRIOR": v} for v in ("326693\nx", "326692", "", "-1", "1e6")] + [{"HARD_STOP_USD": v} for v in ("5\nx", "6", "0", "", "05")] + [{"PROVIDER": v} for v in ("openai\nx", "gemini")]
+        bad += [{"HARNESS": v} for v in ("gpt-6-luna\nx", "gpt-6.1-terra\n", "../x", "gpt-6-terra", "", "GPT-6-LUNA")]
         for env in bad:
             self.assertEqual(self.run_bash(script, **env).returncode, 2, env)
+        self.assertEqual(self.run_bash(script, HARNESS="gpt-6.1-terra").returncode, 0)  # A360: the second frozen harness configuration can be selected
 
     @unittest.skipIf(shutil.which("bash") is None, "bash is needed to run the workflow's validation text")
     def test_the_run_job_checks_the_same_way_and_never_writes_a_bad_run_id_to_the_output(self) -> None:
@@ -147,7 +163,8 @@ class CompileWorkflow(unittest.TestCase):
         self.assertEqual((good.returncode, good.stdout.split()), (0, ["VALID", "run_id=compile-gh42"]), good.stderr)
         bad = [{"GIVEN_RUN_ID": v} for v in ("ok\nINJECT=1", "ok\n", "a b", "a" * 65)]
         bad += [{"PACK_REF": v} for v in ("fin@1.0.0\nx", "fin@1.0")] + [{"PRIOR": v} for v in ("326693\nx", "326692", "", "1" * 16)] + [{"HARD_STOP_USD": v} for v in ("5\nx", "6", "")]
-        bad += [{"PROVIDER": v} for v in ("openai\nx", "gemini")]
+        bad += [{"PROVIDER": v} for v in ("openai\nx", "gemini")] + [{"HARNESS": v} for v in ("gpt-6-luna\nx", "../x", "")]
+        self.assertEqual(self.run_bash(script, HARNESS="gpt-6.1-terra").stdout.split(), ["VALID", "run_id=compile-gh42"])
         for env in bad:
             r = self.run_bash(script, **env)
             self.assertEqual(r.stdout.split(), ["run_id=invalid"], (env, r.stdout, r.stderr))

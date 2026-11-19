@@ -65,3 +65,8 @@ Items 1 to 7 are what the response should settle for the adapters (ruling A10: t
 - Purpose: prepare the Tushe response items for 11 Nov, including the REVERSAL_PENDING question and the account-state request; pre-build ENV-07 and ENV-12 against the stand-in.
 - Used it for: this file. The "account-state request" is read as in item 4 and needs confirmation. The stand-in pre-build is the readiness matrix, not a runner (the routes are unknown).
 - Evidence: this pull request.
+# Session 2026-11-19 · ENV-12 · bench-live-compile selects a harness configuration (A360, IL)
+- Finding: the workflow had no way to select `harness-gpt-6.1-terra.json`: the runner has `--harness-config` (default luna) but the workflow never passed it.
+- Added the `harness` input (a choice of `gpt-6-luna` or `gpt-6.1-terra`, default luna, so the old behaviour is unchanged), validated on the whole string in both jobs, mapped to `benchmark/decisions/harness-<name>.json` and passed to the runner in both jobs. The key stays `OPENAI_API_KEY` in the one step (both files name it). No rate, token ceiling or cap changed: they are the frozen files' and the Architect's.
+- Tests first (red): the input is exactly the two names with the default, each names an existing file, both jobs pass it, and bad values (newline, path, unknown, empty) exit 2 / never reach the call.
+- Not verified: a live run on terra (needs the Founder's dispatch; the dry run prints its cost first).
