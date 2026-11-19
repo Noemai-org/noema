@@ -15,7 +15,7 @@ type lateSpy struct {
 	allow bool
 }
 
-func (l *lateSpy) Status(context.Context, intake.AdmittedIntent) (intake.Confirmation, error) {
+func (l *lateSpy) Status(context.Context, intake.AdmittedIntent, intake.FreshBinding) (intake.Confirmation, error) {
 	l.calls = append(l.calls, "Confirmations.Status")
 	return intake.Confirmation{Status: intake.ConfirmationNotRequired}, nil
 }
@@ -39,4 +39,9 @@ func (l *lateSpy) Record(context.Context, intake.RecordRequest) (intake.RecordRe
 func (l *lateSpy) Count(context.Context, intake.DispatchKey) (intake.DispatchCount, error) {
 	l.calls = append(l.calls, "Dispatches.Count")
 	return intake.DispatchCount{Used: 0, Limit: 1}, nil
+}
+
+func (l *lateSpy) RequestConfirmation(context.Context, intake.ConfirmationRequest) (string, error) {
+	l.calls = append(l.calls, "Recorder.RequestConfirmation")
+	return "cfr_synth0001", nil
 }

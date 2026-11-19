@@ -3,6 +3,7 @@ package intake
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -14,30 +15,55 @@ var ErrPlanInvalid = errors.New("intake: the plan is invalid")
 // ConfirmationStatus is what the confirmation store says about one request (T13). The zero value is not a status: it ends the evaluation in UNKNOWN.
 type ConfirmationStatus int
 
-// The three statuses.
+// The four statuses. The values 1 to 3 are fixed; ConfirmationDeclined was added after them.
 const (
 	// ConfirmationNotRequired: the trust profile asks for no approver confirmation for this request.
 	ConfirmationNotRequired ConfirmationStatus = iota + 1
-	// ConfirmationPending: the profile asks for one and there is no valid resolved confirmation (none yet, declined, expired, not eligible, or its binding changed).
+	// ConfirmationPending: the profile asks for one and there is no valid resolved confirmation: none yet, or the one there is has expired, is not eligible, or its binding
+	// changed. A decline is not Pending: it is ConfirmationDeclined.
 	ConfirmationPending
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
-	// ConfirmationDeclined: the approver declined the open request (SoT 43.2a): T13 ends in REJECT DECLINED_BY_APPROVER and opens no new request.
+	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
+	// evaluation in UNKNOWN. A later change turns it into a REJECT.
 	ConfirmationDeclined
 )
 
+// FreshBinding is the two values of the confirmation binding (confirm.BindingInput, SoT 43.2a) that only the fresh evaluation knows: the hash of the sealed evidence set it
+// read at T9 and the policy it was decided under at T11. The adapter recomputes the binding of a Given answer from the other six values of the stored request and these two,
+// so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when
+// either value is empty. Trust passes what it knows and fails nothing on an empty value in this version.
+type FreshBinding struct {
+	// EvidenceSetHash is the evidence_set_hash of the sealed snapshot T9 read, in the contract's Hash form; empty when the Evidence port did not give it.
+	EvidenceSetHash string
+	// PolicyVersion is the policy_id@version of the one policy that took part in T11; empty when none or more than one distinct policy version took part.
+	PolicyVersion string
+}
+
+// RequestSpec says how to create the confirmation request T13 asks for. Requirement is the approver requirement of the contract: SELF, MAKER_CHECKER or ROLE:<role>. TTL is the
+// request's lifetime, taken from the pack or the configuration and never chosen in Trust (AGENT-16). The requester is not in the spec: Trust takes it from the admitted
+// intent's PrincipalID, which comes only from the authenticated session (INV-12).
+type RequestSpec struct {
+	Requirement string
+	TTL         time.Duration
+}
+
 // Confirmation is the answer of Confirmations.Status. EventID names the confirmation event a Given answer rests on; the grant of the ALLOW follows it.
 type Confirmation struct {
-	Status  ConfirmationStatus
-	EventID string
-	// RequestID names the open confirmation request a Pending answer rests on (TRU-12); the CONFIRM decision exposes it to the caller through Result.ConfirmationRequestID.
+	Status   ConfirmationStatus
+	EventID  string
+	PlanHash string // a Given answer: the plan hash the confirmation was given for (A230); the intake compares it with the plan T14 builds and the writer with the steps
+	// RequestID is the confirmation request the answer rests on. Pending: the open, unexpired request, if one exists. Given and Declined: the request that was answered.
 	RequestID string
-	PlanHash  string // a Given answer: the plan hash the confirmation was given for (A230); the intake compares it with the plan T14 builds and the writer with the steps
+	// NewRequest is set only on Pending. Non-nil means no open request exists and Trust must create one from the spec; nil with a RequestID means one is already open and no
+	// second request is made.
+	NewRequest *RequestSpec
 }
 
 // Confirmations answers T13. The adapter hides the confirmation store and applies trust/confirm (Resolve, BindingHash): the intake asks one question and takes one answer.
+// f is what the fresh evaluation knows about the binding; the adapter adds the other six values from the stored request.
 type Confirmations interface {
-	Status(ctx context.Context, a AdmittedIntent) (Confirmation, error)
+	Status(ctx context.Context, a AdmittedIntent, f FreshBinding) (Confirmation, error)
 }
 
 // PlanRequest is what Trust asks the Planner for. WriteRequired is what T3 learned: a read has no write step.
@@ -107,6 +133,23 @@ type RecordResult struct {
 // and the Decision Record, the grants and their events appear together or not at all (PERD 32.4, EC-E16). A returned error means nothing was written.
 type Recorder interface {
 	Record(ctx context.Context, r RecordRequest) (RecordResult, error)
+	// RequestConfirmation creates the confirmation request that a Pending answer with a NewRequest asks for, and returns its id. Status is pure (it writes nothing): the Recorder
+	// persists the request together with its CONFIRMATION_REQUESTED event, so the Record comes first (PERD 32.4). A returned error means nothing was written.
+	RequestConfirmation(ctx context.Context, r ConfirmationRequest) (string, error)
+}
+
+// ConfirmationRequest is what T13 hands to the Recorder to create a confirmation request. RequesterID is the admitted intent's PrincipalID, which comes only from the
+// authenticated session (INV-12); Requirement and TTL are the answer's RequestSpec, never chosen in Trust (AGENT-16); Binding is the fresh evaluation's two binding values.
+type ConfirmationRequest struct {
+	TenantID      string
+	CorrelationID string
+	RequesterID   string
+	IntentID      string
+	IntentVersion int
+	IntentHash    string
+	Requirement   string
+	TTL           time.Duration
+	Binding       FreshBinding
 }
 
 // DispatchKey names one logical write for the dispatch budget: the same four values the ledger counts a key's dispatches by (ruling A153).

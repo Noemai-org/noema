@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -39,8 +38,6 @@ var ErrNoDeadline = errors.New("intake: the context needs a deadline")
 // ErrConfig is returned when the service is missing a port, the clock or the pack version: an error, never a decision.
 var ErrConfig = errors.New("intake: the service is not configured")
 
-var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<version>[1-9][0-9]{0,8})\z`)
-
 func (s *Service) configured() error {
 	p := s.Ports
 	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || p.Confirmations == nil || p.Planner == nil || p.Recorder == nil || p.Dispatches == nil || s.Clock == nil || s.PackVersion == "" {
@@ -58,19 +55,15 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return Result{}, ErrNoDeadline
 	}
-	m := intentRefRe.FindStringSubmatch(r.IntentRef)
-	if m == nil {
+	intentID, version, perr := contracts.ParseIntentRef(r.IntentRef)
+	if perr != nil {
 		d, err := decide.FailAtGate(decide.T1AdmittedIntent, 0)
 		if err != nil {
 			return Result{}, fmt.Errorf("intake: %w", err)
 		}
 		return Result{Decision: d, Trace: []decide.TraceEntry{{Step: decide.T1AdmittedIntent, Result: decide.StepTerminal}}}, nil
 	}
-	version, err := strconv.Atoi(m[intentRefRe.SubexpIndex("version")])
-	if err != nil {
-		return Result{}, fmt.Errorf("intake: the intent version: %w", err)
-	}
-	ev, err := s.newEvaluation(r, "int_"+m[intentRefRe.SubexpIndex("id")], version)
+	ev, err := s.newEvaluation(r, intentID, version)
 	if err != nil {
 		return Result{}, err
 	}

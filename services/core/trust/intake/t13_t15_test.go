@@ -29,22 +29,26 @@ const (
 var errInjected = errors.New("injected fault")
 
 type f13 struct {
-	calls   []string
-	conf    Confirmation
-	confErr error
-	plan    Plan
-	planErr error
-	planReq []PlanRequest
-	rec     RecordResult
-	recErr  error
-	recReqs []RecordRequest
-	failAt  string
-	panicAt string
-	hasDL   []bool                // whether the context of each call had a deadline
-	caps    map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
-	capErr  error
-	checked []string
-	roles   []string // the role each Check was asked about (A255)
+	calls    []string
+	conf     Confirmation
+	confErr  error
+	bindings []FreshBinding // what T13 passed to Confirmations.Status
+	plan     Plan
+	planErr  error
+	planReq  []PlanRequest
+	rec      RecordResult
+	recErr   error
+	reqs     []ConfirmationRequest // what T13 handed to Recorder.RequestConfirmation (TRU-12)
+	reqID    string
+	reqErr   error
+	recReqs  []RecordRequest
+	failAt   string
+	panicAt  string
+	hasDL    []bool                // whether the context of each call had a deadline
+	caps     map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
+	capErr   error
+	checked  []string
+	roles    []string // the role each Check was asked about (A255)
 	// the authorized set (Codex P1 on noema#572): nil means every capability the registry above knows
 	authorized []string
 	authErr    error
@@ -73,7 +77,8 @@ func (f *f13) hit(ctx context.Context, name string) error {
 	return nil
 }
 
-func (f *f13) Status(ctx context.Context, _ AdmittedIntent) (Confirmation, error) {
+func (f *f13) Status(ctx context.Context, _ AdmittedIntent, b FreshBinding) (Confirmation, error) {
+	f.bindings = append(f.bindings, b)
 	return f.conf, firstErr(f.hit(ctx, "Confirmations.Status"), f.confErr)
 }
 
@@ -117,6 +122,18 @@ func (f *f13) Plan(ctx context.Context, r PlanRequest) (Plan, error) {
 func (f *f13) Record(ctx context.Context, r RecordRequest) (RecordResult, error) {
 	f.recReqs = append(f.recReqs, r)
 	return f.rec, firstErr(f.hit(ctx, "Recorder.Record"), f.recErr)
+}
+
+func (f *f13) RequestConfirmation(ctx context.Context, r ConfirmationRequest) (string, error) {
+	f.reqs = append(f.reqs, r)
+	id := f.reqID
+	if id == "" {
+		id = "cfr_synth0009"
+	}
+	if err := firstErr(f.hit(ctx, "Recorder.RequestConfirmation"), f.reqErr); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func firstErr(errs ...error) error {
@@ -330,7 +347,7 @@ func TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown(t *testing.T) 
 	}
 }
 
-// A status that is not one of the three, and a Given with no event, are not answers: UNKNOWN, never a continue.
+// A status that is not one of the four, and a Given with no event, are not answers: UNKNOWN, never a continue.
 func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -879,5 +896,118 @@ func TestT13DeclinedIsRejectDeclinedByApproverAndRecordsNothing(t *testing.T) {
 	}
 	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
 		t.Errorf("planner or recorder called after a decline: %v", f.calls)
+	}
+}
+
+// ---- TRU-12: a Pending answer with a NewRequest hands the spec to the Recorder (SoT 43.2a; Status is pure, #757) ----
+
+func pendingNew(spec RequestSpec) Confirmation {
+	return Confirmation{Status: ConfirmationPending, NewRequest: &spec}
+}
+
+// REQ-TRU-009, INV-12, INV-25, AGENT-16: no open request exists, so Trust asks the Recorder to create one from the spec, for the session's principal, with the fresh binding; the
+// CONFIRM result carries the id the Recorder returned. Nothing is planned or recorded as a decision.
+func TestT13PendingWithANewRequestAsksTheRecorderAndExposesTheNewID(t *testing.T) {
+	f := newFake13()
+	f.conf = pendingNew(RequestSpec{Requirement: "SELF", TTL: 15 * time.Minute})
+	f.reqID = "cfr_synth0042"
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Confirm {
+		t.Fatalf("outcome %s %v, want CONFIRM", res.Decision.Outcome(), codes13(res.Decision))
+	}
+	if res.ConfirmationRequestID != "cfr_synth0042" {
+		t.Errorf("ConfirmationRequestID %q, want the id the Recorder returned", res.ConfirmationRequestID)
+	}
+	if len(f.reqs) != 1 {
+		t.Fatalf("RequestConfirmation called %d times, want 1", len(f.reqs))
+	}
+	r := f.reqs[0]
+	want := ConfirmationRequest{TenantID: t13Tenant, CorrelationID: "corr_synth0001", RequesterID: t13Principal, IntentID: tIntent, IntentVersion: t13Version, IntentHash: tHash,
+		Requirement: "SELF", TTL: 15 * time.Minute, Binding: f.bindings[0]}
+	if r != want {
+		t.Errorf("request %+v, want %+v", r, want)
+	}
+	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+		t.Errorf("planner or recorder called: %v", f.calls)
+	}
+}
+
+// The call carries a deadline like every port call.
+func TestT13RequestConfirmationRunsUnderADeadline(t *testing.T) {
+	f := newFake13()
+	f.conf = pendingNew(RequestSpec{Requirement: "SELF", TTL: time.Minute})
+	run13(t, newEval13(t, f))
+	for i, c := range f.calls {
+		if c == "Recorder.RequestConfirmation" && !f.hasDL[i] {
+			t.Error("RequestConfirmation was called without a context deadline")
+		}
+	}
+	if f.called("Recorder.RequestConfirmation") != 1 {
+		t.Fatalf("not called: %v", f.calls)
+	}
+}
+
+// An open request exists (RequestID, no NewRequest): no second request is made.
+func TestT13PendingWithAnOpenRequestMakesNoSecondRequest(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
+	res := run13(t, newEval13(t, f))
+	if f.called("Recorder.RequestConfirmation") != 0 || res.ConfirmationRequestID != "cfr_synth0001" || res.Decision.Outcome() != decide.Confirm {
+		t.Errorf("calls %v, id %q, outcome %s", f.calls, res.ConfirmationRequestID, res.Decision.Outcome())
+	}
+}
+
+// Safer reading: an answer that says both "a request is open" and "make a new one", or a spec without a requirement or a positive TTL, is not an answer (INV-16).
+func TestT13AnInconsistentOrIncompleteNewRequestIsUnknownAndRequestsNothing(t *testing.T) {
+	for name, c := range map[string]Confirmation{
+		"open and new":   {Status: ConfirmationPending, RequestID: "cfr_synth0001", NewRequest: &RequestSpec{Requirement: "SELF", TTL: time.Minute}},
+		"no requirement": pendingNew(RequestSpec{TTL: time.Minute}),
+		"zero ttl":       pendingNew(RequestSpec{Requirement: "SELF"}),
+		"negative ttl":   pendingNew(RequestSpec{Requirement: "SELF", TTL: -time.Second}),
+	} {
+		f := newFake13()
+		f.conf = c
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if f.called("Recorder.RequestConfirmation") != 0 || res.ConfirmationRequestID != "" {
+			t.Errorf("%s: a request was made or exposed: %v %q", name, f.calls, res.ConfirmationRequestID)
+		}
+	}
+}
+
+// Fail closed: a Recorder that errors, panics or returns no id means no request exists, so the evaluation does not say CONFIRM.
+func TestT13ARequestThatCannotBeRecordedIsUnknownNotConfirm(t *testing.T) {
+	for name, set := range map[string]func(*f13){
+		"error":    func(f *f13) { f.reqErr = errInjected },
+		"hit":      func(f *f13) { f.failAt = "Recorder.RequestConfirmation" },
+		"panic":    func(f *f13) { f.panicAt = "Recorder.RequestConfirmation" },
+		"no id":    func(f *f13) { f.reqID = " " },
+		"bad form": func(f *f13) { f.reqID = "grt_synth0001" },
+	} {
+		f := newFake13()
+		f.conf = pendingNew(RequestSpec{Requirement: "SELF", TTL: time.Minute})
+		set(f)
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if res.ConfirmationRequestID != "" {
+			t.Errorf("%s: request id %q exposed", name, res.ConfirmationRequestID)
+		}
+	}
+}
+
+// Only a Pending answer makes a request.
+func TestT13OnlyPendingMakesARequest(t *testing.T) {
+	spec := &RequestSpec{Requirement: "SELF", TTL: time.Minute}
+	for name, c := range map[string]Confirmation{
+		"not required": {Status: ConfirmationNotRequired, NewRequest: spec},
+		"given":        {Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash, NewRequest: spec},
+		"declined":     {Status: ConfirmationDeclined, RequestID: "cfr_synth0001", NewRequest: spec},
+	} {
+		f := newFake13()
+		f.conf = c
+		run13(t, newEval13(t, f))
+		if f.called("Recorder.RequestConfirmation") != 0 {
+			t.Errorf("%s: a request was made", name)
+		}
 	}
 }
