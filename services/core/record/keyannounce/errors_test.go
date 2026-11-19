@@ -7,7 +7,9 @@ package keyannounce_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -348,19 +350,33 @@ func TestPoolKeysErrorsHaveAFixedPublicTextAndKeepTheirCause(t *testing.T) {
 		}
 		assertFixedText(t, w, err)
 	})
-	t.Run("the rows end with an error", func(t *testing.T) {
-		_, err := keyannounce.PoolKeys{Q: failingRows{}}.KeyIDs(ctx(t))
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the rows' error", err)
+	t.Run("the rows end with an error: the server raises while the rows are read", func(t *testing.T) {
+		// A real server-side failure after the query started: the view yields rows and divides by zero on the second.
+		q := w.shadowedKeys(t, `SELECT (CASE WHEN n = 2 THEN 1 / (n - 2) ELSE n END)::text AS key_id, 'admin'::text AS identity, n AS version FROM generate_series(1, 3) AS n`)
+		_, err := keyannounce.PoolKeys{Q: q}.KeyIDs(ctx(t))
+		var pgErr *pgconn.PgError
+		if err == nil || !errors.As(err, &pgErr) || pgErr.Code != "22012" {
+			t.Fatalf("err = %v, want one that holds the server's division-by-zero PgError (22012)", err)
 		}
-		assertFixedText(t, w, err, "boom")
+		assertFixedText(t, w, err, "division")
+		if !strings.HasSuffix(err.Error(), "the signing keys could not be read") {
+			t.Errorf("the text %q is not the rows' fixed text", err.Error())
+		}
 	})
-	t.Run("a row cannot be scanned", func(t *testing.T) {
-		_, err := keyannounce.PoolKeys{Q: scanFailingRows{}}.KeyIDs(ctx(t))
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the scan's error", err)
+	t.Run("a row cannot be scanned: the server's value is not a text", func(t *testing.T) {
+		// A real row whose key_id is NULL: the destination (a string) cannot take it.
+		q := w.shadowedKeys(t, `SELECT NULL::text AS key_id, 'admin'::text AS identity, 1 AS version`)
+		_, err := keyannounce.PoolKeys{Q: q}.KeyIDs(ctx(t))
+		if err == nil {
+			t.Fatal("no error")
 		}
-		assertFixedText(t, w, err, "boom")
+		assertFixedText(t, w, err, "null")
+		if !strings.HasSuffix(err.Error(), "a signing key could not be read") {
+			t.Errorf("the text %q is not the scan's fixed text", err.Error())
+		}
+		if cause := errors.Unwrap(err); cause == nil || !strings.Contains(strings.ToLower(cause.Error()), "null") {
+			t.Errorf("the cause is %v, want the driver's own scan error", cause)
+		}
 	})
 	t.Run("the context has no deadline", func(t *testing.T) {
 		_, err := keyannounce.PoolKeys{Q: w.verifier}.KeyIDs(context.Background())
@@ -373,37 +389,30 @@ func TestPoolKeysErrorsHaveAFixedPublicTextAndKeepTheirCause(t *testing.T) {
 	})
 }
 
-// failingRows and scanFailingRows are a chain.Queryer whose result misbehaves in the two places a real connection cannot be made to for a one-column result.
-type failingRows struct{}
+// shadowedKeys returns a pool that logs in as record_verify, as the start-up does, and whose search_path puts a test-owned schema before public, where a view named signing_key
+// answers the query PoolKeys runs with the given SELECT. The failure it provokes (a value the destination cannot take, an error the server raises while the rows are read) comes
+// from the real server and the real driver; nothing between PoolKeys and the connection is replaced.
+var shadowSeq atomic.Int64
 
-func (failingRows) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return &stubRows{errAtEnd: errLeaky}, nil
-}
-
-type scanFailingRows struct{}
-
-func (scanFailingRows) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	return &stubRows{rows: 1, scanErr: errLeaky}, nil
-}
-
-type stubRows struct {
-	rows     int
-	scanErr  error
-	errAtEnd error
-}
-
-func (s *stubRows) Close()                                       {}
-func (s *stubRows) Err() error                                   { return s.errAtEnd }
-func (s *stubRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (s *stubRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (s *stubRows) Next() bool {
-	if s.rows > 0 {
-		s.rows--
-		return true
+func (w *world) shadowedKeys(t *testing.T, selectSQL string) *pgxpool.Pool {
+	t.Helper()
+	schema := fmt.Sprintf("shadow_keys_%d", shadowSeq.Add(1))
+	for _, stmt := range []string{
+		`CREATE SCHEMA ` + schema,
+		`CREATE VIEW ` + schema + `.signing_key AS ` + selectSQL,
+		`GRANT USAGE ON SCHEMA ` + schema + ` TO record_verify`,
+		`GRANT SELECT ON ` + schema + `.signing_key TO record_verify`,
+	} {
+		if _, err := w.admin.Exec(ctx(t), stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
 	}
-	return false
+	cfg := w.verifier.Config().Copy()
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ", public"
+	pool, err := pgxpool.NewWithConfig(ctx(t), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
 }
-func (s *stubRows) Scan(...any) error      { return s.scanErr }
-func (s *stubRows) Values() ([]any, error) { return nil, nil }
-func (s *stubRows) RawValues() [][]byte    { return nil }
-func (s *stubRows) Conn() *pgx.Conn        { return nil }

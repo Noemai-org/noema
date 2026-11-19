@@ -76,3 +76,29 @@ Each of the 11 changed sites reverted to its old `fmt.Errorf` (or bare `err`) in
 - Open questions (owner): `PoolKeys.KeyIDs` scan and `rows.Err()` are provoked through a stub `chain.Queryer` (a one-column result cannot be made to fail mid-stream on a real connection); say if that is not acceptable under AGENT-12 (Architect).
 - Files to read first: `record/keyannounce/keyannounce.go`, `errors_test.go`.
 - Do not touch: the unchanged fixed-text errors.
+
+## Session 2026-11-19 · SEC-KEY-ROTATED real-database failure injection for PoolKeys (A370 relayed, AGENT-12, REQ-TST-004)
+
+### Session summary
+- What changed (PR links): noema#738, one local test commit, not pushed. `record/keyannounce/errors_test.go` only; production code unchanged (the tests showed no bug).
+- Why: the two `PoolKeys.KeyIDs` cases "the rows end with an error" and "a row cannot be scanned" used a stub `chain.Queryer`. AGENT-12 says faults come from the real system. The earlier claim that a one-column result cannot fail on a real connection was wrong.
+- How: `world.shadowedKeys` makes a test-owned schema with a view named `signing_key` and a pool of the real `record_verify` login (the verifier pool's config copied) whose `search_path` puts that schema before `public`. `PoolKeys` runs its unchanged SQL on the real connection and the real server answers from the view. Scan failure: a view row whose `key_id` is NULL; the driver's own "cannot scan NULL" error reaches `rows.Scan`. Rows error: a view that divides by zero on the second row (`1 / (n - 2)`); the server's `ErrorResponse` reaches `rows.Err()` as a real `*pgconn.PgError` with SQLSTATE 22012, and the test asserts `errors.As` reaches it. Both assert the fixed text (suffix and package prefix, no tenant, driver, DSN, path, SQLSTATE words, "division", "null") and that the cause is behind `Unwrap` and its text is not in the error's text. The stub types (`failingRows`, `scanFailingRows`, `stubRows`) are deleted; no other test used them.
+- Observation: a permission-denied error on `signing_key` (the existing "the read is refused" case) also arrives through `rows.Err()`, not through `Query`; only a closed pool reaches the `Query` site.
+- Risks, and how they are contained: test-only; each case makes its own schema in its own throwaway database.
+- Tests added (AGENT-13, A347, AGENT-12): the two cases above, now on a real connection.
+- Regression cases added: none beyond those.
+- Debt entries: none. Conflicts raised: none.
+
+### Mutants (against `go test -run TestPoolKeys ./record/keyannounce/`, each restored with git checkout)
+- Scan site text changed to include the driver's text: killed (scan case).
+- `rows.Err()` site changed to `fmt.Errorf("%s%w", ...)` (text includes the cause): killed (rows case and "the read is refused" case).
+- Cause dropped (no `cause: err`) at the scan site: killed (scan case).
+- Cause dropped at the `rows.Err()` site: killed (rows case and "the read is refused" case).
+
+### Commands and results
+`go build ./...`, `go vet ./record/keyannounce/...`, `gofmt -l .`: clean. `go test -count=1 -p 2 ./record/keyannounce/`: ok (13s, real PostgreSQL 16; no pgsodium needed). `python3 tools/lint/run.py`: `lint OK`.
+
+### Pre-work for the next agent
+- Exact next step: none; the open question in the section above (stub Queryer) is closed.
+- Files to read first: `record/keyannounce/errors_test.go`.
+- Do not touch: `keyannounce.go` error texts.
