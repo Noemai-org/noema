@@ -5,8 +5,8 @@
   "expect_message_contains": "is not of type 'string'",
   "patch": [
     {
-      "op": "replace",
-      "path": "/evidence_sources/4/write_when",
+      "op": "add",
+      "path": "/intent_nodes/0/write_when",
       "value": true
     }
   ]

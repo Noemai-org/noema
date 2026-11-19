@@ -293,58 +293,71 @@ if __name__ == "__main__":
     unittest.main()
 
 
+WRITE_WHEN = "question_type == 'ESCALATION_REQUEST' or requested_remedy != null"
+G2 = "fintech/graph/g2_escalate.json"
+
+
+def real():
+    base = json.loads((PACKS / "fintech_v1.json").read_text())
+    return base, {rel: json.loads((PACKS / rel).read_text()) for rel in base["action_graph_files"]}
+
+
 class WriteWhen(unittest.TestCase):
-    """A364 (interim, relayed, not yet committed). `write_when` (evidence-source) is a predicate of the pack's own language that says WHEN a capability may write to the
-    source; absent means never. A write capability whose verification source has none is refused; the predicate must parse, be Boolean and use only declared variables."""
+    """A364 (interim, relayed, not yet committed). `write_when` is a member of the intent NODE: a predicate over the node's slots (an absent slot is null) that says the intent
+    needs write evaluation. It parses, is Boolean and uses only the node's slot names."""
 
-    def pack(self):
-        return json.loads((PACKS / "fintech_v1.json").read_text())
+    def check(self, text):
+        base, graphs = real()
+        base["intent_nodes"][0]["write_when"] = text
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "predicate" and "write_when" in m]
 
-    def run_pack(self, pack):
-        return checks.run(PACKS / "fintech_v1.json", pack=pack)
+    def test_the_investigate_node_says_when_it_needs_a_write(self):
+        base, _ = real()
+        nodes = {n["node_id"]: n.get("write_when") for n in base["intent_nodes"]}
+        self.assertEqual(nodes["fin.payments.exception.investigate"], WRITE_WHEN)
+        self.assertEqual([k for k, v in nodes.items() if v], ["fin.payments.exception.investigate"])
+        self.assertFalse(any({"may_write", "write_when"} & set(s) for s in base["evidence_sources"]))
+        self.assertFalse(any("produced_by" in d for d in base["evidence_descriptors"]))
 
-    def test_only_the_case_system_says_when_it_may_be_written_to(self):
-        sources = {s["source_id"]: s.get("write_when") for s in self.pack()["evidence_sources"]}
-        self.assertEqual({k for k, v in sources.items() if v}, {"fin.src.case_system"})
-        self.assertFalse(any("may_write" in s for s in self.pack()["evidence_sources"]))
-
-    def test_an_absent_write_when_means_never_so_a_write_capability_is_refused(self):
-        pack = self.pack()
-        for s in pack["evidence_sources"]:
-            s.pop("write_when", None)
-        problems = [m for c, m in self.run_pack(pack) if c == "capability" and "write_when" in m]
-        self.assertEqual(len(problems), 4, problems)  # the four case-writing capabilities
-
-    def test_a_prohibited_or_read_capability_needs_no_write_when(self):
-        pack = self.pack()
-        self.assertTrue(any(c["prohibited"] for c in pack["capabilities"]))
-        self.assertTrue([c for c in pack["capabilities"] if c["risk_class"] == "R0_read" and not c["prohibited"]])
-        self.assertEqual([m for c, m in self.run_pack(pack) if "write_when" in m], [])
-
-    def test_the_predicate_uses_the_packs_own_grammar_and_declared_variables(self):
-        for text, ok in (("subject_resource.status == 'RESOLVED'", True), ("true", True), ("subject_resource.status == 'RESOLVED' and case_id != null", True),
-                         ("undeclared_variable", False), ("subject_resource.status ==", False), ("1 + 1", False), ("subject_resource.status == 'NOT_A_STATUS'", False)):
-            pack = self.pack()
-            next(s for s in pack["evidence_sources"] if s["source_id"] == "fin.src.case_system")["write_when"] = text
-            problems = [m for c, m in self.run_pack(pack) if c == "predicate" and "write_when" in m]
+    def test_the_predicate_uses_the_packs_own_grammar_and_the_nodes_slots_only(self):
+        for text, ok in ((WRITE_WHEN, True), ("true", True), ("requested_remedy == null and amount == null", True), ("not (when != null)", True),
+                         ("undeclared_slot == null", False), ("question_type ==", False), ("1 + 1", False), ("question_type", False),
+                         ("question_type == 'NOT_A_QUESTION'", False), ("case_id != null", False), ("subject_resource.status == 'RESOLVED'", False)):
+            problems = self.check(text)
             self.assertEqual(not problems, ok, f"{text!r}: {problems}")
-
-    def test_may_write_and_produced_by_are_not_members(self):  # A364, A363
-        for where, key in (("evidence_sources", "may_write"), ("evidence_descriptors", "produced_by")):
-            pack = self.pack()
-            pack[where][0][key] = pack[where][0].get("source_id", True) if key == "produced_by" else True
-            self.assertTrue([m for c, m in self.run_pack(pack) if c == "schema"], key)
 
 
 class GraphParams(unittest.TestCase):
-    """A369 (interim, relayed, not yet committed). A node's optional `params` (the ParamSpec of the PlanGraphs adapter): names are unique within a node."""
+    """A369 (interim, relayed, not yet committed). The escalation graph's params, and what packcheck holds them to: every required input of the capability is covered, no extra
+    param, a name once per node, slots and map keys of the intent node, map values in `case_reasons`, facts declared, policy params carried by a PERMIT rule."""
+
+    def test_the_real_escalation_graph_declares_the_specified_params(self):
+        base, graphs = real()
+        nodes = {n["node_id"]: {p["name"]: {k: v for k, v in p.items() if k != "name"} for p in n.get("params", [])} for n in graphs[G2]["nodes"]}
+        self.assertEqual(nodes["create_escalation_case"].keys(), {"transaction_ref", "reason_code"})
+        self.assertEqual(nodes["create_escalation_case"]["transaction_ref"], {"slot": "subject_resource"})
+        m = nodes["create_escalation_case"]["reason_code"]["map"]
+        self.assertEqual(m["from"], "question_type")
+        vocab = next(s for s in base["intent_nodes"][0]["slots"] if s["name"] == "question_type")["vocabulary"]
+        self.assertEqual(set(m["values"]), set(vocab))
+        self.assertLessEqual(set(m["values"].values()), {c["code"] for c in base["case_reasons"]})
+        self.assertEqual(nodes["record_investigation_evidence"], {"case_id": {"fact": "case_id"}, "payload": {"evidence_packet": True}})
+        self.assertEqual(nodes["route_to_internal_owner"], {"case_id": {"fact": "case_id"}, "owner_queue": {"policy_param": "owner_queue"}})
+
+    def test_case_reasons_are_unique_codes(self):
+        base, graphs = real()
+        base["case_reasons"].append(dict(base["case_reasons"][0]))
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if "case_reasons" in m]
+        self.assertTrue(hits)
 
     def test_a_param_name_is_declared_once_per_node(self):
-        base = json.loads((PACKS / "fintech_v1.json").read_text())
-        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in base["action_graph_files"]}
-        node = graphs["fintech/graph/g2_escalate.json"]["nodes"][0]
-        node["params"] = [{"name": "a", "source": "CONST", "value": "x"}, {"name": "b", "source": "CONST", "value": "y"}]
-        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
-        node["params"][1]["name"] = "a"
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "transaction_ref", "const": "x"})
         hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "graph" and "declares param" in m]
         self.assertEqual(len(hits), 1, hits)
+
+    def test_an_optional_input_may_be_given_and_a_node_without_params_declares_none(self):
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "priority", "const": "NORMAL"})
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+        self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))

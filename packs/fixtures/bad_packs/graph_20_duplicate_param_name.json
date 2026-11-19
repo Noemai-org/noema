@@ -7,19 +7,11 @@
     {
       "op": "add",
       "file": "fintech/graph/g2_escalate.json",
-      "path": "/nodes/0/params",
-      "value": [
-        {
-          "name": "transaction_ref",
-          "source": "SLOT",
-          "slot": "subject_resource"
-        },
-        {
-          "name": "transaction_ref",
-          "source": "CONST",
-          "value": "x"
-        }
-      ]
+      "path": "/nodes/0/params/-",
+      "value": {
+        "name": "transaction_ref",
+        "const": "x"
+      }
     }
   ]
 }

@@ -34,18 +34,33 @@
       "params": [
         {
           "name": "transaction_ref",
-          "source": "SLOT"
+          "slot": "subject_resource"
         },
         {
           "name": "reason_code",
-          "source": "CONST",
-          "value": "synthetic.reason"
+          "map": {
+            "from": "question_type",
+            "values": {
+              "STATUS": 1,
+              "WHY": "PAYMENT_DELAY_EXPLANATION"
+            }
+          }
         },
         {
           "name": "priority",
-          "source": "DEFAULT",
-          "slot": "priority",
-          "value": "NORMAL"
+          "const": "NORMAL"
+        },
+        {
+          "name": "case_id",
+          "fact": "case_id"
+        },
+        {
+          "name": "owner_queue",
+          "policy_param": "owner_queue"
+        },
+        {
+          "name": "payload",
+          "evidence_packet": true
         }
       ]
     }
