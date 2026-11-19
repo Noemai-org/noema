@@ -22,6 +22,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/migrations"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/platform/db"
+	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
@@ -88,8 +89,8 @@ func (w *evdPG) item(t *testing.T, tenant string, it trustport.SealedItem, sla i
 	}
 	if _, err := p.Exec(evdCtx(t), `INSERT INTO evidence_item (evidence_id, tenant_id, correlation_id, source, source_record_id, read_by, read_at, effective_at,
 		freshness_sla_seconds, authority_class, resource_scope, principal_scope, sensitivity, fact_status, payload_hash, payload_ref, created_at)
-		VALUES ($1, $2, $3, $4, 'rec-1', 'TRUST', $5, $6, $7, 'AUTHORITATIVE_FOR:debit_posted_or_reversed', 'res_synthetic', 'prn_synthetic', 'S2_internal', $8, $9, $10, $5)`,
-		it.EvidenceID, tenant, it.CorrelationID, it.Source, it.ReadAt, it.EffectiveAt, sla, it.Status, it.PayloadHash, ref); err != nil {
+		VALUES ($1, $2, $3, $4, $11, 'TRUST', $5, $6, $7, 'AUTHORITATIVE_FOR:debit_posted_or_reversed', 'res_synthetic', 'prn_synthetic', 'S2_internal', $8, $9, $10, $5)`,
+		it.EvidenceID, tenant, it.CorrelationID, it.Source, it.ReadAt, it.EffectiveAt, sla, it.Status, it.PayloadHash, ref, it.SourceRecordID); err != nil {
 		t.Fatalf("item: %v", err)
 	}
 }
@@ -147,7 +148,7 @@ func TestEvidenceDBReadsTheSealedSnapshotAsTheTenantsOwnLogin(t *testing.T) {
 		return intake.SourceItem{Status: contracts.EnumsV1FactStatusKNOWN, Freshness: decide.Freshness{EvidenceID: id, EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: src,
 			AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}}
 	}
-	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, Items: []intake.SourceItem{fresh("evr_01", evdLedger), fresh("evr_02", evdSwitch), fresh("evr_03", evdSettle)}}
+	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: evdContentHash, Items: []intake.SourceItem{fresh("evr_01", evdLedger), fresh("evr_02", evdSwitch), fresh("evr_03", evdSettle)}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got  %+v\nwant %+v", got, want)
 	}
@@ -244,5 +245,71 @@ func TestEvidenceDBNeverReadsThePayloadBody(t *testing.T) {
 	got, err := w.adapter(t, evdPools(w.trust)).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
 	if err != nil || len(got.Items) != 3 {
 		t.Errorf("the read needed the payload table, or gave no evidence: %d items, %v", len(got.Items), err)
+	}
+}
+
+// reRead writes a second snapshot of the case as the evidence layer would after another read: new evidence IDs for every item, the same source, record and payload unless edit
+// changes them, and a snapshot of its own.
+func (w *evdPG) reRead(t *testing.T, snapshotID string, firstID int, edit func(i int, it *trustport.SealedItem)) {
+	t.Helper()
+	var items []trustport.SealedItem
+	for i, src := range []string{evdLedger, evdSwitch, evdSettle} {
+		it := evdItem(i+1, src)
+		it.EvidenceID = fmt.Sprintf("evr_%02d", firstID+i)
+		if edit != nil {
+			edit(i, &it)
+		}
+		w.item(t, evdTenant, it, 600)
+		items = append(items, it)
+	}
+	w.seal(t, evdTenant, snapshotID, items)
+}
+
+// A365, REQ-TRU-009, INV-25, INV-17 (the single decision per snapshot is why a re-evaluation seals a new one): a confirmation is bound to the content of snapshot S1. The ACCEPT
+// triggers a fresh evaluation that reads S2, a NEW snapshot of unchanged evidence under new evidence IDs: its content hash is S1's, so the binding is the same and the resolution
+// is Proceed. S3 holds a changed record (another payload): another content hash, so the binding changed and nothing proceeds. The set hashes of the three snapshots all differ.
+func TestEvidenceDBAReReadOfUnchangedEvidenceKeepsTheConfirmationBindingAndAChangedRecordBreaksIt(t *testing.T) {
+	w := evdNewPG(t)
+	w.evdCase(t, evdTenant, evdSnap)
+	w.reRead(t, "evs_AA02", 41, nil)
+	w.reRead(t, "evs_AA03", 51, func(i int, it *trustport.SealedItem) {
+		if i == 1 {
+			it.PayloadHash = evdHash(999)
+		}
+	})
+	a := w.adapter(t, evdPools(w.trust))
+	read := func(snap string) string {
+		t.Helper()
+		got, err := a.SnapshotFreshness(evdCtx(t), evdTenant, snap)
+		if err != nil || got.EvidenceSetHash == "" {
+			t.Fatalf("%s: %+v, %v", snap, got, err)
+		}
+		return got.EvidenceSetHash
+	}
+	h1, h2, h3 := read(evdSnap), read("evs_AA02"), read("evs_AA03")
+	var sets [3]string
+	for i, snap := range []string{evdSnap, "evs_AA02", "evs_AA03"} {
+		if err := w.admin.QueryRow(evdCtx(t), `SELECT evidence_set_hash FROM context_snapshot WHERE tenant_id = $1 AND snapshot_id = $2`, evdTenant, snap).Scan(&sets[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sets[0] == sets[1] || sets[0] == sets[2] || sets[1] == sets[2] {
+		t.Fatalf("the test is void: the snapshots share a set hash %v", sets)
+	}
+	if h1 != h2 || h1 == h3 {
+		t.Fatalf("content hashes: S1 %s, S2 (unchanged) %s, S3 (changed) %s", h1, h2, h3)
+	}
+	req := confirm.Request{ID: "cfr_01", Requirement: "SELF", RequesterID: "usr_synth01", ExpiresAt: 2000, Binding: confirm.BindingInput{PrincipalID: "usr_synth01", IntentHash: evdHash(1),
+		CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: evdHash(2), EvidenceSetHash: h1, PlanHash: evdHash(3), PolicyVersion: evdHash(4)}}
+	accept := confirm.Event{RequestID: "cfr_01", ApproverID: "usr_synth01", Response: confirm.Accept, At: 1000}
+	for name, tc := range map[string]struct {
+		hash string
+		want confirm.Resolution
+	}{"unchanged evidence, new snapshot": {h2, confirm.Proceed}, "a changed record": {h3, confirm.BindingChanged}} {
+		fresh := req.Binding
+		fresh.EvidenceSetHash = tc.hash
+		if got, err := confirm.Resolve(req, accept, fresh); err != nil || got != tc.want {
+			t.Errorf("%s: %s, %v; want %s", name, got, err, tc.want)
+		}
 	}
 }

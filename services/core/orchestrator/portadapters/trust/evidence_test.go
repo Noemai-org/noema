@@ -52,7 +52,7 @@ func evdHash(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 // evdItem is a KNOWN item of one source, read 42 seconds before the evaluation, with a source limit of 600 seconds.
 func evdItem(n int, source string) trustport.SealedItem {
-	return trustport.SealedItem{EvidenceID: fmt.Sprintf("evr_%02d", n), CorrelationID: evdCorr, Source: source, ReadAt: evdNow.Add(-42 * time.Second),
+	return trustport.SealedItem{EvidenceID: fmt.Sprintf("evr_%02d", n), CorrelationID: evdCorr, Source: source, SourceRecordID: fmt.Sprintf("rec-%02d", n), ReadAt: evdNow.Add(-42 * time.Second),
 		EffectiveAt: evdNow.Add(-60 * time.Second), SLASeconds: 600, Status: "KNOWN", PayloadHash: evdHash(n)}
 }
 
@@ -155,7 +155,7 @@ func TestEvidenceReportsTheFreshnessThatWasSealed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, Items: []intake.SourceItem{
+	want := intake.SnapshotEvidence{IntentID: "int_0001", IntentVersion: 2, EvidenceSetHash: evdContentHash, Items: []intake.SourceItem{
 		{Status: contracts.EnumsV1FactStatusKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_01", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdLedger,
 			AgeSeconds: 42, EffectiveLimitSeconds: 300, LimitSetBy: decide.LimitByTrustProfile}},
 		{Status: contracts.EnumsV1FactStatusUNKNOWN, Freshness: decide.Freshness{EvidenceID: "evr_02", EffectiveAt: evdNow.Add(-60 * time.Second).Unix(), Source: evdSwitch,
@@ -633,4 +633,67 @@ func TestEvidenceReaderNeedsItsConfiguration(t *testing.T) {
 	if _, err := (trustport.SealedSnapshots{}).Sealed(evdCtx(t), evdTenant, evdSnap); !errors.Is(err, trustport.ErrConfig) {
 		t.Errorf("the zero reader: err = %v, want ErrConfig", err)
 	}
+}
+
+// evdContentHash is the content hash of the usual three items (evdItem 1 to 3): sorted (source, source record ID, payload hash) triples, computed by an independent Python
+// implementation (SHA-256 over LP("noema.evidence_content_set.v1") and the length-prefixed fields of each triple in sorted order), not by the function under test.
+const evdContentHash = "sha256:06ffcf9a3c7eea41e745ccc930098dff3635ae5dc285eff45dfd075804dfb583"
+
+// A365, REQ-TRU-009, INV-25: the evidence value T9 gives for the binding is the CONTENT hash of the sealed items, never the set hash over the evidence IDs the snapshot stores.
+func TestEvidenceGivesTheContentHashAndNotTheSetHashOfTheSnapshot(t *testing.T) {
+	s := evdWorld(t)
+	got, err := evdRead(t, evdStoreOf(s), evdRules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EvidenceSetHash != evdContentHash {
+		t.Errorf("EvidenceSetHash %q, want the content hash %s", got.EvidenceSetHash, evdContentHash)
+	}
+	if got.EvidenceSetHash == s.EvidenceSetHash {
+		t.Error("T9 gave the set hash over the evidence IDs, which differs for every read of the same data")
+	}
+}
+
+// A365: the same data read again under other evidence IDs (and another snapshot) is the same value, so an approval of the first binds the re-evaluation over the second. A changed
+// record, source or payload is another value. The sealed set hashes of the two snapshots differ, which is the finding this closes.
+func TestEvidenceTheSameDataUnderNewEvidenceIDsIsTheSameValueAndChangedDataIsNot(t *testing.T) {
+	first := evdWorld(t)
+	var again []trustport.SealedItem
+	for i, it := range []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)} {
+		it.EvidenceID = fmt.Sprintf("evr_%02d", 40+i) // the evidence layer mints a new ID for every read
+		again = append(again, it)
+	}
+	second := evdSeal(t, again...)
+	if first.EvidenceSetHash == second.EvidenceSetHash {
+		t.Fatal("the test is void: the two snapshots have the same set hash")
+	}
+	a, errA := evdRead(t, evdStoreOf(first), evdRules())
+	b, errB := evdRead(t, evdStoreOf(second), evdRules())
+	if errA != nil || errB != nil || a.EvidenceSetHash == "" || a.EvidenceSetHash != b.EvidenceSetHash {
+		t.Fatalf("unchanged data: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
+	}
+	for name, edit := range map[string]func(*trustport.SealedItem){
+		"a record ID": func(it *trustport.SealedItem) { it.SourceRecordID = "rec-changed" },
+		"a payload":   func(it *trustport.SealedItem) { it.PayloadHash = evdHash(777) },
+		"a source":    func(it *trustport.SealedItem) { it.Source = "fin.src.other" },
+	} {
+		items := append([]trustport.SealedItem(nil), again...)
+		edit(&items[1])
+		c, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), &evdProfiles{rules: trustport.SourceRules{MaxAgeSeconds: 300}})
+		if err != nil || c.EvidenceSetHash == "" || c.EvidenceSetHash == a.EvidenceSetHash {
+			t.Errorf("%s changed: %q (%v), the unchanged value is %q", name, c.EvidenceSetHash, err, a.EvidenceSetHash)
+		}
+	}
+}
+
+// A365, REQ-NFR-002: an item with no source record ID cannot be bound by its content, so the snapshot is not usable as evidence and T9 ends UNKNOWN; it is never given a hash over
+// what is left.
+func TestEvidenceAnItemWithNoSourceRecordIDIsNotEvidence(t *testing.T) {
+	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+	items[2].SourceRecordID = ""
+	got, err := evdRead(t, evdStoreOf(evdSeal(t, items...)), evdRules())
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) {
+		t.Errorf("err = %v, want ErrSnapshotNotIntact", err)
+	}
+	evdNothing(t, got)
 }

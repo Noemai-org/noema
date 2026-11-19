@@ -18,8 +18,11 @@ type SealedItem struct {
 	EvidenceID    string
 	CorrelationID string
 	Source        string
-	ReadAt        time.Time
-	EffectiveAt   time.Time
+	// SourceRecordID is the record of the source the item was read from (`source_record_id`, required by the evidence item contract): with the source and the payload hash it is the
+	// item's content, the part of it that does not depend on the evidence ID minted for the read (A365).
+	SourceRecordID string
+	ReadAt         time.Time
+	EffectiveAt    time.Time
 	// SLASeconds is the source's own freshness limit (`freshness_sla_seconds`); the profile's cap is not stored on the item.
 	SLASeconds  int64
 	Status      string
