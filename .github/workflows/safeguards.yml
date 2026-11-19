@@ -21,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
@@ -28,6 +29,10 @@ jobs:
       - name: Install pinned scanners
         if: github.event.action != 'edited'
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
+      # The YAML parser of the two workflow checks (OD-P-95, ruling A283): one hash-pinned wheel, this job only. Without it the checks fail; they never pass unread.
+      - name: Install the pinned YAML parser
+        if: github.event.action != 'edited'
+        run: python3 -m pip install --require-hashes "--only-binary=:all:" --no-deps -r tools/ci/requirements.lock
       # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
       # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
       - name: Secret scan (gitleaks), the commits of this change only
@@ -53,6 +58,9 @@ jobs:
       - name: Secret-name check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
+      - name: Every TEN_RESULT line is checked by a workflow (A274)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_ten_result_grep.py
       - name: Leak scanner tests (SEC-03)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_leakscan.py
@@ -62,6 +70,16 @@ jobs:
       - name: Workflow concurrency groups (CI speed)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_workflow_concurrency.py
+      - name: Regression-link check and its workflow guard (MEM-02)
+        if: github.event.action != 'edited'
+        # Not -I: these tests import `tools.ci...` from the checkout root (a namespace package), which isolated mode would hide.
+        run: python3 -m unittest tools.ci.test_check_regression_link tools.ci.test_regression_link_workflow
+      - name: Workflow permissions (least privilege, REQ-SEC-007)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/check_workflow_permissions.py
+      - name: Workflow-permission check tests
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_check_workflow_permissions.py
       - name: G1 leak scan with a planted canary (noema#436, criterion 8)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_g1_leakscan.py
@@ -74,6 +92,12 @@ jobs:
       - name: Administrator-credential check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_no_admin_in_workflows.py
+      - name: No checkout leaves the job token on disk (PLT-05)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/check_checkout_credentials.py
+      - name: Checkout-credential check tests
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_check_checkout_credentials.py
       - name: PR trace
         if: github.event_name == 'pull_request'
         env:
@@ -104,6 +128,8 @@ jobs:
             context: ui
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Install pinned scanners
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
       - name: Build image from its own context
@@ -123,6 +149,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: services/core/go.mod

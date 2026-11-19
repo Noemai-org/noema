@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -22,6 +21,10 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
+	// DecisionID and GrantIDs are set only for an ALLOW: the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
+	// plan step; none for a read).
+	DecisionID string
+	GrantIDs   []string
 }
 
 // ErrNotBuilt is what a step that does not exist yet returns: the evaluation ends in UNKNOWN INTERNAL_ERROR at that step (fail closed, INV-16).
@@ -33,18 +36,16 @@ var ErrNoDeadline = errors.New("intake: the context needs a deadline")
 // ErrConfig is returned when the service is missing a port, the clock or the pack version: an error, never a decision.
 var ErrConfig = errors.New("intake: the service is not configured")
 
-var intentRefRe = regexp.MustCompile(`\Aint_(?P<id>[0-9A-Za-z]{2,32})@(?P<version>[1-9][0-9]{0,8})\z`)
-
 func (s *Service) configured() error {
 	p := s.Ports
-	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || s.Clock == nil || s.PackVersion == "" {
+	if p.Intents == nil || p.Writes == nil || p.Capabilities == nil || p.Scope == nil || p.Authority == nil || p.Candidates == nil || p.Ownership == nil || p.Evidence == nil || p.Reconciler == nil || p.Policies == nil || p.Clocks == nil || p.Confirmations == nil || p.Planner == nil || p.Recorder == nil || p.Dispatches == nil || s.Clock == nil || s.PackVersion == "" {
 		return ErrConfig
 	}
 	return nil
 }
 
 // Evaluate runs T1 to T15 for r in the fixed order of PERD 23.3 and returns the one decision with its trace (REQ-TRU-002). A malformed intent reference is REJECT
-// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T10 to T15 are not built yet.
+// INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T1 to T15 are built; T15 is the only step that can end in ALLOW.
 func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err := s.configured(); err != nil {
 		return Result{}, err
@@ -52,24 +53,29 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if _, ok := ctx.Deadline(); !ok {
 		return Result{}, ErrNoDeadline
 	}
-	m := intentRefRe.FindStringSubmatch(r.IntentRef)
-	if m == nil {
+	intentID, version, perr := contracts.ParseIntentRef(r.IntentRef)
+	if perr != nil {
 		d, err := decide.FailAtGate(decide.T1AdmittedIntent, 0)
 		if err != nil {
 			return Result{}, fmt.Errorf("intake: %w", err)
 		}
 		return Result{Decision: d, Trace: []decide.TraceEntry{{Step: decide.T1AdmittedIntent, Result: decide.StepTerminal}}}, nil
 	}
-	version, err := strconv.Atoi(m[intentRefRe.SubexpIndex("version")])
-	if err != nil {
-		return Result{}, fmt.Errorf("intake: the intent version: %w", err)
-	}
-	ev, err := s.newEvaluation(r, "int_"+m[intentRefRe.SubexpIndex("id")], version)
+	ev, err := s.newEvaluation(r, intentID, version)
 	if err != nil {
 		return Result{}, err
 	}
-	d, trace := decide.EvaluateBound(ctx, version, ev.steps(), ev.bb)
-	return Result{Decision: d, Trace: trace}, nil
+	return ev.run(ctx, ev.steps()), nil
+}
+
+// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned.
+func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
+	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
+	res := Result{Decision: d, Trace: trace}
+	if d.Outcome() == decide.Allow {
+		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
+	}
+	return res
 }
 
 // newEvaluation starts one evaluation: one clock reading, taken once, is the evaluation's time for every step (INV-21), and one basis builder holds what the

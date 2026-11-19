@@ -38,6 +38,8 @@ type Components struct {
 	Records reconstruct.TenantDBs
 	// Gateway is the Input Gateway (UND-02); POST /v1/conversations is mounted only with it.
 	Gateway *inputgateway.Gateway
+	// Investigations reads the caller's own investigation (the read-only store method of A243); GET /v1/investigations/{id} is mounted only with it.
+	Investigations InvestigationReader
 	// AccessLog is where the RECORD_ACCESSED lines of Record reads go (REQ-AUD-003). It is required whenever Records is set: a Record reader that logs nothing is a startup error.
 	AccessLog *slog.Logger
 }
@@ -62,6 +64,9 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	var routes []edge.Route
 	if c.Gateway != nil {
 		routes = append(routes, edge.Route{Pattern: inputgateway.Route, Roles: rolesCustomer, Handler: startConversation(c.Gateway.Handler(gatewayIdentity))})
+	}
+	if c.Investigations != nil {
+		routes = append(routes, investigationRoute(c.Investigations))
 	}
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
@@ -107,6 +112,8 @@ func missing(c Components, api http.Handler) string {
 		return "recorder"
 	case c.Ports.Admissions == nil:
 		return "admissions"
+	case c.Investigations == nil:
+		return "investigations"
 	case api == nil:
 		return "edge chain"
 	case c.Records == nil:
@@ -143,7 +150,7 @@ func composeReadiness(c Components, api http.Handler) readiness {
 
 // buildComponents builds what main composes, in one place, and returns it with one function that closes every pool opened (safe to call more than once, and returned with an error
 // too). Only adapters that are merged are plugged in: the Record reader, the Admissions port over it (one reader, so a turn's input is confirmed as the session's tenant) and the
-// orchestrator's Recorder. With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
+// orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243), which needs NOEMA_READ_TIMEOUT_MS as well (A319). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
 // whose adapters are not built stay nil, so /readyz names them (missing). Nothing is dialled here.
 func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSource, logger *slog.Logger) (Components, func(), error) {
 	var closers []func()
@@ -168,7 +175,13 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
 	}
 	if recorder != nil {
+		reader, err := buildInvestigationReader(env, recorder) // reads over the same per-tenant orchestrator logins; the bound is NOEMA_READ_TIMEOUT_MS (A243, A319, noema#715)
+		if err != nil {
+			closeAll()
+			return Components{}, closeAll, err
+		}
 		c.Ports.Recorder = recorder
+		c.Investigations = reader
 	}
 	return c, closeAll, nil
 }

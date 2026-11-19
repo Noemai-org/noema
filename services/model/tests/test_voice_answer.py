@@ -20,7 +20,7 @@ from noema_model.providers.speech.base import (
 from noema_model.providers.speech.errors import ProviderError, ProviderFailure
 from noema_model.providers.speech.tts import SpeechSynthesizer, SynthesisRequest
 from noema_model.voice.answer import DeliveryMode, deliver_answer, plan_delivery
-from tests.support import run
+from tests.support import MASKING, run
 
 LOCALES = tuple(Locale)
 
@@ -81,7 +81,7 @@ def test_an_unqualified_provider_is_never_used_for_speech_even_if_a_cell_says_ye
 
 def test_where_tts_is_not_covered_the_text_is_delivered_and_the_synthesizer_is_not_called() -> None:
     synth = FakeSynth(caps(Support.UNVERIFIED), audio())
-    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.text == REQUEST.text
     assert result.audio == ()
@@ -91,7 +91,7 @@ def test_where_tts_is_not_covered_the_text_is_delivered_and_the_synthesizer_is_n
 
 def test_where_tts_works_the_text_and_the_audio_are_both_delivered() -> None:
     synth = FakeSynth(caps(Support.YES), audio(3))
-    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.SPEAK
     assert result.text == REQUEST.text
     assert [c.sequence for c in result.audio] == [0, 1, 2]
@@ -101,7 +101,7 @@ def test_where_tts_works_the_text_and_the_audio_are_both_delivered() -> None:
 @pytest.mark.parametrize("kind", [ProviderFailure.TIMEOUT, ProviderFailure.UNAVAILABLE, ProviderFailure.RATE_LIMITED])
 def test_a_tts_outage_falls_back_to_text_and_says_why(kind: ProviderFailure) -> None:
     synth = FakeSynth(caps(Support.YES), audio(2), raises=ProviderError(kind))
-    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(synth, REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.text == REQUEST.text
     assert result.audio == ()  # half an answer in audio is never played
@@ -109,20 +109,20 @@ def test_a_tts_outage_falls_back_to_text_and_says_why(kind: ProviderFailure) -> 
 
 
 def test_a_synthesizer_that_goes_silent_is_a_timeout_and_falls_back_to_text() -> None:
-    result = run(deliver_answer(FakeSynth(caps(Support.YES), audio(1), hang=True), REQUEST, deadline_s=0.05))
+    result = run(deliver_answer(FakeSynth(caps(Support.YES), audio(1), hang=True), REQUEST, deadline_s=0.05, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.failure is ProviderFailure.TIMEOUT
 
 
 def test_a_synthesizer_that_returns_no_audio_falls_back_to_text() -> None:
-    result = run(deliver_answer(FakeSynth(caps(Support.YES), ()), REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(FakeSynth(caps(Support.YES), ()), REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.failure is ProviderFailure.MALFORMED
 
 
 def test_a_chunk_with_no_bytes_is_malformed_not_silence() -> None:
     empty = [AudioChunk(0, AudioCodec.PCM_S16LE, 16000, b"")]
-    result = run(deliver_answer(FakeSynth(caps(Support.YES), empty), REQUEST, deadline_s=5.0))
+    result = run(deliver_answer(FakeSynth(caps(Support.YES), empty), REQUEST, deadline_s=5.0, masking=MASKING))
     assert result.mode is DeliveryMode.TEXT_ONLY
     assert result.failure is ProviderFailure.MALFORMED
 

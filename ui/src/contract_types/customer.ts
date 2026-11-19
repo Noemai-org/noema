@@ -3,6 +3,7 @@ export { ContractError } from "./_runtime.js";
 import { parseCustomerAnswerV1 } from "./customer_answer_v1.js";
 import { parseErrorsV3 } from "./errors_v3.js";
 import { parseInvestigationResponseV1 } from "./investigation_response_v1.js";
+import { parseMessageRequestV1 } from "./message_request_v1.js";
 import { parseOverlayCardV1 } from "./overlay_card_v1.js";
 import { parseSseEventV1 } from "./sse_event_v1.js";
 
@@ -11,11 +12,13 @@ export const PARSERS: Record<string, (v: unknown) => unknown> = {
   "customer-answer.v1": parseCustomerAnswerV1,
   "errors.v3": parseErrorsV3,
   "investigation-response.v1": parseInvestigationResponseV1,
+  "message-request.v1": parseMessageRequestV1,
   "overlay-card.v1": parseOverlayCardV1,
   "sse-event.v1": parseSseEventV1,
 };
 export * from "./customer_answer_v1.js";
 export * from "./errors_v3.js";
 export * from "./investigation_response_v1.js";
+export * from "./message_request_v1.js";
 export * from "./overlay_card_v1.js";
 export * from "./sse_event_v1.js";

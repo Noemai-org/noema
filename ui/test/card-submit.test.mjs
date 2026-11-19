@@ -79,6 +79,8 @@ test("REQ-UI-002 US-18: a confirmation submits the bound server ID and an allowe
   assert.equal(seen.path, `/v1/confirmations/${card.confirmation_request_id}`);
   assert.equal(seen.auth, `Bearer ${bearer}`);
   assert.deepEqual(Object.keys(seen.body).sort(), ["request_id", "response"]);
+  // confirmation-answer.v1 binds this to the request being answered, not a new UUID.
+  assert.equal(seen.body.request_id, card.confirmation_request_id);
   assert.equal(seen.body.response, "DECLINE");
 });
 

@@ -151,6 +151,14 @@ func (e *evaluation) t9(ctx context.Context) decide.StepResult {
 	if err != nil {
 		return decide.FailStep(err)
 	}
+	// The snapshot ID is scoped to the tenant only: the adapter says which intent and version it was sealed for, and it must be this evaluation's (A226).
+	if ev.IntentID == "" || ev.IntentID != e.intentID || ev.IntentVersion != e.version {
+		return decide.FailStep(ErrBadEvidence)
+	}
+	if ev.EvidenceSetHash != "" && !hashRe.MatchString(ev.EvidenceSetHash) {
+		return decide.FailStep(ErrBadEvidence) // a hash the contract's form does not allow cannot bind a confirmation
+	}
+	e.evidenceSetHash = ev.EvidenceSetHash
 	unavailable, stale, err := classify(ev)
 	switch {
 	case err != nil:

@@ -42,6 +42,7 @@ type linter struct {
 	modulePath string
 	files      []*srcFile
 	out        []Violation
+	hooks      hookIndex // the struct types that declare the crash hook (rules.go), read once
 }
 
 func (l *linter) add(rule string, f *srcFile, pos token.Pos, format string, args ...any) {
