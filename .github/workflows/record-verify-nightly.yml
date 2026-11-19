@@ -1,0 +1,66 @@
+# REC-06 (REQ-AUD-001, REQ-AUD-005, OD-06 of DEC-2026-10-17): the nightly run of the chain verifier job. It runs the same command and the same tests as the CI step of core.yml, against the same
+# kind of database (PostgreSQL 17.11 with pgsodium, built from the pinned Dockerfile): a SYNTHETIC Record is built with the real appender and verified as the restricted verification login, and
+# each planted tampering must fail the job. A failed run is the alert: the workflow goes red, the step summary names it, and GitHub's own notifications reach the people watching the repository.
+# The Record is tamper-evident within the POC threat model, never immutable. No secret is read and nothing is written to the repository or to issues.
+# Open (status/REC-06.md): a persistent database to verify, and the alert channel and the S1 incident of REQ-AUD-005.
+name: record-verify-nightly
+on:
+  schedule:
+    - cron: "43 3 * * *"
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NOEMA_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/postgres?sslmode=disable
+      EXPECTED_POSTGRES: "17.11"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: services/core/go.mod
+          cache-dependency-path: services/core/go.mod
+      # As core.yml does (ruling A16): the pinned image; trust authentication is for this throwaway, job-local container only, which holds synthetic data.
+      - name: Start the database
+        run: |
+          set -eu
+          docker build -q -t noema-pg-sig:ci deploy/spike/pgsodium
+          docker run -d --name noema-pg-sig -e POSTGRES_HOST_AUTH_METHOD=trust -p 127.0.0.1:5432:5432 noema-pg-sig:ci
+          for _ in $(seq 1 60); do docker exec noema-pg-sig pg_isready -U postgres >/dev/null 2>&1 && break; sleep 1; done
+          sleep 2
+          docker exec noema-pg-sig pg_isready -U postgres
+      - name: Chain verifier job on the database (REC-06)
+        working-directory: services/core
+        run: |
+          set -eu
+          server="$(psql "$NOEMA_TEST_DATABASE_URL" -tAc 'SHOW server_version' | cut -d' ' -f1)"
+          echo "database: PostgreSQL $server"
+          test "$server" = "$EXPECTED_POSTGRES"
+          status=0
+          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt" || status=$?
+          cat "$RUNNER_TEMP/record-verify.txt"
+          test "$status" -eq 0
+          grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
+          test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Record chain verification (nightly)"
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "The verifier passed a clean SYNTHETIC Record and failed every planted tampering."
+            else
+              echo "**The chain verifier job FAILED.** Read the step log: a clean Record that did not verify, or a planted tampering that was not detected, is a break of INV-11 until shown otherwise."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Alert on a mismatch
+        if: failure()
+        run: echo "::error title=Record chain verification failed::the nightly chain verifier job failed (REC-06, REQ-AUD-005); see the step log"
