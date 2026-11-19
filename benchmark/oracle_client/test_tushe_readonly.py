@@ -35,14 +35,14 @@ Handler = Callable[[str, str, dict[str, list[str]], dict[str, str]], tuple[int, 
 Seen = list[tuple[str, str, dict[str, str]]]
 
 
-def feed_handler(events: list[Json], key_name: str | None = "events") -> Handler:
+def feed_handler(events: list[Json], key_name: str | None = "events", cap: int | None = None) -> Handler:
     """A well-behaved stand-in: the transition log and the feed, with the feed paged on `sequence`."""
     def handle(method: str, path: str, query: dict[str, list[str]], headers: dict[str, str]) -> tuple[int, Any, dict[str, str]]:
         if path == TRANSITIONS_PATH:
             return 200, TRANSITIONS if key_name is None else {"transitions": TRANSITIONS}, {}
         if path == "/v1/events":
             after, limit = int(query["after"][0]), int(query["limit"][0])
-            page = [e for e in events if e["sequence"] > after][:limit]
+            page = [e for e in events if e["sequence"] > after][:limit if cap is None else min(limit, cap)]
             return 200, page if key_name is None else {key_name: page}, {}
         return 404, {"error": {"code": "NOT_FOUND", "message": "no such route"}}, {}
     return handle
@@ -263,8 +263,21 @@ class Feed(unittest.TestCase):
     def test_it_pages_forward_on_the_sequence_never_on_a_timestamp(self) -> None:
         got, seen = self.feed(EVENTS)
         self.assertEqual(EVENTS, got)
-        self.assertEqual(["/v1/events?after=0&limit=2", "/v1/events?after=11&limit=2", "/v1/events?after=16&limit=2"], [p for _, p, _ in seen])
+        self.assertEqual(["/v1/events?after=0&limit=2", "/v1/events?after=11&limit=2", "/v1/events?after=16&limit=2", "/v1/events?after=20&limit=2"], [p for _, p, _ in seen])
         self.assertEqual(EVENTS[2:], self.feed(EVENTS, after=11)[0])
+
+    def test_a_server_that_caps_the_page_size_below_the_limit_does_not_truncate_the_list(self) -> None:
+        """C1's independent read of noema#772 at 046c4098: a short page is not the last page. Only an empty page ends the read, because the end of the feed is not a thing this reader may infer."""
+        with stand_in(feed_handler(EVENTS, cap=2)) as (base, seen), key_file() as key:
+            got = reader(base, key).read_feed(after=0, limit=5, max_pages=10)
+        self.assertEqual(EVENTS, got)
+        self.assertEqual(4, len(seen))  # [10, 11], [15, 16], [20], then the empty page that ends it
+
+    def test_a_short_page_is_followed_by_another_request_until_an_empty_page(self) -> None:
+        with stand_in(feed_handler(EVENTS[:3], cap=1)) as (base, seen), key_file() as key:
+            got = reader(base, key).read_feed(after=0, limit=50, max_pages=10)
+        self.assertEqual(EVENTS[:3], got)
+        self.assertEqual(4, len(seen))
 
     def test_a_bare_list_reads_too_and_an_exactly_full_last_page_is_followed_by_one_more_request(self) -> None:
         got, seen = self.feed(EVENTS[:4], list_key=None)

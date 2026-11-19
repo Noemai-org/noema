@@ -7,7 +7,8 @@ module only reads, and every row it hands over has passed the checks the fold ne
 What it guarantees, and what it does not know:
 - GET only, one request per read, no retry, no redirect followed (the transport refuses them). The key is read from a file, held only inside a closure, and appears in no error, repr or attribute.
 - A failure is never "no rows": 401/403/other 4xx and a redirect are REFUSED, 404 NOT_FOUND, 429, 5xx, a refused connection and a timeout UNAVAILABLE, a 2xx it cannot read MALFORMED
-  (UNKNOWN to the caller), a bad argument INVALID (nothing is sent). A feed that is not caught up within `max_pages` is an error, never a truncated list.
+  (UNKNOWN to the caller), a bad argument INVALID (nothing is sent). The feed is read until an EMPTY page (a short page is not the end: a server may cap its page size); one that is not
+  empty within `max_pages` is an error, never a truncated list.
 - Nothing here was observed against Tushe (AGENTS section 2, item 4). How the key is presented (`bearer` or `x-api-key`) and the envelope of each list (a bare array, or an object holding the
   array under a key) are required parameters with no default, so adopting the real ones changes one value. http is refused except for a loopback host when asked for (the local stand-in).
 SYNTHETIC in every test. The key is the Founder's read-only key (A240); this code never creates, rotates or reveals one."""
@@ -123,7 +124,7 @@ class TusheReadOnly:
                     raise TusheReadError("MALFORMED", "UNRECOGNISED", "an event is unreadable, or its sequence does not strictly rise past the cursor")
                 cursor = event["sequence"]
                 out.append(dict(event))
-            if len(page) < limit:
+            if not page:  # only an empty page ends the read: a short page may be a server that caps its page size (C1's read of noema#772)
                 return out
         raise TusheReadError("INVALID", "ADAPTER:FEED_PAGE_LIMIT", "the feed was not caught up within max_pages; a truncated list is never returned")
 

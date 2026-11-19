@@ -15,3 +15,11 @@
 - Open questions (owner): which of the eight scopes the two reads need (I expect `events:read` and `audit:read`; the others should not be asked for in the harness: Founders).
 - Files to read first: `benchmark/oracle_client/PLAN-tushe-readonly-fold.md`, `benchmark/oracle_client/tushe_readonly.py`.
 - Do not touch: the key value (I never see it); the frozen Tushe specification.
+
+# Session 2026-11-19 (second) · BEN-03 reader · C1's independent read at 046c4098
+
+## Session summary
+- P2 (C1): a short page was read as "caught up", so a server that caps its page size below `limit` would silently truncate the feed. Fixed: `read_feed` ends only on an EMPTY page (an extra request at the end of every read); it never infers the end from a short page (AGENTS section 2, item 4). Tests: a server that caps the page size (limit 5, pages of 2) reads all five events in four requests; a page cap of 1 with limit 50 reads three events in four requests; the paging-path test now ends with the empty page. Written first (3 failing), 28 tests pass, mypy --strict and lint clean.
+- P3 (C1): the `.gitleaksignore` line touches a security path: asked SR to read it (message of 19 Nov).
+- Regression cases: none. Debt: none. Conflicts: none.
+
