@@ -156,8 +156,10 @@ var (
 	candKindShape      = regexp.MustCompile(`\A[a-z][a-z0-9]*\.[a-z][a-z0-9_]*\z`)
 	candRefIDShape     = regexp.MustCompile(`\A[A-Za-z0-9_.-]{1,64}\z`)
 	candLast4Shape     = regexp.MustCompile(`\A[0-9]{4}\z`)
-	candVersionShape   = regexp.MustCompile(`\A[0-9]+\.[0-9]+\z`)
-	candInstantShape   = regexp.MustCompile(`\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z\z`)
+	// candVersionShape is the answer's schema version: major.minor (common.v1.json SchemaVersion). This adapter implements major 1 of candidates-response, so a later minor of 1 is
+	// accepted (additive by the contract's rule) and any other major is refused whole, because its shape is not the one checked here.
+	candVersionShape = regexp.MustCompile(`\A1\.[0-9]+\z`)
+	candInstantShape = regexp.MustCompile(`\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z\z`)
 )
 
 // NewCandidates builds the adapter. A missing part, a tenant or an ID off its shape, or pack data that is not usable (a floor below the platform's, more candidates in a question
