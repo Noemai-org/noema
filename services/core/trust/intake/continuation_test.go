@@ -272,3 +272,14 @@ func TestContinuationWhosePlanIsEmptyIsPlanInvalid(t *testing.T) {
 	f.plan = writePlan()
 	planRefused(t, "an empty plan", f, run13step(t, f, p, r, capRoute))
 }
+
+// The step a continuation request names carries the capability, the facts (copied, so the caller cannot change them mid-evaluation), the evidence packet and the port.
+func TestScopeOfCarriesTheRequestsStepFactsAndPacket(t *testing.T) {
+	facts := map[string]string{"case_id": tCaseID}
+	run := &runFake{}
+	st := scopeOf(ContinuationRequest{CapabilityID: capRoute, Facts: facts, EvidencePacket: tPacketRef, Runnable: run})
+	facts["case_id"] = "cas_changed"
+	if st.capabilityID != capRoute || st.packet != tPacketRef || st.runnable != Runnable(run) || !reflect.DeepEqual(st.facts, map[string]string{"case_id": tCaseID}) {
+		t.Errorf("scope %+v, want %s, packet %s, the port and a copy of the facts", st, capRoute, tPacketRef)
+	}
+}

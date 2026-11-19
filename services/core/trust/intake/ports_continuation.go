@@ -61,7 +61,12 @@ func (s *Service) EvaluateStep(ctx context.Context, r ContinuationRequest) (Resu
 	if r.CapabilityID == "" || r.Runnable == nil {
 		return Result{}, ErrStepInvalid
 	}
-	return s.evaluate(ctx, r.Request, &stepScope{capabilityID: r.CapabilityID, facts: cloneStrings(r.Facts), packet: r.EvidencePacket, runnable: r.Runnable})
+	return s.evaluate(ctx, r.Request, scopeOf(r))
+}
+
+// scopeOf is the step a continuation request names; the facts are copied, so the caller cannot change them during the evaluation.
+func scopeOf(r ContinuationRequest) *stepScope {
+	return &stepScope{capabilityID: r.CapabilityID, facts: cloneStrings(r.Facts), packet: r.EvidencePacket, runnable: r.Runnable}
 }
 
 func cloneStrings(m map[string]string) map[string]string {
