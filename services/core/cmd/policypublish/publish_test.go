@@ -136,17 +136,22 @@ func TestTheOutputHoldsNoCredentialAndNoDriverText(t *testing.T) {
 	good := w.login("trust-a", w.trustA)
 	cfg := w.trustA.Config().ConnConfig
 	unreachable := w.dsnFile("down", "postgres://svc_secretname:SECRETPW@127.0.0.1:1/secretdb?sslmode=disable&connect_timeout=2")
+	unknownKeys := t.TempDir()
+	writeKey(t, unknownKeys, "a key nobody registered")
+	appendFails := w.args(tenantA, good, packRoot)
+	appendFails[keyDirAt] = unknownKeys
 	cases := map[string]outcome{
-		"success":     w.run(w.args(tenantA, good, packRoot)...),
-		"refusal":     w.run(w.args(tenantA, w.login("exec-a", w.exeA), packRoot)...),
-		"unreachable": w.run(w.args(tenantA, unreachable, packRoot)...),
+		"append fails": w.run(appendFails...),
+		"success":      w.run(w.args(tenantA, good, packRoot)...),
+		"refusal":      w.run(w.args(tenantA, w.login("exec-a", w.exeA), packRoot)...),
+		"unreachable":  w.run(w.args(tenantA, unreachable, packRoot)...),
 	}
-	if c := cases["unreachable"].code; c != 2 {
-		t.Fatalf("an unreachable database: exit %d, want 2", c)
+	if c := cases["unreachable"].code; c != 2 || cases["append fails"].code != 2 {
+		t.Fatalf("an unreachable database: exit %d, a failed append: exit %d; want 2 for both", c, cases["append fails"].code)
 	}
 	for name, o := range cases {
 		text := o.out + o.err
-		for _, banned := range []string{cfg.User, "SECRETPW", "svc_secretname", "secretdb", "postgres://", "password", "pgconn", "ERROR:", w.trustA.Config().ConnString()} {
+		for _, banned := range []string{cfg.User, "SECRETPW", "svc_secretname", "secretdb", "postgres://", "password", "pgconn", "ERROR:", "policystore", "record_insert", w.trustA.Config().ConnString()} {
 			if banned != "" && strings.Contains(text, banned) {
 				t.Errorf("%s: the output holds %q:\n%s", name, banned, text)
 			}
@@ -171,8 +176,8 @@ func TestAMissingOrMalformedArgumentIsAUsageError(t *testing.T) {
 	full := w.args(tenantA, login, packRoot)
 	for i := 0; i < len(full); i += 2 {
 		args := append(append([]string{}, full[:i]...), full[i+2:]...)
-		if o := w.run(args...); o.code != 2 {
-			t.Errorf("without %s: exit %d, want 2", full[i], o.code)
+		if o := w.run(args...); o.code != 2 || !strings.Contains(o.err, "usage:") {
+			t.Errorf("without %s: exit %d, stderr %q; want 2 and the usage line", full[i], o.code, o.err)
 		}
 	}
 	for name, args := range map[string][]string{
@@ -181,8 +186,8 @@ func TestAMissingOrMalformedArgumentIsAUsageError(t *testing.T) {
 		"a stray argument":           append(w.args(tenantA, login, packRoot), "extra"),
 		"no arguments":               nil,
 	} {
-		if o := w.run(args...); o.code != 2 {
-			t.Errorf("%s: exit %d, want 2", name, o.code)
+		if o := w.run(args...); o.code != 2 || !strings.Contains(o.err, "usage:") {
+			t.Errorf("%s: exit %d, stderr %q; want 2 and the usage line", name, o.code, o.err)
 		}
 	}
 	w.nothingWritten()
@@ -377,5 +382,23 @@ func TestTheKeyOverlapIsTheCallersNumber(t *testing.T) {
 	}
 	if keyID != "core-trust.ed25519.2" {
 		t.Fatalf("signed under %s, want the newest key core-trust.ed25519.2", keyID)
+	}
+}
+
+// AGENT-13: the error value of a failed connection holds no part of the DSN, so no caller can print one by accident.
+func TestAConnectionErrorValueCarriesNoCredential(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dsn")
+	if err := os.WriteFile(path, []byte("postgres://svc_secretname:SECRETPW@127.0.0.1:1/secretdb?sslmode=disable&connect_timeout=2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := connect(ctx(t), path)
+	if err == nil {
+		t.Fatal("connected to a closed port")
+	}
+	for _, banned := range []string{"svc_secretname", "SECRETPW", "secretdb", "127.0.0.1"} {
+		if strings.Contains(err.Error(), banned) {
+			t.Errorf("the error %q holds %q", err.Error(), banned)
+		}
 	}
 }
