@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
@@ -439,5 +441,63 @@ func TestTheLockCountsIgnoreTheLocksOfAnotherDatabase(t *testing.T) {
 	}
 	if g, _ := lockCounts(t, w, ledger.SpendLockName(tenant)); g != 0 {
 		t.Fatalf("a lock of another database was counted for the tenant: %d held, want none", g)
+	}
+}
+
+// noema#748 review (P2, AGENT-13): a spend-lock failure reaches callers with a fixed public text. The tenant's ID and the driver's message (server and login details) are not in
+// it; the cause is kept for errors.Is and errors.As and is not printed.
+func TestASpendLockFailureNamesNeitherTheTenantNorTheDriver(t *testing.T) {
+	w := newWorld(t)
+	w.led.SerializationAttempts = 3
+	g := w.issue(t, 1)
+	release := holdSpendLock(t, w, tenant)
+	defer release()
+	c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	done := make(chan spendOutcome, 1)
+	go func() {
+		res, err := w.led.Spend(c, cmdFor(g))
+		done <- spendOutcome{res, err}
+	}()
+	waitFor(t, "the spend to queue on its lock", func() bool { _, waiting := lockCounts(t, w, ledger.SpendLockName(tenant)); return waiting == 1 })
+	if _, err := w.admin.Exec(ctx(t), `SELECT pg_terminate_backend(pid) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+		AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`); err != nil {
+		t.Fatal(err)
+	}
+	var o spendOutcome
+	select {
+	case o = <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the spend did not return after its waiting session was terminated")
+	}
+	if o.err == nil || o.res.Spent {
+		t.Fatalf("Spend = %+v, %v; want an error", o.res, o.err)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(o.err, &pgErr) {
+		t.Errorf("the driver's error is not kept as the cause: %v", o.err)
+	}
+	for _, leak := range []string{tenant, "SQLSTATE", "terminating", "57P01", "ERROR", "FATAL"} {
+		if strings.Contains(o.err.Error(), leak) {
+			t.Errorf("the error text carries %q: %q", leak, o.err.Error())
+		}
+	}
+}
+
+// The same for a wait that ends with the caller's deadline: the tenant's ID is not in the text, the deadline is still the cause.
+func TestALockWaitThatEndsWithTheDeadlineNamesNoTenant(t *testing.T) {
+	w := newWorld(t)
+	w.led.SerializationAttempts = 3
+	g := w.issue(t, 1)
+	release := holdSpendLock(t, w, tenant)
+	defer release()
+	c, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	res, err := w.led.Spend(c, cmdFor(g))
+	if err == nil || res.Spent || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Spend = %+v, %v; want an error that wraps the deadline", res, err)
+	}
+	if strings.Contains(err.Error(), tenant) {
+		t.Errorf("the error text names the tenant: %q", err.Error())
 	}
 }
