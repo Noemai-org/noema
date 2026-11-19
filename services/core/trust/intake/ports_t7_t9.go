@@ -89,6 +89,9 @@ type SnapshotEvidence struct {
 	Items []SourceItem
 	// RequiredUnavailable is true when a required source could not be read at all.
 	RequiredUnavailable bool
+	// EvidenceSetHash is the evidence_set_hash of the sealed snapshot the port read, in the contract's Hash form (sha256: and 64 lower-case hex); empty when the adapter does not
+	// give it. T9 refuses a value that is not empty and not in that form, and T13 passes it on in FreshBinding.
+	EvidenceSetHash string
 }
 
 // Evidence is the T9 read: the freshness of each required source item of the sealed snapshot the orchestrator named.

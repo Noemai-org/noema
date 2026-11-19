@@ -29,22 +29,23 @@ const (
 var errInjected = errors.New("injected fault")
 
 type f13 struct {
-	calls   []string
-	conf    Confirmation
-	confErr error
-	plan    Plan
-	planErr error
-	planReq []PlanRequest
-	rec     RecordResult
-	recErr  error
-	recReqs []RecordRequest
-	failAt  string
-	panicAt string
-	hasDL   []bool                // whether the context of each call had a deadline
-	caps    map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
-	capErr  error
-	checked []string
-	roles   []string // the role each Check was asked about (A255)
+	calls    []string
+	conf     Confirmation
+	confErr  error
+	bindings []FreshBinding // what T13 passed to Confirmations.Status
+	plan     Plan
+	planErr  error
+	planReq  []PlanRequest
+	rec      RecordResult
+	recErr   error
+	recReqs  []RecordRequest
+	failAt   string
+	panicAt  string
+	hasDL    []bool                // whether the context of each call had a deadline
+	caps     map[string]Capability // the registry for T14's per-step check; an ID not in it is unregistered
+	capErr   error
+	checked  []string
+	roles    []string // the role each Check was asked about (A255)
 	// the authorized set (Codex P1 on noema#572): nil means every capability the registry above knows
 	authorized []string
 	authErr    error
@@ -73,7 +74,8 @@ func (f *f13) hit(ctx context.Context, name string) error {
 	return nil
 }
 
-func (f *f13) Status(ctx context.Context, _ AdmittedIntent) (Confirmation, error) {
+func (f *f13) Status(ctx context.Context, _ AdmittedIntent, b FreshBinding) (Confirmation, error) {
+	f.bindings = append(f.bindings, b)
 	return f.conf, firstErr(f.hit(ctx, "Confirmations.Status"), f.confErr)
 }
 
@@ -330,14 +332,14 @@ func TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown(t *testing.T) 
 	}
 }
 
-// A status that is not one of the three, and a Given with no event, are not answers: UNKNOWN, never a continue.
+// A status that is not one of the four, and a Given with no event, are not answers: UNKNOWN, never a continue.
 func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		conf Confirmation
 	}{
 		{"the zero status", Confirmation{}},
-		{"a status outside the three", Confirmation{Status: ConfirmationGiven + 1, EventID: "cfe_synth0001"}},
+		{"a status outside the four", Confirmation{Status: ConfirmationDeclined + 1, EventID: "cfe_synth0001"}},
 		{"given with no event", Confirmation{Status: ConfirmationGiven}},
 	} {
 		f := newFake13()
