@@ -99,7 +99,7 @@ func TestAStartedWorkerIsReadyAndAStoppedOneIsNot(t *testing.T) {
 	conn, log := newCap(nil)
 	calls := 0
 	ports, _, _, _ := goodPorts()
-	h, err := buildWorker(deadlineCtx(), workerEnv(goodWorker()), ports, dialOf(conn, &calls))
+	h, err := buildWorker(deadlineCtx(), workerEnv(drainWorker()), ports, dialOf(conn, &calls))
 	if err != nil || h == nil || calls != 1 {
 		t.Fatalf("handle %v, err %v, dials %d", h, err, calls)
 	}
@@ -122,7 +122,7 @@ func TestAWorkerThatDoesNotStartIsNotReady(t *testing.T) {
 	conn, log := newCap(errors.New("boom secret-host:7233"))
 	calls := 0
 	ports, _, _, _ := goodPorts()
-	h, err := buildWorker(deadlineCtx(), workerEnv(goodWorker()), ports, dialOf(conn, &calls))
+	h, err := buildWorker(deadlineCtx(), workerEnv(drainWorker()), ports, dialOf(conn, &calls))
 	if h != nil || !errors.Is(err, ErrWorkerNotStarted) || strings.Contains(err.Error(), "secret-host") {
 		t.Fatalf("handle %v, err %v", h, err)
 	}
@@ -136,16 +136,16 @@ func TestAWorkerThatDoesNotStartIsNotReady(t *testing.T) {
 
 // AGENT-16: a bad setting, or a missing port, is an error that names it, and nothing is dialled. A half worker is never built.
 func TestAMissingPortOrBadSettingIsRefusedBeforeADial(t *testing.T) {
-	bad := goodWorker()
+	bad := drainWorker()
 	bad["NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS"] = "0"
 	cases := map[string]struct {
 		env   map[string]string
 		mut   func(*workerPorts)
 		names string
 	}{
-		"no executor": {goodWorker(), func(p *workerPorts) { p.Executor = nil }, "executor"},
-		"no reader":   {goodWorker(), func(p *workerPorts) { p.Reader = nil }, "reader"},
-		"no issuer":   {goodWorker(), func(p *workerPorts) { p.Issuer = nil }, "issuer"},
+		"no executor": {drainWorker(), func(p *workerPorts) { p.Executor = nil }, "executor"},
+		"no reader":   {drainWorker(), func(p *workerPorts) { p.Reader = nil }, "reader"},
+		"no issuer":   {drainWorker(), func(p *workerPorts) { p.Issuer = nil }, "issuer"},
 		"no timeout":  {bad, func(*workerPorts) {}, "NOEMA_TEMPORAL_ACTIVITY_TIMEOUT_MS"},
 	}
 	for name, c := range cases {
@@ -165,7 +165,7 @@ func TestEveryActivityPortIsBoundedByTheConfiguredTimeout(t *testing.T) {
 	conn, _ := newCap(nil)
 	calls := 0
 	ports, e, r, i := goodPorts()
-	if _, err := buildWorker(deadlineCtx(), workerEnv(goodWorker()), ports, dialOf(conn, &calls)); err != nil {
+	if _, err := buildWorker(deadlineCtx(), workerEnv(drainWorker()), ports, dialOf(conn, &calls)); err != nil {
 		t.Fatal(err)
 	}
 	acts, ok := conn.w.acts.(*workflows.EscalateActivities)
@@ -194,7 +194,7 @@ func TestTheRegisteredActivitiesAreTheWorkflowsOwnType(t *testing.T) {
 	conn, _ := newCap(nil)
 	calls := 0
 	ports, _, _, _ := goodPorts()
-	if _, err := buildWorker(deadlineCtx(), workerEnv(goodWorker()), ports, dialOf(conn, &calls)); err != nil {
+	if _, err := buildWorker(deadlineCtx(), workerEnv(drainWorker()), ports, dialOf(conn, &calls)); err != nil {
 		t.Fatal(err)
 	}
 	if got := reflect.TypeOf(conn.w.acts); got != reflect.TypeOf(&workflows.EscalateActivities{}) {
