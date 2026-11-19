@@ -361,6 +361,34 @@ func TestAContextThatEndsWhileRecordRunsRollsBack(t *testing.T) {
 	}
 }
 
+// AGENTS section 7: a context deadline on every call. A context with none is refused with the typed ErrNoDeadline before the facts, any transaction or the writer are touched.
+func TestARecordWithoutAContextDeadlineIsRefusedBeforeAnyTransaction(t *testing.T) {
+	cancelable, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	for name, ctx := range map[string]context.Context{"background": context.Background(), "cancel only": cancelable} {
+		b, f, w := &recBegin{tx: &recTx{}}, newRecFacts(), &recWriter{res: recGrants(1)}
+		got, err := recAdapter(t, b, f, w).Record(ctx, recRequest(t, 1))
+		if !errors.Is(err, ErrNoDeadline) || got.DecisionID != "" || len(b.tenants) != 0 || f.calls != 0 || len(w.got) != 0 {
+			t.Errorf("%s: err %v result %+v begins %d facts %d writes %d, want ErrNoDeadline and nothing touched", name, err, got, len(b.tenants), f.calls, len(w.got))
+		}
+	}
+}
+
+// A commit that fails leaves the outcome unknown (ErrCommit, with the cause wrapped so errors.Is finds it); a retry then returns the stored ALLOW, the same decision and grants (A186).
+func TestAFailedCommitThenARetryReturnsTheStoredDecision(t *testing.T) {
+	boom := errors.New("connection reset")
+	w := &recWriter{res: recGrants(1)}
+	a := recAdapter(t, &recBegin{tx: &recTx{commitErr: boom}}, newRecFacts(), w)
+	if _, err := a.Record(recCtx(t), recRequest(t, 1)); !errors.Is(err, ErrCommit) || !errors.Is(err, boom) {
+		t.Fatalf("first call: %v, want ErrCommit wrapping the cause", err)
+	}
+	a = recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), w)
+	got, err := a.Record(recCtx(t), recRequest(t, 1))
+	if err != nil || got.DecisionID != "dec_01DEC" || len(got.GrantIDs) != 1 {
+		t.Fatalf("retry: %v %+v, want the stored decision", err, got)
+	}
+}
+
 // A commit that fails is an error carrying ErrCommit: the outcome is then the stored decision's, which a retry returns (A186).
 func TestAFailedCommitIsAnErrorAndNoResult(t *testing.T) {
 	boom := errors.New("connection reset")

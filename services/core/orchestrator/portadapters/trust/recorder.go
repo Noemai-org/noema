@@ -30,6 +30,8 @@ var (
 	// ErrPlanHash is returned when the confirmation was given for another plan than the one being recorded, or a plan hash and a confirmation event do not come together (A230,
 	// INV-17). Nothing is written.
 	ErrPlanHash = errors.New("trustport: the confirmation was given for another plan")
+	// ErrNoDeadline is returned when the context of a call has no deadline (AGENTS section 7: a context deadline on every call). Nothing is written and no transaction is opened.
+	ErrNoDeadline = errors.New("trustport: the context has no deadline")
 	// ErrCommit wraps a failure of the commit itself. The commit may or may not have reached the database, so this is the one error that does not say "nothing was written":
 	// a retry of the same request returns the stored ALLOW with its grants (A186), and writes nothing twice.
 	ErrCommit = errors.New("trustport: the commit failed; a retry returns the stored decision")
