@@ -51,6 +51,8 @@ type Pack struct {
 	nodes map[string]nodeAuthority
 	// writes is the capability IDs of each graph's WRITE nodes, sorted, by graph ID.
 	writes map[string][]string
+	// graphRoots is the capability IDs of each graph's root nodes, by graph ID.
+	graphRoots map[string]map[string]struct{}
 	// rooted is, for a capability that is the capability of a declared root node, the capability IDs of every node that depends on that root, the root included, sorted, over
 	// every graph that declares it a root.
 	rooted map[string][]string
@@ -96,7 +98,7 @@ func LoadPack(root fs.FS, packFile string) (*Pack, error) {
 	if err != nil {
 		return nil, packErr("the capability registry refuses the pack: %v", err)
 	}
-	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, rooted: map[string][]string{}}
+	p := &Pack{reg: reg, capRoles: map[string]map[string]struct{}{}, nodes: map[string]nodeAuthority{}, writes: map[string][]string{}, graphRoots: map[string]map[string]struct{}{}, rooted: map[string][]string{}}
 	for _, d := range doc.Capabilities {
 		p.capRoles[string(d.CapabilityId)] = setOf(d.Authority.RolesAllowed)
 	}
@@ -198,12 +200,14 @@ func (p *Pack) loadGraph(id string, g contracts.ActionGraphV2, rooted map[string
 		}
 		downstream[from] = append(downstream[from], to)
 	}
+	p.graphRoots[id] = map[string]struct{}{}
 	for _, r := range g.Roots {
 		rid := string(r)
 		rc, ok := capOf[rid]
 		if !ok {
 			return packErr("a graph root is not a node of the graph")
 		}
+		p.graphRoots[id][rc] = struct{}{}
 		if rooted[rc] == nil {
 			rooted[rc] = map[string]struct{}{}
 		}
@@ -247,6 +251,22 @@ func sortedKeys(s map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// writeCapabilities is the sorted capability IDs of the WRITE nodes of the graph `graphID`, as a copy the caller owns. It is the one reading of "the writes of a graph", shared by the
+// escalation set and the authorized set so that they cannot drift (A346). An empty graph ID, a graph the pack does not have and a graph with no WRITE node are ErrEscalationGraph.
+func (p *Pack) writeCapabilities(graphID string) ([]string, error) {
+	writes := p.writes[graphID]
+	if graphID == "" || len(writes) == 0 {
+		return nil, fmt.Errorf("%w: the graph named has no write node in the pack", ErrEscalationGraph)
+	}
+	return append([]string{}, writes...), nil
+}
+
+// rootsGraph reports whether the capability is the capability of a root node of the graph `graphID`.
+func (p *Pack) rootsGraph(capabilityID, graphID string) bool {
+	_, ok := p.graphRoots[graphID][capabilityID]
+	return ok
 }
 
 func (p *Pack) usable() bool { return p != nil && p.reg != nil }

@@ -1,8 +1,6 @@
 package trustpack
 
 import (
-	"fmt"
-
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
 
@@ -16,9 +14,9 @@ func EscalationSetFromPack(p *Pack, graphID string) (recorder.EscalationSet, err
 	if !p.usable() {
 		return recorder.EscalationSet{}, ErrConfig
 	}
-	writes := p.writes[graphID]
-	if graphID == "" || len(writes) == 0 {
-		return recorder.EscalationSet{}, fmt.Errorf("%w: the graph named has no write node in the pack", ErrEscalationGraph)
+	writes, err := p.writeCapabilities(graphID)
+	if err != nil {
+		return recorder.EscalationSet{}, err
 	}
 	return recorder.NewEscalationSet(writes...), nil
 }

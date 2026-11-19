@@ -58,3 +58,28 @@ Updated 2026-11-18. The user's order of 18 Nov (relayed, interim, not committed:
 - Open questions (owner): Q1 to Q6 above (Architect, EL).
 - Files to read first: `trustpack/README.md`, `pack.go` (`LoadPack`, `loadGraph`), `capabilities.go` (`Authorized`).
 - Do not touch: `trust/intake` and `trust/recorder` (the ports and the set type are used as they are); the pack files.
+
+# Session 2026-11-19 · TRU-02 adapters · A346, the authorized set is the escalation graph's writes
+
+## Session summary
+- What changed (PR links): on noema#745's branch, local, not pushed (worktree `/home/user/wt-r9`, branch `prep/r9-745`, from `origin/feat/TRU-02-pack-adapters` merged with `origin/main`). `NewCapabilities(pack, remedies, graphID)` takes the escalation graph ID from configuration (the value `EscalationSetFromPack` takes). `Authorized` for an intent whose capability is a root of that graph returns that graph's sorted WRITE capabilities (a copy), read by the one function `Pack.writeCapabilities` that `EscalationSetFromPack` now also uses, so the two sets cannot drift. No capability, node or graph ID in core code (the scan test still passes).
+- Why: ruling A346 (relayed, interim, not committed; the only text received: "authorized set = g2's three writes via the graph id").
+- Risks, and how they are contained: the set for the escalation root can only shrink or stay equal compared with A306 (writes of one graph instead of every node downstream over every graph); for the fintech pack it is the same three capabilities. A graph ID the pack cannot give is a construction error (fail closed, no adapter).
+- Tests added (REQ-TRU-004, REQ-TRU-005, REQ-TRU-010; INV-14, INV-16, BD-08, A306, A346): `TestNewCapabilitiesFailsClosedOnAGraphIDItCannotUse`, `TestAuthorizedOfTheNamedGraphHoldsItsWritesOnly`, `TestAuthorizedOfTheNamedGraphIsSortedWhateverTheNodeOrder`, `TestAuthorizedOfTheNamedGraphIsTheEscalationSet`, `TestAuthorizedFollowsTheGraphIDTheCompositionRootNames`, `TestAuthorizedOfTheNamedGraphIsNotUnionedWithAnotherGraphOfTheSameRoot`.
+- Existing tests changed (none weakened or deleted): `TestAuthorizedIsExactlyTheCapabilitiesOfTheGraphTheRequestedCapabilityRoots` now expects the writes of the escalation graph (stricter: a set that held a read would fail; same value on the real pack). `TestAuthorizedFollowsTheEdgesFromTheRootOnly` and `TestAuthorizedIsTheUnionOfTheGraphsOneCapabilityRoots` keep their expectations but name the complaint graph, because under A346 a root of the named graph gets the graph's writes, not its downstream or a union; they now prove the A306 rule for roots of other graphs. All others take the escalation graph ID through the helper `newCaps`.
+- Regression cases added: the above; no bug fix.
+- Debt entries: none. Conflicts raised: none.
+- Red at `a0be0102` (constructor takes the ID and ignores it; 4 tests fail on assertions), green after.
+- Mutants (10), all killed, source restored after each: graph ID ignored (all graphs unioned again); named-graph rule for every root; only the first write node; read nodes included; set not copied; writes unsorted; constructor accepts any graph ID; graph with no write node accepted; escalation set drifts from the authorized set; roots checked against the wrong graph.
+
+## ASSUMPTIONS to confirm (A346 is silent on them)
+1. An intent whose capability does NOT root the named graph keeps the A306 behaviour: the downstream of its own root over every graph that declares it a root, reads included (so the investigation root still gets its reads and internal nodes, the complaint root its one write). Registered capability that roots no graph and no remedy: empty set, no error. Unknown or prohibited root: `ErrCapability`. If A346 means "writes only, always", the investigation root's set would become empty (it has no write) and the read steps of the investigation plan would be refused at T14: that cannot be the intent, so it was not done.
+2. A capability that is any declared root of the named graph gets all of the graph's writes (not its own downstream); the fintech graph has one root, so this differs only in a synthetic two-root variant.
+3. A capability that roots the named graph and another graph gets the named graph's writes only (no union).
+4. An unusable graph ID is an error at construction (`ErrEscalationGraph`), not at the first call.
+
+## Pre-work for the next agent
+- Exact next step: Architect confirms assumptions 1 to 3; EL passes the same `escalationGraphID` to `NewCapabilities` and `EscalationSetFromPack` in `wire_trust.go` (no caller exists yet in the repository).
+- Open questions (owner): assumptions 1 to 4 (Architect).
+- Files to read first: `trustpack/capabilities.go` (`Authorized`), `trustpack/pack.go` (`writeCapabilities`, `rootsGraph`).
+- Do not touch: `trust/intake`, `trust/recorder`, the pack files.

@@ -19,16 +19,25 @@ type Remedies interface {
 type Capabilities struct {
 	pack     *Pack
 	remedies Remedies
+	// graphID is the graph the composition root names (the escalation graph); writes is its WRITE capabilities, sorted, read once at construction.
+	graphID string
+	writes  []string
 }
 
 var _ intake.Capabilities = Capabilities{}
 
-// NewCapabilities builds the adapter. main.go passes the Pack from LoadPack and a Remedies over the intent store. A nil pack or a nil port is ErrConfig.
+// NewCapabilities builds the adapter. main.go passes the Pack from LoadPack, a Remedies over the intent store, and the ID of the pack graph whose writes an intent rooting it is
+// authorized (A346): the same configuration value EscalationSetFromPack takes. The pack has no field that names that graph (DEBT-48), so no ID is written here (INV-14). A nil pack
+// or a nil port is ErrConfig; an empty graph ID, a graph the pack does not have and a graph with no WRITE node are ErrEscalationGraph, and no adapter is built.
 func NewCapabilities(p *Pack, r Remedies, graphID string) (Capabilities, error) {
 	if !p.usable() || r == nil {
 		return Capabilities{}, ErrConfig
 	}
-	return Capabilities{pack: p, remedies: r}, nil
+	writes, err := p.writeCapabilities(graphID)
+	if err != nil {
+		return Capabilities{}, err
+	}
+	return Capabilities{pack: p, remedies: r, graphID: graphID, writes: writes}, nil
 }
 
 func (c Capabilities) usable(ctx context.Context) error {
@@ -90,17 +99,18 @@ func (c Capabilities) Check(ctx context.Context, capabilityID, role string) (int
 	return cp, nil
 }
 
-// Authorized is the set of capability IDs of the pack action graphs the intent's capability roots: every node that depends, directly or not, on a root node whose capability is the
-// intent's, reads included, over every graph that declares such a root, sorted (A306, A319: pack data, no ID in the core). The intake adds the intent's own capability.
+// Authorized is the set of capability IDs the intent's capability authorizes (A306, A346, A319: pack data, no ID in the core). The intake adds the intent's own capability.
 //
-// Which answers are an error and which are empty (interim, for the Architect, the safer reading):
-//   - a capability the registry does not know, or a prohibited one, roots no authorization: ErrCapability, so the intake ends in UNKNOWN. It is never "none" and never a set.
-//     T4 refuses such a capability first (REJECT), so this is the second wall.
-//   - a registered capability that roots no graph, and an intent that requests no capability, authorize nothing beyond the intent's own capability: an empty set and no error.
-//     That is the narrowest answer. T14 then refuses any plan step outside the intent's own capability (PLAN_INVALID), so nothing is widened.
-//   - a failed read of the remedy, or a nil pack, is an error.
+//   - An intent whose capability is the capability of a root node of the named graph (NewCapabilities' graphID, the escalation graph) is authorized the WRITE capabilities of that
+//     graph and nothing else: no read, no internal node, no capability of another graph the same capability roots. It is the same list EscalationSetFromPack builds from the same graph.
+//   - Any other registered capability keeps the A306 rule (assumed, A346 is silent on it; flagged for the Architect): every capability of the nodes that depend, directly or not, on
+//     a root node whose capability is the intent's, reads included, over every graph that declares such a root. A registered capability that roots no graph, and an intent that
+//     requests no capability, authorize nothing beyond the intent's own capability: an empty set and no error, the narrowest answer (T14 then refuses any plan step outside it).
+//   - A capability the registry does not know, or a prohibited one, roots no authorization: ErrCapability, so the intake ends in UNKNOWN. It is never "none" and never a set. T4
+//     refuses such a capability first (REJECT), so this is the second wall.
+//   - A failed read of the remedy, or a nil pack, is an error.
 //
-// The caller gets its own copy.
+// The set is sorted and the caller gets its own copy.
 func (c Capabilities) Authorized(ctx context.Context, a intake.AdmittedIntent) ([]string, error) {
 	if err := c.usable(ctx); err != nil {
 		return nil, err
@@ -114,6 +124,9 @@ func (c Capabilities) Authorized(ctx context.Context, a intake.AdmittedIntent) (
 	}
 	if known, prohibited := c.pack.capability(id); !known || prohibited {
 		return nil, fmt.Errorf("%w: the intent's capability is unknown or prohibited", ErrCapability)
+	}
+	if c.pack.rootsGraph(id, c.graphID) {
+		return append([]string{}, c.writes...), nil
 	}
 	return append([]string{}, c.pack.rooted[id]...), nil
 }
