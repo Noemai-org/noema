@@ -16,3 +16,21 @@
 **Tests.** `go test ./record/keyannounce/` from `services/core/`. They need PostgreSQL server binaries or `NOEMA_TEST_DATABASE_URL`. Every key and datum is SYNTHETIC.
 
 **Not wired into `cmd/core`.** The composition root has no admin signer, admin emitter login or key-registry login yet; see the status file for the exact call.
+
+**Errors (A347, AGENT-13).** An error that leaves the package has a fixed public text; the cause stays reachable with `errors.Is` and `errors.As`.
+
+| Site (`keyannounce.go`) | Public text (all begin `keyannounce: `) | Cause kept |
+|---|---|---|
+| `PoolKeys.KeyIDs`, the query | the signing keys could not be read | the driver's error |
+| `PoolKeys.KeyIDs`, a scan | a signing key could not be read | the scan error |
+| `PoolKeys.KeyIDs`, `rows.Err()` | the signing keys could not be read | the driver's error |
+| `Announce`, the tenant ID check | the tenant ID does not match the contract | none (the ID is not printed) |
+| `Announce`, `BeginTx` | the announcement transaction could not be started | the pool's or driver's error |
+| `Announce`, the advisory lock | the announcement lock could not be taken | the driver's error, or the deadline |
+| `Announce`, the correlation ID | a correlation ID could not be made | the generator's error |
+| `Announce`, `Appender.Append` | a key announcement could not be appended | the appender's error (and the driver's below it) |
+| `Announce`, `Commit` | the announcement could not be committed | the driver's error |
+| `missing`, `KeyRegistry.KeyIDs` (any registry) | the key registry could not be read | the registry's error |
+| `missing`, `chain.ReadChain` | the tenant's chain could not be read | the chain package's error |
+
+Unchanged on purpose: the no-deadline, the missing-collaborator and the K1-shape errors (fixed texts already, no identifier). The tenant's ID, a key ID, the event type, the driver's message and a dependency's text are in none of the others. One private type, `announceError` (fixed `text`, `cause`; `Error()` returns the text, `Unwrap` the cause), the shape of `lockError` on noema#748. No logger exists in the package and none was added: the cause is the debugging channel.

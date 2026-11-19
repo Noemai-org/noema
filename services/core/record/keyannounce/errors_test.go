@@ -41,8 +41,11 @@ func assertFixedText(t *testing.T, w *world, err error, extra ...string) {
 	if !strings.HasPrefix(err.Error(), "keyannounce: ") {
 		t.Errorf("the error text %q does not start with the package's prefix", err.Error())
 	}
-	if errors.Unwrap(err) == nil {
+	cause := errors.Unwrap(err)
+	if cause == nil {
 		t.Errorf("the cause is not kept behind Unwrap: %q", err.Error())
+	} else if strings.Contains(err.Error(), cause.Error()) {
+		t.Errorf("the error text %q holds its cause's text %q", err.Error(), cause.Error())
 	}
 }
 
@@ -144,9 +147,8 @@ func TestEveryErrorOfAnnounceHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 				defer cancel()
 				done := make(chan error, 1)
 				go func() { _, err := w.ann.Announce(c, ten); done <- err }()
-				deadline := time.Now().Add(15 * time.Second)
-				for waitingLocks(t, w) == 0 {
-					if time.Now().After(deadline) {
+				for polls := 0; waitingLocks(t, w) == 0; polls++ {
+					if polls > 750 {
 						t.Fatal("the announcement never queued on its lock")
 					}
 					time.Sleep(20 * time.Millisecond)
@@ -314,6 +316,9 @@ func TestEveryErrorOfAnnounceHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 			if !strings.HasPrefix(err.Error(), "keyannounce: ") {
 				t.Errorf("the error text %q does not start with the package's prefix", err.Error())
 			}
+			if cause := errors.Unwrap(err); cause != nil && strings.Contains(err.Error(), cause.Error()) {
+				t.Errorf("the error text %q holds its cause's text %q", err.Error(), cause.Error())
+			}
 			c.cause(t, err)
 			if c.name != "tenant: the ID does not match the contract" && c.name != "registry: a key ID is not of the K1 shape" && errors.Unwrap(err) == nil {
 				t.Errorf("the cause is not kept behind Unwrap: %q", err.Error())
@@ -335,7 +340,7 @@ func TestPoolKeysErrorsHaveAFixedPublicTextAndKeepTheirCause(t *testing.T) {
 		assertFixedText(t, w, err)
 	})
 	t.Run("the read is refused by the database", func(t *testing.T) {
-		p := testpg.TenantLogin(t, w.admin, w.dsn, "execution_rw", tenantA)
+		p := testpg.EmitterLogin(t, w.admin, w.dsn, tenantA, keyannounce.Emitter)
 		_, err := keyannounce.PoolKeys{Q: p}.KeyIDs(ctx(t))
 		var pgErr *pgconn.PgError
 		if err == nil || !errors.As(err, &pgErr) {

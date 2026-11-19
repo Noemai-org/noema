@@ -16,6 +16,17 @@ import (
 
 const errPrefix = "keyannounce: "
 
+// announceError is a failure of the announcement as callers see it (A347, AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The
+// tenant's ID, a key ID and the driver's message (SQLSTATE text, server and login details) are not in the text.
+type announceError struct {
+	text  string
+	cause error
+}
+
+func (e *announceError) Error() string { return e.text }
+
+func (e *announceError) Unwrap() error { return e.cause }
+
 // EventType is the Record event type of an announced key registration (PERD 32.2, control plane).
 const EventType = "KEY_ROTATED"
 
@@ -42,19 +53,19 @@ func (p PoolKeys) KeyIDs(ctx context.Context) ([]string, error) {
 	}
 	rows, err := p.Q.Query(ctx, `SELECT key_id FROM signing_key ORDER BY identity, version`)
 	if err != nil {
-		return nil, fmt.Errorf("%sread signing_key: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "the signing keys could not be read", cause: err}
 	}
 	defer rows.Close()
 	var out []string
 	for rows.Next() {
 		var k string
 		if err := rows.Scan(&k); err != nil {
-			return nil, fmt.Errorf("%sscan signing_key: %w", errPrefix, err)
+			return nil, &announceError{text: errPrefix + "a signing key could not be read", cause: err}
 		}
 		out = append(out, k)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%sread signing_key: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "the signing keys could not be read", cause: err}
 	}
 	return out, nil
 }
@@ -92,7 +103,7 @@ func (a *Announcer) Announce(ctx context.Context, t Tenant) ([]string, error) {
 		return nil, errors.New(errPrefix + "the announcer, its appender, key registry and the tenant's connections are all required")
 	}
 	if !chain.ValidTenantID(t.ID) {
-		return nil, fmt.Errorf("%stenant ID %q does not match the contract", errPrefix, t.ID)
+		return nil, errors.New(errPrefix + "the tenant ID does not match the contract")
 	}
 	missing, err := a.missing(ctx, t)
 	if err != nil || len(missing) == 0 {
@@ -100,11 +111,11 @@ func (a *Announcer) Announce(ctx context.Context, t Tenant) ([]string, error) {
 	}
 	tx, err := t.Admin.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("%sbegin: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "the announcement transaction could not be started", cause: err}
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }() // a rollback after a commit is a no-op; after a failure it is what keeps nothing
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "noema:key_rotated:"+t.ID); err != nil {
-		return nil, fmt.Errorf("%slock the tenant's announcement: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "the announcement lock could not be taken", cause: err}
 	}
 	// Under the lock, a run that waited for another sees what that run committed.
 	if missing, err = a.missing(ctx, t); err != nil || len(missing) == 0 {
@@ -112,16 +123,16 @@ func (a *Announcer) Announce(ctx context.Context, t Tenant) ([]string, error) {
 	}
 	corr, err := a.Appender.IDs.ID("corr")
 	if err != nil {
-		return nil, fmt.Errorf("%scorrelation id: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "a correlation ID could not be made", cause: err}
 	}
 	for _, id := range missing {
 		ev := chain.Event{TenantID: t.ID, CorrelationID: corr, WrittenBy: Emitter, Actor: Emitter, EventType: EventType, ObjectRef: objectRef(id), Payload: map[string]any{"key_id": id}}
 		if _, err := a.Appender.Append(ctx, tx, ev); err != nil {
-			return nil, fmt.Errorf("%sappend %s for %s: %w", errPrefix, EventType, id, err)
+			return nil, &announceError{text: errPrefix + "a key announcement could not be appended", cause: err}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("%scommit: %w", errPrefix, err)
+		return nil, &announceError{text: errPrefix + "the announcement could not be committed", cause: err}
 	}
 	return missing, nil
 }
@@ -130,14 +141,14 @@ func (a *Announcer) Announce(ctx context.Context, t Tenant) ([]string, error) {
 func (a *Announcer) missing(ctx context.Context, t Tenant) ([]string, error) {
 	keys, err := a.Keys.KeyIDs(ctx)
 	if err != nil {
-		return nil, err
+		return nil, &announceError{text: errPrefix + "the key registry could not be read", cause: err}
 	}
 	if len(keys) == 0 {
 		return nil, nil
 	}
 	rows, err := chain.ReadChain(ctx, t.Reader)
 	if err != nil {
-		return nil, err
+		return nil, &announceError{text: errPrefix + "the tenant's chain could not be read", cause: err}
 	}
 	done := map[string]bool{}
 	for _, r := range rows {

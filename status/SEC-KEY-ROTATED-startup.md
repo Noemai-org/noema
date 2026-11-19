@@ -56,3 +56,23 @@ No idempotency (never reads what is announced): 4 tests fail. Append for all key
 - Open questions (owner): 1 to 8 above (Founders for 1, 3, 5; Architect for 2, 8).
 - Files to read first: `services/core/record/keyannounce/keyannounce.go`, DEC-2026-11-01 D2a and test 20, `cmd/core/recorder.go`, migrations 0011, 0013, 0019.
 - Do not touch: `payloadguard` (its `/key_id` exemption is what lets the payload through), `chain.Appender`, the signing_key migrations.
+
+## Session 2026-11-19 · SEC-KEY-ROTATED fixed-text errors (A347)
+
+### Session summary
+- What changed (PR links): noema#738, local commits not pushed: RED `7b8ba703`, then the GREEN commit that follows it; the sites are listed in `services/core/record/keyannounce/README.md` (Errors).
+- Why: A347 (relayed, interim): an error crossing a package boundary has a fixed public text; the tenant, key IDs, the driver's message and paths are not in `Error()`, and the cause stays behind `Unwrap`.
+- Risks, and how they are contained: Tier 1 (Record). Behaviour is unchanged; only error text and wrapping change. A caller that matched on the old text (none in the repository) would break; `errors.Is` and `errors.As` still reach every cause.
+- Tests added (AGENT-13, A347): `record/keyannounce/errors_test.go`: a table over 14 error sites of `Announce` and 5 of `PoolKeys.KeyIDs`, on a real PostgreSQL (closed pool, session terminated while the lock statement waits, expired deadline, a login without privilege, a refused signature, a refused emitter, a connection lost before the commit); each checks the text for the tenant, key ID, SQLSTATE, driver words, DSN and paths, and that the cause's own text is not in the error's text, and that `errors.Is` or `errors.As` reaches the cause.
+- Regression cases added: the same table.
+- Debt entries: none.
+- Conflicts raised: none.
+
+### Mutants (each run against `errors_test.go`, each killed, original restored)
+Each of the 11 changed sites reverted to its old `fmt.Errorf` (or bare `err`) in turn: 11 of 11 fail. The commit site was first not caught (its driver text, `conn closed`, holds none of the listed words); the test now also fails any error whose text contains its cause's text, and that mutant is killed.
+
+### Pre-work for the next agent
+- Exact next step: none for this item; the wiring in `cmd/core` is unchanged.
+- Open questions (owner): `PoolKeys.KeyIDs` scan and `rows.Err()` are provoked through a stub `chain.Queryer` (a one-column result cannot be made to fail mid-stream on a real connection); say if that is not acceptable under AGENT-12 (Architect).
+- Files to read first: `record/keyannounce/keyannounce.go`, `errors_test.go`.
+- Do not touch: the unchanged fixed-text errors.
