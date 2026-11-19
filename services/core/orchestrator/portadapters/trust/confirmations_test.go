@@ -2,11 +2,14 @@ package trustport_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
@@ -42,9 +45,25 @@ func (s *cpStore) Latest(context.Context, string, string, string, int) (trustpor
 	return s.req, s.found, s.err
 }
 
+// cpPlanner is the Planner the adapter asks for the plan hash (A369, interim, relayed, not yet committed).
+type cpPlanner struct {
+	hash  string
+	err   error
+	calls []intake.PlanRequest
+}
+
+func (p *cpPlanner) Plan(_ context.Context, r intake.PlanRequest) (intake.Plan, error) {
+	p.calls = append(p.calls, r)
+	if p.err != nil {
+		return intake.Plan{}, p.err
+	}
+	return intake.Plan{Hash: p.hash}, nil
+}
+
 type cpWorld struct {
 	pol  *cpPolicy
 	st   *cpStore
+	pl   *cpPlanner
 	path trustport.ConfirmationPath
 }
 
@@ -77,8 +96,8 @@ func cpAccept(by string, roles ...string) confirm.Event {
 
 func cpBuild(t *testing.T, requirement string, st *cpStore) *cpWorld {
 	t.Helper()
-	w := &cpWorld{pol: &cpPolicy{terms: trustport.ConfirmationTerms{Required: true, Requirement: requirement, ExpiresIn: cpTTL}}, st: st}
-	p, err := trustport.NewConfirmationPath(trustport.ConfirmationDeps{Policy: w.pol, Store: w.st, Clock: clock.NewManual(cpNow)})
+	w := &cpWorld{pol: &cpPolicy{terms: trustport.ConfirmationTerms{Required: true, Requirement: requirement, ExpiresIn: cpTTL}}, st: st, pl: &cpPlanner{hash: "sha256:dd"}}
+	p, err := trustport.NewConfirmationPath(trustport.ConfirmationDeps{Policy: w.pol, Store: w.st, Planner: w.pl, Clock: clock.NewManual(cpNow)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,13 +378,120 @@ func TestStatusAStoredRequestOfAnotherPrincipalOrIntentIsANewRequestNeverGiven(t
 	}
 }
 
-// The hand-over: what the Recorder persists for a Pending answer with a NewRequest. The requester is the admitted intent's principal (INV-12), never taken from the spec.
-func TestNewRequestForCarriesThePrincipalOfTheAdmittedIntentAndTheSpec(t *testing.T) {
-	a := cpAdmitted()
-	got := trustport.NewRequestFor(a, cpNewRequest("ROLE:checker"))
+// The hand-over: what the Recorder persists for a Pending answer with a NewRequest. The requester is the admitted intent's principal (INV-12), never taken from the spec; the plan
+// hash is the one the Planner gives now (A369), never one supplied by a caller.
+func TestNewRequestForCarriesThePrincipalOfTheAdmittedIntentTheSpecAndThePlannersHash(t *testing.T) {
+	w := cpBuild(t, "SELF", &cpStore{})
+	got, err := w.path.NewRequestFor(cpCtx(t), cpAdmitted(), cpNewRequest("ROLE:checker"))
 	want := trustport.NewConfirmationRequest{TenantID: "ten_1", CorrelationID: "cor_1", IntentID: "int_1", IntentVersion: 1, IntentHash: "sha256:aa", RequesterID: "prn_1",
-		Requirement: "ROLE:checker", TTL: cpTTL}
-	if got != want {
-		t.Fatalf("got %+v want %+v", got, want)
+		Requirement: "ROLE:checker", TTL: cpTTL, PlanHash: "sha256:dd"}
+	if err != nil || got != want {
+		t.Fatalf("got %+v %v want %+v", got, err, want)
+	}
+	w.pl.err = intake.ErrPlanInvalid
+	if got, err := w.path.NewRequestFor(cpCtx(t), cpAdmitted(), cpNewRequest("SELF")); !errors.Is(err, intake.ErrPlanInvalid) || got != (trustport.NewConfirmationRequest{}) {
+		t.Fatalf("planner refusal: %+v %v", got, err)
+	}
+	w.pl.err, w.pl.hash = nil, ""
+	if _, err := w.path.NewRequestFor(cpCtx(t), cpAdmitted(), cpNewRequest("SELF")); !errors.Is(err, trustport.ErrBadAnswer) {
+		t.Fatalf("empty plan hash: %v", err)
+	}
+}
+
+// A369: the adapter ASKS the Planner for the plan hash, with the request derived from the admitted intent exactly as T14 builds it (a confirmation is for one write).
+func TestStatusAsksThePlannerWithTheRequestOfTheAdmittedIntent(t *testing.T) {
+	want := intake.PlanRequest{TenantID: "ten_1", CorrelationID: "cor_1", IntentID: "int_1", IntentVersion: 1, IntentHash: "sha256:aa", IntentNode: "node_1", WriteRequired: true}
+	for name, st := range map[string]*cpStore{"no request": {}, "open": {req: cpOpen("SELF"), found: true}, "answered": {req: cpAnswered("SELF", cpAccept("prn_1")), found: true}} {
+		t.Run(name, func(t *testing.T) {
+			w := cpBuild(t, "SELF", st)
+			if _, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh()); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.pl.calls) != 1 || w.pl.calls[0] != want {
+				t.Fatalf("planner calls %+v", w.pl.calls)
+			}
+		})
+	}
+	w := cpBuild(t, "SELF", &cpStore{})
+	w.pol.terms.Required = false
+	if _, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh()); err != nil || len(w.pl.calls) != 0 {
+		t.Fatalf("not required must not ask the planner: %v %+v", err, w.pl.calls)
+	}
+}
+
+// A369: the plan the Planner gives NOW is the one compared with the stored request's, so a plan that drifted supersedes the request and a Given answer is never spent on it.
+func TestStatusAPlanThatDriftedIsAPendingNewRequestNeverGiven(t *testing.T) {
+	for name, st := range map[string]*cpStore{"open": {req: cpOpen("SELF"), found: true}, "answered": {req: cpAnswered("SELF", cpAccept("prn_1")), found: true}} {
+		t.Run(name, func(t *testing.T) {
+			w := cpBuild(t, "SELF", st)
+			w.pl.hash = "sha256:ee"
+			got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+			if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.EventID != "" || got.NewRequest == nil || *got.NewRequest != *cpNewRequest("SELF") {
+				t.Fatalf("got %+v %v", got, err)
+			}
+		})
+	}
+}
+
+// A369: a Planner error is an error the intake turns into UNKNOWN, on every path that needs the hash; ErrPlanInvalid stays recognisable. Never Given, never Pending.
+func TestStatusAPlannerErrorIsAnErrorNeverGivenOrPending(t *testing.T) {
+	boom := errors.New("planner down")
+	for name, want := range map[string]error{"invalid": intake.ErrPlanInvalid, "dependency": boom} {
+		for sname, st := range map[string]*cpStore{"no request": {}, "open": {req: cpOpen("SELF"), found: true}, "answered": {req: cpAnswered("SELF", cpAccept("prn_1")), found: true}} {
+			t.Run(name+"/"+sname, func(t *testing.T) {
+				w := cpBuild(t, "SELF", st)
+				w.pl.err = want
+				got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh())
+				if !errors.Is(err, want) || got != (intake.Confirmation{}) {
+					t.Fatalf("got %+v %v", got, err)
+				}
+			})
+		}
+	}
+	w := cpBuild(t, "SELF", &cpStore{req: cpAnswered("SELF", cpAccept("prn_1")), found: true})
+	w.pl.hash = ""
+	if got, err := w.path.Status(cpCtx(t), cpAdmitted(), cpFresh()); !errors.Is(err, trustport.ErrBadAnswer) || got != (intake.Confirmation{}) {
+		t.Fatalf("empty plan hash: %+v %v", got, err)
+	}
+	if _, err := trustport.NewConfirmationPath(trustport.ConfirmationDeps{Policy: w.pol, Store: w.st, Clock: clock.NewManual(cpNow)}); !errors.Is(err, trustport.ErrConfig) {
+		t.Fatalf("no planner: %v", err)
+	}
+}
+
+// A365: the evidence-set hash is over the CONTENT of the evidence (payload hashes), so two snapshots with the same ids and different content have different hashes, and the
+// adapter, given the changed hash, supersedes the request; the same content gives the same hash and the answer stands.
+func TestStatusChangedEvidenceContentSupersedesTheRequest(t *testing.T) {
+	h := func(c string) string {
+		sum := sha256.Sum256([]byte(c))
+		return "sha256:" + hex.EncodeToString(sum[:])
+	}
+	set := func(a, b string) string {
+		v, err := snapshot.SetHash([]snapshot.Pair{{EvidenceID: "evd_1", PayloadHash: h(a)}, {EvidenceID: "evd_2", PayloadHash: h(b)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	before, same, changed := set("balance=10", "limit=5"), set("balance=10", "limit=5"), set("balance=99", "limit=5")
+	if before != same || before == changed {
+		t.Fatalf("same ids with different content must differ: %s %s %s", before, same, changed)
+	}
+	req := cpAnswered("SELF", cpAccept("prn_1"))
+	req.Request.Binding.EvidenceSetHash = before
+	w := cpBuild(t, "SELF", &cpStore{req: req, found: true})
+	got, err := w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: same, PolicyVersion: "pol_1"})
+	if err != nil || got.Status != intake.ConfirmationGiven {
+		t.Fatalf("same content: %+v %v", got, err)
+	}
+	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: changed, PolicyVersion: "pol_1"})
+	if err != nil || got.Status != intake.ConfirmationPending || got.NewRequest == nil || got.EventID != "" {
+		t.Fatalf("changed content: %+v %v", got, err)
+	}
+	open := cpOpen("SELF")
+	open.Request.Binding.EvidenceSetHash = before
+	w = cpBuild(t, "SELF", &cpStore{req: open, found: true})
+	got, err = w.path.Status(cpCtx(t), cpAdmitted(), intake.FreshBinding{EvidenceSetHash: changed, PolicyVersion: "pol_1"})
+	if err != nil || got.Status != intake.ConfirmationPending || got.RequestID != "" || got.NewRequest == nil {
+		t.Fatalf("open request, changed content: %+v %v", got, err)
 	}
 }

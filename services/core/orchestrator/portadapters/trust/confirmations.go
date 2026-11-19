@@ -54,7 +54,9 @@ type ConfirmationStore interface {
 type ConfirmationDeps struct {
 	Policy ConfirmationPolicy
 	Store  ConfirmationStore
-	Clock  clock.Clock
+	// Planner is asked for the plan hash (A369); the adapter never takes one from a stored or supplied value.
+	Planner intake.Planner
+	Clock   clock.Clock
 }
 
 // ConfirmationPath implements intake.Confirmations over trust/confirm. Status is pure.
@@ -159,10 +161,10 @@ type NewConfirmationRequest struct {
 	RequesterID   string // the admitted intent's PrincipalID (INV-12)
 	Requirement   string // SELF, MAKER_CHECKER or ROLE:<role>
 	TTL           time.Duration
+	PlanHash      string // the plan hash the Planner gives now (A369)
 }
 
-// NewRequestFor builds the hand-over from the admitted intent and the spec Status returned.
-func NewRequestFor(a intake.AdmittedIntent, s *intake.RequestSpec) NewConfirmationRequest {
-	return NewConfirmationRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
-		RequesterID: a.PrincipalID, Requirement: s.Requirement, TTL: s.TTL}
+// NewRequestFor builds the hand-over from the admitted intent and the spec Status returned (stub, red commit).
+func (c ConfirmationPath) NewRequestFor(_ context.Context, a intake.AdmittedIntent, s *intake.RequestSpec) (NewConfirmationRequest, error) {
+	return NewConfirmationRequest{}, nil
 }
