@@ -2,8 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -46,12 +44,12 @@ func (l *Ledger) withSpendLock(ctx context.Context, tenantID string, fn func(*pg
 	}
 	conn, err := l.Pool.Acquire(ctx)
 	if err != nil {
-		return fmt.Errorf("%sacquire a connection: %w", errPrefix, err)
+		return &lockError{text: errPrefix + "no connection could be acquired for the spend lock", cause: err}
 	}
 	name := SpendLockName(tenantID)
 	if _, err := conn.Exec(ctx, spendLockStatement, SpendLockNamespace, name); err != nil {
 		l.destroy(ctx, conn)
-		return fmt.Errorf("%swait for the spend lock of tenant %s: %w", errPrefix, tenantID, err)
+		return &lockError{text: errPrefix + "the wait for the spend lock did not complete", cause: err}
 	}
 	ferr := fn(conn)
 	uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.RollbackTimeout)
@@ -60,7 +58,7 @@ func (l *Ledger) withSpendLock(ctx context.Context, tenantID string, fn func(*pg
 	if uerr := conn.QueryRow(uctx, spendUnlockStatement, SpendLockNamespace, name).Scan(&released); uerr != nil || !released || conn.Conn().PgConn().TxStatus() != txIdle {
 		l.destroy(ctx, conn)
 		if ferr == nil {
-			ferr = errors.New(errPrefix + "the spend lock of tenant " + tenantID + " could not be released cleanly: the connection was closed")
+			ferr = &lockError{text: errPrefix + "the spend lock could not be released cleanly: the connection was closed", cause: uerr}
 		}
 		return ferr
 	}
@@ -74,3 +72,14 @@ func (l *Ledger) destroy(ctx context.Context, conn *pgxpool.Conn) {
 	defer cancel()
 	_ = conn.Hijack().Close(cctx)
 }
+
+// lockError is a failure of the spend lock as callers see it (AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The tenant's ID
+// and the driver's message (server and login details) are not in the text. cause may be nil (an unlock that found nothing to release).
+type lockError struct {
+	text  string
+	cause error
+}
+
+func (e *lockError) Error() string { return e.text }
+
+func (e *lockError) Unwrap() error { return e.cause }
