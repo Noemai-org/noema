@@ -20,7 +20,7 @@
 -- with a non-superuser owner). FORCE therefore makes the owner, and so the migration login, read and write no tenant row without a tenant mapping, as 0018 does for its tables.
 -- A superuser still bypasses row security: the tenant list is created and administered by the operator's own superuser credential, the break-glass path of 0017, never by a service.
 -- The record_read group holds no privilege on tenant and gets no policy: a login of it cannot read the table, and a mistaken UPDATE grant to it would match no row (ruling on noema#716).
--- Tenant creation is an init-time step of the operator's superuser (ruling on noema#716): no policy and no role is made for it, and the migration login cannot insert a tenant
+-- Tenant creation is a step of the operator's superuser after the migrations, deploy/compose/postgres/create-tenants.sh (ruling on noema#716): no policy and no role is made for it, and the migration login cannot insert a tenant
 -- under FORCE (TestOnlyASuperuserCreatesATenant).
 
 ALTER TABLE public.tenant ENABLE ROW LEVEL SECURITY;

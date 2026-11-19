@@ -67,7 +67,7 @@ if out="$(PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_
 case "$out" in *synthetic-*) echo "create-tenants.sh printed a secret while refusing"; exit 1 ;; esac
 [ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "create-tenants.sh created a tenant as the migration login"; exit 1; }
 PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
-[ "$(psql -X -q -tA -U postgres -d noema -c "select tenant_id || '/' || kill_switch from tenant")" = "ten_aa/f" ] || { echo "the tenant ten_aa is not there with its kill switch off"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select tenant_id || '/' || case when kill_switch then 'on' else 'off' end from tenant")" = "ten_aa/off" ] || { echo "the tenant ten_aa is not there with its kill switch off"; exit 1; }
 # A second run is a no-op: the row is not rewritten, and a kill switch an operator has since set stays set.
 before="$(psql -X -q -tA -U postgres -d noema -c "select name || '|' || created_at from tenant where tenant_id = 'ten_aa'")"
 psql -X -q -U postgres -d noema -c "update tenant set kill_switch = true where tenant_id = 'ten_aa'" >/dev/null
