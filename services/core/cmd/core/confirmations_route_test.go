@@ -281,7 +281,7 @@ func TestTheWrongRequestIsRefused(t *testing.T) {
 			t.Errorf("%s: %d", p, rec.Code)
 		}
 	}
-	if len(rc.got) != 0 || rq.calls != 1+1 {
+	if len(rc.got) != 0 || rq.calls != 1 {
 		t.Errorf("recorded %d, lookups %d (a malformed path must not reach the store)", len(rc.got), rq.calls)
 	}
 }
@@ -298,6 +298,16 @@ func TestAnExpiredRequestIsRefused(t *testing.T) {
 	rec := confPost(h, auth, confPath, confAnswer(confRequestID, "ACCEPT"))
 	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" || len(rc.got) != 1 {
 		t.Errorf("after expiry: %d %s recorded %d", rec.Code, rec.Body.String(), len(rc.got))
+	}
+}
+
+// A reply a fraction of a second after the expiry is late: the reply time is rounded up, never down.
+func TestASubSecondLateReplyIsExpired(t *testing.T) {
+	h, iss, clk, _, rc := confSetup(t, "MAKER_CHECKER")
+	clk.Advance(120*1e9 + 5e8)
+	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
+	if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONFIRMATION_EXPIRED" || len(rc.got) != 0 {
+		t.Errorf("%d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -340,5 +350,18 @@ func TestTheDecoderSeamIsHonoured(t *testing.T) {
 	rec := confPost(h, confToken(iss, session.RoleApprover, "prn_apr"), confPath, confAnswer(confRequestID, "ACCEPT"))
 	if code, _ := errBody(t, rec); rec.Code != http.StatusBadRequest || code != "INPUT_INVALID" || rq.calls != 0 || len(rc.got) != 0 {
 		t.Errorf("%d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The stand-in decoder itself (the edge guard already refuses a second document, so this is the decoder's own check): one document, exactly the two members.
+func TestTheStandInDecoderIsStrict(t *testing.T) {
+	good := confAnswer(confRequestID, "ACCEPT")
+	if a, err := decodeConfirmationAnswer([]byte(good)); err != nil || a.RequestID != confRequestID || a.Response != confirm.Accept {
+		t.Fatalf("good: %+v %v", a, err)
+	}
+	for name, body := range map[string]string{"trailing": good + `{}`, "trailing text": good + ` x`, "unknown": `{"request_id":"` + confRequestID + `","response":"ACCEPT","x":1}`, "null": `{"request_id":null,"response":null}`} {
+		if _, err := decodeConfirmationAnswer([]byte(body)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
 	}
 }
