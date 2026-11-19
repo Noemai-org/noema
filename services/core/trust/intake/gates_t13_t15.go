@@ -63,7 +63,8 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
 	}
-	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent, e.freshBinding())
+	fresh := e.freshBinding()
+	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent, fresh)
 	if err != nil {
 		return decide.FailStep(err)
 	}
@@ -74,6 +75,9 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		}
 		return decide.Continue()
 	case ConfirmationGiven:
+		if fresh.EvidenceSetHash == "" || fresh.PolicyVersion == "" { // fail closed: the adapter must refuse it, and Trust does not rely on that (INV-25)
+			return decide.FailStep(errAnswer)
+		}
 		if c.EventID == "" || !hashRe.MatchString(c.PlanHash) || !requestIDRe.MatchString(c.RequestID) || c.NewRequest != nil {
 			return decide.FailStep(errAnswer)
 		}
