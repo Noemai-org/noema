@@ -2,8 +2,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"regexp"
 	"strconv"
 
@@ -18,20 +16,21 @@ import (
 // reads it with ParseSerializationAttempts. It has no default (AGENT-16).
 const EnvSerializationAttempts = "NOEMA_DB_SERIALIZATION_ATTEMPTS"
 
-var errNoSerializationAttempts = errors.New(errPrefix + EnvSerializationAttempts + " is required: SerializationAttempts must be at least 1, and has no default")
+var errNoSerializationAttempts = newFixed(EnvSerializationAttempts + " is required: SerializationAttempts must be at least 1, and has no default")
 
 // attemptsPattern is a positive decimal integer with no sign, no leading zero and no space around it.
 var attemptsPattern = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 // ParseSerializationAttempts reads the value of EnvSerializationAttempts. A missing, empty or invalid value is an error that names the setting, so that the process
-// refuses to configure the ledger instead of falling back to a number of its own (AGENT-16).
+// refuses to configure the ledger instead of falling back to a number of its own (AGENT-16). The text names the setting and never the value: a value put in the wrong variable
+// may be a secret (AGENT-13). The strconv error of an out-of-range value, which quotes it, stays the cause.
 func ParseSerializationAttempts(raw string) (int, error) {
 	if !attemptsPattern.MatchString(raw) {
-		return 0, fmt.Errorf("%s%s must be a whole number of at least 1 (no default), got %q", errPrefix, EnvSerializationAttempts, raw)
+		return 0, newFixed(EnvSerializationAttempts + " must be a whole number of at least 1 (no default)")
 	}
 	n, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, fmt.Errorf("%s%s is out of range, got %q: %w", errPrefix, EnvSerializationAttempts, raw, err)
+		return 0, fixed(EnvSerializationAttempts+" is out of range", err)
 	}
 	return n, nil
 }

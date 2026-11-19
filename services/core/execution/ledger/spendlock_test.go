@@ -524,17 +524,18 @@ func requireReleased(t *testing.T, w *world, way string, within time.Duration, p
 		}
 		return held, awaited, out
 	}
-	deadline := time.Now().Add(within)
+	deadline := time.After(within)
 	for {
 		held, awaited, out := state()
 		if held == 0 && awaited == 0 && out == 0 {
 			return
 		}
-		if !time.Now().Before(deadline) {
+		select {
+		case <-deadline:
 			t.Errorf("after %s: %d held and %d awaited locks of the spend key space, %d connections out of the pool(s): the lock or the connection leaked", way, held, awaited, out)
 			return
+		case <-time.After(10 * time.Millisecond):
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -585,13 +586,16 @@ func TestTheSpendLockIsReleasedOnEveryPath(t *testing.T) {
 		slowSpends(t, w, 5000)
 		c, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 		defer cancel()
-		start := time.Now()
-		_, err := w.led.Spend(c, cmdFor(w.issue(t, 1)))
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Fatalf("Spend error = %v; want the context's deadline", err)
-		}
-		if took := time.Since(start); took > 4*time.Second {
-			t.Fatalf("Spend returned after %v, long after its 400 ms deadline", took)
+		g := w.issue(t, 1)
+		done := make(chan error, 1)
+		go func() { _, err := w.led.Spend(c, cmdFor(g)); done <- err }()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Spend error = %v; want the context's deadline", err)
+			}
+		case <-time.After(4 * time.Second):
+			t.Fatal("Spend returned long after its 400 ms deadline, or not at all")
 		}
 		requireReleased(t, w, "a deadline that ended the transaction", 3*time.Second)
 		if got := w.count(t, `SELECT count(*) FROM grant_spend`); got != 0 {

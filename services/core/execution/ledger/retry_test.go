@@ -98,8 +98,9 @@ func issueN(t *testing.T, w *world, n int) []controller.Grant {
 	return gs
 }
 
+// isDidNotCommit40001 reads the answer from the chain, not from the message (noema#748 review, A347): the database's 40001 as the cause, under the typed retryable error.
 func isDidNotCommit40001(err error) bool {
-	return err != nil && sqlState(err) == "40001" && strings.Contains(err.Error(), "did not commit")
+	return err != nil && sqlState(err) == "40001" && errors.Is(err, controller.ErrSpendRetryable)
 }
 
 // waitForLockWaiters waits until n backends of the test database are blocked on a lock, as the spends are when they queue behind an open transaction.

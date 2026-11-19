@@ -44,26 +44,41 @@ func (l *Ledger) withSpendLock(ctx context.Context, tenantID string, fn func(*pg
 	}
 	conn, err := l.Pool.Acquire(ctx)
 	if err != nil {
-		return &lockError{text: errPrefix + "no connection could be acquired for the spend lock", cause: err}
+		return fixed("no connection could be acquired for the spend lock", err)
 	}
 	name := SpendLockName(tenantID)
 	if _, err := conn.Exec(ctx, spendLockStatement, SpendLockNamespace, name); err != nil {
 		l.destroy(ctx, conn)
-		return &lockError{text: errPrefix + "the wait for the spend lock did not complete", cause: err}
+		return fixed("the wait for the spend lock did not complete", err)
 	}
-	ferr := fn(conn)
+	ferr := l.runHeld(ctx, conn, fn)
 	uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.RollbackTimeout)
 	defer cancel()
 	var released bool
 	if uerr := conn.QueryRow(uctx, spendUnlockStatement, SpendLockNamespace, name).Scan(&released); uerr != nil || !released || conn.Conn().PgConn().TxStatus() != txIdle {
 		l.destroy(ctx, conn)
 		if ferr == nil {
-			ferr = &lockError{text: errPrefix + "the spend lock could not be released cleanly: the connection was closed", cause: uerr}
+			ferr = fixed("the spend lock could not be released cleanly: the connection was closed", uerr)
 		}
 		return ferr
 	}
 	conn.Release()
 	return ferr
+}
+
+// runHeld runs fn on the connection that holds the lock. If fn does not return (it panics, or ends its goroutine), the connection is in an unknown state, a transaction may be open
+// and the lock is held: it is destroyed, which ends its session and with it the lock, and the panic goes on to the caller with its own stack. Without this the connection would
+// never go back to the pool and every later spend of the tenant would wait for a lock that nothing releases.
+func (l *Ledger) runHeld(ctx context.Context, conn *pgxpool.Conn, fn func(*pgxpool.Conn) error) error {
+	returned := false
+	defer func() {
+		if !returned {
+			l.destroy(ctx, conn)
+		}
+	}()
+	err := fn(conn)
+	returned = true
+	return err
 }
 
 // destroy takes the connection out of the pool and closes it, which ends its session and with it every lock of the session. The close is bounded like a rollback.
@@ -72,14 +87,3 @@ func (l *Ledger) destroy(ctx context.Context, conn *pgxpool.Conn) {
 	defer cancel()
 	_ = conn.Hijack().Close(cctx)
 }
-
-// lockError is a failure of the spend lock as callers see it (AGENT-13): a fixed public text, with the cause kept for errors.Is and errors.As and never printed. The tenant's ID
-// and the driver's message (server and login details) are not in the text. cause may be nil (an unlock that found nothing to release).
-type lockError struct {
-	text  string
-	cause error
-}
-
-func (e *lockError) Error() string { return e.text }
-
-func (e *lockError) Unwrap() error { return e.cause }

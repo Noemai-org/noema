@@ -69,7 +69,7 @@ const SpendLockNamespace = "noema:spend-lock"
 // SpendLockName is the second text: one per tenant, so that the spends of two tenants never wait for each other.
 func SpendLockName(tenantID string) string { return "noema:spend:" + tenantID }
 
-var errNoRollbackBound = errors.New(errPrefix + "RollbackTimeout is required: a rollback after a cancelled context must be bounded")
+var errNoRollbackBound = newFixed("RollbackTimeout is required: a rollback after a cancelled context must be bounded")
 
 // rolledBack is what rollbackBounded needs of a transaction.
 type rolledBack interface {
@@ -85,9 +85,11 @@ func rollbackBounded(ctx context.Context, tx rolledBack, bound time.Duration) {
 	_ = tx.Rollback(rctx)
 }
 
+var errNoDeadline = newFixed("the context needs a deadline")
+
 func needDeadline(ctx context.Context) error {
 	if _, ok := ctx.Deadline(); !ok {
-		return errors.New(errPrefix + "the context needs a deadline")
+		return errNoDeadline
 	}
 	return nil
 }
