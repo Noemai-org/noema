@@ -10,7 +10,9 @@ import (
 
 	"github.com/Noemai-org/noema/services/core/execution/planner"
 	"github.com/Noemai-org/noema/services/core/execution/registry"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
@@ -182,5 +184,29 @@ func TestPlannerIsNotConfiguredWithoutItsParts(t *testing.T) {
 		if _, err := a.Plan(context.Background(), plannerReq(true)); !errors.Is(err, trustport.ErrConfig) {
 			t.Fatalf("%s: err = %v", name, err)
 		}
+	}
+}
+
+func TestPlannerReadWithoutAGraphVersionIsInvalidAndTheReadHashIsTheEmptyPlanDocument(t *testing.T) {
+	if _, err := plannerWith(t, &plannerGraphs{g: trustport.PlanGraph{Steps: plannerSteps()}}).Plan(context.Background(), plannerReq(false)); !errors.Is(err, intake.ErrPlanInvalid) {
+		t.Fatalf("err = %v", err)
+	}
+	want, err := crypto.HashOf(contracts.PlanV1{SchemaVersion: "1.0", GraphVersion: "1.0.0", IntentNode: "dispute_transaction", Steps: []contracts.PlanV1StepsItem{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := plannerWith(t, &plannerGraphs{g: trustport.PlanGraph{GraphVersion: "1.0.0"}}).Plan(context.Background(), plannerReq(false))
+	if err != nil || p.Hash != want {
+		t.Fatalf("hash %q want %q err %v", p.Hash, want, err)
+	}
+}
+
+func TestPlannerHashCoversThePredicatesOfTheGraph(t *testing.T) {
+	a, b := plannerSteps(), plannerSteps()
+	b[0].Preconditions = []string{"true"}
+	pa, errA := plannerWith(t, &plannerGraphs{g: trustport.PlanGraph{GraphVersion: "1.0.0", Steps: a}}).Plan(context.Background(), plannerReq(true))
+	pb, errB := plannerWith(t, &plannerGraphs{g: trustport.PlanGraph{GraphVersion: "1.0.0", Steps: b}}).Plan(context.Background(), plannerReq(true))
+	if errA != nil || errB != nil || pa.Hash == pb.Hash {
+		t.Fatalf("%q %q %v %v", pa.Hash, pb.Hash, errA, errB)
 	}
 }
