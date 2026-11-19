@@ -17,6 +17,13 @@ export function parseEnumsV1ApproverRequirementOption1(v: unknown, p: string = "
   return oneOfLit(v, p, ["SELF", "MAKER_CHECKER"] as const);
 }
 
+/** EnumsV1ConfirmationResponse, generated from enums.v1.json#$defs/ConfirmationResponse. An approver's response. ACCEPT leads to a fresh Trust evaluation, never straight to a grant. */
+export type EnumsV1ConfirmationResponse = "ACCEPT" | "DECLINE";
+
+export function parseEnumsV1ConfirmationResponse(v: unknown, p: string = "$"): EnumsV1ConfirmationResponse {
+  return oneOfLit(v, p, ["ACCEPT", "DECLINE"] as const);
+}
+
 /** EnumsV1Verdict, generated from enums.v1.json#$defs/Verdict. Outcome Verdict (SoT §43.4). Anything except ACHIEVED creates a RecoveryRequest to Trust. */
 export type EnumsV1Verdict = "ACHIEVED" | "NOT_ACHIEVED" | "PARTIALLY_ACHIEVED" | "PENDING_EXTERNAL" | "UNKNOWN" | "COMPENSATED";
 

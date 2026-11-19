@@ -279,8 +279,8 @@ class TypeScriptOutput(unittest.TestCase):
         # REQ-UI-001, INV-02 (the Security Reviewer's note 3 on noema#615): enums.v1 holds the core reason codes, and no root uses them; a shared contract file the UI reads only in part
         # must not put the unused definitions (the internal reason-code names) into the client bundle. Every parser the TypeScript holds is a root's or is called by another parser.
         files = generate.render_all(generate.load_schemas())
-        entries = (f"{generate.TS_DIR}/operator.ts", f"{generate.TS_DIR}/benchmark.ts")
-        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts", "benchmark.ts"))}
+        entries = (f"{generate.TS_DIR}/operator.ts", f"{generate.TS_DIR}/benchmark.ts", f"{generate.TS_DIR}/approver.ts")
+        ts = {k: v for k, v in files.items() if k.startswith(generate.TS_DIR + "/") and not k.endswith(("_runtime.ts", "customer.ts", "operator.ts", "benchmark.ts", "approver.ts"))}
         defined = {m: f for f, text in ts.items() for m in re.findall(r"^export function (parse\w+)\(", text, re.M)}
         roots = {"parse" + m for f, text in files.items() if f in entries for m in re.findall(r"import \{ parse(\w+) \}", text)}
         every = "\n".join(ts.values())
