@@ -23,3 +23,11 @@
 - Open questions (owner): whether the Tushe half ("the model service cannot reach Tushe") needs a probe of its own: the model has no route to `tushe_net`, which step 2 shows, but there is no probe aimed at a Tushe address (Security Reviewer).
 - Files to read first: `deploy/compose/netcheck/matrix.py`, `deploy/compose/README.md` ("Routes out").
 - Do not touch: the matrix's expected table without a decision (PERD §65.1).
+
+# Session 2026-11-20 · SEC-02 (Temporal TLS, noema#698)
+
+## Session summary
+- What changed: Codex's P1 on noema#698. In the pinned template (docker/config_template.yaml, release 1.29.7) `TEMPORAL_TLS_SERVER_CA_CERT` is both the root of the frontend client and the root of the internode client, so setting it made the services dial each other over TLS while the internode listeners had no certificate. The bench Temporal now also sets `TEMPORAL_TLS_SERVER_CERT`, `TEMPORAL_TLS_SERVER_KEY` and `TEMPORAL_TLS_INTERNODE_SERVER_NAME` (the same `temporal` certificate, name `temporal`); netcheck requires all ten settings, with three new mutations. 91 of 91 mutations are caught.
+- Wording (Security Reviewer's note 1): this is **server-side TLS with no client authentication. It is not mTLS for Temporal.** Until DEBT-46 closes, only the network keeps another container from starting a workflow; SEC-02's matrix (the model is refused a route to Temporal) stays in the matrix.
+- Not verified here: the stack itself (no Docker daemon in this session). The compose job on the PR is the first run with internode TLS; if the services cannot reach each other, the fix is one push.
+- Open: DEBT-46 needs an owner and a date, and the Architect's ruling on the internal-frontend split (Security Reviewer's note 2).
