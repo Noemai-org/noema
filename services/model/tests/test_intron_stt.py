@@ -8,7 +8,7 @@ synthetic PCM16 at 16 kHz, 20 ms frames of 640 bytes, which the adapter gathers 
 import asyncio
 import base64
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 
 import pytest
 
@@ -207,3 +207,36 @@ def test_audio_that_is_not_16_khz_pcm16_is_refused_and_the_connection_is_closed(
     with pytest.raises(ValueError):
         run(asyncio.wait_for(transcribe_utterance(adapter(server), REQUEST, Source([bad]), deadline_s=2.0, cleanup_s=0.3, on_partial=lambda _: None), timeout=GUARD_S))
     assert server.closed
+
+
+# ---- Codex P2 on noema#640 at 55ba0f52: the cancelled audio sender's exception is observed, never logged by the event loop --------------------------------------------------
+
+
+def test_a_failure_in_the_audio_sources_cleanup_after_the_server_rejects_the_session_is_not_logged_by_the_event_loop() -> None:
+    import gc
+
+    async def waiting_audio() -> AsyncIterator[AudioChunk]:
+        try:
+            yield chunk(0, 800)
+            await asyncio.Event().wait()  # the next frame never comes: the sender is awaiting it when the server rejects the session
+        finally:
+            raise RuntimeError("secret text of the source")  # cleanup that fails
+
+    logged: list[dict[str, object]] = []
+
+    async def call() -> None:
+        asyncio.get_running_loop().set_exception_handler(lambda _loop, context: logged.append(context))
+        server = Server()
+        asyncio.get_running_loop().call_later(0.05, server._queue.put_nowait, msg("QUOTA_EXCEEDED"))  # after the sender is parked awaiting its next frame
+        with pytest.raises(ProviderError) as caught:
+            async for _ in adapter(server).transcribe(REQUEST, waiting_audio()):
+                pass
+        kind = caught.value.kind
+        del caught  # the traceback would keep the sender task alive, and it is its collection that logs
+        assert kind is ProviderFailure.RATE_LIMITED and server.closed
+        for _ in range(5):
+            gc.collect()
+            await asyncio.sleep(0.02)
+
+    run(asyncio.wait_for(call(), timeout=GUARD_S))
+    assert logged == []  # no "Task exception was never retrieved", which would carry the source's own message

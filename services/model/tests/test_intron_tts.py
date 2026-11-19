@@ -279,3 +279,21 @@ def test_a_poll_interval_that_is_not_positive_is_refused() -> None:
     for bad in (0.0, -1.0, float("nan"), float("inf")):
         with pytest.raises(ValueError):
             adapter(Server(), poll_s=bad)
+
+
+# ---- Codex P2 on noema#640 at 55ba0f52: a fetched chunk that names another chunk is refused, never yielded ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["READY", "PROCESSING"])
+@pytest.mark.parametrize("wrong_id", [1, 7, 0 - 1])
+def test_a_fetch_reply_that_names_a_different_chunk_than_the_one_asked_for_is_malformed(status: str, wrong_id: int) -> None:
+    server = Server(raw_replies={"FETCH_AUDIO_CHUNK": audio_reply(wrong_id, status)})
+    with pytest.raises(ProviderError) as caught:
+        speak(server, "Short enough to send at once.")  # one piece: the chunk asked for is 0
+    assert caught.value.kind is ProviderFailure.MALFORMED and server.closed
+
+
+def test_each_piece_is_answered_by_its_own_chunk_in_order() -> None:
+    server = Server()
+    chunks = speak(server, LONG)
+    assert len(chunks) >= 2 and [c.sequence for c in chunks] == list(range(len(chunks)))  # type: ignore[attr-defined]
