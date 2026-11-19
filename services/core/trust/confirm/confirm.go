@@ -104,6 +104,10 @@ const (
 	WrongRequest   Resolution = "WRONG_REQUEST"
 )
 
+// ApproverRole is the one platform role a MAKER_CHECKER approver holds (TRU-07; it is the value of edge/session.RoleApprover, and
+// confirm_test.go compares the two). It is a platform role, not a pack role: ROLE:<role> keeps taking its role from the requirement.
+const ApproverRole = "approver"
+
 const (
 	requirementSelf  = "SELF"
 	requirementMaker = "MAKER_CHECKER"
