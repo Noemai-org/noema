@@ -10,6 +10,8 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 
 `SnapshotFreshness(ctx, tenantID, snapshotID)` reads the sealed snapshot the orchestrator named, as the tenant's own `trust_rw` login, and returns per item the freshness the Decision Record keeps (evidence id, effective_at, source, age, effective limit, who set it) and the stored fact status. It reads what was sealed and verified; it recomputes nothing from a payload and never reads one.
 
+**The evidence value of the binding (A365).** The answer's `EvidenceSetHash` is the CONTENT hash of the items (`snapshot.ContentHash`: sorted source, source record ID and payload hash, no evidence ID), not the set hash the snapshot stores (which `intact` still verifies). A re-read of unchanged evidence under new evidence IDs gives the same value. An item with no source record ID makes the snapshot not usable as evidence (`ErrSnapshotNotIntact`).
+
 | Step | Rule | Refusal |
 |---|---|---|
 | Wiring | reader, profile source and clock set; the reader has a login source and a timeout from configuration (`NOEMA_TRUST_DB_TIMEOUT_MS`); no default (AGENT-16) | `ErrConfig` |

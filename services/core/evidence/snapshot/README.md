@@ -7,6 +7,7 @@
 | File | What |
 |---|---|
 | `hash.go` | `SetHash`: sort by the UTF-8 bytes of evidence_id, `LP(id) LP(hash)`, SHA-256, `sha256:` prefix. Checked against `contracts/fixtures/golden_vectors.json` (SYNTHETIC) |
+| `content_hash.go` | `ContentHash` (A365): `sha256:` and the SHA-256 of a domain tag and the sorted, distinct (source, source record ID, payload hash) triples, `LP` framed. No evidence ID in it, so a re-read of unchanged evidence under new IDs gives the same value; this is what a confirmation binds as its evidence (the contract field is still named `evidence_set_hash`). Empty set or an unbindable item: `ErrContentHashInput` |
 | `seal.go` | `Sealer.Seal(ctx, tx, Input)`: in the caller's transaction, which must come from the tenant's Trust login, it appends `CONTEXT_SNAPSHOT_SEALED` (written by `core-trust`, payload = the context-snapshot.v1 document) and stores the row. `ErrEmptySet` for no evidence. On any error the caller rolls back and neither the event nor the row stands |
 | `recompute.go` | `Recompute(ctx, pool)`: pool must log in as `evidence_verify` (else `ErrWrongLogin`); reads every snapshot and its items in one read-only repeatable-read transaction; `OK`, `MISMATCH` or `MISSING_EVIDENCE` per snapshot. Output: tenant, snapshot, status, stored and recomputed hash; nothing else |
 

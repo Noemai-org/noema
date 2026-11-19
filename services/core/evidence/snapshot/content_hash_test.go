@@ -168,8 +168,8 @@ func TestContentHashRefusesWhatCannotBeBound(t *testing.T) {
 		"one bad among good": append(three(), snapshot.ContentItem{Source: "s", SourceRecordID: "", PayloadHash: ph(4)}),
 	} {
 		got, err := snapshot.ContentHash(items)
-		if err == nil || got != "" || errors.Is(err, snapshot.ErrContentHashNotBuilt) {
-			t.Errorf("%s: %q, %v; want a refusal that is not the stub's", name, got, err)
+		if !errors.Is(err, snapshot.ErrContentHashInput) || got != "" {
+			t.Errorf("%s: %q, %v; want ErrContentHashInput and no hash", name, got, err)
 		}
 	}
 }

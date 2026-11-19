@@ -107,7 +107,11 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 	if err := usable(rules); err != nil {
 		return intake.SnapshotEvidence{}, err
 	}
-	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, Items: make([]intake.SourceItem, len(ordered))}
+	content, err := contentHash(ordered)
+	if err != nil {
+		return intake.SnapshotEvidence{}, err
+	}
+	out := intake.SnapshotEvidence{IntentID: s.Intent.IntentID, IntentVersion: s.Intent.Version, EvidenceSetHash: content, Items: make([]intake.SourceItem, len(ordered))}
 	present := make(map[string]bool, len(ordered))
 	for i, it := range ordered {
 		limit, by := it.SLASeconds, decide.LimitBySource
@@ -124,6 +128,21 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 		}
 	}
 	return out, nil
+}
+
+// contentHash is the evidence value the confirmation binds (A365): the content hash of the items' (source, source record ID, payload hash), which a re-read of unchanged evidence
+// under new evidence IDs leaves as it was. The set hash the snapshot stores (over the evidence IDs) is verified by intact and is not what is given. An item that cannot be bound by
+// its content (no source record ID) makes the snapshot unusable as evidence.
+func contentHash(items []SealedItem) (string, error) {
+	in := make([]snapshot.ContentItem, len(items))
+	for i, it := range items {
+		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, PayloadHash: it.PayloadHash}
+	}
+	h, err := snapshot.ContentHash(in)
+	if err != nil {
+		return "", notIntact()
+	}
+	return h, nil
 }
 
 func notIntact() error { return wrapped(ErrSnapshotNotIntact, nil) }

@@ -98,7 +98,7 @@ func wrapped(kind, cause error) error { return &failure{kind: kind, cause: cause
 
 const (
 	selectSnapshot = `SELECT snapshot_id, tenant_id, correlation_id, evidence_ids, evidence_set_hash FROM context_snapshot WHERE tenant_id = $1 AND snapshot_id = $2`
-	selectItems    = `SELECT evidence_id, correlation_id, source, read_at, effective_at, freshness_sla_seconds::bigint, fact_status, payload_hash
+	selectItems    = `SELECT evidence_id, correlation_id, source, read_at, effective_at, freshness_sla_seconds::bigint, fact_status, payload_hash, source_record_id
 		FROM evidence_item WHERE tenant_id = $1 AND evidence_id = ANY ($2)`
 	selectIntent = `SELECT intent_id, version, intent_node, created_at FROM admitted_intent WHERE tenant_id = $1 AND correlation_id = $2 ORDER BY version DESC LIMIT 1`
 )
@@ -151,7 +151,7 @@ func read(ctx context.Context, tx pgx.Tx, tenantID, snapshotID string) (SealedSn
 	}
 	out.Items, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (SealedItem, error) {
 		var it SealedItem
-		return it, r.Scan(&it.EvidenceID, &it.CorrelationID, &it.Source, &it.ReadAt, &it.EffectiveAt, &it.SLASeconds, &it.Status, &it.PayloadHash)
+		return it, r.Scan(&it.EvidenceID, &it.CorrelationID, &it.Source, &it.ReadAt, &it.EffectiveAt, &it.SLASeconds, &it.Status, &it.PayloadHash, &it.SourceRecordID)
 	})
 	if err != nil {
 		return SealedSnapshot{}, fmt.Errorf("items: %w", err)

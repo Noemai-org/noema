@@ -35,7 +35,7 @@ const (
 // so an ACCEPT given for other evidence or another policy never resolves to this evaluation (INV-25). An adapter must refuse (return an error for) a Given answer when either value is
 // empty, and T13 no longer relies on it: it refuses a Given answer itself (UNKNOWN INTERNAL_ERROR, nothing planned or recorded) when either value it passed is empty.
 type FreshBinding struct {
-	// EvidenceSetHash is the evidence_set_hash of the sealed snapshot T9 read, in the contract's Hash form; empty when the Evidence port did not give it.
+	// EvidenceSetHash is the evidence value of the binding, the CONTENT hash of the sealed snapshot T9 read (A365; the contract's field is still named evidence_set_hash), in its Hash form; empty when the Evidence port did not give it.
 	EvidenceSetHash string
 	// PolicyVersion is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and the lower-case SHA-256 hex of the RFC 8785
 	// form of the sorted, distinct JSON array of their "policy_id@version" strings, for one policy version as for many. Empty when none took part or one cannot be bound. It is the
