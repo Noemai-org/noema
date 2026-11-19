@@ -8,26 +8,52 @@ import (
 	"fmt"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
+	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// ParamSource says where a step param comes from. It is a closed set: a pack that declares any other source is refused.
-type ParamSource string
+// ParamKind says where a step param comes from. It is a closed set of six; a pack that declares any other kind is refused (the contract of noema#765, the Founder's text of
+// 19 Nov 2026, interim, relayed, not yet committed).
+type ParamKind string
 
 const (
-	// SourceSlot takes the value of a RESOLVED slot of the admitted intent.
-	SourceSlot ParamSource = "SLOT"
-	// SourceConst is a constant the pack declares.
-	SourceConst ParamSource = "CONST"
-	// SourceDefault takes the slot's resolved value, or the pack's declared default when the intent has no such slot. A slot that is present and not resolved is refused.
-	SourceDefault ParamSource = "DEFAULT"
+	// KindSlot takes the value of a RESOLVED slot of the admitted intent.
+	KindSlot ParamKind = "slot"
+	// KindConst is a constant the pack declares.
+	KindConst ParamKind = "const"
+	// KindMap looks up the RESOLVED value of slot Slot in Map; a value not in the map is refused, never passed through.
+	KindMap ParamKind = "map"
+	// KindFact is the run-time fact named Ref, supplied by the PlanContext; absent, the step is not plannable now.
+	KindFact ParamKind = "fact"
+	// KindPolicyParam is the winning PERMIT rule's param named Ref for the step's capability, supplied by the PlanContext; absent, the step is not plannable now.
+	KindPolicyParam ParamKind = "policy_param"
+	// KindEvidencePacket is the sealed evidence packet reference of the PlanContext, an opaque value; absent, the step is not plannable now.
+	KindEvidencePacket ParamKind = "evidence_packet"
 )
 
-// ParamSpec is the pack's declaration of one step param.
+// ParamSpec is the pack's declaration of one step param. Which fields apply depends on Kind: slot uses Slot; const uses Value; map uses Slot and Map; fact and policy_param
+// use Ref; evidence_packet uses none.
 type ParamSpec struct {
-	Name   string
-	Source ParamSource
-	Slot   string // SourceSlot and SourceDefault
-	Value  any    // SourceConst: the constant; SourceDefault: the default
+	Name  string
+	Kind  ParamKind
+	Slot  string
+	Value any
+	Map   map[string]string
+	Ref   string
+}
+
+// PlanContext is what the plan needs besides the admitted intent: the capabilities to plan now, and the run-time values the params draw on. The intake's PlanRequest carries the
+// same fields (a parallel lane, TRU-14 continuation); the mapping is Runnable <- the runnable capability ids (noema#782 runnable.Runnable), PolicyParams <- the winning PERMIT
+// rule's params per capability, Facts <- the verified run-time facts (case_id), EvidencePacket <- the sealed evidence packet reference. Nothing in it is free text.
+type PlanContext struct {
+	Runnable       []string
+	PolicyParams   map[string]map[string]string
+	Facts          map[string]string
+	EvidencePacket string
+}
+
+// PlanContexts supplies the PlanContext of a request. The composition implements it over the PlanRequest fields.
+type PlanContexts interface {
+	PlanContext(ctx context.Context, r intake.PlanRequest) (PlanContext, error)
 }
 
 // PackStep is one step of the pack's action graph for an intent node, as data.
@@ -80,16 +106,21 @@ type Intents interface {
 
 // The refusals. Each wraps trustport.ErrPlanGraphInvalid, which the Planner maps to intake.ErrPlanInvalid.
 var (
-	ErrParamSource    = fmt.Errorf("%w: a param has a source that is neither a resolved slot nor a pack value", trustport.ErrPlanGraphInvalid)
+	ErrParamSource    = fmt.Errorf("%w: a param has a source that is not one of the six kinds", trustport.ErrPlanGraphInvalid)
 	ErrUnresolvedSlot = fmt.Errorf("%w: a param names a slot that is absent or not resolved", trustport.ErrPlanGraphInvalid)
 	ErrTargetMismatch = fmt.Errorf("%w: a step target is not the admitted intent's target", trustport.ErrPlanGraphInvalid)
 	ErrWrongIntent    = fmt.Errorf("%w: the graph or the stored intent is not the requested intent's", trustport.ErrPlanGraphInvalid)
+	ErrMapValue       = fmt.Errorf("%w: a mapped slot's value is not in the pack's map", trustport.ErrPlanGraphInvalid)
+	// ErrNotPlannable is a step whose run-time fact, policy param or evidence packet is absent now. It is a typed refusal, never a guess.
+	ErrNotPlannable = fmt.Errorf("%w: a run-time fact, policy param or evidence packet the step needs is absent", trustport.ErrPlanGraphInvalid)
+	ErrNoRunnable   = fmt.Errorf("%w: no runnable step, or a runnable capability the graph does not have", trustport.ErrPlanGraphInvalid)
 )
 
 // Adapter implements trustport.PlanGraphs.
 type Adapter struct {
-	Pack    Pack
-	Intents Intents
+	Pack     Pack
+	Intents  Intents
+	Contexts PlanContexts
 }
 
 var _ trustport.PlanGraphs = Adapter{}

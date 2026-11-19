@@ -2,133 +2,17 @@ package plangraphs
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// Graph returns the pack's action graph for the request's intent node, each step with its params built from the admitted intent's RESOLVED slots and the pack's own declared
-// values, and nothing else (INV-02, AGENT-09). Every step's TargetRef is the stored intent's target (plan.v1 has none; INV-18). A refusal wraps trustport.ErrPlanGraphInvalid,
-// which the Planner maps to intake.ErrPlanInvalid; an error of a port is returned as a dependency failure and is never ErrPlanGraphInvalid. The pack's own graph is never
-// mutated: every returned value is a copy.
+// Graph reads the PlanContext of the request and plans with it. RED stub: behaviour not yet built.
 func (a Adapter) Graph(ctx context.Context, r intake.PlanRequest) (trustport.PlanGraph, error) {
-	if a.Pack == nil || a.Intents == nil {
-		return trustport.PlanGraph{}, trustport.ErrConfig
-	}
-	in, err := a.Intents.Slots(ctx, r.TenantID, r.IntentID, r.IntentVersion)
-	if err != nil {
-		return trustport.PlanGraph{}, fmt.Errorf("plangraphs: read the admitted intent: %w", err)
-	}
-	if in.TenantID != r.TenantID || in.IntentID != r.IntentID || in.Version != r.IntentVersion || in.IntentNode != r.IntentNode || in.IntentHash != r.IntentHash {
-		return trustport.PlanGraph{}, fmt.Errorf("%w: the stored intent is not the one requested", ErrWrongIntent)
-	}
-	pg, err := a.Pack.ActionGraph(ctx, r.IntentNode)
-	switch {
-	case errors.Is(err, ErrNoGraph):
-		return trustport.PlanGraph{}, fmt.Errorf("%w: %w", trustport.ErrPlanGraphInvalid, err)
-	case err != nil:
-		return trustport.PlanGraph{}, fmt.Errorf("plangraphs: read the pack's action graph: %w", err)
-	}
-	if pg.IntentNode != r.IntentNode {
-		return trustport.PlanGraph{}, fmt.Errorf("%w: the graph is for %q, not %q", ErrWrongIntent, pg.IntentNode, r.IntentNode)
-	}
-	if len(pg.Steps) == 0 {
-		return trustport.PlanGraph{}, fmt.Errorf("%w: the graph has no step", trustport.ErrPlanGraphInvalid)
-	}
-	if in.TargetRef == "" {
-		return trustport.PlanGraph{}, fmt.Errorf("%w: the admitted intent names no target", ErrTargetMismatch)
-	}
-	out := trustport.PlanGraph{GraphVersion: pg.GraphVersion, Steps: make([]trustport.PlanGraphStep, 0, len(pg.Steps))}
-	for _, s := range pg.Steps {
-		if s.TargetRef != "" && s.TargetRef != in.TargetRef {
-			return trustport.PlanGraph{}, fmt.Errorf("%w: step %q", ErrTargetMismatch, s.NodeID)
-		}
-		params, err := buildParams(s, in.Slots)
-		if err != nil {
-			return trustport.PlanGraph{}, err
-		}
-		out.Steps = append(out.Steps, trustport.PlanGraphStep{NodeID: s.NodeID, CapabilityID: s.CapabilityID, TargetRef: in.TargetRef, Params: params,
-			Preconditions: append([]string{}, s.Preconditions...), Postconditions: append([]string{}, s.Postconditions...)})
-	}
-	return out, nil
+	return trustport.PlanGraph{}, trustport.ErrConfig
 }
 
-// buildParams builds the params of one step from its declarations. A declaration with an empty or repeated name, or with a source outside SLOT, CONST and DEFAULT, is refused.
-func buildParams(s PackStep, slots map[string]SlotValue) (map[string]any, error) {
-	params := make(map[string]any, len(s.Params))
-	for _, p := range s.Params {
-		if p.Name == "" {
-			return nil, fmt.Errorf("%w: step %q has a param with no name", ErrParamSource, s.NodeID)
-		}
-		if _, dup := params[p.Name]; dup {
-			return nil, fmt.Errorf("%w: step %q declares param %q twice", ErrParamSource, s.NodeID, p.Name)
-		}
-		v, err := paramValue(p, slots)
-		if err != nil {
-			return nil, fmt.Errorf("step %q param %q: %w", s.NodeID, p.Name, err)
-		}
-		params[p.Name] = v
-	}
-	return params, nil
-}
-
-func paramValue(p ParamSpec, slots map[string]SlotValue) (any, error) {
-	switch p.Source {
-	case SourceConst:
-		return copyData(p.Value)
-	case SourceSlot:
-		return resolvedSlot(p.Slot, slots)
-	case SourceDefault:
-		if p.Slot == "" {
-			return nil, ErrParamSource
-		}
-		if _, present := slots[p.Slot]; !present {
-			return copyData(p.Value)
-		}
-		return resolvedSlot(p.Slot, slots)
-	}
-	return nil, ErrParamSource
-}
-
-func resolvedSlot(name string, slots map[string]SlotValue) (any, error) {
-	if name == "" {
-		return nil, ErrParamSource
-	}
-	sv, ok := slots[name]
-	if !ok || !sv.Resolved {
-		return nil, ErrUnresolvedSlot
-	}
-	return copyData(sv.Value)
-}
-
-// copyData deep-copies plain data: strings, booleans, numbers, and maps and slices of them. Anything else, nil included, is refused, so a param is always plain data.
-func copyData(v any) (any, error) {
-	switch x := v.(type) {
-	case string, bool, int, int32, int64, float32, float64, json.Number:
-		return x, nil
-	case map[string]any:
-		m := make(map[string]any, len(x))
-		for k, e := range x {
-			c, err := copyData(e)
-			if err != nil {
-				return nil, err
-			}
-			m[k] = c
-		}
-		return m, nil
-	case []any:
-		l := make([]any, 0, len(x))
-		for _, e := range x {
-			c, err := copyData(e)
-			if err != nil {
-				return nil, err
-			}
-			l = append(l, c)
-		}
-		return l, nil
-	}
-	return nil, fmt.Errorf("%w: a value that is not plain data", ErrParamSource)
+// GraphWith plans the runnable steps of the pack's graph with the given context. RED stub: behaviour not yet built.
+func (a Adapter) GraphWith(ctx context.Context, r intake.PlanRequest, pc PlanContext) (trustport.PlanGraph, error) {
+	return trustport.PlanGraph{}, trustport.ErrConfig
 }
