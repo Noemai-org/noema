@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
-	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
 // ParamSource says where a step param comes from. It is a closed set: a pack that declares any other source is refused.
@@ -94,8 +93,3 @@ type Adapter struct {
 }
 
 var _ trustport.PlanGraphs = Adapter{}
-
-// Graph is not built yet.
-func (a Adapter) Graph(_ context.Context, _ intake.PlanRequest) (trustport.PlanGraph, error) {
-	return trustport.PlanGraph{}, errors.New("plangraphs: not implemented")
-}

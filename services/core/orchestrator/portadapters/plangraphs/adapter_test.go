@@ -300,3 +300,12 @@ func TestReadRequestStillBuildsFromSlotsOnly(t *testing.T) {
 		t.Fatalf("a read gets no looser rule: err = %v", err)
 	}
 }
+
+func TestSlotParamsNeedASlotName(t *testing.T) {
+	for _, src := range []plangraphs.ParamSource{plangraphs.SourceSlot, plangraphs.SourceDefault} {
+		_, a := build(packGraph(plangraphs.ParamSpec{Name: "a", Source: src, Slot: "", Value: "x"}), intent())
+		if _, err := a.Graph(context.Background(), req()); !errors.Is(err, plangraphs.ErrParamSource) {
+			t.Fatalf("source %q with no slot name: err = %v, want ErrParamSource", src, err)
+		}
+	}
+}
