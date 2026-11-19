@@ -5,12 +5,16 @@ package recorder_test
 // itself; a repeated Record returns the stored decision and creates no second request. Real PostgreSQL, real tenant logins, the real hash chain. All data is SYNTHETIC.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/platform/ids"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/payloadguard"
@@ -260,7 +264,7 @@ func TestAMalformedConfirmationRequestIsRefusedBeforeAnythingIsWritten(t *testin
 		"no evidence set hash":                func(c *recorder.NewConfirmationRequest) { c.EvidenceSetHash = "" },
 		"a plan hash of the wrong form":       func(c *recorder.NewConfirmationRequest) { c.PlanHash = letters(3)[7:] },
 		"no policy version":                   func(c *recorder.NewConfirmationRequest) { c.PolicyVersion = "" },
-		"another policy version than bound":   func(c *recorder.NewConfirmationRequest) { c.PolicyVersion = "fin.pol@3.0" },
+		"another policy version than bound":   func(c *recorder.NewConfirmationRequest) { c.PolicyVersion = "ps:" + strings.Repeat("0", 64) },
 		"no requirement":                      func(c *recorder.NewConfirmationRequest) { c.Requirement = "" },
 		"a requirement not in the enum":       func(c *recorder.NewConfirmationRequest) { c.Requirement = "OWNER" },
 		"a role in upper case":                func(c *recorder.NewConfirmationRequest) { c.Requirement = "ROLE:SUPERVISOR" },
@@ -461,4 +465,115 @@ func TestAConfirmationRequestForATargetWithALongDigitRunIsRecordedAtTargetRef(t 
 		t.Errorf("a requester that is a run of digits: err %v, want the guard's ErrDigitRun", err)
 	}
 	w2.nothingWritten(t, "a refused payload")
+}
+
+// twoPolicies is a basis whose rules come from two policies, fin.pol@3.1 (the one the request names for the decision record) and fin.other@2.0.
+func twoPolicies(t *testing.T, snapshot string) *decide.BasisBuilder {
+	t.Helper()
+	b, err := decide.NewBasisBuilder("fin.pack@1.0.0", epoch.Unix())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RecordEvidence(snapshot, []decide.Freshness{freshness()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.RecordPolicy([]decide.PolicyRuleVersion{{RuleID: "fin.pol.default.permit_case_writes", PolicyID: "fin.pol", Version: "3.1"},
+		{RuleID: "fin.other.default.permit", PolicyID: "fin.other", Version: "2.0"}}); err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func confirmTwoPolicies(t *testing.T, w *world, policy string) recorder.Request {
+	t.Helper()
+	b := twoPolicies(t, "evs_01ABC")
+	r := recorder.Request{TenantID: tenant, CorrelationID: cfrCorr, IntentID: "int_01J9X3", IntentHash: contracts.CommonV1Hash(letters(0)), PolicyID: "fin.pol", Decision: confirmDecision(t, b), Evaluated: b,
+		ConfirmationRequest: newCfr(w)}
+	r.ConfirmationRequest.PolicyVersion = policy
+	return r
+}
+
+// A341 (interim), REQ-TRU-009, INV-25: the policy version a CONFIRMATION_REQUESTED binds is the composite of every policy version of the decision's basis, one policy or several. The
+// event carries it and the binding hash is computed from it; the decision record still binds the one policy it names (fin.pol@3.1).
+func TestAConfirmationRequestBindsTheCompositeOfEveryPolicyVersionOfTheBasis(t *testing.T) {
+	for name, tc := range map[string]struct {
+		build func(t *testing.T, w *world) recorder.Request
+		want  string
+	}{
+		"one policy":   {func(t *testing.T, w *world) recorder.Request { return confirmRequest(t, w, "evs_01ABC", true) }, policyVersion},
+		"two policies": {func(t *testing.T, w *world) recorder.Request { return confirmTwoPolicies(t, w, policyVersionTwo) }, policyVersionTwo},
+	} {
+		w := newWorld(t)
+		res, err := w.write(t, tc.build(t, w), true)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		cr := w.eventsOf(t, "CONFIRMATION_REQUESTED")
+		if len(cr) != 1 {
+			t.Fatalf("%s: %d CONFIRMATION_REQUESTED events", name, len(cr))
+		}
+		p := payloadOf(t, cr[0])
+		binding := bindingHashOf(t, confirm.BindingInput{PrincipalID: cfrPrincipal, IntentHash: letters(0), CapabilityID: capability, TargetRef: cfrTarget, ParamsHash: letters(1),
+			EvidenceSetHash: letters(2), PlanHash: letters(3), PolicyVersion: tc.want})
+		if p["policy_version"] != tc.want || p["binding_hash"] != binding {
+			t.Errorf("%s: the event binds policy_version %v and %v, want %s and %s", name, p["policy_version"], p["binding_hash"], tc.want, binding)
+		}
+		if res.Record.PolicyVersion != "fin.pol@3.1" {
+			t.Errorf("%s: the decision record binds %q, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
+		}
+	}
+}
+
+// A341 (interim): a request that binds anything but the composite of the basis is refused before anything is written: the old single-policy form "id@version" (also when it is the only
+// policy), the composite of only one of two policies, the composite of another set, and a composite in upper case.
+func TestAConfirmationRequestThatDoesNotBindTheCompositeIsRefused(t *testing.T) {
+	for name, build := range map[string]func(t *testing.T, w *world) recorder.Request{
+		"the single-policy form, with one policy": func(t *testing.T, w *world) recorder.Request {
+			r := confirmRequest(t, w, "evs_01ABC", true)
+			r.ConfirmationRequest.PolicyVersion = "fin.pol@3.1"
+			return r
+		},
+		"the composite of one of two policies": func(t *testing.T, w *world) recorder.Request { return confirmTwoPolicies(t, w, policyVersion) },
+		"the single-policy form, with two policies": func(t *testing.T, w *world) recorder.Request {
+			return confirmTwoPolicies(t, w, "fin.pol@3.1")
+		},
+		"the composite of another set": func(t *testing.T, w *world) recorder.Request {
+			r := confirmRequest(t, w, "evs_01ABC", true)
+			r.ConfirmationRequest.PolicyVersion = policyVersionTwo
+			return r
+		},
+		"a composite in upper case": func(t *testing.T, w *world) recorder.Request {
+			r := confirmRequest(t, w, "evs_01ABC", true)
+			r.ConfirmationRequest.PolicyVersion = strings.ToUpper(policyVersion)
+			return r
+		},
+	} {
+		w := newWorld(t)
+		if _, err := w.write(t, build(t, w), true); !errors.Is(err, recorder.ErrRequest) {
+			t.Errorf("%s: err %v, want ErrRequest", name, err)
+		}
+		w.nothingWritten(t, name)
+	}
+}
+
+// A341 (interim), INV-25, INV-21: the composite is the RFC 8785 form of the sorted, distinct "policy_id@version" strings, hashed. The expected value here is computed with the
+// repository's own canonicaliser (platform/crypto.CanonicalJSON), so the function in trust/decide and the canonicaliser agree byte for byte.
+func TestTheCompositeIsTheHashOfTheCanonicalFormOfTheSortedDistinctPolicyVersions(t *testing.T) {
+	list := []string{"fin.pol@3.1", "fin.other@2.0", "fin.pol@3.1"}
+	distinct := []string{"fin.other@2.0", "fin.pol@3.1"}
+	canonical, err := crypto.CanonicalJSON(distinct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canonical)
+	want := "ps:" + hex.EncodeToString(sum[:])
+	var refs []decide.PolicyVersionRef
+	for _, s := range list {
+		id, version, _ := strings.Cut(s, "@")
+		refs = append(refs, decide.PolicyVersionRef{PolicyID: id, Version: version})
+	}
+	got, err := decide.CompositePolicyVersion(refs)
+	if err != nil || got != want || got != policyVersionTwo {
+		t.Errorf("composite %q (%v), canonical form %s hashes to %q, pinned %q", got, err, canonical, want, policyVersionTwo)
+	}
 }

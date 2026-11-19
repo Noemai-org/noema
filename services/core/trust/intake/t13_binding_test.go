@@ -11,6 +11,14 @@ import (
 
 const tSetHash = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+// The composite policy versions (A341, interim): "ps:" and the SHA-256 hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, computed by an
+// independent Python implementation (see trust/decide policyset_test.go). SYNTHETIC policies.
+const (
+	tPolicySet     = "ps:50ca8c31e714463c1257e6e3f8b3f6c57fdb0c3fe471e8a2f015fa2b4f539ebb" // ["pol_synth01@3"]
+	tPolicySetTwo  = "ps:f81f4a1916c40274bfeb88b814e9b98bc36d43393b9cff1249f6b39c1fe364d1" // ["pol_synth01@3","pol_synth02@1"]
+	tPolicySetVers = "ps:52a779a7fd72828f57e07726d30090c0beacc19b4b76fc1f06573b45d1d0c5d7" // ["pol_synth01@2","pol_synth01@3"]
+)
+
 func given13() Confirmation {
 	return Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash, RequestID: "cfr_synth0001"}
 }
@@ -31,7 +39,7 @@ func TestT13PassesTheEvidenceSetHashOfT9AndThePolicyVersionOfT11(t *testing.T) {
 	ev.evidenceSetHash = tSetHash
 	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}}
 	run13(t, ev)
-	if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash, PolicyVersion: "pol_synth01@3"}); got != want {
+	if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash, PolicyVersion: tPolicySet}); got != want {
 		t.Errorf("FreshBinding %+v, want %+v", got, want)
 	}
 }
@@ -43,27 +51,35 @@ func TestT13ThePolicyVersionIsTheSameWhenOnePolicyVersionIsListedTwice(t *testin
 	ev := newEval13(t, f)
 	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth01", Version: "3"}}
 	run13(t, ev)
-	if got := oneBinding(t, f).PolicyVersion; got != "pol_synth01@3" {
-		t.Errorf("PolicyVersion %q, want pol_synth01@3", got)
+	if got := oneBinding(t, f).PolicyVersion; got != tPolicySet {
+		t.Errorf("PolicyVersion %q, want %s", got, tPolicySet)
 	}
 }
 
-// INV-25: with more than one policy in the evaluation the policy of the binding is not one policy, so it is passed empty (the adapter then refuses a Given answer); Trust
-// guesses none.
-func TestT13WithSeveralPoliciesThePolicyVersionIsEmpty(t *testing.T) {
-	for name, versions := range map[string][]decide.PolicyVersionRef{
-		"two policies":               {{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth02", Version: "1"}},
-		"two versions of one policy": {{PolicyID: "pol_synth01", Version: "2"}, {PolicyID: "pol_synth01", Version: "3"}},
-		"no policy took part":        nil,
+// A341 (interim), INV-25: the policy version of the binding is the composite of EVERY policy version that took part in T11 ("ps:" and the hash of the sorted, distinct list), whether
+// there is one, several policies or several versions of one policy; no policy, or one that cannot be bound, gives an empty value (decide.CompositePolicyVersion refuses it). The
+// answer does not depend on the order T11 listed them in. The status is NotRequired so that the test looks at what was passed only.
+func TestT13ThePolicyVersionIsTheCompositeOfEveryPolicyVersionOfT11(t *testing.T) {
+	for name, tc := range map[string]struct {
+		versions []decide.PolicyVersionRef
+		want     string
+	}{
+		"two policies":                      {[]decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth02", Version: "1"}}, tPolicySetTwo},
+		"the same two in the other order":   {[]decide.PolicyVersionRef{{PolicyID: "pol_synth02", Version: "1"}, {PolicyID: "pol_synth01", Version: "3"}}, tPolicySetTwo},
+		"two policies and a repeat":         {[]decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth02", Version: "1"}, {PolicyID: "pol_synth01", Version: "3"}}, tPolicySetTwo},
+		"two versions of one policy":        {[]decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "2"}, {PolicyID: "pol_synth01", Version: "3"}}, tPolicySetVers},
+		"no policy took part":               {nil, ""},
+		"a policy version that cannot bind": {[]decide.PolicyVersionRef{{PolicyID: "pol synth01", Version: "3"}}, ""},
+		"an empty version among good ones":  {[]decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth02", Version: ""}}, ""},
+		"an @ inside a policy ID":           {[]decide.PolicyVersionRef{{PolicyID: "pol@synth01", Version: "3"}}, ""},
 	} {
 		f := newFake13()
-		f.conf = given13()
 		ev := newEval13(t, f)
 		ev.evidenceSetHash = tSetHash
-		ev.policyVersions = versions
+		ev.policyVersions = tc.versions
 		run13(t, ev)
-		if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash}); got != want {
-			t.Errorf("%s: FreshBinding %+v, want %+v (policy version empty)", name, got, want)
+		if got, want := oneBinding(t, f), (FreshBinding{EvidenceSetHash: tSetHash, PolicyVersion: tc.want}); got != want {
+			t.Errorf("%s: FreshBinding %+v, want %+v", name, got, want)
 		}
 	}
 }

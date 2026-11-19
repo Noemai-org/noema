@@ -49,8 +49,13 @@ func newTenantTrust(t *testing.T, w *world, tenantID string) *pgxpool.Pool {
 // through platform/clock, the one place that reads the system clock (lint [clock]).
 func realNow() time.Time { return clock.System{}.Now() }
 
-// policyVersion is the policy the writer binds for evaluatedWith(t, _, "3.1") and request(): the bound policy of the grant.
-const policyVersion = "fin.pol@3.1"
+// policyVersion is the policy version a confirmation binds for evaluatedWith(t, _, "3.1") (A341, interim): the composite of every policy version of the basis, "ps:" and the SHA-256
+// hex of the RFC 8785 form of the sorted, distinct list of "policy_id@version" strings, here ["fin.pol@3.1"]. The literal was computed by an independent Python implementation, not by
+// the function under test. (The decision record and the grant still bind the single policy fin.pol@3.1.)
+const policyVersion = "ps:c1c966ac3b0b555cd16913245fcdf40ebe103d30ea356053aca7a1be0b76967e"
+
+// policyVersionTwo is the composite for a basis of two policies, fin.pol@3.1 and fin.other@2.0: ["fin.other@2.0","fin.pol@3.1"] (independent Python).
+const policyVersionTwo = "ps:ec91c19602ebb2caf6db5ffb9113f0c26e54328be6d9c03c1c064485ac94a2cb"
 
 // validBinding is the binding of the one step of allowWith, as the confirmation store computes it when it creates the request (SoT 43.2a, trust/confirm).
 func validBinding() confirm.BindingInput {
@@ -590,5 +595,63 @@ func TestAnAllowWhoseConfirmationWasGivenForAnotherPlanIsRefused(t *testing.T) {
 	}
 	if plan != string(h(4)) {
 		t.Errorf("the spend names plan %q, want %q", plan, h(4))
+	}
+}
+
+// allowTwoPolicies is allowWith over a basis of two policies, fin.pol@3.1 and fin.other@2.0.
+func allowTwoPolicies(t *testing.T, snapshot, event string) recorder.Request {
+	t.Helper()
+	b := twoPolicies(t, snapshot)
+	r := request(t, decision(t, decide.Allow, b), b, step(t))
+	r.ConfirmationEventID, r.ConfirmationPlanHash = event, h(4)
+	return r
+}
+
+// A341 (interim), INV-25, INV-17: the ALLOW that follows a confirmation is bound to the composite of every policy version of its basis. A confirmation given for the composite of two
+// policies is spent by an ALLOW over those two, and the spend records that binding.
+func TestAConfirmationGivenForTheCompositeOfTwoPoliciesIsSpentByAnAllowOverThoseTwo(t *testing.T) {
+	w := newWorld(t)
+	b := validBinding()
+	b.PolicyVersion = policyVersionTwo
+	if err := recordConfirmation(t, w.trust, tenant, given, b, realNow().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.write(t, allowTwoPolicies(t, "evs_01ABC", given), true); err != nil {
+		t.Fatalf("the ALLOW over two policies: %v", err)
+	}
+	var bound string
+	if err := w.admin.QueryRow(ctx(t), `SELECT binding_hash FROM confirmation_spend WHERE tenant_id = $1`, tenant).Scan(&bound); err != nil {
+		t.Fatal(err)
+	}
+	if want := bindingHashOf(t, b); bound != want {
+		t.Errorf("the spend records binding %q, want %q", bound, want)
+	}
+}
+
+// A341 (interim): a confirmation given for any other policy version than the composite of the ALLOW's own basis is not valid for it: the old single-policy form, the composite of one of
+// two policies, and the composite of two for a basis of one. Nothing remains.
+func TestAConfirmationGivenForAnotherPolicyVersionThanTheCompositeIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		policy string
+		allow  func(t *testing.T, snapshot, event string) recorder.Request
+	}{
+		"the single-policy form, one policy in the basis": {"fin.pol@3.1", func(t *testing.T, s, e string) recorder.Request { return allowWith(t, s, e) }},
+		"the composite of one policy, two in the basis":   {policyVersion, allowTwoPolicies},
+		"the composite of two policies, one in the basis": {policyVersionTwo, func(t *testing.T, s, e string) recorder.Request { return allowWith(t, s, e) }},
+		"the single-policy form, two in the basis":        {"fin.pol@3.1", allowTwoPolicies},
+	} {
+		w := newWorld(t)
+		b := validBinding()
+		b.PolicyVersion = tc.policy
+		if err := recordConfirmation(t, w.trust, tenant, given, b, realNow().Add(time.Hour)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, err := w.write(t, tc.allow(t, "evs_01ABC", given), true); !errors.Is(err, recorder.ErrConfirmationNotValid) {
+			t.Errorf("%s: err %v, want ErrConfirmationNotValid", name, err)
+		}
+		w.nothingRemains(t, name)
+		if n := w.spends(t); n != 0 {
+			t.Errorf("%s: %d spends", name, n)
+		}
 	}
 }

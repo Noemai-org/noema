@@ -70,7 +70,7 @@ func TestT13PendingWithANewRequestPlansThenRecordsOneConfirmAndOneRequest(t *tes
 	}
 	r := rec0(t, f)
 	want := &NewConfirmationRequest{PrincipalID: t13Principal, IntentHash: tHash, CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn_synth0001", ParamsHash: tHash,
-		EvidenceSetHash: tSetHash, PlanHash: tPlanHash, PolicyVersion: "pol_synth01@3", Requirement: "SELF", RequesterID: t13Principal, ExpiresAt: ev.now + int64(tTTL/time.Second)}
+		EvidenceSetHash: tSetHash, PlanHash: tPlanHash, PolicyVersion: tPolicySet, Requirement: "SELF", RequesterID: t13Principal, ExpiresAt: ev.now + int64(tTTL/time.Second)}
 	if !reflect.DeepEqual(r.ConfirmationRequest, want) {
 		t.Errorf("the request recorded is %+v, want %+v", r.ConfirmationRequest, want)
 	}
@@ -210,8 +210,8 @@ func TestT13ANewRequestNeedsWellFormedBindingValuesAndASafeSpec(t *testing.T) {
 		"no evidence set hash":                   func(e *evaluation, _ *f13) { e.evidenceSetHash = "" },
 		"an evidence set hash of the wrong form": func(e *evaluation, _ *f13) { e.evidenceSetHash = "sha256:ABC" },
 		"no policy version (none took part)":     func(e *evaluation, _ *f13) { e.policyVersions = nil },
-		"no policy version (two policies)": func(e *evaluation, _ *f13) {
-			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth02", Version: "1"}}
+		"a policy ID with an @ in it": func(e *evaluation, _ *f13) {
+			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol@synth01", Version: "3"}}
 		},
 		"a policy version with a character outside the binding's set": func(e *evaluation, _ *f13) {
 			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol synth01", Version: "3"}}
@@ -233,6 +233,30 @@ func TestT13ANewRequestNeedsWellFormedBindingValuesAndASafeSpec(t *testing.T) {
 		res := run13(t, ev)
 		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
 		wantRecordedNothing(t, name, f)
+	}
+}
+
+// A341 (interim), REQ-TRU-009, INV-25: the request binds the composite of EVERY policy version of T11, so an evaluation with two policies, or two versions of one, creates a request (it
+// is no longer refused for having no single policy) bound to the composite of them all.
+func TestT13ANewRequestWithSeveralPolicyVersionsBindsTheirComposite(t *testing.T) {
+	for name, tc := range map[string]struct {
+		versions []decide.PolicyVersionRef
+		want     string
+	}{
+		"two policies":               {[]decide.PolicyVersionRef{{PolicyID: "pol_synth02", Version: "1"}, {PolicyID: "pol_synth01", Version: "3"}}, tPolicySetTwo},
+		"two versions of one policy": {[]decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "3"}, {PolicyID: "pol_synth01", Version: "2"}}, tPolicySetVers},
+	} {
+		f := pendingNew(newFake13())
+		ev := confirmEval(t, f)
+		ev.policyVersions = tc.versions
+		res := run13(t, ev)
+		if res.Decision.Outcome() != decide.Confirm {
+			t.Errorf("%s: outcome %s %v, want CONFIRM", name, res.Decision.Outcome(), codes13(res.Decision))
+			continue
+		}
+		if r := rec0(t, f); r.ConfirmationRequest == nil || r.ConfirmationRequest.PolicyVersion != tc.want {
+			t.Errorf("%s: the request binds %+v, want policy version %s", name, r.ConfirmationRequest, tc.want)
+		}
 	}
 }
 
