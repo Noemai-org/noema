@@ -172,7 +172,7 @@ func TestSprBuildRefusesUnsoundData(t *testing.T) {
 		"repeated node":                {[]contracts.IntentNodeV1{node, node}, []contracts.TrustProfileV1{ok}},
 		"node with no ID":              {[]contracts.IntentNodeV1{sprNodeOf("", sprStr(sprProf))}, []contracts.TrustProfileV1{ok}},
 		"repeated profile":             {[]contracts.IntentNodeV1{node}, []contracts.TrustProfileV1{ok, ok}},
-		"profile with no ID":           {[]contracts.IntentNodeV1{node}, []contracts.TrustProfileV1{sprProfile("", 300, sprSrcA)}},
+		"profile with no ID":           {[]contracts.IntentNodeV1{sprNodeOf(sprBare, nil)}, []contracts.TrustProfileV1{sprProfile("", 300, sprSrcA)}},
 		"node names a missing profile": {[]contracts.IntentNodeV1{sprNodeOf(sprNode, sprStr("syn.trust.missing"))}, []contracts.TrustProfileV1{ok}},
 		"node names an empty profile":  {[]contracts.IntentNodeV1{sprNodeOf(sprNode, sprStr(""))}, []contracts.TrustProfileV1{ok}},
 		"max age zero":                 {[]contracts.IntentNodeV1{node}, []contracts.TrustProfileV1{sprProfile(sprProf, 0, sprSrcA)}},
