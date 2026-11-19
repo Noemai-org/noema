@@ -1,0 +1,8 @@
+{
+  "scopes": [
+    {"id": "ten_alpha", "tokens": ["ten_alpha", "SYNTH-MARK-alpha-4c1f7a92e0b3"]},
+    {"id": "usr_alpha1", "parent": "ten_alpha", "tokens": ["usr_alpha1", "SYNTH-MARK-alpha1-9d27b5e1c8a4"]},
+    {"id": "usr_alpha2", "parent": "ten_alpha", "tokens": ["usr_alpha2", "SYNTH-MARK-alpha2-3e6a0f58d1b7"]},
+    {"id": "ten_beta", "tokens": ["ten_beta", "SYNTH-MARK-beta-7b84d3c1a6f2"]}
+  ]
+}
