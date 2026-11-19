@@ -136,7 +136,7 @@ func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID st
 func contentHash(items []SealedItem) (string, error) {
 	in := make([]snapshot.ContentItem, len(items))
 	for i, it := range items {
-		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, PayloadHash: it.PayloadHash}
+		in[i] = snapshot.ContentItem{Source: it.Source, SourceRecordID: it.SourceRecordID, FactsDigest: it.PayloadHash}
 	}
 	h, err := snapshot.ContentHash(in)
 	if err != nil {

@@ -20,7 +20,7 @@ var ErrContentHashInput = errors.New("snapshot: the evidence content cannot be b
 type ContentItem struct {
 	Source         string
 	SourceRecordID string
-	PayloadHash    string
+	FactsDigest    string
 }
 
 // ContentHash is the evidence value a confirmation binds (A365, REQ-TRU-009, INV-25): "sha256:" and the SHA-256 of the domain tag and then, for each distinct item in sorted order,
@@ -40,7 +40,7 @@ func ContentHash(items []ContentItem) (string, error) {
 	}
 	ordered := append([]ContentItem(nil), items...)
 	for _, it := range ordered {
-		if it.Source == "" || it.SourceRecordID == "" || !payloadHashRe.MatchString(it.PayloadHash) {
+		if it.Source == "" || it.SourceRecordID == "" || !payloadHashRe.MatchString(it.FactsDigest) {
 			return "", fmt.Errorf("%w: an item has no source or record ID, or a payload hash that is not sha256: and 64 lowercase hex characters", ErrContentHashInput)
 		}
 	}
@@ -53,7 +53,7 @@ func ContentHash(items []ContentItem) (string, error) {
 		}
 		writeLP(h, it.Source)
 		writeLP(h, it.SourceRecordID)
-		writeLP(h, it.PayloadHash)
+		writeLP(h, it.FactsDigest)
 	}
 	return hashPrefix + hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -65,5 +65,5 @@ func lessContent(a, b ContentItem) bool { // Go compares strings bytewise, which
 	if a.SourceRecordID != b.SourceRecordID {
 		return a.SourceRecordID < b.SourceRecordID
 	}
-	return a.PayloadHash < b.PayloadHash
+	return a.FactsDigest < b.FactsDigest
 }

@@ -1,11 +1,13 @@
 package snapshot_test
 
-// TRU-07 (A365; REQ-TRU-009, REQ-CTX-004, INV-25, INV-17, INV-21; SoT 43.2a): the content hash of a snapshot is what a confirmation binds as its evidence, instead of the hash over the
-// evidence IDs. The evidence layer mints a new evidence ID for every read, so two snapshots of identical data never share a set hash; the content hash covers the sorted (source,
-// source record ID, payload hash) triples only, so a re-read of unchanged evidence gives the same value and a changed record gives another. All data is SYNTHETIC (AGENT-25).
+// TRU-07 (A365, refined; REQ-TRU-009, REQ-CTX-004, INV-25, INV-17, INV-21; SoT 43.2a): the content hash of a snapshot is what a confirmation binds as its evidence, instead of the hash
+// over the evidence IDs. The evidence layer mints a new evidence ID for every read, so two snapshots of identical data never share a set hash; the content hash covers the sorted
+// (source, source record ID, facts digest) triples only, where the facts digest is the digest of the item's MAPPED, NORMALIZED facts (FactsDigest; the raw payload hash is not used:
+// two reads of unchanged evidence can differ in a volatile or unmapped field). A re-read of unchanged evidence gives the same value and a changed mapped fact gives another.
+// All data is SYNTHETIC (AGENT-25).
 //
-// The two pinned values were computed by an independent Python implementation (SHA-256 over LP("noema.evidence_content_set.v1") and then, for each distinct triple in sorted order,
-// LP(source) LP(source_record_id) LP(payload_hash), LP being a 4-byte big-endian length and the bytes), not by the function under test.
+// The two pinned values were computed by an independent Python implementation (SHA-256 over LP("noema.evidence_content_set.v2") and then, for each distinct triple in sorted order,
+// LP(source) LP(source_record_id) LP(facts_digest), LP being a 4-byte big-endian length and the bytes), not by the function under test.
 
 import (
 	"errors"
@@ -21,16 +23,24 @@ import (
 func ph(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 
 func triple(source, record string, n int) snapshot.ContentItem {
-	return snapshot.ContentItem{Source: source, SourceRecordID: record, PayloadHash: ph(n)}
+	return snapshot.ContentItem{Source: source, SourceRecordID: record, FactsDigest: ph(n)}
 }
 
+// The three digests are those of the facts F1, F2 and F4 of facts_digest_test.go (independently computed there).
+const (
+	digestLedger = "sha256:8a1742b78829362cb21471c84b8f62cd297b588092533cfd1ceb427972f1c0cd"
+	digestSwitch = "sha256:05c4c1e0f4cb189c3152f7cf1cf0066c73f2c9fd64ccabdc6d93e2cf79df35fb"
+	digestSettle = "sha256:23d0bd027259d4dc68ab5601393208176d349963fe3463d6d283cd98a2f4e566"
+)
+
 func three() []snapshot.ContentItem {
-	return []snapshot.ContentItem{triple("ledger.synth", "rec-1", 1), triple("switch.synth", "rec-2", 2), triple("settle.synth", "rec-3", 3)}
+	return []snapshot.ContentItem{{Source: "ledger.synth", SourceRecordID: "rec-1", FactsDigest: digestLedger}, {Source: "switch.synth", SourceRecordID: "rec-2", FactsDigest: digestSwitch},
+		{Source: "settle.synth", SourceRecordID: "rec-3", FactsDigest: digestSettle}}
 }
 
 const (
-	vecOneItem    = "sha256:d4af355041bed444ceb2d16f27f28c3c26787d1d6e45e41eef5cdcd060221533"
-	vecThreeItems = "sha256:38b9af14bdbd1c1e1ed1a1401dce726998e1e1c34a4f3fdf9225dea2852b8310"
+	vecOneItem    = "sha256:178c92d1ca1879c60f113e7fdab80d91194ad39e6aa31b72a40ca8974f6521b5"
+	vecThreeItems = "sha256:5f35fba45a406a5ab0410152bb441ba3a288aff1a39fb56509ef3d849408b07f"
 )
 
 func mustHash(t *testing.T, items []snapshot.ContentItem) string {
@@ -70,10 +80,10 @@ func TestContentHashChangesWithAnyFieldOfAnyItem(t *testing.T) {
 	base := mustHash(t, three())
 	for i := range three() {
 		for name, edit := range map[string]func(*snapshot.ContentItem){
-			"source":      func(c *snapshot.ContentItem) { c.Source += "x" },
-			"record ID":   func(c *snapshot.ContentItem) { c.SourceRecordID += "x" },
-			"payload":     func(c *snapshot.ContentItem) { c.PayloadHash = ph(900 + i) },
-			"all swapped": func(c *snapshot.ContentItem) { c.Source, c.SourceRecordID = c.SourceRecordID, c.Source },
+			"source":       func(c *snapshot.ContentItem) { c.Source += "x" },
+			"record ID":    func(c *snapshot.ContentItem) { c.SourceRecordID += "x" },
+			"facts digest": func(c *snapshot.ContentItem) { c.FactsDigest = ph(900 + i) },
+			"all swapped":  func(c *snapshot.ContentItem) { c.Source, c.SourceRecordID = c.SourceRecordID, c.Source },
 		} {
 			items := three()
 			edit(&items[i])
@@ -96,6 +106,20 @@ func TestContentHashIsOrderIndependent(t *testing.T) {
 	want := mustHash(t, items)
 	r := rand.New(rand.NewSource(365)) // #nosec G404 -- a fixed seed for a reproducible test, not a secret
 	for n := 0; n < 200; n++ {
+		shuffled := append([]snapshot.ContentItem(nil), items...)
+		r.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+		if got := mustHash(t, shuffled); got != want {
+			t.Fatalf("shuffle %d: %s, want %s", n, got, want)
+		}
+	}
+}
+
+// A365 (refined): the order is by source, then record ID, and items that share a record ID across sources are told apart by the source: shuffling them never changes the value.
+func TestContentHashSortsBySourceThenRecordID(t *testing.T) {
+	items := []snapshot.ContentItem{triple("a.synth", "rec-1", 1), triple("b.synth", "rec-1", 2), triple("c.synth", "rec-1", 3), triple("a.synth", "rec-2", 4), triple("b.synth", "rec-2", 5)}
+	want := mustHash(t, items)
+	r := rand.New(rand.NewSource(3651)) // #nosec G404 -- a fixed seed for a reproducible test, not a secret
+	for n := 0; n < 100; n++ {
 		shuffled := append([]snapshot.ContentItem(nil), items...)
 		r.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
 		if got := mustHash(t, shuffled); got != want {
@@ -132,7 +156,7 @@ func TestContentHashIsDomainSeparated(t *testing.T) {
 	items := three()
 	pairs := make([]snapshot.Pair, len(items))
 	for i, it := range items {
-		pairs[i] = snapshot.Pair{EvidenceID: it.SourceRecordID, PayloadHash: it.PayloadHash}
+		pairs[i] = snapshot.Pair{EvidenceID: it.SourceRecordID, PayloadHash: it.FactsDigest}
 	}
 	set, err := snapshot.SetHash(pairs)
 	if err != nil {
@@ -162,10 +186,10 @@ func TestContentHashRefusesWhatCannotBeBound(t *testing.T) {
 		"no items":           nil,
 		"an empty source":    {triple("", "r", 1)},
 		"an empty record ID": {triple("s", "", 1)},
-		"no payload hash":    {{Source: "s", SourceRecordID: "r"}},
-		"an upper-case hash": {{Source: "s", SourceRecordID: "r", PayloadHash: strings.ToUpper(ph(10))}},
-		"a short hash":       {{Source: "s", SourceRecordID: "r", PayloadHash: "sha256:abc"}},
-		"one bad among good": append(three(), snapshot.ContentItem{Source: "s", SourceRecordID: "", PayloadHash: ph(4)}),
+		"no facts digest":    {{Source: "s", SourceRecordID: "r"}},
+		"an upper-case hash": {{Source: "s", SourceRecordID: "r", FactsDigest: strings.ToUpper(ph(10))}},
+		"a short hash":       {{Source: "s", SourceRecordID: "r", FactsDigest: "sha256:abc"}},
+		"one bad among good": append(three(), snapshot.ContentItem{Source: "s", SourceRecordID: "", FactsDigest: ph(4)}),
 	} {
 		got, err := snapshot.ContentHash(items)
 		if !errors.Is(err, snapshot.ErrContentHashInput) || got != "" {
