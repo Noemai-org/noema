@@ -42,3 +42,15 @@ Tested here against a copy of that file (not committed): with these three edits 
 - Open questions (Architect): none after the rulings.
 - Files to read first: `services/core/migrations/0030_tenant_row_security.sql`, `0018_row_security.sql`, `0017_kill_switch_set_only.sql`.
 - Do not touch: merged migrations; `deploy/compose/postgres/init.sh` (protected).
+
+# Session 2026-11-19 · SEC-08 where tenant creation runs; conformance items (noema#716, rulings A353, A319, A145)
+
+## Session summary
+- Where the step runs (finding): in Compose nothing applies the migrations and nothing calls `provision-tenants.sh`. `db.Migrate` has no caller outside tests, there is no `cmd/migrate`, no migrate or provision service, no Makefile or workflow target, and `bench_tokens.sh` creates no tenant. So no script sequences the three steps, and `init.sh` cannot be the home (it runs once on an empty volume before any migration; `tenant` does not exist). `init.sh` is therefore not changed. Per the task's own rule, a new one-shot service is a new service (AGENT-14) and was not added; no entry script exists to extend. The step runs where `provision-tenants.sh` already runs: by the operator, after the migrations, as the superuser, before `provision-tenants.sh`. Stated in `deploy/compose/README.md`.
+- The check: `test_init.sh` already proves the migration login and every power login cannot create a tenant, the script refuses any role but a superuser, and the superuser creates the tenant (C2's P3: the tenant rows exist because the superuser step made them). Added: `provision-tenants.sh` run before `create-tenants.sh` stops and maps nothing (the foreign key). This passes on arrival (characterisation, no RED possible). A check that FAILS WITHOUT THE STEP IN A SEQUENCE cannot be written: there is no sequence artifact. Not met, stated plainly.
+- Conformance: (a) the hunk of `services/core/migrations/README.md` is reverted (`git diff origin/main...HEAD -- services/core/migrations/README.md` is empty; A145). (b) A319 verified: `0030_tenant_row_security.sql` has no `GRANT EXECUTE ... decision_login_tenant() TO record_read` and `record_read` is not in `tenant_own_row`'s role list; `kill_switch_test.go` has no such grant; its `record_read` case expects no error and zero rows.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step (needs approval, AGENT-14): EXE-08's one-shot `migrate` service, or a small `deploy/compose` script, that runs migrations, then `create-tenants.sh` with the postgres superuser (trusted on the container socket), then `provision-tenants.sh`, plus a script test that fails when the sequence omits `create-tenants.sh`, runs it before the migrations or runs `provision-tenants.sh` first.
+- Do not touch: `deploy/compose/postgres/init.sh`; merged migrations; `services/core/migrations/README.md` (ledger noema#183).
