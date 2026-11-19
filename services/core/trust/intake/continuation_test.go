@@ -63,7 +63,12 @@ func stepEval13(t *testing.T, f *f13, p *capPolicy, r *runFake, cap string) *eva
 // notAllowedAtT11 asserts a continuation that fails closed before anything is asked of the policy, planned or recorded.
 func notAllowedAtT11(t *testing.T, name string, f *f13, p *capPolicy, res Result) {
 	t.Helper()
-	wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T11Policy, decide.StepFailed)
+	notAllowedAtT11As(t, name, f, p, res, decide.StepFailed)
+}
+
+func notAllowedAtT11As(t *testing.T, name string, f *f13, p *capPolicy, res Result, tr decide.TraceResult) {
+	t.Helper()
+	wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T11Policy, tr)
 	if len(p.queries) != 0 || f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
 		t.Errorf("%s: the policy was asked %v, or the planner or recorder was called: %v", name, p.queried(), f.calls)
 	}
@@ -171,7 +176,7 @@ func TestContinuationWhoseRunnableSetCannotBeReadFailsClosed(t *testing.T) {
 	notAllowedAtT11(t, "a runnable error", f, p, run13step(t, f, p, r, capRoute))
 	f, p, r = stepFake()
 	r.panic = true
-	notAllowedAtT11(t, "a runnable panic", f, p, run13step(t, f, p, r, capRoute))
+	notAllowedAtT11As(t, "a runnable panic", f, p, run13step(t, f, p, r, capRoute), decide.StepPanicked)
 }
 
 // A runnable step the intent and the tenant's policy do not authorize (outside Capabilities.Authorized) is never decided, whatever the graph says.

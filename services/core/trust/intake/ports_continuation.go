@@ -46,7 +46,31 @@ type stepScope struct {
 	runnable     Runnable
 }
 
-// EvaluateStep runs T1 to T15 for the one next step of an action graph (not built: RED stub).
+// EvaluateStep runs T1 to T15 for the one next step of an action graph (A335: the step is its own action decision with its own grant). Everything of Evaluate holds: the same
+// order, the same refusals, the Decision Record written before an ALLOW, one grant for each write step of the plan, which here is exactly the one step. In addition the
+// authorized set is that one capability, and only if the intent and the tenant's policy authorize it and the Runnable port says its preconditions are met now; a capability
+// outside either set is never decided (UNKNOWN INTERNAL_ERROR at the first step that reads the set, before the policy, the planner and the recorder). A continuation is for
+// a write: an intent that leads to none is UNKNOWN at T3. A request without a capability or without the Runnable port is an error, never a decision.
 func (s *Service) EvaluateStep(ctx context.Context, r ContinuationRequest) (Result, error) {
-	return Result{}, ErrNotBuilt
+	if err := s.configured(); err != nil {
+		return Result{}, err
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return Result{}, ErrNoDeadline
+	}
+	if r.CapabilityID == "" || r.Runnable == nil {
+		return Result{}, ErrStepInvalid
+	}
+	return s.evaluate(ctx, r.Request, &stepScope{capabilityID: r.CapabilityID, facts: cloneStrings(r.Facts), packet: r.EvidencePacket, runnable: r.Runnable})
+}
+
+func cloneStrings(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

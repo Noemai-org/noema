@@ -103,9 +103,7 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
 	}
-	a := e.intent
-	p, err := e.svc.Ports.Planner.Plan(ctx, PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
-		IntentNode: a.IntentNode, WriteRequired: e.late.needsWrite})
+	p, err := e.svc.Ports.Planner.Plan(ctx, e.planRequest())
 	switch {
 	case errors.Is(err, ErrPlanInvalid):
 		return e.planInvalid()
@@ -129,6 +127,24 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	p.Steps = append([]PlanStep(nil), p.Steps...)
 	e.late.plan = &p
 	return decide.Continue()
+}
+
+// planRequest is what Trust asks the Planner for: the intent, what T3 learned and, for a continuation, the one capability to plan with the facts and the evidence packet the
+// caller gave. The policy params are T11's, copied, for every capability it asked the policy about.
+func (e *evaluation) planRequest() PlanRequest {
+	a := e.intent
+	r := PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash, IntentNode: a.IntentNode,
+		WriteRequired: e.late.needsWrite}
+	if len(e.policyParams) > 0 {
+		r.PolicyParams = make(map[string]map[string]string, len(e.policyParams))
+		for id, p := range e.policyParams {
+			r.PolicyParams[id] = cloneStrings(p)
+		}
+	}
+	if e.step != nil {
+		r.Capabilities, r.Facts, r.EvidencePacket = []string{e.step.capabilityID}, cloneStrings(e.step.facts), e.step.packet
+	}
+	return r
 }
 
 // wellFormed: a hash in the contract's form; no step for a read and at least one for a write; every step names a capability, a target and a params hash in the contract's form.
@@ -156,6 +172,9 @@ func (e *evaluation) planAgrees(ctx context.Context, p Plan) (bool, error) {
 	authorized, err := e.authorizedCapabilities(ctx)
 	if err != nil {
 		return false, err
+	}
+	if e.step != nil && (len(p.Steps) != 1 || p.Steps[0].CapabilityID != e.step.capabilityID) {
+		return false, nil // a continuation is one step with one grant (A335)
 	}
 	for _, s := range p.Steps {
 		c, err := e.svc.Ports.Capabilities.Check(ctx, s.CapabilityID, e.req.Session.Role)

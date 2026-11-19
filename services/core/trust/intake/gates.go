@@ -121,6 +121,9 @@ func (e *evaluation) t3(ctx context.Context) decide.StepResult {
 	}
 	e.late.needsWrite = needs
 	if !needs {
+		if e.step != nil {
+			return decide.FailStep(errStepNotWrite) // a continuation decides a write step; an intent that leads to none has no next step
+		}
 		return decide.Continue()
 	}
 	enabled, err := e.svc.Ports.Writes.Enabled(ctx, e.req.Session.TenantID)

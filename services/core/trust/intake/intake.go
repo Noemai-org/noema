@@ -47,6 +47,11 @@ func (s *Service) configured() error {
 // Evaluate runs T1 to T15 for r in the fixed order of PERD 23.3 and returns the one decision with its trace (REQ-TRU-002). A malformed intent reference is REJECT
 // INTENT_INVALID at T1 and reads nothing. Every other failure of a step is UNKNOWN INTERNAL_ERROR (trust/decide), never ALLOW. Steps T1 to T15 are built; T15 is the only step that can end in ALLOW.
 func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
+	return s.evaluate(ctx, r, nil)
+}
+
+// evaluate is Evaluate and EvaluateStep: step is nil for the first evaluation of an intent and names the one step of a continuation otherwise.
+func (s *Service) evaluate(ctx context.Context, r Request, step *stepScope) (Result, error) {
 	if err := s.configured(); err != nil {
 		return Result{}, err
 	}
@@ -65,6 +70,7 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	ev.step = step
 	return ev.run(ctx, ev.steps()), nil
 }
 
