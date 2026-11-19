@@ -29,6 +29,11 @@ class ActionGraphV2(unittest.TestCase):
         self.assertEqual(set(v2["properties"]) - set(v1["properties"]), {"roots"})
         self.assertEqual(set(v2["required"]) - set(v1["required"]), {"roots"})
         for name in v1["properties"]:
+            if name == "nodes":  # v2 adds the optional node member `params` (A369); everything else of a node is v1's
+                node = copy.deepcopy(v2["properties"]["nodes"])
+                del node["items"]["properties"]["params"]
+                self.assertEqual(v1["properties"][name], node, name)
+                continue
             self.assertEqual(v1["properties"][name], v2["properties"][name], name)
 
     def test_a_graph_is_v1_or_v2_never_both(self):

@@ -293,9 +293,9 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class MayWrite(unittest.TestCase):
-    """A342 and A345 (interim, relayed, not yet committed). `may_write` (evidence-source) says whether a capability may write to the
-    source; absent means false. `produced_by` (evidence-descriptor) names the evidence source that produced the evidence."""
+class WriteWhen(unittest.TestCase):
+    """A364 (interim, relayed, not yet committed). `write_when` (evidence-source) is a predicate of the pack's own language that says WHEN a capability may write to the
+    source; absent means never. A write capability whose verification source has none is refused; the predicate must parse, be Boolean and use only declared variables."""
 
     def pack(self):
         return json.loads((PACKS / "fintech_v1.json").read_text())
@@ -303,35 +303,48 @@ class MayWrite(unittest.TestCase):
     def run_pack(self, pack):
         return checks.run(PACKS / "fintech_v1.json", pack=pack)
 
-    def test_only_the_case_system_may_be_written_to(self):
-        sources = {s["source_id"]: s.get("may_write", False) for s in self.pack()["evidence_sources"]}
+    def test_only_the_case_system_says_when_it_may_be_written_to(self):
+        sources = {s["source_id"]: s.get("write_when") for s in self.pack()["evidence_sources"]}
         self.assertEqual({k for k, v in sources.items() if v}, {"fin.src.case_system"})
+        self.assertFalse(any("may_write" in s for s in self.pack()["evidence_sources"]))
 
-    def test_an_absent_may_write_is_false_so_a_write_capability_is_refused(self):
+    def test_an_absent_write_when_means_never_so_a_write_capability_is_refused(self):
         pack = self.pack()
         for s in pack["evidence_sources"]:
-            s.pop("may_write", None)
-        problems = [m for c, m in self.run_pack(pack) if c == "capability" and "may_write" in m]
-        self.assertTrue(problems, "the four case-writing capabilities must be refused")
-        self.assertEqual(len(problems), 4, problems)
+            s.pop("write_when", None)
+        problems = [m for c, m in self.run_pack(pack) if c == "capability" and "write_when" in m]
+        self.assertEqual(len(problems), 4, problems)  # the four case-writing capabilities
 
-    def test_a_prohibited_capability_on_a_read_only_source_is_not_refused(self):
+    def test_a_prohibited_or_read_capability_needs_no_write_when(self):
         pack = self.pack()
         self.assertTrue(any(c["prohibited"] for c in pack["capabilities"]))
-        self.assertEqual([m for c, m in self.run_pack(pack) if "may_write" in m], [])
+        self.assertTrue([c for c in pack["capabilities"] if c["risk_class"] == "R0_read" and not c["prohibited"]])
+        self.assertEqual([m for c, m in self.run_pack(pack) if "write_when" in m], [])
 
-    def test_a_read_capability_on_a_read_only_source_is_not_refused(self):
-        pack = self.pack()
-        reads = [c for c in pack["capabilities"] if c["risk_class"] == "R0_read" and not c["prohibited"]]
-        self.assertTrue(reads)
-        self.assertEqual([m for c, m in self.run_pack(pack) if "may_write" in m], [])
+    def test_the_predicate_uses_the_packs_own_grammar_and_declared_variables(self):
+        for text, ok in (("subject_resource.status == 'RESOLVED'", True), ("true", True), ("subject_resource.status == 'RESOLVED' and case_id != null", True),
+                         ("undeclared_variable", False), ("subject_resource.status ==", False), ("1 + 1", False), ("subject_resource.status == 'NOT_A_STATUS'", False)):
+            pack = self.pack()
+            next(s for s in pack["evidence_sources"] if s["source_id"] == "fin.src.case_system")["write_when"] = text
+            problems = [m for c, m in self.run_pack(pack) if c == "predicate" and "write_when" in m]
+            self.assertEqual(not problems, ok, f"{text!r}: {problems}")
 
-    def test_produced_by_may_name_any_source_of_the_pack(self):
-        pack = self.pack()
-        for d in pack["evidence_descriptors"]:
-            d["produced_by"] = d["source"]
-        self.assertEqual(self.run_pack(pack), [])
+    def test_may_write_and_produced_by_are_not_members(self):  # A364, A363
+        for where, key in (("evidence_sources", "may_write"), ("evidence_descriptors", "produced_by")):
+            pack = self.pack()
+            pack[where][0][key] = pack[where][0].get("source_id", True) if key == "produced_by" else True
+            self.assertTrue([m for c, m in self.run_pack(pack) if c == "schema"], key)
 
-    def test_the_real_descriptors_say_who_produced_them(self):  # A345
-        for d in self.pack()["evidence_descriptors"]:
-            self.assertEqual(d.get("produced_by"), d["source"], d["entity"])
+
+class GraphParams(unittest.TestCase):
+    """A369 (interim, relayed, not yet committed). A node's optional `params` (the ParamSpec of the PlanGraphs adapter): names are unique within a node."""
+
+    def test_a_param_name_is_declared_once_per_node(self):
+        base = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in base["action_graph_files"]}
+        node = graphs["fintech/graph/g2_escalate.json"]["nodes"][0]
+        node["params"] = [{"name": "a", "source": "CONST", "value": "x"}, {"name": "b", "source": "CONST", "value": "y"}]
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+        node["params"][1]["name"] = "a"
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "graph" and "declares param" in m]
+        self.assertEqual(len(hits), 1, hits)

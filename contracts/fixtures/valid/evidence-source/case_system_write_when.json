@@ -10,5 +10,5 @@
     "switch_result"
   ],
   "sensitivity": "S3_financial_pii",
-  "may_write": "yes"
+  "write_when": "subject_resource.status == 'RESOLVED'"
 }
