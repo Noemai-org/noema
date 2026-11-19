@@ -1,13 +1,10 @@
-"""The latency measurement harness skeleton (VOI-16, REQ-VOI-001, REQ-NFR-003; rulings A180, A241; AGENT-16, INV-21).
+"""The latency measurement harness skeleton (VOI-16, REQ-VOI-001, REQ-NFR-003; rulings A241, A377 to A379; AGENT-16, INV-21).
 
 One session is one synthetic utterance through the speech-to-text adapter, the core's admission and answer (a `Core` the caller supplies), and the text-to-speech adapter to its first
 audio chunk. An injected clock times the five stages of `latency.py`, so speech-to-text, the response and text-to-speech are measured separately; the number against the target is the
 `summarise` of `latency.py`, whose target is the caller's argument. This module sets no threshold.
 
-Safety, before any provider is called: the utterance must be marked synthetic (A180: no real speaker audio goes to any vendor before the data terms are signed), its length must be inside the
-caller's bounds (the Founder's 5 to 15 second condition is passed as data, not defaulted here), and its audio must fit the audio budget the caller sets (the free minutes of the
-Integrator account); a refusal is a `BenchError` and nothing is sent. A failure at any stage leaves an incomplete timeline with the failure's kind, which `summarise` counts as the worst
-case, so a run cannot meet its target by losing its failures.
+Safety, before any provider is called: the utterance must carry an origin label, SYNTHETIC or TEAM_RECORDING (a recording of a consenting member of the team; A377 to A379), and anything else is refused; its length must be inside the caller's bounds (the Founder's 5 to 15 second condition is passed as data, not defaulted here), and its audio must fit the audio budget the caller sets (the free minutes of the Integrator account); a refusal is a `BenchError` and nothing is sent. Raw audio of either kind lives only in the bench Environment's private store and never in a report or a log (REQ-VOI-004); this module holds frames in memory for the call only. A failure at any stage leaves an incomplete timeline with the failure's kind, which `summarise` counts as the worst case, so a run cannot meet its target by losing its failures.
 
 The skeleton has no network and no key: the adapters, the clock and the core are arguments. The live entry point that reads the key file and calls Intron is a later change.
 """
@@ -16,6 +13,7 @@ import asyncio
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from noema_model.providers.speech.base import AudioChunk, Locale, SpeechProvider, StreamRequest
@@ -39,12 +37,17 @@ class Core(Protocol):
     async def answer(self) -> str: ...
 
 
+class AudioOrigin(StrEnum):
+    SYNTHETIC = "SYNTHETIC"  # made by text-to-speech from our own script (AGENT-25)
+    TEAM_RECORDING = "TEAM_RECORDING"  # a recording of a consenting member of the team
+
+
 @dataclass(frozen=True, slots=True)
-class SyntheticUtterance:
+class Utterance:
     label: str
     locale: Locale
     frames: tuple[AudioChunk, ...]
-    synthetic: bool  # must be True (A180); the caller states it, and an unmarked utterance is refused
+    origin: AudioOrigin  # the caller's label; anything that is not an AudioOrigin is refused
 
     @property
     def duration_s(self) -> float:
@@ -69,6 +72,7 @@ class AudioBudget:
 @dataclass(frozen=True, slots=True)
 class SessionResult:
     label: str
+    origin: AudioOrigin
     timeline: StageTimeline
     failure: ProviderFailure | None  # None for a complete session
 
@@ -139,7 +143,7 @@ async def measure_session(
     stt: SpeechProvider,
     tts: SpeechSynthesizer,
     core: Core,
-    utterance: SyntheticUtterance,
+    utterance: Utterance,
     stt_request: StreamRequest,
     tts_model_version: str,
     clock_ms: Callable[[], int],
@@ -152,8 +156,8 @@ async def measure_session(
 ) -> SessionResult:
     """`deadline_s` bounds speech-to-text, `core_deadline_s` each of the core's two steps, `tts_deadline_s` the wait for the first audio and `cleanup_s` each close. None has a default
     (AGENT-16, A324): the baseline run decides their values and the Architect sets them after it."""
-    if not utterance.synthetic:
-        raise BenchError("only synthetic audio is measured")
+    if not isinstance(utterance.origin, AudioOrigin):
+        raise BenchError("the audio carries no origin label")
     low, high = bounds_s
     if not (low <= utterance.duration_s <= high):
         raise BenchError("the utterance is outside the measurement bounds")
@@ -180,10 +184,10 @@ async def measure_session(
         timeline.mark(Stage.ANSWER_TEXT)
         await _first_audio(tts, SynthesisRequest(text=answer, locale=utterance.locale, model_version=tts_model_version), tts_deadline_s, cleanup_s, timeline)
     except ProviderError as error:
-        return SessionResult(utterance.label, timeline, error.kind)
+        return SessionResult(utterance.label, utterance.origin, timeline, error.kind)
     except TimeoutError:
-        return SessionResult(utterance.label, timeline, ProviderFailure.TIMEOUT)
-    return SessionResult(utterance.label, timeline, None)
+        return SessionResult(utterance.label, utterance.origin, timeline, ProviderFailure.TIMEOUT)
+    return SessionResult(utterance.label, utterance.origin, timeline, None)
 
 
 def measure_batch(results: Sequence[SessionResult], *, target_ms: int) -> LatencySummary:
@@ -203,4 +207,4 @@ def _counted(result: SessionResult) -> StageTimeline:
     return lost
 
 
-__all__ = ("AudioBudget", "BenchError", "Core", "SessionResult", "SyntheticUtterance", "measure_batch", "measure_session")
+__all__ = ("AudioBudget", "AudioOrigin", "BenchError", "Core", "SessionResult", "Utterance", "measure_batch", "measure_session")
