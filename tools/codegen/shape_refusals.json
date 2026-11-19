@@ -159,7 +159,6 @@
  "evidence-payload/json_is_a_string.json": "type",
  "evidence-payload/raw_hash_missing.json": "required",
  "evidence-source/may_write_not_boolean.json": "type",
- "evidence-source/may_write_null.json": "type",
  "evidence-source/missing_authority.json": "required",
  "execution-receipt/missing_grant.json": "required",
  "execution-receipt/state_succeeded.json": "enum",
