@@ -8,11 +8,13 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 
 - `status/README.md` (this file): the index and the format.
 - Session notes of other sessions, moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status): `ENV-08.md` and `ENV-13.md` (two sessions each, one dated section per session) and `T5-T6.3.md`. Each task's file now holds its state, its sessions and its message log.
+- `CON-03-scorecard-ts.md` (Core Engineer 1, 17 Nov 2026): the benchmark-only TypeScript entry point for `scorecard-view.v1` (noema#677), its session and its message.
 - `REC-03.md` (Core Engineer 1, 1 Nov 2026): the reconstruction endpoint, its session and its messages.
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 - `EXE-RETRY-714.md` (Core Engineer 1, 18 Nov 2026): the bounded retry of a spend on a serialization failure (noema#714), its setting `NOEMA_DB_SERIALIZATION_ATTEMPTS`, its session and open questions.
 
+- `TRU-07-confirm-port.md` (19 Nov 2026): the `Confirmations` port of `trust/intake` carries the fresh binding, the declined status and the request fields; what EL's adapter must implement and the open questions.
 - `status/roles/` (31 Oct 2026): one file per role agent, each written only by its role, so that role status never conflicts. These task files above stay as history.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)
