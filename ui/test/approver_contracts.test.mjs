@@ -56,10 +56,13 @@ test("confirmation-answer.v1: every invalid fixture is refused with a ContractEr
   const files = readdirSync(INVALID).filter((f) => f.endsWith(".json") && f !== "expectations.json");
   assert.ok(files.length >= 30, "the scan sees the invalid fixtures");
   assert.deepEqual(files.sort(), Object.keys(expectations).sort(), "a fixture without an expectation, or the other way round");
+  let refused = 0;
   for (const [f, keyword] of Object.entries(expectations)) {
     const doc = JSON.parse(readFileSync(join(INVALID, f), "utf8"));
     assert.throws(() => parseAnswer(doc), entry().ContractError, `confirmation-answer/${f} (${keyword}) was accepted`);
+    refused++;
   }
+  assert.equal(refused, files.length, "every invalid fixture was run through the parser");
 });
 
 // INV-12: the principal, roles, channel, time, tenant and session come from the authenticated session, never from this body. The parser is closed, so a member the schema does not list is
