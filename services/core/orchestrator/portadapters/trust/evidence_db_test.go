@@ -235,7 +235,7 @@ func (w *evdPG) facts(t *testing.T, pools evdPools) trustport.ItemFacts {
 }
 
 // evdDBContentHash is the content hash of the DB case over the REAL mapping: the facts debit.state=POSTED (ledger, rec-01), switch.state=SUCCESSFUL (rec-02) and
-// credit.state=CREDITED (destination, rec-03), each KNOWN, digested and then hashed with their sources and records by the independent Python implementation (vectors_r4t13b.py).
+// credit.state=CREDITED (destination, rec-03), each KNOWN, digested and then hashed with their sources and records by the independent Python implementation (a scratch script, not committed).
 const evdDBContentHash = "sha256:ae27f853647caa35fa150d4379f9ce3f35ae6764da41c95e69b44670efb1cee5"
 
 // REQ-TRU-001, REQ-CTX-003, REQ-CTX-004; INV-17: the whole path over the real tables. The freshness is what the sealed items hold, the intent is the case's latest version.

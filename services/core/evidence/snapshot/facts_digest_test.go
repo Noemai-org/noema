@@ -4,7 +4,7 @@ package snapshot_test
 // differ between two reads of unchanged evidence (a volatile or an unmapped field), so the confirmation binds the facts the evidence mapping gives, which are what the decision rests on.
 // FactsDigest is a pure function of those facts: no payload, no evidence ID, no time. All data is SYNTHETIC (AGENT-25).
 //
-// The pinned values were computed by an independent Python implementation (vectors_r4t13b.py, not run in CI; the pattern of content_hash_test.go): SHA-256 over LP("noema.evidence_item_facts.v1"),
+// The pinned values were computed by an independent Python implementation (a scratch script, not committed and not run in CI: the pattern of content_hash_test.go): SHA-256 over LP("noema.evidence_item_facts.v1"),
 // LP(decimal count of facts), then each fact in bytewise order of its entity as LP(entity) LP(status) LP(decimal count of fields) and each field in bytewise order of its name as
 // LP(name) LP(kind) LP(text); LP is a 4-byte big-endian length and the bytes. Integers, timestamps and durations are canonical base-10 text of an int64 and booleans are "true" or "false",
 // so no value has two spellings and none is a float.

@@ -689,7 +689,7 @@ func TestEvidenceReaderNeedsItsConfiguration(t *testing.T) {
 }
 
 // evdContentHash is the content hash of the usual three items (evdItem 1 to 3) with the default facts of evdFacts (entity "evd", KNOWN, state "S-<record>"): the sorted (source, source
-// record ID, facts digest) triples, computed by an independent Python implementation (vectors_r4t13b.py: the digest of each item's facts, then SHA-256 over
+// record ID, facts digest) triples, computed by an independent Python implementation (a scratch script, not committed: the digest of each item's facts, then SHA-256 over
 // LP("noema.evidence_content_set.v2") and the length-prefixed fields of each triple in sorted order), not by the code under test.
 const evdContentHash = "sha256:ec82b699624d6a2d952b0c8cce05295af12e894dc078331543191b38485f37e2"
 
