@@ -87,3 +87,7 @@ Writer (`/trust/recorder`, 19): the CONFIRMATION_REQUESTED event written before 
 - Open questions (owner): item 1 (Architect: which source gives way, and the decision record); item 2 (Architect: new snapshot per re-evaluation, or a migration changing `decision_record_input_key`; INV-21 and the confirmation state); item 3 (Architect and C1: record the T11 CONFIRM and create its request); when a request is open but its binding no longer matches the fresh evaluation, does `Status` return Pending with that `RequestID` (the approver would be asked to confirm an action whose request is stale) or Pending with a `NewRequest` (a second request while one is open): EL and the Architect; the TTL and requirement source per intent node (pack data): EL and C1.
 - Files to read first: `services/core/trust/intake/gates_t13_t15.go` (`t13`, `t13Confirm`, `newRequest`, `validPlan`), `ports_t13_t15.go`, `services/core/trust/recorder/confirmrequest.go`, `recorder.go` (`Write`), `confirmrequest_test.go`.
 - Do not touch: `trust/decide` stop sets, `lookup` and `decision_record_input_key` until the ruling; `internal/contracts`, `/contracts`.
+
+
+# Update 2026-11-19 (TRU-07 PR 3, status/TRU-07-confirm-t13-rulings.md)
+Flag 1 (Declined to REJECT) is built on the strength of the relayed ruling (not yet committed): `stepOutcomes[T13Confirmation]` is `{Confirm, Reject}`, and a PERD version file plus a decision record are still owed. The A186 collision (flag 2) is not fixed and stays pinned. The text above is kept as written.
