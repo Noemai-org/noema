@@ -2,13 +2,15 @@ package reconstruct
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
 
-	"github.com/Noemai-org/noema/services/core/platform/crypto"
+	"github.com/Noemai-org/noema/services/core/edge/session"
+	"github.com/Noemai-org/noema/services/core/internal/contracts"
 )
 
 // Route is the path of REQ-AUD-003 (PERD 39.4), in net/http pattern form.
@@ -101,18 +103,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	caller, err := auth.Authenticate(r)
 	if err != nil {
 		h.access(r.Context(), Caller{}, corr, codeUnauthenticated)
-		h.fail(w, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.", corr)
+		h.fail(w, r, http.StatusUnauthorized, codeUnauthenticated, "Authentication is required.")
 		return
 	}
 	if !mayRead(caller) {
 		// The same code as not found, so a caller cannot learn that a correlation exists (errors.v2.json).
 		h.access(r.Context(), caller, corr, codeNotFound)
-		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+		h.fail(w, r, http.StatusNotFound, codeNotFound, "Not found.")
 		return
 	}
 	if corr == "" {
 		h.access(r.Context(), caller, "", codeInputInvalid)
-		h.fail(w, http.StatusBadRequest, codeInputInvalid, "The correlation ID is not valid.", "")
+		h.fail(w, r, http.StatusBadRequest, codeInputInvalid, "The correlation ID is not valid.")
 		return
 	}
 	timeout := h.Timeout
@@ -124,7 +126,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	db, err := h.DBs.For(caller.TenantID)
 	if err != nil {
 		h.access(ctx, caller, corr, codeSafetyBlock)
-		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.", corr)
+		h.fail(w, r, http.StatusInternalServerError, codeSafetyBlock, "The Record cannot be read for this tenant.")
 		return
 	}
 	body, err := Build(ctx, db, caller.TenantID, corr)
@@ -137,16 +139,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)
 	case errors.Is(err, ErrIntegrity):
 		h.access(ctx, caller, corr, codeIntegrity)
-		h.fail(w, http.StatusConflict, codeIntegrity, "The Record did not verify, so it is not served.", corr)
+		h.fail(w, r, http.StatusConflict, codeIntegrity, "The Record did not verify, so it is not served.")
 	case errors.Is(err, ErrNotFound):
 		h.access(ctx, caller, corr, codeNotFound)
-		h.fail(w, http.StatusNotFound, codeNotFound, "Not found.", corr)
+		h.fail(w, r, http.StatusNotFound, codeNotFound, "Not found.")
 	case errors.Is(err, ErrUnprojectable):
 		h.access(ctx, caller, corr, codeSafetyBlock)
-		h.fail(w, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.", corr)
+		h.fail(w, r, http.StatusInternalServerError, codeSafetyBlock, "The Record holds an object that cannot be served.")
 	default:
 		h.access(ctx, caller, corr, codeDependency)
-		h.fail(w, http.StatusServiceUnavailable, codeDependency, "The Record is not available.", corr)
+		h.fail(w, r, http.StatusServiceUnavailable, codeDependency, "The Record is not available.")
 	}
 }
 
@@ -164,25 +166,36 @@ func mayRead(c Caller) bool {
 	return false
 }
 
-// access writes the RECORD_ACCESSED line (REQ-AUD-003: reads are logged in the access log, not the chain). It carries
-// IDs and codes only, never Record content.
+// access writes the RECORD_ACCESSED line (REQ-AUD-003: reads are logged in the access log, not the chain): one per request that reaches the handler, written once on each
+// path out of ServeHTTP. It carries the tenant, the principal, the role, the correlation read and the outcome code, never Record content. The composition root gives the handler
+// a logger that goes through the redactor.
 func (h *Handler) access(ctx context.Context, c Caller, corr, outcome string) {
 	if h.Log == nil {
 		return
 	}
+	role := ""
+	if len(c.Roles) > 0 {
+		role = c.Roles[0] // a session carries exactly one role
+	}
 	h.Log.LogAttrs(ctx, slog.LevelInfo, "RECORD_ACCESSED", slog.String("tenant_id", c.TenantID), slog.String("principal", c.Principal),
-		slog.String("correlation_id", corr), slog.String("outcome", outcome))
+		slog.String("role", role), slog.String("correlation_id", corr), slog.String("outcome", outcome))
 }
 
-// fail writes the error envelope of errors.v2.json. Every envelope carries a correlation ID: the request's when it was
-// valid, otherwise a fresh one.
-func (h *Handler) fail(w http.ResponseWriter, status int, code, message, corr string) {
-	if corr == "" && h.IDs != nil {
-		if id, err := h.IDs.ID("corr"); err == nil {
-			corr = id
+// fail writes the error envelope of errors.v2.json, byte for byte as the edge's role gate writes its not-found (the generated envelope, one encoder), so that a wrong role, an
+// absent correlation and another tenant's correlation cannot be told apart by their bytes. Its correlation ID is the request's own, the one the edge minted for it (REQ-SEC-003):
+// the correlation the caller asked for is never echoed, because a caller could write a digit run in it. Without the edge in front, a fresh one is made.
+func (h *Handler) fail(w http.ResponseWriter, r *http.Request, status int, code, message string) {
+	corr := session.CorrelationFromContext(r.Context())
+	if !correlationRe.MatchString(corr) {
+		corr = ""
+		if h.IDs != nil {
+			if id, err := h.IDs.ID("corr"); err == nil && correlationRe.MatchString(id) {
+				corr = id
+			}
 		}
 	}
-	body, err := crypto.CanonicalJSON(map[string]any{"error": map[string]any{"code": code, "message": message, "retryable": retryable[code], "correlation_id": corr}})
+	env := contracts.ErrorsV2ErrorEnvelope{Error: contracts.ErrorsV2ErrorBody{Code: contracts.ErrorsV2ErrorCode(code), Message: message, Retryable: retryable[code], CorrelationId: contracts.CommonV1CorrelationId(corr)}}
+	body, err := json.Marshal(env)
 	if err != nil {
 		http.Error(w, "", http.StatusInternalServerError)
 		return
@@ -192,5 +205,5 @@ func (h *Handler) fail(w http.ResponseWriter, status int, code, message, corr st
 		w.Header().Set(headerCorrelation, corr)
 	}
 	w.WriteHeader(status)
-	_, _ = w.Write(body)
+	_, _ = w.Write(append(body, '\n'))
 }

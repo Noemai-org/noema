@@ -14,6 +14,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	admissionsport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/admissions"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/redaction"
 	"github.com/Noemai-org/noema/services/core/record/admission"
 	"github.com/Noemai-org/noema/services/core/record/chain"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
@@ -149,6 +150,15 @@ func composeReadiness(c Components, api http.Handler) readiness {
 	}
 }
 
+// redactedLog is the access log: the process logger behind the mandatory redactor (REQ-SEC-003, AGENT-13, ruling A154), so that a RECORD_ACCESSED line never carries a digit run of
+// more than four, whatever a caller wrote in the correlation it asked for. A nil logger stays nil: a Record reader with no access log is a startup error (buildAPI).
+func redactedLog(l *slog.Logger) *slog.Logger {
+	if l == nil {
+		return nil
+	}
+	return slog.New(redaction.New().Handler(l.Handler()))
+}
+
 // buildComponents builds what main composes, in one place, and returns it with one function that closes every pool opened (safe to call more than once, and returned with an error
 // too). Only adapters that are merged are plugged in: the Record reader, the Admissions port over it (one reader, so a turn's input is confirmed as the session's tenant) and the
 // orchestrator's Recorder and, over the same per-tenant stores, the investigation reader (A243), which needs NOEMA_READ_TIMEOUT_MS as well (A319). With none of the settings there is nothing and no error; any setting that cannot be applied is an error that names it and leaves no pool open. The ports
@@ -171,7 +181,7 @@ func buildComponents(ctx context.Context, env Env, clk clock.Clock, ids chain.ID
 		return Components{}, closeAll, err
 	}
 	closers = append(closers, closeRecorder)
-	c := Components{Records: records, AccessLog: logger}
+	c := Components{Records: records, AccessLog: redactedLog(logger)}
 	if records != nil {
 		c.Ports.Admissions = admissionsport.Port{Reader: &admission.Reader{DBs: records}}
 	}
