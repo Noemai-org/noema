@@ -89,7 +89,7 @@ class BadPacks(unittest.TestCase):
     def test_there_are_enough_fixtures(self):
         self.assertGreaterEqual(len(BAD), 8)  # REQ-CAP-001: 8 crafted invalid descriptors
         covered = {json.loads(p.read_text())["expect_check"] for p in BAD}
-        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons", "understanding"})
+        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons", "understanding", "roles"})
 
     def test_each_fails_for_its_stated_reason(self):
         for path in BAD:
@@ -103,6 +103,54 @@ class BadPacks(unittest.TestCase):
 
     def test_a_fixture_never_passes_the_unpatched_pack(self):
         self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
+
+
+class ApproverRoles(unittest.TestCase):
+    """A377 (interim, relayed, not yet committed): packcheck refuses ROLE:<role> naming a role outside the A1 set, in a policy rule's
+    approver_requirement and in a trust profile's approvals. SELF, MAKER_CHECKER and the four A1 roles pass."""
+
+    def run_with(self, requirement=None, approval=None):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        if requirement is not None:
+            pack["policy"]["rules"][3]["params"]["approver_requirement"] = requirement
+        if approval is not None:
+            pack["trust_profiles"][0]["approvals"] = [approval]
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=pack, graphs_override=graphs) if c == "roles"]
+
+    def test_the_four_a1_roles_and_the_two_fixed_requirements_pass(self):
+        for req in ("SELF", "MAKER_CHECKER", "ROLE:customer", "ROLE:ops", "ROLE:approver", "ROLE:audit"):
+            with self.subTest(req):
+                self.assertEqual(self.run_with(requirement=req), [])
+                self.assertEqual(self.run_with(approval=req), [])
+
+    def test_a_role_outside_a1_is_refused_in_a_rule_and_in_a_profile(self):
+        for role in ("supervisor", "ops_manager", "ops_agent", "viewer", "admin", "Approver", "approver2"):
+            with self.subTest(role):
+                self.assertTrue(any(f"ROLE:{role}" in m for m in self.run_with(requirement=f"ROLE:{role}")))
+                self.assertTrue(any(f"ROLE:{role}" in m for m in self.run_with(approval=f"ROLE:{role}")))
+
+    def test_an_empty_role_is_refused(self):
+        self.assertTrue(self.run_with(requirement="ROLE:"))
+
+
+class EdgeConditions(unittest.TestCase):
+    """A377 ruling 10: an edge condition is a predicate, null is unconditional. A condition that is not a Boolean predicate, or names an unknown variable, fails."""
+
+    def run_edge(self, condition):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        graphs["fintech/graph/g1_investigate.json"]["edges"][0]["condition"] = condition
+        return checks.run(PACKS / "fintech_v1.json", pack=pack, graphs_override=graphs)
+
+    def test_null_is_unconditional_and_a_boolean_predicate_passes(self):
+        self.assertEqual(self.run_edge(None), [])
+        self.assertEqual(self.run_edge("subject_resource != null"), [])
+
+    def test_a_non_boolean_or_unknown_condition_fails(self):
+        for bad in ("subject_resource", "no_such_variable == 1", "== =="):
+            with self.subTest(bad):
+                self.assertTrue([m for c, m in self.run_edge(bad) if c == "predicate" and "edge[" in m])
 
 
 class RoutingFuzz(unittest.TestCase):
