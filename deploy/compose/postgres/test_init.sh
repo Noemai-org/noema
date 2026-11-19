@@ -66,6 +66,11 @@ as_mig "insert into tenant (tenant_id, name) values ('ten_aa', 'by the migration
 if out="$(PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/create-tenants.sh" 2>&1)"; then echo "create-tenants.sh ran as the migration login"; exit 1; fi
 case "$out" in *synthetic-*) echo "create-tenants.sh printed a secret while refusing"; exit 1 ;; esac
 [ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "create-tenants.sh created a tenant as the migration login"; exit 1; }
+# The order is enforced by the database, not by convention (SEC-08, A353): provision-tenants.sh run before create-tenants.sh has no tenant row for its foreign key, so it stops and maps nothing.
+# A sequence that runs the two the wrong way round, or omits the creation step, fails here and at deploy time, loudly, never with a half-mapped tenant. This holds on arrival (it characterises the
+# schema); no repository script sequences the migrations and the two steps yet (the one-shot migrate service of EXE-08 does not exist), so the order itself is tested where it is written, when that lands.
+if PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/provision-tenants.sh" >/dev/null 2>&1; then echo "provision-tenants.sh succeeded with no tenant row: it ran before create-tenants.sh"; exit 1; fi
+[ "$(psql -X -q -tA -U postgres -d noema -c "select (select count(*) from tenant_login) || '/' || (select count(*) from tenant)")" = "0/0" ] || { echo "provision-tenants.sh mapped a login for a tenant that was never created"; exit 1; }
 PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
 [ "$(psql -X -q -tA -U postgres -d noema -c "select tenant_id || '/' || case when kill_switch then 'on' else 'off' end from tenant")" = "ten_aa/off" ] || { echo "the tenant ten_aa is not there with its kill switch off"; exit 1; }
 # A second run is a no-op: the row is not rewritten, and a kill switch an operator has since set stays set.
