@@ -137,7 +137,7 @@ func TestAConfirmWithARequestWritesOneDecisionAndOneConfirmationRequestInOneTran
 		PlanHash: letters(3), PolicyVersion: policyVersion})
 	want := map[string]any{"confirmation_request_id": res.ConfirmationRequestID, "decision_id": string(res.Record.DecisionId), "binding_hash": binding, "principal_id": cfrPrincipal,
 		"intent_hash": letters(0), "capability_id": capability, "target_ref": cfrTarget, "params_hash": letters(1), "evidence_set_hash": letters(2), "plan_hash": letters(3),
-		"policy_version": policyVersion, "approver_requirement": "SELF", "requester_id": cfrPrincipal, "expires_at": "2026-11-06T09:10:00.000Z"}
+		"policy_set_hash": policySetHash, "approver_requirement": "SELF", "requester_id": cfrPrincipal, "expires_at": "2026-11-06T09:10:00.000Z"}
 	if got := payloadOf(t, cr); !jsonEqual(t, got, want) {
 		t.Errorf("CONFIRMATION_REQUESTED payload %v, want %v", got, want)
 	}
@@ -151,6 +151,11 @@ func TestAConfirmWithARequestWritesOneDecisionAndOneConfirmationRequestInOneTran
 		t.Errorf("%d grants and spends were written for a CONFIRM", n)
 	}
 }
+
+// policySetHash is how the event carries the composite policy version: the composite is "ps:" and a SHA-256 hex, and the payload guard (A184) refuses a bare "ps:" string whose hex holds
+// a run of more than four digits (the whole string is exempt only as a typed value, and "ps:" is none), so the event carries the same hex in the content-hash form "sha256:<hex>", which
+// the guard exempts, and the reader rebuilds the composite as "ps:" and the hex. policyVersion's hex holds a run of six digits, so a "ps:" member would be refused here.
+var policySetHash = "sha256:" + strings.TrimPrefix(policyVersion, "ps:")
 
 func jsonEqual(t *testing.T, a, b any) bool {
 	t.Helper()
@@ -515,8 +520,11 @@ func TestAConfirmationRequestBindsTheCompositeOfEveryPolicyVersionOfTheBasis(t *
 		p := payloadOf(t, cr[0])
 		binding := bindingHashOf(t, confirm.BindingInput{PrincipalID: cfrPrincipal, IntentHash: letters(0), CapabilityID: capability, TargetRef: cfrTarget, ParamsHash: letters(1),
 			EvidenceSetHash: letters(2), PlanHash: letters(3), PolicyVersion: tc.want})
-		if p["policy_version"] != tc.want || p["binding_hash"] != binding {
-			t.Errorf("%s: the event binds policy_version %v and %v, want %s and %s", name, p["policy_version"], p["binding_hash"], tc.want, binding)
+		if got, want := p["policy_set_hash"], "sha256:"+strings.TrimPrefix(tc.want, "ps:"); got != want || p["binding_hash"] != binding {
+			t.Errorf("%s: the event carries policy_set_hash %v and binding %v, want %s and %s", name, got, p["binding_hash"], want, binding)
+		}
+		if _, has := p["policy_version"]; has {
+			t.Errorf("%s: the event still carries a policy_version member: %v", name, p["policy_version"])
 		}
 		if res.Record.PolicyVersion != "fin.pol@3.1" {
 			t.Errorf("%s: the decision record binds %q, want the one policy it names, fin.pol@3.1", name, res.Record.PolicyVersion)
@@ -575,5 +583,16 @@ func TestTheCompositeIsTheHashOfTheCanonicalFormOfTheSortedDistinctPolicyVersion
 	got, err := decide.CompositePolicyVersion(refs)
 	if err != nil || got != want || got != policyVersionTwo {
 		t.Errorf("composite %q (%v), canonical form %s hashes to %q, pinned %q", got, err, canonical, want, policyVersionTwo)
+	}
+}
+
+// A184 (payload guard, not weakened): the composite policy version cannot ride in a payload as "ps:<hex>", because a SHA-256 hex holds a run of more than four digits with a probability
+// near one and "ps:" is not a typed value the guard exempts. The pinned composites of these tests do (a run of six digits), which is what makes the tests above prove the event's form.
+func TestThePinnedCompositesHoldALongDigitRunSoABarePsMemberWouldBeRefusedByTheGuard(t *testing.T) {
+	long := regexp.MustCompile(`[0-9]{5,}`)
+	for name, composite := range map[string]string{"one policy": policyVersion, "two policies": policyVersionTwo} {
+		if !long.MatchString(composite) {
+			t.Errorf("%s: %s holds no run of five digits: the test no longer shows why the event carries the hash form", name, composite)
+		}
 	}
 }

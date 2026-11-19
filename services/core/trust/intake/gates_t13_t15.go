@@ -172,16 +172,13 @@ func (e *evaluation) newRequest(ctx context.Context, spec RequestSpec) (NewConfi
 		ExpiresAt: e.now + int64(spec.TTL/time.Second)}, nil, nil
 }
 
-// freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy T11 used. The policy is
-// "policy_id@version" when exactly one policy version took part, and empty otherwise: Trust does not choose between policies. (trust/grants.BoundPolicy applies the same rule
-// to the basis, but this package may not import it.) Empty values are passed on as empty.
+// freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy version T11 used. The policy
+// version is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341 interim): "ps:" and a hash, whether one policy took part or several. It
+// is empty when none did, or when one cannot be bound; empty values are passed on as empty and T13 refuses a Given answer for them.
 func (e *evaluation) freshBinding() FreshBinding {
 	b := FreshBinding{EvidenceSetHash: e.evidenceSetHash}
-	if len(e.policyVersions) > 0 {
-		first := e.policyVersions[0]
-		if slices.IndexFunc(e.policyVersions, func(v decide.PolicyVersionRef) bool { return v != first }) < 0 {
-			b.PolicyVersion = first.PolicyID + "@" + first.Version
-		}
+	if composite, err := decide.CompositePolicyVersion(e.policyVersions); err == nil {
+		b.PolicyVersion = composite
 	}
 	return b
 }

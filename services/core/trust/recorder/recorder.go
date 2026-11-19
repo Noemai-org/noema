@@ -157,7 +157,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	// the spend unless the confirmation was given for exactly this binding.
 	var binding string
 	if d.Outcome() == decide.Allow && r.ConfirmationEventID != "" {
-		if binding, err = bindingOf(r, policy); err != nil {
+		if binding, err = bindingOf(r, basis); err != nil {
 			return Result{}, fmt.Errorf("%w: the confirmation's binding cannot be computed: %v", ErrRequest, err)
 		}
 	}
@@ -388,7 +388,7 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 		return decide.Basis{}, "", fmt.Errorf("%w: no single policy is bound: name one policy the basis holds", ErrRequest)
 	}
 	if r.ConfirmationRequest != nil {
-		if err := w.checkRequest(r, policy); err != nil {
+		if err := w.checkRequest(r, basis); err != nil {
 			return decide.Basis{}, "", err
 		}
 	}
