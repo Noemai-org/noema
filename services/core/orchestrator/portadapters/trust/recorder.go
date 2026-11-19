@@ -23,6 +23,8 @@ import (
 var (
 	// ErrRecordRequest is returned for a request the adapter cannot map: a missing tenant, principal, builder or plan hash, or facts that do not fit the steps. Nothing is written.
 	ErrRecordRequest = errors.New("trustport: the record request cannot be honoured")
+	// ErrRecordConflict is returned when the same input (intent, intent hash, evidence snapshot, policy) is already stored with other content (A186, INV-21). Nothing is written.
+	ErrRecordConflict = errors.New("trustport: the stored decision for this input does not agree with the new request")
 	// ErrBasisDigest is returned when the digest the intake names is not the digest of the builder it passes (TRU-13). Nothing is written.
 	ErrBasisDigest = errors.New("trustport: the basis digest is not the builder's")
 	// ErrPlanHash is returned when the confirmation was given for another plan than the one being recorded, or a plan hash and a confirmation event do not come together (A230,

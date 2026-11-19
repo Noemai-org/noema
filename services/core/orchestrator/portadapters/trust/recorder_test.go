@@ -6,7 +6,10 @@ package trustport
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,7 +83,7 @@ func recRequest(t *testing.T, n int) intake.RecordRequest {
 	}
 	var steps []intake.RecordStep
 	for i := 0; i < n; i++ {
-		steps = append(steps, intake.RecordStep{PlanStep: int64(i + 5), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(byte(2 + i))})
+		steps = append(steps, intake.RecordStep{PlanStep: int64(i), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(byte(2 + i))})
 	}
 	return intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(1), IntentVersion: 2,
 		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest, PlanHash: recHash(4), Steps: steps}
@@ -391,6 +394,18 @@ func TestAnAdapterWithoutWhatItNeedsIsNotBuilt(t *testing.T) {
 
 // ---- real PostgreSQL ----
 
+// recLockedReader makes the entropy source safe for the concurrent Records of one test (rand.Rand is not).
+type recLockedReader struct {
+	mu sync.Mutex
+	r  io.Reader
+}
+
+func (l *recLockedReader) Read(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.r.Read(p)
+}
+
 type recWorld struct {
 	admin  *pgxpool.Pool
 	trust  *pgxpool.Pool
@@ -429,7 +444,7 @@ func newRecWorld(t *testing.T) *recWorld {
 	trust := testpg.TenantLogin(t, admin, dsn, "trust_rw", recTenant)
 	a, err := NewRecorderAdapter(RecorderConfig{Begin: recPool{trust}, Facts: newRecFacts(), Keys: keys,
 		Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")},
-		Clock:    clk, IDs: idg, Entropy: rand.New(rand.NewSource(2)), GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute})
+		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,8 +495,8 @@ func TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether(t *testing.T) {
 		}
 		steps = append(steps, step)
 	}
-	if len(steps) != 2 || steps[0] != 5 || steps[1] != 6 {
-		t.Errorf("plan steps %v", steps)
+	if len(steps) != 2 || steps[0] != 0 || steps[1] != 1 {
+		t.Errorf("plan steps %v, want the zero-based 0 and 1", steps)
 	}
 	if n, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || n != 3 {
 		t.Fatalf("chain verify: %d %v", n, err)
@@ -495,9 +510,13 @@ func TestASecondRecordOfTheSameDecisionReturnsTheStoredOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	r0, g0, e0 := w.rows(t)
 	second, err := w.a.Record(recCtx(t), recRequest(t, 2))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if r1, g1, e1 := w.rows(t); r1 != r0 || g1 != g0 || e1 != e0 {
+		t.Fatalf("a second Record changed the row counts: records %d to %d, grants %d to %d, events %d to %d", r0, r1, g0, g1, e0, e1)
 	}
 	if second.DecisionID != first.DecisionID || len(second.GrantIDs) != 2 || second.GrantIDs[0] != first.GrantIDs[0] || second.GrantIDs[1] != first.GrantIDs[1] {
 		t.Fatalf("first %+v second %+v", first, second)
@@ -559,5 +578,159 @@ func TestARefusedRequestWritesNothingInTheDatabase(t *testing.T) {
 	}
 	if rec, gr, ev := w.rows(t); rec+gr+ev != 0 {
 		t.Fatalf("rows: %d %d %d", rec, gr, ev)
+	}
+}
+
+// Plan steps are zero-based and equal the index in the plan (Execution E5 compares the grant's plan_step with the stored plan step's number, controller.bound). Steps 0 and 1 pass
+// through to the writer unchanged; PlanStep is not shifted, not renumbered and not defaulted.
+func TestRecordPassesZeroBasedPlanStepsThrough(t *testing.T) {
+	w := &recWriter{res: recGrants(2)}
+	if _, err := recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), w).Record(recCtx(t), recRequest(t, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.got[0].Steps; len(got) != 2 || got[0].PlanStep != 0 || got[1].PlanStep != 1 {
+		t.Fatalf("plan steps %+v, want 0 and 1", got)
+	}
+}
+
+// A step number outside the plan, a negative one, one that is not the step's own index and a repeated one are refused before any transaction: no grant is issued for a step that
+// E5 could not find in the stored plan.
+func TestAPlanStepThatIsNotTheIndexIsRefusedBeforeAnyTransaction(t *testing.T) {
+	cases := map[string]func(*intake.RecordRequest){
+		"equal to the number of steps": func(r *intake.RecordRequest) { r.Steps[1].PlanStep = 2 },
+		"far beyond the plan":          func(r *intake.RecordRequest) { r.Steps[1].PlanStep = 6 },
+		"negative":                     func(r *intake.RecordRequest) { r.Steps[0].PlanStep = -1 },
+		"one-based":                    func(r *intake.RecordRequest) { r.Steps[0].PlanStep, r.Steps[1].PlanStep = 1, 2 },
+		"swapped":                      func(r *intake.RecordRequest) { r.Steps[0].PlanStep, r.Steps[1].PlanStep = 1, 0 },
+		"repeated":                     func(r *intake.RecordRequest) { r.Steps[1].PlanStep = 0 },
+	}
+	for name, mutate := range cases {
+		r := recRequest(t, 2)
+		mutate(&r)
+		b, w := &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(2)}
+		if _, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), r); !errors.Is(err, ErrRecordRequest) {
+			t.Errorf("%s: err %v", name, err)
+		}
+		if len(b.tenants) != 0 || len(w.got) != 0 {
+			t.Errorf("%s: a refused request reached the database", name)
+		}
+	}
+}
+
+// The writer's typed conflict (the same input tuple stored with other content, A186) is ErrRecordConflict, never a string match, and it rolls back.
+func TestAStoredDecisionThatDisagreesIsATypedConflict(t *testing.T) {
+	for _, werr := range []error{recorder.ErrDecisionConflict, fmt.Errorf("the writer wrapped it: %w", recorder.ErrDecisionConflict)} {
+		tx := &recTx{}
+		got, err := recAdapter(t, &recBegin{tx: tx}, newRecFacts(), &recWriter{err: werr}).Record(recCtx(t), recRequest(t, 1))
+		if !errors.Is(err, ErrRecordConflict) || got.DecisionID != "" || tx.commits != 0 || tx.rollbacks != 1 {
+			t.Errorf("err %v result %+v commits %d rollbacks %d", err, got, tx.commits, tx.rollbacks)
+		}
+	}
+	for _, other := range []error{recorder.ErrConfirmationSpent, recorder.ErrWritesDisabled, errors.New("the append failed")} {
+		_, err := recAdapter(t, &recBegin{tx: &recTx{}}, newRecFacts(), &recWriter{err: other}).Record(recCtx(t), recRequest(t, 1))
+		if errors.Is(err, ErrRecordConflict) {
+			t.Errorf("%v was reported as a conflict", other)
+		}
+	}
+}
+
+// The same idempotency key (intent, intent hash, evidence snapshot, policy) with different content is refused with the typed conflict and writes nothing more: the stored
+// decision and its grants stay as they were (A186, INV-21).
+func TestTheSameKeyWithDifferentContentIsATypedConflictInTheDatabase(t *testing.T) {
+	w := newRecWorld(t)
+	first, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r0, g0, e0 := w.rows(t)
+	other := recRequest(t, 2)
+	other.Steps[1].ParamsHash = recHash(9) // the same key, other content
+	got, err := w.a.Record(recCtx(t), other)
+	if !errors.Is(err, ErrRecordConflict) {
+		t.Fatalf("err %v, want ErrRecordConflict", err)
+	}
+	if got.DecisionID != "" || got.GrantIDs != nil {
+		t.Errorf("a result came with the conflict: %+v", got)
+	}
+	if r1, g1, e1 := w.rows(t); r1 != r0 || g1 != g0 || e1 != e0 {
+		t.Fatalf("a conflict changed the rows: records %d to %d, grants %d to %d, events %d to %d", r0, r1, g0, g1, e0, e1)
+	}
+	again, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	if err != nil || again.DecisionID != first.DecisionID {
+		t.Fatalf("the original no longer reads back: %+v %v", again, err)
+	}
+}
+
+// Records of the same decision made at once write one set: one record, two grants, three events, and every caller gets the same decision and grant IDs (A186, advisory lock).
+func TestConcurrentRecordsOfTheSameDecisionWriteOneSet(t *testing.T) {
+	w := newRecWorld(t)
+	const n = 6
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	got := make([]intake.RecordResult, n)
+	errs := make([]error, n)
+	reqs := make([]intake.RecordRequest, n)
+	for i := range reqs {
+		reqs[i] = recRequest(t, 2)
+	}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			got[i], errs[i] = w.a.Record(recCtx(t), reqs[i])
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("record %d: %v", i, errs[i])
+		}
+		if got[i].DecisionID != got[0].DecisionID || len(got[i].GrantIDs) != 2 || got[i].GrantIDs[0] != got[0].GrantIDs[0] || got[i].GrantIDs[1] != got[0].GrantIDs[1] {
+			t.Fatalf("record %d: %+v, record 0: %+v", i, got[i], got[0])
+		}
+	}
+	if rec, gr, ev := w.rows(t); rec != 1 || gr != 2 || ev != 3 {
+		t.Fatalf("rows after %d concurrent records: %d records, %d grants, %d events", n, rec, gr, ev)
+	}
+	if v, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || v != 3 {
+		t.Fatalf("chain verify: %d %v", v, err)
+	}
+}
+
+// A failure after the decision insert rolls back the grants (EC-E16): the second grant fails after the record, the first grant and their events are inserted, and nothing of
+// them remains, so the same decision recorded correctly afterwards is written whole, once.
+func TestAFailureAfterTheDecisionInsertRollsBackTheGrants(t *testing.T) {
+	w := newRecWorld(t)
+	bad := recRequest(t, 2)
+	bad.Steps[1].TargetRef = "not a target"
+	if _, err := w.a.Record(recCtx(t), bad); err == nil || errors.Is(err, ErrRecordRequest) || errors.Is(err, ErrRecordConflict) {
+		t.Fatalf("err %v, want a failure of the second grant after the inserts", err)
+	}
+	if rec, gr, ev := w.rows(t); rec+gr+ev != 0 {
+		t.Fatalf("rows left after the failure: %d records, %d grants, %d events", rec, gr, ev)
+	}
+	if n := w.count(t, `SELECT count(*) FROM confirmation_spend`); n != 0 {
+		t.Fatalf("%d spends left", n)
+	}
+	got, err := w.a.Record(recCtx(t), recRequest(t, 2))
+	if err != nil || len(got.GrantIDs) != 2 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if rec, gr, ev := w.rows(t); rec != 1 || gr != 2 || ev != 3 {
+		t.Fatalf("rows after the retry: %d records, %d grants, %d events", rec, gr, ev)
+	}
+}
+
+// The DB tests of this package share one PostgreSQL server and need no TestMain: testpg.NewDatabase gives each test its own database, so a sibling test of the same package (the
+// Confirmations adapter's) cannot see these rows. Two worlds in one test prove the isolation; every helper here carries the rec prefix, so siblings do not collide.
+func TestTwoRecorderWorldsShareNoRows(t *testing.T) {
+	a, b := newRecWorld(t), newRecWorld(t)
+	if _, err := a.a.Record(recCtx(t), recRequest(t, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if rec, gr, ev := b.rows(t); rec+gr+ev != 0 {
+		t.Fatalf("the second world sees %d %d %d rows of the first", rec, gr, ev)
 	}
 }
