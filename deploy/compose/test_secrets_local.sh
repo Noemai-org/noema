@@ -27,8 +27,27 @@ cp "$here/secrets_local.sh" "$here/tls_local.sh" "$work/"
 ( cd "$work" && NOEMA_TENANTS="ten_aa ten_bb" sh secrets_local.sh >/dev/null && cp secrets/emitter_logins/ten_aa__core-edge first && NOEMA_TENANTS="ten_aa ten_bb" sh secrets_local.sh >/dev/null )
 cmp -s "$work/first" "$work/secrets/emitter_logins/ten_aa__core-edge" || fail "a second run changed an existing secret"
 [ "$(cat "$work"/secrets/emitter_logins/* | sort -u | wc -l)" = "2" ] || fail "two logins share a secret"
+# The two Decision Grant HMAC key files (SEC-09) are made, distinct, and kept on a second run.
+for f in grant_hmac_key_a grant_hmac_key_b; do
+  [ -s "$work/secrets/$f" ] || fail "secrets/$f was not made"
+done
+[ "$(cat "$work/secrets/grant_hmac_key_a")" != "$(cat "$work/secrets/grant_hmac_key_b")" ] || fail "the two grant keys are the same"
+# Only root in the init container reads them, so they are not world-readable (mode 600).
+for f in grant_hmac_key_a grant_hmac_key_b; do
+  [ "$(stat -c %a "$work/secrets/$f")" = "600" ] || fail "secrets/$f is not mode 600"
+done
+# The core-trust signing seed (A445; LoadRing reads core-trust.ed25519.<version>.key holding the seed as 64 lower-case hexadecimal characters): made, distinct from the grant keys, mode 600 so only the
+# one-shot step that will set its mode and owner reads it, and kept on a second run (a regenerated seed would orphan the public key C1's tenant-init registers).
+[ -s "$work/secrets/core_trust_ed25519_seed_1" ] || fail "secrets/core_trust_ed25519_seed_1 was not made"
+printf '%s' "$(cat "$work/secrets/core_trust_ed25519_seed_1")" | grep -Eq '^[0-9a-f]{64}$' || fail "the core-trust seed is not 64 lower-case hexadecimal characters"
+[ "$(cat "$work/secrets/core_trust_ed25519_seed_1")" != "$(cat "$work/secrets/grant_hmac_key_a")" ] || fail "the core-trust seed is a grant key"
+[ "$(stat -c %a "$work/secrets/core_trust_ed25519_seed_1")" = "600" ] || fail "secrets/core_trust_ed25519_seed_1 is not mode 600"
+grep -q 'umask 077; python3 -c .*core_trust_ed25519_seed_1' "$here/secrets_local.sh" || fail "the core-trust seed is not written under umask 077 (SR on noema#790): it could be wider than 600 before the chmod"
+cp "$work/secrets/core_trust_ed25519_seed_1" "$work/seed.first"
+( cd "$work" && sh secrets_local.sh >/dev/null )
+cmp -s "$work/seed.first" "$work/secrets/core_trust_ed25519_seed_1" || fail "a second run replaced the core-trust seed"
 # The mTLS material for the core and the model service (noema#555) is made too, kept on a second run, and leaves no CA key behind.
-for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key; do
+for f in ca.crt model.crt model.key core-client.crt core-client.key model-health.crt model-health.key temporal.crt temporal.key; do
   [ -s "$work/secrets/tls/$f" ] || fail "secrets/tls/$f was not made"
 done
 [ ! -e "$work/secrets/tls/ca.key" ] || fail "the CA's private key was left behind"

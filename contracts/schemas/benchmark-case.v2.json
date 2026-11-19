@@ -369,12 +369,14 @@
       "properties": {
         "classification": {
           "description": "The derived state classification, or null when the case has none (PERD §12 'Classification').",
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[A-Z][A-Z0-9_]*$",
-          "maxLength": 128
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/TransactionClassification"
+            }
+          ]
         },
         "disposition": {
           "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/DecisionOutcome"

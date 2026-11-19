@@ -59,11 +59,37 @@ class RealPacks(unittest.TestCase):
                 self.assertEqual(checks.run(path, conformance=True), [])
 
 
+class GraphPermits(unittest.TestCase):
+    """REQ-TRU-005, PERD 23.3 T11: every capability a graph node names has a PERMIT rule in its pack's policy. Trust evaluates the policy for each capability a plan uses, so a node
+    whose capability has none could never be planned (NO_PERMITTING_RULE). The expectation is computed here from the pack's own files, not from the check under test."""
+
+    def test_every_graph_capability_of_every_real_pack_has_a_permit(self):
+        for path in [PACKS / "fintech_v1.json", *CONFORMANCE]:
+            pack = json.loads(path.read_text())
+            permitted = {c for r in pack["policy"]["rules"] if r["effect"] == "PERMIT" for c in r["applies_to"]}
+            for rel in pack.get("action_graph_files", []):
+                graph = json.loads((PACKS / rel).read_text())
+                for node in graph["nodes"]:
+                    with self.subTest(f"{path.name} {graph['graph_id']}.{node['node_id']}"):
+                        self.assertIn(node["capability_id"], permitted)
+
+    def test_a_node_whose_capability_loses_its_permit_is_named(self):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        for rule in pack["policy"]["rules"]:
+            if rule["effect"] == "PERMIT" and "fin.cap.lookup_account" in rule["applies_to"]:
+                rule["applies_to"] = [c for c in rule["applies_to"] if c != "fin.cap.lookup_account"]
+        hits = [m for c, m in checks.check_graph_permits(pack, graphs) if c == "graph"]
+        self.assertEqual(len(hits), 1, hits)
+        self.assertIn("fin.graph.investigate.lookup_account", hits[0])
+        self.assertIn("fin.cap.lookup_account", hits[0])
+
+
 class BadPacks(unittest.TestCase):
     def test_there_are_enough_fixtures(self):
         self.assertGreaterEqual(len(BAD), 8)  # REQ-CAP-001: 8 crafted invalid descriptors
         covered = {json.loads(p.read_text())["expect_check"] for p in BAD}
-        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons", "understanding"})
+        self.assertEqual(covered, {"schema", "references", "capability", "predicate", "graph", "routing", "reasons", "understanding", "roles"})
 
     def test_each_fails_for_its_stated_reason(self):
         for path in BAD:
@@ -77,6 +103,54 @@ class BadPacks(unittest.TestCase):
 
     def test_a_fixture_never_passes_the_unpatched_pack(self):
         self.assertEqual(checks.run(PACKS / "fintech_v1.json"), [])
+
+
+class ApproverRoles(unittest.TestCase):
+    """A377 (interim, relayed, not yet committed): packcheck refuses ROLE:<role> naming a role outside the A1 set, in a policy rule's
+    approver_requirement and in a trust profile's approvals. SELF, MAKER_CHECKER and the four A1 roles pass."""
+
+    def run_with(self, requirement=None, approval=None):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        if requirement is not None:
+            pack["policy"]["rules"][3]["params"]["approver_requirement"] = requirement
+        if approval is not None:
+            pack["trust_profiles"][0]["approvals"] = [approval]
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=pack, graphs_override=graphs) if c == "roles"]
+
+    def test_the_four_a1_roles_and_the_two_fixed_requirements_pass(self):
+        for req in ("SELF", "MAKER_CHECKER", "ROLE:customer", "ROLE:ops", "ROLE:approver", "ROLE:audit"):
+            with self.subTest(req):
+                self.assertEqual(self.run_with(requirement=req), [])
+                self.assertEqual(self.run_with(approval=req), [])
+
+    def test_a_role_outside_a1_is_refused_in_a_rule_and_in_a_profile(self):
+        for role in ("supervisor", "ops_manager", "ops_agent", "viewer", "admin", "Approver", "approver2"):
+            with self.subTest(role):
+                self.assertTrue(any(f"ROLE:{role}" in m for m in self.run_with(requirement=f"ROLE:{role}")))
+                self.assertTrue(any(f"ROLE:{role}" in m for m in self.run_with(approval=f"ROLE:{role}")))
+
+    def test_an_empty_role_is_refused(self):
+        self.assertTrue(self.run_with(requirement="ROLE:"))
+
+
+class EdgeConditions(unittest.TestCase):
+    """A377 ruling 10: an edge condition is a predicate, null is unconditional. A condition that is not a Boolean predicate, or names an unknown variable, fails."""
+
+    def run_edge(self, condition):
+        pack = json.loads((PACKS / "fintech_v1.json").read_text())
+        graphs = {rel: json.loads((PACKS / rel).read_text()) for rel in pack["action_graph_files"]}
+        graphs["fintech/graph/g1_investigate.json"]["edges"][0]["condition"] = condition
+        return checks.run(PACKS / "fintech_v1.json", pack=pack, graphs_override=graphs)
+
+    def test_null_is_unconditional_and_a_boolean_predicate_passes(self):
+        self.assertEqual(self.run_edge(None), [])
+        self.assertEqual(self.run_edge("subject_resource != null"), [])
+
+    def test_a_non_boolean_or_unknown_condition_fails(self):
+        for bad in ("subject_resource", "no_such_variable == 1", "== =="):
+            with self.subTest(bad):
+                self.assertTrue([m for c, m in self.run_edge(bad) if c == "predicate" and "edge[" in m])
 
 
 class RoutingFuzz(unittest.TestCase):
@@ -222,6 +296,25 @@ class TemplateCoverage(unittest.TestCase):
             self.assertIn(victim, problems[0][1])
             self.assertIn("yo", problems[0][1])
 
+    def test_a_template_for_a_part_of_the_answer_is_allowed_and_checked_like_the_summary(self):
+        # A271: <outcome_id>/<classification>/<part> for a part of the closed list. A part is optional for now; when present it must be non-empty text, and a part name that is not
+        # on the list, a part of a key the pack does not have, and a deeper path each fail. SYNTHETIC text.
+        with tempfile.TemporaryDirectory() as tmp:
+            keys = sorted(checks.required_template_keys(json.loads((PACKS / "fintech_v1.json").read_text()), PACKS))
+            good = f"{keys[0]}/found"
+            pack = self.pack_dir(Path(tmp), extra=("en-NG", good))
+            self.assertEqual(checks.check_templates(pack, Path(tmp)), [])
+            self.assertEqual(checks.TEMPLATE_PARTS, ("found", "not_known_what", "not_known_why", "advice_do", "advice_do_not", "next_what", "next_when"))
+        for bad in (f"{keys[0]}/nope", f"{keys[0]}/summary", f"{keys[0]}/found/found", "fin.outcome.nope/SUCCESS_CONFIRMED/found", f"{keys[0]}/FOUND"):
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = self.pack_dir(Path(tmp), extra=("en-NG", bad))
+                problems = checks.check_templates(pack, Path(tmp))
+                self.assertTrue(any(bad in m for _, m in problems), (bad, problems))
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = self.pack_dir(Path(tmp), empty=("en-NG", good))
+            problems = checks.check_templates(pack, Path(tmp))
+            self.assertTrue(any(good in m and "empty" in m for _, m in problems), problems)
+
     def test_a_missing_locale_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             pack = self.pack_dir(Path(tmp), skip_locale="ig")
@@ -246,3 +339,73 @@ class TemplateCoverage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+WRITE_WHEN = "question_type == 'ESCALATION_REQUEST' or requested_remedy != null"
+G2 = "fintech/graph/g2_escalate.json"
+
+
+def real():
+    base = json.loads((PACKS / "fintech_v1.json").read_text())
+    return base, {rel: json.loads((PACKS / rel).read_text()) for rel in base["action_graph_files"]}
+
+
+class WriteWhen(unittest.TestCase):
+    """A364 (interim, relayed, not yet committed). `write_when` is a member of the intent NODE: a predicate over the node's slots (an absent slot is null) that says the intent
+    needs write evaluation. It parses, is Boolean and uses only the node's slot names."""
+
+    def check(self, text):
+        base, graphs = real()
+        base["intent_nodes"][0]["write_when"] = text
+        return [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "predicate" and "write_when" in m]
+
+    def test_the_investigate_node_says_when_it_needs_a_write(self):
+        base, _ = real()
+        nodes = {n["node_id"]: n.get("write_when") for n in base["intent_nodes"]}
+        self.assertEqual(nodes["fin.payments.exception.investigate"], WRITE_WHEN)
+        self.assertEqual([k for k, v in nodes.items() if v], ["fin.payments.exception.investigate"])
+        self.assertFalse(any({"may_write", "write_when"} & set(s) for s in base["evidence_sources"]))
+        self.assertFalse(any("produced_by" in d for d in base["evidence_descriptors"]))
+
+    def test_the_predicate_uses_the_packs_own_grammar_and_the_nodes_slots_only(self):
+        for text, ok in ((WRITE_WHEN, True), ("true", True), ("requested_remedy == null and amount == null", True), ("not (when != null)", True),
+                         ("undeclared_slot == null", False), ("question_type ==", False), ("1 + 1", False), ("question_type", False),
+                         ("question_type == 'NOT_A_QUESTION'", False), ("case_id != null", False), ("subject_resource.status == 'RESOLVED'", False)):
+            problems = self.check(text)
+            self.assertEqual(not problems, ok, f"{text!r}: {problems}")
+
+
+class GraphParams(unittest.TestCase):
+    """A369 (interim, relayed, not yet committed). The escalation graph's params, and what packcheck holds them to: every required input of the capability is covered, no extra
+    param, a name once per node, slots and map keys of the intent node, map values in `case_reasons`, facts declared, policy params carried by a PERMIT rule."""
+
+    def test_the_real_escalation_graph_declares_the_specified_params(self):
+        base, graphs = real()
+        nodes = {n["node_id"]: {p["name"]: {k: v for k, v in p.items() if k != "name"} for p in n.get("params", [])} for n in graphs[G2]["nodes"]}
+        self.assertEqual(nodes["create_escalation_case"].keys(), {"transaction_ref", "reason_code"})
+        self.assertEqual(nodes["create_escalation_case"]["transaction_ref"], {"slot": "subject_resource"})
+        m = nodes["create_escalation_case"]["reason_code"]["map"]
+        self.assertEqual(m["from"], "question_type")
+        vocab = next(s for s in base["intent_nodes"][0]["slots"] if s["name"] == "question_type")["vocabulary"]
+        self.assertEqual(set(m["values"]), set(vocab))
+        self.assertLessEqual(set(m["values"].values()), {c["code"] for c in base["case_reasons"]})
+        self.assertEqual(nodes["record_investigation_evidence"], {"case_id": {"fact": "case_id"}, "payload": {"evidence_packet": True}})
+        self.assertEqual(nodes["route_to_internal_owner"], {"case_id": {"fact": "case_id"}, "owner_queue": {"policy_param": "owner_queue"}})
+
+    def test_case_reasons_are_unique_codes(self):
+        base, graphs = real()
+        base["case_reasons"].append(dict(base["case_reasons"][0]))
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if "case_reasons" in m]
+        self.assertTrue(hits)
+
+    def test_a_param_name_is_declared_once_per_node(self):
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "transaction_ref", "const": "x"})
+        hits = [m for c, m in checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs) if c == "graph" and "declares param" in m]
+        self.assertEqual(len(hits), 1, hits)
+
+    def test_an_optional_input_may_be_given_and_a_node_without_params_declares_none(self):
+        base, graphs = real()
+        graphs[G2]["nodes"][0]["params"].append({"name": "priority", "const": "NORMAL"})
+        self.assertEqual(checks.run(PACKS / "fintech_v1.json", pack=base, graphs_override=graphs), [])
+        self.assertNotIn("params", next(n for g in graphs.values() for n in g["nodes"] if n["capability_id"] == "fin.cap.log_complaint_reference"))

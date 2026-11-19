@@ -32,6 +32,8 @@ var (
 	ErrRequest = errors.New(errPrefix + "the request is not valid")
 	// ErrNoRecordedInput marks an input the Record does not confirm as an INPUT_RECEIVED of this tenant, principal and correlation: no investigation is made for it.
 	ErrNoRecordedInput = errors.New(errPrefix + "the Record does not confirm this input")
+	// ErrNoInvestigation: there is no such investigation for this tenant; another tenant's is not told apart from none.
+	ErrNoInvestigation = errors.New(errPrefix + "no such investigation")
 )
 
 // Inputs confirms, against the Record, that the INPUT_RECEIVED event a Start names exists and belongs to this session and correlation (A161, A169). A nil return is the
@@ -69,6 +71,7 @@ var (
 	investigationRe = regexp.MustCompile(`\Ainv_[0-9A-Za-z]{2,32}\z`)
 	correlationRe   = regexp.MustCompile(`\Acorr_[0-9A-Za-z]{2,32}\z`)
 	recordedRe      = regexp.MustCompile(`\Arecev_[0-9A-Za-z]{2,32}\z`)
+	authnRefRe      = regexp.MustCompile(`\Ases_[0-9A-Za-z]{2,32}\z`) // the SessionId of contracts/schemas/common.v1.json
 )
 
 // Pool starts the transactions of the orchestrator's login. Its connections authenticate as the tenant's own orchestrator login, so the database, not this
@@ -105,6 +108,20 @@ func (s *Store) ready() error {
 	return nil
 }
 
+// roles are the four roles of A1; a session names exactly one.
+var roles = map[string]bool{"customer": true, "ops": true, "approver": true, "audit": true}
+
+// checkVerified is checkSession plus what a NEW row must carry (migration 0036): the role of the verified session and the reference of the session. Nothing of a request is read.
+func checkVerified(sess orchestrator.Session, authnRef string) error {
+	if err := checkSession(sess); err != nil {
+		return err
+	}
+	if !roles[sess.Role] || !authnRefRe.MatchString(authnRef) {
+		return fmt.Errorf("%w: the session has no valid role and authn reference", ErrRequest)
+	}
+	return nil
+}
+
 func checkSession(sess orchestrator.Session) error {
 	if !tenantRe.MatchString(sess.TenantID) || sess.PrincipalID == "" {
 		return fmt.Errorf("%w: the session has no valid tenant and principal", ErrRequest)
@@ -113,15 +130,16 @@ func checkSession(sess orchestrator.Session) error {
 }
 
 // Start makes the investigation of a recorded input, or finds the one an earlier Start made (idempotent per tenant and input, noema#477). created is true only for
-// the call that made the row. The returned Investigation carries the state and version the row has now; a caller that finds a version above 0 must not run it again.
-func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartRequest) (orchestrator.Investigation, bool, error) {
+// the call that made the row. The role and the authn reference written are those of the verified session the caller passes (INV-12; A441): sess.Role and authnRef, which the
+// edge's session middleware produced. StartRequest carries neither, so no request value can reach the columns. A repeat Start keeps the first row's. The returned Investigation carries the state and version the row has now; a caller that finds a version above 0 must not run it again.
+func (s *Store) Start(ctx context.Context, sess orchestrator.Session, authnRef string, r StartRequest) (orchestrator.Investigation, bool, error) {
 	if err := needDeadline(ctx); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
 	if err := s.ready(); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
-	if err := checkSession(sess); err != nil {
+	if err := checkVerified(sess, authnRef); err != nil {
 		return orchestrator.Investigation{}, false, err
 	}
 	if !investigationRe.MatchString(r.InvestigationID) || !correlationRe.MatchString(r.CorrelationID) || !recordedRe.MatchString(r.InputReceivedRef) {
@@ -140,19 +158,23 @@ func (s *Store) Start(ctx context.Context, sess orchestrator.Session, r StartReq
 	defer rollback(ctx, tx)
 	var inv orchestrator.Investigation
 	var state, corr string
-	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version)
-		VALUES ($1, $2, $3, $4, 'RECEIVED', 0) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
-		RETURNING investigation_id, state, state_version, correlation_id`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID).Scan(&inv.ID, &state, &inv.Version, &corr)
+	var principal string
+	err = tx.QueryRow(ctx, `INSERT INTO investigation (tenant_id, investigation_id, input_received_ref, correlation_id, state, state_version, principal_ref, principal_role, authn_ref)
+		VALUES ($1, $2, $3, $4, 'RECEIVED', 0, $5, $6, $7) ON CONFLICT ON CONSTRAINT investigation_one_per_input DO NOTHING
+		RETURNING investigation_id, state, state_version, correlation_id, principal_ref`, sess.TenantID, r.InvestigationID, r.InputReceivedRef, r.CorrelationID, sess.PrincipalID, sess.Role, authnRef).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
 	created := err == nil
 	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
-			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version, &corr)
+		err = tx.QueryRow(ctx, `SELECT investigation_id, state, state_version, correlation_id, principal_ref FROM investigation WHERE tenant_id = $1 AND input_received_ref = $2`,
+			sess.TenantID, r.InputReceivedRef).Scan(&inv.ID, &state, &inv.Version, &corr, &principal)
 	}
 	if err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%sstart: %w", errPrefix, err)
 	}
 	if corr != r.CorrelationID {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%w: the recorded input already belongs to another correlation", ErrRequest)
+	}
+	if principal != sess.PrincipalID {
+		return orchestrator.Investigation{}, false, fmt.Errorf("%w: the recorded input already belongs to another principal's investigation", ErrRequest)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return orchestrator.Investigation{}, false, fmt.Errorf("%scommit: %w", errPrefix, err)
@@ -222,4 +244,115 @@ func rollback(ctx context.Context, tx pgx.Tx) {
 	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackTimeout)
 	defer cancel()
 	_ = tx.Rollback(c)
+}
+
+// PrincipalOf is the principal that started the investigation (migration 0029; A243): the read-only fact a route needs to refuse another principal's request for it. An
+// investigation of another tenant, or none, is ErrNoInvestigation: the two are not told apart.
+func (s *Store) PrincipalOf(ctx context.Context, sess orchestrator.Session, investigationID string) (string, error) {
+	if err := needDeadline(ctx); err != nil {
+		return "", err
+	}
+	if err := s.ready(); err != nil {
+		return "", err
+	}
+	if err := checkSession(sess); err != nil {
+		return "", err
+	}
+	if !investigationRe.MatchString(investigationID) {
+		return "", fmt.Errorf("%w: an investigation is outside its pattern", ErrRequest)
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return "", fmt.Errorf("%sbegin: %w", errPrefix, err)
+	}
+	defer rollback(ctx, tx)
+	var principal string
+	err = tx.QueryRow(ctx, `SELECT principal_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = $2`, sess.TenantID, investigationID).Scan(&principal)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNoInvestigation
+	}
+	if err != nil {
+		return "", fmt.Errorf("%sread: %w", errPrefix, err)
+	}
+	return principal, nil
+}
+
+// Snapshot is what Read returns: the state and the principal of one investigation, as the row holds them. A row from before migration 0029 holds an empty principal.
+type Snapshot struct {
+	State     orchestrator.State
+	Principal string
+}
+
+// Read is the read-only method of the investigation route (A243): the state and the principal of one investigation of the session's tenant, in a read-only transaction. It
+// says what the row says and does not decide who may see it: the caller compares the principal with the authenticated session's. An investigation of another tenant, or none,
+// is ErrNoInvestigation: the two are not told apart. The session must name a principal, but the principal never selects the row.
+func (s *Store) Read(ctx context.Context, sess orchestrator.Session, investigationID string) (Snapshot, error) {
+	if err := needDeadline(ctx); err != nil {
+		return Snapshot{}, err
+	}
+	if err := s.ready(); err != nil {
+		return Snapshot{}, err
+	}
+	if err := checkSession(sess); err != nil {
+		return Snapshot{}, err
+	}
+	if !investigationRe.MatchString(investigationID) {
+		return Snapshot{}, fmt.Errorf("%w: an investigation is outside its pattern", ErrRequest)
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("%sbegin: %w", errPrefix, err)
+	}
+	defer rollback(ctx, tx)
+	var state, principal string
+	err = tx.QueryRow(ctx, `SELECT state, principal_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = $2`, sess.TenantID, investigationID).Scan(&state, &principal)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Snapshot{}, ErrNoInvestigation
+	}
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("%sread: %w", errPrefix, err)
+	}
+	return Snapshot{State: orchestrator.State(state), Principal: principal}, nil
+}
+
+// ErrNoRecordedSession marks an investigation whose row carries no principal role and authn reference (a row from before migration 0036): recovery refuses it.
+var ErrNoRecordedSession = errors.New(errPrefix + "the investigation records no session")
+
+// RecordedSession is the session facts the row holds, written at creation from the verified session (migration 0036).
+type RecordedSession struct{ PrincipalID, PrincipalRole, AuthnRef string }
+
+// SessionOf is the read path for recovery (noema#789; A441): the principal, the role and the authn reference the row holds, which Start wrote from the verified session. It says what the
+// row says and decides nothing. An investigation of another tenant, or none, is ErrNoInvestigation: the two are not told apart. A row from before migration 0036 holds NULL in both
+// columns and is ErrNoRecordedSession: recovery has no session to build from it and refuses. The caller's session names the tenant; its role and principal never select the row.
+func (s *Store) SessionOf(ctx context.Context, sess orchestrator.Session, investigationID string) (RecordedSession, error) {
+	if err := needDeadline(ctx); err != nil {
+		return RecordedSession{}, err
+	}
+	if err := s.ready(); err != nil {
+		return RecordedSession{}, err
+	}
+	if err := checkSession(sess); err != nil {
+		return RecordedSession{}, err
+	}
+	if !investigationRe.MatchString(investigationID) {
+		return RecordedSession{}, fmt.Errorf("%w: an investigation is outside its pattern", ErrRequest)
+	}
+	tx, err := s.Pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return RecordedSession{}, fmt.Errorf("%sbegin: %w", errPrefix, err)
+	}
+	defer rollback(ctx, tx)
+	var principal string
+	var role, ref *string
+	err = tx.QueryRow(ctx, `SELECT principal_ref, principal_role, authn_ref FROM investigation WHERE tenant_id = $1 AND investigation_id = $2`, sess.TenantID, investigationID).Scan(&principal, &role, &ref)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RecordedSession{}, ErrNoInvestigation
+	}
+	if err != nil {
+		return RecordedSession{}, fmt.Errorf("%sread: %w", errPrefix, err)
+	}
+	if role == nil || ref == nil || principal == "" {
+		return RecordedSession{}, ErrNoRecordedSession
+	}
+	return RecordedSession{PrincipalID: principal, PrincipalRole: *role, AuthnRef: *ref}, nil
 }

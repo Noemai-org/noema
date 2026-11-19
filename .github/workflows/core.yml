@@ -22,12 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - id: changed
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
-            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml|tools/ci/go_shard)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
+            if git diff --name-only "$base" HEAD | grep -qE '^(services/core/|deploy/spike/pgsodium/|\.github/workflows/core\.yml|tools/ci/go_shard|benchmark/replay/g1_)'; then echo run=true >> "$GITHUB_OUTPUT"; else echo run=false >> "$GITHUB_OUTPUT"; fi
           else
             echo run=true >> "$GITHUB_OUTPUT"
           fi
@@ -47,6 +48,8 @@ jobs:
       SHARDS: "3"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: services/core/go.mod
@@ -80,6 +83,45 @@ jobs:
           echo "test database: PostgreSQL $server"
           test "$server" = "$EXPECTED_POSTGRES"
           go test -race $(cat /tmp/shard-packages.txt)
+      # REC-06 (REQ-AUD-001, OD-06 of DEC-2026-10-17): the chain verifier job on the CI database, on every merge, from one shard. The tests build a SYNTHETIC Record with the real appender and run
+      # cmd/record-verify as the restricted verification login; a tampered row, a broken prior hash, a missing or reordered sequence number each fail it. The nightly workflow
+      # (record-verify-nightly.yml) runs this same command. The lines are checked, not only printed: a renamed test would make -run match nothing and still pass.
+      - name: Chain verifier job on the CI database (REC-06)
+        if: matrix.shard == 0
+        working-directory: services/core
+        run: |
+          set -eu
+          status=0
+          go test -race -count=1 -v -run '^TestRecordVerifyCI' ./cmd/record-verify > "$RUNNER_TEMP/record-verify.txt" || status=$?
+          cat "$RUNNER_TEMP/record-verify.txt"
+          test "$status" -eq 0
+          grep -Eq 'RECORD_VERIFY_CI_RESULT clean tenants=[1-9][0-9]* events=[1-9][0-9]*$' "$RUNNER_TEMP/record-verify.txt"
+          test "$(grep -c -- '--- PASS: TestRecordVerifyCITamperingFailsTheJob/' "$RUNNER_TEMP/record-verify.txt")" -eq 7
+      # UND-16 (REQ-INT-001, REQ-BEN-004; INV-21, INV-22; A460, A478): the G1 replay fixture equals what the core's Interpreter port builds now. The generator is a Go test in the interpreter port's package; the two
+      # paths are given here, on its command line, because the core holds no benchmark-aware string (REQ-TST-006) and the lint has no exemption (A478). The fresh output goes to a temp file and is compared byte
+      # for byte with the committed fixture (the tree is never written). Inert only while neither the generator nor the fixture is on the tree; a fixture without its generator, a generator without its fixture, a skipped generator or any difference fails the job.
+      - name: G1 replay fixture equals fresh generator output (UND-16, A460)
+        if: matrix.shard == 0
+        env:
+          G1_GENERATOR: services/core/orchestrator/portadapters/interpreter/g1_fixture_build_test.go
+          G1_INPUTS: benchmark/replay/g1_inputs.json
+          G1_FIXTURE: benchmark/replay/g1_canonical_inputs.json
+        run: |
+          set -eu
+          if [ ! -f "$G1_GENERATOR" ]; then
+            # Skip only when NEITHER exists (the state before the fixture lands). A fixture with no generator is a fixture nothing can prove (renamed, moved or deleted generator): fail.
+            if [ -e "$G1_FIXTURE" ]; then echo "the replay fixture is on this tree and its generator is not: nothing can prove it equals fresh output"; exit 1; fi
+            echo "neither the generator nor the fixture is on this tree: nothing to prove"; exit 0
+          fi
+          test -f "$G1_FIXTURE"
+          test -f "$G1_INPUTS"
+          fresh="$RUNNER_TEMP/g1_fresh.json"
+          rm -f "$fresh"
+          (cd services/core && go test -count=1 -v -run '^TestWriteG1Fixture$' ./orchestrator/portadapters/interpreter/ -args -g1-inputs "$GITHUB_WORKSPACE/$G1_INPUTS" -g1-fixture "$fresh") | tee "$RUNNER_TEMP/g1-gen.txt"
+          grep -q -- '--- PASS: TestWriteG1Fixture' "$RUNNER_TEMP/g1-gen.txt"
+          if grep -q -- '--- SKIP' "$RUNNER_TEMP/g1-gen.txt"; then echo "the generator was skipped"; exit 1; fi
+          test -s "$fresh"
+          cmp "$fresh" "$G1_FIXTURE"
   # The checks that need no database, in parallel with the shards so no shard carries them: formatting, vet, the shard coverage, the build and the image.
   static:
     needs: changed
@@ -89,6 +131,8 @@ jobs:
       SHARDS: "3"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: services/core/go.mod
@@ -106,14 +150,16 @@ jobs:
           test -z "$(gofmt -l .)"
           go vet ./...
           go build ./...
-      - name: TEN-02 results with their seeds (G0-N, ENV-14)
+      - name: TEN-02 and TEN-05 results (G0-N, ENV-14)
         working-directory: services/core
         run: |
           # The lines are checked, not only printed: a renamed test would make -run match nothing and still pass (Security Reviewer's note 3 on noema#578).
-          go test -count=1 -run '^TestTEN02' -v ./outcome/verifier/ ./trust/decide/ > "$RUNNER_TEMP/ten02.txt"
+          go test -count=1 -run '^TestTEN0[25]' -v ./outcome/verifier/ ./trust/decide/ ./workflows/ > "$RUNNER_TEMP/ten02.txt"
           cat "$RUNNER_TEMP/ten02.txt"
           grep -Eq 'TEN_RESULT id=TEN-02 part=trust-decisions seed=[0-9]+ replays=[0-9]+ pass=true( |$)' "$RUNNER_TEMP/ten02.txt"
           grep -Eq 'TEN_RESULT id=TEN-02 part=outcome-verdicts seed=[0-9]+ replays=[0-9]+ scenarios=[0-9]+ pass=true$' "$RUNNER_TEMP/ten02.txt"
+          # TEN-05 (noema#657): the simulated clock advances with Temporal test time. It has no seed (none is used) and is SYNTHETIC; the line is checked like the others (A274).
+          grep -Eq 'TEN_RESULT id=TEN-05 seed=none clock=SYNTHETIC skipped=[^ ]+ pass=true$' "$RUNNER_TEMP/ten02.txt"
       - name: Build the core image
         run: docker build -t noema-core:ci services/core
 

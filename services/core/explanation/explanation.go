@@ -127,12 +127,70 @@ type Rendered struct {
 	TemplateID      string
 	TemplateVersion string
 	FactIDs         []string
+	// sealed is set by Fallback and by nothing else: a Rendered built by hand has it false, so a consumer can tell the renderer's own output (FromRenderer; answer.FromRendered, A3).
+	sealed bool
 }
+
+// selects is true when id is the template the facts select (want, the summary's ID) or one of its parts' (want and "/" and a part of the closed list, A271).
+func selects(want, id string) bool {
+	if id == want {
+		return true
+	}
+	rest, ok := strings.CutPrefix(id, want+"/")
+	if !ok {
+		return false
+	}
+	for _, p := range Parts() {
+		if rest == string(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// FromRenderer reports whether this Rendered was produced by the renderer (Fallback) and not built by hand.
+func (r Rendered) FromRenderer() bool { return r.sealed }
 
 // Fallback renders the pack template for the facts' locale, outcome and classification. The whole text is one template-bound claim.
 func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
+	return fallback(t, f, string(f.OutcomeId)+"/"+f.Classification)
+}
+
+// Part is one part of the customer's answer besides its summary (A271): the pack holds a template per part, keyed `<outcome_id>/<classification>/<part>`. The summary keeps the
+// two-segment key.
+type Part string
+
+// The parts, a closed list: the members of customer-answer.v1 other than `done.summary` and `case_ref_masked`.
+const (
+	PartFound        Part = "found"
+	PartNotKnownWhat Part = "not_known_what"
+	PartNotKnownWhy  Part = "not_known_why"
+	PartAdviceDo     Part = "advice_do"
+	PartAdviceDoNot  Part = "advice_do_not"
+	PartNextWhat     Part = "next_what"
+	PartNextWhen     Part = "next_when"
+)
+
+// Parts lists the parts of the answer.
+func Parts() []Part {
+	return []Part{PartFound, PartNotKnownWhat, PartNotKnownWhy, PartAdviceDo, PartAdviceDoNot, PartNextWhat, PartNextWhen}
+}
+
+// FallbackPart renders the pack template of one part for the facts' locale, outcome and classification. A part outside the closed list, or one the pack does not hold, is
+// ErrNoTemplate: nothing is borrowed from the summary, another part or another class. The text is one template-bound claim, like the summary's, and goes through Validate.
+func FallbackPart(t Templates, f contracts.ExplanationFactsV2, p Part) (Rendered, error) {
+	ok := false
+	for _, known := range Parts() {
+		ok = ok || known == p
+	}
+	if !ok {
+		return Rendered{}, fmt.Errorf("%w: %q is not a part of the answer", ErrNoTemplate, string(p))
+	}
+	return fallback(t, f, string(f.OutcomeId)+"/"+f.Classification+"/"+string(p))
+}
+
+func fallback(t Templates, f contracts.ExplanationFactsV2, key string) (Rendered, error) {
 	locale := string(f.Locale)
-	key := string(f.OutcomeId) + "/" + f.Classification
 	e, ok := t.byLocale[locale][key]
 	if !ok {
 		return Rendered{}, fmt.Errorf("%w for %s/%s", ErrNoTemplate, locale, key)
@@ -142,7 +200,7 @@ func Fallback(t Templates, f contracts.ExplanationFactsV2) (Rendered, error) {
 	if err != nil {
 		return Rendered{}, err
 	}
-	return Rendered{Text: text, TemplateID: id, TemplateVersion: e.version, FactIDs: used, Claims: []Claim{{Span: text, TemplateID: id}}}, nil
+	return Rendered{Text: text, TemplateID: id, TemplateVersion: e.version, FactIDs: used, Claims: []Claim{{Span: text, TemplateID: id}}, sealed: true}, nil
 }
 
 var (
@@ -235,7 +293,7 @@ func Validate(t Templates, r Rendered, f contracts.ExplanationFactsV2, forbidden
 				out = append(out, fmt.Sprintf("claim %d: bound to template %q, not the rendered template", i, c.TemplateID))
 				continue
 			}
-			if c.TemplateID != want {
+			if !selects(want, c.TemplateID) {
 				out = append(out, fmt.Sprintf("claim %d: template %q is not the one the input facts select (%q)", i, c.TemplateID, want))
 				continue
 			}

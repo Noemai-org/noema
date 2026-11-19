@@ -39,3 +39,9 @@ A `DeclaredAbsent` counter is a claim, not an observation: the run manifest reco
 ### Why `("mock-customer", "post_lookup")` is classified read-only
 
 The proxy route is `POST /v1/lookups`, forwarded to the `tushe` upstream, operation `post_lookup`. It is classified read-only because it is named and routed as a lookup. That is a judgement about the route, not proof that the upstream cannot write: whoever reviews it checks the route against the Tushe specification (`POST /v1/lookups`) and the stand-in. The stand-in's two read routes (`get_principal`, `get_destination_status`, `routes.standin.json`, noema#207) are `GET` reads and are classified read-only too. A route added to any `hostility_proxy/config/routes*.json` table is never silently read-only: the drift test fails until someone classifies it here (`Classification`).
+
+## Planned: the Tushe read-only half
+
+`PLAN-tushe-readonly-fold.md` (16 Nov 2026) plans the harness reading Tushe's payout transitions through the read-only key: the M-02 client-side fold and the AT-19 two-call trace join, as pure fail-closed functions first and the reader last, after a delta file adopts the addendum's routes. Nothing in it is built and nothing reads a credential.
+
+**Built (19 Nov 2026, BEN-03 follow-up):** `tushe_fold.py` (`fold_transitions`) and `tushe_trace.py` (`join_trace`), the two pure fail-closed functions of the plan, with synthetic tests. Their row shapes are parameters; the default names are ASSUMED (`ASSUMED_SHAPE.assumed`) until a delta file adopts the addendum. They read no key and call no route; the reader (`tushe_readonly.py`) is not built and waits for noema#711 and the delta.

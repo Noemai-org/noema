@@ -1,0 +1,280 @@
+"""UND-16 (noema#546, A198): the live side of the compile-acceptance runner, built from the model service (INV-29: the key is read by the harness's provider adapter, nowhere else).
+
+The real harness, the real pack, lexicon and masking limits and the real pipeline are used; only the wire is a scripted transport (SYNTHETIC) and no socket is opened. Nothing here claims a live reply
+parses: the first live run is the evidence for that, and it is the Founder's to dispatch. Written before `benchmark.compile_acceptance.build` exists."""
+
+import json
+import sys
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from noema_model.providers.llm.base import HttpResponse, ProviderError, ProviderFailure  # noqa: E402
+
+from benchmark.bakeoff.budget import BudgetGuard  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.build import DryTransport, RecordingTransport, build_backend  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.golden import GOLDEN  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.record_only import RecordOnlyInput  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.recording import Recorder  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from benchmark.compile_acceptance.runner import CompileFailed  # type: ignore[import-not-found,unused-ignore]  # noqa: E402
+from tests.support import run  # noqa: E402
+from tests.support_swap import deny_sockets  # noqa: E402
+
+KEY = "sk-synthetic-canary-9f3a-not-a-key"
+REPLY = json.dumps({"id": "resp_x", "model": "gpt-6-luna-2026-10-01", "output": [], "usage": {"input_tokens": 1_000, "output_tokens": 2_000}}).encode()
+RATES = {"input_micro_per_mtok": 100_000, "output_micro_per_mtok": 500_000, "max_output_tokens": 4_000}
+
+
+class Wire:
+    def __init__(self, reply: bytes = REPLY, status: int = 200, raises: Exception | None = None) -> None:
+        self.reply, self.status, self.raises = reply, status, raises
+        self.sent: list[tuple[str, Mapping[str, str], bytes]] = []
+
+    async def post(self, url: str, headers: Mapping[str, str], body: bytes, timeout_s: float, max_bytes: int) -> HttpResponse:
+        self.sent.append((url, headers, body))
+        if self.raises is not None:
+            raise self.raises
+        return HttpResponse(self.status, self.reply)
+
+
+def recorder(tmp: Path) -> Recorder:
+    return Recorder(tmp / "out", run_id="r1", provider="openai", model_id="gpt-6-luna", now=lambda: datetime(2026, 11, 17, tzinfo=UTC))
+
+
+def transport(inner: Any, guard: BudgetGuard, rec: Recorder) -> RecordingTransport:
+    return RecordingTransport(inner, guard, rec, **RATES)
+
+
+def test_a_call_is_sent_recorded_and_settled_at_the_cost_the_reply_reports(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec, wire = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), Wire()
+        rec.case_id = "G-A"
+        t = transport(wire, guard, rec)
+        reply = await t.post("https://h.invalid/v1/responses", {"Authorization": f"Bearer {KEY}"}, b'{"input":"Tunde"}', 30.0, 1_000_000)
+        assert (reply.status, reply.body) == (200, REPLY) and len(wire.sent) == 1 and t.calls == 1
+        assert guard.spent_micros == 1_000 * 100_000 // 1_000_000 + 2_000 * 500_000 // 1_000_000  # 100 + 1,000 micro-dollars, from the reported usage
+        doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+        assert (doc["case_id"], doc["status"], doc["cost_micros"], doc["reported_model_id"]) == ("G-A", 200, 1_100, "gpt-6-luna-2026-10-01")
+        for path in (tmp_path / "out").rglob("*"):
+            if path.is_file():
+                assert KEY not in path.read_text() and "Authorization" not in path.read_text()
+
+    run(go())
+
+def test_a_reply_that_reports_no_usage_is_settled_at_its_projection(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-A"
+        await transport(Wire(reply=b'{"model":"m"}'), guard, rec).post("https://h.invalid/p", {}, b"x" * 1_000, 30.0, 1_000_000)
+        assert guard.spent_micros == -(-(1_000 * 100_000 + 4_000 * 500_000) // 1_000_000)
+
+    run(go())
+
+def test_a_request_that_would_pass_the_stop_is_refused_before_it_is_sent_and_the_stop_stays(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec, wire = BudgetGuard(limit_micros=100), recorder(tmp_path), Wire()
+        rec.case_id = "G-A"
+        t = transport(wire, guard, rec)
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"x" * 100, 30.0, 1_000_000)
+        assert wire.sent == [] and guard.stopped and t.calls == 0
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"", 30.0, 1_000_000)  # cheaper, still refused
+        assert wire.sent == []
+
+    run(go())
+
+def test_a_failure_of_the_wire_is_recorded_with_its_name_settled_at_its_projection_and_raised_unchanged(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-B"
+        t = transport(Wire(raises=ProviderError(ProviderFailure.TIMEOUT)), guard, rec)
+        with pytest.raises(ProviderError) as caught:
+            await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        assert caught.value.kind is ProviderFailure.TIMEOUT
+        doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+        assert (doc["status"], doc["failure"], doc["cost_micros"]) == (None, "TIMEOUT", doc["projected_micros"]) and guard.spent_micros == doc["projected_micros"]
+
+    run(go())
+
+def test_a_call_refused_by_a_really_full_pool_is_recorded_as_pool_refused_not_as_an_outage(tmp_path: Path) -> None:
+    """A372 (UND-16): the refusal is the real `UrllibTransport`'s, from a real `BoundedBlockingPool` held full by a blocked call (AGENT-12: no scripted failure). Nothing is sent, no socket opens."""
+    import asyncio
+    import threading
+
+    from noema_model.providers.llm.transport import UrllibTransport
+
+    async def go() -> None:
+        restore = deny_sockets()
+        inner = UrllibTransport(pool_size=1)
+        release = threading.Event()
+        try:
+            holder = asyncio.create_task(inner._pool.run(release.wait))  # noqa: SLF001
+            await asyncio.sleep(0.05)
+            guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+            rec.case_id = "G-A"
+            t = transport(inner, guard, rec)
+            with pytest.raises(ProviderError) as caught:
+                await t.post("https://h.invalid/p", {"Authorization": f"Bearer {KEY}"}, b"x" * 10, 30.0, 1_000_000)
+            assert caught.value.kind is ProviderFailure.UNAVAILABLE and caught.value.local is True  # raised unchanged: the harness still fails over
+            doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+            assert (doc["status"], doc["failure"], doc["failure_class"], doc["error"], doc["reply"]) == (None, "POOL_REFUSED", "POOL_REFUSED", None, None)
+            assert t.calls == 1
+            for path in (tmp_path / "out").rglob("*"):
+                if path.is_file():
+                    assert KEY not in path.read_text()
+        finally:
+            release.set()
+            await holder
+            inner._pool.close()  # noqa: SLF001
+            restore()
+
+    run(go())
+
+
+def test_a_failure_of_the_wire_that_is_not_local_keeps_its_own_class(tmp_path: Path) -> None:
+    async def go() -> None:
+        guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+        rec.case_id = "G-B"
+        t = transport(Wire(raises=ProviderError(ProviderFailure.UNAVAILABLE)), guard, rec)
+        with pytest.raises(ProviderError):
+            await t.post("https://h.invalid/p", {}, b"x" * 10, 30.0, 1_000_000)
+        doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+        assert (doc["failure"], doc["failure_class"]) == ("UNAVAILABLE", "UNAVAILABLE")
+
+    run(go())
+
+
+def test_the_dry_transport_keeps_the_first_request_of_each_case_prices_it_and_sends_nothing() -> None:
+    async def go() -> None:
+        d = DryTransport(**RATES)
+        d.case_id = "G-A"
+        for size in (1_000, 9_000):  # a later, larger request of the same example does not replace the first
+            with pytest.raises(ProviderError):
+                await d.post("https://h.invalid/p", {"Authorization": f"Bearer {KEY}"}, b"x" * size, 30.0, 1_000_000)
+        d.case_id = "G-B"
+        with pytest.raises(ProviderError):
+            await d.post("https://h.invalid/p", {}, b"y" * 2_000, 30.0, 1_000_000)
+        assert d.first_costs() == [("G-A", -(-(1_000 * 100_000 + 4_000 * 500_000) // 1_000_000)), ("G-B", -(-(2_000 * 100_000 + 4_000 * 500_000) // 1_000_000))]
+        assert KEY not in repr(d.__dict__)
+
+    run(go())
+
+ENV = {"OPENAI_API_KEY": KEY}
+
+
+def args(**over: Any) -> Any:
+    from types import SimpleNamespace
+    return SimpleNamespace(**{"harness_config": "benchmark/decisions/harness-gpt-6-luna.json", "pack_ref": "fin@1.0.0", **over})
+
+
+def test_the_dry_backend_builds_the_real_pipeline_and_prices_the_first_request_of_every_example_with_no_socket(tmp_path: Path) -> None:
+    async def go() -> None:
+        restore = deny_sockets()
+        try:
+            guard, rec = BudgetGuard(limit_micros=5_000_000, spent_micros=326_693), recorder(tmp_path)
+            backend = build_backend(True, {}, guard, rec, args())
+            for g in GOLDEN:
+                with pytest.raises(CompileFailed):
+                    await backend.compile_one(g)
+            costs = backend.dry_costs()
+            assert [c for c, _ in costs] == [g.case_id for g in GOLDEN] and all(m > 0 for _, m in costs)
+            assert backend.calls() == 0 and guard.spent_micros == 326_693
+            assert not (tmp_path / "out" / "recordings").exists()
+        finally:
+            restore()
+
+    run(go())
+
+def test_the_first_request_names_no_digit_run_over_four_and_carries_no_key(tmp_path: Path) -> None:
+    async def go() -> None:
+        from noema_model.platform.redaction.digit_runs import longest_digit_run
+        guard, rec, wire = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), Wire(status=500, reply=b"{}")
+        backend = build_backend(False, ENV, guard, rec, args(), inner=wire)
+        with pytest.raises(CompileFailed):
+            await backend.compile_one(GOLDEN[0])
+        assert wire.sent and backend.calls() >= 1
+        for _, headers, body in wire.sent:
+            assert longest_digit_run(body.decode()) <= 4
+            assert KEY not in body.decode()
+        assert any(KEY in v for _, h, _ in wire.sent for v in h.values())  # the key reaches the provider adapter's header, and only there
+        doc = json.loads((tmp_path / "out" / "recordings" / "rec-0001.json").read_text())
+        assert doc["case_id"] == "G-A" and doc["status"] == 500
+
+    run(go())
+
+def test_a_live_backend_without_the_key_does_not_build(tmp_path: Path) -> None:
+    from noema_model.platform.config import ConfigError
+    with pytest.raises(ConfigError):
+        build_backend(False, {}, BudgetGuard(limit_micros=1), recorder(tmp_path), args(), inner=Wire())
+
+
+def test_the_pin_is_the_configuration_the_run_used_and_holds_no_key(tmp_path: Path) -> None:
+    b = build_backend(False, ENV, BudgetGuard(limit_micros=1), recorder(tmp_path), args(), inner=Wire())
+    pin = b.pin()
+    assert pin["pinned_model_id"] == "gpt-6-luna" and pin["rate_card"]["input_micro_per_mtok"] == 100_000 and pin["max_output_tokens"] == 4_000
+    assert pin["harness_config_sha256"] and pin["pack_ref"] == "fin@1.0.0"
+    assert KEY not in json.dumps(pin)
+
+
+CANONICAL = {"schema_version": "2.0", "request_id": "0b8f3c1e-52a4-4d7e-9a61-5f1d2b8c4a97", "correlation_id": "corr_abcdefghijklmnopqrst", "tenant_id": "ten_synthetic", "session_id": "ses_synthetic",
+             "principal_ref": "usr_synth0014", "channel": "text", "mode": "MODE_1", "text": "Where is the 20k I sent to Ibrahim this morning?", "received_at": "2026-11-16T12:30:00Z"}
+WORLD_ROWS = ({"candidate_id": "cand_aaaaaaaaaaaaaaaaaaaa", "resource_ref": "fin.transaction:TX7992", "amount_minor": 2_000_000, "currency": "NGN", "occurred_at": "2026-11-16T10:00:00Z",
+               "counterparty_display": "Ibrahim Musa", "account_last4": "3644", "direction": "OUTGOING", "beneficiary_alias_match": True},
+              {"candidate_id": "cand_bbbbbbbbbbbbbbbbbbbb", "resource_ref": "fin.transaction:TX7001", "amount_minor": 500_000, "currency": "NGN", "occurred_at": "2026-11-14T12:00:00Z",
+               "counterparty_display": "Ibrahim Musa", "account_last4": "3644", "direction": "OUTGOING", "beneficiary_alias_match": True})
+RECORD_ONLY = RecordOnlyInput("BEN-CLEAN-0014", "text", ("en-NG",), "en-NG", "Where is the 20k I sent to Ibrahim this morning?", CANONICAL, WORLD_ROWS)  # type: ignore[call-arg,unused-ignore]
+
+
+def test_the_dry_backend_prices_the_first_request_of_a_record_only_input_with_no_socket(tmp_path: Path) -> None:
+    async def go() -> None:
+        restore = deny_sockets()
+        try:
+            guard, rec = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path)
+            backend = build_backend(True, {}, guard, rec, args())
+            with pytest.raises(CompileFailed):
+                await backend.record_one(RECORD_ONLY)
+            costs = backend.dry_costs()
+            assert [c for c, _ in costs] == [RECORD_ONLY.case_id] and costs[0][1] > 0
+            assert backend.calls() == 0 and guard.spent_micros == 0 and not (tmp_path / "out" / "recordings").exists()
+        finally:
+            restore()
+
+    run(go())
+
+def test_a_record_only_input_goes_through_the_real_pipeline_with_its_world_rows_as_candidates_and_is_recorded_under_its_own_case_id(tmp_path: Path) -> None:
+    async def go() -> None:
+        from noema_model.platform.redaction.digit_runs import longest_digit_run
+        guard, rec, wire = BudgetGuard(limit_micros=5_000_000), recorder(tmp_path), Wire(status=500, reply=b"{}")
+        backend = build_backend(False, ENV, guard, rec, args(), inner=wire)
+        with pytest.raises(CompileFailed):
+            await backend.compile_one(GOLDEN[1])  # a golden with candidates first: the record-only input must not inherit them
+        golden_rows = backend._candidates.rows
+        seen: list[dict[str, Any]] = []
+        run_service = backend._service.run
+
+        async def spy(canonical: Any, pack_ref: Any, other: Any) -> Any:
+            seen.append(dict(canonical))
+            return await run_service(canonical, pack_ref, other)
+
+        backend._service.run = spy
+        with pytest.raises(CompileFailed):
+            await backend.record_one(RECORD_ONLY)
+        assert seen == [CANONICAL]  # exactly the canonical input of the fixture: nothing added (no locale hint), nothing rebuilt
+        rows = backend._candidates.rows
+        assert rows != golden_rows and [(r.candidate_id, r.resource_ref, r.amount_minor, r.counterparty_display, r.account_last4, r.beneficiary_alias_match) for r in rows] == [
+            (w["candidate_id"], w["resource_ref"], w["amount_minor"], w["counterparty_display"], w["account_last4"], w["beneficiary_alias_match"]) for w in WORLD_ROWS]
+        assert [r.occurred_at.isoformat() for r in rows] == ["2026-11-16T10:00:00+00:00", "2026-11-14T12:00:00+00:00"]  # the rows' own instants, not the goldens' CANDIDATES_AT
+        docs = [json.loads(p.read_text()) for p in sorted((tmp_path / "out" / "recordings").glob("rec-*.json"))]
+        mine = [d for d in docs if d["case_id"] == RECORD_ONLY.case_id]
+        assert mine and all(d["status"] == 500 for d in mine) and docs[0]["case_id"] == "G-B"
+        sent = [body.decode() for _, _, body in wire.sent][len(docs) - len(mine):]
+        assert sent and all(longest_digit_run(b) <= 4 and KEY not in b for b in sent)
+        assert any("Where is the" in b for b in sent)  # the utterance of the fixture's canonical input is what the pipeline sends
+
+    run(go())

@@ -32,6 +32,13 @@ def load(path):
 class Fintech(unittest.TestCase):
     pack = load(FINTECH)
 
+    def test_case_writing_profile_requires_the_case_system_as_evidence(self):  # A342 (interim, relayed): evidence_required gains the case system
+        case_writers = {"fin.cap.create_escalation_case", "fin.cap.log_complaint_reference", "fin.cap.record_investigation_evidence"}
+        caps = {c["capability_id"] for c in self.pack["capabilities"]}
+        self.assertLessEqual(case_writers, caps)
+        for t in self.pack["trust_profiles"]:
+            self.assertIn("fin.src.case_system", t["evidence_required"], t["profile_id"])
+
     def test_exactly_two_intent_nodes_and_no_upper_case_class(self):  # DEC C2; REQ-CAP-001
         ids = [n["node_id"] for n in self.pack["intent_nodes"]]
         self.assertEqual(ids, ["fin.payments.exception.investigate", "fin.meta.out_of_scope"])

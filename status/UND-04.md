@@ -123,3 +123,28 @@ Built: `services/core/understanding` (gate, slot rules, identity overwrite, inte
 - **Note (b), the committed rapid failure file** (`testdata/rapid/TestNoPrincipalOrTenantInTheModelOutputEverSurvives/…-1185.fail`): **kept on purpose.** It is the failing case of the red run, replayed on every run as a regression seed; `main` already carries three such files under `execution/controller/testdata/rapid/`.
 - **Note (a), whether confidence leaves the system:** not changed by this PR. The outward schemas (noema#521) forbid it; the API handler is not in this PR and I did not check it.
 - Debt: none. Conflicts raised: none.
+
+# Session 2026-11-17 · UND-04 · the Interpreter port adapter (noema#661; A262 on noema#565)
+
+## Session summary
+- What changed (noema#661): `services/core/orchestrator/portadapters/interpreter/` (package `interpreterport`): `Port.Interpret`, `RequiredFromPack`, its README and tests.
+- Why: the orchestrator's `Interpreter` port had no implementation; the four gaps of noema#565 were answered by A262 with C2's recommendations (a `Sessions` resolver, the canonical input built here with channel `text`, mode `MODE_1` and the clock's `received_at`, the actor kind from the resolver, and `NEEDS_CLARIFICATION` from the ambiguity flags and the pack's required slots).
+- Risks, and how they are contained: it sits on the path from a person's words to the admitted intent. It cannot widen identity (the resolution must equal the verified session), it rewrites nothing but the trim, and a failure that is not a gate refusal stops the runner. The composition root (`cmd/core`, EL) plugs it in; it is not wired here.
+- Tests added (REQ-INT-001, REQ-INT-002, REQ-INP-002, INV-12): 12 test functions with subtests; 26 hand mutants over the port, all killed (three survived the first tests and each got a case: an invalid resolved session, the actor kind, and the slice a caller may not change).
+- Regression cases added: the same.
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: EL's composition root builds `Sessions` from the verified session, `RequiredFromPack` from the mounted pack, the Interpreter from the model client, the gate, the Record recorder and the intent store, and passes the clock; then the G1 story test runs it.
+- Open questions (owner): none. NFC stays with the model service's gateway unless a package is approved (AGENT-14).
+- Files to read first: `orchestrator/portadapters/interpreter/port.go`, `understanding/interpreter/interpreter.go`.
+- Do not touch: `understanding/**` (the gate and the pack view are UND-04's earlier PRs).
+
+# Session 2026-11-17 · UND-04 · fixes for the reads of noema#661 (EL and the Security Reviewer)
+
+- **EL P2 (done, tests first):** `satisfied` read the status into a `*string`, so an explicit `null` counted as resolved. It now takes a `status` member only if it is exactly the string `RESOLVED`; a present `status` that is anything else is unresolved; a slot with no `status` is resolved only if it is a Reference. `satisfied_internal_test.go` (19 cases) was red at the first push. I tested `satisfied` directly: through `Interpret` the gate may refuse a null status before the port sees it, which is the dependence the note says the port must not have.
+- **EL notes 2 and 3 (done):** the README says the deadline is the Interpreter's rule and the composition root's duty; a test comment says a retry in the same second builds the same canonical input.
+- **EL note 1 (answered, not coded):** `int_X@1` is the contract's `IntentRef` (`common.v1.json#IntentRef`, pattern `^int_[0-9A-Za-z]{2,32}@[0-9]+$`), not a single-ID form. The core has no parser for it. The parser and its shared test belong with the Trust adapter (noema#572, C1) that first needs one; I did not add one here (AGENT-02).
+- **Security Reviewer's two wiring conditions (for the wiring PR, A286, mine):** (1) the composition root gives `Session.AuthnRef` as an opaque session reference, never a bearer token or cookie value, because the canonical input goes to the model service (INV-29); (2) a test that the `Sessions` resolver is built from the verified edge session only and that no answer can come from request input.
+- Debt: none. Conflicts raised: none.

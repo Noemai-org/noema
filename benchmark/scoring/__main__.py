@@ -16,6 +16,7 @@ from benchmark.scoring.provenance import context_digest, provenance, understandi
 from benchmark.scoring.registry import registry_from_pack
 from benchmark.scoring.report import ReportError, render_markdown
 from benchmark.scoring.scorecard import score
+from benchmark.scoring.story_table import from_run, render as render_story_table
 
 Json = dict[str, Any]
 FORBIDDEN = "benchmark-heldout"
@@ -139,6 +140,10 @@ def run(args: argparse.Namespace) -> int:
     (out / "scorecard.json").write_bytes(pretty_bytes(card))
     (out / "provenance.json").write_bytes(pretty_bytes(provenance(card, results, repeats, context_digest(cases, oracles, load_strict(Path(args.pack))), _declared_identity(args), understanding_cases_digest(cases))))
     (out / "report.md").write_text(report, encoding="utf-8")
+    if args.story_table:
+        table = from_run(cases, oracles, results, registry, manifest)
+        (out / "story-table.json").write_bytes(pretty_bytes(table))
+        (out / "story-table.md").write_text(render_story_table(table), encoding="utf-8")
     bad = [g["gate"] for g in card["tier0"]["gates"] if g["count"]]
     print("Tier 0: " + ("all 11 gates at zero" if not bad else f"NOT at zero: {', '.join(bad)}"))
     print(f"Cases: {card['n_cases']}; complete: {card['complete']}; correct terminal handling: "
@@ -176,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--pinned-provider")
     parser.add_argument("--pinned-model-id")
     parser.add_argument("--pinned-version")
+    parser.add_argument("--story-table", action="store_true", help="BEN-12: also write story-table.json and story-table.md (one row per user story, by-family rollup, the G2 verdict)")
     parser.add_argument("--structural-evidence", help="JSON file: gate name to a count from static scans and negative tests")
     args = parser.parse_args(argv)
     try:

@@ -57,11 +57,12 @@ type intents struct {
 	a     intentstore.Admitted
 	err   error
 	calls []string
+	vers  []int
 }
 
 func (i *intents) Get(_ context.Context, id string, version int) (intentstore.Admitted, error) {
 	i.calls = append(i.calls, id)
-	_ = version
+	i.vers = append(i.vers, version)
 	return i.a, i.err
 }
 
@@ -232,9 +233,18 @@ func TestAnythingElseThanTheAdaptersTenantIsRefusedBeforeAnyRead(t *testing.T) {
 	r.nothingRead(t)
 }
 
+// REQ-TRU-009: the intent reader is asked for the ID and the version of the reference, as contracts.ParseIntentRef reads them.
+func TestTheIntentReaderIsAskedForTheReferencesIDAndVersion(t *testing.T) {
+	r := newRig()
+	_, _ = r.a.Read(deadline(t), session, intentID+"@7")
+	if len(r.in.calls) != 1 || r.in.calls[0] != intentID || r.in.vers[0] != 7 {
+		t.Errorf("Intents.Get calls %v versions %v, want one call for (%s, 7)", r.in.calls, r.in.vers, intentID)
+	}
+}
+
 func TestAnIntentReferenceThatIsNotIntentIdAtVersionIsRefused(t *testing.T) {
 	for name, bad := range map[string]string{"empty": "", "no version": intentID, "version zero": intentID + "@0", "version not a number": intentID + "@x", "version with a sign": intentID + "@-1",
-		"two separators": intentID + "@1@2", "id with a slash": "int/0001@1", "no id": "@1", "huge version": intentID + "@99999999999999999999"} {
+		"two separators": intentID + "@1@2", "id with a slash": "int/0001@1", "id with an underscore": "int_00_01@1", "id of 33 characters": "int_" + strings.Repeat("a", 33) + "@1", "version with a leading zero": intentID + "@01", "no id": "@1", "huge version": intentID + "@99999999999999999999"} {
 		r := newRig()
 		if _, err := r.a.Read(deadline(t), session, bad); !errors.Is(err, readseal.ErrIntentRef) {
 			t.Errorf("%s: want ErrIntentRef, got %v", name, err)
