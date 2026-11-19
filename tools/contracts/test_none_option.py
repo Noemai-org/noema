@@ -71,10 +71,19 @@ class NoneOptionSchema(unittest.TestCase):
         self.assertEqual(len(set(forms.values())), 1, forms)
 
     def test_no_other_contract_defines_a_second_none_member(self):
+        # A member named none_option_id, not a mention in a description: message-request.v1 (main) names it in prose, because "None of these" is submitted there as an option_id.
+        def members(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    yield key
+                    yield from members(value)
+            elif isinstance(node, list):
+                for value in node:
+                    yield from members(value)
+
         for name, schema in SCHEMAS.items():
-            text = json.dumps(schema)
             if name not in ("clarification.v1.json", "overlay-card.v1.json"):
-                self.assertNotIn("none_option_id", text, name)
+                self.assertNotIn("none_option_id", set(members(schema)), name)
 
 
 class NoneOptionFixtures(unittest.TestCase):
