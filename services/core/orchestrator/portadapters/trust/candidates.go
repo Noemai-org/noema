@@ -441,7 +441,23 @@ func candidateOK(c contracts.CandidatesResponseV1Candidate, kind string) bool {
 		json.Unmarshal([]byte(strconv.Quote(string(c.Currency))), &cur) == nil && candInstantShape.MatchString(string(c.OccurredAt)) &&
 		utf8.RuneCountInString(c.CounterpartyDisplay) >= 1 && utf8.RuneCountInString(c.CounterpartyDisplay) <= candMaxSurfaceRunes && !strings.Contains(c.CounterpartyDisplay, "\n") &&
 		candDigitRun(c.CounterpartyDisplay) <= ceilings.MaxLabelDigitRun && candLast4Shape.MatchString(c.AccountLast4) &&
-		json.Unmarshal([]byte(strconv.Quote(string(c.Direction))), &dir) == nil
+		json.Unmarshal([]byte(strconv.Quote(string(c.Direction))), &dir) == nil && candEnumsOK(c)
+}
+
+// candEnumsOK checks, by name and without the decoder, that the direction and the currency of a candidate are values of the contract's own generated enums (A350, Codex's review of
+// noema#741). The decoder in candidateOK refuses the same values; this check is explicit so that the refusal does not depend on how a generated type decodes.
+func candEnumsOK(c contracts.CandidatesResponseV1Candidate) bool {
+	switch c.Direction {
+	case contracts.CandidatesResponseV1CandidateDirectionOUTGOING, contracts.CandidatesResponseV1CandidateDirectionINCOMING:
+	default:
+		return false
+	}
+	switch c.Currency {
+	case contracts.MoneyV1CurrencyCodeNGN:
+	default:
+		return false
+	}
+	return true
 }
 
 // candDigitRun is the longest run of consecutive digits in s.
