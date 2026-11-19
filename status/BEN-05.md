@@ -82,3 +82,16 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval.
 - Do not touch: the gate conditions.
 
+# Session 2026-11-19 · BEN-05 · A355 (rows 5, 8, 9 computed from artifacts) and Codex's two P2s at 6c42b563
+
+## Session summary
+- What changed: `g1_package.py` now computes rows 5, 8 and 9 from the run's artifacts (A355): row 5 from the check-runs JSON (every run at the dispatch SHA, completed and green, `required_checks` present and successful, pages that add up to the total, a full SHA, the run made at it); row 8 from the leak-scan output (the probe line naming all six planted kinds, a `leakscan OK` line that read at least one file and one line, no failure line); row 9 from `negative-probes.json` (control 200, wrong role 404 NOT_FOUND_OR_NOT_AUTHORIZED, foreign tenant 401 SESSION_INVALID, the unknown correlation answered exactly as the wrong role is, for every expected case once, recomputed from status and code and never from an `ok` flag). Each computed row shows the sha256 of its artifact. The row-5 attestation of A322 is superseded by A355.
+- Codex P2s: a case listed twice in the replay is NOT MET (a later IDENTICAL no longer overwrites an earlier failure); row 11 needs every case in `inputs.g1_cases` (both stories) IDENTICAL once each unless it is a named exclusion, and the unknown-outcome cases are never excludable.
+- New inputs: `g1_cases`, `required_checks`. New CLI flags: `--check-runs`, `--leak-scan`, `--probes`.
+- Tests: 30 new or rewritten, written first (the suite was red with the new API missing); 23 mutations of the new logic each caught (one survived at first, a green conclusion on a run that is not completed; a test now covers it).
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. After the run: fill `package-inputs.json` (links and read attestations for rows 1 to 4, 6, 7, 12; `g1_cases` from the g1 suite selection; `required_checks`), save `gh api --paginate repos/Noemai-org/noema/commits/<sha>/check-runs` as the check-runs file, then run the command.
+- Do not touch: the gate conditions.
+
