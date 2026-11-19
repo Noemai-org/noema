@@ -13,15 +13,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/execution/controller"
 	"github.com/Noemai-org/noema/services/core/execution/ledger"
 	"github.com/Noemai-org/noema/services/core/internal/testpg"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 )
 
 // slowSpends makes every insert into grant_spend take sleepMS milliseconds, inside the spend's transaction.
@@ -500,4 +503,267 @@ func TestALockWaitThatEndsWithTheDeadlineNamesNoTenant(t *testing.T) {
 	if strings.Contains(err.Error(), tenant) {
 		t.Errorf("the error text names the tenant: %q", err.Error())
 	}
+}
+
+// noema#748 review, Architect ruling A348 (relayed; the text was not available to the author, the conditions below are inferred from the request): the spend lock is shown
+// RELEASED on every path, with the real pg_locks of this database and the pool's AcquiredConns back to 0. "Released" is read from the server (lockCounts) and from the pool
+// (Stat().AcquiredConns), never from the code's own bookkeeping. A path that ends the connection (an unlock that fails, a context that ends mid-transaction, a terminated
+// backend) releases the lock when the backend ends, so those paths are polled with a deadline; the others are checked once, the moment the call returns.
+
+// requireReleased fails unless, after the call, no lock of the spend key space is held or awaited in this database and none of the pools has a connection out. within is how long the
+// server may take to end a session that the client closed; zero checks once.
+func requireReleased(t *testing.T, w *world, way string, within time.Duration, pools ...*pgxpool.Pool) {
+	t.Helper()
+	if len(pools) == 0 {
+		pools = []*pgxpool.Pool{w.exec}
+	}
+	state := func() (held, awaited, out int) {
+		held, awaited = lockCounts(t, w, "")
+		for _, p := range pools {
+			out += int(p.Stat().AcquiredConns())
+		}
+		return held, awaited, out
+	}
+	deadline := time.Now().Add(within)
+	for {
+		held, awaited, out := state()
+		if held == 0 && awaited == 0 && out == 0 {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Errorf("after %s: %d held and %d awaited locks of the spend key space, %d connections out of the pool(s): the lock or the connection leaked", way, held, awaited, out)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+type panicClock struct{}
+
+func (panicClock) Now() time.Time { panic("synthetic panic inside the spend") }
+
+var _ clock.Clock = panicClock{}
+
+func TestTheSpendLockIsReleasedOnEveryPath(t *testing.T) {
+	t.Run("commit", func(t *testing.T) {
+		w := newWorld(t)
+		if res, err := w.led.Spend(ctx(t), cmdFor(w.issue(t, 1))); err != nil || !res.Spent {
+			t.Fatalf("Spend = %+v, %v", res, err)
+		}
+		requireReleased(t, w, "a commit", 0)
+	})
+	t.Run("replay", func(t *testing.T) {
+		w := newWorld(t)
+		g := w.issue(t, 1)
+		if res, err := w.led.Spend(ctx(t), cmdFor(g)); err != nil || !res.Spent {
+			t.Fatalf("Spend = %+v, %v", res, err)
+		}
+		if res, err := w.led.Spend(ctx(t), cmdFor(g)); err != nil || !res.Replay {
+			t.Fatalf("second Spend = %+v, %v; want a replay", res, err)
+		}
+		requireReleased(t, w, "a replay", 0)
+	})
+	t.Run("rolled back by a fault that is not a serialization failure", func(t *testing.T) {
+		w := newWorld(t)
+		faultOnSpend(t, w, "XX000", 1000, 0)
+		if _, err := w.led.Spend(ctx(t), cmdFor(w.issue(t, 1))); err == nil {
+			t.Fatal("the injected fault did not fail the spend")
+		}
+		requireReleased(t, w, "a rollback", 0)
+	})
+	t.Run("a serialization failure on every attempt", func(t *testing.T) {
+		w := newWorld(t)
+		w.led.SerializationAttempts = 3
+		faultOnSpend(t, w, "40001", 1000, 0)
+		if _, err := w.led.Spend(ctx(t), cmdFor(w.issue(t, 1))); !errors.Is(err, controller.ErrSpendRetryable) {
+			t.Fatalf("Spend error = %v; want the typed retryable error", err)
+		}
+		requireReleased(t, w, "three refused attempts", 0)
+	})
+	t.Run("the context expires while the transaction runs", func(t *testing.T) {
+		w := newWorld(t)
+		slowSpends(t, w, 5000)
+		c, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+		defer cancel()
+		start := time.Now()
+		_, err := w.led.Spend(c, cmdFor(w.issue(t, 1)))
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("Spend error = %v; want the context's deadline", err)
+		}
+		if took := time.Since(start); took > 4*time.Second {
+			t.Fatalf("Spend returned after %v, long after its 400 ms deadline", took)
+		}
+		requireReleased(t, w, "a deadline that ended the transaction", 3*time.Second)
+		if got := w.count(t, `SELECT count(*) FROM grant_spend`); got != 0 {
+			t.Fatalf("%d rows in grant_spend after an abandoned spend", got)
+		}
+	})
+	t.Run("the context was already cancelled", func(t *testing.T) {
+		w := newWorld(t)
+		c, cancel := context.WithTimeout(context.Background(), time.Minute)
+		cancel()
+		if _, err := w.led.Spend(c, cmdFor(w.issue(t, 1))); !errors.Is(err, context.Canceled) {
+			t.Fatalf("Spend error = %v; want the cancellation", err)
+		}
+		requireReleased(t, w, "a cancelled context", 0)
+	})
+	t.Run("a panic inside the spend", func(t *testing.T) {
+		w := newWorld(t)
+		pool := ownPool(t, w)
+		led := *w.led
+		led.Pool = pool
+		led.Clock = panicClock{}
+		g := w.issue(t, 1)
+		var recovered any
+		func() {
+			defer func() { recovered = recover() }()
+			_, _ = led.Spend(ctx(t), cmdFor(g))
+		}()
+		if recovered == nil {
+			t.Fatal("the panic did not reach the caller: Spend must not swallow it")
+		}
+		requireReleased(t, w, "a panic inside the spend", 3*time.Second, pool)
+		if got := w.count(t, `SELECT count(*) FROM grant_spend`); got != 0 {
+			t.Fatalf("%d rows in grant_spend after a spend that panicked", got)
+		}
+		if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'ISSUED'`, g.GrantID); got != 1 {
+			t.Fatal("the grant is not ISSUED after a spend that panicked")
+		}
+		if res, err := w.led.Spend(ctx(t), cmdFor(g)); err != nil || !res.Spent {
+			t.Fatalf("the next spend of the tenant = %+v, %v; want spent (the lock must not stay behind)", res, err)
+		}
+	})
+	t.Run("the unlock itself fails", func(t *testing.T) {
+		w := newWorld(t)
+		if _, err := w.admin.Exec(ctx(t), `REVOKE EXECUTE ON FUNCTION pg_advisory_unlock(int4, int4) FROM PUBLIC`); err != nil {
+			t.Fatal(err)
+		}
+		_, probe := w.exec.Exec(ctx(t), `SELECT pg_advisory_unlock(1, 2)`)
+		wantPg(t, probe, "42501")
+		g := w.issue(t, 1)
+		_, err := w.led.Spend(ctx(t), cmdFor(g))
+		if err != nil {
+			wantPg(t, err, "42501")
+		}
+		requireReleased(t, w, "an unlock that failed", 5*time.Second)
+		if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'SPENT'`, g.GrantID); got != 1 {
+			t.Fatalf("the spend committed before the unlock failed, but the grant is not SPENT (%d)", got)
+		}
+	})
+	t.Run("the backend is terminated while the transaction runs", func(t *testing.T) {
+		w := newWorld(t)
+		slowSpends(t, w, 5000)
+		done := make(chan error, 1)
+		g := w.issue(t, 1)
+		go func() { _, err := w.led.Spend(ctx(t), cmdFor(g)); done <- err }()
+		waitFor(t, "the spend to be inside its slow insert", func() bool {
+			return w.count(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND query LIKE 'INSERT INTO grant_spend%'`) == 1
+		})
+		if _, err := w.admin.Exec(ctx(t), `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE 'INSERT INTO grant_spend%'`); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-done:
+			if err == nil {
+				t.Fatal("a spend whose backend was terminated reported success")
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("the spend did not return after its backend was terminated")
+		}
+		requireReleased(t, w, "a terminated backend", 5*time.Second)
+	})
+}
+
+// A spend that waited for the lock and then got its turn leaves no waiter behind: while it waits there is exactly one waiter and one connection out; when it has spent, no waiter,
+// no holder, no backend blocked on a lock, no connection out.
+func TestASpendThatWaitedForItsTurnLeavesNoWaiterBehind(t *testing.T) {
+	w := newWorld(t)
+	w.led.SerializationAttempts = 3
+	g := w.issue(t, 1)
+	release := holdSpendLock(t, w, tenant)
+	done := make(chan spendOutcome, 1)
+	go func() {
+		res, err := w.led.Spend(ctx(t), cmdFor(g))
+		done <- spendOutcome{res, err}
+	}()
+	waitFor(t, "the spend to queue on its lock", func() bool { _, waiting := lockCounts(t, w, ledger.SpendLockName(tenant)); return waiting == 1 })
+	if out := w.exec.Stat().AcquiredConns(); out != 1 {
+		t.Fatalf("%d connections are out while one spend waits, want 1", out)
+	}
+	release()
+	select {
+	case o := <-done:
+		if o.err != nil || !o.res.Spent {
+			t.Fatalf("Spend after its turn = %+v, %v; want spent", o.res, o.err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("the waiting spend did not run when the lock was released")
+	}
+	requireReleased(t, w, "a spend that waited and then ran", 0)
+	if n := w.count(t, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`); n != 0 {
+		t.Fatalf("%d backends are still blocked on a lock", n)
+	}
+}
+
+// Fifty spends of five tenants, ten each, all at once, each tenant on its own login and pool as in production: every spend either commits or, after its attempts, gets the typed
+// retryable error (the lock orders the spends of one tenant; SERIALIZABLE transactions of different tenants can still refuse one another, see the ledger README), and when the
+// last has returned there is no lock held or awaited and no connection out of any pool.
+func TestFiftyConcurrentSpendsOfFiveTenantsLeaveNoLockAndNoConnection(t *testing.T) {
+	w := newWorld(t)
+	const tenants, perTenant = 5, 10
+	var pools []*pgxpool.Pool
+	type job struct {
+		led *ledger.Ledger
+		cmd controller.SpendCommand
+	}
+	var jobs []job
+	for k := 1; k <= tenants; k++ {
+		id := fmt.Sprintf("ten_t%d", k)
+		if _, err := w.admin.Exec(ctx(t), `INSERT INTO tenant (tenant_id, name) VALUES ($1, $1)`, id); err != nil {
+			t.Fatal(err)
+		}
+		led := *w.led
+		led.SerializationAttempts = 3
+		led.Pool = testpg.TenantLogin(t, w.admin, w.admin.Config().ConnString(), "execution_rw", id)
+		pools = append(pools, led.Pool)
+		for i := 1; i <= perTenant; i++ {
+			g := w.issue(t, k*100+i, func(g *controller.Grant) {
+				g.TenantID, g.DecisionID = id, fmt.Sprintf("dec_000%d", k)
+				g.GrantID, g.Nonce, g.TargetRef = fmt.Sprintf("grt_%d%03d", k, i), fmt.Sprintf("n_ab3%d%03d", k, i), fmt.Sprintf("TX%d", i)
+			})
+			jobs = append(jobs, job{&led, controller.SpendCommand{Grant: g, IdempotencyKey: "idem-" + g.GrantID, LogicalAction: "ESCALATE_CASE"}})
+		}
+	}
+	start := make(chan struct{})
+	outs := make([]spendOutcome, len(jobs))
+	var wg sync.WaitGroup
+	for i := range jobs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			res, err := jobs[i].led.Spend(ctx(t), jobs[i].cmd)
+			outs[i] = spendOutcome{res, err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	spent := 0
+	for i, o := range outs {
+		switch {
+		case o.err == nil && o.res.Spent:
+			spent++
+		case errors.Is(o.err, controller.ErrSpendRetryable) && !o.res.Spent:
+			if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'ISSUED'`, jobs[i].cmd.Grant.GrantID); got != 1 {
+				t.Errorf("spend %d was refused as retryable but its grant is not ISSUED", i)
+			}
+		default:
+			t.Errorf("spend %d = %+v, %v; want spent, or the typed retryable error with the grant unspent", i, o.res, o.err)
+		}
+	}
+	if got := w.count(t, `SELECT count(*) FROM grant_spend`); got != spent {
+		t.Errorf("%d rows in grant_spend for %d spends that reported success", got, spent)
+	}
+	t.Logf("%d of %d spends committed; the rest exhausted their attempts on a serialization failure between tenants and got the typed retryable error", spent, len(jobs))
+	requireReleased(t, w, "fifty concurrent spends of five tenants", 0, pools...)
 }
