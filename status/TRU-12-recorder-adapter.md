@@ -12,6 +12,12 @@ Updated 2026-11-19. State: in review (draft PR). Owner: lane agent for EL, STM-0
 - Safer readings taken: see the PR body.
 - Conflicts raised: none.
 
+## Session 2026-11-19 (second, Recorder lane of the confirm-path decision, interim, relayed, not yet committed)
+- What changed: `recorder.go` (`ErrRecordConflict`, mapped from `recorder.ErrDecisionConflict` with errors.Is; PlanStep must equal its index, zero-based, refused before any transaction otherwise) and `recorder_test.go` (steps 0 and 1; step >= len, negative, one-based, swapped, repeated refused; unchanged row counts on a second Record; same key with other content is the typed conflict and writes nothing; 6 concurrent Records write one set; a failure after the decision insert rolls back the grants; two worlds share no rows, no TestMain).
+- Red first: tests and the `ErrRecordConflict` declaration pushed at 7c56a195 (DB tests run in CI only: this sandbox lacks pgsodium). The implementation is a local commit, not pushed.
+- Hand mutants (fake-writer tests, killed): conflict mapping removed, plan-step check weakened to `<0`, to `>= len`, shifted by one: 4 of 4 killed.
+- Not run here: the DB tests. Note: the existing E5 check lives in execution/controller (`bound`: step number equals the stored plan step's number); the plan store that holds the number is another lane.
+
 ## Pre-work for the next agent
 - Exact next step: the composition builds a `TxBeginner` (tenant pools), a `RecordFactSource` (policy ID, evidence set hash, target versions and freeze permission per write step; the T9 to T11 stores) and `grants.Keys` from `keyfiles.Load` (NOEMA_GRANT_KEY_DIR), then calls `NewRecorderAdapter`.
 - Open questions (EL): where the evidence set hash and target versions come from; whether the intake's 0-based `PlanStep` (`int64(i)`) is what `grants` accepts.

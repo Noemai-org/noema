@@ -126,6 +126,9 @@ func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (i
 		return intake.RecordResult{}, fmt.Errorf("trustport: begin: %w", err)
 	}
 	res, err := a.writer.Write(ctx, tx, req)
+	if errors.Is(err, recorder.ErrDecisionConflict) {
+		err = fmt.Errorf("%w: %w", ErrRecordConflict, err)
+	}
 	if err == nil {
 		err = ctx.Err() // a request that ended while it ran is not committed
 	}
@@ -175,6 +178,13 @@ func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (
 	}
 	if (r.ConfirmationEventID == "") != (r.ConfirmationPlanHash == "") || (r.ConfirmationEventID != "" && r.ConfirmationPlanHash != r.PlanHash) {
 		return recorder.Request{}, ErrPlanHash
+	}
+	for i, s := range r.Steps {
+		// Plan steps are zero-based and a step's number is its index in the plan (intake T15; Execution E5 compares the grant's plan_step with the stored step's number). A number
+		// outside the plan, a negative, a one-based or a repeated one would name a step E5 cannot find: refused before anything is written.
+		if s.PlanStep != int64(i) {
+			return recorder.Request{}, fmt.Errorf("%w: step %d carries plan step %d", ErrRecordRequest, i, s.PlanStep)
+		}
 	}
 	f, err := a.facts.Facts(ctx, r)
 	if err != nil {
