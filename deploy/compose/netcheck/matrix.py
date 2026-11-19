@@ -89,7 +89,7 @@ RUNTIME = ("core", "model", "ui")
 ORACLE_TARGETS = ("mock-case-truth", "mock-case-db", "sentinel-bench", "hostility-proxy-control", "standin-control")
 ORACLE_CREDENTIAL_VOLUMES = {"mock_case_bench_credential", "mock_case_db_credentials", "hostility_proxy_credentials", "mock_case_runtime_credential", "standin_bench_credential"}
 ORACLE_MARKERS = ("ORACLE", "BENCH", "HELDOUT", "ADMIN", "FIXTURE_CRED")  # in a runtime service's variable names, values, secrets or volumes
-RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}
+RUNTIME_SECRETS = {"core": {"noema_core_password"}, "model": set(), "ui": set()}  # the grant keys are held by the one-shot grant-keys-init step only, never by a runtime service (SEC-09, INV-29)
 failures: list[str] = []
 
 
@@ -495,6 +495,7 @@ def check_webhook_relay() -> None:
 DEV_SERVICES = {"core", "model", "ui", "postgres", "temporal"}
 LIVE_PROFILES = ("ci", "bench", "demo")
 ONE_SHOT = ("-credentials", "-anchor")  # sidecars that may have exited by the time the stack is up; never required to be running
+ONE_SHOT_NAMES = ("grant-keys-init",)  # SEC-09: the step that sets the mode and owner of the grant keys runs to completion and exits (Codex P2 on noema#700); named, not a suffix, so nothing else is exempted by its name
 # the compose service behind each probe target (the truth and control listeners belong to the container that serves them)
 SERVICE_OF = {"mock-case-truth": "mock-case", "hostility-proxy-control": "hostility-proxy", "standin-control": "standin"}
 PROFILE_TARGETS = [t for t in TARGETS if not t.startswith("sentinel-")]  # the sentinels belong to the netcheck profile, not to a run profile
@@ -511,7 +512,7 @@ def live_findings(profile: str, declared: set, running: set) -> list[str]:
     """What is wrong with the set of services that really runs: anything running that Compose does not declare for the profile, or a
     declared service that should be running and is not. Pure: tested offline."""
     found = [f"{profile}: {name} is running but is not part of this profile" for name in sorted(running - declared)]
-    required = {n for n in declared if not n.endswith(ONE_SHOT)}
+    required = {n for n in declared if not n.endswith(ONE_SHOT) and n not in ONE_SHOT_NAMES}
     found += [f"{profile}: {name} should be running and is not" for name in sorted(required - running)]
     return found
 
