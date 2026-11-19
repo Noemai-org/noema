@@ -23,6 +23,7 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/platform/crypto"
 )
@@ -44,8 +45,45 @@ var (
 
 var hashRe = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
 
-// Reader verifies each payload it reads against the item's hash. Payloads has no default: a Reader without one refuses every call.
-type Reader struct{ Payloads PayloadReader }
+// ErrScreenRefused means the injection screen was refused (A372, interim, relayed, not yet committed): it is missing, it failed, it ran out of time, it panicked, or it answered outside its
+// contract. The payload is then not admitted: no text and no partial object is returned. It is never "the screen passed".
+var ErrScreenRefused = errors.New("payloadread: the injection screen was refused")
+
+// Screen is the consumer-defined view of injection.Screener (REQ-CTX-007, SoT 29).
+type Screen interface {
+	Screen(ctx context.Context, sub injection.Subject, fields map[string]string) (injection.Result, error)
+}
+
+// CorrelationOf gives the correlation chain the screen's event goes on. An empty answer refuses the read: a flag that cannot be put on the Record must not pass unseen.
+type CorrelationOf func(ctx context.Context) string
+
+// Flag is what the Alert gets for a payload that was flagged and whose event the Record refused: names only (tenant, evidence id, field names and pattern ids), never a value.
+type Flag struct {
+	TenantID   string
+	EvidenceID string
+	Findings   []injection.Finding
+}
+
+// Alert is the operational alert seam for a flagged payload whose Record event failed. It never blocks the read.
+type Alert interface {
+	ScreenFlagged(ctx context.Context, f Flag)
+}
+
+// Reader verifies each payload it reads against the item's hash, then screens its text. Payloads, Screen and Correlation have no default: a Reader without one refuses every call.
+type Reader struct {
+	Payloads    PayloadReader
+	Screen      Screen
+	Correlation CorrelationOf
+	Alert       Alert
+}
+
+// NewReader builds a Reader. Every argument is required.
+func NewReader(p PayloadReader, s Screen, c CorrelationOf, a Alert) (Reader, error) {
+	if p == nil || s == nil || c == nil || a == nil {
+		return Reader{}, ErrUnusable
+	}
+	return Reader{Payloads: p, Screen: s, Correlation: c, Alert: a}, nil
+}
 
 // Payload returns the object of the item's stored payload, only when its canonical hash is the item's PayloadHash. The tenant is the caller's, never the item's or the payload's. On any error
 // the object is nil.
