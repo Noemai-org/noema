@@ -9,7 +9,7 @@ The adapter for the orchestrator's Evidence port (ENV-04 wiring slice W2; REQ-CT
 | Wiring | every collaborator, the deadline of the seal transaction, the pack's slot name and resource kind are set; none has a default (AGENT-16) | `ErrNotWired` |
 | Context | the caller's context has a deadline | `ErrNoDeadline` |
 | Session | tenant and principal set (INV-12); the tenant is the adapter's (INV-11; a wiring mistake, not an external answer) | `orchestrator.ErrNoSession`, `ErrTenant` |
-| Reference | `int_<id>@<version>`, version 1 to 999,999,999 | `ErrIntentRef` |
+| Reference | `int_<id>@<version>` as `contracts.ParseIntentRef` reads it (ID of 2 to 32 letters or digits, version 1 to 999,999,999) | `ErrIntentRef` |
 | Intent | the stored intent is of the adapter's tenant **and names exactly the session's principal** (the database binds the tenant, nothing binds the principal, so it is checked here, INV-12); an intent of another tenant or principal, or one that names no provable principal, answers exactly as a missing intent | `intentstore.ErrNotFound` (wrapped) |
 | Transaction | the configured slot is RESOLVED and its `resolved_ref` is `<configured kind>:<id>` with an ID the read call site accepts; a surface form or a candidate is never used | `ErrNoTransaction` |
 | Read | the Record comes first: a failed record stops the run; no item at all is never sealed (INV-17) | the read's error, `snapshot.ErrEmptySet` |
