@@ -781,3 +781,77 @@ func TestT14ARegistryThatCannotAnswerFailsClosedAndAReadAsksNothing(t *testing.T
 		t.Errorf("a read: %s, the registry was asked %v", res.Decision.Outcome(), f.checked)
 	}
 }
+
+// ---- TRU-12: the open request's id reaches the caller (follow-up of TRU-07) ----
+
+// REQ-TRU-009, INV-25: a Pending answer carries the id of the open request; the CONFIRM result exposes it so the caller can name the request the approver answers.
+func TestT13PendingCarriesTheOpenRequestIDIntoTheResult(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
+	res := run13(t, newEval13(t, f))
+	if res.Decision.Outcome() != decide.Confirm {
+		t.Fatalf("outcome %s %v, want CONFIRM", res.Decision.Outcome(), codes13(res.Decision))
+	}
+	if res.ConfirmationRequestID != "cfr_synth0001" {
+		t.Errorf("ConfirmationRequestID %q, want cfr_synth0001", res.ConfirmationRequestID)
+	}
+	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+		t.Errorf("planner or recorder called after a CONFIRM: %v", f.calls)
+	}
+}
+
+// The request id belongs to a CONFIRM only: a Given or NotRequired answer, even one that names a request, never puts one on an ALLOW.
+func TestT13OnlyAConfirmCarriesARequestID(t *testing.T) {
+	for name, c := range map[string]Confirmation{
+		"not required": {Status: ConfirmationNotRequired, RequestID: "cfr_synth0001"},
+		"given":        {Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash, RequestID: "cfr_synth0001"},
+	} {
+		f := newFake13()
+		f.conf = c
+		res := run13(t, newEval13(t, f))
+		if res.Decision.Outcome() != decide.Allow {
+			t.Fatalf("%s: outcome %s, want ALLOW", name, res.Decision.Outcome())
+		}
+		if res.ConfirmationRequestID != "" {
+			t.Errorf("%s: ConfirmationRequestID %q on an ALLOW", name, res.ConfirmationRequestID)
+		}
+	}
+}
+
+// A zero or unknown status with a request id is still not an answer: UNKNOWN, no request id exposed.
+func TestT13AnUnknownStatusWithARequestIDIsStillUnknown(t *testing.T) {
+	for name, c := range map[string]Confirmation{
+		"zero":    {RequestID: "cfr_synth0001"},
+		"unknown": {Status: ConfirmationGiven + 1, RequestID: "cfr_synth0001"},
+	} {
+		f := newFake13()
+		f.conf = c
+		res := run13(t, newEval13(t, f))
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if res.ConfirmationRequestID != "" {
+			t.Errorf("%s: request id %q exposed", name, res.ConfirmationRequestID)
+		}
+	}
+}
+
+// A230: a Given for another plan stays UNKNOWN PLAN_INVALID, with or without a request id; nothing recorded.
+func TestT13GivenForAnotherPlanWithARequestIDIsStillPlanInvalid(t *testing.T) {
+	f := newFake13()
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tHash, RequestID: "cfr_synth0001"}
+	res := run13(t, newEval13(t, f))
+	wantUnknown(t, "given for another plan", res, "PLAN_INVALID", decide.T14Plan, decide.StepTerminal)
+	if f.called("Recorder.Record") != 0 || res.ConfirmationRequestID != "" {
+		t.Errorf("recorded or exposed a request id: %v %q", f.calls, res.ConfirmationRequestID)
+	}
+}
+
+// AGENT-20 (safer reading, interim): a decline reaches the intake as an error from Status, which ends UNKNOWN INTERNAL_ERROR at T13; nothing is planned, recorded or granted.
+func TestT13ADeclineAsAnErrorIsUnknownAndRecordsNothing(t *testing.T) {
+	f := newFake13()
+	f.confErr = errInjected
+	res := run13(t, newEval13(t, f))
+	wantUnknown(t, "decline as error", res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+		t.Errorf("planner or recorder called: %v", f.calls)
+	}
+}

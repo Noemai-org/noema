@@ -26,6 +26,8 @@ type Result struct {
 	// plan step; none for a read).
 	DecisionID string
 	GrantIDs   []string
+	// ConfirmationRequestID is set only for a CONFIRM: the id of the open confirmation request the approver answers (TRU-12). decide.Decision has no place for it.
+	ConfirmationRequestID string
 }
 
 // ErrNotBuilt is what a step that does not exist yet returns: the evaluation ends in UNKNOWN INTERNAL_ERROR at that step (fail closed, INV-16).

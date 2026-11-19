@@ -26,9 +26,11 @@ const (
 
 // Confirmation is the answer of Confirmations.Status. EventID names the confirmation event a Given answer rests on; the grant of the ALLOW follows it.
 type Confirmation struct {
-	Status   ConfirmationStatus
-	EventID  string
-	PlanHash string // a Given answer: the plan hash the confirmation was given for (A230); the intake compares it with the plan T14 builds and the writer with the steps
+	Status  ConfirmationStatus
+	EventID string
+	// RequestID names the open confirmation request a Pending answer rests on (TRU-12); the CONFIRM decision exposes it to the caller through Result.ConfirmationRequestID.
+	RequestID string
+	PlanHash  string // a Given answer: the plan hash the confirmation was given for (A230); the intake compares it with the plan T14 builds and the writer with the steps
 }
 
 // Confirmations answers T13. The adapter hides the confirmation store and applies trust/confirm (Resolve, BindingHash): the intake asks one question and takes one answer.
