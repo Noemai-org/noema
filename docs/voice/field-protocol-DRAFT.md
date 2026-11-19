@@ -11,7 +11,7 @@ Serves REQ-VOI-005, REQ-VOI-007, REQ-VOI-004; PERD §45.4 (the protocol of recor
 3. At least 100 sessions across speakers, balanced by gender and locale mix, covering the voice-subset intents, at least 50% in Pidgin.
 4. Measurement: time from end of speech (VAD) to Intent Object admitted in core, with NTP-synchronised clocks on the logging host and server-side timestamps for both events.
 5. Pass: P95 at most 2.5 s, with the Intent Object correct against the script annotation.
-6. Full sessions recorded with consent and stored per REQ-VOI-004.
+6. Full sessions recorded and stored per REQ-VOI-004 (only in the bench Environment's private store).
 
 **Amended for the G5 field plan** by the Founder's decision on noema#349, recorded in DEC-2026-11-10-architect-block-f-a129-a136 §3: item 3 above ("at least 100 sessions") is replaced by **240 measured sessions, 120 in Pidgin and 30 each in en-NG, Yoruba, Hausa and Igbo**; the pooled correctness must be at least 90% with the lower end of its 95% interval at least 80%; each locale must also reach at least 80% (24 of 30), reported per locale; the P95 passes only if the upper 95% bound is at most 2.5 s; the 50% Pidgin rule stays. The text of items 1 to 6 is PERD §45.4 as published and is not edited here.
 
@@ -41,10 +41,10 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 - [ ] Speaker list balanced by gender and locale mix, at least half Pidgin overall, each with an opaque speaker reference.
 - [ ] Native-speaker testers for en-NG, pcm, yo, ha and ig identified (REQ-VOI-007).
 
-**Consent and storage**
-- [ ] The VOI-05 recording plan is signed and the consent text reviewed.
-- [ ] Every speaker's consent captured with a `consent_ref` before the first utterance.
-- [ ] The restricted store exists and a retention timer is set (VOI-05 section 5).
+**Storage**
+- [ ] The VOI-05 recording plan is adopted by the Founder (amended by A377 to A379: no consent form, no counsel or signature step).
+- [ ] Every recording carries an opaque `speaker_ref` from the first utterance.
+- [ ] The private store exists and a retention timer is set (VOI-05 section 5).
 
 **Readiness before a measured batch**
 - [ ] A simulation report per locale exists and is ready (VOI-17, `ready_for_field`): native review approved, zero actions on a low-confidence key slot.
@@ -53,7 +53,7 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 ## 3. A session
 
 1. Check the site, record the dB reading, check the network baseline, check the NTP offset.
-2. Obtain consent; record `consent_ref`.
+2. Record the `speaker_ref` for the session.
 3. The speaker performs the scripted intent on the device. The person running the session does not coach pronunciation.
 4. The system's behaviour is recorded as it is: an answer, a clarification, a failover, a fall back to text. Nothing is retried silently, and a failed session is kept and counted, not discarded.
 5. After the session: both server timestamps, the Intent Object (or its absence), the annotation comparison, and the dB reading are stored with the session reference.
@@ -77,5 +77,5 @@ Each line is tick-with-evidence. A line without evidence is not ticked.
 | 3 | Who runs sessions | Two Founders-appointed facilitators who do not coach pronunciation; testers for each locale are native speakers who did not speak in the session they review | Open: the Founders recruit (F3) |
 | 4 | Session count | Decided by the Founder on noema#349 and recorded in DEC-2026-11-10-architect-block-f-a129-a136 §3: 240 measured sessions (120 Pidgin, 30 each in en-NG, Yoruba, Hausa and Igbo); the dry run of 10 is separate | Decided |
 | 5 | Devices and SIMs (PRE-05) | The Founder orders now (F6) | Open |
-| 6 | VOI-05 signed; consent text reviewed | Counsel first, then the Founder signs | Open |
+| 6 | VOI-05 adopted (A377 to A379: no consent form, no counsel or signature step) | The Founder adopts the amended plan | Open |
 | 7 | At least one qualified speech provider (DEBT-14, expiry 2026-11-30) | API documents first, then one pinned synthetic-audio sample per provider (F4) | Open |
