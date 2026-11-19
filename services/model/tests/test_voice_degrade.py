@@ -213,3 +213,30 @@ def test_a_cancellation_during_the_release_of_an_ineligible_providers_source_sti
         return source.close_cancelled  # read before the loop is torn down, which would cancel the task by itself
 
     assert run(asyncio.wait_for(call(), timeout=GUARD_S))
+
+
+# ---- SR's note on noema#640: an unexpected error from the audio source or the provider degrades to the fixed text fallback -------------------------------------------------------
+
+
+class ExplodingSource(Source):
+    """A microphone whose read fails with an error that is not a ProviderError and whose message must never be shown or logged."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__([])
+        self._error = error
+
+    async def __anext__(self) -> AudioChunk:
+        raise self._error
+
+
+@pytest.mark.parametrize("error", [RuntimeError("secret text of the source"), OSError("device lost"), ValueError("bad frame")])
+def test_an_unexpected_error_from_the_audio_source_degrades_to_text_with_a_fixed_failure_and_the_class_name_only(error: Exception) -> None:
+    source = ExplodingSource(error)
+    result = go(Fake((final(),)), source)
+    assert result.utterance is None and result.offer_text and result.failure is ProviderFailure.UNAVAILABLE
+    assert result.error_type == type(error).__name__ and "secret" not in repr(result) and source.closed
+
+
+def test_an_unexpected_error_from_the_provider_itself_degrades_the_same_way() -> None:
+    result = go(Fake(raises=RuntimeError("secret text of the provider")), mic())
+    assert result.utterance is None and result.offer_text and result.failure is ProviderFailure.UNAVAILABLE and "secret" not in repr(result)
