@@ -168,7 +168,7 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
 		switch {
 		case errors.Is(err, ErrConfirmationAnswered):
-			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONTRADICTORYSTATE, "This request has already been answered.", corr)
+			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeIDEMPOTENCYCONFLICT, "This request has already been answered.", corr)
 			return
 		case err != nil:
 			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)

@@ -39,3 +39,14 @@ State: RED commit pushed with a draft PR; the green commit is local and is pushe
 - Exact next step: an adapter from `trustpg2.Requests` to `ConfirmationAnswers` and `ConfirmationRequests` (Lookup), and the timeout setting, in the final wiring.
 - Open questions: refused replies are not recorded (the store's Answer records accepted ones only); the 409 code for a second answer.
 - Do not touch: `trust/confirm`.
+
+# Session 2026-11-19 · TRU-12 (lane 3b, A362-A376 interim, relayed, not yet committed)
+
+## Session summary
+- What changed (PR noema#754): a second answer is 409 IDEMPOTENCY_CONFLICT (errors.v3 code exists); ROLE:<role> already compares with the session's one role (tests pin it).
+- Not done: the SECURITY_EVENT CONFIRMATION_REFUSED record. `CONFIRMATION_REFUSED` is defined nowhere (record-event.v3 SecurityKind and chain securityKinds hold only INJECTION_DETECTED, PRINCIPAL_OVERRIDE_ATTEMPT, SIGNATURE_INVALID, CROSS_SCOPE_ATTEMPT, REQUEST_ID_REUSED, IDEMPOTENCY_COLLISION, CHAIN_BREAK); needs a contract change (AGENT-15).
+- Risks: none new. Tests: EC-U04 matrix, first answer wins.
+
+## Pre-work for the next agent
+- Exact next step: after the contract adds the kind, add `RefusalRecorder.Refuse(ctx, ...)` (no body identity, no content), and a fixed-text log if the append fails.
+- Do not touch: trust/**, contracts/ in this PR.
