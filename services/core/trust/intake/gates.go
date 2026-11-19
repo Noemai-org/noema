@@ -31,6 +31,10 @@ type evaluation struct {
 	// by the first step that needs it (T11 for a write): T11 asks the policy about each (A306), T12 asks the dispatch budget for each, T14 refuses a plan step outside it
 	// (Codex P1 and P2 on noema#572). nil until first read.
 	authorized []string
+	// step is set only by a continuation evaluation (EvaluateStep): the one capability it decides. nil for Evaluate.
+	step *stepScope
+	// policyParams are the winning PERMIT rule's params T11 read, per capability (TRU-14); passed to the Planner.
+	policyParams map[string]map[string]string
 }
 
 func (e *evaluation) steps() decide.Steps {

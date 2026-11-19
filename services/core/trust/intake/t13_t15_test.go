@@ -383,7 +383,7 @@ func TestT14AsksForThePlanAndCarriesItsStepsToTheRecorder(t *testing.T) {
 		t.Fatalf("outcome %s %v", res.Decision.Outcome(), codes13(res.Decision))
 	}
 	want := PlanRequest{TenantID: t13Tenant, CorrelationID: "corr_synth0001", IntentID: tIntent, IntentVersion: t13Version, IntentHash: tHash, IntentNode: "fin.payments.exception.investigate", WriteRequired: true}
-	if len(f.planReq) != 1 || f.planReq[0] != want {
+	if len(f.planReq) != 1 || !reflect.DeepEqual(f.planReq[0], want) {
 		t.Errorf("plan request %+v, want %+v", f.planReq, want)
 	}
 	r := rec0(t, f)
