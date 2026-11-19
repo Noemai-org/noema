@@ -25,3 +25,17 @@ State: RED commit pushed with a draft PR; the green commit is local and is pushe
 - Open questions: see the PR body.
 - Files to read first: `cmd/core/confirmations_route.go`, `trust/confirm/confirm.go`, `contracts/schemas/confirmation-event.v1.json`.
 - Do not touch: `trust/confirm`.
+
+# Session 2026-11-19 (A341 rework) · TRU-12
+
+## Session summary
+- What changed: the route now follows A341 (interim, relayed, not yet committed). The store owns CONFIRMATION_RECEIVED: the route calls one `ConfirmationAnswers.Answer(ctx, ConfirmationAnswerInput)` (shape of `trustpg2.Requests.Answer`, noema#756) and appends nothing. First answer wins: a second answer is 409 CONTRADICTORY_STATE; the identical first answer by the same approver returns the stored result (202). The default decoder is the generated `contracts.ConfirmationAnswerV1` (on main). A `Timeout` bounds the store calls (no default; the wiring supplies it).
+- Why: A341, INV-12, REQ-TRU-009.
+- Risks: the interface is consumer-defined with its own input type and `ErrConfirmationAnswered`; the wiring adapter (final main.go) maps `trustpg2.AnswerInput` and `ErrRequestConflict` to them.
+- Tests added: first answer wins (3 cases), replay, ineligible never reaches the store, bounded context, generated decoder (REQ-TRU-009, INV-12, INV-25, EC-U04). Mutation: 10 of 10 killed.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: an adapter from `trustpg2.Requests` to `ConfirmationAnswers` and `ConfirmationRequests` (Lookup), and the timeout setting, in the final wiring.
+- Open questions: refused replies are not recorded (the store's Answer records accepted ones only); the 409 code for a second answer.
+- Do not touch: `trust/confirm`.

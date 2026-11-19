@@ -14,10 +14,11 @@ import (
 	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
+	"github.com/Noemai-org/noema/services/core/platform/crypto"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 )
 
-// confirmations_route.go: POST /v1/confirmations/{confirmation_request_id} (PERD 39.2, REQ-TRU-009, INV-12, INV-25; task TRU-12). The approver's identity and role come from the verified session only (INV-12). CONFIRMATION_RECEIVED is appended before anything is answered; if the append fails nothing else happens (PERD 32.4). The route never issues a grant: an ACCEPT leads to a fresh evaluation (INV-25), which is another component's.
+// confirmations_route.go: POST /v1/confirmations/{confirmation_request_id} (PERD 39.2, REQ-TRU-009, INV-12, INV-25; A341, interim, relayed, not yet committed; task TRU-12). The approver's identity and role come from the verified session only (INV-12). The store owns CONFIRMATION_RECEIVED: its Answer records the answer and appends the event in one transaction, and if that fails nothing else happens (PERD 32.4). First answer wins. The route never issues a grant: an ACCEPT leads to a fresh evaluation (INV-25), which is another component's.
 
 // ConfirmationAnswer is the body of the route: {request_id, response}.
 type ConfirmationAnswer struct {
@@ -25,7 +26,7 @@ type ConfirmationAnswer struct {
 	Response  confirm.Response
 }
 
-// ConfirmationAnswerDecoder turns the body into an answer. It is the seam where confirmation-answer.v1 (C1) is enforced once that contract is on main.
+// ConfirmationAnswerDecoder turns the body into an answer. The default is confirmation-answer.v1's generated type.
 type ConfirmationAnswerDecoder func(body []byte) (ConfirmationAnswer, error)
 
 // ConfirmationRequests finds the request a path names, for this tenant only.
@@ -59,34 +60,28 @@ type confirmationRouteConfig struct {
 	Decode   ConfirmationAnswerDecoder
 }
 
-// confirmationChannel is the channel of the recorded event (confirmation-event.v1: ^[a-z][a-z0-9_]*$).
-const confirmationChannel = "public_api"
-
 var confirmationRequestPath = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
 
 var errConfirmationAnswer = errors.New("cmd/core: the confirmation answer is not valid")
 
-// decodeConfirmationAnswer is the stand-in for confirmation-answer.v1 (C1): exactly the two members, no unknown member, one document, a request ID in the contract's form and
-// one of the two responses. It is replaced by the generated type when that contract is on main.
+// decodeConfirmationAnswer decodes confirmation-answer.v1 through its generated type (closed object, both members required, the response enum) and adds the request ID's form and
+// one document only (INV-12: no member the contract lacks reaches the handler).
 func decodeConfirmationAnswer(body []byte) (ConfirmationAnswer, error) {
-	var in struct {
-		RequestID *string `json:"request_id"`
-		Response  *string `json:"response"`
-	}
+	var in contracts.ConfirmationAnswerV1
 	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(&in); err != nil {
 		return ConfirmationAnswer{}, errConfirmationAnswer
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return ConfirmationAnswer{}, errConfirmationAnswer
 	}
-	if in.RequestID == nil || in.Response == nil || !confirmationRequestPath.MatchString(*in.RequestID) {
+	id := string(in.RequestId)
+	if !confirmationRequestPath.MatchString(id) {
 		return ConfirmationAnswer{}, errConfirmationAnswer
 	}
-	switch r := confirm.Response(*in.Response); r {
+	switch r := confirm.Response(in.Response); r {
 	case confirm.Accept, confirm.Decline:
-		return ConfirmationAnswer{RequestID: *in.RequestID, Response: r}, nil
+		return ConfirmationAnswer{RequestID: id, Response: r}, nil
 	}
 	return ConfirmationAnswer{}, errConfirmationAnswer
 }
@@ -108,8 +103,85 @@ func confirmationRoute(c confirmationRouteConfig) edge.Route {
 	}
 	return edge.Route{Pattern: "POST /v1/confirmations/{confirmation_request_id}", Roles: rolesConfirmers, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		_ = decode
-		publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", session.CorrelationFromContext(r.Context()))
+		corr := session.CorrelationFromContext(r.Context())
+		p, ok := session.FromContext(r.Context())
+		if !ok {
+			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
+			return
+		}
+		pathID := r.PathValue("confirmation_request_id")
+		if !confirmationRequestPath.MatchString(pathID) {
+			publicError(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
+			return
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			publicError(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request is not acceptable.", corr)
+			return
+		}
+		ans, err := decode(raw)
+		if err != nil {
+			publicError(w, http.StatusBadRequest, contracts.ErrorsV3ErrorCodeINPUTINVALID, "The request is not acceptable.", corr)
+			return
+		}
+		if c.Requests == nil || c.Answers == nil || c.Clock == nil || c.Timeout <= 0 {
+			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
+			return
+		}
+		if ans.RequestID != pathID {
+			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), c.Timeout) // the earlier of the request's deadline and the configured bound
+		defer cancel()
+		req, found, err := c.Requests.Lookup(ctx, p.Tenant, pathID)
+		if err != nil {
+			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
+			return
+		}
+		if !found {
+			publicError(w, http.StatusNotFound, contracts.ErrorsV3ErrorCodeNOTFOUNDORNOTAUTHORIZED, "Not found.", corr)
+			return
+		}
+		now := c.Clock.Now()
+		at := replyTime(now)
+		// The binding is compared by the fresh evaluation, not here: the request's own binding stands in so only the reply, the approver and the time are judged. Identity and roles are the session's.
+		res, err := confirm.Resolve(req, confirm.Event{RequestID: ans.RequestID, ApproverID: p.ID, ApproverRoles: []string{string(p.Role)}, Response: ans.Response, At: at}, req.Binding)
+		if err == nil && p.Role != session.RoleApprover && req.Requirement != "SELF" {
+			res = confirm.NotEligible // a customer session answers only a request that asks for the requester themselves
+		}
+		switch {
+		case err != nil:
+			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
+			return
+		case res == confirm.NotEligible || res == confirm.WrongRequest:
+			publicError(w, http.StatusForbidden, contracts.ErrorsV3ErrorCodeAPPROVERNOTELIGIBLE, "This reply cannot be accepted.", corr)
+			return
+		case res == confirm.Expired:
+			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONFIRMATIONEXPIRED, "This confirmation has expired.", corr)
+			return
+		case res != confirm.Proceed && res != confirm.Declined:
+			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
+			return
+		}
+		// The store records the answer and appends CONFIRMATION_RECEIVED in one transaction (PERD 32.4: the Record first); the route appends nothing itself. First answer wins.
+		_, err = c.Answers.Answer(ctx, ConfirmationAnswerInput{TenantID: p.Tenant, RequestID: pathID, ApproverID: p.ID, Roles: []string{string(p.Role)}, Response: ans.Response, At: at})
+		switch {
+		case errors.Is(err, ErrConfirmationAnswered):
+			publicError(w, http.StatusConflict, contracts.ErrorsV3ErrorCodeCONTRADICTORYSTATE, "This request has already been answered.", corr)
+			return
+		case err != nil:
+			publicError(w, http.StatusServiceUnavailable, contracts.ErrorsV3ErrorCodeDEPENDENCYUNAVAILABLE, "The service is not available now.", corr)
+			return
+		}
+		out, err := crypto.CanonicalJSON(map[string]any{"schema_version": "1.0", "state": "received"})
+		if err != nil {
+			publicError(w, http.StatusInternalServerError, contracts.ErrorsV3ErrorCodeINTERNALSAFETYBLOCK, "The request cannot be served.", corr)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write(out)
 	})}
 }
 
