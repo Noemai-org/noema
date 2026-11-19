@@ -9,6 +9,9 @@ var (
 	ErrEmptyAnswer         = errors.New("decide: the answer selects, rejects or declines nothing")
 	ErrUnknownOption       = errors.New("decide: the answer names an option that was not offered")
 	ErrContradictoryAnswer = errors.New("decide: the answer selects an option it also rejects")
+	ErrNoNoneOption        = errors.New("decide: not built")
+	ErrNoneRejected        = errors.New("decide: not built")
+	ErrNoneCombined        = errors.New("decide: not built")
 )
 
 // Constraint is a typed constraint an answer adds to the candidate set. Only exclusion exists: a negation ("not that
@@ -23,6 +26,12 @@ type Open struct {
 	Round               int
 	Options             []Option
 	Candidates          []string // candidate IDs, in order
+	NoneOptionID        string   // the core-minted ID of "None of these" (A275)
+}
+
+// Open holds the clarification as Trust keeps it while it waits for the answer. Not built yet.
+func (q Clarification) Open(id string, candidateSetVersion int, expiresAt int64, round int) Open {
+	return Open{}
 }
 
 // Answer is what the authenticated principal sent. Selected is an option ID; Rejected are option IDs; None is "none of these".

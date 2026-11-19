@@ -51,6 +51,8 @@ type Clarification struct {
 	QuestionKey string
 	Options     []Option
 	AllowNone   bool
+	// NoneOptionID is the ID of the "None of these" choice, minted by the core (A275). The UI submits it as option_id.
+	NoneOptionID string
 }
 
 // Errors from BuildClarification. The caller turns each into an ESCALATE (handoff) or a different question.
@@ -60,6 +62,16 @@ var (
 	ErrTooManyCandidates = errors.New("decide: more candidates than a question may list")
 	ErrCannotDistinguish = errors.New("decide: the labels cannot tell the options apart")
 )
+
+// NoneOptionID is the ID the core mints for the "None of these" choice (A275). Not built yet.
+const NoneOptionID = ""
+
+// ErrNoneOptionCollision: the minted none-of-these ID equals an option ID. Not built yet.
+var ErrNoneOptionCollision = errors.New("decide: not built")
+
+func sealNone(q Clarification, id string) (Clarification, error) {
+	return Clarification{}, errors.New("decide: not built")
+}
 
 const valuePlaceholder = "{value}"
 
