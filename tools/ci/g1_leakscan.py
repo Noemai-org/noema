@@ -2,7 +2,7 @@
 """The G1 leak scan with a planted canary (Security Reviewer's criterion 8 on noema#436; A154, A184).
 
 A scan that finds nothing must not be read as clean: it may be blind. So this plants one canary where the scanner must find it, and only then trusts the scan of the artifacts:
-  1. a fresh canary (`CANARY-` and 24 hex characters) is made and written to a canary file and to a planted file, both under a work directory that is never one of the scanned paths;
+  1. the pinned canary (`CANARY-` and a fixed synthetic tail, A354) is used and written to a canary file and to a planted file, both under a work directory that is never one of the scanned paths;
   2. the probe: leakscan over the planted files must FAIL, and must report EACH KIND that was planted: the canary, a ten-digit account number, a Luhn-valid card number, a secret-shaped
      value (`api_key=...`), a JWT-shaped value and a bearer token (Security Reviewer's condition on noema#591: a canary alone proves the scanner runs, not that its rules work). A kind that
      is not reported means a rule is broken, and the result is NOT RUN (exit 3), never a pass. The probe uses the same scanner, flags and allow file as the real scan;
@@ -21,6 +21,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+
+# The planted canary: one fixed SYNTHETIC value (A354), built from split literals so that this file is not itself a finding. Its SHA-256 is asserted by tools/ci/test_g1_leakscan.py, so a change
+# of it is a visible diff. The scan reports its KIND ("canary") and never prints the value.
+CANARY = "CANARY-" + "g1stack-" + "7f3a" + "c9d2" + "e41b" + "58a6"
 
 # One finding line of leakscan: `<path>:<line>: <kind> (length ...)`. The kind is read on its own, so a finding of another kind in the same planted file does not count.
 FINDING = re.compile(r"^(?P<name>.*?):\d+: (?P<kind>[a-z_]+) \(length")
@@ -64,7 +68,7 @@ def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = No
         if workdir == path or workdir in path.parents or path in workdir.parents:
             print("refused: the work directory must not be, contain or lie inside a scanned path")
             return 2
-    canary = "CANARY-" + secrets.token_hex(12)
+    canary = CANARY
     planted = workdir / "planted"
     planted.mkdir(parents=True, exist_ok=True)
     canary_file = workdir / "canary.txt"

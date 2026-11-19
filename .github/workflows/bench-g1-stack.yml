@@ -167,7 +167,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python3 -I tools/ci/g1_record_access.py --core-log benchmark/out/service-logs/core.log --correlations benchmark/out/run/correlations.json | tee benchmark/out/record-accessed.txt
+          python3 -I tools/ci/g1_record_access.py --core-log benchmark/out/service-logs/core.log --correlations benchmark/out/run/correlations.json --requests benchmark/out/run/requests.jsonl | tee benchmark/out/record-accessed.txt
           echo "record_accessed=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Summary
@@ -212,8 +212,8 @@ jobs:
           # and fail a healthy run (Codex P2 on noema#730). The list is fixed per mode, never "whatever is there": a path a full run should have and lacks is still refused.
           set -- benchmark/out/run benchmark/out/score benchmark/out/evidence benchmark/out/service-logs benchmark/out/mock-case.log benchmark/out/mock-case-collector.err benchmark/out/summary.md
           [ "$MODE" = stack-check ] || set -- "$@" benchmark/out/record-accessed.txt
-          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" "$@"
-          echo "scan=$?" >> "$GITHUB_OUTPUT"
+          python3 -I tools/ci/g1_leakscan.py --allow tools/ci/g1_leakscan.allow --workdir "$RUNNER_TEMP/g1-leakscan" "$@" | tee benchmark/out/leak-scan.txt
+          echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Upload the artifacts (only if the leak scan is clean)
         if: always() && steps.scan.outputs.scan == '0'
@@ -228,6 +228,7 @@ jobs:
             benchmark/out/mock-case.log
             benchmark/out/mock-case-collector.err
             benchmark/out/record-accessed.txt
+            benchmark/out/leak-scan.txt
           if-no-files-found: warn
           retention-days: 30
       - name: Publish the step summary (only if the leak scan is clean)

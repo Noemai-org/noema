@@ -65,6 +65,24 @@ class G1Leakscan(unittest.TestCase):
                 code, text = run(["--no-digit-rule", "--scanner", str(wrapper), "--workdir", str(self.root / f"nd_{kind}"), str(self.art)])
                 self.assertEqual(code, 3, text)
 
+    def test_the_canary_is_one_fixed_synthetic_value_built_from_split_literals_and_its_hash_is_pinned(self) -> None:
+        # A354: the planted canary is pinned. A fixed value means every run looks for the same thing and a change of it is a visible diff; its SHA-256 is asserted here, so it cannot drift
+        # silently. It is written as split literals so the source file is not itself a finding for the scanner, and the scan reports the KIND (canary) and never echoes the value.
+        import hashlib
+        value = g1_leakscan.CANARY
+        self.assertEqual(hashlib.sha256(value.encode("utf-8")).hexdigest(), "c12514abd44bb4a4813641dea880805a560379678110039c14f6eb2fe493aa19")
+        self.assertTrue(value.startswith("CANARY-"))
+        self.assertNotIn(value, (HERE / "g1_leakscan.py").read_text(encoding="utf-8"), "the value is spelled out in one piece in the source")
+        self.assertEqual(g1_leakscan.planted_values(value)["canary"].count(value), 1)
+        code, text = run(["--workdir", str(self.work), str(self.art)])
+        self.assertEqual(code, 0, text)
+        self.assertNotIn(value, text)
+        (self.art / "leak.log").write_text("the value " + value + " leaked" + chr(10), encoding="utf-8")
+        code, text = run(["--workdir", str(self.root / "w9"), str(self.art)])
+        self.assertEqual(code, 1, text)
+        self.assertIn("canary", text)
+        self.assertNotIn(value, text)
+
     def test_a_digit_run_of_five_or_more_fails(self) -> None:
         (self.art / "b.log").write_text("amount 123456 here\n", encoding="utf-8")
         code, text = run(["--workdir", str(self.work), str(self.art)])

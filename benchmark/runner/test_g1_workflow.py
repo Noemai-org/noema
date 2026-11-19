@@ -93,8 +93,24 @@ class G1StackWorkflow(unittest.TestCase):
         uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
         assert uploaded
         for path in (line.strip() for line in uploaded.group(1).splitlines() if line.strip()):
+            if path == "benchmark/out/leak-scan.txt":
+                continue  # the scan's own output (file, line, kind, length and fingerprint only: never a value); it cannot be scanned before it exists. BO's package row 8 reads it.
             self.assertIn(path.rstrip("/"), scanned, f"{path} is uploaded but not leak-scanned")
         self.assertIn("--allow tools/ci/g1_leakscan.allow", scan.group(1))
+
+    def test_the_scan_output_is_kept_for_the_package_and_the_scan_exit_code_survives_the_pipe(self) -> None:
+        # BO's package row 8 (A355) is computed from the scan's own output, so the workflow saves it. The pipe must not hide the scan's exit code.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        self.assertRegex(step.group(1), r'(?m)"\$@" \| tee benchmark/out/leak-scan\.txt$')
+        self.assertIn('echo "scan=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"', step.group(1))
+        uploaded = re.search(r"(?ms)uses: actions/upload-artifact@\S+.*?path: \|\n(.*?)(?=^\s+if-no-files-found)", self.text)
+        assert uploaded
+        self.assertIn("benchmark/out/leak-scan.txt", uploaded.group(1))
+
+    def test_the_record_access_check_takes_the_runners_request_record(self) -> None:
+        # A354: the expected RECORD_ACCESSED count is derived from the run's own request record (benchmark/out/run/requests.jsonl), not a constant.
+        self.assertIn("--requests benchmark/out/run/requests.jsonl", self.script)
 
     def test_nothing_is_uploaded_unless_the_scan_is_clean_and_the_scan_comes_first(self) -> None:
         self.assertIn("if: always() && steps.scan.outputs.scan == '0'", self.script)
