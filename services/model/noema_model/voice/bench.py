@@ -98,20 +98,40 @@ class _Frames:
         return None
 
 
+async def _close_stream(stream: object, cleanup_s: float) -> None:
+    """Close a synthesis stream within `cleanup_s`. A stream with no `aclose` (a plain async iterator is a contract-compliant return) has nothing to close. A close that does not finish is
+    abandoned: TimeoutError. Any other error is the provider's own and is raised to the caller to decide (Codex P2s on #694)."""
+    close = getattr(stream, "aclose", None)
+    if close is None:
+        return
+    await asyncio.wait_for(close(), timeout=cleanup_s)
+
+
 async def _first_audio(tts: SpeechSynthesizer, request: SynthesisRequest, deadline_s: float, cleanup_s: float, timeline: StageTimeline) -> None:
-    """The first audio chunk, marked the moment it arrives; the stream is then closed within `cleanup_s`, and a close that does not finish is abandoned, so cleanup never counts as latency
-    and never holds the session (Codex P2 on #694). No audio within `deadline_s` is a timeout; a stream that ends with none is MALFORMED."""
+    """The first audio chunk, marked the moment it arrives; the stream is then closed within `cleanup_s`, so cleanup never counts as latency and never holds the session (Codex P2 on #694).
+    No audio within `deadline_s` is a timeout; a stream that ends with none is MALFORMED. After the audio was heard: a close that does not finish is abandoned and the session stays complete;
+    a close that FAILS is the session's failure (UNAVAILABLE), recorded and counted as one in the batch, never swallowed. If the audio was not heard, that failure stands and a failing close
+    does not replace it."""
     stream = tts.synthesize(request)
     try:
         first = await asyncio.wait_for(anext(stream, None), timeout=deadline_s)
         if first is None:
             raise ProviderError(ProviderFailure.MALFORMED)  # silence is never a spoken answer
         timeline.mark(Stage.FIRST_AUDIO)
-    finally:
+    except BaseException:
         try:
-            await asyncio.wait_for(stream.aclose(), timeout=cleanup_s)  # type: ignore[attr-defined]
-        except (TimeoutError, RuntimeError):
-            pass  # an abandoned close: the stream is let go of; a caller's own cancellation is never swallowed here
+            await _close_stream(stream, cleanup_s)
+        except Exception:  # noqa: BLE001 - the original failure stands; a close that also fails cannot replace it
+            pass
+        raise
+    try:
+        await _close_stream(stream, cleanup_s)
+    except TimeoutError:
+        return  # abandoned: the audio was heard and the stream is let go of
+    except ProviderError:
+        raise
+    except Exception:  # noqa: BLE001 - a provider's own failure at shutdown, after the first audio: recorded as a failure, with no text of it kept
+        raise ProviderError(ProviderFailure.UNAVAILABLE) from None
 
 
 async def measure_session(
