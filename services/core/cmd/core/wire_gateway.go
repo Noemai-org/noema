@@ -131,7 +131,7 @@ func buildGateway(ctx context.Context, env Env, clk clock.Clock, ids chain.IDSou
 		return nil, nil, errors.New("cmd/core: the Input Gateway looks up an earlier input as the tenant and needs the Record reader (" + EnvRecordReadDSNDir + ")")
 	}
 	if start == nil {
-		return nil, nil, errors.New("cmd/core: the Input Gateway needs the orchestrator seam")
+		return nil, nil, errNoSeam
 	}
 	if env.ReadFile == nil {
 		return nil, nil, fmt.Errorf("cmd/core: %s cannot be read: the process has no file access wired", EnvInputHashKeyFile)

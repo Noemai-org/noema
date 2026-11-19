@@ -71,6 +71,7 @@ type fakeRunner struct {
 	turns   []orchestrator.Turn
 	sess    []orchestrator.Session
 	hadDL   bool
+	ctxErr  error
 	running atomic.Int32
 	peak    atomic.Int32
 	block   chan struct{} // when non-nil each run waits for it to be closed
@@ -91,6 +92,7 @@ func (r *fakeRunner) RunWrite(ctx context.Context, s orchestrator.Session, t orc
 	r.mu.Lock()
 	r.turns, r.sess = append(r.turns, t), append(r.sess, s)
 	_, r.hadDL = ctx.Deadline()
+	r.ctxErr = ctx.Err()
 	r.mu.Unlock()
 	if r.started != nil {
 		r.started <- struct{}{}
@@ -136,7 +138,9 @@ func newStarter(t *testing.T, c startConfig, st *fakeStarter, r *fakeRunner, f *
 func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
 	s := newStarter(t, cfg(2, 4), st, r, f)
-	if err := s.Start(t.Context(), turnOf(tenA, corrA, "recev_AAA1")); err != nil {
+	tn := turnOf(tenA, corrA, "recev_AAA1")
+	tn.PrincipalKind = "ops" // the role is the session's own, whatever it is
+	if err := s.Start(t.Context(), tn); err != nil {
 		t.Fatal(err)
 	}
 	s.Shutdown()
@@ -147,7 +151,7 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	if r.turns[0] != want {
 		t.Fatalf("turn = %+v, want %+v", r.turns[0], want)
 	}
-	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer"}) {
+	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "ops"}) {
 		t.Fatalf("session = %+v", r.sess[0])
 	}
 	if st.req.InvestigationID != invA || st.req.CorrelationID != corrA || st.req.InputReceivedRef != "recev_AAA1" {
@@ -347,7 +351,7 @@ func TestAFailedRunAndAPanicAreReported(t *testing.T) {
 // Shutdown drains what was accepted, refuses what comes after, and is safe to repeat.
 func TestShutdownDrainsAcceptedRunsAndRefusesNewOnes(t *testing.T) {
 	st, r, f := &fakeStarter{created: true}, &fakeRunner{block: make(chan struct{}), started: make(chan struct{}, 4)}, &failures{}
-	s := newStarter(t, cfg(1, 2), st, r, f)
+	s := newStarter(t, cfg(1, 1), st, r, f)
 	_ = s.Start(t.Context(), turnOf(tenA, "corr_01ARZ3NDEKTSV4RRFFQ69G5FA1", "recev_AA1"))
 	<-r.started
 	_ = s.Start(t.Context(), turnOf(tenA, "corr_01ARZ3NDEKTSV4RRFFQ69G5FA2", "recev_AA2"))
@@ -502,4 +506,57 @@ func buildGatewayServiceForTest(t *testing.T, env Env, records reconstruct.Tenan
 	t.Helper()
 	clk := clock.NewManual(apiEpoch)
 	return buildGatewayService(t.Context(), env, clk, ids.New(clk, nil), records, fakeStores{by: map[string]*fakeStarter{tenA: {}}}, &fakeRunner{}, (&failures{}).report)
+}
+
+// A run that finished frees its input: a redelivery of an investigation that never moved is run again, not remembered as in flight for ever.
+func TestAFinishedRunFreesItsInputForARedelivery(t *testing.T) {
+	st, r, f := &fakeStarter{created: false, version: 0}, &fakeRunner{}, &failures{}
+	s := newStarter(t, cfg(1, 1), st, r, f)
+	for i := 0; r.count() < 2; i++ {
+		if i > 1_000_000 {
+			t.Fatal("a finished run still holds its input")
+		}
+		_ = s.Start(t.Context(), turnOf(tenA, corrA, "recev_AAA1"))
+		runtime.Gosched()
+	}
+}
+
+// After the shutdown began nothing is asked of the store.
+func TestAfterShutdownTheStoreIsNotAsked(t *testing.T) {
+	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+	s := newStarter(t, cfg(1, 1), st, r, f)
+	s.Shutdown()
+	if err := s.Start(t.Context(), turnOf(tenA, corrA, "recev_AAA1")); !errors.Is(err, ErrStartClosed) || st.calls != 0 {
+		t.Fatalf("error %v, store calls %d", err, st.calls)
+	}
+}
+
+// A drain is not cut short by the process context: a run is bounded by its own timeout, not cancelled with the parent.
+func TestARunIsNotCancelledWithTheStartersContext(t *testing.T) {
+	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+	ctx, cancel := context.WithCancel(t.Context())
+	s, err := newTurnStarter(ctx, cfg(1, 1), fakeStores{by: map[string]*fakeStarter{tenA: st}}, r, f.report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := s.Start(context.Background(), turnOf(tenA, corrA, "recev_AAA1")); err != nil {
+		t.Fatal(err)
+	}
+	s.Shutdown()
+	if r.count() != 1 || r.ctxErr != nil {
+		t.Fatalf("runs %d, run context error %v; want 1 and none", r.count(), r.ctxErr)
+	}
+}
+
+func TestThePoolSizeHasAStructuralCeiling(t *testing.T) {
+	e := startEnv()
+	e[EnvInvestigationWorkers] = "65536"
+	if _, ok, err := parseStartConfig(osEnv(e)); err != nil || !ok {
+		t.Fatalf("65536 refused: %v", err)
+	}
+	e[EnvInvestigationWorkers] = "65537"
+	if _, _, err := parseStartConfig(osEnv(e)); err == nil {
+		t.Fatal("65537 accepted")
+	}
 }

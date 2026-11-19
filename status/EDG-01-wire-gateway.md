@@ -17,3 +17,18 @@ State: in review (draft PR noema#722). Owner: lane agent for the Engineering Lea
 - Open questions (owner): errors.v3 for this route (EL); the file mode of the hash key file (Architect, as noema#535).
 - Files to read first: `cmd/core/wire_gateway.go`, `inputgateway/README.md`.
 - Do not touch: `tenantRecorder.For` and `tenantIndex.Find` must never return another tenant's recorder.
+
+# Session 2026-11-19 · EDG-01 · wire_gateway production Start (REQ-INP-002, REQ-INP-003, REQ-API-001; INV-12, INV-30, AGENT-10, AGENT-16; rulings A330, A332, A168 interim, relayed, not yet committed)
+
+## Session summary
+- What changed: `wire_gateway_start.go` (new): `turnStarter` (the gateway's `Start`: `investigations.Store.Start` per tenant, then ONE bounded worker pool runs `WriteRunner.RunWrite`), `parseStartConfig`, `closeInReverse`, `gatewayService` (`Gateway`, `Ready`, `Close`), `buildGatewayService`, `withGatewayServiceReadiness`, `recorderStarts`; `wire_gateway.go`: the missing-seam error is now `errNoSeam` and names the four settings.
+- Why: the gateway took `start` as a parameter; this is the production one. Idempotent per recorded input: a delivery whose investigation already moved (version above 0) runs nothing; one that is in flight in this process runs nothing; one that never moved (a crash before the first move) is run. A full queue is `ErrStartBusy` (503), leaves nothing in flight, and the client's retry is run. Every store call and every run has a deadline; the drain is bounded by the run timeout (the runs are not cancelled by the process context).
+- New settings (A330, no default): `NOEMA_INVESTIGATION_WORKERS`, `NOEMA_INVESTIGATION_QUEUE`, `NOEMA_INVESTIGATION_RUN_TIMEOUT_MS`, `NOEMA_INVESTIGATION_START_TIMEOUT_MS`: all four or none; a count is 1 to 65536 (structural ceiling), a bound is whole milliseconds.
+- Tests: REQ-INP-003, INV-12, AGENT-16 (22 tests; fakes of the store and the runner, no database). Hand mutation: 17 mutants, 17 killed (5 needed new tests, added).
+- Safer readings taken: (1) a turn with no principal kind, or a correlation that is not `corr_`+ULID, is refused before anything is asked; (2) the role of the run's session is the identity's principal kind; (3) a run that errors or panics is reported to a required `failed` callback and is NOT retried (a run that moved is not run again; resuming it is STM-01's `ResumeWrite`, not here); (4) the pool is in-process only: two core processes could each run an input that never moved (the store's compare-and-swap on the version refuses the second move).
+- Conflicts raised: none. Debt: none.
+
+## Pre-work for the next agent
+- Exact next step (final main.go, EL): `svc, err := buildGatewayService(ctx, env, clk, ids, components.Records, recorderStarts{rec}, writeRunner, logFailed)`; `components = withGateway(components, svc.Gateway)` (svc may be nil); `newMux(withGatewayServiceReadiness(composeReadiness(components, api), svc), api)`; `defer svc.Close()` AFTER the HTTP server's shutdown. `rec` is buildRecorder's value, `writeRunner` an `*orchestrator.WriteRunner` built from the trust, executor and verifier adapters, `logFailed` a logger of the investigation ID and the error class only.
+- Open: errors.v3 for the route needs noema#647 (open on 19 Nov): `inputgateway/handler.go` and `conversations.go failStart` still answer errors.v2.
+- Do not touch: the `inflight` release must stay after the run, never before.
