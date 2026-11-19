@@ -204,3 +204,12 @@ func TestConfirmationsNeverReturnsAZeroStatusWithoutAnError(t *testing.T) {
 		}
 	}
 }
+
+func TestConfirmationsTheFreshBindingTakesPrincipalIntentAndPlanFromTheIntentAndTheRequestNotTheStore(t *testing.T) {
+	rec := cfRecord()
+	rec.Fresh.PrincipalID, rec.Fresh.IntentHash, rec.Fresh.PlanHash = "prn_9", "sha256:99", "sha256:zz"
+	got, err := cfBuild(t, &cfProfile{required: true}, &cfReader{rec: rec, found: true}).Status(cfCtx(t), cfAdmitted())
+	if err != nil || got.Status != intake.ConfirmationGiven || got.PlanHash != "sha256:dd" {
+		t.Fatalf("got %+v %v", got, err)
+	}
+}
