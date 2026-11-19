@@ -37,7 +37,7 @@ const (
 type FreshBinding struct {
 	// EvidenceSetHash is the evidence_set_hash of the sealed snapshot T9 read, in the contract's Hash form; empty when the Evidence port did not give it.
 	EvidenceSetHash string
-	// PolicyVersion is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341 interim): "ps:" and the lower-case SHA-256 hex of the RFC 8785
+	// PolicyVersion is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and the lower-case SHA-256 hex of the RFC 8785
 	// form of the sorted, distinct JSON array of their "policy_id@version" strings, for one policy version as for many. Empty when none took part or one cannot be bound. It is the
 	// policy_version of confirm.BindingInput, and the Writer binds the same value, so the two agree byte for byte.
 	PolicyVersion string

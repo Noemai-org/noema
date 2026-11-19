@@ -219,7 +219,7 @@ func (e *evaluation) newRequest(ctx context.Context, spec RequestSpec) (NewConfi
 }
 
 // freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy version T11 used. The policy
-// version is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341 interim): "ps:" and a hash, whether one policy took part or several. It
+// version is the composite of EVERY policy version that took part in T11 (decide.CompositePolicyVersion, A341, A367): "sha256:" and a hash, whether one policy took part or several. It
 // is empty when none did, or when one cannot be bound; empty values are passed on as empty and T13 refuses a Given answer for them.
 func (e *evaluation) freshBinding() FreshBinding {
 	b := FreshBinding{EvidenceSetHash: e.evidenceSetHash}

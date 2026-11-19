@@ -19,14 +19,14 @@ var ErrPolicySetInvalid = errors.New("decide: the policy version set cannot be b
 var policyPart = regexp.MustCompile(`^[A-Za-z0-9_.:-]+$`)
 
 // compositeDomain is the prefix of a composite policy version.
-const compositeDomain = "ps:"
+const compositeDomain = "sha256:"
 
 // CompositePolicyVersion is the policy version a confirmation binds (A341, interim, SoT 43.2a, INV-25): the composite of EVERY policy version that took part in the evaluation. It is
-// "ps:" and the lower-case hex SHA-256 of the RFC 8785 form of the sorted, distinct list of the "policy_id@version" strings, as a JSON array of strings with no white space. The list
+// "sha256:" and the lower-case hex SHA-256 of the RFC 8785 form of the sorted, distinct list of the "policy_id@version" strings, as a JSON array of strings with no white space. The list
 // is sorted as whole strings in byte order (the characters are ASCII, so this is also UTF-16 code unit order) and each string once, so neither the order nor the repeats of refs change
-// the result (INV-21). The form is the same for one policy version as for many: "ps:" and 64 hex characters, with no special case.
+// the result (INV-21). The form is the content-hash form of the contracts (A367), "sha256:" and 64 hex characters, which the payload guard (A184) exempts as a typed value, and it is the same for one policy version as for many, with no special case.
 //
-// Example: refs pol_synth01@3 and pol_synth02@1 give the array ["pol_synth01@3","pol_synth02@1"] and the composite is "ps:" and its SHA-256 hex. It uses only characters of
+// Example: refs pol_synth01@3 and pol_synth02@1 give the array ["pol_synth01@3","pol_synth02@1"] and the composite is "sha256:" and its SHA-256 hex. It uses only characters of
 // trust/confirm's binding value set, so it can stand in the binding's policy_version.
 //
 // No policy version, an empty part, or a character outside A-Z a-z 0-9 _ . : - in a part is ErrPolicySetInvalid, never a composite.

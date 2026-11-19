@@ -3,7 +3,6 @@ package recorder
 import (
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
@@ -76,11 +75,10 @@ func (w *Writer) checkRequest(r Request, basis decide.Basis) error {
 // confirmationRequested is the payload of CONFIRMATION_REQUESTED: everything the request holds, as identifiers, hashes and the expiry as a timestamp, so that the confirmation store
 // can rebuild the request from this event and recompute the binding of an answer (SoT 43.2a). No display text and no amount is carried (REQ-AUD-003).
 //
-// The policy version of the binding is the composite "ps:<hex>" (decide.CompositePolicyVersion, A341 interim), checked equal to the basis's by checkRequest. The payload guard (A184)
-// refuses a bare "ps:" string whose hex holds a run of more than four digits, so the event carries the hex as policy_set_hash in the content-hash form "sha256:<hex>", which the guard
-// exempts, and the reader rebuilds the composite as "ps:" and the hex. The guard is not weakened; whether it should exempt "ps:" and 64 hex instead is the Architect's call.
+// The policy_version member is the policy version of the binding: the composite "sha256:<hex>" (decide.CompositePolicyVersion, A341 and A367), checked equal to the basis's by
+// checkRequest. It is a content-hash typed value, which the payload guard (A184) exempts whole although its hex holds a run of more than four digits; the guard is not changed.
 func confirmationRequested(c *NewConfirmationRequest, requestID, decisionID, binding string) map[string]any {
 	return map[string]any{"confirmation_request_id": requestID, "decision_id": decisionID, "binding_hash": binding, "principal_id": c.PrincipalID, "intent_hash": c.IntentHash,
 		"capability_id": c.CapabilityID, "target_ref": c.TargetRef, "params_hash": c.ParamsHash, "evidence_set_hash": c.EvidenceSetHash, "plan_hash": c.PlanHash,
-		"policy_set_hash": "sha256:" + strings.TrimPrefix(c.PolicyVersion, "ps:"), "approver_requirement": c.Requirement, "requester_id": c.RequesterID, "expires_at": string(stamp(time.Unix(c.ExpiresAt, 0)))}
+		"policy_version": c.PolicyVersion, "approver_requirement": c.Requirement, "requester_id": c.RequesterID, "expires_at": string(stamp(time.Unix(c.ExpiresAt, 0)))}
 }
