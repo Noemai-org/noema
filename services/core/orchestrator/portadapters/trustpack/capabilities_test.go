@@ -12,9 +12,15 @@ import (
 
 // Proves REQ-CAP-001, REQ-CAP-002, REQ-TRU-004, REQ-TRU-005; INV-05, INV-14, INV-16, INV-18, BD-08, A255 (the role), A306 (the authorized set).
 
+// newCaps builds the adapter with the pack's escalation graph as the named graph (found by shape, never by a literal ID): the graph ID is configuration (A346).
 func newCaps(t testing.TB, p *trustpack.Pack, r trustpack.Remedies) trustpack.Capabilities {
 	t.Helper()
-	c, err := trustpack.NewCapabilities(p, r)
+	return newCapsFor(t, p, r, escalateGraph(t).ID)
+}
+
+func newCapsFor(t testing.TB, p *trustpack.Pack, r trustpack.Remedies, graphID string) trustpack.Capabilities {
+	t.Helper()
+	c, err := trustpack.NewCapabilities(p, r, graphID)
 	if err != nil {
 		t.Fatalf("NewCapabilities: %v", err)
 	}
@@ -22,10 +28,10 @@ func newCaps(t testing.TB, p *trustpack.Pack, r trustpack.Remedies) trustpack.Ca
 }
 
 func TestCapabilitiesNeedAPackAndAPort(t *testing.T) {
-	if _, err := trustpack.NewCapabilities(nil, &remedySpy{}); !errors.Is(err, trustpack.ErrConfig) {
+	if _, err := trustpack.NewCapabilities(nil, &remedySpy{}, escalateGraph(t).ID); !errors.Is(err, trustpack.ErrConfig) {
 		t.Fatalf("no pack: %v", err)
 	}
-	if _, err := trustpack.NewCapabilities(loadReal(t), nil); !errors.Is(err, trustpack.ErrConfig) {
+	if _, err := trustpack.NewCapabilities(loadReal(t), nil, escalateGraph(t).ID); !errors.Is(err, trustpack.ErrConfig) {
 		t.Fatalf("no remedies port: %v", err)
 	}
 }
@@ -195,7 +201,8 @@ func TestCheckAgreesWithTheDerivedRoleMap(t *testing.T) {
 	}
 }
 
-// A306: the set is the capabilities of the pack graph the intent's capability roots, as the pack's own data says.
+// A306, A346: the set is the capabilities of the pack graph the intent's capability roots, as the pack's own data says; for the graph the composition root names (the escalation
+// graph) it is that graph's WRITE capabilities.
 func TestAuthorizedIsExactlyTheCapabilitiesOfTheGraphTheRequestedCapabilityRoots(t *testing.T) {
 	for _, g := range readRawGraphs(t) {
 		for _, root := range g.Roots {
@@ -206,6 +213,9 @@ func TestAuthorizedIsExactlyTheCapabilitiesOfTheGraphTheRequestedCapabilityRoots
 				t.Fatalf("%s: %v", id, err)
 			}
 			want := closure(g, root)
+			if g.ID == escalateGraph(t).ID {
+				want = writeCapsOf(g)
+			}
 			if !equal(got, want) || !sort.StringsAreSorted(got) {
 				t.Errorf("graph %s, root %s: Authorized = %v; want %v", g.ID, id, got, want)
 			}
@@ -321,7 +331,7 @@ func TestAuthorizedHandsOutACopy(t *testing.T) {
 	}
 }
 
-// The set follows the graph's edges: from a root that is not the first node, only the nodes that depend on it (a graph with two declared roots, a variant of the real escalation graph).
+// The set follows the graph's edges (for a root of a graph other than the named one): from a root that is not the first node, only the nodes that depend on it (a graph with two declared roots, a variant of the real escalation graph).
 func TestAuthorizedFollowsTheEdgesFromTheRootOnly(t *testing.T) {
 	m := files(t)
 	path := escalateGraphPath(t)
@@ -329,18 +339,19 @@ func TestAuthorizedFollowsTheEdgesFromTheRootOnly(t *testing.T) {
 	second := g.Nodes[1].ID // the node that depends on the first
 	m[path] = edit(t, m[path], func(x map[string]any) { x["roots"] = []any{g.Roots[0], second} })
 	p := mustLoadFiles(t, m)
-	c := newCaps(t, p, &remedySpy{id: nodeCap(g, second), present: true})
+	named := complaintGraph(t).ID // a root that is not a root of the named graph keeps the downstream rule
+	c := newCapsFor(t, p, &remedySpy{id: nodeCap(g, second), present: true}, named)
 	got, err := c.Authorized(ctx(t), admitted("n"))
 	if err != nil || !equal(got, closure(g, second)) || len(got) != 2 {
 		t.Fatalf("Authorized(second root) = %v, %v; want %v (two of the three)", got, err, closure(g, second))
 	}
-	c = newCaps(t, p, &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	c = newCapsFor(t, p, &remedySpy{id: nodeCap(g, g.Roots[0]), present: true}, named)
 	if got, err := c.Authorized(ctx(t), admitted("n")); err != nil || len(got) != 3 {
 		t.Fatalf("Authorized(first root) = %v, %v; want three", got, err)
 	}
 }
 
-// Two graphs rooted at one capability: the set is the union of both (a variant of the real pack with a second graph file).
+// Two graphs rooted at one capability that is not a root of the named graph: the set is the union of both (a variant of the real pack with a second graph file).
 func TestAuthorizedIsTheUnionOfTheGraphsOneCapabilityRoots(t *testing.T) {
 	m := files(t)
 	path := escalateGraphPath(t)
@@ -357,7 +368,7 @@ func TestAuthorizedIsTheUnionOfTheGraphsOneCapabilityRoots(t *testing.T) {
 	m[packFileName] = edit(t, m[packFileName], func(p map[string]any) {
 		p["action_graph_files"] = append(p["action_graph_files"].([]any), "extra_graph.json")
 	})
-	c := newCaps(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	c := newCapsFor(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true}, complaintGraph(t).ID)
 	got, err := c.Authorized(ctx(t), admitted("n"))
 	want := append(capsOf(g), read)
 	sort.Strings(want)
@@ -402,5 +413,155 @@ func TestACancelledContextIsAnErrorForEveryAdapter(t *testing.T) {
 	}
 	if ok, err := newAuthority(t, loadReal(t)).RoleAllowed(done, node, "customer"); ok || !errors.Is(err, context.Canceled) {
 		t.Errorf("RoleAllowed: %v, %v", ok, err)
+	}
+}
+
+// A346: the constructor takes the escalation graph's ID from configuration and fails closed on one it cannot use: no pack is ErrConfig; an empty ID, an unknown one, one with other
+// case and a graph with no WRITE node are ErrEscalationGraph, and no adapter is built (the zero value answers nothing).
+func TestNewCapabilitiesFailsClosedOnAGraphIDItCannotUse(t *testing.T) {
+	for name, id := range map[string]string{
+		"empty":         "",
+		"unknown":       "x.graph.missing",
+		"other case":    upper(escalateGraph(t).ID),
+		"padded":        escalateGraph(t).ID + " ",
+		"no write node": investigateGraph(t).ID,
+	} {
+		c, err := trustpack.NewCapabilities(loadReal(t), &remedySpy{}, id)
+		if !errors.Is(err, trustpack.ErrEscalationGraph) {
+			t.Errorf("%s: err = %v; want ErrEscalationGraph", name, err)
+		}
+		if _, aerr := c.Authorized(ctx(t), admitted("n")); !errors.Is(aerr, trustpack.ErrConfig) {
+			t.Errorf("%s: the adapter built with an unusable graph answers: %v", name, aerr)
+		}
+	}
+	if _, err := trustpack.NewCapabilities(nil, &remedySpy{}, ""); !errors.Is(err, trustpack.ErrConfig) {
+		t.Errorf("no pack and no graph ID: err = %v; want ErrConfig", err)
+	}
+}
+
+// A346: the set for an intent whose capability roots the named graph is that graph's WRITE capabilities and no read or internal one, whatever else the graph holds (a variant of
+// the real escalation graph with a READ node and an INTERNAL node that depend on the first write).
+func TestAuthorizedOfTheNamedGraphHoldsItsWritesOnly(t *testing.T) {
+	m := files(t)
+	path := escalateGraphPath(t)
+	g := escalateGraph(t)
+	read := investigateGraph(t).Nodes[0].Capability
+	var internal string
+	for _, n := range investigateGraph(t).Nodes {
+		if n.Kind == "INTERNAL" {
+			internal = n.Capability
+		}
+	}
+	if internal == "" {
+		t.Fatal("the investigation graph has no INTERNAL node")
+	}
+	m[path] = edit(t, m[path], func(x map[string]any) {
+		nodes := x["nodes"].([]any)
+		x["nodes"] = append(nodes,
+			map[string]any{"node_id": "extra_read", "kind": "READ", "capability_id": read, "preconditions": []any{}, "postconditions": []any{}, "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY", "on_failure": "ESCALATE", "recovery_ref": nil, "escalation_ref": nil},
+			map[string]any{"node_id": "extra_internal", "kind": "INTERNAL", "capability_id": internal, "preconditions": []any{}, "postconditions": []any{}, "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY", "on_failure": "ESCALATE", "recovery_ref": nil, "escalation_ref": nil})
+		x["edges"] = append(x["edges"].([]any), map[string]any{"node_id": "extra_read", "depends_on": g.Roots[0], "condition": nil},
+			map[string]any{"node_id": "extra_internal", "depends_on": "extra_read", "condition": nil})
+	})
+	c := newCaps(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	got, err := c.Authorized(ctx(t), admitted("n"))
+	if err != nil || !equal(got, writeCapsOf(g)) || contains(got, read) || contains(got, internal) {
+		t.Fatalf("Authorized = %v, %v; want the writes only %v", got, err, writeCapsOf(g))
+	}
+}
+
+// A346: the set does not depend on the order of the nodes in the file: it is sorted (a variant of the real escalation graph with its nodes in reverse order).
+func TestAuthorizedOfTheNamedGraphIsSortedWhateverTheNodeOrder(t *testing.T) {
+	m := files(t)
+	path := escalateGraphPath(t)
+	g := escalateGraph(t)
+	m[path] = edit(t, m[path], func(x map[string]any) {
+		nodes := x["nodes"].([]any)
+		for i, j := 0, len(nodes)-1; i < j; i, j = i+1, j-1 {
+			nodes[i], nodes[j] = nodes[j], nodes[i]
+		}
+	})
+	c := newCaps(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	got, err := c.Authorized(ctx(t), admitted("n"))
+	if err != nil || !equal(got, writeCapsOf(g)) || !sort.StringsAreSorted(got) {
+		t.Fatalf("Authorized = %v, %v; want %v sorted", got, err, writeCapsOf(g))
+	}
+}
+
+// A346: the escalation set (REQ-TRU-010) and the authorized set are one set: for every capability of the pack the Record's set allows it exactly when Authorized lists it, and
+// Authorized lists nothing else, so the two cannot drift.
+func TestAuthorizedOfTheNamedGraphIsTheEscalationSet(t *testing.T) {
+	g := escalateGraph(t)
+	pack := loadReal(t)
+	set, err := trustpack.EscalationSetFromPack(pack, g.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newCaps(t, pack, &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	got, err := c.Authorized(ctx(t), admitted("n"))
+	if err != nil || len(got) == 0 {
+		t.Fatalf("Authorized = %v, %v", got, err)
+	}
+	inSet := 0
+	for _, rc := range readRawPack(t).Caps {
+		if set.Contains(rc.ID) {
+			inSet++
+		}
+		if set.Contains(rc.ID) != contains(got, rc.ID) {
+			t.Errorf("%s: the escalation set allows it = %v, Authorized lists it = %v", rc.ID, set.Contains(rc.ID), contains(got, rc.ID))
+		}
+	}
+	if inSet != len(got) {
+		t.Errorf("the escalation set holds %d of the pack's capabilities, Authorized lists %d", inSet, len(got))
+	}
+}
+
+// A346: the graph ID decides. Naming each graph with write nodes in turn, the root of that graph gets exactly that graph's writes. In a variant with two declared roots, the second
+// root is a root of the named escalation graph and gets all its writes (the set is the graph's, not the root's downstream).
+func TestAuthorizedFollowsTheGraphIDTheCompositionRootNames(t *testing.T) {
+	for _, g := range readRawGraphs(t) {
+		w := writeCapsOf(g)
+		if len(w) == 0 {
+			continue
+		}
+		c := newCapsFor(t, loadReal(t), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true}, g.ID)
+		got, err := c.Authorized(ctx(t), admitted("n"))
+		if err != nil || !equal(got, w) {
+			t.Errorf("named graph %s: Authorized = %v, %v; want its writes %v", g.ID, got, err, w)
+		}
+	}
+	m := files(t)
+	path := escalateGraphPath(t)
+	g := escalateGraph(t)
+	second := g.Nodes[1].ID
+	m[path] = edit(t, m[path], func(x map[string]any) { x["roots"] = []any{g.Roots[0], second} })
+	c := newCaps(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, second), present: true})
+	if got, err := c.Authorized(ctx(t), admitted("n")); err != nil || !equal(got, writeCapsOf(g)) {
+		t.Fatalf("second root of the named graph: Authorized = %v, %v; want %v", got, err, writeCapsOf(g))
+	}
+}
+
+// A346: an intent whose capability roots the named graph gets the graph's writes, not a union with another graph that the same capability roots (a variant of the real pack with a
+// second graph rooted at the escalation root and holding a read).
+func TestAuthorizedOfTheNamedGraphIsNotUnionedWithAnotherGraphOfTheSameRoot(t *testing.T) {
+	m := files(t)
+	path := escalateGraphPath(t)
+	g := escalateGraph(t)
+	read := investigateGraph(t).Nodes[0].Capability
+	m["extra_graph.json"] = edit(t, m[path], func(x map[string]any) {
+		x["graph_id"] = "x.graph.extra"
+		x["nodes"] = []any{
+			map[string]any{"node_id": g.Roots[0], "kind": "WRITE", "capability_id": nodeCap(g, g.Roots[0]), "preconditions": []any{}, "postconditions": []any{}, "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY", "on_failure": "ESCALATE", "recovery_ref": "VERIFY_BY_IDEMPOTENCY_KEY", "escalation_ref": "HANDOFF"},
+			map[string]any{"node_id": "extra_read", "kind": "READ", "capability_id": read, "preconditions": []any{}, "postconditions": []any{}, "on_unknown": "VERIFY_BY_IDEMPOTENCY_KEY", "on_failure": "ESCALATE", "recovery_ref": nil, "escalation_ref": nil},
+		}
+		x["edges"] = []any{map[string]any{"node_id": "extra_read", "depends_on": g.Roots[0], "condition": nil}}
+	})
+	m[packFileName] = edit(t, m[packFileName], func(p map[string]any) {
+		p["action_graph_files"] = append(p["action_graph_files"].([]any), "extra_graph.json")
+	})
+	c := newCaps(t, mustLoadFiles(t, m), &remedySpy{id: nodeCap(g, g.Roots[0]), present: true})
+	got, err := c.Authorized(ctx(t), admitted("n"))
+	if err != nil || !equal(got, writeCapsOf(g)) || contains(got, read) {
+		t.Fatalf("Authorized = %v, %v; want only the named graph's writes %v", got, err, writeCapsOf(g))
 	}
 }

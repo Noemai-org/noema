@@ -24,7 +24,7 @@ type Capabilities struct {
 var _ intake.Capabilities = Capabilities{}
 
 // NewCapabilities builds the adapter. main.go passes the Pack from LoadPack and a Remedies over the intent store. A nil pack or a nil port is ErrConfig.
-func NewCapabilities(p *Pack, r Remedies) (Capabilities, error) {
+func NewCapabilities(p *Pack, r Remedies, graphID string) (Capabilities, error) {
 	if !p.usable() || r == nil {
 		return Capabilities{}, ErrConfig
 	}
