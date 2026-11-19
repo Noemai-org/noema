@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from benchmark.runner import evidence
-from benchmark.runner.evidence import NotRun, fault_plan_evidence, main, negative_probes
+from benchmark.runner.evidence import NotRun, fault_plan_evidence, main, negative_probes, record_access_evidence
 
 Json = dict[str, Any]
 
@@ -61,6 +61,7 @@ class FakeEdge(BaseHTTPRequestHandler):
     kind = "customer"  # the principal kind of the Record actor the fake edge returns
     served_tenant = "ten_alpha"
     known = {"corr_a1", "corr_b2"}  # the reconstructions that exist; any other correlation is unknown
+    owner = {"corr_a1": "usr_synth009", "corr_b2": "usr_synth010"}  # the principal whose action each reconstruction records (never the token's)
 
     def log_message(self, *args: Any) -> None:
         pass
@@ -88,7 +89,7 @@ class FakeEdge(BaseHTTPRequestHandler):
             return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": msg}})
         if role not in ("ops", "audit") and mode != "serves-wrong-role":
             return self._send(404, {"error": {"code": "NOT_FOUND_OR_NOT_AUTHORIZED", "message": "Not found."}})
-        events = [{"event_id": "e1", "tenant_id": "ten_other" if mode == "other-tenant-event" else tenant, "actor": "core-trust" if mode == "no-customer" else f"{FakeEdge.kind}:{principal}"}]
+        events = [{"event_id": "e1", "tenant_id": "ten_other" if mode == "other-tenant-event" else tenant, "actor": "core-trust" if mode == "no-customer" else f"{FakeEdge.kind}:{self.owner.get(corr, principal)}"}]
         if mode == "other-customer":
             events.append({"event_id": "e2", "tenant_id": tenant, "actor": "customer:usr_someone_else"})
         self._send(200, {"tenant_id": tenant, "correlation_id": corr, "events": [] if mode == "empty" else events})
@@ -154,6 +155,115 @@ class Probes(unittest.TestCase):
         self.server.server_close()
         self.stopped = True
         self.assertFalse(self.run_probes()["met"])
+
+
+class ProbePrincipals(unittest.TestCase):
+    """Each probe has a principal of its own, with no digit in it, so the core's access log can say whether the handler ran for that probe alone (SR's first-dispatch condition on noema#436)."""
+
+    def test_every_probe_has_its_own_principal_with_no_digit_and_the_unknown_correlation_is_recorded(self) -> None:
+        FakeEdge.mode = "edge"
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeEdge)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            doc = negative_probes(f"http://127.0.0.1:{server.server_address[1]}", lambda tenant, principal, role: f"{tenant}|{principal}|{role}",
+                                  [("A", "usr_synth009", "corr_a1"), ("B", "usr_synth010", "corr_b2")], "ten_alpha", "ten_other")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertTrue(doc["met"], doc)
+        seen: set[str] = set()
+        for row in doc["cases"]:
+            ids = row["probe_principals"]
+            self.assertEqual(set(ids), {"control", "wrong_role", "foreign_tenant", "unknown_correlation"})
+            for who in ids.values():
+                self.assertRegex(who, r"^usr_[a-z]{20}$")
+                # the synthetic IdP refuses any other principal (services/core/cmd/synthetic-idp/main.go: \Ausr_[0-9A-Za-z]{2,32}\z); the fake issuer of these tests does not, so the rule is asserted here (Codex P1 on noema#727)
+                self.assertRegex(who, r"\Ausr_[0-9A-Za-z]{2,32}\Z")
+                self.assertNotRegex(who, r"[0-9]")
+                self.assertNotIn(who, seen)
+                seen.add(who)
+            self.assertRegex(row["unknown_correlation_id"], r"^corr_[0-9a-f]{26}$")
+
+
+def log_line(principal: str, corr: str, outcome: str, tenant: str = "ten_alpha") -> str:
+    return json.dumps({"time": "t", "level": "INFO", "msg": "RECORD_ACCESSED", "tenant_id": tenant, "principal": principal, "correlation_id": corr, "outcome": outcome})
+
+
+def probes_doc(*, control: str = "usr_controlaaaaaaaaaaa", unknown: str = "usr_unknownaaaaaaaaaaa", wrong: str = "usr_wrongaaaaaaaaaaaaa", foreign: str = "usr_foreignaaaaaaaaaaa") -> Json:
+    return {"met": True, "cases": [{"case_id": "A", "principal_id": "usr_synth009", "correlation_id": "corr_a1", "unknown_correlation_id": "corr_" + "b" * 26,
+                                    "probe_principals": {"control": control, "wrong_role": wrong, "foreign_tenant": foreign, "unknown_correlation": unknown}}]}
+
+
+GOOD_LOG = "\n".join([log_line("auditor:usr_controlaaaaaaaaaaa", "corr_a1", "SERVED"), log_line("auditor:usr_unknownaaaaaaaaaaa", "corr_" + "b" * 26, "NOT_FOUND_OR_NOT_AUTHORIZED"),
+                      "not json at all", log_line("auditor:someone", "corr_zz", "SERVED")])
+
+
+class RecordAccess(unittest.TestCase):
+    """The access log shows the handler ran exactly for the control and the unknown-correlation probe and for no refusal (SR's first-dispatch condition on noema#436, criterion 9)."""
+
+    def evidence(self, log: str, doc: Json | None = None) -> Json:
+        return record_access_evidence(doc or probes_doc(), log, "ten_alpha", "ten_other")
+
+    def test_one_line_for_the_control_one_for_the_unknown_and_none_for_the_refusals_is_met(self) -> None:
+        doc = self.evidence(GOOD_LOG)
+        self.assertTrue(doc["met"], doc["problems"])
+        self.assertEqual(doc["cases"][0], {"case_id": "A", "control": 1, "unknown_correlation": 1, "wrong_role": 0, "foreign_tenant": 0})
+
+    def test_a_refusal_that_reached_the_handler_is_not_met(self) -> None:
+        for label, extra in {"wrong role": log_line("customer:usr_wrongaaaaaaaaaaaaa", "corr_a1", "NOT_FOUND_OR_NOT_AUTHORIZED"),
+                             "foreign tenant": log_line("auditor:usr_foreignaaaaaaaaaaa", "corr_a1", "SERVED", "ten_other")}.items():
+            with self.subTest(label):
+                doc = self.evidence(GOOD_LOG + "\n" + extra)
+                self.assertFalse(doc["met"])
+                self.assertTrue(any("handler" in p for p in doc["problems"]), doc["problems"])
+
+    def test_any_line_of_the_other_tenant_is_not_met_whoever_asked(self) -> None:
+        self.assertFalse(self.evidence(GOOD_LOG + "\n" + log_line("auditor:x", "corr_q", "SERVED", "ten_other"))["met"])
+
+    def test_the_control_and_the_unknown_probe_must_each_leave_exactly_one_right_line(self) -> None:
+        control, unknown = GOOD_LOG.split("\n")[0], GOOD_LOG.split("\n")[1]
+        cases = {"no control line": GOOD_LOG.replace(control, ""), "control twice": GOOD_LOG + "\n" + control, "no unknown line": GOOD_LOG.replace(unknown, ""),
+                 "control not served": GOOD_LOG.replace('"outcome": "SERVED", ', '"outcome": "SERVED", ', 1).replace(control, control.replace("SERVED", "INTEGRITY")),
+                 "control for another correlation": GOOD_LOG.replace(control, control.replace("corr_a1", "corr_zz")),
+                 "control for another tenant": GOOD_LOG.replace(control, control.replace("ten_alpha", "ten_gamma")),
+                 "unknown that was served": GOOD_LOG.replace(unknown, unknown.replace("NOT_FOUND_OR_NOT_AUTHORIZED", "SERVED")),
+                 "unknown for another correlation": GOOD_LOG.replace(unknown, unknown.replace("b" * 26, "c" * 26))}
+        for label, log in cases.items():
+            with self.subTest(label):
+                self.assertFalse(self.evidence(log)["met"], label)
+
+    def test_the_principal_is_matched_exactly_and_the_control_must_be_an_auditor(self) -> None:
+        control = GOOD_LOG.split("\n")[0]
+        self.assertTrue(self.evidence(GOOD_LOG + "\n" + control.replace("usr_controlaaaaaaaaaaa", "usr_controlaaaaaaaaaaaZZ"))["met"], "another principal with the same start is not a second control line")
+        self.assertFalse(self.evidence(GOOD_LOG.replace(control, control.replace("auditor:", "operator:")))["met"], "the control asked as an auditor")
+
+    def test_a_probe_with_no_principal_recorded_or_no_cases_is_not_met(self) -> None:
+        doc = probes_doc()
+        del doc["cases"][0]["probe_principals"]
+        self.assertFalse(self.evidence(GOOD_LOG, doc)["met"])
+        self.assertFalse(self.evidence(GOOD_LOG, {"met": True, "cases": []})["met"])
+
+    def test_a_log_with_no_access_line_at_all_is_not_run(self) -> None:
+        for log in ("", "   \n", "not json\n" * 3):
+            with self.subTest(log), self.assertRaises(NotRun):
+                self.evidence(log)
+
+    def test_a_line_that_names_a_principal_only_in_another_member_does_not_count_as_the_handler_running(self) -> None:
+        sneaky = json.dumps({"msg": "something else", "principal": "customer:usr_wrongaaaaaaaaaaaaa"})
+        self.assertTrue(self.evidence(GOOD_LOG + "\n" + sneaky)["met"])
+
+    def test_the_command_reads_the_files_and_exits_0_1_or_3(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "probes.json").write_text(json.dumps(probes_doc()), encoding="utf-8")
+            args = ["record-access", "--probes", str(root / "probes.json"), "--log", str(root / "core.log"), "--tenant-id", "ten_alpha", "--other-tenant-id", "ten_other", "--out", str(root / "out")]
+            self.assertEqual(main(args), 3)  # no log file: NOT RUN
+            (root / "core.log").write_text(GOOD_LOG + "\n", encoding="utf-8")
+            self.assertEqual(main(args), 0)
+            self.assertTrue(json.loads((root / "out" / "record-access.json").read_text())["met"])
+            (root / "core.log").write_text(GOOD_LOG + "\n" + log_line("customer:usr_wrongaaaaaaaaaaaaa", "corr_a1", "SERVED") + "\n", encoding="utf-8")
+            self.assertEqual(main(args), 1)
+            self.assertEqual(main(args[:-2] + ["--out", str(root / "out"), "--other-tenant-id", "ten_alpha"]), 2)  # the other tenant must differ
 
 
 class Cli(unittest.TestCase):

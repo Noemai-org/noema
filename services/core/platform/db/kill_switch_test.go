@@ -72,10 +72,18 @@ func TestNoRuntimeLoginCanClearTheKillSwitchEvenWithTheGrant(t *testing.T) {
 			if _, err := admin.Exec(ctx(t), `UPDATE tenant SET kill_switch = true WHERE tenant_id = 'ten_a'`); err != nil {
 				t.Fatal(err)
 			}
-			_, err := login.Exec(ctx(t), `UPDATE tenant SET kill_switch = false WHERE tenant_id = 'ten_a'`)
-			var pe *pgconn.PgError
-			if !errors.As(err, &pe) || pe.Code != denied || !strings.Contains(pe.Message, "kill switch") {
-				t.Fatalf("%s clearing the kill switch: got %v, want the guard's refusal (42501, 'kill switch'), not a missing privilege", group, err)
+			tag, err := login.Exec(ctx(t), `UPDATE tenant SET kill_switch = false WHERE tenant_id = 'ten_a'`)
+			if group == "record_read" {
+				// Migration 0030 (A273, A280; ruling on noema#716): row security on tenant has no policy for record_read, which holds no privilege on the table, so a mistaken
+				// grant to it matches no row: no error and no row changed. The assertion below, that the switch is still on, is what this case proves for the group.
+				if err != nil || tag.RowsAffected() != 0 {
+					t.Fatalf("record_read clearing the kill switch with the mistaken grant: got %v, %d rows; want no error and no row (no policy covers the group)", err, tag.RowsAffected())
+				}
+			} else {
+				var pe *pgconn.PgError
+				if !errors.As(err, &pe) || pe.Code != denied || !strings.Contains(pe.Message, "kill switch") {
+					t.Fatalf("%s clearing the kill switch: got %v, want the guard's refusal (42501, 'kill switch'), not a missing privilege", group, err)
+				}
 			}
 			var on bool
 			if err := admin.QueryRow(ctx(t), `SELECT kill_switch FROM tenant WHERE tenant_id = 'ten_a'`).Scan(&on); err != nil || !on {
