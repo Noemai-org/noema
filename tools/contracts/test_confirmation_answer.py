@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate import FIXTURES, ROOT, load_schemas, load_strict, make_registry, validator_for  # noqa: E402
+from validate import FIXTURES, ROOT, load_schemas, load_strict, make_registry, validator_for, walk  # noqa: E402
 
 SCHEMAS = load_schemas()
 REGISTRY = make_registry(SCHEMAS)
@@ -55,7 +55,8 @@ class Shape(unittest.TestCase):
 
     def test_response_is_the_existing_enum_and_is_not_copied(self):
         self.assertEqual(self.schema["properties"]["response"], {"$ref": ID_BASE + "enums.v1.json#/$defs/ConfirmationResponse"})
-        self.assertNotIn("enum", json.dumps(self.schema), "an inline enum would be a second list of the two words")
+        keys = {k for _, node in walk(self.schema) if isinstance(node, dict) for k in node}
+        self.assertFalse(keys & {"enum", "const"}, "an inline enum would be a second list of the two words")
         self.assertNotIn("$defs", self.schema)
 
     def test_the_enum_it_refers_to_is_exactly_accept_and_decline(self):
