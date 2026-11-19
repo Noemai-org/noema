@@ -113,12 +113,18 @@ type Request struct {
 	ConfirmationPlanHash  contracts.CommonV1Hash // the plan hash the confirmation was given for (A230); the writer refuses an ALLOW whose steps carry another
 	ConfirmationEventID   string                 // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
 	Steps                 []grants.Step          // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
+	// ConfirmationRequest is the request a CONFIRM decision creates, written with the decision in one transaction (EC-E16); nil for a CONFIRM that names an already open request,
+	// and for every other outcome (any other outcome that carries one is ErrRequest).
+	ConfirmationRequest *NewConfirmationRequest
 }
 
 // Result is what was written.
 type Result struct {
 	Record contracts.DecisionRecordV2
 	Grants []contracts.DecisionGrantV1
+	// ConfirmationRequestID is the cfr_ ID the writer minted for Request.ConfirmationRequest; empty when none was asked for, and empty when a stored decision of the same input was
+	// returned (A186): that decision's request, if it created one, is in the Record.
+	ConfirmationRequestID string
 }
 
 var (
@@ -188,6 +194,17 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if err != nil || !decisionRe.MatchString(decisionID) {
 		return Result{}, fmt.Errorf("%w: decision id: %v", ErrRequest, err)
 	}
+	// A CONFIRM that creates a request: Trust mints the ID and computes the binding hash here, never from the caller (SoT 43.2a). This is the new-decision path only, so a stored
+	// decision returned above creates no second request.
+	var requestID, requestBinding string
+	if r.ConfirmationRequest != nil {
+		if requestID, err = w.IDs.ID("cfr"); err != nil || !requestRe.MatchString(requestID) {
+			return Result{}, fmt.Errorf("%w: confirmation request id: %v", ErrRequest, err)
+		}
+		if requestBinding, err = bindingOfRequest(r.ConfirmationRequest); err != nil {
+			return Result{}, fmt.Errorf("%w: the binding cannot be computed: %v", ErrRequest, err)
+		}
+	}
 	now := w.Clock.Now().UTC()
 	rec := contracts.DecisionRecordV2{
 		SchemaVersion: schemaV, TenantId: contracts.CommonV1TenantId(r.TenantID), CorrelationId: contracts.CommonV1CorrelationId(r.CorrelationID),
@@ -228,6 +245,9 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		// and each grant names the event it follows. A decision with no confirmation carries neither member.
 		decisionMade["confirmation_event_id"], decisionMade["confirmation_binding_hash"] = r.ConfirmationEventID, binding
 	}
+	if requestID != "" {
+		decisionMade["confirmation_request_id"] = requestID
+	}
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
 		Payload: decisionMade}); err != nil {
 		return Result{}, fmt.Errorf("%sappend DECISION_MADE: %w", errPrefix, err)
@@ -245,6 +265,13 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 		}
 		return Result{}, fmt.Errorf("%sinsert decision record: %w", errPrefix, err)
 	}
+	// The confirmation request of a CONFIRM is an event of the same transaction, right after DECISION_MADE (record first, EC-E16): it commits with the decision or not at all.
+	if requestID != "" {
+		if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "CONFIRMATION_REQUESTED",
+			ObjectRef: requestID, Payload: confirmationRequested(r.ConfirmationRequest, requestID, decisionID, requestBinding)}); err != nil {
+			return Result{}, fmt.Errorf("%sappend CONFIRMATION_REQUESTED: %w", errPrefix, err)
+		}
+	}
 	// A given confirmation is spent once, by the ALLOW it authorised, in this transaction. The decision row above is newly written (a stored one was returned
 	// earlier), so a retry never reaches this insert. The unique key is the single-use rule; a second spend is the typed error and the caller rolls back.
 	if binding != "" {
@@ -260,7 +287,7 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, fmt.Errorf("%sspend the confirmation: %w", errPrefix, err)
 		}
 	}
-	res := Result{Record: rec}
+	res := Result{Record: rec, ConfirmationRequestID: requestID}
 	for i, s := range r.Steps {
 		s.TenantID, s.CorrelationID, s.DecisionID, s.IntentHash, s.PolicyID = r.TenantID, r.CorrelationID, decisionID, r.IntentHash, r.PolicyID
 		s.ConfirmationEventID = r.ConfirmationEventID // the grant follows the confirmation the decision spent; the caller's own claim on the step is not used
@@ -359,6 +386,11 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	policy, ok := grants.BoundPolicy(basis, r.PolicyID)
 	if !ok {
 		return decide.Basis{}, "", fmt.Errorf("%w: no single policy is bound: name one policy the basis holds", ErrRequest)
+	}
+	if r.ConfirmationRequest != nil {
+		if err := w.checkRequest(r, policy); err != nil {
+			return decide.Basis{}, "", err
+		}
 	}
 	return basis, policy, nil
 }

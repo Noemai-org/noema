@@ -5,6 +5,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -20,6 +21,12 @@ var (
 	hashRe       = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
 	decisionIDRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	grantIDRe    = regexp.MustCompile(`\Agrt_[0-9A-Za-z]{2,32}\z`)
+	requestIDRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]{2,32}\z`)
+	// requirementRe is the contract's ApproverRequirement (enums.v1.json): SELF, MAKER_CHECKER or ROLE:<role>.
+	requirementRe = regexp.MustCompile(`\A(?:SELF|MAKER_CHECKER|ROLE:[a-z][a-z0-9_]*)\z`)
+	// bindingValueRe is the character set a bound value may hold (trust/confirm refuses any other when it hashes the binding); the intake checks it first so that a value the
+	// Recorder would refuse ends the evaluation here, before anything is recorded. It is a copy of that rule, not a second rule: the Recorder still computes the hash.
+	bindingValueRe = regexp.MustCompile(`\A[A-Za-z0-9_.:@-]+\z`)
 )
 
 // lateState is what T3 and T13 to T15 learn as the call goes. It is private to one call.
@@ -28,7 +35,8 @@ type lateState struct {
 	plan                 *Plan        // T14: the validated plan
 	confirmationID       string       // T13: the event of the confirmation the ALLOW follows
 	confirmationPlanHash string       // T13: the plan hash that confirmation was given for (A230)
-	recorded             RecordResult // T15: what the Recorder wrote
+	requestID            string       // T13: the confirmation request a recorded CONFIRM names (created by this evaluation, or already open)
+	recorded             RecordResult // T13 (a CONFIRM) and T15 (an ALLOW): what the Recorder wrote
 }
 
 // passed is the authority of a decision built at T13 to T15. Steps run in the fixed order and stop at the first terminal result, so the technical layer (T6), the business
@@ -46,9 +54,11 @@ func (e *evaluation) withBasis(d decide.Decision) (decide.Decision, error) {
 	return e.bb.Attach(d)
 }
 
-// t13: the trust profile's approver confirmation. Required and not resolved: CONFIRM, which rests on the evaluated set. Required and resolved (a valid ACCEPT that the
-// confirmation store turned into this fresh evaluation, INV-25): continue, and the grant will follow its event. Not required: continue. Any other answer is not an answer: that
-// includes Declined, which in this version ends in UNKNOWN like a status Trust does not know (a later change turns it into a REJECT).
+// t13: the trust profile's approver confirmation. Not required: continue. Required and resolved (a valid ACCEPT that the confirmation store turned into this fresh evaluation,
+// INV-25): continue, and the grant will follow its event. Required and not resolved (Pending): the CONFIRM, recorded before it is returned (EC-E16), with the confirmation request
+// created in the same Record call when none is open. Any other answer is not an answer: that includes Declined, which ends in UNKNOWN like a status Trust does not know. The order
+// is that Declined becomes REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only, and trust/decide refuses any other outcome from T13: that is a
+// stop condition awaiting the Architect (status/TRU-07-confirm-t13.md), and UNKNOWN is the safer reading meanwhile.
 func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
@@ -59,28 +69,107 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	}
 	switch c.Status {
 	case ConfirmationNotRequired:
+		if c.RequestID != "" || c.NewRequest != nil {
+			return decide.FailStep(errAnswer)
+		}
 		return decide.Continue()
 	case ConfirmationGiven:
-		if c.EventID == "" || !hashRe.MatchString(c.PlanHash) {
+		if c.EventID == "" || !hashRe.MatchString(c.PlanHash) || !requestIDRe.MatchString(c.RequestID) || c.NewRequest != nil {
 			return decide.FailStep(errAnswer)
 		}
 		e.late.confirmationID, e.late.confirmationPlanHash = c.EventID, c.PlanHash
 		return decide.Continue()
 	case ConfirmationPending:
-		r, err := e.resolved()
-		if err != nil {
-			return decide.FailStep(err)
-		}
-		d, err := r.Confirm(passed())
-		if err != nil {
-			return decide.FailStep(err)
-		}
-		if d, err = e.withBasis(d); err != nil {
-			return decide.FailStep(err)
-		}
-		return decide.Stop(d)
+		return e.t13Confirm(ctx, c)
 	}
 	return decide.FailStep(errAnswer)
+}
+
+// t13Confirm is the Pending answer: a request is open (RequestID) or Trust must create one (NewRequest), never both and never neither. The CONFIRM is built on the evaluated set,
+// then recorded with the Recorder, and returned only if the Recorder wrote it. A request to make is bound to the eight values of SoT 43.2a (INV-25) and is created by the same
+// Record call, in the decision's own transaction; an open request is named and no second one is made.
+func (e *evaluation) t13Confirm(ctx context.Context, c Confirmation) decide.StepResult {
+	if (c.RequestID == "") == (c.NewRequest == nil) || c.RequestID != "" && !requestIDRe.MatchString(c.RequestID) {
+		return decide.FailStep(errAnswer)
+	}
+	r, err := e.resolved()
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	d, err := r.Confirm(passed())
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	if d, err = e.withBasis(d); err != nil {
+		return decide.FailStep(err)
+	}
+	digest, err := e.bb.Digest()
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	var request *NewConfirmationRequest
+	if c.NewRequest != nil {
+		req, stop, err := e.newRequest(ctx, *c.NewRequest)
+		if stop != nil {
+			return *stop
+		}
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		request = &req
+	}
+	a := e.intent
+	res, err := e.svc.Ports.Recorder.Record(ctx, RecordRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, PrincipalID: a.PrincipalID, IntentID: a.IntentID,
+		IntentHash: a.IntentHash, IntentVersion: a.Version, Decision: d, Evaluated: e.bb.Sealed(), BasisDigest: digest, ConfirmationRequest: request})
+	if err != nil {
+		return decide.FailStep(err)
+	}
+	requestID := c.RequestID
+	switch {
+	case !decisionIDRe.MatchString(res.DecisionID), len(res.GrantIDs) != 0: // no grant can come from a CONFIRM
+		return decide.FailStep(errAnswer)
+	case request != nil && !requestIDRe.MatchString(res.ConfirmationRequestID):
+		return decide.FailStep(errAnswer)
+	case request == nil && res.ConfirmationRequestID != "":
+		return decide.FailStep(errAnswer)
+	case request != nil:
+		requestID = res.ConfirmationRequestID
+	}
+	e.late.recorded, e.late.requestID = RecordResult{DecisionID: res.DecisionID}, requestID
+	return decide.Stop(d)
+}
+
+// newRequest builds the confirmation request T13 is asked to create (SoT 43.2a). The eight bound values: the principal and the intent hash of the admitted intent, the evidence set
+// hash and the policy version of the fresh evaluation (both must be present and well formed), and the capability, target, parameters hash and plan hash of the one write step of
+// the plan, which T13 asks the Planner for because T14 comes later. The expiry is the evaluation's clock reading plus the spec's TTL, the requester the intent's principal (INV-12);
+// the requirement and the TTL come from the adapter and Trust picks neither (AGENT-16). A value that is missing, malformed or outside the binding's character set is not a value:
+// the evaluation ends in UNKNOWN. A plan that is invalid, that does not agree with the earlier steps, or that does not have exactly one write step ends in UNKNOWN PLAN_INVALID,
+// as T14 gives for a plan that is not one (a confirmation approves one action). A non-nil stop is that result; an error is a dependency failure.
+func (e *evaluation) newRequest(ctx context.Context, spec RequestSpec) (NewConfirmationRequest, *decide.StepResult, error) {
+	a, fresh := e.intent, e.freshBinding()
+	switch {
+	case spec.TTL < time.Second, !requirementRe.MatchString(spec.Requirement):
+		return NewConfirmationRequest{}, nil, errAnswer
+	case !hashRe.MatchString(fresh.EvidenceSetHash), !bindingValueRe.MatchString(fresh.PolicyVersion):
+		return NewConfirmationRequest{}, nil, errAnswer
+	case !bindingValueRe.MatchString(a.PrincipalID), !hashRe.MatchString(a.IntentHash):
+		return NewConfirmationRequest{}, nil, errAnswer
+	}
+	p, ok, err := e.validPlan(ctx)
+	if err != nil {
+		return NewConfirmationRequest{}, nil, err
+	}
+	if !ok || len(p.Steps) != 1 {
+		stop := e.planInvalid()
+		return NewConfirmationRequest{}, &stop, nil
+	}
+	s := p.Steps[0]
+	if !bindingValueRe.MatchString(s.CapabilityID) || !bindingValueRe.MatchString(s.TargetRef) {
+		return NewConfirmationRequest{}, nil, errAnswer
+	}
+	return NewConfirmationRequest{PrincipalID: a.PrincipalID, IntentHash: a.IntentHash, CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: s.ParamsHash,
+		EvidenceSetHash: fresh.EvidenceSetHash, PlanHash: p.Hash, PolicyVersion: fresh.PolicyVersion, Requirement: spec.Requirement, RequesterID: a.PrincipalID,
+		ExpiresAt: e.now + int64(spec.TTL/time.Second)}, nil, nil
 }
 
 // freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy T11 used. The policy is
@@ -103,22 +192,11 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
 	}
-	a := e.intent
-	p, err := e.svc.Ports.Planner.Plan(ctx, PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
-		IntentNode: a.IntentNode, WriteRequired: e.late.needsWrite})
-	switch {
-	case errors.Is(err, ErrPlanInvalid):
-		return e.planInvalid()
-	case err != nil:
-		return decide.FailStep(err)
-	case !e.wellFormed(p):
-		return e.planInvalid()
-	}
-	agrees, err := e.planAgrees(ctx, p)
+	p, ok, err := e.validPlan(ctx)
 	switch {
 	case err != nil:
 		return decide.FailStep(err)
-	case !agrees:
+	case !ok:
 		return e.planInvalid()
 	}
 	if e.late.confirmationID != "" && e.late.confirmationPlanHash != p.Hash {
@@ -129,6 +207,28 @@ func (e *evaluation) t14(ctx context.Context) decide.StepResult {
 	p.Steps = append([]PlanStep(nil), p.Steps...)
 	e.late.plan = &p
 	return decide.Continue()
+}
+
+// validPlan asks the Planner for the plan of the admitted intent and validates it: the Planner must not call it invalid, it must be well formed, and every step must agree with what
+// the earlier steps found (planAgrees). T14 and T13 (which needs the plan to bind a new confirmation request) use this one function. ok is false for a plan that is not valid
+// (PLAN_INVALID); an error is a dependency that failed, never a pass.
+func (e *evaluation) validPlan(ctx context.Context) (p Plan, ok bool, err error) {
+	a := e.intent
+	p, err = e.svc.Ports.Planner.Plan(ctx, PlanRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, IntentID: a.IntentID, IntentVersion: a.Version, IntentHash: a.IntentHash,
+		IntentNode: a.IntentNode, WriteRequired: e.late.needsWrite})
+	switch {
+	case errors.Is(err, ErrPlanInvalid):
+		return Plan{}, false, nil
+	case err != nil:
+		return Plan{}, false, err
+	case !e.wellFormed(p):
+		return Plan{}, false, nil
+	}
+	agrees, err := e.planAgrees(ctx, p)
+	if err != nil || !agrees {
+		return Plan{}, false, err
+	}
+	return p, true, nil
 }
 
 // wellFormed: a hash in the contract's form; no step for a read and at least one for a write; every step names a capability, a target and a params hash in the contract's form.

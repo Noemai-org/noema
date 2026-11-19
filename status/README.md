@@ -14,6 +14,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
 - `TRU-07-confirm-port.md` (19 Nov 2026): the `Confirmations` port of `trust/intake` carries the fresh binding, the declined status and the request fields; what EL's adapter must implement and the open questions.
+- `TRU-07-confirm-t13.md` (19 Nov 2026): T13 records the CONFIRM and creates the confirmation request, and the Recorder writes CONFIRMATION_REQUESTED with the decision; the payload, what EL's adapters must do, the interim design decisions, and the two items for the Architect (Declined -> REJECT at T13 against PERD 23.3; one decision per input tuple against a re-evaluation).
 - `status/roles/` (31 Oct 2026): one file per role agent, each written only by its role, so that role status never conflicts. These task files above stay as history.
 
 ## The rules (from the founder's instruction of 24 Oct 2026)

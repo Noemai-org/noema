@@ -5,7 +5,6 @@ package intake
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
 )
@@ -143,8 +142,10 @@ func TestConfirmationDeclinedIsItsOwnStatus(t *testing.T) {
 	}
 }
 
-// REQ-TRU-009 (interim): in this version T13 does not decide on Declined: it ends in UNKNOWN like any status it does not handle, and nothing is planned or recorded. A later
-// change turns it into a REJECT; this test then changes with it.
+// REQ-TRU-009 (interim, stop condition of TRU-07 PR 2): the order is that Declined becomes REJECT DECLINED_BY_APPROVER (SoT 43.2a step 4), but PERD 23.3 gives T13 the terminal
+// result CONFIRM only, and trust/decide enforces that set (stepOutcomes), so a REJECT from T13 would be refused as an invalid result. Until the Architect rules which source
+// gives way, Declined stays what it was: UNKNOWN like any status T13 does not handle, nothing planned and nothing recorded (the safer reading, AGENT-20). This test then
+// changes with the ruling; status/TRU-07-confirm-t13.md has the CONFLICT block.
 func TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded(t *testing.T) {
 	for name, c := range map[string]Confirmation{
 		"a bare decline":                {Status: ConfirmationDeclined, RequestID: "cfr_synth0001"},
@@ -156,24 +157,6 @@ func TestT13DeclinedIsUnknownForNowAndNothingIsPlannedOrRecorded(t *testing.T) {
 		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
 		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
 			t.Errorf("%s: the planner or the recorder was called after a decline: %v", name, f.calls)
-		}
-	}
-}
-
-// REQ-TRU-009: Pending still stops with CONFIRM, whether an open request exists (RequestID) or Trust must create one (NewRequest); the new fields change nothing in this version.
-func TestT13PendingWithARequestIDOrANewRequestStillYieldsConfirm(t *testing.T) {
-	for name, c := range map[string]Confirmation{
-		"an open request":   {Status: ConfirmationPending, RequestID: "cfr_synth0001"},
-		"a request to make": {Status: ConfirmationPending, NewRequest: &RequestSpec{Requirement: "SELF", TTL: 15 * time.Minute}},
-	} {
-		f := newFake13()
-		f.conf = c
-		res := run13(t, newEval13(t, f))
-		if res.Decision.Outcome() != decide.Confirm {
-			t.Errorf("%s: outcome %s, want CONFIRM", name, res.Decision.Outcome())
-		}
-		if lastTrace(res).Step != decide.T13Confirmation || f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
-			t.Errorf("%s: trace %v, calls %v, want a stop at T13 with nothing planned or recorded", name, res.Trace, f.calls)
 		}
 	}
 }
