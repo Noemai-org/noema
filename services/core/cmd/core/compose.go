@@ -56,8 +56,9 @@ type App struct {
 	Runner *orchestrator.Runner
 }
 
-// rolesOpsAndAudit may read a reconstruction (REQ-AUD-003; ruling A20: audit reads only through the tenant-bound Record read functions).
-var rolesOpsAndAudit = []session.Role{session.RoleOps, session.RoleAudit}
+// rolesAudit may read a reconstruction: audit only (PERD 39.4; A110, DEC-2026-11-08: "ops has no path to them"; ruling A20: audit reads only through the tenant-bound Record
+// read functions). Widening it needs a decision record that names the class and the tenant rule.
+var rolesAudit = []session.Role{session.RoleAudit}
 
 // apiRoutes is the route table of the public API: each route with the roles that may call it. A route exists only when the component behind it does.
 func apiRoutes(c Components, ids session.IDs) []edge.Route {
@@ -71,7 +72,7 @@ func apiRoutes(c Components, ids session.IDs) []edge.Route {
 	if c.Records != nil {
 		routes = append(routes, edge.Route{
 			Pattern: reconstruct.Route,
-			Roles:   rolesOpsAndAudit,
+			Roles:   rolesAudit,
 			Handler: &reconstruct.Handler{DBs: c.Records, Auth: reconstruct.SessionAuthorizer{}, IDs: ids, Log: c.AccessLog},
 		})
 	}

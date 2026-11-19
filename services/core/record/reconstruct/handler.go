@@ -14,14 +14,11 @@ import (
 // Route is the path of REQ-AUD-003 (PERD 39.4), in net/http pattern form.
 const Route = "GET /v1/reconstructions/{correlation_id}"
 
-// The roles this endpoint serves: ops and audit, as REQ-AUD-003 says ("Ops and audit role only"; Architect decision
-// of 1 Nov 2026, which settles the difference with the PERD 39.4 table's "audit").
-const (
-	RoleAudit = "audit"
-	RoleOps   = "ops"
-)
+// RoleAudit is the one role this endpoint serves: PERD 39.4 says audit, and A110 (DEC-2026-11-08) keeps it so ("ops has no path to them"), which supersedes the
+// Architect decision of 1 Nov 2026 that had served ops too. The handler refuses ops by default, with or without the edge's role gate in front.
+const RoleAudit = "audit"
 
-// staffKinds are the principal kinds (PERD 32.1) that may hold those roles. Customers and approvers never read a
+// staffKinds are the principal kinds (PERD 32.1) that may hold that role. Customers and approvers never read a
 // reconstruction, whatever roles a session carries; a kind not listed here is refused too.
 var staffKinds = map[string]bool{"operator": true, "auditor": true, "regulator": true, "admin": true}
 
@@ -62,7 +59,7 @@ type TenantDBs interface {
 	For(tenantID string) (TxBeginner, error)
 }
 
-// Handler serves REQ-AUD-003. It is wired into cmd/core by the composition root (EL, EDG-01 slice 3c), behind the session check and the ops and audit
+// Handler serves REQ-AUD-003. It is wired into cmd/core by the composition root (EL, EDG-01 slice 3c), behind the session check and the audit-only
 // role gate, with SessionAuthorizer.
 type Handler struct {
 	DBs     TenantDBs  // one pool per tenant; every connection logs in as that tenant's record_read login (DEBT-04)
@@ -153,14 +150,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// mayRead: the caller holds the ops or audit role and is a staff principal.
+// mayRead: the caller holds the audit role and is a staff principal. The ops role is never enough (A110).
 func mayRead(c Caller) bool {
 	m := principalRe.FindStringSubmatch(c.Principal)
 	if m == nil || !staffKinds[m[1]] {
 		return false
 	}
 	for _, r := range c.Roles {
-		if r == RoleAudit || r == RoleOps {
+		if r == RoleAudit {
 			return true
 		}
 	}
