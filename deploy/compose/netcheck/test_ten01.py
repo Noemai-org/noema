@@ -57,6 +57,12 @@ class Ten01(unittest.TestCase):
         cfg["services"]["core"]["secrets"] = ["noema_core_password", "postgres_superuser_password"]
         self.assertTrue(matrix.ten01_findings(CLEAN_OBSERVED, cfg))
 
+    def test_no_runtime_service_may_hold_a_grant_key_secret(self) -> None:
+        # SEC-09, INV-29: the two grant keys are held by the one-shot grant-keys-init step only (it sets the mode and owner the loader needs); the core reads the files it wrote.
+        for svc in ("core", "model", "ui"):
+            bad = copy.deepcopy(CLEAN_CONFIG)
+            bad["services"][svc]["secrets"] = ["grant_hmac_key_a"]
+            self.assertTrue(matrix.ten01_findings(CLEAN_OBSERVED, bad), svc)
 
 if __name__ == "__main__":
     unittest.main()
