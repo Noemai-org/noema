@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
+	"github.com/Noemai-org/noema/services/core/trust/grants/keyfiles"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
@@ -22,7 +24,7 @@ import (
 // main): never from the environment, never with a default, never logged. Every item is required: a missing one is an error that names it, and nothing is left open. Nothing is
 // dialled here.
 //
-// The intake service itself is not built here: the ports it needs besides the dispatch count have no adapter on main. The caller passes the Evaluator; nil is an error.
+// The intake service is built here with all 15 ports (REQ-TRU-002): Dispatches from the Record reader, the other 14 from TrustAdapters. Trust evaluates through that service.
 
 const (
 	// EnvTrustDBTimeout is how long one read of the Trust readers may take, in whole milliseconds (A330: the _MS suffix). Required, no default (AGENT-16).
@@ -46,7 +48,9 @@ type TrustParts struct {
 	Service    *intake.Service
 }
 
-// TrustAdapters are the intake ports buildTrust does not build itself, the service clock and the pack version. STUB (red commit).
+// TrustAdapters are the intake ports buildTrust does not build itself (every port of intake.Ports but Dispatches, which it builds from the Record reader), the service clock
+// and the pack version. Each is required: checkTrustAdapters names the first one that is missing, and a typed nil inside an interface counts as missing (INV-03, AGENT-16: no
+// quiet nil, no default). The final main.go builds each from its adapter package and passes it here.
 type TrustAdapters struct {
 	Intents       intake.Intents
 	Writes        intake.Writes
@@ -66,20 +70,37 @@ type TrustAdapters struct {
 	PackVersion   string
 }
 
+// loadGrantKeys is the production KeyLoader: keyfiles.Load (SEC-09, INV-29). The final main.go passes it.
 func loadGrantKeys(dir string, maxActive int) (*grants.Keys, error) {
-	return nil, errors.New("not built")
+	return keyfiles.Load(dir, keyfiles.Options{MaxActive: maxActive})
+}
+
+// checkTrustAdapters returns an error that names the first missing adapter, in the order of the struct's fields.
+func checkTrustAdapters(a TrustAdapters) error {
+	v := reflect.ValueOf(a)
+	for i := 0; i < v.NumField(); i++ {
+		f := v.Field(i)
+		missing := false
+		switch f.Kind() {
+		case reflect.Interface, reflect.Pointer, reflect.Func, reflect.Map, reflect.Slice, reflect.Chan:
+			missing = f.IsNil() || (f.Kind() == reflect.Interface && f.Elem().Kind() == reflect.Pointer && f.Elem().IsNil())
+		case reflect.String:
+			missing = f.String() == ""
+		}
+		if missing {
+			return errors.New("cmd/core: the Trust service needs the " + v.Type().Field(i).Name + " adapter: it is not configured")
+		}
+	}
+	return nil
 }
 
 // buildTrust builds the parts and returns them with a function that closes every pool opened (safe to call more than once, and returned with an error too).
-func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, _ TrustAdapters, loadKeys KeyLoader) (TrustParts, func(), error) {
+func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, adapters TrustAdapters, loadKeys KeyLoader) (TrustParts, func(), error) {
 	noop := func() {}
-	if true {
-		return TrustParts{}, noop, errors.New("cmd/core: not built")
+	if err := checkTrustAdapters(adapters); err != nil {
+		return TrustParts{}, noop, err
 	}
-	var evaluator trustport.Evaluator
 	switch {
-	case evaluator == nil:
-		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs the intake (the Evaluator): it is not configured")
 	case records == nil:
 		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter counts dispatches from the Record and needs the Record reader (" + EnvRecordReadDSNDir + ")")
 	case loadKeys == nil:
@@ -134,8 +155,17 @@ func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, _ T
 		closer()
 		return TrustParts{}, noop, err
 	}
-	port := trustport.Port{Evaluator: evaluator, Intents: intents, Records: recs}
-	return TrustParts{Trust: port, Bindings: port, Dispatches: dispatches, Keys: keys}, closer, nil
+	svc := &intake.Service{
+		Ports: intake.Ports{
+			Intents: adapters.Intents, Writes: adapters.Writes, Capabilities: adapters.Capabilities, Scope: adapters.Scope, Authority: adapters.Authority,
+			Candidates: adapters.Candidates, Ownership: adapters.Ownership, Evidence: adapters.Evidence, Reconciler: adapters.Reconciler, Policies: adapters.Policies,
+			Clocks: adapters.Clocks, Confirmations: adapters.Confirmations, Planner: adapters.Planner, Recorder: adapters.Recorder, Dispatches: dispatches,
+		},
+		Clock:       adapters.Clock,
+		PackVersion: adapters.PackVersion,
+	}
+	port := trustport.Port{Evaluator: svc, Intents: intents, Records: recs}
+	return TrustParts{Trust: port, Bindings: port, Dispatches: dispatches, Keys: keys, Service: svc}, closer, nil
 }
 
 // recordDBs adapts the Record reader's pools to trustpg.RecordDBs: the same pools, so a count is read as the session's tenant.

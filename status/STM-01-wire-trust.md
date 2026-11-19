@@ -29,3 +29,11 @@ Updated 2026-11-18. Owner: Engineering Lead. REQ-TRU-009, REQ-RCV-003; INV-03, I
 - Open questions (EL): the name and meaning of `NOEMA_TRUST_DB_TIMEOUT_MS` (renamed by A330) and `NOEMA_GRANT_KEY_MAX_ACTIVE`; whether the payload reader and Trust share one pool set (today `loginPools` is called again over the same directory).
 - Files to read first: `services/core/cmd/core/wire_trust.go`, `services/core/orchestrator/portadapters/trustpg/`.
 - Do not touch: `orchestrator/portadapters/trust/` (noema#710).
+
+## Session 2026-11-19 · STM-01-wire-trust (intake service, 15 ports)
+
+- What changed (PR noema#725): `buildTrust(ctx, env, records, adapters TrustAdapters, loadKeys)` now BUILDS `intake.Service` with all 15 ports and Trust evaluates through it. Dispatches is built here (noema#710 `NewDispatches` over `trustpg.KeyDispatches`); the other 14 ports, the service Clock and the PackVersion are fields of `TrustAdapters`, each required (a missing or typed-nil one is a startup error that names it, before any key is loaded or pool opened). `loadGrantKeys` is the production `KeyLoader` (`keyfiles.Load`, noema#708 merged). Red commit 7c236e66 (stub); green is the next commit.
+- Tests: reflection over `intake.Ports` (15 fields all set; `TrustAdapters` covers every port but Dispatches by name and type, so a new port fails the test), one subtest per missing adapter, typed nil, key loader with real SYNTHETIC key files (overlap 2 ok, 1 refused). Mutation (hand): 9 of 9 effective mutants killed (1 no-op sed).
+- Safer readings taken: PackVersion and the service Clock are caller-supplied fields, not settings (no default invented, A330); the whole adapter set is refused before keys are loaded.
+- Adapter PRs the final main.go needs (not on main when written): Candidates #741; Capabilities, Scope, Authority (trustpack) and Ownership #745; Intents and Writes (kill switch) #746; Policies and Clocks #747; Confirmations #750 (rework to #757 pending); Recorder #752. On main but needing their own dependencies built by main.go: Reconciler #739, Evidence #740 (`NewEvidence` needs SnapshotReader and SourceProfiles), Planner #751 (needs the PlanGraphs adapter, another lane). PackVersion has no source yet.
+- Pre-work: main.go builds each adapter, fills `TrustAdapters`, passes `loadGrantKeys`.

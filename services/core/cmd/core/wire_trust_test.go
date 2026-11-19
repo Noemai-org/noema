@@ -361,3 +361,19 @@ func TestAMissingClockOrPackVersionIsAStartupError(t *testing.T) {
 		})
 	}
 }
+
+// SEC-09, REQ-SEC-005: loadGrantKeys passes the rotation overlap to keyfiles.Load: two SYNTHETIC key files load with an overlap of 2 and are refused with 1.
+func TestTheRotationOverlapReachesTheKeyLoader(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []string{"1", "2"} {
+		if err := os.WriteFile(dir+"/grant.hmac."+v+".key", []byte(strings.Repeat(v+"a", 32)+"\n"), 0o400); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if k, err := loadGrantKeys(dir, 2); err != nil || k == nil {
+		t.Fatalf("overlap 2: keys %v, error %v", k != nil, err)
+	}
+	if _, err := loadGrantKeys(dir, 1); err == nil {
+		t.Fatal("overlap 1 accepted two keys")
+	}
+}
