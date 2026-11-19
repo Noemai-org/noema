@@ -253,11 +253,18 @@ func TestKeysThatCleanToTheSameNameAreBothScreened(t *testing.T) {
 	s := &scrFake{}
 	f := &fake{doc: []byte(doc)}
 	r := payloadread.Reader{Payloads: f, Screen: s, Correlation: corrOf, Alert: &alertFake{}}
-	if _, err := r.Payload(ctx(t), "ten_a", item(t, pl)); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 20; i++ {
+		if _, err := r.Payload(ctx(t), "ten_a", item(t, pl)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(s.calls[0].fields) != 3 {
 		t.Fatalf("fields = %v, want 3", s.calls[0].fields)
+	}
+	for _, c := range s.calls[1:] {
+		if !reflect.DeepEqual(c.fields, s.calls[0].fields) {
+			t.Fatalf("colliding keys are numbered differently between reads: %v vs %v", c.fields, s.calls[0].fields)
+		}
 	}
 }
 

@@ -192,7 +192,7 @@ func newWorld(t *testing.T, specs ...spec) *world {
 	t.Helper()
 	rs := ruleSet(t)
 	w := &world{t: t, pay: &payloads{byRef: map[string][]byte{}}, rs: rs, mp: theMapping(t, rs)}
-	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: w.pay}}
+	w.baseConf = reconciler.Config{RuleSet: rs, Mapping: w.mp, Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: w.pay}}
 	var items []layer.Item
 	for i, s := range specs {
 		id, ref := "evr_"+string(rune('a'+i)), "pay_"+string(rune('a'+i))
@@ -766,3 +766,7 @@ func (cleanScreen) Screen(context.Context, injection.Subject, map[string]string)
 }
 
 func corrOf(context.Context) string { return "cor_SYNTHETIC" }
+
+type noAlert struct{}
+
+func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}

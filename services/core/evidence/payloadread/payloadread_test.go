@@ -68,7 +68,7 @@ const jsonbText = `{"n": 7, "entries": [{"amount_minor": 2000000, "entry_type": 
 // REQ-CTX-001: the payload the snapshot sealed comes back, whatever order and spacing the store gives it in.
 func TestThePayloadTheSnapshotSealedIsReturnedWhateverItsKeyOrderAndSpacing(t *testing.T) {
 	f := &fake{doc: []byte(jsonbText)}
-	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: f}.Payload(ctx(t), "ten_a", item(t, original))
+	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: f}.Payload(ctx(t), "ten_a", item(t, original))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestThePayloadTheSnapshotSealedIsReturnedWhateverItsKeyOrderAndSpacing(t *t
 func TestTheTenantOfTheReadIsTheCallersAndNeverTheItemsOrThePayloads(t *testing.T) {
 	f := &fake{doc: []byte(`{"tenant_id": "ten_evil", "n": 1}`)}
 	it := item(t, map[string]any{"tenant_id": "ten_evil", "n": 1})
-	if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: f}).Payload(ctx(t), "ten_a", it); err != nil {
+	if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: f}).Payload(ctx(t), "ten_a", it); err != nil {
 		t.Fatal(err)
 	}
 	if f.tenant != "ten_a" {
@@ -95,7 +95,7 @@ func TestTheTenantOfTheReadIsTheCallersAndNeverTheItemsOrThePayloads(t *testing.
 // INV-21, INV-19: a payload that is not the one the snapshot sealed never classifies.
 func TestAPayloadWhoseHashDiffersFromTheItemsIsRefused(t *testing.T) {
 	tampered := strings.Replace(jsonbText, `"SUCCESS"`, `"REJECTED"`, 1)
-	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(tampered)}}.Payload(ctx(t), "ten_a", item(t, original))
+	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(tampered)}}.Payload(ctx(t), "ten_a", item(t, original))
 	if !errors.Is(err, payloadread.ErrHashMismatch) || got != nil {
 		t.Fatalf("got %v, %v: a changed payload must be ErrHashMismatch and return nothing", got, err)
 	}
@@ -103,7 +103,7 @@ func TestAPayloadWhoseHashDiffersFromTheItemsIsRefused(t *testing.T) {
 
 func TestAnItemWhoseHashIsOfAnotherPayloadIsRefused(t *testing.T) {
 	other := item(t, map[string]any{"semantic_status": "SUCCESS"})
-	if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(jsonbText)}}).Payload(ctx(t), "ten_a", other); !errors.Is(err, payloadread.ErrHashMismatch) {
+	if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(jsonbText)}}).Payload(ctx(t), "ten_a", other); !errors.Is(err, payloadread.ErrHashMismatch) {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -114,7 +114,7 @@ func TestAnyFailureOfTheReadIsUnavailableAndNothingIsReturned(t *testing.T) {
 		"not found": errors.New("no payload under this reference for this tenant"), "no pool": errors.New("no Trust login is configured for this tenant"),
 		"unusable": errors.New("the payload read is not usable"), "driver": errors.New("the payload read failed"), "deadline": context.DeadlineExceeded,
 	} {
-		got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{err: cause, doc: []byte(jsonbText)}}.Payload(ctx(t), "ten_a", item(t, original))
+		got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{err: cause, doc: []byte(jsonbText)}}.Payload(ctx(t), "ten_a", item(t, original))
 		if !errors.Is(err, payloadread.ErrUnavailable) || !errors.Is(err, cause) || got != nil {
 			t.Errorf("%s: got %v, %v", name, got, err)
 		}
@@ -126,15 +126,15 @@ func TestNoErrorCarriesThePayload(t *testing.T) {
 	secret := `{"account": "0123456789"}`
 	for _, err := range []error{
 		func() error {
-			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(secret)}}.Payload(ctx(t), "ten_a", item(t, original))
+			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(secret)}}.Payload(ctx(t), "ten_a", item(t, original))
 			return e
 		}(),
 		func() error {
-			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(`[` + secret + `]`)}}.Payload(ctx(t), "ten_a", item(t, original))
+			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(`[` + secret + `]`)}}.Payload(ctx(t), "ten_a", item(t, original))
 			return e
 		}(),
 		func() error {
-			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(secret + `x`)}}.Payload(ctx(t), "ten_a", item(t, original))
+			_, e := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(secret + `x`)}}.Payload(ctx(t), "ten_a", item(t, original))
 			return e
 		}(),
 	} {
@@ -147,7 +147,7 @@ func TestNoErrorCarriesThePayload(t *testing.T) {
 // evidence-payload.v1: a payload is a JSON object.
 func TestAPayloadThatIsNotAnObjectIsRefused(t *testing.T) {
 	for name, doc := range map[string]string{"array": `[1,2]`, "null": `null`, "string": `"x"`, "number": `7`, "bool": `true`, "empty": ``, "spaces": `   `} {
-		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotObject) {
+		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotObject) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -155,7 +155,7 @@ func TestAPayloadThatIsNotAnObjectIsRefused(t *testing.T) {
 
 func TestTrailingDataAfterTheObjectIsRefused(t *testing.T) {
 	for name, doc := range map[string]string{"second object": jsonbText + `{}`, "garbage": jsonbText + ` x`, "comma": jsonbText + `,`} {
-		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotObject) {
+		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotObject) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -164,7 +164,7 @@ func TestTrailingDataAfterTheObjectIsRefused(t *testing.T) {
 // crypto.CanonicalJSON refuses a fraction or an exponent: a payload that holds one cannot have been sealed, so it is not the sealed one.
 func TestANumberTheContractsDoNotAllowIsRefusedAndNeverRounded(t *testing.T) {
 	for name, doc := range map[string]string{"fraction": `{"n": 1.5}`, "exponent": `{"n": 1e2}`, "too large": `{"n": 9007199254740993}`} {
-		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotCanonical) {
+		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(doc)}}).Payload(ctx(t), "ten_a", item(t, original)); !errors.Is(err, payloadread.ErrNotCanonical) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -173,7 +173,7 @@ func TestANumberTheContractsDoNotAllowIsRefusedAndNeverRounded(t *testing.T) {
 // Numbers are read exactly: an integer above 2^53 would lose digits as a float64 and could hash as another number.
 func TestAnIntegerIsReadExactlyAndNotAsAFloat(t *testing.T) {
 	big := map[string]any{"n": 9007199254740991} // 2^53 - 1, the contracts' ceiling
-	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: []byte(`{"n": 9007199254740991}`)}}.Payload(ctx(t), "ten_a", item(t, big))
+	got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: []byte(`{"n": 9007199254740991}`)}}.Payload(ctx(t), "ten_a", item(t, big))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestAnUnusableCallDoesNotReadAnything(t *testing.T) {
 		"malformed hash": {ctx(t), "ten_a", badHash, payloadread.ErrUnusable}, "no evidence id": {ctx(t), "ten_a", noID, payloadread.ErrUnusable},
 	} {
 		f := &fake{doc: []byte(jsonbText)}
-		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: f}).Payload(c.ctx, c.tenant, c.item); !errors.Is(err, c.want) || f.calls != 0 {
+		if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: f}).Payload(c.ctx, c.tenant, c.item); !errors.Is(err, c.want) || f.calls != 0 {
 			t.Errorf("%s: err = %v, %d reads", name, err, f.calls)
 		}
 	}
@@ -221,7 +221,7 @@ func TestTheHashCheckAgreesWithTheBuildersHashOverGeneratedPayloads(t *testing.T
 		}
 		it := item(t, payload)
 		for _, doc := range [][]byte{canon, respace(t, canon)} {
-			got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: doc}}.Payload(ctx(t), "ten_a", it)
+			got, err := payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: doc}}.Payload(ctx(t), "ten_a", it)
 			if err != nil || got == nil {
 				t.Fatalf("payload %s: %v", canon, err)
 			}
@@ -229,7 +229,7 @@ func TestTheHashCheckAgreesWithTheBuildersHashOverGeneratedPayloads(t *testing.T
 		// one changed byte of a string value is a different payload
 		changed := []byte(strings.Replace(string(canon), `"`, `"x`, 1))
 		if len(changed) != len(canon) {
-			if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Payloads: &fake{doc: changed}}).Payload(ctx(t), "ten_a", it); err == nil {
+			if _, err := (payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &fake{doc: changed}}).Payload(ctx(t), "ten_a", it); err == nil {
 				t.Fatalf("a changed payload was accepted: %s", changed)
 			}
 		}
@@ -286,3 +286,7 @@ func (cleanScreen) Screen(context.Context, injection.Subject, map[string]string)
 }
 
 func corrOf(context.Context) string { return "cor_SYNTHETIC" }
+
+type noAlert struct{}
+
+func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}
