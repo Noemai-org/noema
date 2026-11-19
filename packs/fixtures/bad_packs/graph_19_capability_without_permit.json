@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-TRU-005; PERD 23.3 T11 (a capability with no PERMIT rule ends NO_PERMITTING_RULE, so a graph node that names it can never be planned)",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "graph",
+  "expect_message_contains": "has no PERMIT rule",
+  "patch": [
+    {
+      "op": "replace",
+      "path": "/policy/rules/2/effect",
+      "value": "REJECT"
+    }
+  ]
+}

@@ -31,6 +31,9 @@ const (
 // spy records every call, by port and method, in order; its answers are set per test, and a fault is injected by name.
 type spy struct {
 	calls []string
+	// the intent the intake asked the Intents port for (contracts.ParseIntentRef's answer, REQ-TRU-009)
+	gotID      string
+	gotVersion int
 	// the answers
 	intent      intake.AdmittedIntent
 	latest      int
@@ -88,7 +91,8 @@ func (s *spy) hit(name string) error {
 	return nil
 }
 
-func (s *spy) Get(_ context.Context, _, _ string, _ int) (intake.AdmittedIntent, error) {
+func (s *spy) Get(_ context.Context, _, id string, version int) (intake.AdmittedIntent, error) {
+	s.gotID, s.gotVersion = id, version
 	if err := s.hit("Intents.Get"); err != nil {
 		return intake.AdmittedIntent{}, err
 	}
@@ -211,6 +215,28 @@ func want(t *testing.T, name string, res intake.Result, outcome decide.Outcome, 
 	}
 	if len(res.Trace) == 0 || last(res).Step != step || last(res).Result != decide.StepTerminal {
 		t.Errorf("%s: trace %v, want it to end at %v terminal", name, res.Trace, step)
+	}
+}
+
+// REQ-TRU-009: the intake asks the Intents port for the ID and the version that the reference names, and a reference that is not int_<id>@<version> (parsed by contracts.ParseIntentRef) is
+// refused at T1 before any port is called.
+func TestT1TheIntentPortIsAskedForTheReferencesIDAndVersionAndAMalformedReferenceCallsNothing(t *testing.T) {
+	s := newSpy()
+	r := request()
+	r.IntentRef = "int_synth0001@2"
+	eval(t, s, r)
+	if s.gotID != "int_synth0001" || s.gotVersion != 2 {
+		t.Errorf("Intents.Get(%q, %d), want (int_synth0001, 2)", s.gotID, s.gotVersion)
+	}
+	for _, bad := range []string{"", "int_synth0001", "int_synth0001@0", "int_synth0001@01", "int_synth0001@1000000000", "usr_synth0001@2", "int_synth0001@2\n"} {
+		s := newSpy()
+		r := request()
+		r.IntentRef = bad
+		res := eval(t, s, r)
+		want(t, "a malformed reference "+bad, res, decide.Reject, "INTENT_INVALID", decide.T1AdmittedIntent)
+		if len(s.calls) != 0 {
+			t.Errorf("%q: the intake called %v for a malformed reference, want nothing", bad, s.calls)
+		}
 	}
 }
 

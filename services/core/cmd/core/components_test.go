@@ -53,7 +53,7 @@ func TestTheRecordReaderGivesTheAdmissionsPortAndTheAccessLogger(t *testing.T) {
 func TestTheRecordReaderAndTheOrchestratorSettingsGiveTheRecorder(t *testing.T) {
 	rd, _ := dsnDir(t, map[string]string{"ten_aa": synthDSN("record_read_aa")})
 	o := newOrchDirs(t, "ten_aa")
-	c, closer, err := buildAll(t, envMap{EnvRecordReadDSNDir: rd, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2"})
+	c, closer, err := buildAll(t, envMap{EnvRecordReadDSNDir: rd, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2", EnvReadTimeoutMS: "2000"})
 	if err != nil {
 		t.Fatal(err)
 	}
