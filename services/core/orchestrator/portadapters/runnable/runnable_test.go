@@ -194,3 +194,36 @@ func TestDeterministicAndNotMutated(t *testing.T) {
 		t.Fatal("input mutated")
 	}
 }
+
+func entityFacts(entities map[string][]predicate.Row) factsFake {
+	f := newFacts(okVars())
+	f.scope.Entities = map[string]map[string]predicate.Type{"ticket": {"status": predicate.EnumOf("OPEN", "CLOSED")}}
+	f.env.Entities = entities
+	return f
+}
+
+func TestAbsentEntityIsUnknownButEmptyEntityIsKnown(t *testing.T) {
+	g := Graph{Roots: []string{"a"}, Nodes: []Node{node("a", "READ", "not exists(ticket where ticket.status == 'OPEN')")}}
+	got, err := Runnable(g, entityFacts(nil))
+	if len(got) != 0 || !nodeErrs(t, err)["a"] {
+		t.Fatalf("an entity the snapshot lacks must be unknown: %v %v", got, err)
+	}
+	got, err = Runnable(g, entityFacts(map[string][]predicate.Row{"ticket": {}}))
+	if err != nil || !reflect.DeepEqual(got, []string{"cap.a"}) {
+		t.Fatalf("an empty entity is a known fact: %v %v", got, err)
+	}
+	got, _ = Runnable(g, entityFacts(map[string][]predicate.Row{"ticket": {{"status": predicate.Enum("OPEN")}}}))
+	if len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestEvaluationErrorNotRunnable(t *testing.T) {
+	v := okVars()
+	v["balance"] = predicate.Int(predicate.MaxInteger)
+	g := Graph{Roots: []string{"a"}, Nodes: []Node{node("a", "READ", "balance + 1 > 0")}}
+	got, err := Runnable(g, newFacts(v))
+	if len(got) != 0 || !nodeErrs(t, err)["a"] {
+		t.Fatalf("overflow must be unknown: %v %v", got, err)
+	}
+}
