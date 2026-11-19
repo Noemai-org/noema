@@ -90,6 +90,9 @@ type RecorderConfig struct {
 	GrantLifetime  time.Duration
 	RecordLifetime time.Duration
 	Escalation     recorder.EscalationSet
+	// TxTimeout bounds the whole of one Record (facts, transaction, write) by a time of the adapter's own, so that a caller with a distant deadline cannot hold a transaction
+	// open (AGENT-16). The earlier of this and the caller's deadline wins. It has no default: zero or negative is ErrConfig. Its value is the Architect's.
+	TxTimeout time.Duration
 }
 
 // RecorderAdapter implements intake.Recorder (T15): it writes the Decision Record, the grants and their events with recorder.Writer inside one transaction it opens and commits,
@@ -98,6 +101,8 @@ type RecorderAdapter struct {
 	begin  TxBeginner
 	facts  RecordFactSource
 	writer RecordWriter
+
+	txTimeout time.Duration
 }
 
 var _ intake.Recorder = (*RecorderAdapter)(nil)

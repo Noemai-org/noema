@@ -4,6 +4,7 @@ package trustport
 // SYNTHETIC. The fake-writer tests run anywhere; the tests that use testpg run against a real PostgreSQL (CI has the pgsodium build, so they run there).
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -94,11 +95,13 @@ type recFacts struct {
 	err   error
 	mu    sync.Mutex // Facts is called from many goroutines by the concurrent Record test
 	calls int
+	ctxs  []context.Context
 }
 
-func (s *recFacts) Facts(_ context.Context, r intake.RecordRequest) (RecordFacts, error) {
+func (s *recFacts) Facts(ctx context.Context, r intake.RecordRequest) (RecordFacts, error) {
 	s.mu.Lock()
 	s.calls++
+	s.ctxs = append(s.ctxs, ctx)
 	s.mu.Unlock()
 	if s.err != nil {
 		return RecordFacts{}, s.err
@@ -127,10 +130,13 @@ type recTx struct {
 	commitErr          error
 	rollbackCtxErr     error
 	onCommit           func()
+	commitCtx          context.Context
+	rollbackCtx        context.Context
 }
 
-func (x *recTx) Commit(context.Context) error {
+func (x *recTx) Commit(ctx context.Context) error {
 	x.commits++
+	x.commitCtx = ctx
 	if x.onCommit != nil {
 		x.onCommit()
 	}
@@ -139,6 +145,7 @@ func (x *recTx) Commit(context.Context) error {
 
 func (x *recTx) Rollback(ctx context.Context) error {
 	x.rollbacks++
+	x.rollbackCtx = ctx
 	x.rollbackCtxErr = ctx.Err()
 	return nil
 }
@@ -147,9 +154,11 @@ type recBegin struct {
 	tx      *recTx
 	tenants []string
 	err     error
+	ctxs    []context.Context
 }
 
-func (b *recBegin) Begin(_ context.Context, tenant string) (pgx.Tx, error) {
+func (b *recBegin) Begin(ctx context.Context, tenant string) (pgx.Tx, error) {
+	b.ctxs = append(b.ctxs, ctx)
 	b.tenants = append(b.tenants, tenant)
 	if b.err != nil {
 		return nil, b.err
@@ -158,13 +167,15 @@ func (b *recBegin) Begin(_ context.Context, tenant string) (pgx.Tx, error) {
 }
 
 type recWriter struct {
-	got []recorder.Request
-	res recorder.Result
-	err error
-	do  func()
+	got  []recorder.Request
+	res  recorder.Result
+	err  error
+	do   func()
+	ctxs []context.Context
 }
 
-func (w *recWriter) Write(_ context.Context, _ pgx.Tx, r recorder.Request) (recorder.Result, error) {
+func (w *recWriter) Write(ctx context.Context, _ pgx.Tx, r recorder.Request) (recorder.Result, error) {
+	w.ctxs = append(w.ctxs, ctx)
 	w.got = append(w.got, r)
 	if w.do != nil {
 		w.do()
@@ -174,8 +185,11 @@ func (w *recWriter) Write(_ context.Context, _ pgx.Tx, r recorder.Request) (reco
 
 func recAdapter(t *testing.T, b *recBegin, f *recFacts, w RecordWriter) *RecorderAdapter {
 	t.Helper()
-	return &RecorderAdapter{begin: b, facts: f, writer: w}
+	return &RecorderAdapter{begin: b, facts: f, writer: w, txTimeout: recTxTimeout}
 }
+
+// recTxTimeout is the adapter's own bound in the fake-port tests (SYNTHETIC value); it is shorter than recCtx's 30 s so a test can tell the two apart.
+const recTxTimeout = 10 * time.Second
 
 func recCtx(t *testing.T) context.Context {
 	t.Helper()
@@ -423,6 +437,89 @@ func TestAnAdapterWithoutWhatItNeedsIsNotBuilt(t *testing.T) {
 	}
 }
 
+// Codex P2 and IL P2 on noema#752 (AGENTS section 7, AGENT-16): the deadline reaches the fact source, Begin and the writer, none of them later than the caller's, and the adapter
+// bounds the transaction by a time of its own (TxTimeout, no default) so a caller with a distant deadline cannot hold a transaction open.
+func TestTheDeadlineReachesTheFactsTheBeginAndTheWriterAndIsTheEarlierOfTheTwo(t *testing.T) {
+	caller := recCtx(t) // 30 s
+	cd, _ := caller.Deadline()
+	f, b, w, tx := newRecFacts(), &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(1)}, (*recTx)(nil)
+	tx = b.tx
+	if _, err := recAdapter(t, b, f, w).Record(caller, recRequest(t, 1)); err != nil {
+		t.Fatal(err)
+	}
+	all := append(append(append([]context.Context{}, f.ctxs...), b.ctxs...), w.ctxs...)
+	if len(f.ctxs) != 1 || len(b.ctxs) != 1 || len(w.ctxs) != 1 {
+		t.Fatalf("facts %d begin %d write %d calls, want one each", len(f.ctxs), len(b.ctxs), len(w.ctxs))
+	}
+	for i, c := range all {
+		d, ok := c.Deadline()
+		if !ok || !d.Before(cd) {
+			t.Errorf("call %d: deadline %v present %v, want one earlier than the caller's %v (the adapter's TxTimeout %v is shorter)", i, d, ok, cd, recTxTimeout)
+		}
+	}
+	if tx.commits != 1 {
+		t.Errorf("commits %d", tx.commits)
+	}
+}
+
+// A caller whose deadline is nearer than TxTimeout keeps it: the adapter never extends a deadline.
+func TestACallersNearerDeadlineIsNeverExtended(t *testing.T) {
+	caller, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	cd, _ := caller.Deadline()
+	f, b, w := newRecFacts(), &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(1)}
+	if _, err := recAdapter(t, b, f, w).Record(caller, recRequest(t, 1)); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []context.Context{f.ctxs[0], b.ctxs[0], w.ctxs[0]} {
+		if d, ok := c.Deadline(); !ok || d.After(cd) {
+			t.Errorf("deadline %v present %v, want one not after the caller's %v", d, ok, cd)
+		}
+	}
+}
+
+// The commit and the rollback end the transaction, so they run on a context that is not the request's: bounded, never later than their own bound, and not cancelled by the
+// request. The commit's bound is not the write's TxTimeout (a commit that has begun is finished, not abandoned halfway).
+func TestTheCommitRunsOnABoundedContextThatTheRequestDoesNotCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(recCtx(t))
+	defer cancel()
+	b, w := &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(1)}
+	if _, err := recAdapter(t, b, newRecFacts(), w).Record(ctx, recRequest(t, 1)); err != nil {
+		t.Fatal(err)
+	}
+	cc := b.tx.commitCtx
+	d, ok := cc.Deadline()
+	wd, _ := w.ctxs[0].Deadline()
+	if cc == nil || !ok || !d.After(wd) {
+		t.Fatalf("commit context %v deadline %v present %v, want a deadline of its own, later than the write's %v", cc, d, ok, wd)
+	}
+	cancel()
+	if cc.Err() != nil {
+		t.Errorf("the commit context was cancelled with the request: %v", cc.Err())
+	}
+}
+
+// The adapter's TxTimeout has no default: with everything else valid, zero or negative is ErrConfig and a positive one builds.
+func TestAnAdapterWithoutATxTimeoutIsNotBuilt(t *testing.T) {
+	keys, err := grants.NewKeys([]grants.Key{{ID: "k2", Secret: bytes.Repeat([]byte{7}, 32)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk := clock.NewManual(recEpoch)
+	cfg := RecorderConfig{Begin: &recBegin{}, Facts: newRecFacts(), Keys: keys, Appender: &chain.Appender{}, Clock: clk, IDs: ids.New(clk, rand.New(rand.NewSource(1))),
+		Entropy: rand.New(rand.NewSource(2)), GrantLifetime: time.Minute, RecordLifetime: time.Minute}
+	for _, d := range []time.Duration{0, -time.Second} {
+		cfg.TxTimeout = d
+		if _, err := NewRecorderAdapter(cfg); !errors.Is(err, ErrConfig) {
+			t.Errorf("TxTimeout %v: err %v", d, err)
+		}
+	}
+	cfg.TxTimeout = time.Second
+	if _, err := NewRecorderAdapter(cfg); err != nil {
+		t.Errorf("a positive TxTimeout: %v", err)
+	}
+}
+
 // ---- real PostgreSQL ----
 
 // recLockedReader makes the entropy source safe for the concurrent Records of one test (rand.Rand is not).
@@ -475,7 +572,7 @@ func newRecWorld(t *testing.T) *recWorld {
 	trust := testpg.TenantLogin(t, admin, dsn, "trust_rw", recTenant)
 	a, err := NewRecorderAdapter(RecorderConfig{Begin: recPool{trust}, Facts: newRecFacts(), Keys: keys,
 		Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "recorder", nil, "core-trust")},
-		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute})
+		Clock:    clk, IDs: idg, Entropy: &recLockedReader{r: rand.New(rand.NewSource(2))}, GrantLifetime: 10 * time.Minute, RecordLifetime: 15 * time.Minute, TxTimeout: recTxTimeout})
 	if err != nil {
 		t.Fatal(err)
 	}
