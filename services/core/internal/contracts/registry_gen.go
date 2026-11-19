@@ -156,6 +156,7 @@ var Types = map[string]func() any{
 	"investigation-response.v1#PublicStage":                 func() any { return new(InvestigationResponseV1PublicStage) },
 	"masking-limits.v1":                                     func() any { return new(MaskingLimitsV1) },
 	"memory-observation.v2":                                 func() any { return new(MemoryObservationV2) },
+	"message-request.v1":                                    func() any { return new(MessageRequestV1) },
 	"money.v1":                                              func() any { return new(MoneyV1) },
 	"money.v1#CurrencyCode":                                 func() any { return new(MoneyV1CurrencyCode) },
 	"money.v1#MinorAmount":                                  func() any { return new(MoneyV1MinorAmount) },
