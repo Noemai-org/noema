@@ -4,7 +4,7 @@ package main
 // role come from the verified session only. The STORE owns CONFIRMATION_RECEIVED: the route calls the store's one Answer method, which records the answer and appends the event in one
 // transaction; the route appends nothing itself. FIRST ANSWER WINS: a second answer is 409, the identical first answer again returns the stored result. Fakes are SYNTHETIC.
 // Safer readings (listed in the PR): a refused reply (not eligible, wrong request, expired) is not recorded; a customer session may answer only a SELF request; a second answer is
-// CONTRADICTORY_STATE.
+// IDEMPOTENCY_CONFLICT.
 
 import (
 	"bytes"
@@ -286,7 +286,7 @@ func TestAReplayedAcceptReturnsTheStoredResult(t *testing.T) {
 	}
 }
 
-// FIRST ANSWER WINS: a second answer to the same request is 409 CONTRADICTORY_STATE, from another approver, or from the same approver with the other response; the first stands.
+// FIRST ANSWER WINS: a second answer to the same request is 409 IDEMPOTENCY_CONFLICT, from another approver, or from the same approver with the other response; the first stands.
 func TestASecondAnswerIs409(t *testing.T) {
 	for name, second := range map[string]struct{ sub, resp string }{
 		"another approver, same response":  {"prn_apr2", "ACCEPT"},
@@ -298,7 +298,7 @@ func TestASecondAnswerIs409(t *testing.T) {
 			t.Fatalf("%s: first %d", name, rec.Code)
 		}
 		rec := confPost(h, confToken(iss, session.RoleApprover, second.sub), confPath, confAnswer(confRequestID, second.resp))
-		if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "CONTRADICTORY_STATE" || strings.Contains(rec.Body.String(), "state\":\"received") {
+		if code, _ := errBody(t, rec); rec.Code != http.StatusConflict || code != "IDEMPOTENCY_CONFLICT" || strings.Contains(rec.Body.String(), "state\":\"received") {
 			t.Errorf("%s: %d %s", name, rec.Code, rec.Body.String())
 		}
 		if len(rc.got) != 1 || rc.first.ApproverID != "prn_apr" || rc.first.Response != confirm.Accept {
