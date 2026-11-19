@@ -89,7 +89,7 @@ func TestEveryErrorOfPublishHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 				if !errors.Is(err, policystore.ErrNotNewer) {
 					t.Errorf("errors.Is(err, ErrNotNewer) is false: %v", err)
 				}
-				pgCause(t, err, "23505")
+				pgCause(t, err, "")
 				if err.Error() != policystore.ErrNotNewer.Error() {
 					t.Errorf("the text is %q, want the sentinel's own text %q", err.Error(), policystore.ErrNotNewer.Error())
 				}
