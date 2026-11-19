@@ -194,7 +194,8 @@ class VersionsDoNotMix(unittest.TestCase):
 
     def test_grant_void_reasons_and_event_types_match_v2(self):
         v2 = SCHEMAS["record-event.v2.json"]["$defs"]
-        for key in ("RecordEventType", "SecurityKind", "GrantVoidReason", "ProviderFailoverReason"):
+        # SecurityKind is not here: v3 may add kinds in place (a minor, AGENT-15) and keeps every kind v2 has; test_security_kinds_v3.py holds that.
+        for key in ("RecordEventType", "GrantVoidReason", "ProviderFailoverReason"):
             self.assertEqual(V3["$defs"][key], v2[key], key)
 
 
