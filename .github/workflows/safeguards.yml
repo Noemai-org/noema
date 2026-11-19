@@ -29,6 +29,10 @@ jobs:
       - name: Install pinned scanners
         if: github.event.action != 'edited'
         run: tools/ci/install_tools.sh "$RUNNER_TEMP/bin"
+      # The YAML parser of the two workflow checks (OD-P-95, ruling A283): one hash-pinned wheel, this job only. Without it the checks fail; they never pass unread.
+      - name: Install the pinned YAML parser
+        if: github.event.action != 'edited'
+        run: python3 -m pip install --require-hashes "--only-binary=:all:" --no-deps -r tools/ci/requirements.lock
       # Only the commits of this change: a pull request's commits (base..head) or the commits a push adds. gitleaks's
       # own default scans every ref, so an unrelated branch would fail every pull request. The range is printed.
       - name: Secret scan (gitleaks), the commits of this change only
@@ -54,6 +58,9 @@ jobs:
       - name: Secret-name check tests
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_check_secret_refs.py
+      - name: Every TEN_RESULT line is checked by a workflow (A274)
+        if: github.event.action != 'edited'
+        run: python3 -I tools/ci/test_ten_result_grep.py
       - name: Leak scanner tests (SEC-03)
         if: github.event.action != 'edited'
         run: python3 -I tools/ci/test_leakscan.py

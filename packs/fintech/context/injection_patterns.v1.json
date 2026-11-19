@@ -1,0 +1,48 @@
+{
+  "pack_id": "fin.ctx.injection_patterns",
+  "version": 1,
+  "label": "SYNTHETIC",
+  "note": "The advisory injection patterns of the fintech pack (EVD-06 slice 2, ruling A292; REQ-CTX-007). Each regular expression is Go RE2 syntax, matched case-insensitively where it says so, against an enterprise string after it is cut to the field cap and stripped of control characters. A match raises SECURITY_EVENT of kind INJECTION_DETECTED with the field name and the pattern id and nothing else. Detection is advisory only (SoT 29): it never changes an evidence status, a classification or a decision, and safety does not depend on it. The patterns are SYNTHETIC starting values for the B6 family; recall is reported and is not a gate. Order matters only for the order of findings.",
+  "patterns": [
+    {
+      "id": "fin.inj.override_instructions",
+      "regex": "(?i)\\b(?:ignore|disregard|forget|override|bypass)\\b\\s+(?:(?:all|any|the|your|my|these|those|every|of)\\s+)*(?:previous|prior|earlier|above|preceding|former|original|system|safety)\\s+(?:instructions?|prompts?|rules?|directions?|guidelines?|context|messages?|policy|policies)\\b",
+      "note": "A verb that cancels earlier instructions followed by what is cancelled: 'ignore previous instructions', 'disregard the above rules'. The verb must be a whole word, so a name such as Ignatius Previous does not match."
+    },
+    {
+      "id": "fin.inj.override_everything",
+      "regex": "(?i)\\b(?:ignore|disregard|forget)\\b\\s+(?:everything|anything|all)\\s+(?:above|before|you\\s+(?:were|have\\s+been)\\s+told|else)\\b",
+      "note": "The short form of the same attempt: 'ignore everything above', 'forget all else'."
+    },
+    {
+      "id": "fin.inj.role_marker",
+      "regex": "(?im)(?:^\\s*(?:system|assistant|developer)\\s*:|<\\|?\\s*/?\\s*(?:system|assistant|developer|im_start|im_end)\\s*\\|?>|\\[\\s*/?\\s*(?:system|assistant|inst)\\s*\\]|^\\s*#{2,}\\s*(?:system|instructions?)\\b)",
+      "note": "A chat-role marker: a line that begins 'system:', 'assistant:' or 'developer:', a role tag such as <|system|> or <system>, a bracket marker such as [INST], or a '## system' heading. A role word inside a sentence ('assistant manager: salary') does not match."
+    },
+    {
+      "id": "fin.inj.new_instructions",
+      "regex": "(?i)\\b(?:new|updated|revised|additional)\\s+(?:system\\s+)?(?:instructions?|prompt|rules)\\s*:|\\bfrom\\s+now\\s+on\\s+you\\b|\\byou\\s+are\\s+now\\s+(?:in|an?)\\s+[a-z]+",
+      "note": "A claim to replace the instructions: 'new instructions:', 'from now on you', 'you are now in developer mode'."
+    },
+    {
+      "id": "fin.inj.tool_call",
+      "regex": "(?i)<\\s*/?\\s*(?:tool_call|function_call|tool_use|invoke)\\b[^>]{0,64}>|\\b(?:tool_call|function_call|tool_use)s?\\b\\s*[:=({\\[]|\"(?:name|tool|function)\"\\s*:\\s*\"[A-Za-z_.]{1,64}\"\\s*,\\s*\"(?:arguments|args|parameters|input)\"|\\b(?:call|invoke|execute|run)\\s+(?:the\\s+)?[a-z_.]{2,40}\\s+tool\\b",
+      "note": "Tool-call syntax: a tool_call tag or key, a JSON name with arguments, or 'call the X tool'. A string never becomes a capability (AGENT-09); this only reports the attempt."
+    },
+    {
+      "id": "fin.inj.url",
+      "regex": "(?i)\\b(?:https?|ftp|file)://[^\\s]{1,200}|\\bwww\\.[a-z0-9-]{1,63}\\.[a-z]{2,24}\\b|\\bjavascript\\s*:",
+      "note": "A URL or a script scheme in a field that should hold a name, a narration or a note. A string never becomes a URL the core follows (REQ-CTX-007)."
+    },
+    {
+      "id": "fin.inj.reveal_secrets",
+      "regex": "(?i)\\b(?:reveal|print|show|repeat|output|leak|disclose)\\s+(?:me\\s+)?(?:your|the|all)\\s+(?:system\\s+|hidden\\s+|secret\\s+)?(?:prompts?|instructions|polic(?:y|ies)|thresholds?|secrets?|api\\s+keys?|credentials?)\\b",
+      "note": "A request to disclose the prompt, the policy, thresholds or credentials (EC-X14). Understanding never holds them; this reports the attempt."
+    },
+    {
+      "id": "fin.inj.authority_claim",
+      "regex": "(?i)\\b(?:i\\s+am|i'm)\\s+(?:an?\\s+|the\\s+)?(?:admin|administrator|operator|root|supervisor|developer)\\b",
+      "note": "A claim of authority in text ('I am the administrator', EC-X08). Identity comes only from the session (INV-12); this reports the claim."
+    }
+  ]
+}
