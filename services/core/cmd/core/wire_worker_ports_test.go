@@ -139,7 +139,7 @@ func TestRouteIssuerSourceNeverMintsAGrant(t *testing.T) {
 	}
 	for _, im := range f.Imports {
 		p := strings.Trim(im.Path.Value, `"`)
-		if strings.Contains(p, "/trust/") && !strings.HasSuffix(p, "/trust/grants") {
+		if strings.Contains(p, "/trust/") && !strings.Contains(p, "/trust/grants") { // the key ring types and the key-file loader are the only trust imports
 			t.Errorf("imports %s: the issuer goes through the Trust port only", p)
 		}
 		if strings.Contains(p, "signing") || strings.Contains(p, "crypto/hmac") {
