@@ -113,12 +113,18 @@ type Request struct {
 	ConfirmationPlanHash  contracts.CommonV1Hash // the plan hash the confirmation was given for (A230); the writer refuses an ALLOW whose steps carry another
 	ConfirmationEventID   string                 // the given confirmation an ALLOW follows (cfe_...); empty when none was required. The writer spends it once, in this transaction
 	Steps                 []grants.Step          // one grant per write plan step, ALLOW only; tenant, correlation, decision, intent hash and policy are set by the writer
+	// ConfirmationRequest is the request a CONFIRM decision creates, written with the decision in one transaction (EC-E16); nil for a CONFIRM that names an already open request,
+	// and for every other outcome (any other outcome that carries one is ErrRequest).
+	ConfirmationRequest *NewConfirmationRequest
 }
 
 // Result is what was written.
 type Result struct {
 	Record contracts.DecisionRecordV2
 	Grants []contracts.DecisionGrantV1
+	// ConfirmationRequestID is the cfr_ ID the writer minted for Request.ConfirmationRequest; empty when none was asked for, and empty when a stored decision of the same input was
+	// returned (A186): that decision's request, if it created one, is in the Record.
+	ConfirmationRequestID string
 }
 
 var (
