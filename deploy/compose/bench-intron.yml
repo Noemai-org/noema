@@ -15,3 +15,5 @@ services:
         source: ${NOEMA_BENCH_INTRON_KEY_FILE:?the host path of the Intron key file}
         target: /run/intron/key
         read_only: true
+        bind:
+          create_host_path: false  # a typo in the host path must stop the stack, not create an empty directory at the key path (the reader would refuse it at every call and voice would degrade to text with no sign)

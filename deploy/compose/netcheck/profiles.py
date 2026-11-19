@@ -373,6 +373,8 @@ def check(cfg, profile):
             if key_env and key_env != INTRON_TARGET:
                 bad.append(f"{profile}: INTRON_API_KEY_FILE is {key_env!r}, not {INTRON_TARGET} (A379)")
             for v in key_mounts:
+                if (v.get("bind") or {}).get("create_host_path") is not False:
+                    bad.append(f"{profile}: the Intron key bind must set create_host_path: false, or a wrong host path becomes an empty directory at the key path (A379)")
                 if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
                     bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
@@ -489,6 +491,7 @@ def self_test(configs):
         "the bench model gets the key file variable but no mount": ("bench", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"})),
         "the bench model with the key mount loses the variable": ("bench+intron", lambda c: c["services"]["model"]["environment"].pop("INTRON_API_KEY_FILE")),
         "the bench key mount is writable": ("bench+intron", lambda c: [v.update({"read_only": False}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the bench key mount may create its host path": ("bench+intron", lambda c: [v.pop("bind", None) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the bench key mount is a folder named secrets": ("bench+intron", lambda c: [v.update({"source": "/h/secrets"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the bench key mount is a named volume": ("bench+intron", lambda c: [v.update({"type": "volume"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
         "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
