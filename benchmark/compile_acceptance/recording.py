@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+FAILURE_CLASSES = ("OK", "REJECTED", "RATE_LIMITED", "TIMEOUT", "UNAVAILABLE", "MALFORMED", "NO_STATUS")
 LABEL = "Understanding: compile acceptance on synthetic golden examples, recorded live output (SYNTHETIC)"
 
 
@@ -47,10 +48,10 @@ class Recorder:
         doc = {
             "recording_id": rid, "run_id": self._run_id, "case_id": self.case_id, "provider": self._provider, "model_id": self.model_id, "reported_model_id": reported,
             "recorded_at": self._now().strftime("%Y-%m-%dT%H:%M:%SZ"), "url_path": urlsplit(url).path, "request_sha256": digest, "request": _body(request),
-            "status": status, "failure": failure, "reply": parsed_reply, "projected_micros": projected_micros, "cost_micros": cost_micros,
+            "status": status, "failure": failure, "failure_class": None, "error": None, "reply": parsed_reply, "projected_micros": projected_micros, "cost_micros": cost_micros,
         }
         (self._dir / f"{rid}.json").write_text(dump(doc), encoding="utf-8")
-        self._rows.append({"recording_id": rid, "case_id": self.case_id, "request_sha256": digest, "status": status, "failure": failure, "cost_micros": cost_micros, "reported_model_id": reported})
+        self._rows.append({"recording_id": rid, "case_id": self.case_id, "request_sha256": digest, "status": status, "failure": failure, "failure_class": None, "error": None, "cost_micros": cost_micros, "reported_model_id": reported})
         return rid
 
     def write_manifest(self, pin: dict[str, Any]) -> Path:
@@ -58,7 +59,7 @@ class Recorder:
         manifest = {
             "run_id": self._run_id, "provider": self._provider, "model_id": self.model_id, "date": self._now().strftime("%Y-%m-%d"), "calls": len(self._rows), "pin": pin,
             "reported_model_ids": sorted({r["reported_model_id"] for r in self._rows if r["reported_model_id"]}), "label": LABEL,
-            "recordings": [{k: r[k] for k in ("recording_id", "case_id", "request_sha256", "status", "failure", "cost_micros")} for r in self._rows],
+            "recordings": [{k: r[k] for k in ("recording_id", "case_id", "request_sha256", "status", "failure", "failure_class", "error", "cost_micros")} for r in self._rows],
         }
         path = self._dir / "manifest.json"
         path.write_text(dump(manifest), encoding="utf-8")
