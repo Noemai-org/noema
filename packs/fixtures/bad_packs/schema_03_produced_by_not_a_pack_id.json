@@ -1,0 +1,13 @@
+{
+  "requirement": "REQ-CAP-001",
+  "base": "packs/fintech_v1.json",
+  "expect_check": "schema",
+  "expect_message_contains": "does not match",
+  "patch": [
+    {
+      "op": "add",
+      "path": "/evidence_descriptors/5/produced_by",
+      "value": "Not A Source"
+    }
+  ]
+}

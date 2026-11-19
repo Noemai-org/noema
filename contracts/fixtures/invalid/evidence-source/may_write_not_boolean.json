@@ -1,0 +1,14 @@
+{
+  "source_id": "fin.src.case_system",
+  "display_name": "Case system",
+  "freshness_sla_seconds": 300,
+  "authoritative_for": [
+    "debit_posted"
+  ],
+  "corroborating_for": [],
+  "never_authoritative_for": [
+    "switch_result"
+  ],
+  "sensitivity": "S3_financial_pii",
+  "may_write": "yes"
+}

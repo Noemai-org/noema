@@ -291,3 +291,47 @@ class TemplateCoverage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MayWrite(unittest.TestCase):
+    """A342 and A345 (interim, relayed, not yet committed). `may_write` (evidence-source) says whether a capability may write to the
+    source; absent means false. `produced_by` (evidence-descriptor) names the evidence source that produced the evidence."""
+
+    def pack(self):
+        return json.loads((PACKS / "fintech_v1.json").read_text())
+
+    def run_pack(self, pack):
+        return checks.run(PACKS / "fintech_v1.json", pack=pack)
+
+    def test_only_the_case_system_may_be_written_to(self):
+        sources = {s["source_id"]: s.get("may_write", False) for s in self.pack()["evidence_sources"]}
+        self.assertEqual({k for k, v in sources.items() if v}, {"fin.src.case_system"})
+
+    def test_an_absent_may_write_is_false_so_a_write_capability_is_refused(self):
+        pack = self.pack()
+        for s in pack["evidence_sources"]:
+            s.pop("may_write", None)
+        problems = [m for c, m in self.run_pack(pack) if c == "capability" and "may_write" in m]
+        self.assertTrue(problems, "the four case-writing capabilities must be refused")
+        self.assertEqual(len(problems), 4, problems)
+
+    def test_a_prohibited_capability_on_a_read_only_source_is_not_refused(self):
+        pack = self.pack()
+        self.assertTrue(any(c["prohibited"] for c in pack["capabilities"]))
+        self.assertEqual([m for c, m in self.run_pack(pack) if "may_write" in m], [])
+
+    def test_a_read_capability_on_a_read_only_source_is_not_refused(self):
+        pack = self.pack()
+        reads = [c for c in pack["capabilities"] if c["risk_class"] == "R0_read" and not c["prohibited"]]
+        self.assertTrue(reads)
+        self.assertEqual([m for c, m in self.run_pack(pack) if "may_write" in m], [])
+
+    def test_produced_by_may_name_any_source_of_the_pack(self):
+        pack = self.pack()
+        for d in pack["evidence_descriptors"]:
+            d["produced_by"] = d["source"]
+        self.assertEqual(self.run_pack(pack), [])
+
+    def test_the_real_descriptors_say_who_produced_them(self):  # A345
+        for d in self.pack()["evidence_descriptors"]:
+            self.assertEqual(d.get("produced_by"), d["source"], d["entity"])

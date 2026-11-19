@@ -1,4 +1,6 @@
 {
   "missing_authority.json": "required",
-  "zero_freshness.json": "minimum"
+  "zero_freshness.json": "minimum",
+  "may_write_not_boolean.json": "boolean",
+  "may_write_null.json": "boolean"
 }

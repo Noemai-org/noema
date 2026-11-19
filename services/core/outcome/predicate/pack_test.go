@@ -128,3 +128,24 @@ func TestAnAmbiguousOrMisspelledPackDoesNotLoad(t *testing.T) {
 		})
 	}
 }
+
+// A345 (interim, relayed): an evidence descriptor may carry `produced_by`, a source ID. The outcome reader is strict, so it must
+// know the member and refuse a malformed one (fail closed).
+func TestADescriptorMayCarryProducedByAndAMalformedOneDoesNotLoad(t *testing.T) {
+	with := func(v string) []byte {
+		s := string(fintech(t))
+		k := strings.Index(s, `"entity"`)
+		if k < 0 {
+			t.Fatal("no descriptor")
+		}
+		return []byte(s[:k] + `"produced_by": ` + v + `, ` + s[k:])
+	}
+	if _, err := op.LoadPack(with(`"fin.src.core_ledger"`)); err != nil {
+		t.Fatalf("a descriptor with produced_by did not load: %v", err)
+	}
+	for _, bad := range []string{`7`, `null`, `["fin.src.core_ledger"]`} {
+		if _, err := op.LoadPack(with(bad)); err == nil {
+			t.Fatalf("produced_by %s loaded", bad)
+		}
+	}
+}
