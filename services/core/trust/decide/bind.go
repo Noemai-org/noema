@@ -9,9 +9,8 @@ var (
 	ErrEmptyAnswer         = errors.New("decide: the answer selects, rejects or declines nothing")
 	ErrUnknownOption       = errors.New("decide: the answer names an option that was not offered")
 	ErrContradictoryAnswer = errors.New("decide: the answer selects an option it also rejects")
-	ErrNoNoneOption        = errors.New("decide: not built")
-	ErrNoneRejected        = errors.New("decide: not built")
-	ErrNoneCombined        = errors.New("decide: not built")
+	ErrNoneRejected        = errors.New("decide: the answer rejects none of these")
+	ErrNoneCombined        = errors.New("decide: none of these cannot be combined with another choice")
 )
 
 // Constraint is a typed constraint an answer adds to the candidate set. Only exclusion exists: a negation ("not that
@@ -29,12 +28,18 @@ type Open struct {
 	NoneOptionID        string   // the core-minted ID of "None of these" (A275)
 }
 
-// Open holds the clarification as Trust keeps it while it waits for the answer. Not built yet.
+// Open holds the clarification as Trust keeps it while it waits for the answer: the options and the none id are the ones the core minted (A275), copied from q and not from a
+// request (INV-12). The candidates are those the options select, in order.
 func (q Clarification) Open(id string, candidateSetVersion int, expiresAt int64, round int) Open {
-	return Open{}
+	candidates := make([]string, 0, len(q.Options))
+	for _, o := range q.Options {
+		candidates = append(candidates, o.CandidateID)
+	}
+	return Open{ID: id, CandidateSetVersion: candidateSetVersion, ExpiresAt: expiresAt, Round: round, Options: q.Options, Candidates: candidates, NoneOptionID: q.NoneOptionID}
 }
 
-// Answer is what the authenticated principal sent. Selected is an option ID; Rejected are option IDs; None is "none of these".
+// Answer is what the authenticated principal sent. Selected is an option ID, or the clarification's NoneOptionID (the UI submits "None of these" as an option_id, A275); Rejected are
+// option IDs; None is "none of these" (the same answer as Selected equal to the NoneOptionID).
 type Answer struct {
 	ClarificationID     string
 	CandidateSetVersion int
@@ -87,12 +92,29 @@ func Bind(open Open, a Answer, now int64, maxRounds int) (Binding, error) {
 		return Binding{}, ErrWrongClarification
 	case a.CandidateSetVersion != open.CandidateSetVersion || now > open.ExpiresAt:
 		return Binding{}, ErrStaleCandidateSet
+	case open.NoneOptionID == "":
+		return Binding{}, ErrNoNoneOption
 	case a.Selected == "" && len(a.Rejected) == 0 && !a.None:
 		return Binding{}, ErrEmptyAnswer
 	}
 	candidateOf := map[string]string{}
 	for _, o := range open.Options {
+		if o.ID == open.NoneOptionID {
+			return Binding{}, ErrNoneOptionCollision
+		}
 		candidateOf[o.ID] = o.CandidateID
+	}
+	// "None of these" is an option_id the core minted (A275). It is one answer on its own: it is never rejected, and it is not combined with a rejection or with the choice of an
+	// option.
+	noneSelected := a.Selected == open.NoneOptionID
+	none := a.None || noneSelected
+	for _, id := range a.Rejected {
+		if id == open.NoneOptionID {
+			return Binding{}, ErrNoneRejected
+		}
+	}
+	if noneSelected && len(a.Rejected) > 0 || a.None && a.Selected != "" && !noneSelected {
+		return Binding{}, ErrNoneCombined
 	}
 	var cs []Constraint
 	for _, id := range a.Rejected {
@@ -105,7 +127,7 @@ func Bind(open Open, a Answer, now int64, maxRounds int) (Binding, error) {
 		}
 		cs = append(cs, Constraint{ExcludeCandidate: c})
 	}
-	if a.Selected != "" {
+	if a.Selected != "" && !none {
 		c, ok := candidateOf[a.Selected]
 		if !ok {
 			return Binding{}, ErrUnknownOption
@@ -114,7 +136,7 @@ func Bind(open Open, a Answer, now int64, maxRounds int) (Binding, error) {
 	}
 	remaining := ApplyConstraints(open.Candidates, cs)
 	kind := Narrowed
-	if a.None || len(remaining) == 0 {
+	if none || len(remaining) == 0 {
 		kind, remaining = NoneOfThese, ApplyConstraints(open.Candidates, nil)
 	}
 	if open.Round >= maxRounds {

@@ -63,14 +63,30 @@ var (
 	ErrCannotDistinguish = errors.New("decide: the labels cannot tell the options apart")
 )
 
-// NoneOptionID is the ID the core mints for the "None of these" choice (A275). Not built yet.
-const NoneOptionID = ""
+// NoneOptionID is the ID the core mints for the "None of these" choice of every clarification (A275, REQ-AMB-004). The UI submits it as option_id (PERD section 39.2) and never
+// invents one; no request, caller or pack supplies it. It has the form of an option_id of clarification.v1 (^[a-z0-9_]{1,32}$, at most four digits) and differs from every option
+// the core mints, which are opt_<n>; sealNone still refuses a collision, so a change to either minting cannot ship one. A test holds the form against the schema.
+const NoneOptionID = "opt_none"
 
-// ErrNoneOptionCollision: the minted none-of-these ID equals an option ID. Not built yet.
-var ErrNoneOptionCollision = errors.New("decide: not built")
+// Errors of minting the none-of-these ID. The texts are fixed and name nothing.
+var (
+	ErrNoneOptionCollision = errors.New("decide: the none-of-these id equals an option id")
+	ErrNoNoneOption        = errors.New("decide: the clarification has no none-of-these id")
+)
 
+// sealNone returns q with the none-of-these ID set to id, and refuses a clarification it cannot carry: an empty id (a question is never emitted without one, also when it lists no
+// options) or an id equal to one of the options (the answer to the option and the answer to none would be the same word).
 func sealNone(q Clarification, id string) (Clarification, error) {
-	return Clarification{}, errors.New("decide: not built")
+	if id == "" {
+		return Clarification{}, ErrNoNoneOption
+	}
+	for _, o := range q.Options {
+		if o.ID == id {
+			return Clarification{}, ErrNoneOptionCollision
+		}
+	}
+	q.NoneOptionID = id
+	return q, nil
 }
 
 const valuePlaceholder = "{value}"
@@ -162,8 +178,8 @@ func BuildClarification(cands []Candidate, order []AttributeSpec, optionsKey str
 		}
 	}
 	if best != nil {
-		return Clarification{Mode: ModeAttribute, Attribute: best.spec.Name, QuestionKey: best.spec.QuestionKey,
-			Options: options(cands, best.labels), AllowNone: true}, nil
+		return sealNone(Clarification{Mode: ModeAttribute, Attribute: best.spec.Name, QuestionKey: best.spec.QuestionKey,
+			Options: options(cands, best.labels), AllowNone: true}, NoneOptionID)
 	}
 	labels := make([]string, 0, len(cands))
 	seen := map[string]bool{}
@@ -174,7 +190,7 @@ func BuildClarification(cands []Candidate, order []AttributeSpec, optionsKey str
 		seen[c.Display] = true
 		labels = append(labels, c.Display)
 	}
-	return Clarification{Mode: ModeOptions, QuestionKey: optionsKey, Options: options(cands, labels), AllowNone: true}, nil
+	return sealNone(Clarification{Mode: ModeOptions, QuestionKey: optionsKey, Options: options(cands, labels), AllowNone: true}, NoneOptionID)
 }
 
 func options(cands []Candidate, labels []string) []Option {

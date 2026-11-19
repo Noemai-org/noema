@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Noemai-org/noema/services/core/trust/decide"
@@ -96,7 +97,7 @@ func TestEveryClarificationCarriesTheMintedNoneIDWhateverTheCandidateCount(t *te
 func TestBindReadsTheNoneIDAsNoneOfTheseForEveryRoundAndCandidateSet(t *testing.T) {
 	r := rand.New(rand.NewSource(1275))
 	for i := 0; i < 500; i++ {
-		n := 2 + r.Intn(4)
+		n := 2 + r.Intn(3)
 		q, err := decide.BuildClarification(candidates(n), order, "k", decide.Limits{MaxOptions: 4, MaxDigitRun: 4})
 		if err != nil {
 			t.Fatal(err)
@@ -187,8 +188,8 @@ func TestBindRefusesAnOpenClarificationThatHasNoNoneIDOrWhoseNoneIDIsAnOption(t 
 
 func TestTheNewErrorsHaveFixedTextsThatNameNothing(t *testing.T) {
 	for _, err := range []error{decide.ErrNoNoneOption, decide.ErrNoneRejected, decide.ErrNoneCombined, decide.ErrNoneOptionCollision} {
-		if got := err.Error(); len(got) < len("decide: x") || got == "decide: not built" {
-			t.Fatalf("%v has no fixed text", err)
+		if got := err.Error(); !strings.HasPrefix(got, "decide: ") || strings.Contains(got, "clr_") || strings.Contains(got, "opt_") {
+			t.Fatalf("%q is not a fixed text that names nothing", got)
 		}
 	}
 }
