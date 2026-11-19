@@ -22,7 +22,12 @@ import (
 
 var confirmationTables = []string{"confirmation_request", "confirmation_answer", "confirmation_expiry"}
 
-var cfBase = time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC) // SYNTHETIC
+// A368 (interim, relayed, not yet committed): every time of a confirmation row comes from the DATABASE clock. The tests therefore pass a time-to-live, never a time, and wait on the database's own
+// clock (pg_sleep) for a request to expire; they never read the Go clock.
+const (
+	cfOpen  = time.Hour       // a request that stays open for the whole test
+	cfShort = 2 * time.Second // a request the test lets expire
+)
 
 type cfWorld struct {
 	admin  *pgxpool.Pool
@@ -66,37 +71,58 @@ func cfBinding(target string) cfBound {
 		PlanHash: "sha256:l1", PolicyVersion: "pol_v1"}
 }
 
+// the insert names no requested_at: the database sets it (A368); expires_at is the database's now() plus the time-to-live in seconds
 const cfInsertRequest = `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id, target_ref,
-	params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, requested_at, expires_at, supersedes_request_id)
-	VALUES ($1, $2, 'cor_1', 'int_1', 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'prn_1', $13, $14, NULLIF($15, ''))`
+	params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, expires_at, supersedes_request_id)
+	VALUES ($1, $2, 'cor_1', 'int_1', 1, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'prn_1', now() + make_interval(secs => $13::float8), NULLIF($14, ''))`
 
 // request inserts a request as pool for tenant, with a correct binding hash, and returns the error.
-func (w *cfWorld) request(t *testing.T, pool *pgxpool.Pool, tenant, id, supersedes string, b cfBound, requirement string, at time.Time, ttl time.Duration) error {
+func (w *cfWorld) request(t *testing.T, pool *pgxpool.Pool, tenant, id, supersedes string, b cfBound, requirement string, ttl time.Duration) error {
 	t.Helper()
-	return w.requestWithHash(pool, tenant, id, supersedes, b, cfHash(b), requirement, at, ttl)
+	return w.requestWithHash(pool, tenant, id, supersedes, b, cfHash(b), requirement, ttl)
 }
 
-func (w *cfWorld) requestWithHash(pool *pgxpool.Pool, tenant, id, supersedes string, b cfBound, hash, requirement string, at time.Time, ttl time.Duration) error {
+func (w *cfWorld) requestWithHash(pool *pgxpool.Pool, tenant, id, supersedes string, b cfBound, hash, requirement string, ttl time.Duration) error {
 	c, cancel := cfCtx()
 	defer cancel()
 	_, err := pool.Exec(c, cfInsertRequest, tenant, id, b.PrincipalID, b.IntentHash, b.CapabilityID, b.TargetRef, b.ParamsHash, b.EvidenceSetHash, b.PlanHash, b.PolicyVersion, hash,
-		requirement, at, at.Add(ttl), supersedes)
+		requirement, ttl.Seconds(), supersedes)
 	return err
 }
 
-func (w *cfWorld) answer(pool *pgxpool.Pool, tenant, event, request, approver, response string, at time.Time) error {
+// answer and expire name no time: the database sets answered_at and observed_at (A368).
+func (w *cfWorld) answer(pool *pgxpool.Pool, tenant, event, request, approver, response string) error {
 	c, cancel := cfCtx()
 	defer cancel()
-	_, err := pool.Exec(c, `INSERT INTO confirmation_answer (tenant_id, confirmation_event_id, confirmation_request_id, response, approver_id, approver_roles, answered_at)
-		VALUES ($1, $2, $3, $4, $5, ARRAY['reviewer'], $6)`, tenant, event, request, response, approver, at)
+	_, err := pool.Exec(c, `INSERT INTO confirmation_answer (tenant_id, confirmation_event_id, confirmation_request_id, response, approver_id, approver_roles)
+		VALUES ($1, $2, $3, $4, $5, ARRAY['reviewer'])`, tenant, event, request, response, approver)
 	return err
 }
 
-func (w *cfWorld) expire(pool *pgxpool.Pool, tenant, request string, at time.Time) error {
+func (w *cfWorld) expire(pool *pgxpool.Pool, tenant, request string) error {
 	c, cancel := cfCtx()
 	defer cancel()
-	_, err := pool.Exec(c, `INSERT INTO confirmation_expiry (tenant_id, confirmation_request_id, observed_at) VALUES ($1, $2, $3)`, tenant, request, at)
+	_, err := pool.Exec(c, `INSERT INTO confirmation_expiry (tenant_id, confirmation_request_id) VALUES ($1, $2)`, tenant, request)
 	return err
+}
+
+// waitExpired blocks on the DATABASE clock until the request has expired (never the Go clock).
+func (w *cfWorld) waitExpired(t *testing.T, request string) {
+	t.Helper()
+	c, cancel := cfCtx()
+	defer cancel()
+	if _, err := w.admin.Exec(c, `SELECT pg_sleep(greatest(0, extract(epoch FROM expires_at - clock_timestamp())) + 0.2) FROM confirmation_request WHERE confirmation_request_id = $1`, request); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// wantCode: the database refused with exactly this SQLSTATE (the typed refusals of A368: 23E01 an answer after the expiry, 23S01 an answer to a superseded request).
+func wantSQLState(t *testing.T, err error, code string) {
+	t.Helper()
+	var pe *pgconn.PgError
+	if !errors.As(err, &pe) || pe.Code != code {
+		t.Fatalf("got %v, want SQLSTATE %s", err, code)
+	}
 }
 
 func count(t *testing.T, pool *pgxpool.Pool, table string) int {
@@ -190,7 +216,7 @@ func TestARequestCarriesAllEightBoundValuesAndTheirHash(t *testing.T) {
 		}
 	}
 	good := cfBinding("tgt_1")
-	if err := w.request(t, w.trustA, "ten_a", "cfr_ok1", "", good, "MAKER_CHECKER", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_ok1", "", good, "MAKER_CHECKER", cfOpen); err != nil {
 		t.Fatalf("a well-formed request: %v", err)
 	}
 	for name, mutate := range map[string]func(*cfBound){
@@ -203,27 +229,27 @@ func TestARequestCarriesAllEightBoundValuesAndTheirHash(t *testing.T) {
 		b := good
 		b.TargetRef = "tgt_2"
 		mutate(&b)
-		err := w.requestWithHash(w.trustA, "ten_a", "cfr_bad1", "", b, "sha256:"+strings.Repeat("a", 64), "SELF", cfBase, time.Hour)
+		err := w.requestWithHash(w.trustA, "ten_a", "cfr_bad1", "", b, "sha256:"+strings.Repeat("a", 64), "SELF", cfOpen)
 		if err == nil {
 			t.Errorf("%s: the database accepted the request", name)
 		}
 	}
 	other := good
 	other.TargetRef = "tgt_3"
-	err := w.requestWithHash(w.trustA, "ten_a", "cfr_bad2", "", other, "sha256:"+strings.Repeat("b", 64), "SELF", cfBase, time.Hour)
+	err := w.requestWithHash(w.trustA, "ten_a", "cfr_bad2", "", other, "sha256:"+strings.Repeat("b", 64), "SELF", cfOpen)
 	wantState(t, err, violation) // the hash is not the one of the eight values
 	for name, req := range map[string]string{"unknown": "ANYONE", "empty role": "ROLE:", "lower": "self"} {
-		if err := w.request(t, w.trustA, "ten_a", "cfr_bad3", "", cfBinding("tgt_4"), req, cfBase, time.Hour); err == nil {
+		if err := w.request(t, w.trustA, "ten_a", "cfr_bad3", "", cfBinding("tgt_4"), req, cfOpen); err == nil {
 			t.Errorf("requirement %s accepted", name)
 		}
 	}
-	if err := w.request(t, w.trustA, "ten_a", "cfr_ok2", "", cfBinding("tgt_5"), "ROLE:reviewer", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_ok2", "", cfBinding("tgt_5"), "ROLE:reviewer", cfOpen); err != nil {
 		t.Errorf("ROLE:reviewer: %v", err)
 	}
-	if err := w.request(t, w.trustA, "ten_a", "cfr_bad4", "", cfBinding("tgt_6"), "SELF", cfBase, 0); err == nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_bad4", "", cfBinding("tgt_6"), "SELF", 0); err == nil {
 		t.Error("a request that expires when it is made was accepted")
 	}
-	if err := w.request(t, w.trustA, "ten_a", "badid", "", cfBinding("tgt_7"), "SELF", cfBase, time.Hour); err == nil {
+	if err := w.request(t, w.trustA, "ten_a", "badid", "", cfBinding("tgt_7"), "SELF", cfOpen); err == nil {
 		t.Error("an ID outside the cfr_ form was accepted")
 	}
 }
@@ -231,13 +257,14 @@ func TestARequestCarriesAllEightBoundValuesAndTheirHash(t *testing.T) {
 // REQ-SEC-004, INV-11: a login reads and writes only its own tenant's rows.
 func TestConfirmationRowsAreIsolatedByTenant(t *testing.T) {
 	w := newCfWorld(t)
-	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfShort); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.answer(w.trustA, "ten_a", "cfe_a1", "cfr_a1", "prn_2", "ACCEPT", cfBase); err != nil {
+	if err := w.answer(w.trustA, "ten_a", "cfe_a1", "cfr_a1", "prn_2", "ACCEPT"); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.expire(w.trustA, "ten_a", "cfr_a1", cfBase.Add(2*time.Hour)); err != nil {
+	w.waitExpired(t, "cfr_a1")
+	if err := w.expire(w.trustA, "ten_a", "cfr_a1"); err != nil {
 		t.Fatal(err)
 	}
 	for _, tbl := range confirmationTables {
@@ -249,14 +276,14 @@ func TestConfirmationRowsAreIsolatedByTenant(t *testing.T) {
 		}
 	}
 	// B writes for A: refused (the policy, the tenant guard, or the request B cannot see)
-	wantState(t, w.request(t, w.trustB, "ten_a", "cfr_x1", "", cfBinding("tgt_9"), "SELF", cfBase, time.Hour), denied)
-	wantRefused(t, w.answer(w.trustB, "ten_a", "cfe_x1", "cfr_a1", "prn_2", "ACCEPT", cfBase))
-	wantRefused(t, w.expire(w.trustB, "ten_a", "cfr_a1", cfBase.Add(3*time.Hour)))
+	wantState(t, w.request(t, w.trustB, "ten_a", "cfr_x1", "", cfBinding("tgt_9"), "SELF", cfOpen), denied)
+	wantRefused(t, w.answer(w.trustB, "ten_a", "cfe_x1", "cfr_a1", "prn_2", "ACCEPT"))
+	wantRefused(t, w.expire(w.trustB, "ten_a", "cfr_a1"))
 	// B answers or expires A's request under its own tenant: B cannot see it
-	wantState(t, w.answer(w.trustB, "ten_b", "cfe_x2", "cfr_a1", "prn_2", "ACCEPT", cfBase), violation)
-	wantState(t, w.expire(w.trustB, "ten_b", "cfr_a1", cfBase.Add(3*time.Hour)), violation)
+	wantState(t, w.answer(w.trustB, "ten_b", "cfe_x2", "cfr_a1", "prn_2", "ACCEPT"), violation)
+	wantState(t, w.expire(w.trustB, "ten_b", "cfr_a1"), violation)
 	// B can use the same request ID for its own request: the key is per tenant
-	if err := w.request(t, w.trustB, "ten_b", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustB, "ten_b", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfOpen); err != nil {
 		t.Errorf("tenant B's own request with the same ID: %v", err)
 	}
 }
@@ -264,19 +291,20 @@ func TestConfirmationRowsAreIsolatedByTenant(t *testing.T) {
 // A request is superseded by a NEW row, never updated; an answer and an expiry are insert-only; nobody may delete or truncate, not even the owner.
 func TestConfirmationRowsAreInsertOnly(t *testing.T) {
 	w := newCfWorld(t)
-	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfShort); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.answer(w.trustA, "ten_a", "cfe_a1", "cfr_a1", "prn_2", "DECLINE", cfBase); err != nil {
+	if err := w.answer(w.trustA, "ten_a", "cfe_a1", "cfr_a1", "prn_2", "DECLINE"); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.expire(w.trustA, "ten_a", "cfr_a1", cfBase.Add(2*time.Hour)); err != nil {
+	w.waitExpired(t, "cfr_a1")
+	if err := w.expire(w.trustA, "ten_a", "cfr_a1"); err != nil {
 		t.Fatal(err)
 	}
 	stmts := map[string][]string{
 		"confirmation_request": {`UPDATE confirmation_request SET expires_at = expires_at + interval '1 day'`, `UPDATE confirmation_request SET requirement = 'SELF'`, `DELETE FROM confirmation_request`, `TRUNCATE confirmation_request`},
 		"confirmation_answer":  {`UPDATE confirmation_answer SET response = 'ACCEPT'`, `DELETE FROM confirmation_answer`, `TRUNCATE confirmation_answer`},
-		"confirmation_expiry":  {`UPDATE confirmation_expiry SET observed_at = observed_at`, `DELETE FROM confirmation_expiry`, `TRUNCATE confirmation_expiry`},
+		"confirmation_expiry":  {`UPDATE confirmation_expiry SET recorded_at = recorded_at`, `DELETE FROM confirmation_expiry`, `TRUNCATE confirmation_expiry`},
 	}
 	for tbl, list := range stmts {
 		for _, s := range list {
@@ -298,50 +326,52 @@ func TestConfirmationRowsAreInsertOnly(t *testing.T) {
 	}
 }
 
-// One open request per (tenant, intent, capability, target); a fresh request supersedes, never updates; never a second request beside an open, unanswered, unexpired one.
+// One open request per (tenant, intent, capability, target); a fresh request supersedes, never updates; never a second request beside an open, unanswered, unexpired one. The expiry is the
+// database's: the first request lives a few seconds and the test waits on the database clock.
 func TestOneOpenRequestPerActionAndSupersessionByANewRow(t *testing.T) {
 	w := newCfWorld(t)
 	b := cfBinding("tgt_1")
-	if err := w.request(t, w.trustA, "ten_a", "cfr_r1", "", b, "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_r1", "", b, "SELF", 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
 	// a second root for the same action
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "", b, "SELF", cfBase, time.Hour), violation)
-	// a fresh request beside an open one: unanswered and not expired at the new request's time
+	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "", b, "SELF", cfOpen), violation)
+	// a fresh request beside an open one: unanswered and not expired on the database clock
 	b2 := b
 	b2.PlanHash = "sha256:l2"
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", b2, "SELF", cfBase.Add(10*time.Minute), time.Hour), violation)
+	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", b2, "SELF", cfOpen), violation)
 	// a superseded request that does not exist, or one of another action
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_nope", b2, "SELF", cfBase.Add(2*time.Hour), time.Hour), violation)
-	other := b2
-	other.CapabilityID = "cap.other"
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", other, "SELF", cfBase.Add(2*time.Hour), time.Hour), violation)
-	other = b2
-	other.TargetRef = "tgt_2"
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", other, "SELF", cfBase.Add(2*time.Hour), time.Hour), violation)
-	other = b2
-	other.PrincipalID = "prn_9"
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", other, "SELF", cfBase.Add(2*time.Hour), time.Hour), violation)
+	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_nope", b2, "SELF", cfOpen), violation)
+	for name, mutate := range map[string]func(*cfBound){
+		"capability": func(o *cfBound) { o.CapabilityID = "cap.other" }, "target": func(o *cfBound) { o.TargetRef = "tgt_2" }, "principal": func(o *cfBound) { o.PrincipalID = "prn_9" },
+	} {
+		other := b2
+		mutate(&other)
+		if err := w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", other, "SELF", cfOpen); err == nil {
+			t.Errorf("a request of another %s superseded cfr_r1", name)
+		}
+	}
 	if n := count(t, w.admin, "confirmation_request"); n != 1 {
 		t.Fatalf("%d requests after the refusals, want 1", n)
 	}
-	// after the expiry: a fresh request supersedes
-	if err := w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", b2, "SELF", cfBase.Add(2*time.Hour), time.Hour); err != nil {
-		t.Fatalf("a request after the expiry: %v", err)
+	// after an answer (an ACCEPT whose binding changed): a fresh request supersedes even before the expiry
+	if err := w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_r1", "prn_2", "ACCEPT"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.request(t, w.trustA, "ten_a", "cfr_r2", "cfr_r1", b2, "SELF", 3*time.Second); err != nil {
+		t.Fatalf("a request after an answer: %v", err)
 	}
 	// a request is superseded once
 	b3 := b
 	b3.PlanHash = "sha256:l3"
-	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r3", "cfr_r1", b3, "SELF", cfBase.Add(3*time.Hour), time.Hour), violation)
-	// after an answer (an ACCEPT whose binding changed): a fresh request supersedes even before the expiry
-	if err := w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_r2", "prn_2", "ACCEPT", cfBase.Add(2*time.Hour+time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.request(t, w.trustA, "ten_a", "cfr_r3", "cfr_r2", b3, "SELF", cfBase.Add(2*time.Hour+2*time.Minute), time.Hour); err != nil {
-		t.Fatalf("a request after an answer: %v", err)
+	wantState(t, w.request(t, w.trustA, "ten_a", "cfr_r3", "cfr_r1", b3, "SELF", cfOpen), violation)
+	// after the expiry on the database clock: a fresh request supersedes an unanswered one
+	w.waitExpired(t, "cfr_r2")
+	if err := w.request(t, w.trustA, "ten_a", "cfr_r3", "cfr_r2", b3, "SELF", cfOpen); err != nil {
+		t.Fatalf("a request after the expiry: %v", err)
 	}
 	// another action of the same intent has its own root
-	if err := w.request(t, w.trustA, "ten_a", "cfr_t2", "", cfBinding("tgt_2"), "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_t2", "", cfBinding("tgt_2"), "SELF", cfOpen); err != nil {
 		t.Fatalf("a request for another target: %v", err)
 	}
 	var heads int
@@ -356,7 +386,7 @@ func TestTwoConcurrentRootRequestsCommitOne(t *testing.T) {
 	w := newCfWorld(t)
 	errs := make(chan error, 2)
 	for _, id := range []string{"cfr_c1", "cfr_c2"} {
-		go func() { errs <- w.request(t, w.trustA, "ten_a", id, "", cfBinding("tgt_1"), "SELF", cfBase, time.Hour) }()
+		go func() { errs <- w.request(t, w.trustA, "ten_a", id, "", cfBinding("tgt_1"), "SELF", cfOpen) }()
 	}
 	var failed int
 	for i := 0; i < 2; i++ {
@@ -371,36 +401,151 @@ func TestTwoConcurrentRootRequestsCommitOne(t *testing.T) {
 }
 
 // One answer per request (A341: first answer wins); an answer is ACCEPT or DECLINE; the event ID is cfe_...; an answer names an existing request.
-func TestOneAnswerPerRequestAndApprover(t *testing.T) {
+func TestOneAnswerPerRequestWhoeverTheApprover(t *testing.T) {
 	w := newCfWorld(t)
-	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "MAKER_CHECKER", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "MAKER_CHECKER", cfOpen); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_a1", "prn_2", "ACCEPT", cfBase); err != nil {
+	if err := w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_a1", "prn_2", "ACCEPT"); err != nil {
 		t.Fatal(err)
 	}
-	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n2", "cfr_a1", "prn_2", "DECLINE", cfBase), violation) // the same approver again
-	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_a1", "prn_3", "ACCEPT", cfBase), violation)  // the same event ID
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n2", "cfr_a1", "prn_2", "DECLINE"), violation) // the same approver again
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_a1", "prn_3", "ACCEPT"), violation)  // the same event ID
 	// A341: the FIRST answer wins, so a second answer by ANOTHER approver is refused too (UNIQUE (tenant_id, confirmation_request_id))
-	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n3", "cfr_a1", "prn_3", "DECLINE", cfBase), violation)
-	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n4", "cfr_a1", "prn_4", "MAYBE", cfBase), violation)
-	wantState(t, w.answer(w.trustA, "ten_a", "evt_5", "cfr_a1", "prn_4", "ACCEPT", cfBase), violation)
-	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n6", "cfr_zzz", "prn_4", "ACCEPT", cfBase), violation)
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n3", "cfr_a1", "prn_3", "DECLINE"), violation)
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n4", "cfr_a1", "prn_4", "MAYBE"), violation)
+	wantState(t, w.answer(w.trustA, "ten_a", "evt_5", "cfr_a1", "prn_4", "ACCEPT"), violation)
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n6", "cfr_zzz", "prn_4", "ACCEPT"), violation)
 	if n := count(t, w.admin, "confirmation_answer"); n != 1 {
 		t.Errorf("%d answers, want 1", n)
 	}
 }
 
-// The expiry is recorded once, and only at or after the request's expiry.
+// The expiry is recorded once, and only at or after the request's expiry on the DATABASE clock.
 func TestAnExpiryIsRecordedOnceAndNotBeforeTheRequestExpires(t *testing.T) {
 	w := newCfWorld(t)
-	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfBase, time.Hour); err != nil {
+	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "SELF", cfShort); err != nil {
 		t.Fatal(err)
 	}
-	wantState(t, w.expire(w.trustA, "ten_a", "cfr_a1", cfBase.Add(30*time.Minute)), violation)
-	wantState(t, w.expire(w.trustA, "ten_a", "cfr_missing", cfBase.Add(2*time.Hour)), violation)
-	if err := w.expire(w.trustA, "ten_a", "cfr_a1", cfBase.Add(time.Hour)); err != nil {
+	wantState(t, w.expire(w.trustA, "ten_a", "cfr_a1"), violation) // not yet
+	wantState(t, w.expire(w.trustA, "ten_a", "cfr_missing"), violation)
+	// a caller cannot expire a request early by claiming a later time (A368; SR requirement 2, C2 and Voice P3)
+	_, err := w.trustA.Exec(ctx(t), `INSERT INTO confirmation_expiry (tenant_id, confirmation_request_id, observed_at) VALUES ('ten_a', 'cfr_a1', now() + interval '1 day')`)
+	wantState(t, err, violation)
+	w.waitExpired(t, "cfr_a1")
+	if err := w.expire(w.trustA, "ten_a", "cfr_a1"); err != nil {
 		t.Fatalf("at the expiry: %v", err)
 	}
-	wantState(t, w.expire(w.trustA, "ten_a", "cfr_a1", cfBase.Add(2*time.Hour)), violation)
+	wantState(t, w.expire(w.trustA, "ten_a", "cfr_a1"), violation)
+}
+
+// A368 (ii): requested_at, answered_at and observed_at are the DATABASE's now(), whatever the caller supplies (SR requirement 2: a skewed or hostile clock changes nothing).
+func TestConfirmationTimesComeFromTheDatabaseClock(t *testing.T) {
+	w := newCfWorld(t)
+	b := cfBinding("tgt_1")
+	_, err := w.trustA.Exec(ctx(t), `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id,
+		target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, requested_at, expires_at, recorded_at)
+		VALUES ('ten_a', 'cfr_t1', 'cor_1', 'int_1', 1, $1, $2, $3, $4, $5, $6, $7, $8, $9, 'SELF', 'prn_1', '2000-01-01T00:00:00Z', now() + interval '2 seconds', '2100-01-01T00:00:00Z')`,
+		b.PrincipalID, b.IntentHash, b.CapabilityID, b.TargetRef, b.ParamsHash, b.EvidenceSetHash, b.PlanHash, b.PolicyVersion, cfHash(b))
+	if err != nil {
+		t.Fatalf("a request with supplied times: %v", err)
+	}
+	_, err = w.trustA.Exec(ctx(t), `INSERT INTO confirmation_answer (tenant_id, confirmation_event_id, confirmation_request_id, response, approver_id, approver_roles, answered_at, recorded_at)
+		VALUES ('ten_a', 'cfe_t1', 'cfr_t1', 'ACCEPT', 'prn_2', ARRAY['reviewer'], '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("an answer with a supplied time: %v", err)
+	}
+	w.waitExpired(t, "cfr_t1")
+	_, err = w.trustA.Exec(ctx(t), `INSERT INTO confirmation_expiry (tenant_id, confirmation_request_id, observed_at, recorded_at) VALUES ('ten_a', 'cfr_t1', '2100-01-01T00:00:00Z', '2000-01-01T00:00:00Z')`)
+	if err != nil {
+		t.Fatalf("an expiry with a supplied time: %v", err)
+	}
+	for _, q := range []string{
+		`SELECT abs(extract(epoch FROM now() - requested_at)) < 60 AND abs(extract(epoch FROM now() - recorded_at)) < 60 FROM confirmation_request`,
+		`SELECT abs(extract(epoch FROM now() - answered_at)) < 60 AND abs(extract(epoch FROM now() - recorded_at)) < 60 FROM confirmation_answer`,
+		`SELECT abs(extract(epoch FROM now() - observed_at)) < 60 AND abs(extract(epoch FROM now() - recorded_at)) < 60 FROM confirmation_expiry`,
+	} {
+		var ok bool
+		if err := w.admin.QueryRow(ctx(t), q).Scan(&ok); err != nil || !ok {
+			t.Errorf("%s: a supplied time was stored (ok=%v err=%v), want the database's now()", q, ok, err)
+		}
+	}
+}
+
+// A368 (iii), SR requirement 3: the intent version is at least 1.
+func TestAnIntentVersionBelowOneIsRefused(t *testing.T) {
+	w := newCfWorld(t)
+	b := cfBinding("tgt_1")
+	for _, v := range []int{0, -1} {
+		_, err := w.trustA.Exec(ctx(t), `INSERT INTO confirmation_request (tenant_id, confirmation_request_id, correlation_id, intent_id, intent_version, principal_id, intent_hash, capability_id,
+			target_ref, params_hash, evidence_set_hash, plan_hash, policy_version, binding_hash, requirement, requester_id, expires_at)
+			VALUES ('ten_a', 'cfr_v1', 'cor_1', 'int_1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'SELF', 'prn_1', now() + interval '1 hour')`,
+			v, b.PrincipalID, b.IntentHash, b.CapabilityID, b.TargetRef, b.ParamsHash, b.EvidenceSetHash, b.PlanHash, b.PolicyVersion, cfHash(b))
+		wantState(t, err, violation)
+	}
+	if n := count(t, w.admin, "confirmation_request"); n != 0 {
+		t.Fatalf("%d requests stored with a version below 1", n)
+	}
+}
+
+// A368 (iv), C2 P2: an answer AFTER the request expired is refused by the database on its own clock (SQLSTATE 23E01), and so is an answer to a request that has a successor (23S01); the
+// supersession is decided first. A replay of the stored answer is not an answer and is left to the unique key.
+func TestAnAnswerAfterTheExpiryOrTheSupersessionIsRefused(t *testing.T) {
+	w := newCfWorld(t)
+	b := cfBinding("tgt_1")
+	if err := w.request(t, w.trustA, "ten_a", "cfr_e1", "", b, "SELF", cfShort); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.request(t, w.trustA, "ten_a", "cfr_e2", "", cfBinding("tgt_2"), "SELF", cfShort); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.answer(w.trustA, "ten_a", "cfe_ok", "cfr_e2", "prn_2", "ACCEPT"); err != nil {
+		t.Fatalf("an answer before the expiry: %v", err)
+	}
+	w.waitExpired(t, "cfr_e1")
+	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_late", "cfr_e1", "prn_2", "ACCEPT"), "23E01")
+	// the same answer after the expiry reaches the unique key, not the expiry rule, when the request already has an answer
+	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_dup", "cfr_e2", "prn_2", "ACCEPT"), "23505")
+	b2 := b
+	b2.PlanHash = "sha256:l2"
+	if err := w.request(t, w.trustA, "ten_a", "cfr_e3", "cfr_e1", b2, "SELF", cfOpen); err != nil {
+		t.Fatalf("a request after the expiry: %v", err)
+	}
+	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_late2", "cfr_e1", "prn_2", "ACCEPT"), "23S01")
+	wantSQLState(t, w.answer(w.trustA, "ten_a", "cfe_late3", "cfr_e1", "prn_2", "DECLINE"), "23S01")
+	if n := count(t, w.admin, "confirmation_answer"); n != 1 {
+		t.Errorf("%d answers, want only the one made before the expiry", n)
+	}
+	// the live head still takes its answer
+	if err := w.answer(w.trustA, "ten_a", "cfe_head", "cfr_e3", "prn_2", "ACCEPT"); err != nil {
+		t.Fatalf("an answer to the live head: %v", err)
+	}
+}
+
+// A368 (iv), race: an answer and a superseding request at once on a request that has just expired never leave an answer on a superseded request.
+func TestAnAnswerAndASupersedeAtOnceNeverLeaveAnAnswerOnASupersededRequest(t *testing.T) {
+	w := newCfWorld(t)
+	b := cfBinding("tgt_1")
+	if err := w.request(t, w.trustA, "ten_a", "cfr_k1", "", b, "SELF", cfShort); err != nil {
+		t.Fatal(err)
+	}
+	w.waitExpired(t, "cfr_k1")
+	b2 := b
+	b2.PlanHash = "sha256:l2"
+	errs := make(chan error, 2)
+	go func() { errs <- w.request(t, w.trustA, "ten_a", "cfr_k2", "cfr_k1", b2, "SELF", cfOpen) }()
+	go func() { errs <- w.answer(w.trustA, "ten_a", "cfe_k1", "cfr_k1", "prn_2", "ACCEPT") }()
+	var ok int
+	for i := 0; i < 2; i++ {
+		if err := <-errs; err == nil {
+			ok++
+		}
+	}
+	var stale int
+	if err := w.admin.QueryRow(ctx(t), `SELECT count(*) FROM confirmation_answer a JOIN confirmation_request s ON s.tenant_id = a.tenant_id AND s.supersedes_request_id = a.confirmation_request_id`).Scan(&stale); err != nil {
+		t.Fatal(err)
+	}
+	if stale != 0 || ok != 1 || count(t, w.admin, "confirmation_answer") != 0 {
+		t.Fatalf("%d answers on a superseded request, %d writes succeeded, %d answers: want none, exactly the supersede, none", stale, ok, count(t, w.admin, "confirmation_answer"))
+	}
 }
