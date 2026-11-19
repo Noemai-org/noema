@@ -70,10 +70,10 @@ export function parseRecordEventV3RecordEventType(v: unknown, p: string = "$"): 
 }
 
 /** RecordEventV3SecurityKind, generated from record-event.v3.json#$defs/SecurityKind. */
-export type RecordEventV3SecurityKind = "INJECTION_DETECTED" | "PRINCIPAL_OVERRIDE_ATTEMPT" | "SIGNATURE_INVALID" | "CROSS_SCOPE_ATTEMPT" | "REQUEST_ID_REUSED" | "IDEMPOTENCY_COLLISION" | "CHAIN_BREAK";
+export type RecordEventV3SecurityKind = "INJECTION_DETECTED" | "PRINCIPAL_OVERRIDE_ATTEMPT" | "SIGNATURE_INVALID" | "CROSS_SCOPE_ATTEMPT" | "REQUEST_ID_REUSED" | "IDEMPOTENCY_COLLISION" | "CHAIN_BREAK" | "CONFIRMATION_REFUSED";
 
 export function parseRecordEventV3SecurityKind(v: unknown, p: string = "$"): RecordEventV3SecurityKind {
-  return oneOfLit(v, p, ["INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED", "IDEMPOTENCY_COLLISION", "CHAIN_BREAK"] as const);
+  return oneOfLit(v, p, ["INJECTION_DETECTED", "PRINCIPAL_OVERRIDE_ATTEMPT", "SIGNATURE_INVALID", "CROSS_SCOPE_ATTEMPT", "REQUEST_ID_REUSED", "IDEMPOTENCY_COLLISION", "CHAIN_BREAK", "CONFIRMATION_REFUSED"] as const);
 }
 
 /** RecordEventV3, generated from record-event.v3.json. v3 (DEC-2026-10-27-actor-and-payload-hash, PERD v1.17 §32.1). SoT §43.6 and PERD §32.1, §32.2. The Record is append-only and hash-chained per tenant (INV-11). v3 is v2 with the emitter and the principal defined: writt... */
