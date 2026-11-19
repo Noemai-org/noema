@@ -52,7 +52,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 	if e.intent == nil {
 		return decide.FailStep(errNoIntent)
 	}
-	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent)
+	c, err := e.svc.Ports.Confirmations.Status(ctx, *e.intent, FreshBinding{})
 	if err != nil {
 		return decide.FailStep(err)
 	}
