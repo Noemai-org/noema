@@ -10,6 +10,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
 	"github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trustpg"
+	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/record/reconstruct"
 	"github.com/Noemai-org/noema/services/core/trust/grants"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
@@ -42,11 +43,40 @@ type TrustParts struct {
 	Bindings   orchestrator.Bindings
 	Dispatches intake.Dispatches
 	Keys       *grants.Keys
+	Service    *intake.Service
+}
+
+// TrustAdapters are the intake ports buildTrust does not build itself, the service clock and the pack version. STUB (red commit).
+type TrustAdapters struct {
+	Intents       intake.Intents
+	Writes        intake.Writes
+	Capabilities  intake.Capabilities
+	Scope         intake.Scope
+	Authority     intake.Authority
+	Candidates    intake.Candidates
+	Ownership     intake.Ownership
+	Evidence      intake.Evidence
+	Reconciler    intake.Reconciler
+	Policies      intake.Policies
+	Clocks        intake.Clocks
+	Confirmations intake.Confirmations
+	Planner       intake.Planner
+	Recorder      intake.Recorder
+	Clock         clock.Clock
+	PackVersion   string
+}
+
+func loadGrantKeys(dir string, maxActive int) (*grants.Keys, error) {
+	return nil, errors.New("not built")
 }
 
 // buildTrust builds the parts and returns them with a function that closes every pool opened (safe to call more than once, and returned with an error too).
-func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, evaluator trustport.Evaluator, loadKeys KeyLoader) (TrustParts, func(), error) {
+func buildTrust(ctx context.Context, env Env, records reconstruct.TenantDBs, _ TrustAdapters, loadKeys KeyLoader) (TrustParts, func(), error) {
 	noop := func() {}
+	if true {
+		return TrustParts{}, noop, errors.New("cmd/core: not built")
+	}
+	var evaluator trustport.Evaluator
 	switch {
 	case evaluator == nil:
 		return TrustParts{}, noop, errors.New("cmd/core: the Trust adapter needs the intake (the Evaluator): it is not configured")
