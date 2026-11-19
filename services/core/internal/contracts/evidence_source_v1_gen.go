@@ -17,10 +17,9 @@ type EvidenceSourceV1 struct {
 	CorroboratingFor      []string       `json:"corroborating_for"`
 	NeverAuthoritativeFor *[]string      `json:"never_authoritative_for,omitempty"`
 	Sensitivity           string         `json:"sensitivity"`
-	MayWrite              *bool          `json:"may_write,omitempty"`
 }
 
-var EvidenceSourceV1Shape = objectShape{name: "EvidenceSourceV1", props: map[string]bool{"source_id": true, "display_name": true, "freshness_sla_seconds": true, "authoritative_for": true, "corroborating_for": true, "never_authoritative_for": true, "sensitivity": true, "may_write": true}, required: []string{"source_id", "display_name", "freshness_sla_seconds", "authoritative_for", "corroborating_for", "sensitivity"}, nonNull: map[string]bool{"source_id": true, "display_name": true, "freshness_sla_seconds": true, "authoritative_for": true, "corroborating_for": true, "never_authoritative_for": true, "sensitivity": true, "may_write": true}, closed: true}
+var EvidenceSourceV1Shape = objectShape{name: "EvidenceSourceV1", props: map[string]bool{"source_id": true, "display_name": true, "freshness_sla_seconds": true, "authoritative_for": true, "corroborating_for": true, "never_authoritative_for": true, "sensitivity": true}, required: []string{"source_id", "display_name", "freshness_sla_seconds", "authoritative_for", "corroborating_for", "sensitivity"}, nonNull: map[string]bool{"source_id": true, "display_name": true, "freshness_sla_seconds": true, "authoritative_for": true, "corroborating_for": true, "never_authoritative_for": true, "sensitivity": true}, closed: true}
 
 func (t *EvidenceSourceV1) UnmarshalJSON(b []byte) error {
 	raw, err := EvidenceSourceV1Shape.check(b)

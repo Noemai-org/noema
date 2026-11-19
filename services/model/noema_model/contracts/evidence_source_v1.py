@@ -19,7 +19,6 @@ class EvidenceSourceV1(ContractModel):
     corroborating_for: list[Annotated[str, StringConstraints(min_length=1)]]
     never_authoritative_for: list[Annotated[str, StringConstraints(min_length=1)]] | None = Field(default=None)
     sensitivity: Annotated[str, StringConstraints(min_length=1)]
-    may_write: bool | None = Field(default=None)
 
 
 EvidenceSourceV1.model_rebuild()

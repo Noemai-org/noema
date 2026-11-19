@@ -75,6 +75,7 @@
         "fin.outcome.exception.evidence_recorded",
         "fin.outcome.exception.complaint_logged"
       ],
+      "write_when": "question_type == 'ESCALATION_REQUEST' or requested_remedy != null",
       "examples": [
         "SYNTHETIC: Wetin happen to the 20k wey I send this morning?",
         "SYNTHETIC: I sent 50k to Tunde and he hasn't received it"
@@ -1805,8 +1806,7 @@
       "never_authoritative_for": [
         "execution_receipt"
       ],
-      "sensitivity": "S3_financial_pii",
-      "may_write": true
+      "sensitivity": "S3_financial_pii"
     },
     {
       "source_id": "fin.src.customer",
@@ -1989,7 +1989,6 @@
     {
       "entity": "transaction",
       "source": "fin.src.core_ledger",
-      "produced_by": "fin.src.core_ledger",
       "fields": {
         "id": {
           "type": "Reference"
@@ -1999,7 +1998,6 @@
     {
       "entity": "beneficiary",
       "source": "fin.src.beneficiary",
-      "produced_by": "fin.src.beneficiary",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2012,7 +2010,6 @@
     {
       "entity": "account",
       "source": "fin.src.customer",
-      "produced_by": "fin.src.customer",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2025,7 +2022,6 @@
     {
       "entity": "switch_event",
       "source": "fin.src.switch",
-      "produced_by": "fin.src.switch",
       "fields": {
         "transaction": {
           "type": "Reference"
@@ -2035,7 +2031,6 @@
     {
       "entity": "settlement_record",
       "source": "fin.src.settlement",
-      "produced_by": "fin.src.settlement",
       "fields": {
         "transaction": {
           "type": "Reference"
@@ -2045,7 +2040,6 @@
     {
       "entity": "case",
       "source": "fin.src.case_system",
-      "produced_by": "fin.src.case_system",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2075,7 +2069,6 @@
     {
       "entity": "attachment",
       "source": "fin.src.case_system",
-      "produced_by": "fin.src.case_system",
       "fields": {
         "case": {
           "type": "Reference"
@@ -2088,7 +2081,6 @@
     {
       "entity": "complaint_ref",
       "source": "fin.src.case_system",
-      "produced_by": "fin.src.case_system",
       "fields": {
         "subject": {
           "type": "Reference"
@@ -2199,6 +2191,36 @@
     "DISPUTES",
     "FRAUD_REVIEW",
     "SETTLEMENT_OPS"
+  ],
+  "case_reasons": [
+    {
+      "code": "PAYMENT_STATUS_QUERY",
+      "label": "A customer asked where a payment is"
+    },
+    {
+      "code": "PAYMENT_DELAY_EXPLANATION",
+      "label": "A customer asked why a payment is delayed"
+    },
+    {
+      "code": "RESEND_ADVICE_REQUEST",
+      "label": "A customer asked for a resend advice"
+    },
+    {
+      "code": "REVERSAL_STATUS_QUERY",
+      "label": "A customer asked about a reversal"
+    },
+    {
+      "code": "CUSTOMER_ESCALATION_REQUEST",
+      "label": "A customer asked for the matter to be escalated"
+    },
+    {
+      "code": "CASE_STATUS_QUERY",
+      "label": "A customer asked about an existing case"
+    },
+    {
+      "code": "PAYMENT_RECONSTRUCTION",
+      "label": "A reconstruction of a payment was requested"
+    }
   ],
   "action_graph_files": [
     "fintech/graph/g1_investigate.json",

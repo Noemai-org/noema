@@ -45,6 +45,8 @@ class ActionGraphV2(unittest.TestCase):
                 self.assertFalse(valid("1", doc))
                 old = copy.deepcopy(doc)
                 del old["roots"]
+                for node in old["nodes"]:
+                    node.pop("params", None)  # v2's optional node member (A369); v1 is closed
                 self.assertTrue(valid("1", old))
                 self.assertFalse(valid("2", old))
 

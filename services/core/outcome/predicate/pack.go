@@ -23,12 +23,9 @@ type fieldType struct {
 }
 
 type descriptor struct {
-	Entity string          `json:"entity"`
-	Source json.RawMessage `json:"source"`
-	// ProducedBy is the optional evidence source that produced the evidence (A345, interim, relayed). Outcome does not use it;
-	// it is read so that this strict reader knows the member, and it must be a string when present.
-	ProducedBy json.RawMessage      `json:"produced_by"`
-	Fields     map[string]fieldType `json:"fields"`
+	Entity string               `json:"entity"`
+	Source json.RawMessage      `json:"source"`
+	Fields map[string]fieldType `json:"fields"`
 }
 
 // definition lists every field of outcome-definition.v1 so that a misspelled one is an unknown field and not a silent zero.
@@ -123,12 +120,6 @@ func LoadPack(raw []byte) (Pack, error) {
 		var d descriptor
 		if err := strict(rawDesc, &d); err != nil {
 			return Pack{}, fmt.Errorf("%w: evidence descriptor %d: %v", errPack, i, err)
-		}
-		if d.ProducedBy != nil {
-			var by string
-			if err := json.Unmarshal(d.ProducedBy, &by); err != nil || by == "" {
-				return Pack{}, fmt.Errorf("%w: evidence descriptor %d: produced_by must be a non-empty string", errPack, i)
-			}
 		}
 		if _, dup := sc.Entities[d.Entity]; dup {
 			return Pack{}, fmt.Errorf("%w: two descriptors for entity %q", errPack, d.Entity)

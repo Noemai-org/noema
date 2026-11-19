@@ -36,7 +36,6 @@ class EvidenceDescriptorV1(ContractModel):
     entity: CommonV1SlotName
     source: CommonV1PackId
     fields_: dict[str, EvidenceDescriptorV1FieldType] = Field(alias='fields')
-    produced_by: CommonV1PackId | None = Field(default=None)
 
 
 EvidenceDescriptorV1FieldType.model_rebuild()
