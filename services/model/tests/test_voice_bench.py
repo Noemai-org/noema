@@ -263,3 +263,56 @@ def test_a_session_whose_cleanup_failed_after_the_first_audio_counts_as_a_failur
 
     assert run(asyncio.wait_for(go(1), timeout=GUARD_S)) == (True, 19, 1)  # one loss in twenty still leaves the 95th percentile on a complete session
     assert run(asyncio.wait_for(go(2), timeout=GUARD_S)) == (False, 18, 2)  # two losses move it to the worst case, as for any other failure
+
+
+# ---- Codex P2s on noema#694 at 592a40df: cleanup of the synthesis stream ----------------------------------------------------------------------------------------------------
+
+
+class NoCloseTts:
+    """A contract-compliant synthesizer whose iterator has no aclose() (a plain async iterator)."""
+
+    name = "fake-tts-no-close"
+    capabilities = CAPS
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        self.calls += 1
+
+        class Stream:
+            def __init__(self) -> None:
+                self.sent = False
+
+            def __aiter__(self) -> "Stream":
+                return self
+
+            async def __anext__(self) -> AudioChunk:
+                if self.sent:
+                    raise StopAsyncIteration
+                self.sent = True
+                return AudioChunk(0, AudioCodec.PCM_S16LE, 48000, bytes([0, 1]) * 100)
+
+        return Stream()
+
+
+def test_a_synthesis_iterator_without_aclose_does_not_abort_the_session() -> None:
+    clock = Clock()
+    tts = NoCloseTts()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), tts, FakeCore(clock), utterance()), timeout=GUARD_S))  # type: ignore[arg-type]
+    assert result.timeline.complete and result.failure is None and tts.calls == 1
+
+
+class RuntimeFailsOnCloseTts(Tts):
+    async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
+        try:
+            async for chunk in super().synthesize(request):
+                yield chunk
+        finally:
+            raise RuntimeError("provider shutdown failed")
+
+
+def test_a_runtime_failure_while_the_stream_is_closed_after_the_first_audio_is_recorded_as_a_failure_not_swallowed() -> None:
+    clock = Clock()
+    result = run(asyncio.wait_for(session(clock, Stt(clock), RuntimeFailsOnCloseTts(clock), FakeCore(clock), utterance()), timeout=GUARD_S))
+    assert result.failure is ProviderFailure.UNAVAILABLE  # the session counts as a failure in the batch (see _counted)
