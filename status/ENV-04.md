@@ -185,3 +185,8 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 - netcheck: `trust-dsn-init` is a sidecar exempt by exact name (`ONE_SHOT_NAMES`); only postgres and that step hold the password; only that step (writable) and the core (read-only) mount the volume; the core's A356 values are checked by number; 10 new self-test mutations (124, all caught).
 - Not done here (waits): `policy-publish` and `tenant-init` one-shots (C1's script and #771 are not on main; the core-trust key provisioning script is not found), `NOEMA_PACK_MANIFEST` (needs the core's loader), `NOEMA_GRANT_KEY_DIR` is set but unread until EL wires it.
 - Not run locally: `trust-dsn/test_init.py` (needs Linux; no Docker daemon here): CI is its proof.
+
+# Session 2026-11-19 · ENV-04 · the optional Intron key mount (A377 to A379, IL)
+- `deploy/compose/bench-intron.yml` (optional overlay, added by `make bench-up` only when `NOEMA_BENCH_INTRON_KEY_FILE` is set): `INTRON_API_KEY_FILE=/run/intron/key` and one read-only bind of the host file into the model service. No dummy file, no environment variable for the key. Facts from Voice (noema#689's reader): unset means the provider is not registered and the service starts; a set variable with a bad file fails at call time; the file needs mode 0600 or 0400 and owner uid 10001.
+- netcheck resolves the bench stack with the overlay too and checks it (variable and mount together, bench only, one read-only bind of one file at that path, never a folder or volume; the core cannot mount it); 8 new mutations (132 total, all caught).
+- Not done: the workflows' own compose commands do not add the overlay (no Environment file path yet); the bench Environment writing the file with owner 10001 is the runner's step when the key exists.

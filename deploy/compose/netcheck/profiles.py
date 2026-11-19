@@ -200,10 +200,15 @@ BENCH_OVERLAYS = ("bench-model.yml", "bench-stack.yml")
 BENCH_ENV = {"NOEMA_BENCH_OUT": "/tmp/noema-bench-out", "NOEMA_BENCH_UID": "1000", "NOEMA_BENCH_GID": "1000", "NOEMA_BENCH_MAX_BODY_BYTES": "1024"}
 
 
-def resolved(profile):
+INTRON_OVERLAY, INTRON_TARGET = "bench-intron.yml", "/run/intron/key"
+
+
+def resolved(profile, with_intron=False):
     files = [str(COMPOSE_FILE)] + ([str(COMPOSE_FILE.parent / f) for f in BENCH_OVERLAYS] if profile == "bench" else [])
+    if with_intron:
+        files.append(str(COMPOSE_FILE.parent / INTRON_OVERLAY))
     cmd = ["docker", "compose"] + [a for f in files for a in ("-f", f)] + ["--profile", profile, "config", "--format", "json"]
-    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV} if profile == "bench" else None)
+    out = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, **BENCH_ENV, **({"NOEMA_BENCH_INTRON_KEY_FILE": "/tmp/noema-intron-key"} if with_intron else {})} if profile == "bench" else None)
     if out.returncode != 0:
         raise SystemExit(f"docker compose config failed for profile {profile}: {out.stderr.strip()[:300]}")
     return json.loads(out.stdout)
@@ -357,6 +362,19 @@ def check(cfg, profile):
             bad.append(f"{profile}: {name} carries the Intron key as an environment variable; it comes only from a file mount (A249)")
         if name != "model" and ("INTRON_API_KEY_FILE" in env_names or any("intron" in m.lower() for m in mounts)):
             bad.append(f"{profile}: {name} names or mounts Intron's key; only the model service may (A249, INV-29)")
+        if name == "model":
+            # A377 to A379: the key file is mounted in the bench profile only, read-only, as one bind of one file at one path, and the variable and the mount come together or not at all.
+            key_env = str((svc.get("environment") or {}).get("INTRON_API_KEY_FILE", ""))
+            key_mounts = [v for v in (svc.get("volumes") or []) if isinstance(v, dict) and str(v.get("target", "")) == INTRON_TARGET]
+            if key_env and profile != "bench":
+                bad.append(f"{profile}: the model has INTRON_API_KEY_FILE; the key mount exists in the bench profile only (A377 to A379)")
+            if bool(key_env) != bool(key_mounts):
+                bad.append(f"{profile}: the model's INTRON_API_KEY_FILE and its key mount must come together: a variable with no file, or a file with no variable (A379)")
+            if key_env and key_env != INTRON_TARGET:
+                bad.append(f"{profile}: INTRON_API_KEY_FILE is {key_env!r}, not {INTRON_TARGET} (A379)")
+            for v in key_mounts:
+                if v.get("type") != "bind" or not v.get("read_only") or str(v.get("source", "")).rstrip("/").endswith(("secrets", "/")) or len(key_mounts) != 1:
+                    bad.append(f"{profile}: the Intron key must be one read-only bind of one file, never a folder (A379)")
         if name == "webhook-relay" and profile != "bench" and str((svc.get("environment") or {}).get("WEBHOOK_RELAY_HOLD_SECONDS", "")).strip():
             bad.append(f"{profile}: the relay holds its answers (WEBHOOK_RELAY_HOLD_SECONDS is set); that is a bench-only fault (A247)")
         if name == "model":
@@ -387,7 +405,7 @@ def check(cfg, profile):
 def self_test(configs):
     """Each mutation must make check() report something; a rule that cannot fail proves nothing. `configs` maps profile to its resolved config."""
     import copy
-    dev, ci, bench, demo = configs["dev"], configs["ci"], configs["bench"], configs["demo"]
+    dev, ci, bench, demo = configs["dev"], configs["ci"], configs["bench"], configs["demo"]  # configs["bench+intron"] is the bench stack with the optional key overlay (A377 to A379)
     sidecar = {"network_mode": "none"}
     cases = {  # label -> (profile, mutation applied to a copy of that profile's configuration)
         "core joins bench_net (oracle)": ("dev", lambda c: c["services"]["core"]["networks"].update({"bench_net": None})),
@@ -468,6 +486,14 @@ def self_test(configs):
         "the model carries the Intron key as a variable": ("dev", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY": "x"})),
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
+        "the bench model gets the key file variable but no mount": ("bench", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"})),
+        "the bench model with the key mount loses the variable": ("bench+intron", lambda c: c["services"]["model"]["environment"].pop("INTRON_API_KEY_FILE")),
+        "the bench key mount is writable": ("bench+intron", lambda c: [v.update({"read_only": False}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the bench key mount is a folder named secrets": ("bench+intron", lambda c: [v.update({"source": "/h/secrets"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the bench key mount is a named volume": ("bench+intron", lambda c: [v.update({"type": "volume"}) for v in c["services"]["model"]["volumes"] if v.get("target") == "/run/intron/key"]),
+        "the key file variable points elsewhere": ("bench+intron", lambda c: c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/other"})),
+        "the core mounts the key file too": ("bench+intron", lambda c: c["services"]["core"].setdefault("volumes", []).append({"type": "bind", "source": "/tmp/noema-intron-key", "target": "/run/intron/key", "read_only": True})),
+        "the dev model has the key file variable": ("dev", lambda c: [c["services"]["model"]["environment"].update({"INTRON_API_KEY_FILE": "/run/intron/key"}), c["services"]["model"].setdefault("volumes", []).append({"type": "bind", "source": "/h/k", "target": "/run/intron/key", "read_only": True})]),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
         "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
         "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
@@ -521,11 +547,11 @@ def self_test(configs):
     for label, (profile, mutate) in cases.items():
         mutated = copy.deepcopy(configs[profile])
         mutate(mutated)
-        if not check(mutated, profile):
+        if not check(mutated, profile.split("+")[0]):
             missed.append(label)
     # And the unmutated configurations must be clean, so a firing rule is the mutation and not noise.
     for profile, cfg in configs.items():
-        if check(cfg, profile):
+        if check(cfg, profile.split("+")[0]):
             missed.append(f"unmutated {profile} is not clean")
     # The inventory: every name of .env.example that is a key or an endpoint must be classified as a provider name, or this rule would not know it (Codex P2 on noema#641).
     env_example = COMPOSE_FILE.parent.parent.parent / ".env.example"
@@ -553,6 +579,11 @@ def main():
         found = check(cfg, profile)
         print(f"{'FAIL' if found else 'ok  '} profile {profile:6} services: {', '.join(sorted(cfg['services']))}")
         failures += found
+    # The bench stack with the optional Intron key overlay (A377 to A379): the same rules, and the key mount is the model's alone.
+    configs["bench+intron"] = resolved("bench", with_intron=True)
+    found = check(configs["bench+intron"], "bench")
+    print(f"{'FAIL' if found else 'ok  '} profile bench with the optional Intron key overlay")
+    failures += found
     # The names the core reads are the Env... constants of its model client (noema#563). When that file is in this tree the two lists must be the same set, so the Compose file and the
     # code cannot drift apart again; on a tree without it (before noema#563 merges) only the Compose side is checked, and this line says so.
     if MODEL_CLIENT_SOURCE.is_file():

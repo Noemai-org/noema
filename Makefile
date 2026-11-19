@@ -166,7 +166,9 @@ model-bench-up:
 
 # The full bench stack for a G1 run (ENV-04 wiring): the bench profile with the model's cost files (bench-model.yml) and the stand-in wiring plus the runner's output
 # directory (bench-stack.yml). The runner is a container on bench_net and edge_net (services/bench-runner.yml); the workflow runs the suite in it.
-BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml --profile bench
+# The optional Intron key overlay (A377 to A379): only when the host path of the key file is given (NOEMA_BENCH_INTRON_KEY_FILE); without it the model has no mount and the provider is not registered.
+BENCH_INTRON = $(if $(NOEMA_BENCH_INTRON_KEY_FILE),-f deploy/compose/bench-intron.yml)
+BENCH_COMPOSE = docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/bench-model.yml -f deploy/compose/bench-stack.yml $(BENCH_INTRON) --profile bench
 # BENCH_MAX_BODY_BYTES has no default: the body limit is not an approved number, so a person gives it. bench-up refuses without it and makes the synthetic IdP first (bench-tokens), because
 # the core mounts its public key. Compose interpolates the variable for every command, so bench-down gets a placeholder when none is given (it uses no value).
 BENCH_TENANT ?= ten_alpha
