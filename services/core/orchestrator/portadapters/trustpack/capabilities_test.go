@@ -74,7 +74,8 @@ func TestRequestedAnswersWhatTheRegistryKnowsForEveryCapabilityOfThePack(t *test
 }
 
 func TestRequestedRefusesWhatTheRegistryDoesNotKnow(t *testing.T) {
-	for _, id := range []string{"x.cap.unknown", "", " ", pack0ID(t) + "x"} {
+	// Not the empty string: as a field of the admitted intent it means "asks for none" (see TestRequestedIsTheFieldOfTheAdmittedIntentAndNothingElse).
+	for _, id := range []string{"x.cap.unknown", " ", pack0ID(t) + "x"} {
 		spy := &remedySpy{id: id, present: true}
 		c := newCaps(t, loadReal(t), spy)
 		got, present, err := c.Requested(ctx(t), admitted("n"))
@@ -274,7 +275,9 @@ func TestAuthorizedOfTheInvestigationRootHoldsItsReadsAndNothingOfOtherGraphs(t 
 // Decision (interim, for the Architect): a capability the registry does not know, or a prohibited one, roots no authorization and is an error, so the intake ends in UNKNOWN; it is
 // never "none" and never a set. T4 refuses such a capability before the set is read; this is the second wall (INV-16, BD-08).
 func TestAuthorizedRefusesAnUnknownOrProhibitedCapabilityWithAnError(t *testing.T) {
-	ids := append([]string{"x.cap.unknown", "", " "}, prohibitedCaps(t)...)
+	// The empty string is not in the list: as a field of the admitted intent it means "asks for none" (the Intents adapter never leaves it empty for a slot that is present: that is an
+	// error there, TestGetOfACapabilitySlotThatCannotBeReadIsNotUsable), and none is the empty set.
+	ids := append([]string{"x.cap.unknown", " "}, prohibitedCaps(t)...)
 	for _, id := range ids {
 		c := newCaps(t, loadReal(t), &remedySpy{id: id, present: true})
 		got, err := c.Authorized(ctx(t), admitted("n"))

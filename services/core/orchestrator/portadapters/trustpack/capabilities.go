@@ -51,17 +51,17 @@ func (c Capabilities) describe(id string) intake.Capability {
 	return intake.Capability{ID: id, Registered: known, Prohibited: prohibited}
 }
 
-// requested is the capability the admitted intent asks for. RED STUB: it answers none.
+// requested is the capability the admitted intent asks for: the field the intent store's adapter filled from the stored document (A370). Nothing else is read for it.
 func (c Capabilities) requested(_ context.Context, a intake.AdmittedIntent) (id string, present bool, err error) {
 	if err := intentUsable(a); err != nil {
 		return "", false, err
 	}
-	return "", false, nil
+	return a.RequestedCapability, a.RequestedCapability != "", nil
 }
 
-// Requested answers T4: the capability the intent's `requested_remedy` slot names, with whether the registry knows it and whether it is prohibited. A prohibited capability is
+// Requested answers T4: the capability the admitted intent asks for (`RequestedCapability`), with whether the registry knows it and whether it is prohibited. A prohibited capability is
 // registered and prohibited; a capability the registry does not know is not registered (it has no adapter, INV-18). Both are refused by the intake at T4. RoleAllowed is not set
-// here: T6 has checked the role for the intent node. A failed read is an error, never "none".
+// here: T6 has checked the role for the intent node.
 func (c Capabilities) Requested(ctx context.Context, a intake.AdmittedIntent) (intake.Capability, bool, error) {
 	if err := c.usable(ctx); err != nil {
 		return intake.Capability{}, false, err
@@ -96,7 +96,7 @@ func (c Capabilities) Check(ctx context.Context, capabilityID, role string) (int
 //     requests no capability, authorize nothing beyond the intent's own capability: an empty set and no error, the narrowest answer (T14 then refuses any plan step outside it).
 //   - A capability the registry does not know, or a prohibited one, roots no authorization: ErrCapability, so the intake ends in UNKNOWN. It is never "none" and never a set. T4
 //     refuses such a capability first (REJECT), so this is the second wall.
-//   - A failed read of the remedy, or a nil pack, is an error.
+//   - A nil pack is an error.
 //
 // The set is sorted and the caller gets its own copy.
 func (c Capabilities) Authorized(ctx context.Context, a intake.AdmittedIntent) ([]string, error) {

@@ -34,3 +34,7 @@ The adapters between the orchestrator and Trust (package `trustport`). Each adap
 - The payload body is not re-hashed against `payload_hash` here; the nightly `evidence_verify` recompute covers items against snapshots.
 
 **Tests.** `go test ./orchestrator/portadapters/trust/` from `services/core/`. `evidence_test.go` needs no database (a fake reader, a recording transaction). `evidence_db_test.go` needs PostgreSQL (`NOEMA_TEST_DATABASE_URL`, or a local server). Every helper of the Evidence tests starts with `evd` so that the other adapters' tests cannot collide with it.
+
+## Intents: the capability an intent asks for (A370, TRU-02)
+
+`StoredIntents.Get` sets `intake.AdmittedIntent.RequestedCapability`: the value of the node's capability slot, read from the stored document with the pack. The slot is the one the pack declares as a Reference with `references: capability` (the core names no slot, INV-14). None present, or one that says ABSENT, is empty; a slot that is present and cannot be read as one capability (not a Reference, an empty or non-string value, a status that is not RESOLVED or ABSENT) is `ErrStoredIntent`, never "none"; the same value in two slots is that value, two different values are `ErrStoredIntent`. Whether the capability is registered or prohibited is T4's question (`trustpack.Capabilities.Requested`). `Verify` compares the field with the stored one. Tests: `intents_capability_test.go` (real PostgreSQL).
