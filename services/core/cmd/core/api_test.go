@@ -2,7 +2,7 @@ package main
 
 // EDG-01 slice 3c, part 2: main wires the protected /v1 API from the environment (REQ-API-004, REQ-AUD-003, REQ-SEC-004, INV-12, AGENT-16). With none of the session settings the
 // core serves health only; with some it refuses to start; with all of them every /v1 call passes the verified session and the role gate (deny by default) before any
-// handler, and the reconstruction route is mounted for ops and audit only, from the token's tenant (never a query, header or path). The Record reader (one pool per tenant) is a
+// handler, and the reconstruction route is mounted for audit only, from the token's tenant (never a query, header or path). The Record reader (one pool per tenant) is a
 // component another task configures: with none, the route is not mounted and the readiness check says so. Keys and tokens are SYNTHETIC, made per test (AGENT-25).
 
 import (
@@ -110,9 +110,9 @@ func TestPartialSettingsOrARecordReaderWithoutASessionRefuseToStart(t *testing.T
 	}
 }
 
-// REQ-AUD-003, REQ-API-004: ops and audit reach the reconstruction handler through the real session check and role gate; every other caller is refused before it, and the
-// tenant it asks the Record reader for is the token's.
-func TestTheReconstructionRouteIsMountedForOpsAndAuditBehindTheSessionAndTheRoleGate(t *testing.T) {
+// REQ-AUD-003, REQ-API-004, A110 (DEC-2026-11-08, PERD 39.4), A370 as relayed: only audit reaches the reconstruction handler through the real session check and role gate;
+// ops gets the role gate's not-found and never the handler's answer, and every other caller is refused before it. The tenant it asks the Record reader for is the token's.
+func TestTheReconstructionRouteIsMountedForAuditOnlyBehindTheSessionAndTheRoleGate(t *testing.T) {
 	iss := edgetest.NewIssuer(t)
 	dbs := &failingDBs{}
 	h, err := api(t, sessionEnv(t, iss), Components{Records: dbs, AccessLog: discardLog()})
@@ -120,28 +120,31 @@ func TestTheReconstructionRouteIsMountedForOpsAndAuditBehindTheSessionAndTheRole
 		t.Fatalf("handler %v, error %v", h, err)
 	}
 	path := "/v1/reconstructions/corr_ABC123"
-	for _, role := range []session.Role{session.RoleOps, session.RoleAudit} {
-		rec := call(h, path+"?tenant_id=tnt_x", bearer(iss, role, "tnt_other"))
-		if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
-			t.Errorf("%s: %d %s; want the handler's answer", role, rec.Code, rec.Body.String())
-		}
+	rec := call(h, path+"?tenant_id=tnt_x", bearer(iss, session.RoleAudit, "tnt_other"))
+	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "INTERNAL_SAFETY_BLOCK") {
+		t.Errorf("audit: %d %s; want the handler's answer", rec.Code, rec.Body.String())
 	}
-	if len(dbs.asked) != 2 || dbs.asked[0] != "tnt_other" || dbs.asked[1] != "tnt_other" {
-		t.Errorf("the Record reader was asked for %v; want the token's tenant twice, not the query's", dbs.asked)
+	if len(dbs.asked) != 1 || dbs.asked[0] != "tnt_other" {
+		t.Errorf("the Record reader was asked for %v; want the token's tenant once, not the query's", dbs.asked)
 	}
 	before := len(dbs.asked)
 	for name, tc := range map[string]struct {
 		authz  string
 		status int
 	}{
+		"ops":                 {bearer(iss, session.RoleOps, "tnt_other"), http.StatusNotFound},
 		"customer":            {bearer(iss, session.RoleCustomer, edgetest.Tenant), http.StatusNotFound},
 		"approver":            {bearer(iss, session.RoleApprover, edgetest.Tenant), http.StatusNotFound},
 		"no session":          {"", http.StatusUnauthorized},
 		"a bad token":         {"Bearer junk", http.StatusUnauthorized},
 		"a tenant not served": {bearer(iss, session.RoleOps, "tnt_unlisted"), http.StatusUnauthorized},
 	} {
-		if rec := call(h, path, tc.authz); rec.Code != tc.status {
+		rec := call(h, path, tc.authz)
+		if rec.Code != tc.status {
 			t.Errorf("%s: %d %s; want %d", name, rec.Code, rec.Body.String(), tc.status)
+		}
+		if tc.status == http.StatusNotFound && !strings.Contains(rec.Body.String(), "NOT_FOUND_OR_NOT_AUTHORIZED") {
+			t.Errorf("%s: %s; want the not-found shape", name, rec.Body.String())
 		}
 	}
 	if len(dbs.asked) != before {
@@ -197,9 +200,9 @@ func TestHealthStaysPublicAndV1GoesThroughTheProtectedHandler(t *testing.T) {
 	}
 }
 
-// The route table is the one place that says who may call what: the reconstruction route lists exactly ops and audit (REQ-AUD-003, ruling A20), so a customer or an
-// approver is refused by the edge gate before the handler runs, not only by the handler's own check.
-func TestTheRouteTableListsExactlyOpsAndAuditForTheReconstruction(t *testing.T) {
+// The route table is the one place that says who may call what: the reconstruction route lists exactly audit (REQ-AUD-003, ruling A20, A110, PERD 39.4), so ops, a customer
+// and an approver are refused by the edge gate before the handler runs, not only by the handler's own check.
+func TestTheRouteTableListsExactlyAuditForTheReconstruction(t *testing.T) {
 	clk := clock.NewManual(apiEpoch)
 	routes := apiRoutes(Components{Records: &failingDBs{}, AccessLog: discardLog()}, ids.New(clk, nil))
 	if len(routes) != 1 || routes[0].Pattern != reconstruct.Route {
@@ -209,8 +212,8 @@ func TestTheRouteTableListsExactlyOpsAndAuditForTheReconstruction(t *testing.T) 
 	for _, r := range routes[0].Roles {
 		got[r] = true
 	}
-	if len(got) != 2 || !got[session.RoleOps] || !got[session.RoleAudit] {
-		t.Fatalf("roles %v; want exactly ops and audit", routes[0].Roles)
+	if len(got) != 1 || !got[session.RoleAudit] || len(routes[0].Roles) != 1 {
+		t.Fatalf("roles %v; want exactly audit", routes[0].Roles)
 	}
 	if none := apiRoutes(Components{}, ids.New(clk, nil)); len(none) != 0 {
 		t.Fatalf("a route without its component: %+v", none)

@@ -672,9 +672,9 @@ func TestP95ForATwoHundredEventCaseIsUnderOneSecond(t *testing.T) {
 	}
 }
 
-// Architect decision 1 of 1 Nov 2026 (REQ-AUD-003 Security): the ops and audit roles are served; customers and
-// approvers never are, even if a session wrongly carried an allowed role (INV-12: the principal kind is the session's).
-func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
+// REQ-AUD-003, A110 (DEC-2026-11-08, PERD 39.4), A370 as relayed: the audit role is served; ops, customers and approvers never are, even if a session wrongly carried an
+// allowed role (INV-12: the principal kind is the session's). The default is to refuse ops: the handler's own authoriser does not rely on the edge's role gate for it.
+func TestAuditIsServedAndOpsCustomersAndApproversNeverAre(t *testing.T) {
 	w := newWorld(t)
 	w.append(t, tenant, "corr_us06", us06()...)
 	gen := ids.New(clock.NewManual(time.Unix(0, 0)), zeros{})
@@ -683,7 +683,8 @@ func TestOpsAndAuditAreServedAndCustomersAndApproversNeverAre(t *testing.T) {
 		caller Caller
 		status int
 	}{
-		{"ops", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, 200},
+		{"ops", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops"}}, 404},
+		{"ops with the operator kind and a second role it does not need", Caller{TenantID: tenant, Principal: "operator:usr_synth_1", Roles: []string{"ops", "viewer"}}, 404},
 		{"audit", Caller{TenantID: tenant, Principal: "auditor:usr_synth_2", Roles: []string{"audit"}}, 200},
 		{"a customer, even with the audit role", Caller{TenantID: tenant, Principal: "customer:usr_synth_3", Roles: []string{"audit"}}, 404},
 		{"an approver, even with the ops role", Caller{TenantID: tenant, Principal: "approver:usr_synth_4", Roles: []string{"ops"}}, 404},
