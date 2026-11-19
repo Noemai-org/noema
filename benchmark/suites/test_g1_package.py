@@ -18,7 +18,7 @@ SIX = ["BEN-A-0001", "BEN-A-0002", "BEN-CLEAN-0001", "BEN-CLEAN-1007", "BEN-TMO-
 
 def inputs() -> Json:
     return {
-        "dispatch_sha": SHA, "run_id": "g1-20261120", "fault_plan_id": "plan_1", "data_label": "stand-in", "us06_cases": ["BEN-TMO-0001"],
+        "dispatch_sha": SHA, "run_id": "g1-20261120", "fault_plan_id": "plan_1", "data_label": "stand-in", "us06_cases": ["BEN-TMO-0001"], "us01_cases": ["BEN-CLEAN-0001"],
         "g1_cases": list(SIX), "required_checks": ["g1-stack"],
         "rows": {str(n): {"link": URL, "read_by_bo": True} for n in range(1, 13)},
         "not_tested": ["live Tushe (data is the stand-in)", "the model side is the replay provider"],
@@ -65,8 +65,33 @@ def probes(ids: list[str] | None = None) -> Json:
     return {"met": True, "cases": [probe_row(c) for c in (ids if ids is not None else SIX)]}
 
 
+def event(seq: int, kind: str) -> Json:
+    return {"event_id": f"recev_{seq}", "seq": seq, "event_type": kind}
+
+
+def section(kind: str, *facts: Json) -> Json:
+    return {"kind": kind, "items": [{"record_event_id": "recev_1", "object_ref": "o", "basis": "RULE", "facts": f} for f in facts]}
+
+
+US06_EVENTS = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+
+
+def recon06(kinds: list[str] | None = None, state: str = "OUTCOME_UNKNOWN", verdict: str = "ACHIEVED") -> Json:
+    return {"events": [event(n, k) for n, k in enumerate(kinds or US06_EVENTS, start=1)],
+            "sections": [section("DECISION", {"decision_outcome": "ALLOW"}), section("ACTION", {"execution_state": state}), section("VERIFICATION", {"verdict": verdict})]}
+
+
+def recon01(kinds: list[str] | None = None, outcome: str = "ALLOW") -> Json:
+    return {"events": [event(n, k) for n, k in enumerate(kinds if kinds is not None else ["INTENT_ADMITTED", "DECISION_MADE"], start=1)],
+            "sections": [section("DECISION", {"decision_outcome": outcome}), section("ACTION"), section("VERIFICATION")]}
+
+
+def recons() -> Json:
+    return {"BEN-TMO-0001": {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06()}, "BEN-CLEAN-0001": {"initial": recon01()}}
+
+
 def art(**over: Any) -> Json:
-    return {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), **over}
+    return {"check_runs": check_runs(), "leak_scan": LEAK_OK, "probes": probes(), "reconstructions": recons(), "mock_case_writes": {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0}, **over}
 
 
 def make(i: Json | None = None, a: Json | None = None, b: Json | None = None, r: Json | None = None, artifacts: Json | None = None) -> str:
@@ -133,10 +158,10 @@ class AttestationAndExclusions(unittest.TestCase):
     def test_rows_5_8_and_9_are_computed_so_they_need_no_attestation_and_no_link(self) -> None:
         """A355 supersedes the row-5 attestation of A322: these rows are computed from the artifacts, not attested."""
         i = inputs()
-        for key in ("5", "8", "9"):
+        for key in ("2", "5", "8", "9"):
             del i["rows"][key]
         text = make(i)
-        for n in (5, 8, 9):
+        for n in (2, 5, 8, 9):
             self.assertIn("**MET**", row(text, n), n)
         self.assertIn("G1: MET", text)
 
@@ -360,6 +385,104 @@ class ArtifactRows(unittest.TestCase):
         r = report(excluded=["BEN-CLEAN-1007"])
         self.assertIn("**MET**", row(make(r=r, artifacts=art(probes=probes([c for c in SIX if c != "BEN-CLEAN-1007"]))), 9))
         self.assertIn("**NOT MET**", row(make(r=r, artifacts=art(probes=probes([c for c in SIX if c != "BEN-A-0001"]))), 9), "a case that is not excluded still needs one")
+
+
+class RowTwo(unittest.TestCase):
+    """A375 (A1): row 2 is computed. US-06: one GRANT_SPENT, one DISPATCH_ATTEMPTED, one RECEIPT classified OUTCOME_UNKNOWN, then a key-verified ACHIEVED, the same counts after a recovery sweep and
+    after a replay, and one write in the mock-case log. US-01: ALLOW with zero grants, no GRANT_* event, no DISPATCH_ATTEMPTED and zero writes. A grant on US-01 fails the row."""
+
+    def with_(self, **change: Any) -> str:
+        r = recons()
+        r.update(change.pop("recons", {}))
+        writes = {"BEN-TMO-0001": 1, "BEN-CLEAN-0001": 0, **change.pop("writes", {})}
+        return row(make(artifacts=art(reconstructions=r, mock_case_writes=writes)), 2)
+
+    def test_the_clean_shape_is_met(self) -> None:
+        self.assertIn("**MET**", row(make(), 2))
+        self.assertIn("sha256:", row(make(), 2))
+
+    def test_us_06_needs_exactly_one_spend_one_dispatch_and_one_receipt(self) -> None:
+        for name, kinds in (("two spends", [*US06_EVENTS, "GRANT_SPENT"]), ("two dispatches", [*US06_EVENTS, "DISPATCH_ATTEMPTED"]), ("two receipts", [*US06_EVENTS, "RECEIPT"]),
+                            ("no spend", [k for k in US06_EVENTS if k != "GRANT_SPENT"]), ("no dispatch", [k for k in US06_EVENTS if k != "DISPATCH_ATTEMPTED"]),
+                            ("no receipt", [k for k in US06_EVENTS if k != "RECEIPT"]), ("no key read", [k for k in US06_EVENTS if k != "VERIFICATION_READ"]),
+                            ("no verdict", [k for k in US06_EVENTS if k != "VERDICT"]), ("two verdicts", [*US06_EVENTS, "VERDICT"])):
+            text = self.with_(recons={"BEN-TMO-0001": {"initial": recon06(kinds), "after_recovery": recon06(), "after_replay": recon06()}})
+            self.assertIn("**NOT MET**", text, name)
+
+    def test_us_06_needs_the_order_spend_then_dispatch_then_receipt_then_key_read_then_verdict(self) -> None:
+        swapped = ["DECISION_MADE", "GRANT_ISSUED", "DISPATCH_ATTEMPTED", "GRANT_SPENT", "RECEIPT", "VERIFICATION_READ", "VERDICT"]
+        verdict_first = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERDICT", "VERIFICATION_READ"]
+        for kinds in (swapped, verdict_first):
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": {"initial": recon06(kinds), "after_recovery": recon06(), "after_replay": recon06()}}))
+
+    def test_us_06_needs_the_receipt_classified_unknown_and_the_verdict_achieved(self) -> None:
+        kwargs: Any
+        for kwargs in ({"state": "ACKNOWLEDGED"}, {"state": "FAILED_TERMINAL"}, {"verdict": "UNKNOWN"}, {"verdict": "NOT_ACHIEVED"}, {"verdict": "PENDING_EXTERNAL"}):
+            text = self.with_(recons={"BEN-TMO-0001": {"initial": recon06(None, **kwargs), "after_recovery": recon06(), "after_replay": recon06()}})
+            self.assertIn("**NOT MET**", text, str(kwargs))
+
+    def test_the_counts_must_be_the_same_after_a_recovery_sweep_and_after_a_replay(self) -> None:
+        second = [*US06_EVENTS, "GRANT_SPENT"]
+        for phase in ("after_recovery", "after_replay"):
+            r = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06(), phase: recon06(second)}
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": r}), phase)
+        for missing in ("after_recovery", "after_replay"):
+            r = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06()}
+            del r[missing]
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": r}), missing)
+
+    def test_a_duplicate_is_refused_in_every_phase_not_only_by_a_difference_between_phases(self) -> None:
+        for extra in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERDICT"):
+            doubled = recon06([*US06_EVENTS, extra])
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": {"initial": doubled, "after_recovery": doubled, "after_replay": doubled}}), extra)
+
+    def test_phases_that_are_each_valid_but_differ_in_the_number_of_key_reads_are_not_the_same_counts(self) -> None:
+        more_reads = ["DECISION_MADE", "GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERIFICATION_READ", "VERDICT"]
+        for phase in ("after_recovery", "after_replay"):
+            r = {"initial": recon06(), "after_recovery": recon06(), "after_replay": recon06(), phase: recon06(more_reads)}
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": r}), phase)
+
+    def test_a_boolean_seq_is_not_a_sequence_number(self) -> None:
+        bad = recon06()
+        bad["events"][0]["seq"] = True
+        self.assertIn("**NOT MET**", self.with_(recons={"BEN-TMO-0001": {"initial": bad, "after_recovery": recon06(), "after_replay": recon06()}}))
+
+    def test_the_mock_case_log_must_show_exactly_one_write_for_us_06(self) -> None:
+        for count in (0, 2, True, "1", None):
+            self.assertIn("**NOT MET**", self.with_(writes={"BEN-TMO-0001": count}), str(count))
+        r = {"BEN-CLEAN-0001": 0}
+        self.assertIn("**NOT MET**", row(make(artifacts=art(mock_case_writes=r)), 2), "no entry for US-06")
+
+    def test_us_01_needs_allow_with_zero_grants_no_dispatch_and_zero_writes(self) -> None:
+        for name, kinds in (("a GRANT_ISSUED", ["DECISION_MADE", "GRANT_ISSUED"]), ("a GRANT_SPENT", ["DECISION_MADE", "GRANT_SPENT"]), ("a GRANT_VOIDED", ["DECISION_MADE", "GRANT_VOIDED"]),
+                            ("a dispatch", ["DECISION_MADE", "DISPATCH_ATTEMPTED"])):
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-CLEAN-0001": {"initial": recon01(kinds)}}), name)
+        for outcome in ("CONFIRM", "CLARIFY", "REJECT", "UNKNOWN"):
+            self.assertIn("**NOT MET**", self.with_(recons={"BEN-CLEAN-0001": {"initial": recon01(outcome=outcome)}}), outcome)
+        for count in (1, True, None, "0"):
+            self.assertIn("**NOT MET**", self.with_(writes={"BEN-CLEAN-0001": count}), str(count))
+        self.assertIn("**MET**", self.with_(recons={"BEN-CLEAN-0001": {"initial": recon01([])}}))  # no event at all is still zero grants
+
+    def test_a_grant_on_us_01_fails_the_row_even_when_every_us_06_check_passes(self) -> None:
+        text = self.with_(recons={"BEN-CLEAN-0001": {"initial": recon01(["INTENT_ADMITTED", "DECISION_MADE", "GRANT_ISSUED"])}})
+        self.assertIn("**NOT MET**", text)
+        self.assertIn("BEN-CLEAN-0001", text)
+
+    def test_missing_or_unreadable_reconstructions_are_not_met_and_never_raise(self) -> None:
+        bad: Any
+        for bad in (None, "x", [], {}, {"BEN-TMO-0001": None, "BEN-CLEAN-0001": {"initial": recon01()}}, {"BEN-TMO-0001": {"initial": {"events": "x", "sections": []}}, "BEN-CLEAN-0001": {"initial": recon01()}},
+                    {"BEN-TMO-0001": {"initial": {"events": [{"event_type": "X"}], "sections": []}}, "BEN-CLEAN-0001": {"initial": recon01()}}):
+            self.assertIn("**NOT MET**", row(make(artifacts=art(reconstructions=bad)), 2), str(bad)[:40])
+        for bad in (None, "x", [], {"BEN-TMO-0001": 1}):
+            self.assertIn("**NOT MET**", row(make(artifacts=art(mock_case_writes=bad)), 2), str(bad))
+
+    def test_the_us_01_cases_are_required_input_disjoint_from_the_us_06_cases_and_inside_the_g1_cases(self) -> None:
+        mutations: list[Callable[[Json], Any]] = [lambda i: i.pop("us01_cases"), lambda i: i.update(us01_cases=[]), lambda i: i.update(us01_cases=["BEN-TMO-0001"]), lambda i: i.update(us01_cases=["BEN-NOT-IN-G1"])]
+        for mutate in mutations:
+            i = inputs()
+            mutate(i)
+            with self.assertRaises(PackageError):
+                make(i)
 
 
 class Whole(unittest.TestCase):

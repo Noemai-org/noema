@@ -95,3 +95,15 @@ BEN-05's G1 evidence compares the five runnable base cases (`--exclude-mutated`,
 - Exact next step: after Codex re-reads the fix lines (A287), the independent read, then one Founder approval. After the run: fill `package-inputs.json` (links and read attestations for rows 1 to 4, 6, 7, 12; `g1_cases` from the g1 suite selection; `required_checks`), save `gh api --paginate repos/Noemai-org/noema/commits/<sha>/check-runs` as the check-runs file, then run the command.
 - Do not touch: the gate conditions.
 
+# Session 2026-11-19 (second) · BEN-05 · A375: row 2 computed from the Record
+
+## Session summary
+- What changed: package row 2 is now computed (A375, the Architect's A1), with no attestation. From the reconstructions: US-06 needs exactly one GRANT_SPENT, one DISPATCH_ATTEMPTED and one RECEIPT, the receipt classified OUTCOME_UNKNOWN (exactly one ACTION item), at least one VERIFICATION_READ (the read by key) and exactly one VERDICT whose verdict is ACHIEVED, in the order spend, dispatch, receipt, read, verdict, and the same event counts initially, after a recovery sweep and after a replay; plus exactly one write for the case in the mock-case write counts. US-01 needs ALLOW with no GRANT_* event, no DISPATCH_ATTEMPTED and zero writes; a grant on US-01 fails the row.
+- New inputs: `us01_cases` (inside `g1_cases`, apart from `us06_cases`). New artifacts and CLI flags: `--reconstructions` ({case: {initial, after_recovery, after_replay}} of reconstruction.v3) and `--mock-case-writes` ({case: integer}). The format of the mock-case log is not known to me, so the extractor behind `mock-case-writes.json` is IL's or mine once IL gives the format.
+- Tests: 14 new, written first (11 red before the code); 15 mutations of the row-2 logic each caught (three survived at first because the per-phase checks masked them; a test now isolates each).
+- Regression cases: none. Debt: none. Conflicts: none.
+
+## Pre-work for the next agent
+- Exact next step: IL names the mock-case log format and the runner's per-request record (asked on 19 Nov); then the extractor and the runner writer are added with tests.
+- Do not touch: the gate conditions.
+

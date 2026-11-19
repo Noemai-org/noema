@@ -1,7 +1,9 @@
 """BEN-05: the G1 evidence package skeleton (noema#566, section 4), rendered in minutes after the run from the run's own files.
 
-`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
-it cannot tie to evidence. Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
+`python -m benchmark.suites.g1_package --inputs F --a-score F --b-score F --replay F --check-runs F --leak-scan F --probes F --reconstructions F --mock-case-writes F --out DIR`. It decides nothing (AGENT-16) and never says MET for what
+it cannot tie to evidence. Row 2 is computed from the reconstructions and the mock-case write counts (A375): US-06 shows one GRANT_SPENT, one DISPATCH_ATTEMPTED and one RECEIPT classified
+OUTCOME_UNKNOWN, then a read by key and an ACHIEVED verdict, the same counts after a recovery sweep and after a replay, and one write; US-01 shows ALLOW with no GRANT_* event, no dispatch and zero
+writes (a grant on US-01 fails the row). Rows 5, 8 and 9 are computed from the run's artifacts, not attested (ruling A355): row 5 from the check-runs JSON (every check run at the dispatch SHA completed and
 green, the required checks present and successful), row 8 from the leak-scan output (the probe saw every planted kind, a clean scan that read something, no failure line), row 9 from the probe results
 (the two separate refusals, the control and the unknown correlation for every case, recomputed from status and code, never from an `ok` flag). Rows 10 (both scorecards bound to their replay legs,
 complete or only named exclusions, Tier 0 at zero) and 11 (every expected G1 case of both stories IDENTICAL in the replay, once each, unless it is a named exclusion; never the unknown-outcome case)
@@ -21,7 +23,9 @@ from benchmark.suites.g1 import named_exclusion_only
 Json = dict[str, Any]
 LABELS = ("stand-in", "tushe")
 SHA = re.compile(r"[0-9a-f]{40}")
-COMPUTED = (5, 8, 9)
+COMPUTED = (2, 5, 8, 9)
+PHASES = ("initial", "after_recovery", "after_replay")
+COUNTED = ("GRANT_ISSUED", "GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT")
 GREEN = frozenset({"success", "skipped", "neutral"})
 PROBE_KINDS = ("canary", "account_number", "card_number", "named_secret_value", "jwt", "bearer_token")
 PROBE_LINE = re.compile(r"^probe: every planted kind was found \((?P<kinds>[^)]*)\): the scanner can see$", re.MULTILINE)
@@ -60,6 +64,9 @@ def _need(inputs: Mapping[str, Any]) -> None:
         raise PackageError("inputs.g1_cases must list every case the G1 replay is expected to compare, the unknown-outcome cases included")
     if not _strings(inputs.get("required_checks")):
         raise PackageError("inputs.required_checks must name the check runs that must be present and successful (for example g1-stack)")
+    us01 = inputs.get("us01_cases")
+    if not _strings(us01) or not set(us01 or []) <= set(inputs["g1_cases"]) or set(us01 or []) & set(inputs["us06_cases"]):
+        raise PackageError("inputs.us01_cases must name the US-01 cases, inside g1_cases and apart from the unknown-outcome cases")
     if not isinstance(inputs.get("rows"), dict) or not isinstance(inputs.get("not_tested"), list):
         raise PackageError("inputs.rows and inputs.not_tested are required")
 
@@ -174,7 +181,96 @@ def _row9(inputs: Mapping[str, Any], replay: Mapping[str, Any], doc: Any) -> tup
     return True, f"computed from the probe results {_digest(doc)}"
 
 
+def _events(doc: Any) -> list[tuple[int, str]] | None:
+    """(seq, event type) of every Record event of a reconstruction, in seq order; None when the list or any row is unreadable."""
+    rows = doc.get("events") if isinstance(doc, Mapping) else None
+    if not isinstance(rows, list) or not all(isinstance(r, Mapping) and _plain_int(r.get("seq")) and _text_value(r.get("event_type")) for r in rows):
+        return None
+    return sorted((r["seq"], r["event_type"]) for r in rows)
+
+
+def _plain_int(value: Any) -> bool:
+    return type(value) is int
+
+
+def _text_value(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _facts(doc: Any, kind: str) -> list[Mapping[str, Any]] | None:
+    sections = doc.get("sections") if isinstance(doc, Mapping) else None
+    if not isinstance(sections, list):
+        return None
+    found: list[Mapping[str, Any]] = []
+    for sec in sections:
+        if isinstance(sec, Mapping) and sec.get("kind") == kind:
+            for item in sec.get("items", []) if isinstance(sec.get("items"), list) else []:
+                if isinstance(item, Mapping) and isinstance(item.get("facts"), Mapping):
+                    found.append(item["facts"])
+    return found
+
+
+def _us06_problem(doc: Any) -> tuple[str | None, tuple[int, ...]]:
+    events, action, verification = _events(doc), _facts(doc, "ACTION"), _facts(doc, "VERIFICATION")
+    if events is None or action is None or verification is None:
+        return "the reconstruction is unreadable", ()
+    kinds = [k for _, k in events]
+    counts = tuple(kinds.count(k) for k in COUNTED)
+    for kind in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERDICT"):
+        if kinds.count(kind) != 1:
+            return f"{kinds.count(kind)} {kind} events, not exactly one", counts
+    if not kinds.count("VERIFICATION_READ"):
+        return "no VERIFICATION_READ: the outcome was not verified by key", counts
+    at = {k: [seq for seq, kind in events if kind == k] for k in ("GRANT_SPENT", "DISPATCH_ATTEMPTED", "RECEIPT", "VERIFICATION_READ", "VERDICT")}
+    if not (at["GRANT_SPENT"][0] < at["DISPATCH_ATTEMPTED"][0] < at["RECEIPT"][0] < min(at["VERIFICATION_READ"]) < at["VERDICT"][0] and max(at["VERIFICATION_READ"]) < at["VERDICT"][0]):
+        return "the events are not in order: spend, dispatch, receipt, the read by key, the verdict", counts
+    if [f.get("execution_state") for f in action] != ["OUTCOME_UNKNOWN"]:
+        return "the receipt is not classified OUTCOME_UNKNOWN (exactly one ACTION item)", counts
+    if [f.get("verdict") for f in verification] != ["ACHIEVED"]:
+        return "the key-verified verdict is not ACHIEVED (exactly one VERIFICATION item)", counts
+    return None, counts
+
+
+def _us01_problem(doc: Any) -> str | None:
+    events, decision = _events(doc), _facts(doc, "DECISION")
+    if events is None or decision is None:
+        return "the reconstruction is unreadable"
+    bad = sorted({k for _, k in events if k.startswith("GRANT_") or k == "DISPATCH_ATTEMPTED"})
+    if bad:
+        return f"a grant or a dispatch on US-01: {', '.join(bad)}"
+    if not decision or any(f.get("decision_outcome") != "ALLOW" for f in decision):
+        return "the decision is not ALLOW"
+    return None
+
+
+def _row2(inputs: Mapping[str, Any], docs: Any, writes: Any) -> tuple[bool, str]:
+    if not isinstance(docs, Mapping) or not isinstance(writes, Mapping):
+        return False, "the reconstructions or the mock-case write counts are not readable"
+    for case in inputs["us06_cases"]:
+        phases = docs.get(case)
+        if not isinstance(phases, Mapping) or not all(isinstance(phases.get(ph), Mapping) for ph in PHASES):
+            return False, f"{case}: the reconstructions initially, after a recovery sweep and after a replay are all required"
+        results = {ph: _us06_problem(phases[ph]) for ph in PHASES}
+        for ph in PHASES:
+            if results[ph][0]:
+                return False, f"{case} ({ph}): {results[ph][0]}"
+        if len({results[ph][1] for ph in PHASES}) != 1:
+            return False, f"{case}: the event counts differ after a recovery sweep or a replay"
+        if writes.get(case) != 1 or type(writes.get(case)) is not int:
+            return False, f"{case}: the mock-case log shows {writes.get(case)!r} writes, not exactly one"
+    for case in inputs["us01_cases"]:
+        phases = docs.get(case)
+        problem = _us01_problem(phases.get("initial")) if isinstance(phases, Mapping) else "no reconstruction"
+        if problem:
+            return False, f"{case}: {problem}"
+        if writes.get(case) != 0 or type(writes.get(case)) is not int:
+            return False, f"{case}: the mock-case log shows {writes.get(case)!r} writes, not zero"
+    return True, f"computed from the reconstructions {_digest(docs)} and the mock-case write counts {_digest(writes)}"
+
+
 def _row(n: int, inputs: Mapping[str, Any], a: Mapping[str, Any], b: Mapping[str, Any], replay: Mapping[str, Any], artifacts: Mapping[str, Any]) -> tuple[bool, str]:
+    if n == 2:
+        return _row2(inputs, artifacts.get("reconstructions"), artifacts.get("mock_case_writes"))
     if n == 5:
         return _row5(inputs, replay, artifacts.get("check_runs"))
     if n == 8:
@@ -253,13 +349,15 @@ def _json_documents(text: str) -> list[Any]:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m benchmark.suites.g1_package", description=__doc__)
-    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "out"):
+    for flag in ("inputs", "a-score", "b-score", "replay", "check-runs", "leak-scan", "probes", "reconstructions", "mock-case-writes", "out"):
         p.add_argument(f"--{flag}", required=True)
     args = p.parse_args(argv)
     try:
-        inputs, a, b, replay, probes = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8")) for f in ("inputs", "a_score", "b_score", "replay", "probes"))
+        inputs, a, b, replay, probes, reconstructions, writes = (json.loads(Path(getattr(args, f)).read_text(encoding="utf-8"))
+                                                                 for f in ("inputs", "a_score", "b_score", "replay", "probes", "reconstructions", "mock_case_writes"))
         pages = _json_documents(Path(args.check_runs).read_text(encoding="utf-8"))
-        text = render(inputs, a, b, replay, {"check_runs": pages[0] if len(pages) == 1 else pages, "leak_scan": Path(args.leak_scan).read_text(encoding="utf-8"), "probes": probes})
+        text = render(inputs, a, b, replay, {"check_runs": pages[0] if len(pages) == 1 else pages, "leak_scan": Path(args.leak_scan).read_text(encoding="utf-8"), "probes": probes,
+                                  "reconstructions": reconstructions, "mock_case_writes": writes})
     except (OSError, ValueError, PackageError) as exc:
         sys.stderr.write(f"g1 package: {exc}\n")
         return 2
