@@ -3,7 +3,9 @@ package trustport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,31 +19,48 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/recorder"
 )
 
-// Errors of the Recorder adapter (TRU-12).
+// Errors of the Recorder adapter (TRU-12). Callers compare with errors.Is.
 var (
+	// ErrRecordRequest is returned for a request the adapter cannot map: a missing tenant, principal, builder or plan hash, or facts that do not fit the steps. Nothing is written.
 	ErrRecordRequest = errors.New("trustport: the record request cannot be honoured")
-	ErrBasisDigest   = errors.New("trustport: the basis digest is not the builder's")
-	ErrPlanHash      = errors.New("trustport: the confirmation was given for another plan")
-	ErrCommit        = errors.New("trustport: the commit failed; the outcome is the stored decision's")
+	// ErrBasisDigest is returned when the digest the intake names is not the digest of the builder it passes (TRU-13). Nothing is written.
+	ErrBasisDigest = errors.New("trustport: the basis digest is not the builder's")
+	// ErrPlanHash is returned when the confirmation was given for another plan than the one being recorded, or a plan hash and a confirmation event do not come together (A230,
+	// INV-17). Nothing is written.
+	ErrPlanHash = errors.New("trustport: the confirmation was given for another plan")
+	// ErrCommit wraps a failure of the commit itself. The commit may or may not have reached the database, so this is the one error that does not say "nothing was written":
+	// a retry of the same request returns the stored ALLOW with its grants (A186), and writes nothing twice.
+	ErrCommit = errors.New("trustport: the commit failed; a retry returns the stored decision")
 )
 
-// TxBeginner opens a transaction as the tenant's own database login.
+// rollbackBound is how long a rollback may take once the request's own context has ended. The rollback runs on a context that keeps the request's values and not its
+// cancellation, so that a cancelled request still releases its transaction.
+const rollbackBound = 5 * time.Second
+
+var (
+	recDecisionRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
+	recHashRe     = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
+)
+
+// TxBeginner opens a transaction as the tenant's own database login (the composition holds one pool per tenant, as noema#535 does). The adapter commits or rolls it back.
 type TxBeginner interface {
 	Begin(ctx context.Context, tenantID string) (pgx.Tx, error)
 }
 
-// RecordWriter is recorder.Writer.
+// RecordWriter is trust/recorder.Writer: it never commits or rolls back.
 type RecordWriter interface {
 	Write(ctx context.Context, tx pgx.Tx, r recorder.Request) (recorder.Result, error)
 }
 
-// RecordStepFacts is what the composition knows about one write step.
+// RecordStepFacts is what the composition knows about one write step beyond the plan: the target versions the evidence was read at and the freeze permission for the capability on
+// that target (REQ-RES-002). The Permission can only come from reconcile.FreezeGate.
 type RecordStepFacts struct {
 	TargetVersions []contracts.DecisionGrantV1TargetVersionsItem
 	Permission     reconcile.Permission
 }
 
-// RecordFacts is what the composition adds to a RecordRequest.
+// RecordFacts is what the composition adds to a RecordRequest: the policy the record and the grants bind, the hash of the evidence set, and one RecordStepFacts per write step, in
+// step order. The stores behind it (T9 to T11) belong to other lanes.
 type RecordFacts struct {
 	PolicyID        string
 	EvidenceSetHash string
@@ -53,7 +72,7 @@ type RecordFactSource interface {
 	Facts(ctx context.Context, r intake.RecordRequest) (RecordFacts, error)
 }
 
-// RecorderConfig builds a RecorderAdapter.
+// RecorderConfig builds a RecorderAdapter. Keys come from the key files (SEC-09, NOEMA_GRANT_KEY_DIR); this package holds no key, no lifetime and no default.
 type RecorderConfig struct {
 	Begin    TxBeginner
 	Facts    RecordFactSource
@@ -69,7 +88,8 @@ type RecorderConfig struct {
 	Escalation     recorder.EscalationSet
 }
 
-// RecorderAdapter implements intake.Recorder.
+// RecorderAdapter implements intake.Recorder (T15): it writes the Decision Record, the grants and their events with recorder.Writer inside one transaction it opens and commits,
+// so they appear together or not at all (PERD 32.4, EC-E16). It decides nothing.
 type RecorderAdapter struct {
 	begin  TxBeginner
 	facts  RecordFactSource
@@ -78,10 +98,95 @@ type RecorderAdapter struct {
 
 var _ intake.Recorder = (*RecorderAdapter)(nil)
 
-// NewRecorderAdapter builds the adapter.
-func NewRecorderAdapter(RecorderConfig) (*RecorderAdapter, error) { return &RecorderAdapter{}, nil }
+// NewRecorderAdapter builds the adapter and its recorder.Writer. A missing port, key, clock, ID source, entropy or lifetime is ErrConfig.
+func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
+	if c.Begin == nil || c.Facts == nil || c.Keys == nil || c.Appender == nil || c.Clock == nil || c.IDs == nil || c.Entropy == nil || c.GrantLifetime <= 0 || c.RecordLifetime <= 0 {
+		return nil, ErrConfig
+	}
+	issuer, err := grants.NewIssuer(c.Keys, c.IDs, c.Entropy, c.GrantLifetime)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrConfig, err)
+	}
+	w := &recorder.Writer{Keys: c.Keys, Issuer: issuer, Appender: c.Appender, Clock: c.Clock, IDs: c.IDs, Escalation: c.Escalation, RecordLifetime: c.RecordLifetime}
+	return &RecorderAdapter{begin: c.Begin, facts: c.Facts, writer: w}, nil
+}
 
-// Record is not implemented.
-func (*RecorderAdapter) Record(context.Context, intake.RecordRequest) (intake.RecordResult, error) {
-	return intake.RecordResult{}, errors.New("not implemented")
+// Record writes the decision and its grants in one transaction. The checks that need no database run first, so a refused request opens no transaction. If the context ends
+// while the transaction runs, the transaction is rolled back and the context's error is returned: nothing is written (the other choice, returning the stored ALLOW on a retry,
+// is what a failed commit leaves, see ErrCommit). A returned error other than ErrCommit means nothing was written.
+func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (intake.RecordResult, error) {
+	req, err := a.request(ctx, r)
+	if err != nil {
+		return intake.RecordResult{}, err
+	}
+	tx, err := a.begin.Begin(ctx, r.TenantID)
+	if err != nil {
+		return intake.RecordResult{}, fmt.Errorf("trustport: begin: %w", err)
+	}
+	res, err := a.writer.Write(ctx, tx, req)
+	if err == nil {
+		err = ctx.Err() // a request that ended while it ran is not committed
+	}
+	if err == nil {
+		err = answerShape(res, len(r.Steps))
+	}
+	if err != nil {
+		rollback(ctx, tx)
+		return intake.RecordResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		rollback(ctx, tx)
+		return intake.RecordResult{}, fmt.Errorf("%w: %w", ErrCommit, err)
+	}
+	out := intake.RecordResult{DecisionID: string(res.Record.DecisionId)}
+	for _, g := range res.Grants {
+		out.GrantIDs = append(out.GrantIDs, string(g.GrantId))
+	}
+	return out, nil
+}
+
+// answerShape: a decision ID, and one grant for each write step and none for a read (the intake checks the same; a wrong shape is never committed).
+func answerShape(res recorder.Result, steps int) error {
+	if !recDecisionRe.MatchString(string(res.Record.DecisionId)) || len(res.Grants) != steps {
+		return ErrBadAnswer
+	}
+	return nil
+}
+
+func rollback(ctx context.Context, tx pgx.Tx) {
+	c, cancel := context.WithTimeout(context.WithoutCancel(ctx), rollbackBound)
+	defer cancel()
+	_ = tx.Rollback(c) // an error here leaves the transaction to the pool, which discards the connection; the error that caused the rollback is the one reported
+}
+
+// request maps the intake's request and the facts to recorder.Request, with every check that needs no database.
+func (a *RecorderAdapter) request(ctx context.Context, r intake.RecordRequest) (recorder.Request, error) {
+	if r.TenantID == "" || r.PrincipalID == "" || r.Evaluated == nil || !recHashRe.MatchString(r.PlanHash) {
+		return recorder.Request{}, ErrRecordRequest
+	}
+	digest, err := r.Evaluated.Digest()
+	if err != nil {
+		return recorder.Request{}, fmt.Errorf("%w: %v", ErrBasisDigest, err)
+	}
+	if digest != r.BasisDigest {
+		return recorder.Request{}, ErrBasisDigest
+	}
+	if (r.ConfirmationEventID == "") != (r.ConfirmationPlanHash == "") || (r.ConfirmationEventID != "" && r.ConfirmationPlanHash != r.PlanHash) {
+		return recorder.Request{}, ErrPlanHash
+	}
+	f, err := a.facts.Facts(ctx, r)
+	if err != nil {
+		return recorder.Request{}, err
+	}
+	if f.PolicyID == "" || !recHashRe.MatchString(f.EvidenceSetHash) || len(f.Steps) != len(r.Steps) {
+		return recorder.Request{}, ErrRecordRequest
+	}
+	steps := make([]grants.Step, 0, len(r.Steps))
+	for i, s := range r.Steps {
+		steps = append(steps, grants.Step{PrincipalID: r.PrincipalID, CapabilityID: s.CapabilityID, TargetRef: s.TargetRef, ParamsHash: contracts.CommonV1Hash(s.ParamsHash),
+			EvidenceSetHash: contracts.CommonV1Hash(f.EvidenceSetHash), PlanHash: contracts.CommonV1Hash(r.PlanHash), PlanStep: s.PlanStep,
+			TargetVersions: f.Steps[i].TargetVersions, Permission: f.Steps[i].Permission})
+	}
+	return recorder.Request{TenantID: r.TenantID, CorrelationID: r.CorrelationID, IntentID: r.IntentID, IntentHash: contracts.CommonV1Hash(r.IntentHash), PolicyID: f.PolicyID,
+		Decision: r.Decision, Evaluated: r.Evaluated, ConfirmationPlanHash: contracts.CommonV1Hash(r.ConfirmationPlanHash), ConfirmationEventID: r.ConfirmationEventID, Steps: steps}, nil
 }

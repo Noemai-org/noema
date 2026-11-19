@@ -80,7 +80,7 @@ func recRequest(t *testing.T, n int) intake.RecordRequest {
 	}
 	var steps []intake.RecordStep
 	for i := 0; i < n; i++ {
-		steps = append(steps, intake.RecordStep{PlanStep: int64(i + 1), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(byte(2 + i))})
+		steps = append(steps, intake.RecordStep{PlanStep: int64(i + 5), CapabilityID: recCap, TargetRef: recTarget, ParamsHash: recHash(byte(2 + i))})
 	}
 	return intake.RecordRequest{TenantID: recTenant, CorrelationID: "corr_ABC123", PrincipalID: "usr_88213", IntentID: "int_01J9X3", IntentHash: recHash(1), IntentVersion: 2,
 		Decision: d, Evaluated: b.Sealed(), BasisDigest: digest, PlanHash: recHash(4), Steps: steps}
@@ -104,7 +104,7 @@ func (s *recFacts) Facts(_ context.Context, r intake.RecordRequest) (RecordFacts
 			if err != nil {
 				panic(err)
 			}
-			f.Steps = append(f.Steps, RecordStepFacts{TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: recTarget, Source: "fin.src.ledger", VersionToken: "v7"}}, Permission: p})
+			f.Steps = append(f.Steps, RecordStepFacts{TargetVersions: []contracts.DecisionGrantV1TargetVersionsItem{{ResourceRef: recTarget, Source: "fin.src.ledger", VersionToken: "v" + string(rune('7'+len(f.Steps)))}}, Permission: p})
 		}
 	}
 	return f, nil
@@ -219,7 +219,7 @@ func TestRecordHandsTheWriterTheRequestOfTheIntakeAndTheFacts(t *testing.T) {
 		if s.PlanStep != want.PlanStep || s.CapabilityID != want.CapabilityID || s.TargetRef != want.TargetRef || string(s.ParamsHash) != want.ParamsHash {
 			t.Errorf("step %d: %+v", i, s)
 		}
-		if s.PrincipalID != "usr_88213" || string(s.PlanHash) != r.PlanHash || string(s.EvidenceSetHash) != recHash(3) || len(s.TargetVersions) != 1 {
+		if s.PrincipalID != "usr_88213" || string(s.PlanHash) != r.PlanHash || string(s.EvidenceSetHash) != recHash(3) || len(s.TargetVersions) != 1 || s.TargetVersions[0].VersionToken != "v"+string(rune('7'+i)) {
 			t.Errorf("step %d: %+v", i, s)
 		}
 	}
@@ -303,6 +303,7 @@ func TestARequestThatCannotBeMappedIsRefusedBeforeAnyTransaction(t *testing.T) {
 		"no plan hash":     {func(r *intake.RecordRequest) { r.PlanHash = "" }, newRecFacts(), ErrRecordRequest},
 		"facts fail":       {func(*intake.RecordRequest) {}, &recFacts{err: boom}, boom},
 		"too few steps":    {func(*intake.RecordRequest) {}, &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3), Steps: []RecordStepFacts{}}}, ErrRecordRequest},
+		"too many steps":   {func(*intake.RecordRequest) {}, &recFacts{f: RecordFacts{PolicyID: "fin.pol", EvidenceSetHash: recHash(3), Steps: make([]RecordStepFacts, 2)}}, ErrRecordRequest},
 		"no policy":        {func(*intake.RecordRequest) {}, &recFacts{f: RecordFacts{EvidenceSetHash: recHash(3)}}, ErrRecordRequest},
 		"no evidence hash": {func(*intake.RecordRequest) {}, &recFacts{f: RecordFacts{PolicyID: "fin.pol"}}, ErrRecordRequest},
 	}
@@ -322,10 +323,12 @@ func TestARequestThatCannotBeMappedIsRefusedBeforeAnyTransaction(t *testing.T) {
 // The transaction is opened as the request's tenant, and a transaction that cannot be opened is an error with nothing written.
 func TestTheTransactionIsOpenedAsTheRequestsTenant(t *testing.T) {
 	b, w := &recBegin{tx: &recTx{}}, &recWriter{res: recGrants(1)}
-	if _, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), recRequest(t, 1)); err != nil {
+	r := recRequest(t, 1)
+	r.TenantID = "ten_bb"
+	if _, err := recAdapter(t, b, newRecFacts(), w).Record(recCtx(t), r); err != nil {
 		t.Fatal(err)
 	}
-	if len(b.tenants) != 1 || b.tenants[0] != recTenant {
+	if len(b.tenants) != 1 || b.tenants[0] != "ten_bb" {
 		t.Errorf("tenants %v", b.tenants)
 	}
 	boom := errors.New("no connection")
@@ -357,7 +360,7 @@ func TestAFailedCommitIsAnErrorAndNoResult(t *testing.T) {
 	boom := errors.New("connection reset")
 	tx := &recTx{commitErr: boom}
 	got, err := recAdapter(t, &recBegin{tx: tx}, newRecFacts(), &recWriter{res: recGrants(1)}).Record(recCtx(t), recRequest(t, 1))
-	if !errors.Is(err, ErrCommit) || !errors.Is(err, boom) || got.DecisionID != "" || got.GrantIDs != nil {
+	if !errors.Is(err, ErrCommit) || !errors.Is(err, boom) || got.DecisionID != "" || got.GrantIDs != nil || tx.rollbacks != 1 {
 		t.Fatalf("err %v result %+v", err, got)
 	}
 }
@@ -477,7 +480,7 @@ func TestRecordWritesTheDecisionTheGrantsAndTheirEventsTogether(t *testing.T) {
 		}
 		steps = append(steps, step)
 	}
-	if len(steps) != 2 || steps[0] != 1 || steps[1] != 2 {
+	if len(steps) != 2 || steps[0] != 5 || steps[1] != 6 {
 		t.Errorf("plan steps %v", steps)
 	}
 	if n, err := chain.Verify(recCtx(t), w.admin, recTenant); err != nil || n != 3 {
