@@ -11,7 +11,13 @@
 --
 -- One open request per (tenant, intent, capability, target): a root request (no supersedes) is unique on that key, and a request is superseded at most once, so the chain of an action is linear
 -- and has one head. A fresh request may supersede its predecessor only when the predecessor has an answer (an ACCEPT whose binding or policy changed) or has expired by the new request's own
--- time: never a second request beside an open, unexpired, unanswered one. No foreign keys, as in 0028: the checks are triggers, and nothing cascades.
+-- time: never a second request beside an open, unexpired, unanswered one. The only foreign key is to tenant; every other check is a trigger, and nothing cascades.
+--
+-- A368 (Founder order of 19 Nov 2026, interim, relayed, not yet committed; Codex, Security Reviewer and C2 reads of noema#756): (i) one answer per request, whoever the approver (UNIQUE below);
+-- (ii) every time is the DATABASE clock: requested_at, answered_at, observed_at and recorded_at are set to now() by the BEFORE INSERT triggers whatever the caller supplies, and the expiry rules
+-- compare against that clock inside the same statement, so no caller can expire a request early, answer it late or order two answers by a time of its own; (iii) intent_version >= 1; (iv) an answer after
+-- the request expired (SQLSTATE 23E01) or after it was superseded (23S01) is refused by the answer trigger, which takes the same per-request advisory lock as the superseding insert, so a concurrent
+-- supersede and answer are serialised and never leave an answer on a superseded request. A replay of a stored answer is not refused here: the unique key decides it.
 -- Trust alone reads and writes these tables (trust_rw), bound to the tenant of its login by row security and by the tenant guard of 0028.
 
 CREATE TABLE confirmation_request (
@@ -19,7 +25,7 @@ CREATE TABLE confirmation_request (
   confirmation_request_id text NOT NULL CHECK (confirmation_request_id ~ '^cfr_[0-9A-Za-z]{2,32}$'),
   correlation_id          text NOT NULL CHECK (correlation_id ~ '^[A-Za-z0-9_.:@-]+$'),
   intent_id               text NOT NULL CHECK (intent_id ~ '^[A-Za-z0-9_.:@-]+$'),
-  intent_version          integer NOT NULL CHECK (intent_version >= 0),
+  intent_version          integer NOT NULL CHECK (intent_version >= 1),
   -- the eight bound values (SoT 43.2a); the character set is the one trust/confirm.BindingHash needs, so the canonical form needs no escaping
   principal_id            text NOT NULL CHECK (principal_id ~ '^[A-Za-z0-9_.:@-]+$'),
   intent_hash             text NOT NULL CHECK (intent_hash ~ '^[A-Za-z0-9_.:@-]+$'),
@@ -32,7 +38,7 @@ CREATE TABLE confirmation_request (
   binding_hash            text NOT NULL CHECK (binding_hash ~ '^sha256:[0-9a-f]{64}$'),
   requirement             text NOT NULL CHECK (requirement ~ '^(SELF|MAKER_CHECKER|ROLE:[A-Za-z0-9_.-]+)$'),
   requester_id            text NOT NULL CHECK (requester_id ~ '^[A-Za-z0-9_.:@-]+$'),
-  requested_at            timestamptz NOT NULL,
+  requested_at            timestamptz NOT NULL DEFAULT now(),  -- always the database's now(): set by confirmation_request_chain()
   expires_at              timestamptz NOT NULL,
   supersedes_request_id   text CHECK (supersedes_request_id ~ '^cfr_[0-9A-Za-z]{2,32}$'),
   recorded_at             timestamptz NOT NULL DEFAULT now(),
@@ -59,18 +65,17 @@ CREATE TABLE confirmation_answer (
   approver_id             text NOT NULL CHECK (approver_id ~ '^[A-Za-z0-9_.:@-]+$'),
   -- the roles the authenticated session gave the approver (INV-12); never from the request body
   approver_roles          text[] NOT NULL,
-  answered_at             timestamptz NOT NULL,
+  answered_at             timestamptz NOT NULL DEFAULT now(),  -- always the database's now(): set by confirmation_answer_requires_request()
   recorded_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT confirmation_answer_pkey PRIMARY KEY (tenant_id, confirmation_event_id),
   -- A341 (interim, relayed, not yet committed): the FIRST answer wins, so a request has at most one answer, whoever the approver; a second answer is refused here, not only in code
   CONSTRAINT confirmation_answer_request_key UNIQUE (tenant_id, confirmation_request_id)
 );
-CREATE INDEX confirmation_answer_request_idx ON confirmation_answer (tenant_id, confirmation_request_id, answered_at, confirmation_event_id);
 
 CREATE TABLE confirmation_expiry (
   tenant_id               text NOT NULL REFERENCES tenant (tenant_id),
   confirmation_request_id text NOT NULL CHECK (confirmation_request_id ~ '^cfr_[0-9A-Za-z]{2,32}$'),
-  observed_at             timestamptz NOT NULL,
+  observed_at             timestamptz NOT NULL DEFAULT now(),  -- always the database's now(): set by confirmation_expiry_requires_expired_request()
   recorded_at             timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT confirmation_expiry_pkey PRIMARY KEY (tenant_id, confirmation_request_id)
 );
@@ -100,6 +105,8 @@ GRANT SELECT, INSERT ON confirmation_expiry TO trust_rw;
 CREATE FUNCTION confirmation_request_chain() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE prior public.confirmation_request%ROWTYPE;
 BEGIN
+  NEW.requested_at := now();   -- A368 (ii): the database's clock, never the caller's
+  NEW.recorded_at := now();
   IF NEW.supersedes_request_id IS NULL THEN
     IF EXISTS (SELECT 1 FROM public.confirmation_request r WHERE r.tenant_id = NEW.tenant_id AND r.intent_id = NEW.intent_id
                AND r.capability_id = NEW.capability_id AND r.target_ref = NEW.target_ref) THEN
@@ -107,6 +114,8 @@ BEGIN
     END IF;
     RETURN NEW;
   END IF;
+  -- serialised with an answer to the same request (A368 (iv)): both take this lock before they read, and it is held to the end of the transaction
+  PERFORM pg_advisory_xact_lock(hashtextextended('confirmation_request:' || NEW.tenant_id || ':' || NEW.supersedes_request_id, 0));
   SELECT * INTO prior FROM public.confirmation_request r WHERE r.tenant_id = NEW.tenant_id AND r.confirmation_request_id = NEW.supersedes_request_id;
   IF NOT FOUND OR (prior.principal_id, prior.intent_id, prior.capability_id, prior.target_ref)
                   IS DISTINCT FROM (NEW.principal_id, NEW.intent_id, NEW.capability_id, NEW.target_ref) THEN
@@ -121,11 +130,26 @@ BEGIN
 END $$;
 CREATE TRIGGER confirmation_request_chain BEFORE INSERT ON confirmation_request FOR EACH ROW EXECUTE FUNCTION confirmation_request_chain();
 
--- An answer or an expiry names a request of its own tenant (row security hides another tenant's); an expiry is recorded only at or after the request's expiry.
+-- An answer names a request of its own tenant (row security hides another tenant's) that is live on the database clock: not expired (23E01) and not superseded (23S01; decided first). A
+-- request that already has an answer is left to the unique key (the first answer wins; a replay is the store's to recognise), so this trigger never turns a duplicate into an expiry.
 CREATE FUNCTION confirmation_answer_requires_request() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
+DECLARE req public.confirmation_request%ROWTYPE;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.confirmation_request r WHERE r.tenant_id = NEW.tenant_id AND r.confirmation_request_id = NEW.confirmation_request_id) THEN
+  NEW.answered_at := now();   -- A368 (ii): the database's clock, never the caller's
+  NEW.recorded_at := now();
+  PERFORM pg_advisory_xact_lock(hashtextextended('confirmation_request:' || NEW.tenant_id || ':' || NEW.confirmation_request_id, 0));
+  SELECT * INTO req FROM public.confirmation_request r WHERE r.tenant_id = NEW.tenant_id AND r.confirmation_request_id = NEW.confirmation_request_id;
+  IF NOT FOUND THEN
     RAISE EXCEPTION '%: the request does not exist for this tenant', TG_TABLE_NAME USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.confirmation_answer a WHERE a.tenant_id = NEW.tenant_id AND a.confirmation_request_id = NEW.confirmation_request_id) THEN
+    RETURN NEW;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.confirmation_request s WHERE s.tenant_id = NEW.tenant_id AND s.supersedes_request_id = NEW.confirmation_request_id) THEN
+    RAISE EXCEPTION 'confirmation_answer: the request was superseded' USING ERRCODE = '23S01';
+  END IF;
+  IF req.expires_at <= NEW.answered_at THEN
+    RAISE EXCEPTION 'confirmation_answer: the request has expired' USING ERRCODE = '23E01';
   END IF;
   RETURN NEW;
 END $$;
@@ -133,6 +157,8 @@ CREATE TRIGGER confirmation_answer_requires_request BEFORE INSERT ON confirmatio
 
 CREATE FUNCTION confirmation_expiry_requires_expired_request() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
+  NEW.observed_at := now();   -- A368 (ii): the database's clock, so a caller cannot expire a request early by claiming a later time
+  NEW.recorded_at := now();
   IF NOT EXISTS (SELECT 1 FROM public.confirmation_request r WHERE r.tenant_id = NEW.tenant_id AND r.confirmation_request_id = NEW.confirmation_request_id
                  AND r.expires_at <= NEW.observed_at) THEN
     RAISE EXCEPTION 'confirmation_expiry: the request does not exist for this tenant or has not expired' USING ERRCODE = 'integrity_constraint_violation';

@@ -1,6 +1,6 @@
 # Status: TRU-12-confirmation-store
 
-State: red pushed (noema#756, draft); green committed locally, not pushed (A332, A340).
+State: A368 red pushed (noema#756); A368 green committed locally, not pushed (A332, A340).
 
 # Session 2026-11-19 14:00 WAT · TRU-12 (confirmation request and answer store)
 
@@ -21,3 +21,9 @@ State: red pushed (noema#756, draft); green committed locally, not pushed (A332,
 
 ## Addendum 2026-11-19 (A341, interim, relayed, not yet committed)
 - Migration 0032 is not merged, so it was edited IN PLACE: `UNIQUE (tenant_id, confirmation_request_id)` on `confirmation_answer` replaces the per-approver key (first answer wins). `Answer` returns typed `ErrAlreadyAnswered` for any second answer except the same approver's same response (a replay, returns the stored event). Safer reading: the same approver answering DIFFERENTLY is also `ErrAlreadyAnswered` (was `ErrRequestConflict`).
+
+## Addendum 2026-11-19 (A368, interim, relayed, not yet committed)
+- What changed: migration 0032 edited in place again (unmerged): `requested_at`, `answered_at`, `observed_at`, `recorded_at` are the database's `now()` (BEFORE INSERT triggers; column defaults too); `intent_version >= 1`; the answer trigger refuses an answer after the expiry (SQLSTATE 23E01) or after a successor exists (23S01, decided first), under a per-request advisory lock shared with the superseding insert; a request that already has an answer is left to the unique key. Store: `Requests.Clock` and `AnswerInput.At` REMOVED, `NewRequest.ExpiresAt` replaced by `TTL` (the database computes `now() + TTL`), `Version < 1` refused in Go before the insert, typed `ErrRequestExpired` and `ErrRequestSuperseded`, `Expire` decides on `expires_at <= now()` in SQL.
+- Findings answered: Codex P1 and C2 P1 (one answer per request: already UNIQUE, kept and tested); SR requirement 1 (no ordering by a caller time: there is one answer, `Latest` needs no ORDER BY) and 2 (database clock); SR requirement 3 (version >= 1); C2 P2 (answer bound to a live, unsuperseded request); Voice P3 (expiry time is the database's) and Voice comment 1 (header no longer says "no foreign keys"); IL P2 (`ErrNotExpired` comment) and IL P3 (the store trusts the roles it is given; the route is the check).
+- Safer readings: a superseded request is refused with 23S01 even when it is also expired; the chain still allows a request answered DECLINE and then superseded (C2's question: intended, the answer is history). The race test cannot make the not-yet-expired interleaving deterministic; the advisory lock is the mechanism and the test asserts the invariant (no answer on a superseded request).
+- Adapter note for noema#750: build `NewRequest.TTL` from the policy's time-to-live and drop `At` and `Clock`; the Event.At of a read answer is the database's answered_at.
