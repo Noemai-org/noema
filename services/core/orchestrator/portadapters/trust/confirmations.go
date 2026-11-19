@@ -2,96 +2,148 @@ package trustport
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/confirm"
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// ConfirmationProfile says whether the trust profile asks for an approver confirmation for the request (T13).
-type ConfirmationProfile interface {
-	Requires(ctx context.Context, a intake.AdmittedIntent) (bool, error)
+// Errors of the confirmation path. Callers compare with errors.Is.
+var (
+	// ErrApproverNotEligible: the approver may not answer this request (confirm.NotEligible). The route returns APPROVER_NOT_ELIGIBLE; the intake turns it into UNKNOWN.
+	ErrApproverNotEligible = errors.New("trustport: the approver is not eligible for this confirmation request")
+	// ErrWrongRequest: the answer names another request, or is neither ACCEPT nor DECLINE (confirm.WrongRequest). Fail closed.
+	ErrWrongRequest = errors.New("trustport: the answer does not belong to this confirmation request")
+	// ErrDeclined: the approver declined. The intake has no Declined status yet (it needs one, trust/intake, C1's path), so Status fails closed with this error
+	// and Evaluate carries the typed Declined result.
+	ErrDeclined = errors.New("trustport: the approver declined the confirmation")
+	// ErrNotBuilt is the red-commit stub's answer.
+	ErrNotBuilt = errors.New("trustport: not built")
+)
+
+// ConfirmationState is the typed result of the full path.
+type ConfirmationState int
+
+// The states of the path. The zero value is not a state.
+const (
+	ConfirmationStateNotRequired ConfirmationState = iota + 1
+	ConfirmationStatePending
+	ConfirmationStateGiven
+	ConfirmationStateDeclined
+)
+
+// ConfirmationResult is the answer of Evaluate. RequestID names the open request of a Pending answer; EventID and PlanHash a Given one; Superseded the request a fresh one
+// replaced; Expired the request whose expiry was recorded.
+type ConfirmationResult struct {
+	State      ConfirmationState
+	RequestID  string
+	EventID    string
+	PlanHash   string
+	Superseded string
+	Expired    string
 }
 
-// ConfirmationRecord is the newest resolved confirmation the store holds for one intent of one principal, as plain values.
-type ConfirmationRecord struct {
-	TenantID string
-	EventID  string // cfe_...
-	Request  confirm.Request
-	Event    confirm.Event
-	Fresh    confirm.BindingInput
+// ConfirmationTerms is what the pack's policy says about one request.
+type ConfirmationTerms struct {
+	Required    bool
+	Requirement string // SELF, MAKER_CHECKER or ROLE:<role>
+	ExpiresIn   time.Duration
 }
 
-// ConfirmationReader reads the confirmation store as the tenant. found is false when there is none.
-type ConfirmationReader interface {
-	Latest(ctx context.Context, tenantID, principalID, intentID string, version int) (rec ConfirmationRecord, found bool, err error)
+// ConfirmationPolicy reads the terms from the pack's policy.
+type ConfirmationPolicy interface {
+	Terms(ctx context.Context, a intake.AdmittedIntent) (ConfirmationTerms, error)
 }
 
-// Confirmations implements intake.Confirmations over trust/confirm. It decides nothing the contract does not: Given only for confirm.Proceed (INV-25), and every doubt is
-// Pending or an error, never Given (INV-17).
-type Confirmations struct {
-	profile ConfirmationProfile
-	reader  ConfirmationReader
-	clk     clock.Clock
+// FreshValues are the two values of the binding that only the evaluation knows.
+type FreshValues struct {
+	EvidenceSetHash string
+	PolicyVersion   string
 }
 
-var _ intake.Confirmations = Confirmations{}
-
-// NewConfirmations builds the adapter. A missing profile, reader or clock is ErrConfig.
-func NewConfirmations(p ConfirmationProfile, r ConfirmationReader, c clock.Clock) (Confirmations, error) {
-	if p == nil || r == nil || c == nil {
-		return Confirmations{}, ErrConfig
-	}
-	return Confirmations{profile: p, reader: r, clk: c}, nil
+// FreshBinding gives the evidence-set hash and the policy version of the evaluation that is running now.
+type FreshBinding interface {
+	Fresh(ctx context.Context, a intake.AdmittedIntent, p intake.Plan) (FreshValues, error)
 }
 
-// Status answers T13. Tenant, principal and intent hash are the admitted intent's (INV-12): the store is asked with them, and the fresh binding is built with them.
-// The fresh binding's plan hash is the request's own: T14 compares the plan it builds with the Given answer's PlanHash (A230).
-func (c Confirmations) Status(ctx context.Context, a intake.AdmittedIntent) (intake.Confirmation, error) {
-	if c.profile == nil || c.reader == nil || c.clk == nil {
-		return intake.Confirmation{}, ErrConfig
-	}
-	if a.TenantID == "" || a.PrincipalID == "" || a.IntentID == "" {
-		return intake.Confirmation{}, ErrSession
-	}
-	required, err := c.profile.Requires(ctx, a)
-	if err != nil {
-		return intake.Confirmation{}, fmt.Errorf("trustport: read the confirmation profile: %w", err)
-	}
-	if !required {
-		return intake.Confirmation{Status: intake.ConfirmationNotRequired}, nil
-	}
-	rec, found, err := c.reader.Latest(ctx, a.TenantID, a.PrincipalID, a.IntentID, a.Version)
-	if err != nil {
-		return intake.Confirmation{}, fmt.Errorf("trustport: read the confirmation store: %w", err)
-	}
-	if !found {
-		return pending(), nil
-	}
-	if rec.TenantID != a.TenantID {
-		return intake.Confirmation{}, fmt.Errorf("%w: a confirmation of another tenant", ErrBadAnswer)
-	}
-	if rec.EventID == "" {
-		return intake.Confirmation{}, fmt.Errorf("%w: a confirmation with no event", ErrBadAnswer)
-	}
-	b := rec.Request.Binding
-	if b.PrincipalID != a.PrincipalID || rec.Request.RequesterID != a.PrincipalID || b.IntentHash != a.IntentHash {
-		return pending(), nil
-	}
-	if c.clk.Now().Unix() > rec.Request.ExpiresAt {
-		return pending(), nil
-	}
-	fresh := rec.Fresh
-	fresh.PrincipalID, fresh.IntentHash, fresh.PlanHash = a.PrincipalID, a.IntentHash, b.PlanHash
-	res, err := confirm.Resolve(rec.Request, rec.Event, fresh)
-	if err != nil {
-		return intake.Confirmation{}, fmt.Errorf("%w: resolve the confirmation: %v", ErrBadAnswer, err)
-	}
-	if !res.MayLeadToGrant() {
-		return pending(), nil
-	}
-	return intake.Confirmation{Status: intake.ConfirmationGiven, EventID: rec.EventID, PlanHash: b.PlanHash}, nil
+// StoredAnswer is the approver's answer to a request, as the route recorded it.
+type StoredAnswer struct {
+	EventID string // cfe_...
+	Event   confirm.Event
 }
 
-func pending() intake.Confirmation { return intake.Confirmation{Status: intake.ConfirmationPending} }
+// StoredRequest is a request with its answer, if any.
+type StoredRequest struct {
+	Request confirm.Request
+	Answer  *StoredAnswer
+}
+
+// NewConfirmationRequest is what the store records (CONFIRMATION_REQUESTED) before it returns the new ID.
+type NewConfirmationRequest struct {
+	TenantID      string
+	CorrelationID string
+	IntentID      string
+	Version       int
+	Binding       confirm.BindingInput
+	Requirement   string
+	RequesterID   string
+	ExpiresAt     int64
+	Supersedes    string
+}
+
+// ConfirmationStore keeps requests and answers.
+type ConfirmationStore interface {
+	// Latest is the newest request of the intent of the principal, with its answer.
+	Latest(ctx context.Context, tenantID, principalID, intentID string, version int) (StoredRequest, bool, error)
+	// Open records a new request and returns its ID.
+	Open(ctx context.Context, r NewConfirmationRequest) (string, error)
+	// Expire records CONFIRMATION_EXPIRED for the request, once.
+	Expire(ctx context.Context, tenantID, requestID string) error
+}
+
+// ResolvedConfirmation is an accepted confirmation that resolved to Proceed (migration 0028).
+type ResolvedConfirmation struct {
+	TenantID    string
+	EventID     string
+	RequestID   string
+	BindingHash string
+	AcceptedAt  time.Time
+	ExpiresAt   time.Time
+}
+
+// ConfirmationResolutions inserts the immutable resolution row, once.
+type ConfirmationResolutions interface {
+	Record(ctx context.Context, c ResolvedConfirmation) error
+}
+
+// ConfirmationDeps are the ports of the path.
+type ConfirmationDeps struct {
+	Policy      ConfirmationPolicy
+	Planner     intake.Planner
+	Fresh       FreshBinding
+	Store       ConfirmationStore
+	Resolutions ConfirmationResolutions
+	Clock       clock.Clock
+}
+
+// ConfirmationPath implements intake.Confirmations over trust/confirm.
+type ConfirmationPath struct{ d ConfirmationDeps }
+
+var _ intake.Confirmations = ConfirmationPath{}
+
+// NewConfirmationPath builds the adapter. A missing port is ErrConfig.
+func NewConfirmationPath(d ConfirmationDeps) (ConfirmationPath, error) {
+	return ConfirmationPath{d: d}, ErrNotBuilt
+}
+
+// Evaluate answers T13 with the typed result.
+func (c ConfirmationPath) Evaluate(ctx context.Context, a intake.AdmittedIntent) (ConfirmationResult, error) {
+	return ConfirmationResult{}, ErrNotBuilt
+}
+
+// Status answers intake.Confirmations.
+func (c ConfirmationPath) Status(ctx context.Context, a intake.AdmittedIntent) (intake.Confirmation, error) {
+	return intake.Confirmation{}, ErrNotBuilt
+}
