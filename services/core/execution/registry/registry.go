@@ -63,7 +63,39 @@ func Load(r io.Reader) (*Registry, error) {
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return nil, refuse(CodeIncomplete, "the pack has data after its end")
 	}
+	if err := checkSources(p); err != nil {
+		return nil, err
+	}
 	return New(p.Capabilities)
+}
+
+// checkSources holds the pack's evidence sources to what the pack says about writing (A342, A345; interim, relayed). It is
+// fail closed: `may_write` absent is false, so a capability that is not prohibited and not a read (risk class other than R0_*)
+// must verify against a source that says true, and `produced_by`, when present, must name a source of the pack.
+func checkSources(p contracts.PackV1) error {
+	sources := make(map[string]bool, len(p.EvidenceSources))
+	for _, s := range p.EvidenceSources {
+		sources[string(s.SourceId)] = s.MayWrite != nil && *s.MayWrite
+	}
+	if p.EvidenceDescriptors != nil {
+		for _, d := range *p.EvidenceDescriptors {
+			if d.ProducedBy == nil {
+				continue
+			}
+			if _, ok := sources[string(*d.ProducedBy)]; !ok {
+				return refuse(CodeIncomplete, "descriptor %s: produced_by %s is not an evidence source of the pack", d.Entity, *d.ProducedBy)
+			}
+		}
+	}
+	for _, c := range p.Capabilities {
+		if c.Prohibited || strings.HasPrefix(c.RiskClass, "R0") || c.Verification == nil {
+			continue
+		}
+		if !sources[string(c.Verification.Source)] {
+			return refuse(CodeSafetyBlock, "capability %s writes and its verification source %s is not may_write", c.CapabilityId, c.Verification.Source)
+		}
+	}
+	return nil
 }
 
 // New builds a registry from descriptors. It refuses the whole set, so that no partial registry exists, when:

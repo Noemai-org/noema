@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.noema.invalid/evidence-source.v1.json",
   "title": "Evidence source descriptor",
-  "description": "SoT §15.5 item 5 and PERD §21.4: what a source system is authoritative for, and its expected freshness. A trust profile may tighten the freshness limit, never loosen it. IDs are vendor-free.",
+  "description": "SoT \u00a715.5 item 5 and PERD \u00a721.4: what a source system is authoritative for, and its expected freshness. A trust profile may tighten the freshness limit, never loosen it. IDs are vendor-free.",
   "type": "object",
   "properties": {
     "source_id": {
@@ -44,6 +44,10 @@
     "sensitivity": {
       "type": "string",
       "minLength": 1
+    },
+    "may_write": {
+      "type": "boolean",
+      "description": "A342 (interim, relayed): whether a capability may write to this source. Optional; absent means false (the safer reading). A capability that writes (not prohibited, risk class above R0) must verify against a source that says true."
     }
   },
   "required": [

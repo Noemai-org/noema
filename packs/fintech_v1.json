@@ -1805,7 +1805,8 @@
       "never_authoritative_for": [
         "execution_receipt"
       ],
-      "sensitivity": "S3_financial_pii"
+      "sensitivity": "S3_financial_pii",
+      "may_write": true
     },
     {
       "source_id": "fin.src.customer",
@@ -1988,6 +1989,7 @@
     {
       "entity": "transaction",
       "source": "fin.src.core_ledger",
+      "produced_by": "fin.src.core_ledger",
       "fields": {
         "id": {
           "type": "Reference"
@@ -1997,6 +1999,7 @@
     {
       "entity": "beneficiary",
       "source": "fin.src.beneficiary",
+      "produced_by": "fin.src.beneficiary",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2009,6 +2012,7 @@
     {
       "entity": "account",
       "source": "fin.src.customer",
+      "produced_by": "fin.src.customer",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2021,6 +2025,7 @@
     {
       "entity": "switch_event",
       "source": "fin.src.switch",
+      "produced_by": "fin.src.switch",
       "fields": {
         "transaction": {
           "type": "Reference"
@@ -2030,6 +2035,7 @@
     {
       "entity": "settlement_record",
       "source": "fin.src.settlement",
+      "produced_by": "fin.src.settlement",
       "fields": {
         "transaction": {
           "type": "Reference"
@@ -2039,6 +2045,7 @@
     {
       "entity": "case",
       "source": "fin.src.case_system",
+      "produced_by": "fin.src.case_system",
       "fields": {
         "id": {
           "type": "Reference"
@@ -2068,6 +2075,7 @@
     {
       "entity": "attachment",
       "source": "fin.src.case_system",
+      "produced_by": "fin.src.case_system",
       "fields": {
         "case": {
           "type": "Reference"
@@ -2080,6 +2088,7 @@
     {
       "entity": "complaint_ref",
       "source": "fin.src.case_system",
+      "produced_by": "fin.src.case_system",
       "fields": {
         "subject": {
           "type": "Reference"

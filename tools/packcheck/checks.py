@@ -130,6 +130,8 @@ def check_references(pack: dict) -> list[Problem]:
             need("capability or intent node", i, caps | nodes, r["rule_id"])
     for d in pack.get("evidence_descriptors", []):
         need("evidence source", d["source"], srcs, f"descriptor {d['entity']}")
+        if "produced_by" in d:
+            need("evidence source (produced_by)", d["produced_by"], srcs, f"descriptor {d['entity']}")
     return out
 
 
@@ -155,6 +157,7 @@ def check_reasons(pack: dict) -> list[Problem]:
 
 def check_capabilities(pack: dict) -> list[Problem]:
     out: list[Problem] = []
+    may_write = {s["source_id"] for s in pack.get("evidence_sources", []) if s.get("may_write") is True}  # absent is false (A342, interim, relayed)
     for c in pack["capabilities"]:
         cid, cp = c["capability_id"], c.get("consequence_profile")
         if not cp or any(k not in cp for k in (*CONSEQUENCE, "irreversibility")):
@@ -174,6 +177,8 @@ def check_capabilities(pack: dict) -> list[Problem]:
                 out.append(("capability", f"{cid}: a write capability needs a verification method"))
             if not c.get("recovery"):
                 out.append(("capability", f"{cid}: a write capability needs a recovery list"))
+            if c.get("verification", {}).get("source") not in may_write:
+                out.append(("capability", f"{cid}: a write capability's verification source {c.get('verification', {}).get('source')} is not may_write"))
         if c["prohibited"] and (c.get("recovery") or c["verification"]["method"] == "independent_read"):
             out.append(("capability", f"{cid}: a prohibited capability carries no executable path"))
     return out

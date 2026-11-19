@@ -20,6 +20,10 @@
       "additionalProperties": {
         "$ref": "#/$defs/FieldType"
       }
+    },
+    "produced_by": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/PackId",
+      "description": "A345 (interim, relayed): the evidence source that produced this evidence. Optional; when present it names a source_id of the pack (checked at pack load)."
     }
   },
   "required": [

@@ -60,12 +60,13 @@ func (e *EvidenceDescriptorV1FieldTypeType) UnmarshalJSON(b []byte) error {
 // EvidenceDescriptorV1 is generated from evidence-descriptor.v1.json.
 // The typed fields of one evidence entity, so that predicates (SoT §43.7) type-check at pack load: 'a predicate that references an unknown field fails pack validation'. Added by T2 under AGENT-02; the SoT and PERD name...
 type EvidenceDescriptorV1 struct {
-	Entity CommonV1SlotName                         `json:"entity"`
-	Source CommonV1PackId                           `json:"source"`
-	Fields map[string]EvidenceDescriptorV1FieldType `json:"fields"`
+	Entity     CommonV1SlotName                         `json:"entity"`
+	Source     CommonV1PackId                           `json:"source"`
+	Fields     map[string]EvidenceDescriptorV1FieldType `json:"fields"`
+	ProducedBy *CommonV1PackId                          `json:"produced_by,omitempty"`
 }
 
-var EvidenceDescriptorV1Shape = objectShape{name: "EvidenceDescriptorV1", props: map[string]bool{"entity": true, "source": true, "fields": true}, required: []string{"entity", "source", "fields"}, nonNull: map[string]bool{"entity": true, "source": true, "fields": true}, closed: true}
+var EvidenceDescriptorV1Shape = objectShape{name: "EvidenceDescriptorV1", props: map[string]bool{"entity": true, "source": true, "fields": true, "produced_by": true}, required: []string{"entity", "source", "fields"}, nonNull: map[string]bool{"entity": true, "source": true, "fields": true, "produced_by": true}, closed: true}
 
 func (t *EvidenceDescriptorV1) UnmarshalJSON(b []byte) error {
 	raw, err := EvidenceDescriptorV1Shape.check(b)
