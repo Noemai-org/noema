@@ -696,21 +696,37 @@ class RecorderShape(Fixture):
         self.assertEqual((rec.failure_class, rec.labels.usable_as_fixture, rec.labels.reason), ("POOL_REFUSED", False, "NO_STATUS"))
 
     def test_a_class_that_is_not_a_class_name_is_refused(self) -> None:
-        for value in ("", "pool refused", "pool_refused", "A" * 41, "X;Y", 3, None, ["OK"]):
+        def recount(m: Any) -> None:  # the counts follow the rows, so only the class name itself can be what is refused
+            if isinstance(m["recordings"][0]["failure_class"], str):
+                m["failure_classes"] = {}
+                for row in m["recordings"]:
+                    m["failure_classes"][row["failure_class"]] = m["failure_classes"].get(row["failure_class"], 0) + 1
+
+        for value in ("", "pool refused", "pool_refused", "A" * 41, "X;Y", "A", 3, None, ["OK"]):
             with self.subTest(repr(value)):
                 shutil.copy(self.src / "rec-0001.json", self.rec(1))
                 shutil.copy(self.src / "manifest.json", self.dir / "manifest.json")
-                self.both(1, lambda d: d.update(failure_class=value), lambda row: row.update(failure_class=value))
+                self.both(1, lambda d: d.update(failure_class=value), lambda row: row.update(failure_class=value), recount)
                 self.refused_in(self.CODES)
 
     def test_the_counts_of_the_manifest_are_those_of_its_rows(self) -> None:
         for name, change in [("one too many", lambda m: m["failure_classes"].update(OK=m["failure_classes"]["OK"] + 1)), ("a class missing", lambda m: m["failure_classes"].pop("OK")),
-                             ("a class no row has", lambda m: m["failure_classes"].update(TIMEOUT=1)), ("a float", lambda m: m["failure_classes"].update(OK=3.0)),
-                             ("not an object", lambda m: m.update(failure_classes=[])), ("a bool", lambda m: m["failure_classes"].update(OK=True))]:
+                             ("a class no row has", lambda m: m["failure_classes"].update(TIMEOUT=1)), ("a float of the right value", lambda m: m["failure_classes"].update(OK=float(m["failure_classes"]["OK"]))),
+                             ("not an object", lambda m: m.update(failure_classes=[])), ("a bool of the right value", lambda m: m["failure_classes"].update(REJECTED=True))]:
             with self.subTest(name):
                 shutil.copy(self.src / "manifest.json", self.dir / "manifest.json")
                 rewrite(self.dir / "manifest.json", change)
                 self.refused_in(self.CODES)
+
+    def test_a_run_where_only_some_recordings_carry_the_new_members_is_refused(self) -> None:
+        rewrite(self.rec(1), drop_new_members)
+
+        def strip(m: Any) -> None:
+            m["recordings"][0].pop("failure_class")
+            m["recordings"][0].pop("error")
+            m.pop("failure_classes")
+        rewrite(self.dir / "manifest.json", strip)
+        self.refused_in(self.CODES)
 
     def test_the_row_and_the_recording_must_agree_on_the_class_and_the_error(self) -> None:
         for name, change in [("class", lambda d: d.update(failure_class="TIMEOUT")), ("error", lambda d: d.update(error={"type": "invalid_request_error", "code": None, "param": None}))]:

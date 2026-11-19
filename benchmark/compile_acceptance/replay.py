@@ -35,12 +35,18 @@ _HASH: Final = re.compile(r"sha256:[0-9a-f]{64}")
 _HEX: Final = re.compile(r"[0-9a-f]{64}")
 _DATE: Final = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 _TIME: Final = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+_CLASS: Final = re.compile(r"[A-Z][A-Z_]{1,39}")  # a failure class is a name, not a closed list: the recorder may name a new one (POOL_REFUSED follows)
+_IDENT: Final = re.compile(r"[A-Za-z][A-Za-z0-9_.\[\]]{0,63}")  # what recording.py accepts of an error's type, code and param
+_ERROR_FIELDS: Final = frozenset({"type", "code", "param"})
 _MANIFEST_KEYS: Final = frozenset({"run_id", "provider", "model_id", "date", "calls", "pin", "reported_model_ids", "label", "recordings"})
+_MANIFEST_OPTIONAL: Final = frozenset({"failure_classes", "fixture"})  # A359 (noema#779) and the committed fixtures (UND-15)
 _ROW_KEYS: Final = frozenset({"recording_id", "case_id", "request_sha256", "status", "failure", "cost_micros"})
+_NEW_MEMBERS: Final = frozenset({"failure_class", "error"})  # in a row and a recording, both or neither
 _PIN_KEYS: Final = frozenset({"harness_config_sha256", "lexicon_sha256", "masking_limits_sha256", "max_output_tokens", "pack_ref", "pack_sha256", "pinned_model_id", "rate_card", "reasoning_effort"})
 _RATE_KEYS: Final = frozenset({"as_of", "input_micro_per_mtok", "output_micro_per_mtok"})
 _DOC_KEYS: Final = frozenset({"recording_id", "run_id", "case_id", "provider", "model_id", "reported_model_id", "recorded_at", "url_path", "request_sha256", "request", "status", "failure", "reply",
                               "projected_micros", "cost_micros"})
+_DOC_OPTIONAL: Final = frozenset({"fixture"}) | _NEW_MEMBERS
 
 
 class RecordingsRefused(Exception):
@@ -79,6 +85,8 @@ class Recording:
     file_sha256: str  # SHA-256 of the file's bytes
     labels: Labels
     reply: Mapping[str, Any] | None
+    failure_class: str | None = None  # the recorder's class of the call (A359); None for a run recorded before it
+    error: Mapping[str, str | None] | None = None  # type, code and param of a provider's error, validated; never a message (A320, A359)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -91,6 +99,7 @@ class RecordingSet:
     pin: Mapping[str, Any]
     recordings: tuple[Recording, ...]
     replay_label: str = REPLAY_LABEL
+    failure_classes: Mapping[str, int] | None = None  # the manifest's count per class, equal to the rows' own
 
     def usable(self) -> tuple[Recording, ...]:
         return tuple(r for r in self.recordings if r.labels.usable_as_fixture)
@@ -273,9 +282,21 @@ def _check_pin(pin: Any, model_id: str) -> None:
              "MANIFEST_INVALID", "manifest.json", "pin.rate_card values")
 
 
+def _check_class(value: Any, code: str, name: str) -> None:
+    _require(isinstance(value, str) and _CLASS.fullmatch(value) is not None, code, name, "a failure class is not a class name")
+
+
+def _check_error(value: Any, status: Any, code: str, name: str) -> None:
+    if value is None:
+        return
+    _require(isinstance(status, int) and not isinstance(status, bool) and not 200 <= status < 300, code, name, "an error belongs to a call with a status that is not 2xx")
+    _require(isinstance(value, dict) and set(value) == _ERROR_FIELDS, code, name, "an error holds exactly type, code and param")
+    _require(all(v is None or (isinstance(v, str) and _IDENT.fullmatch(v) is not None) for v in value.values()), code, name, "an error value is not a plain identifier")
+
+
 def _check_manifest(m: dict[str, Any]) -> list[dict[str, Any]]:
     name = "manifest.json"
-    _require(set(m) == _MANIFEST_KEYS, "MANIFEST_INVALID", name, "members are not exactly the recorder's")
+    _require(_MANIFEST_KEYS <= set(m) <= _MANIFEST_KEYS | _MANIFEST_OPTIONAL, "MANIFEST_INVALID", name, "members are not exactly the recorder's")
     _require(all(_is_str(m[k]) for k in ("run_id", "provider", "model_id")), "MANIFEST_INVALID", name, "run_id, provider and model_id are text")
     _require(isinstance(m["date"], str) and _DATE.fullmatch(m["date"]) is not None, "MANIFEST_INVALID", name, "date")
     _require(m["label"] == LABEL, "MANIFEST_INVALID", name, "label is not the recorder's")
@@ -285,13 +306,25 @@ def _check_manifest(m: dict[str, Any]) -> list[dict[str, Any]]:
     _check_pin(m["pin"], m["model_id"])
     rows = m["recordings"]
     _require(isinstance(rows, list) and all(isinstance(r, dict) for r in rows), "MANIFEST_INVALID", name, "recordings is not a list of objects")
+    new = [_NEW_MEMBERS <= set(r) for r in rows]
+    _require(all(set(r) in (_ROW_KEYS, _ROW_KEYS | _NEW_MEMBERS) for r in rows) and (all(new) or not any(new)), "MANIFEST_INVALID", name, "a row has not the recorder's members")
+    _require(("failure_classes" in m) == (bool(new) and all(new)), "MANIFEST_INVALID", name, "failure_classes and the rows' failure_class and error go together")
     for row in rows:
-        _require(set(row) == _ROW_KEYS, "MANIFEST_INVALID", name, "a row has not the recorder's members")
         _require(isinstance(row["recording_id"], str) and _ID.fullmatch(row["recording_id"]) is not None, "MANIFEST_INVALID", name, "a recording_id is not rec-NNNN")
         _require(_is_str(row["case_id"]) and isinstance(row["request_sha256"], str) and _HASH.fullmatch(row["request_sha256"]) is not None, "MANIFEST_INVALID", name, "a row's case or hash")
         _require((row["status"] is None or _is_int(row["status"])) and (row["failure"] is None or _is_str(row["failure"])) and _is_count(row["cost_micros"]), "MANIFEST_INVALID", name, "a row's values")
+        if "failure_class" in row:
+            _check_class(row["failure_class"], "MANIFEST_INVALID", name)
+            _check_error(row["error"], row["status"], "MANIFEST_INVALID", name)
     _require(len(rows) > 0, "MANIFEST_INVALID", name, "no recordings: a run of no call is nothing to replay")
     _require(m["calls"] == len(rows), "COUNT_MISMATCH", name, "calls is not the number of recordings")
+    if "failure_classes" in m:
+        counts = m["failure_classes"]
+        have: dict[str, int] = {}
+        for row in rows:
+            have[row["failure_class"]] = have.get(row["failure_class"], 0) + 1
+        _require(isinstance(counts, dict) and all(type(v) is int for v in counts.values()) and counts == have, "MANIFEST_INVALID", name, "failure_classes are not the count of the rows' classes")
+    _require("fixture" not in m or isinstance(m["fixture"], dict), "MANIFEST_INVALID", name, "fixture is not an object")
     _require(len({r["recording_id"] for r in rows}) == len(rows) and len({r["request_sha256"] for r in rows}) == len(rows), "DUPLICATE", name, "a recording or a request is listed twice")
     _require([r["recording_id"] for r in rows] == [f"rec-{n:04d}" for n in range(1, len(rows) + 1)], "MANIFEST_INVALID", name, "the recordings are not rec-0001 to rec-NNNN in order")
     return list(rows)
@@ -299,7 +332,11 @@ def _check_manifest(m: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _check_doc(doc: dict[str, Any], name: str) -> None:
     bad = "RECORDING_INVALID"
-    _require(set(doc) == _DOC_KEYS, bad, name, "members are not exactly the recorder's")
+    _require(_DOC_KEYS <= set(doc) <= _DOC_KEYS | _DOC_OPTIONAL and (_NEW_MEMBERS <= set(doc) or not _NEW_MEMBERS & set(doc)), bad, name, "members are not exactly the recorder's")
+    _require("fixture" not in doc or isinstance(doc["fixture"], dict), bad, name, "fixture is not an object")
+    if "failure_class" in doc:
+        _check_class(doc["failure_class"], bad, name)
+        _check_error(doc["error"], doc["status"], bad, name)
     _require(all(_is_str(doc[k]) for k in ("recording_id", "run_id", "case_id", "provider", "model_id", "url_path")), bad, name, "text members")
     _require(isinstance(doc["recorded_at"], str) and _TIME.fullmatch(doc["recorded_at"]) is not None, bad, name, "recorded_at")
     _require(isinstance(doc["request_sha256"], str) and _HASH.fullmatch(doc["request_sha256"]) is not None, bad, name, "request_sha256")
@@ -348,15 +385,18 @@ def load_recordings(directory: Path, *, file_sha256: Mapping[str, str] | None = 
         doc = _object(data, name, "RECORDING_INVALID")
         _check_doc(doc, name)
         same = (doc["recording_id"] == row["recording_id"] and doc["run_id"] == manifest["run_id"] and doc["provider"] == manifest["provider"] and doc["model_id"] == manifest["model_id"]
-                and all(doc[k] == row[k] for k in ("case_id", "request_sha256", "status", "failure", "cost_micros")))
+                and all(doc[k] == row[k] for k in ("case_id", "request_sha256", "status", "failure", "cost_micros"))
+                and all(doc.get(k) == row.get(k) for k in _NEW_MEMBERS) and (("failure_class" in doc) == ("failure_class" in row)))
         _require(same, "MISMATCH", name, "does not agree with its row of the manifest")
         if doc["reported_model_id"] is not None:
             reported.add(doc["reported_model_id"])
-        loaded.append(Recording(row["recording_id"], doc["request_sha256"], hashlib.sha256(data).hexdigest(), label_recording(doc), copy.deepcopy(doc["reply"])))
+        loaded.append(Recording(row["recording_id"], doc["request_sha256"], hashlib.sha256(data).hexdigest(), label_recording(doc), copy.deepcopy(doc["reply"]), doc.get("failure_class"),
+                                copy.deepcopy(doc.get("error"))))
     _require(sorted(reported) == manifest["reported_model_ids"], "MISMATCH", "manifest.json", "reported_model_ids are not those of the recordings")
     if file_sha256 is not None:
         _require(set(file_sha256) == {r.recording_id for r in loaded} and all(file_sha256[r.recording_id] == r.file_sha256 for r in loaded), "HASH_MISMATCH", "recordings", "a file is not the pinned one")
-    return RecordingSet(manifest["run_id"], manifest["provider"], manifest["model_id"], manifest["date"], manifest["label"], copy.deepcopy(manifest["pin"]), tuple(loaded))
+    return RecordingSet(manifest["run_id"], manifest["provider"], manifest["model_id"], manifest["date"], manifest["label"], copy.deepcopy(manifest["pin"]), tuple(loaded),
+                        failure_classes=copy.deepcopy(manifest.get("failure_classes")))
 
 
 # ---- the lookup -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------

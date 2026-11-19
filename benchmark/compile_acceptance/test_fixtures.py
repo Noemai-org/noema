@@ -10,11 +10,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any, ClassVar
 
+from benchmark.compile_acceptance import fixtures
 from benchmark.compile_acceptance.fixtures import load_fixtures, reduce_reply, reduce_run
 from benchmark.compile_acceptance.recording import Recorder, dump
 from benchmark.compile_acceptance.replay import REPLAY_LABEL, RecordingsRefused, RecordingSet, ReplayRefused, ReplayStore, label_recording, load_recordings
@@ -170,6 +171,21 @@ class Reducing(unittest.TestCase):
         with self.assertRaises(RecordingsRefused):
             reduce_run(broken, self.root / "none", head_sha=HEAD)
         self.assertFalse((self.root / "none").exists())
+
+    def test_a_reduction_that_changed_the_message_is_refused_and_nothing_is_written(self) -> None:
+        def changed(reply: Any) -> dict[str, Any]:
+            reduced = reduce_reply(reply)
+            reduced["output"][0]["content"][0]["text"] += " "
+            return reduced
+        original = fixtures.reduce_reply
+        fixtures.reduce_reply = changed
+        try:
+            with self.assertRaises(RecordingsRefused) as cm:
+                reduce_run(self.src, self.root / "other", head_sha=HEAD)
+        finally:
+            fixtures.reduce_reply = original
+        self.assertEqual(cm.exception.code, "REDUCTION_CHANGED")
+        self.assertFalse((self.root / "other").exists())
 
     def test_reduce_reply_keeps_nothing_it_was_not_told_to_keep(self) -> None:
         original = json.loads(full_reply("{}"))

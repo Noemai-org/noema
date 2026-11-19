@@ -32,3 +32,26 @@ State (2026-11-19): the loader, the labels and the lookup of the recordings are 
 - Files to read first: `benchmark/compile_acceptance/replay.py`, `recording.py`, `status/UND-16.md`.
 - Do not touch: `benchmark/decisions/harness-*.json` (frozen); the recorder's output shape without updating `replay.py` with it.
 - Also open: `status/README.md` lists the files of the folder; its index line for `UND-15.md` is outside this task's allowlist.
+
+# Session 2026-11-19 17:30 UTC · UND-15 · the conversion to committed, reduced fixtures (SR's four conditions, relayed)
+
+## Session summary
+- What changed (PR: noema#778): `replay.py` takes #779's recorder shape (`failure_class`, `error`, `failure_classes`; a new class name such as POOL_REFUSED loads; an error holds exactly type, code and param and only on a non-2xx call; the older shape still loads); new `fixtures.py` (`reduce_reply`, `reduce_run`, `load_fixtures`, a small CLI); `test_replay.py` reads the committed fixtures and no environment variable; new `test_fixtures.py`; the 25 reduced fixtures of run 44521380842 under `services/model/tests/fixtures/replay/compile-gh44521380842/` (149 KB); README.
+- Why: the Founder's order of 19 Nov (SR's conditions: reduce replies with a parse-equivalence test, keep requests as recorded and keyed by `request_sha256`, label SYNTHETIC with run id, head SHA and the A261 label, tests read only committed files, leak scan with allow lines, failed calls negative only). The conditions are relayed, not yet committed (docs#211 is open).
+- Head SHA: the workflow run's own `head_sha`, `ee9156936ca1561d67040cd1764c9865471da014` (read from the run, not from the recordings, which do not hold it).
+- Evidence: all 17 reduced replies equal the original's message text byte for byte and parse to the same object (checked on the originals at conversion); every request and `request_sha256` equal the original's; no `encrypted_content` or reasoning item in any committed file; the leak scan is clean with `leakscan.allow` and fails without it (the allow lines are needed) and finds an account number planted in a copy.
+- Risks, and how they are contained: a reduced file is no longer the recorder's output; `load_fixtures` refuses a directory that is not exactly what `reduce_run` wrote (request, message hash, labels, provenance). The original files are not committed, so the parse-equivalence on the real data rests on the hashes `reduce_run` recorded (`original_file_sha256`, `reply_message_sha256`) and on the conversion check above.
+- Tests added (REQ-INT-002, REQ-TST-004, AGENT-12, AGENT-13, A261, A320, A359): 9 in `test_replay.py` (`RecorderShape`) and 27 in `test_fixtures.py`; the 5 tests that were skipped in CI now run on the committed files.
+- Regression cases added: those tests. Debt entries: none. Conflicts raised: none.
+
+## Silences (A332)
+1. The loader's strictness: a member the recorder adds later makes it refuse until it is updated (as for #779); `fixture` is the only optional member added for the committed form.
+2. The request bytes are not recoverable from the recording (unchanged from the first session): the canonical hash of the parsed request guards the file; the key a replay uses is the recorded `request_sha256`.
+3. The path `services/model/tests/fixtures/replay/` is outside the task's allowlist: stated exception, by the Founder's order and SR's condition (relayed).
+4. Size: `replay.py` is over 400 lines and `test_replay.py` over 700 (review trigger of AGENTS section 7); `fixtures.py` 150.
+
+## Pre-work for the next agent
+- Exact next step: the provider class under `providers/` that serves `ReplayStore` (the row's "Done when"); the POOL_REFUSED class in the recorder (its own PR; the loader already takes it); reduce the next passing run with `fixtures reduce` for the G1 fixtures.
+- Open questions (Architect): the text of SR's conditions to be committed (docs#211); whether `fixture.labels` should also pin the question ids.
+- Files to read first: `benchmark/compile_acceptance/fixtures.py`, `replay.py`, the README section "Committed fixtures".
+- Do not touch: the committed fixture files (regenerate from a run, never edit by hand).
