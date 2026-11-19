@@ -54,13 +54,12 @@ func (r Resolutions) Record(ctx context.Context, c trustport.ResolvedConfirmatio
 		VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant_id, confirmation_event_id) DO NOTHING`,
 		c.TenantID, c.EventID, c.RequestID, c.BindingHash, c.AcceptedAt.UTC(), c.ExpiresAt.UTC())
 	var pg *pgconn.PgError
-	if errors.As(err, &pg) && pg.Code == uniqueViolation {
-		return ErrConflict
-	}
-	if err != nil {
+	// A concurrent insert of the same row can surface as the request key's unique violation (the arbiter above names the event key only): either way the stored row decides.
+	clash := errors.As(err, &pg) && pg.Code == uniqueViolation
+	if err != nil && !clash {
 		return fmt.Errorf("trustpg2: record the resolution: %w", err)
 	}
-	if tag.RowsAffected() == 1 {
+	if err == nil && tag.RowsAffected() == 1 {
 		return nil
 	}
 	got, found, err := r.Get(ctx, c.TenantID, c.EventID)
