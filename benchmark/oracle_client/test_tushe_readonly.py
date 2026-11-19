@@ -103,7 +103,7 @@ def key_file() -> Iterator[Path]:
 
 
 def reader(base: str, key: Path, *, list_key: str | None = "events", present: str = "bearer", timeout: float = 2.0) -> TusheReadOnly:
-    return TusheReadOnly(base, key, present=present, events_key=list_key, transitions_key=None if list_key is None else "transitions", loopback_http=True, timeout=timeout)
+    return TusheReadOnly(base, key, present=present, events_field=list_key, transitions_field=None if list_key is None else "transitions", loopback_http=True, timeout=timeout)
 
 
 class Requests(unittest.TestCase):
@@ -128,16 +128,16 @@ class Requests(unittest.TestCase):
             with self.assertRaises(TypeError):
                 TusheReadOnly("https://x.invalid", key)  # type: ignore[call-arg]
             with self.assertRaises(TusheReadError) as caught:
-                TusheReadOnly("https://x.invalid", key, present="cookie", events_key=None, transitions_key=None)
+                TusheReadOnly("https://x.invalid", key, present="cookie", events_field=None, transitions_field=None)
             self.assertEqual("INVALID", caught.exception.kind)
 
     def test_http_is_refused_unless_loopback_is_asked_for_and_the_host_is_loopback(self) -> None:
         with key_file() as key:
             for base, flag in (("http://127.0.0.1:1", False), ("http://example.invalid", True), ("ftp://x", True), ("example.invalid", False)):
                 with self.assertRaises(TusheReadError, msg=base) as caught:
-                    TusheReadOnly(base, key, present="bearer", events_key=None, transitions_key=None, loopback_http=flag)
+                    TusheReadOnly(base, key, present="bearer", events_field=None, transitions_field=None, loopback_http=flag)
                 self.assertEqual("INVALID", caught.exception.kind)
-            TusheReadOnly("https://example.invalid", key, present="bearer", events_key=None, transitions_key=None)  # https needs no flag, and no request is made
+            TusheReadOnly("https://example.invalid", key, present="bearer", events_field=None, transitions_field=None)  # https needs no flag, and no request is made
 
     def test_an_empty_or_missing_key_file_is_invalid_and_never_names_the_value(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,7 +145,7 @@ class Requests(unittest.TestCase):
             empty.write_text("\n", encoding="utf-8")
             for path in (empty, Path(tmp) / "absent"):
                 with self.assertRaises(TusheReadError) as caught:
-                    TusheReadOnly("https://x.invalid", path, present="bearer", events_key=None, transitions_key=None)
+                    TusheReadOnly("https://x.invalid", path, present="bearer", events_field=None, transitions_field=None)
                 self.assertEqual("INVALID", caught.exception.kind)
 
     def test_the_ids_are_checked_before_any_request_is_made(self) -> None:

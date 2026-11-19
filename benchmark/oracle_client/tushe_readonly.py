@@ -43,9 +43,9 @@ def _text(value: Any) -> bool:
 
 
 class TusheReadOnly:
-    __slots__ = ("_get", "_events_key", "_transitions_key", "_base")
+    __slots__ = ("_get", "_events_field", "_transitions_field", "_base")
 
-    def __init__(self, base_url: str, key_file: Path, *, present: str, events_key: str | None, transitions_key: str | None, loopback_http: bool = False, timeout: float = 10.0) -> None:
+    def __init__(self, base_url: str, key_file: Path, *, present: str, events_field: str | None, transitions_field: str | None, loopback_http: bool = False, timeout: float = 10.0) -> None:
         if present not in PRESENTATIONS:
             raise TusheReadError("INVALID", "ADAPTER:INVALID_INPUT", f"present must be one of {PRESENTATIONS}")
         parts = urlsplit(base_url)
@@ -69,7 +69,7 @@ class TusheReadOnly:
             return client.request("GET", path, headers=headers)[0]
 
         self._get: Callable[[str], Any] = get
-        self._events_key, self._transitions_key, self._base = events_key, transitions_key, parts.hostname
+        self._events_field, self._transitions_field, self._base = events_field, transitions_field, parts.hostname
 
     def __repr__(self) -> str:
         return f"TusheReadOnly(host={self._base!r})"
@@ -90,8 +90,8 @@ class TusheReadOnly:
             raise TusheReadError("MALFORMED", "UNRECOGNISED", "the body is not JSON") from None
 
     @staticmethod
-    def _list(body: Any, key: str | None) -> list[Any]:
-        found = body if key is None else (body.get(key) if isinstance(body, dict) else None)
+    def _list(body: Any, field: str | None) -> list[Any]:
+        found = body if field is None else (body.get(field) if isinstance(body, dict) else None)
         if not isinstance(found, list):
             raise TusheReadError("MALFORMED", "UNRECOGNISED", "the answer is not the list shape this reader was given")
         return found
@@ -100,7 +100,7 @@ class TusheReadOnly:
         for value in (account_id, payout_id):
             if not isinstance(value, str) or not ID.fullmatch(value):
                 raise TusheReadError("INVALID", "ADAPTER:INVALID_INPUT", "an id may hold only letters, digits, underscore and dash, 1 to 64 characters")
-        rows = self._list(self._read(f"/v1/accounts/{account_id}/payouts/{payout_id}/transitions"), self._transitions_key)
+        rows = self._list(self._read(f"/v1/accounts/{account_id}/payouts/{payout_id}/transitions"), self._transitions_field)
         last = 0
         out: list[Json] = []
         for row in rows:
@@ -117,7 +117,7 @@ class TusheReadOnly:
             raise TusheReadError("INVALID", "ADAPTER:INVALID_INPUT", "after must be a whole number of at least 0; limit and max_pages whole numbers of at least 1")
         cursor, out = after, []
         for _ in range(max_pages):
-            page = self._list(self._read(f"/v1/events?after={cursor}&limit={limit}"), self._events_key)
+            page = self._list(self._read(f"/v1/events?after={cursor}&limit={limit}"), self._events_field)
             for event in page:
                 if not isinstance(event, dict) or not _int(event.get("sequence")) or event["sequence"] <= cursor or not _text(event.get("id")):
                     raise TusheReadError("MALFORMED", "UNRECOGNISED", "an event is unreadable, or its sequence does not strictly rise past the cursor")
