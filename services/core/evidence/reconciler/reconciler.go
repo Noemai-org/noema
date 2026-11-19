@@ -24,6 +24,7 @@ import (
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
+	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
 	"github.com/Noemai-org/noema/services/core/trust/reconcile"
@@ -181,4 +182,15 @@ func (r *Reconciler) reconciliationID(sorted []layer.Item, now time.Time) string
 		letters[i] = byte('a' + rest.Int64())
 	}
 	return "rec_" + string(letters)
+}
+
+// ErrPayload marks an item whose stored payload is not the sealed one, is not one object or is not canonical: Classify turns it into an UNKNOWN row (A260); Facts, which a
+// confirmation's binding rests on, refuses it (A365 refined).
+var ErrPayload = errors.New(prefix + "the stored payload is not usable as the sealed one")
+
+var errFactsNotBuilt = errors.New(prefix + "Facts is not built")
+
+// Facts is not built.
+func (r *Reconciler) Facts(ctx context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error) {
+	return nil, errFactsNotBuilt
 }
