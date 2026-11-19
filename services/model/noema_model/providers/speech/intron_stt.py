@@ -86,6 +86,7 @@ class IntronSpeechToText:
                     return
         finally:
             sender.cancel()
+            sender.add_done_callback(_observe)  # a failure of the source's own cleanup is observed here, and never logged by the event loop with its message (Codex P2 on #640)
             try:
                 await connection.close()
             except (OSError, ConnectionClosed):
@@ -95,6 +96,7 @@ class IntronSpeechToText:
 async def _next_message(connection: Connection, sender: "asyncio.Future[None]") -> str:
     """The next server message. If the audio sender fails first, its error is the call's error (a bad frame, a dropped connection) and is not hidden behind a wait."""
     receiving = asyncio.ensure_future(connection.recv())
+    receiving.add_done_callback(_observe)
     try:
         while not receiving.done():
             watched: set[asyncio.Future[Any]] = {receiving, sender}
@@ -110,6 +112,12 @@ async def _next_message(connection: Connection, sender: "asyncio.Future[None]") 
     finally:
         if not receiving.done():
             receiving.cancel()
+
+
+def _observe(task: "asyncio.Future[Any]") -> None:
+    """Mark a task's outcome as seen. The exception is dropped on purpose: it may carry the audio source's own text, and the adapter's own errors are typed and fixed (AGENT-13)."""
+    if not task.cancelled():
+        task.exception()
 
 
 def _final(message: ServerMessage) -> FinalTranscript:

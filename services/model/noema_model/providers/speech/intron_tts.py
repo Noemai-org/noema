@@ -55,6 +55,8 @@ class IntronTextToSpeech:
                 while True:
                     await connection.send(fetch_message(index))
                     reply = await _reply(connection, "FETCH_AUDIO_CHUNK")
+                    if reply.chunk_id != index:
+                        raise ProviderError(ProviderFailure.MALFORMED)  # a reply for another chunk is never accepted, ready or not: it could repeat or drop part of the answer (Codex P2 on #640)
                     if reply.ready:
                         break
                     await asyncio.sleep(self._poll_s)
