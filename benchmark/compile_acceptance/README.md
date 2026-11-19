@@ -10,6 +10,7 @@ The compile acceptance run (UND-16; noema#546; ruling A198). It runs the five go
 | `recording.py` | `Recorder`: one `recordings/rec-NNNN.json` per call (provider, model pin, run id, date, SHA-256 of the exact request bytes, both bodies parsed, cost) and `manifest.json` | Only a 2xx reply body is written: the body of any other response is not recorded (SR's condition on noema#654, A320); its status and failure label are.
 | `runner.py` | `run_cases`: each example once, in order; the stop stays; `RunResult.exit_code`; `run.json` |
 | `build.py` | the live side: `RecordingTransport` (the budget guard decides before a request is sent), `DryTransport` (prices the first request of each example, sends nothing), `build_backend` (the real harness for one frozen harness configuration, the real pack, lexicon and masking limits, a synthetic candidate source) |
+| `replay.py` | UND-15, the loader, the labels and the lookup of the recordings (below); no provider class |
 | `__main__.py` | the command, below |
 | `leakscan.allow` | the two line patterns of a real output the leak scan would otherwise take for a number (epoch times and cost counts) |
 
@@ -29,6 +30,10 @@ It is started only by `.github/workflows/bench-live-compile.yml` (noema#569), wi
 | 3 | NOT RUN: no key, or no provider call was made. Never a pass. `--dry-run` calls no provider, so it always exits 3 (A285) |
 
 The cost counted for a call is what the reply's own `usage` gives at the frozen rate card, or the worst-case projection when a reply reports none (`benchmark/bakeoff/budget.py`; a failed call is settled at its projection). The hard stop is whole dollars (1 to 5) counted with `--prior-spent-micros`.
+
+## Replay: the loader, the labels, the lookup (UND-15; A261)
+
+`load_recordings(dir)` reads one `recordings/` directory and refuses it unless it is exactly what the recorder wrote: the manifest and the files in a closed shape, `calls` equal to the rows and the files, no missing, extra, duplicated or reordered recording, every shared field of a file equal to its manifest row, no link, no `..`, no file over 1 MiB, strict JSON. `file_sha256=` pins the exact bytes of each file when the fixtures are committed. `label_recording` gives each recording `usable_as_fixture` (HTTP 200, no failure label, a completed reply holding one JSON message that meets the request's own schema and answers exactly the questions asked) or `evidence_only`, with a closed reason, the step (`harness_decide`, `pipeline_slot_mentions`), the question ids and the case id; it reads fields, never the meaning of a reply or an utterance. `ReplayStore.lookup(request_sha256)` returns a copy of the recorded reply of a fixture and raises `ReplayRefused` (`UNKNOWN_REQUEST`, `EVIDENCE_ONLY`, `BAD_KEY`) for anything else: it never guesses and sends nothing. Evidence of a run on these recordings carries the label "Understanding: recorded replay of live output" (`REPLAY_LABEL`). Tests on the real recordings run when `NOEMA_UND15_RECORDINGS` names the directory and skip otherwise.
 
 ## What it does not show
 
