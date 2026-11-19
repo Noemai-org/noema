@@ -59,7 +59,7 @@ A Founder-dispatched workflow in a bench Environment (the same model as the othe
 ## 5. Safeguards for "synthetic only"
 
 1. **The audio set is produced from the generated cases only** (layer GENERATED). A case from any other layer is refused (INV-22), the same rule as `select_subset` in the qualification code.
-2. **The sender accepts only audio the run itself generated**: each file carries a provenance entry (case id, generator version and seed, TTS model id, the SHA-256 of the text) and the sender refuses any file without one. A recording of a person has no such entry and cannot be sent by this path. This is a check in the sender, not a promise.
+2. **The sender accepts only audio the run itself generated**: each file carries a provenance entry (case id, generator version and seed, TTS model id, the SHA-256 of the text) and the sender refuses any file without one. A recording of a person has no such entry and cannot be sent by this path. This is a check in the sender, not a promise. **If a later run adds recordings of team members (the Voice baseline, noema#767, accepts them), this check must first learn the same origin label the Voice harness uses (`TEAM_RECORDING` beside `SYNTHETIC`, noema#694) and refuse anything else; this run stays synthetic-only and does not.**
 3. **No transcript or amount is written to an artifact.** The leak scan runs over the session summary and the job log, with a planted canary it must find; digit runs over four never appear (A154): amounts are compared as booleans and reported as counts.
 4. **No second provider hears any audio** (noema#630; one provider only).
 
