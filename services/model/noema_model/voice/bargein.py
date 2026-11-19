@@ -17,13 +17,14 @@ deterministic stand-in for the real one. It is inside the AGENT-12 seam of noema
 
 import asyncio
 import math
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from noema_model.platform.telemetry import Telemetry
 from noema_model.providers.speech.base import AudioChunk
 from noema_model.voice.endpoint import AudioSource, EndpointDetector, EndpointState, VadConfig
-from noema_model.voice.pipeline import Report, _mark_retrieved, begin_close, cleanup_reporter, close_when_read_ends
+from noema_model.voice.pipeline import Report, _mark_retrieved, begin_close, cleanup_reporter, close_when_read_ends, release_unused
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,12 @@ async def play_until_barge_in(
     """Play the answer chunk by chunk, reading one microphone frame after each, and stop when the person speaks. The bounds are configuration, validated when they were built
     (`PlaybackBounds`), so this call never refuses with live streams in hand."""
     report = cleanup_reporter(telemetry, correlation_id)
+    for source in (answer, microphone):
+        try:
+            weakref.ref(source)
+        except TypeError:  # the retry of a close that failed while a read ran holds the source weakly (see `close_when_read_ends`); refuse now, and release both (Codex P2 on #621 at c23a5f45)
+            await asyncio.gather(release_unused(answer, bounds.close_s, report), release_unused(microphone, bounds.close_s, report))
+            raise TypeError("the audio sources must support weak references (a class with __slots__ needs a __weakref__ slot)") from None
     outstanding: list[tuple[AudioSource, asyncio.Future[AudioChunk]]] = []
     outcome: BargeInResult | None = None
     try:
