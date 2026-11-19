@@ -410,7 +410,7 @@ func DecisionDocJSON(decisionID, tenant, intentHash, policyVersion, correlation 
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
-		panic("testpg: " + err.Error()) // a map of strings cannot fail to marshal
+		return "" // a map of strings cannot fail to marshal; an empty document is refused by every jsonb insert, so a failure is loud
 	}
 	return string(raw)
 }

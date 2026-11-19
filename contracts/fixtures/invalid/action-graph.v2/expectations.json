@@ -2,5 +2,20 @@
   "missing_roots.json": "required",
   "empty_roots.json": "minItems",
   "duplicate_root.json": "uniqueItems",
-  "root_not_a_slot_name.json": "pattern"
+  "root_not_a_slot_name.json": "pattern",
+  "param_two_kinds.json": "maxProperties",
+  "param_no_kind.json": "minProperties",
+  "param_without_name.json": "required",
+  "param_name_not_snake.json": "pattern",
+  "param_unknown_kind.json": "additionalProperties",
+  "param_slot_not_a_name.json": "pattern",
+  "param_const_an_object.json": "type",
+  "param_map_without_from.json": "required",
+  "param_map_without_values.json": "required",
+  "param_map_value_not_a_string.json": "type",
+  "param_map_key_not_upper_case.json": "pattern",
+  "param_map_extra_member.json": "additionalProperties",
+  "param_evidence_packet_false.json": "const",
+  "param_fact_not_a_string.json": "type",
+  "params_not_an_array.json": "type"
 }

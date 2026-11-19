@@ -55,6 +55,18 @@ class LiveFindings(unittest.TestCase):
         running = declared - {"hostility-proxy", "hostility-proxy-anchor", "hostility-proxy-credentials"}
         self.assertEqual(matrix.live_findings("ci", declared, running), ["ci: hostility-proxy should be running and is not"])
 
+    def test_the_one_shot_grant_keys_init_step_may_have_exited_and_nothing_else_named_like_it_is_exempt(self) -> None:  # Codex P2 on noema#700: SEC-09, INV-29
+        declared = {"core", "model", "ui", "postgres", "temporal", "grant-keys-init"}
+        self.assertEqual(matrix.live_findings("ci", declared, declared - {"grant-keys-init"}), [])  # it ran to completion and exited
+        declared = {"core", "model", "ui", "postgres", "temporal", "another-init"}
+        self.assertEqual(matrix.live_findings("ci", declared, declared - {"another-init"}), ["ci: another-init should be running and is not"])  # a suffix is not an exemption
+
+    def test_the_one_shot_trust_dsn_init_step_may_have_exited_too_by_exact_name(self) -> None:  # A356: the step that writes the per-tenant Trust login files
+        declared = {"core", "model", "ui", "postgres", "temporal", "grant-keys-init", "trust-dsn-init"}
+        self.assertEqual(matrix.live_findings("bench", declared, declared - {"grant-keys-init", "trust-dsn-init"}), [])
+        declared = {"core", "model", "ui", "postgres", "temporal", "trust-dsn-init-2"}
+        self.assertEqual(matrix.live_findings("bench", declared, declared - {"trust-dsn-init-2"}), ["bench: trust-dsn-init-2 should be running and is not"])
+
     def test_the_run_profiles_are_exactly_the_ones_with_a_live_check(self) -> None:
         self.assertEqual(set(matrix.LIVE_PROFILES), {"ci", "bench", "demo"})
         self.assertNotIn("dev", matrix.LIVE_PROFILES)  # dev is the stack every other check runs on

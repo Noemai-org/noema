@@ -29,6 +29,7 @@ from noema_model.understanding.pipeline.types import (
     PipelineInput,
     PipelineResult,
     Proposal,
+    ScreenStage,
 )
 from noema_model.understanding.resolution import Candidate, Context, Resolution, Target, rank
 
@@ -41,11 +42,11 @@ GATE_TENANT_SCOPE = "TENANT_SCOPE_MISMATCH"
 def _stopped(
     outcome: Outcome, calls: list[CallRecord], flags: tuple[str, ...] = (), errors: tuple[str, ...] = (),
     proposal: Proposal | None = None, normalised: NormalisedSlots | None = None,
-    signals: Mapping[str, bool] | None = None,
+    signals: Mapping[str, bool] | None = None, screen_not_run: tuple[ScreenStage, ...] = (),
 ) -> PipelineResult:
     return PipelineResult(
         outcome=outcome, proposal=proposal, normalised=normalised, ambiguity_flags=flags, gate_errors=errors,
-        query=None, resolution=None, injection_signals=signals or {}, calls=tuple(calls),
+        query=None, resolution=None, injection_signals=signals or {}, calls=tuple(calls), screen_not_run=screen_not_run,
     )
 
 
@@ -104,13 +105,14 @@ async def run_pipeline(
         return _stopped(Outcome.OUT_OF_SCOPE, calls, flags=(config.out_of_scope_flag,))
     node = config.catalogue.nodes[node_id]
 
-    # 2. The independent steps, together. A rejection in any required one stops the turn; screening never does.
+    # 2. The independent steps, together. A rejection in any of them stops the turn, the screening included (A372): a screen that
+    # did not run leaves no signal, and no signal must never read as 'screened and clean'.
     gathered = await asyncio.gather(
         steps.enumerated_slots(harness, config.catalogue, node, inp),
         steps.propose_flags(harness, config.proposable_flags, inp, config.native_yes_threshold),
         steps.detect_locale(harness, config.locales, inp),
         steps.slot_mentions(harness, node, inp),
-        steps.screen_quietly(harness, {"utterance": inp.text}, inp, config.native_yes_threshold),
+        steps.screen_strings(harness, {"utterance": inp.text}, inp, config.native_yes_threshold),
         return_exceptions=True,
     )
     rejections = [g for g in gathered if isinstance(g, HarnessRejection)]
@@ -123,7 +125,9 @@ async def run_pipeline(
             made = g.call if isinstance(g, HarnessRejection) else g[-1]  # type: ignore[index]
             if made is not None:
                 calls.append(made)
-        return _stopped(Outcome.REJECTED_AT_GATE, calls, errors=(rejections[0].code,))
+        # A437: the utterance screen is the last of the five steps; if it is among the refusals it is named, whatever else was refused (the turn keeps the first refusal's code).
+        not_run = (ScreenStage.UTTERANCE,) if isinstance(gathered[-1], HarnessRejection) else ()
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, errors=(rejections[0].code,), screen_not_run=not_run)
     (slot_values, slot_probs, c_slots), (flags, flag_probs, c_flags), (locale, switching, locale_probs, c_locale), (
         mentions, c_mentions), (signals, c_screen) = gathered  # type: ignore[misc]
     calls.extend(c for c in (c_slots, c_flags, c_locale, c_mentions, c_screen) if c is not None)
@@ -174,11 +178,20 @@ async def run_pipeline(
         return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(GATE_OUT_OF_BOUNDS,),
                         proposal=proposal, normalised=normalised, signals=signals)
 
-    screening = asyncio.create_task(steps.screen_quietly(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp, config.native_yes_threshold))
+    screening = asyncio.create_task(steps.screen_strings(harness, {c.candidate_id: c.counterparty_display for c in candidates}, inp, config.native_yes_threshold))
     try:
         resolution = _rank(candidates, normalised, proposal, inp, config)
     finally:
-        candidate_signals, c_candidate_screen = await screening
+        screened: tuple[Mapping[str, bool], CallRecord | None] | BaseException = (await asyncio.gather(screening, return_exceptions=True))[0]
+    if isinstance(screened, HarnessRejection):
+        # The candidates' display names are enterprise text. If their screening did not run the turn is not resolved on it (A372).
+        if screened.call is not None:
+            calls.append(screened.call)
+        return _stopped(Outcome.REJECTED_AT_GATE, calls, flags=proposal.ambiguity_flags, errors=(screened.code,),
+                        proposal=proposal, normalised=normalised, signals=signals, screen_not_run=(ScreenStage.CANDIDATES,))
+    if isinstance(screened, BaseException):
+        raise screened
+    candidate_signals, c_candidate_screen = screened
     if c_candidate_screen is not None:
         calls.append(c_candidate_screen)
     all_signals = {**signals, **{f"candidate:{k}": v for k, v in candidate_signals.items()}}

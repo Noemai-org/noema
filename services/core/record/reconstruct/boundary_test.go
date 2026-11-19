@@ -10,12 +10,12 @@ import (
 	"testing"
 )
 
-// REQ-AUD-003, A184 as relayed (noema#492, the Security Reviewer's point 1): the reconstruction, with its `events` array, is for audit and ops only. Who may call it is the
+// REQ-AUD-003, A184 as relayed (noema#492, the Security Reviewer's point 1): the reconstruction, with its `events` array, is for audit only (A110). Who may call it is the
 // handler's and the authoriser's business (the tests above: a customer or an approver is the not-found shape). Who may IMPORT it is this test's: no package that serves a
 // customer, an approver, the benchmark arm or the UI may build a reconstruction body, because the events array holds what no other role may read. A new importer is a
 // decision for the Security Reviewer, and a line here with the reason.
 var mayImportReconstruct = map[string]string{
-	"cmd/core":         "the composition root mounts the route for ops and audit behind the session check and the role gate",
+	"cmd/core":         "the composition root mounts the route for audit only behind the session check and the role gate",
 	"record/admission": "admission uses the reader types only (TenantDBs, TxBeginner), never a reconstruction body",
 }
 
@@ -57,7 +57,7 @@ func TestOnlyTheCompositionRootAndAdmissionImportTheReconstruction(t *testing.T)
 	sort.Strings(got)
 	for _, dir := range got {
 		if _, ok := mayImportReconstruct[dir]; !ok {
-			t.Errorf("%s imports the reconstruction: only %v may (REQ-AUD-003); the events array is audit and ops only", dir, keys(mayImportReconstruct))
+			t.Errorf("%s imports the reconstruction: only %v may (REQ-AUD-003); the events array is audit only", dir, keys(mayImportReconstruct))
 		}
 	}
 	for dir := range mayImportReconstruct {

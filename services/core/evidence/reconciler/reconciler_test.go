@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/injection"
 	"github.com/Noemai-org/noema/services/core/evidence/layer"
 	"github.com/Noemai-org/noema/services/core/evidence/payloadread"
 	"github.com/Noemai-org/noema/services/core/evidence/readseal"
@@ -33,7 +34,7 @@ const (
 	ledger   = "fin.src.core_ledger"
 	sw       = "fin.src.switch"
 	dest     = "fin.src.destination"
-	expected = "fin.map.v1@1"
+	expected = "fin.map.v1@2"
 )
 
 var (
@@ -63,7 +64,7 @@ func ruleSet(t *testing.T) *reconcile.RuleSet {
 
 func theMapping(t *testing.T, rs *reconcile.RuleSet) *mapping.Mapping {
 	t.Helper()
-	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m, err := mapping.Parse(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json"), rs, []string{ledger, sw, dest, "fin.src.case_system"}, expected, mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func build(t *testing.T, specs ...spec) *world {
 	}
 	var err error
 	w.clk = clock.NewManual(now)
-	w.rec, err = reconciler.New(reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: w.st}, Clock: w.clk})
+	w.rec, err = reconciler.New(reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: w.st}, Clock: w.clk})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +294,7 @@ func TestAnItemTheReconcilerCannotUseIsRefused(t *testing.T) {
 
 func TestNewRefusesAnIncompleteConfiguration(t *testing.T) {
 	rs := ruleSet(t)
-	full := reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: &store{}}, Clock: clock.NewManual(now)}
+	full := reconciler.Config{RuleSet: rs, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &store{}}, Clock: clock.NewManual(now)}
 	for name, mutate := range map[string]func(*reconciler.Config){
 		"no rule set": func(c *reconciler.Config) { c.RuleSet = nil }, "no mapping": func(c *reconciler.Config) { c.Mapping = nil },
 		"no payloads": func(c *reconciler.Config) { c.Payloads = nil }, "no clock": func(c *reconciler.Config) { c.Clock = nil },
@@ -312,7 +313,7 @@ func TestNewRefusesAnIncompleteConfiguration(t *testing.T) {
 	if err != nil {
 		t.Skip("the rule set cannot be rewritten to another version in this fixture")
 	}
-	if _, err := reconciler.New(reconciler.Config{RuleSet: rs2, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Payloads: &store{}}, Clock: clock.NewManual(now)}); !errors.Is(err, reconciler.ErrNotUsable) {
+	if _, err := reconciler.New(reconciler.Config{RuleSet: rs2, Mapping: theMapping(t, rs), Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: &store{}}, Clock: clock.NewManual(now)}); !errors.Is(err, reconciler.ErrNotUsable) {
 		t.Fatalf("a mapping written for another rule set was accepted: %v", err)
 	}
 }
@@ -343,11 +344,11 @@ func TestTheReconciliationIDFollowsTheStatusOfAnItemAndTheMapping(t *testing.T) 
 	base := build(t, ledgerPosted(), switchIs("SUCCESS"), destIs("CREDITED"))
 	rs := ruleSet(t)
 	raw := strings.Replace(string(mustRead(t, packDir, "evidence_mapping", "mapping.v1.json")), `"mapping_id": "fin.map.v1"`, `"mapping_id": "fin.map.v2"`, 1)
-	m2, err := mapping.Parse([]byte(raw), rs, []string{ledger, sw, dest}, "fin.map.v2@1", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32})
+	m2, err := mapping.Parse([]byte(raw), rs, []string{ledger, sw, dest, "fin.src.case_system"}, "fin.map.v2@2", mapping.Limits{MaxBytes: 1 << 20, MaxDepth: 32}, caseScope(t, filepath.Join(packDir, "..", "fintech_v1.json")))
 	if err != nil {
 		t.Skipf("the mapping cannot be re-identified in this fixture: %v", err)
 	}
-	r2, err := reconciler.New(reconciler.Config{RuleSet: rs, Mapping: m2, Payloads: payloadread.Reader{Payloads: base.st}, Clock: clock.NewManual(now)})
+	r2, err := reconciler.New(reconciler.Config{RuleSet: rs, Mapping: m2, Payloads: payloadread.Reader{Screen: cleanScreen{}, Correlation: corrOf, Alert: noAlert{}, Payloads: base.st}, Clock: clock.NewManual(now)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,3 +357,16 @@ func TestTheReconciliationIDFollowsTheStatusOfAnItemAndTheMapping(t *testing.T) 
 		t.Fatalf("a mapping with another identity gave the same reconciliation id (%v)", err)
 	}
 }
+
+// cleanScreen is a screen that finds nothing (SYNTHETIC); the Reader needs one (A372).
+type cleanScreen struct{}
+
+func (cleanScreen) Screen(context.Context, injection.Subject, map[string]string) (injection.Result, error) {
+	return injection.Result{}, nil
+}
+
+func corrOf(context.Context) string { return "cor_SYNTHETIC" }
+
+type noAlert struct{}
+
+func (noAlert) ScreenFlagged(context.Context, payloadread.Flag) {}

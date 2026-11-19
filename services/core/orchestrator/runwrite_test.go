@@ -82,7 +82,7 @@ func (w *wfakes) Execute(_ context.Context, s orchestrator.Session, grantID stri
 	if r.GrantID == "" {
 		r.GrantID = grantID // a receipt names the grant that was executed; a test that wants another says so
 	}
-	if r.Class != orchestrator.ReceiptVoided {
+	if r.Class != orchestrator.ReceiptVoided && r.Class != orchestrator.ReceiptBudgetSpent {
 		w.spent = append(w.spent, grantID)
 	}
 	w.nExec++
@@ -679,19 +679,55 @@ func TestADecisionWithNoIntentKeepsTheIntentOfTheEvaluation(t *testing.T) {
 	}
 }
 
-// A216, A217, A224 (the follow-up to noema#576; INV-03, AGENT-08, REQ-RCV-003): a spent dispatch budget is its own receipt class. Nothing was dispatched, so the runner does not verify,
-// does not evaluate again and does not move the investigation: it stops with ErrRecoveryBudgetSpent for a person, and the grant that was issued is never spent (it expires by TTL).
-func TestASpentDispatchBudgetIsItsOwnReceiptClassThatStopsTheRunWithoutVerifying(t *testing.T) {
+// A216, A217, A224, docs#206 option (b) (relayed, not yet committed; INV-03, AGENT-08, REQ-RCV-003): a spent dispatch budget is its own receipt class. Nothing was dispatched, so
+// the runner does not verify; it takes the existing arrow PLANNED to EVALUATING (as for a voided grant) and asks Trust again, whose own decision (T12, noema#572) is ESCALATE. This
+// replaces the test that pinned the old stop in PLANNED.
+func TestASpentDispatchBudgetReEvaluatesAndTrustEscalatesByTheExistingArrows(t *testing.T) {
 	w := newWfakes()
+	w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), {ID: "dec_ZZ99", Outcome: contracts.EnumsV1DecisionOutcomeESCALATE}}
 	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptBudgetSpent}}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+	if err != nil {
+		t.Fatalf("err %v, want nil: Trust's ESCALATE ends the run", err)
+	}
+	want := []orchestrator.State{"INTERPRETING", "EVALUATING", "PLANNED", "EVALUATING", "ESCALATING"}
+	if !reflect.DeepEqual(states(w.changes), want) || res.Investigation.State != "ESCALATING" {
+		t.Fatalf("states %v, final %s; want %v", states(w.changes), res.Investigation.State, want)
+	}
+	if w.nExec != 1 || w.nVerify != 0 || w.nDecide != 2 || len(w.snapshots) != 2 || w.snapshots[0] == w.snapshots[1] {
+		t.Errorf("executes %d, verifies %d, decisions %d, snapshots %v; want 1, 0, 2 and a fresh snapshot: nothing dispatched again, nothing verified, Trust asked again", w.nExec, w.nVerify, w.nDecide, w.snapshots)
+	}
+}
+
+// The re-evaluation is taken once per spent receipt, and a later write that is applied completes as after a void: the arrow is the void arrow, not a stop.
+func TestASpentDispatchBudgetReceiptTakesPlannedToEvaluatingOnce(t *testing.T) {
+	w := newWfakes()
+	w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22")}
+	w.receipts = []orchestrator.Receipt{{GrantID: "grt_AA11", Class: orchestrator.ReceiptBudgetSpent}, {GrantID: "grt_BB22", Class: orchestrator.ReceiptApplied}}
+	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []orchestrator.State{"INTERPRETING", "EVALUATING", "PLANNED", "EVALUATING", "PLANNED", "EXECUTING", "AWAITING_VERIFICATION", "EXPLAINING", "COMPLETED"}
+	if !reflect.DeepEqual(states(w.changes), want) || res.Investigation.State != "COMPLETED" {
+		t.Fatalf("states %v, final %s; want %v", states(w.changes), res.Investigation.State, want)
+	}
+	if count(w.calls, "verify:grt_AA11") != 0 || w.nVerify != 1 {
+		t.Errorf("the spent grant was verified or the verifier ran %d times: %v", w.nVerify, w.calls)
+	}
+}
+
+// Loop guard: the run counts each spent receipt like a void (u.voids), so re-evaluation is bounded by MaxDispatchesPerKey. If Trust still allows a write at the limit (a defect of
+// the decision) the run stops with ErrRecoveryBudgetSpent in EVALUATING, executes nothing more, and never verifies.
+func TestARepeatedSpentDispatchBudgetDoesNotLoopAndStopsAtTheLimit(t *testing.T) {
+	w := newWfakes()
+	w.decisions = []orchestrator.Decision{writeDecision("grt_AA11"), writeDecision("grt_BB22"), writeDecision("grt_CC33"), writeDecision("grt_DD44")}
+	w.receipts = []orchestrator.Receipt{{Class: orchestrator.ReceiptBudgetSpent}}
 	res, err := newWrite(t, w).RunWrite(context.Background(), sess, turn)
 	if !errors.Is(err, orchestrator.ErrRecoveryBudgetSpent) {
 		t.Fatalf("err %v, want ErrRecoveryBudgetSpent", err)
 	}
-	if w.nExec != 1 || w.nVerify != 0 || w.nDecide != 1 {
-		t.Errorf("executes %d, verifies %d, decisions %d; want 1, 0, 1: nothing was dispatched, so nothing is verified and no new decision is asked", w.nExec, w.nVerify, w.nDecide)
-	}
-	if res.Investigation.State != "PLANNED" {
-		t.Errorf("state %s, want PLANNED: no arrow to a hand-over exists for it (A216) and none is invented here", res.Investigation.State)
+	if w.nExec != orchestrator.PERDMaxDispatchesPerKey || w.nDecide != orchestrator.PERDMaxDispatchesPerKey+1 || w.nVerify != 0 || res.Investigation.State != "EVALUATING" {
+		t.Errorf("executes %d, decisions %d, verifies %d, final %s; want %d, %d, 0, EVALUATING", w.nExec, w.nDecide, w.nVerify, res.Investigation.State, orchestrator.PERDMaxDispatchesPerKey, orchestrator.PERDMaxDispatchesPerKey+1)
 	}
 }

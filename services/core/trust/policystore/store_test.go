@@ -45,6 +45,7 @@ type world struct {
 	execA          *pgxpool.Pool
 	outcomeA       *pgxpool.Pool
 	store          *policystore.Store
+	dsn            string // the administrator's DSN of this test database, for logins a test makes itself
 }
 
 func newWorld(t *testing.T) *world {
@@ -60,19 +61,27 @@ func newWorld(t *testing.T) *world {
 	}
 	clk := clock.NewManual(epoch)
 	idg := ids.New(clk, rand.New(rand.NewSource(1)))
-	return &world{admin: admin,
+	return &world{admin: admin, dsn: dsn,
 		trustA: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantA), trustB: testpg.TenantLogin(t, admin, dsn, "trust_rw", tenantB),
 		execA: testpg.TenantLogin(t, admin, dsn, "execution_rw", tenantA), outcomeA: testpg.TenantLogin(t, admin, dsn, "outcome_rw", tenantA),
 		store: &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "policystore", nil, "core-trust")}}}
 }
 
+// testDocHash is a well-formed SYNTHETIC document hash for the tests that are not about the hash.
+const testDocHash = "sha256:00000000000000000000000000000000000000000000000000000000000000aa"
+
 func (w *world) publish(t *testing.T, p *pgxpool.Pool, tenant, policyID, version string) error {
+	t.Helper()
+	return w.publishHashed(t, p, tenant, policyID, version, testDocHash)
+}
+
+func (w *world) publishHashed(t *testing.T, p *pgxpool.Pool, tenant, policyID, version, hash string) error {
 	t.Helper()
 	tx, err := p.Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, PublishedBy: "adm_synth01"})
+	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, DocumentHash: hash})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		return err
@@ -220,7 +229,7 @@ func TestOnlyTrustPublishesAndExecutionReads(t *testing.T) {
 	}
 }
 
-// A publication is on the Record: POLICY_PUBLISHED, emitted by Trust, naming who published and the version (REQ-AUD-001, INV-09).
+// A publication is on the Record: POLICY_PUBLISHED, emitted by Trust, naming the authenticated database role that published and the version (REQ-AUD-001, INV-09, INV-12; A474).
 func TestAPublicationIsOnTheRecordWithItsPublisher(t *testing.T) {
 	w := newWorld(t)
 	if err := w.publish(t, w.trustA, tenantA, "fin.pol", "3.1"); err != nil {
@@ -231,10 +240,11 @@ func TestAPublicationIsOnTheRecordWithItsPublisher(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:adm_synth01" || ref != "pol_fin_pol_3_1" {
-		t.Fatalf("event %s by %s actor %s ref %s", typ, by, actor, ref)
+	role := sessionUser(t, w.trustA)
+	if typ != "POLICY_PUBLISHED" || by != "core-trust" || actor != "admin:"+role || ref != "pol_fin_pol_3_1" {
+		t.Fatalf("event %s by %s actor %s ref %s, want actor admin:%s", typ, by, actor, ref, role)
 	}
-	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`, `"published_by": "adm_synth01"`} {
+	for _, want := range []string{`"policy_id": "fin.pol"`, `"version": "3.1"`} {
 		if !strings.Contains(payload, want) {
 			t.Errorf("payload %s lacks %s", payload, want)
 		}
@@ -265,8 +275,8 @@ func TestTheDatabaseRefusesANonCanonicalOrOversizedVersionAndTheTriggerRefusesEd
 	w := newWorld(t)
 	// a Trust login, so the guard passes and the CHECK is what refuses; the key is given so that the key CHECK does not fire first
 	direct := func(version, key string) error {
-		_, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by)
-			VALUES ($1, 'fin.pol', $2, `+key+`, 'adm_synth01')`, tenantA, version)
+		_, err := w.trustA.Exec(ctx(t), `INSERT INTO policy_publication (tenant_id, policy_id, version, version_key, published_by, document_hash)
+			VALUES ($1, 'fin.pol', $2, `+key+`, 'adm_synth01', $3)`, tenantA, version, testDocHash)
 		return err
 	}
 	for v, key := range map[string]string{"01.0": "ARRAY[1,0,0]", "1.01": "ARRAY[1,1,0]", "3.1.0": "ARRAY[3,1,0]", "99999999999.0": "ARRAY[1,0,0]", "2147483647.0": "ARRAY[2147483647,0,0]"} {

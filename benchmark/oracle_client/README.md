@@ -43,3 +43,5 @@ The proxy route is `POST /v1/lookups`, forwarded to the `tushe` upstream, operat
 ## Planned: the Tushe read-only half
 
 `PLAN-tushe-readonly-fold.md` (16 Nov 2026) plans the harness reading Tushe's payout transitions through the read-only key: the M-02 client-side fold and the AT-19 two-call trace join, as pure fail-closed functions first and the reader last, after a delta file adopts the addendum's routes. Nothing in it is built and nothing reads a credential.
+
+**Built (19 Nov 2026, BEN-03 follow-up):** `tushe_fold.py` (`fold_transitions`) and `tushe_trace.py` (`join_trace`), the two pure fail-closed functions of the plan, with synthetic tests. Their row shapes are parameters; the default names are ASSUMED (`ASSUMED_SHAPE.assumed`) until a delta file adopts the addendum. They read no key and call no route; the reader (`tushe_readonly.py`) is not built and waits for noema#711 and the delta.

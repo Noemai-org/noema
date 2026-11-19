@@ -42,7 +42,7 @@ def checkout_steps(node: Any, path: str = "") -> Iterator[tuple[str, dict]]:
 
 
 def is_false(value: Any) -> bool:
-    return value is False or (isinstance(value, str) and value.strip() in {"false", "False", "FALSE"})
+    return value is False or (isinstance(value, str) and value in {"false", "False", "FALSE"})
 
 
 def step_problem(step: dict) -> str | None:
@@ -50,7 +50,7 @@ def step_problem(step: dict) -> str | None:
     with_block = step.get("with")
     if not isinstance(with_block, dict):
         return "actions/checkout without a `with:` block that sets `persist-credentials: false`"
-    values = [v for k, v in with_block.items() if str(k).strip().lower() == INPUT]
+    values = [v for k, v in with_block.items() if isinstance(k, str) and k.lower() == INPUT]
     if not values:
         return "actions/checkout without `persist-credentials: false` in its own `with:` block"
     if not all(is_false(v) for v in values):
