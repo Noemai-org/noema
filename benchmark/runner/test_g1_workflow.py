@@ -325,6 +325,33 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
         self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
 
+    # A388: Playwright against the running stack, after the stack is up, opt-in until the wiring merges. FE owns the specs.
+    def test_the_browser_checks_are_an_opt_in_boolean_that_defaults_to_off(self) -> None:
+        inp = re.search(r"(?ms)^      playwright:\n(.*?)(?=^      \w+:\n|^permissions:)", self.text)
+        assert inp, "no playwright input"
+        self.assertIn("type: boolean", inp.group(1))
+        self.assertIn("default: false", inp.group(1))
+
+    def test_the_browser_step_runs_only_when_asked_before_the_stack_stops_and_says_not_run_without_a_stack_config(self) -> None:
+        step = re.search(r"(?ms)- id: playwright\n(.*?)(?=^      - )", self.text)
+        assert step, "no playwright step"
+        body = step.group(1)
+        self.assertIn("if: always() && inputs.playwright", body)
+        self.assertLess(self.text.index("- id: playwright"), self.text.index("name: Stop the stack"), "the stack must still be up")
+        self.assertIn("playwright.stack.config.mjs", body)
+        self.assertRegex(body, r"(?s)NOT RUN.*playwright=3")  # no config for a stack run: NOT RUN (3), never a pass; the Result step fails a requested check that is not 0
+        self.assertIn("NOEMA_UI_URL: http://127.0.0.1:8082", body)
+        self.assertNotIn("secrets.", body)
+        self.assertNotIn("npm install", body)  # npm ci only: the lock file decides what runs
+        self.assertIn("setup-node@", self.text)
+
+    def test_a_requested_browser_check_that_did_not_pass_fails_the_run_and_is_never_g1_evidence(self) -> None:
+        result = re.search(r"(?ms)- name: Result .*?(?=^\S|\Z)", self.text)
+        assert result
+        self.assertIn("PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}", result.group(0))
+        self.assertRegex(result.group(0), r'\[ "\$\{PLAYWRIGHT:-missing\}" = 0 \]')
+        self.assertIn("not evidence for G1", self.text.split("id: playwright")[1].split("- name: Stop the stack")[0])
+
     def test_the_job_log_is_scanned_by_a_job_that_starts_after_it_ends(self) -> None:
         job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
         assert job, "no joblog-scan job"

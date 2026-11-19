@@ -21,6 +21,10 @@ on:
           - full
           - stack-check
         default: full
+      playwright:
+        description: "Also run the browser checks (Playwright, A388) against the running stack after it is up. Opt-in until the wiring merges; FE owns the specs. Not evidence for G1."
+        type: boolean
+        default: false
       max_body_bytes:
         description: "The core's request body limit in bytes (NOEMA_MAX_BODY_BYTES). No default: no value is approved in the repository, so the person who dispatches gives it."
         type: string
@@ -127,6 +131,30 @@ jobs:
           sleep 2
           kill "$logpid" 2>/dev/null
           echo "code=$code" >> "$GITHUB_OUTPUT"
+      # A388: browser checks against the running stack, opt-in. FE owns the specs and the stack config (ui/playwright.stack.config.mjs, tests under ui/browser-stack/). Without that config the step is NOT
+      # RUN (exit 3), never a pass; the checks are not evidence for G1. The UI publishes on 127.0.0.1:8082 only. `npm ci` only: the lock file decides what runs. The Chrome of the runner image is used.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: inputs.playwright
+        with:
+          node-version-file: ui/.nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - id: playwright
+        name: Browser checks against the stack (Playwright, opt-in; not evidence for G1)
+        if: always() && inputs.playwright
+        working-directory: ui
+        env:
+          NOEMA_UI_URL: http://127.0.0.1:8082
+        run: |
+          set +e
+          if [ ! -f playwright.stack.config.mjs ]; then
+            echo "NOT RUN: ui/playwright.stack.config.mjs does not exist yet (FE owns the stack specs); this is not a pass."
+            echo "playwright=3" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm ci && npx playwright test -c playwright.stack.config.mjs --reporter=line
+          echo "playwright=$?" >> "$GITHUB_OUTPUT"
+          exit 0
       # Evidence for the Security Reviewer's criteria 6 and 9 (noema#436): the FaultPlan of every case with its seed and producer, and one negative probe of each kind per case.
       # Each exits 0 (met), 1 (not met), 2 (bad input) or 3 (NOT RUN); anything but 0 fails the job.
       - id: evidence
@@ -250,8 +278,13 @@ jobs:
           SCAN: ${{ steps.scan.outputs.scan }}
           COLLECTED: ${{ steps.logs.outputs.collected }}
           RECORD_ACCESSED: ${{ steps.access.outputs.record_accessed }}
+          PLAYWRIGHT: ${{ steps.playwright.outputs.playwright }}
+          WANT_PLAYWRIGHT: ${{ inputs.playwright }}
         run: |
           fail=0
+          if [ "$WANT_PLAYWRIGHT" = true ]; then
+            [ "${PLAYWRIGHT:-missing}" = 0 ] || { echo "::error::The browser checks were asked for and did not pass (exit ${PLAYWRIGHT:-missing}; 3 is NOT RUN). They are not evidence for G1."; fail=1; }
+          fi
           if [ "$MODE" = stack-check ]; then
             [ "$CODE" = 0 ] || { echo "::error::stack-check: the stack did not come up (code ${CODE:-missing})."; fail=1; }
             [ "${COLLECTED:-missing}" = 0 ] || { echo "::error::stack-check: a service's log could not be collected."; fail=1; }
