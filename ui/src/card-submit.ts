@@ -75,7 +75,7 @@ export async function submitConfirmation(input: Confirmation): Promise<SubmitRes
     if (state !== "active") return state;
     if (input.response !== "ACCEPT" && input.response !== "DECLINE") return "unavailable";
     return await post(input, `/v1/confirmations/${encodeURIComponent(card.confirmation_request_id)}`, {
-      request_id: crypto.randomUUID(), response: input.response,
+      request_id: card.confirmation_request_id, response: input.response,
     });
   } catch (error) {
     if (!(error instanceof ContractError)) throw error;
