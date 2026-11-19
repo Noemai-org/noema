@@ -54,7 +54,26 @@ owners="$(psql -X -q -tA -U postgres -d noema -c "select string_agg(pg_get_userb
 [ "$owners" = "noema_migrator,noema_migrator" ] || { echo "Record tables are owned by: $owners"; exit 1; }
 [ "$(psql -X -q -tA -U postgres -d noema -c "select has_schema_privilege('record_append','public','CREATE')")" = "f" ] || { echo "record_append still holds CREATE on public"; exit 1; }
 # The tenant logins and the emitter login are mapped by provision-tenants.sh, run as the migration login (DEBT-04, DEBT-07).
-psql -X -q -U postgres -d noema -c "insert into tenant (tenant_id, name) values ('ten_aa', 'A')" >/dev/null
+# SEC-08 (migration 0030, noema#716 ruling A353): tenant has FORCE row-level security and no INSERT policy for any role, so only the operator's superuser creates a tenant,
+# through create-tenants.sh. Neither a power login (no INSERT privilege) nor the migration login (the table's owner, which FORCE binds) can; the script refuses to run as either.
+as_login_tenant() { PGPASSWORD="synthetic-noema_tenant_login_password" psql -X -q -tA -U "$1" -d noema -c "$2" 2>&1; }
+as_mig() { PGPASSWORD="synthetic-noema_migrator_password" psql -X -q -tA -U noema_migration_login -d noema -c "$1" 2>&1; }
+for role in trust_rw__ten_aa execution_rw__ten_aa outcome_rw__ten_aa evidence_rw__ten_aa orchestrator_rw__ten_aa record_read__ten_aa; do
+  as_login_tenant "$role" "insert into tenant (tenant_id, name) values ('ten_aa', 'by $role')" | grep -q "^ERROR" || { echo "the login $role created a tenant"; exit 1; }
+done
+as_mig "insert into tenant (tenant_id, name) values ('ten_aa', 'by the migration login')" | grep -q "^ERROR" || { echo "the migration login created a tenant"; exit 1; }
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "a tenant exists before the operator created one"; exit 1; }
+if out="$(PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/create-tenants.sh" 2>&1)"; then echo "create-tenants.sh ran as the migration login"; exit 1; fi
+case "$out" in *synthetic-*) echo "create-tenants.sh printed a secret while refusing"; exit 1 ;; esac
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant")" = "0" ] || { echo "create-tenants.sh created a tenant as the migration login"; exit 1; }
+PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
+[ "$(psql -X -q -tA -U postgres -d noema -c "select tenant_id || '/' || kill_switch from tenant")" = "ten_aa/f" ] || { echo "the tenant ten_aa is not there with its kill switch off"; exit 1; }
+# A second run is a no-op: the row is not rewritten, and a kill switch an operator has since set stays set.
+before="$(psql -X -q -tA -U postgres -d noema -c "select name || '|' || created_at from tenant where tenant_id = 'ten_aa'")"
+psql -X -q -U postgres -d noema -c "update tenant set kill_switch = true where tenant_id = 'ten_aa'" >/dev/null
+PGUSER=postgres PGDATABASE=noema sh "$here/create-tenants.sh" >/dev/null
+[ "$(psql -X -q -tA -U postgres -d noema -c "select count(*) || '/' || bool_and(kill_switch) || '/' || min(name || '|' || created_at) from tenant")" = "1/true/$before" ] || { echo "a second create-tenants.sh run changed the tenant"; exit 1; }
+psql -X -q -U postgres -d noema -c "update tenant set kill_switch = false where tenant_id = 'ten_aa'" >/dev/null
 PGPASSWORD="synthetic-noema_migrator_password" PGUSER=noema_migration_login PGDATABASE=noema sh "$here/provision-tenants.sh" >/dev/null
 mapped="$(psql -X -q -tA -U postgres -d noema -c "select count(*) from tenant_login where tenant_id = 'ten_aa'")"
 [ "$mapped" = "7" ] || { echo "tenant_login rows for ten_aa: $mapped, want 7 (six tenant logins and core-edge)"; exit 1; }
