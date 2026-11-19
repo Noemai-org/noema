@@ -121,12 +121,36 @@ type RecordRequest struct {
 	ConfirmationEventID string // empty when no confirmation was required
 	// ConfirmationPlanHash is the plan hash that confirmation was given for (A230), empty with no confirmation; the writer refuses an ALLOW whose steps carry another.
 	ConfirmationPlanHash string
+	// ConfirmationRequest is set only on a CONFIRM decision that creates the confirmation request (T13, Pending with a NewRequest): the eight bound values, the approver
+	// requirement, the requester and the expiry. The Recorder mints the request ID and computes the binding hash itself (SoT 43.2a); a CONFIRM that names an already open
+	// request carries none, and so does every other decision.
+	ConfirmationRequest *NewConfirmationRequest
 }
 
-// RecordResult is what was written: the decision ID and the IDs of the grants issued, one per step in step order.
+// NewConfirmationRequest is a confirmation request to create, as plain values. The first eight are the binding of SoT 43.2a (confirm.BindingInput); the intake does not import
+// trust/confirm, so it names them here and the Recorder checks them and computes the hash. Requirement is the contract's approver requirement (SELF, MAKER_CHECKER or
+// ROLE:<role>), RequesterID the admitted intent's principal (INV-12) and ExpiresAt the expiry in Unix seconds, from the evaluation's one clock reading and the spec's TTL.
+type NewConfirmationRequest struct {
+	PrincipalID     string
+	IntentHash      string
+	CapabilityID    string
+	TargetRef       string
+	ParamsHash      string
+	EvidenceSetHash string
+	PlanHash        string
+	PolicyVersion   string
+	Requirement     string
+	RequesterID     string
+	ExpiresAt       int64
+}
+
+// RecordResult is what was written: the decision ID, the IDs of the grants issued, one per step in step order, and, when the request created a confirmation request, its ID.
 type RecordResult struct {
 	DecisionID string
 	GrantIDs   []string
+	// ConfirmationRequestID is the cfr_ ID the Recorder minted for the ConfirmationRequest of the RecordRequest; empty when none was asked for or none was created (a stored
+	// decision of the same input was returned instead).
+	ConfirmationRequestID string
 }
 
 // Recorder answers T15. The composition implements Record with recorder.Writer inside one transaction it owns and commits, so the intake never touches the database

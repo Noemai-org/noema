@@ -22,10 +22,12 @@ type Service struct {
 type Result struct {
 	Decision decide.Decision
 	Trace    []decide.TraceEntry
-	// DecisionID and GrantIDs are set only for an ALLOW: the Decision Record that was written before the ALLOW was returned, and the grants issued with it (one per write
-	// plan step; none for a read).
+	// DecisionID and GrantIDs are set only for an ALLOW or a CONFIRM that T13 recorded: the Decision Record that was written before the decision was returned, and the
+	// grants issued with it (one per write plan step for an ALLOW; none for a read, and none for a CONFIRM).
 	DecisionID string
 	GrantIDs   []string
+	// ConfirmationRequestID is set only for a CONFIRM that T13 recorded: the confirmation request the approver answers, created by this evaluation or already open.
+	ConfirmationRequestID string
 }
 
 // ErrNotBuilt is what a step that does not exist yet returns: the evaluation ends in UNKNOWN INTERNAL_ERROR at that step (fail closed, INV-16).

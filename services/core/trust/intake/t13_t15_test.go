@@ -251,11 +251,11 @@ func wantUnknown(t *testing.T, name string, r Result, reason string, step decide
 
 // ---- T13 ----
 
-// REQ-TRU-009: a confirmation the profile requires and that is not resolved stops at T13 with CONFIRM, which rests on the evaluated set and all three layers at PASS;
-// nothing is planned and nothing is recorded.
+// REQ-TRU-009, EC-E16: a confirmation the profile requires and that is not resolved stops at T13 with CONFIRM, which rests on the evaluated set and all three layers at PASS;
+// nothing is planned, and the CONFIRM is recorded (once) before it is returned.
 func TestT13ConfirmationRequiredAndMissingStopsWithConfirm(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationPending}
+	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
 	ev := newEval13(t, f)
 	res := run13(t, ev)
 	d := res.Decision
@@ -271,8 +271,8 @@ func TestT13ConfirmationRequiredAndMissingStopsWithConfirm(t *testing.T) {
 	if err := ev.bb.Check(d); err != nil {
 		t.Errorf("the CONFIRM's basis is not the evaluated set: %v", err)
 	}
-	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
-		t.Errorf("the planner or the recorder was called after a CONFIRM: %v", f.calls)
+	if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 1 {
+		t.Errorf("calls %v, want the recorder called once and the planner never after a CONFIRM", f.calls)
 	}
 }
 
@@ -293,7 +293,7 @@ func TestT13ConfirmationNotRequiredContinues(t *testing.T) {
 // INV-25: a resolved confirmation leads to the fresh evaluation this is; the grant follows the confirmation event.
 func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash, RequestID: "cfr_synth0001"}
 	res := run13(t, newEval13(t, f))
 	if tr, _ := stepResult(res, decide.T13Confirmation); tr != decide.StepPassed {
 		t.Fatalf("T13 %v, want PASSED; trace %v", tr, res.Trace)
@@ -311,7 +311,7 @@ func TestT13ConfirmationGivenContinuesAndTheGrantFollowsItsEvent(t *testing.T) {
 // defence, noema#603.)
 func TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", RequestID: "cfr_synth0001"}
 	res := run13(t, newEval13(t, f))
 	wantUnknown(t, "a confirmation for another plan", res, "PLAN_INVALID", decide.T14Plan, decide.StepTerminal)
 	if f.called("Recorder.Record") != 0 {
@@ -323,7 +323,7 @@ func TestT14AConfirmationGivenForAnotherPlanIsPlanInvalidAndNothingIsRecorded(t 
 func TestT13AGivenConfirmationWithoutAWellFormedPlanHashIsUnknown(t *testing.T) {
 	for name, hash := range map[string]string{"none": "", "the wrong form": "sha256:ABC", "no prefix": strings.Repeat("a", 64)} {
 		f := newFake13()
-		f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: hash}
+		f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: hash, RequestID: "cfr_synth0001"}
 		res := run13(t, newEval13(t, f))
 		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
 		if f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
@@ -340,7 +340,7 @@ func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 	}{
 		{"the zero status", Confirmation{}},
 		{"a status outside the four", Confirmation{Status: ConfirmationDeclined + 1, EventID: "cfe_synth0001"}},
-		{"given with no event", Confirmation{Status: ConfirmationGiven}},
+		{"given with no event", Confirmation{Status: ConfirmationGiven, RequestID: "cfr_synth0001"}},
 	} {
 		f := newFake13()
 		f.conf = c.conf
@@ -355,7 +355,7 @@ func TestT13AnswerThatIsNotAnAnswerIsUnknown(t *testing.T) {
 // A CONFIRM rests on the evaluated set; without the evidence and the policy there is nothing to rest on (INV-16), and an intent that is not resolved cannot be confirmed.
 func TestT13CannotConfirmWithoutABasisOrWithAnUnresolvedIntent(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationPending}
+	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
 	ev := newEval13(t, f)
 	ev.bb = freshBuilder(t, true, false)
 	wantUnknown(t, "no policy recorded", run13(t, ev), "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
@@ -480,7 +480,7 @@ func TestT15AllowStandsOnlyAfterTheRecordWasWrittenOnce(t *testing.T) {
 // TRU-13: what T15 hands to the Recorder is the decision carrying the builder's basis, the builder itself and its digest, with the identifiers of the request.
 func TestT15TheRecordRequestCarriesTheBuildersBasisAndTheRequestsIdentity(t *testing.T) {
 	f := newFake13()
-	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash}
+	f.conf = Confirmation{Status: ConfirmationGiven, EventID: "cfe_synth0001", PlanHash: tPlanHash, RequestID: "cfr_synth0001"}
 	ev := newEval13(t, f)
 	run13(t, ev)
 	r := rec0(t, f)
