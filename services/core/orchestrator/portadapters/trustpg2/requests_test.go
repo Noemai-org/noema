@@ -279,6 +279,11 @@ func TestAnAnswerIsRefusedWithoutARecordOrWithoutItsRequest(t *testing.T) {
 		t.Fatalf("a response that is neither ACCEPT nor DECLINE: %v, want ErrRequestForm", err)
 	}
 	bad = in
+	bad.Roles = []string{`a"b`}
+	if _, err := w.a.Answer(reqCtx(t), bad); !errors.Is(err, trustpg2.ErrRequestForm) {
+		t.Fatalf("a role outside the contract's form: %v, want ErrRequestForm", err)
+	}
+	bad = in
 	bad.Roles = nil
 	if _, err := w.a.Answer(reqCtx(t), bad); err != nil {
 		t.Fatalf("an approver with no roles may answer (the eligibility is the resolver's): %v", err)
