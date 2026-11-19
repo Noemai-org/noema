@@ -4,8 +4,8 @@ package main
 // PostgreSQL database with the real migrations, the real Trust login of a tenant and the real Record signer, and reads the result back as Execution does (policystore.Active) and
 // from the Record. The pack is the shipped packs/fintech_v1.json or a copy of it with the policy changed. All data is SYNTHETIC.
 //
-// What these tests do not and cannot show: that a second document under the same version is refused. The publication record holds the version, not the document (policystore,
-// DEBT-23), so the command cannot tell two documents of one version apart; status/TRU-02-policypublish.md says so.
+// The publication row keeps the hash of the policy document (ruling on noema#771, interim), so a second document under the same version is refused as document_changed. The documents
+// themselves are still not stored (DEBT-23).
 
 import (
 	"encoding/hex"
@@ -400,5 +400,157 @@ func TestAConnectionErrorValueCarriesNoCredential(t *testing.T) {
 		if strings.Contains(err.Error(), banned) {
 			t.Errorf("the error %q holds %q", err.Error(), banned)
 		}
+	}
+}
+
+// REQ-TRU-005, INV-09: the report carries the document's hash (and only the hash), and it is the hash the publication row keeps and the one a loader computes from the same file.
+func TestThePublicationCarriesTheHashOfThePacksPolicyDocument(t *testing.T) {
+	w := newWorld(t)
+	want := packPolicyHash(t, packRoot)
+	o := w.publish(tenantA, w.trustA)
+	if o.code != 0 || o.rep.Result != "published" {
+		t.Fatalf("exit %d, report %+v, stderr %q", o.code, o.rep, o.err)
+	}
+	if o.rep.DocumentHash != want {
+		t.Fatalf("reported hash %q, want %q", o.rep.DocumentHash, want)
+	}
+	if got := w.storedDocumentHash("3.1"); got != want {
+		t.Fatalf("stored hash %q, want %q", got, want)
+	}
+}
+
+// AGENT-13: the output names the hash and never the document: no rule ID, reason code or condition of the policy appears on stdout or stderr.
+func TestTheOutputHoldsTheHashAndNeverTheDocument(t *testing.T) {
+	w := newWorld(t)
+	login := w.login("trust-a", w.trustA)
+	all := w.run(w.args(tenantA, login, packRoot)...)
+	again := w.run(w.args(tenantA, login, packRoot)...)
+	changed := w.run(w.args(tenantA, login, variantPack(t, changeReason))...)
+	for name, o := range map[string]outcome{"published": all, "already published": again, "document changed": changed} {
+		for _, leak := range []string{"fin.pol.prohibition.remedy", "PROHIBITED_CAPABILITY", "fin.reason.changed_text", "case_id != null", "PAYMENTS_OPERATIONS", `"rules"`, "applies_to"} {
+			if strings.Contains(o.out, leak) || strings.Contains(o.err, leak) {
+				t.Errorf("%s: the output holds %q", name, leak)
+			}
+		}
+	}
+	if !strings.Contains(all.out, `"document_hash":"sha256:`) {
+		t.Errorf("the report has no document_hash: %s", all.out)
+	}
+}
+
+// REQ-TRU-005, INV-21: the same document run again is one publication, whatever its spelling: the document is hashed in its canonical form, so key order and whitespace do not count.
+func TestTheSameDocumentInAnotherSpellingIsAlreadyPublished(t *testing.T) {
+	w := newWorld(t)
+	login := w.login("trust-a", w.trustA)
+	first := w.run(w.args(tenantA, login, packRoot)...)
+	respelt := variantPack(t, sameDocument)
+	if a, b := packPolicyHash(t, packRoot), packPolicyHash(t, respelt); a != b {
+		t.Fatalf("fixture error: the two spellings hash differently: %s %s", a, b)
+	}
+	o := w.run(w.args(tenantA, login, respelt)...)
+	if o.code != 0 || o.rep.Result != "already_published" || o.rep.DocumentHash != first.rep.DocumentHash {
+		t.Fatalf("exit %d, report %+v, stderr %q; want 0, already_published, the first run's hash", o.code, o.rep, o.err)
+	}
+	if n := w.count(`SELECT count(*) FROM policy_publication`); n != 1 {
+		t.Fatalf("%d publications, want 1", n)
+	}
+}
+
+// REQ-TRU-005, INV-09, INV-21 (closes the STOP of the first session): a different document under the version that is already active is refused with its own reason, never reported as
+// already published; nothing is written, the stored hash and the active version are unchanged.
+func TestADifferentDocumentUnderTheActiveVersionIsRefusedAsDocumentChanged(t *testing.T) {
+	w := newWorld(t)
+	login := w.login("trust-a", w.trustA)
+	first := w.run(w.args(tenantA, login, packRoot)...)
+	if first.code != 0 {
+		t.Fatalf("first run: exit %d %q", first.code, first.err)
+	}
+	dir := variantPack(t, changeReason)
+	if packPolicyHash(t, dir) == first.rep.DocumentHash {
+		t.Fatal("fixture error: the changed pack hashes like the first")
+	}
+	o := w.run(w.args(tenantA, login, dir)...)
+	if o.code != 1 || o.rep.Result != "refused" || o.rep.Reason != "document_changed" || o.rep.Level != "error" || o.err == "" {
+		t.Fatalf("exit %d, report %+v, stderr %q; want 1, refused, document_changed", o.code, o.rep, o.err)
+	}
+	if o.rep.Result == "already_published" || o.rep.Policy != "fin.pol@3.1" {
+		t.Fatalf("report %+v", o.rep)
+	}
+	if o.rep.DocumentHash != packPolicyHash(t, dir) {
+		t.Fatalf("the refusal reports hash %q, want the hash of the document that was offered", o.rep.DocumentHash)
+	}
+	if got := w.storedDocumentHash("3.1"); got != first.rep.DocumentHash {
+		t.Fatalf("stored hash %q changed from %q", got, first.rep.DocumentHash)
+	}
+	if v := w.activeAsExecution(); v != "fin.pol@3.1" {
+		t.Fatalf("active %q, want fin.pol@3.1", v)
+	}
+	if n := w.count(`SELECT count(*) FROM policy_publication`); n != 1 {
+		t.Fatalf("%d publications, want 1", n)
+	}
+	if n := w.count(`SELECT count(*) FROM record_event WHERE event_type = 'POLICY_PUBLISHED'`); n != 1 {
+		t.Fatalf("%d POLICY_PUBLISHED events, want 1", n)
+	}
+	// the changed document is published under a new version, as the refusal tells the operator to do
+	next := variantPack(t, func(pol map[string]any) bool { changeReason(pol); pol["version"] = "3.2"; return true })
+	if o := w.run(w.args(tenantA, login, next)...); o.code != 0 || o.rep.Result != "published" {
+		t.Fatalf("the changed document under 3.2: exit %d, report %+v, stderr %q", o.code, o.rep, o.err)
+	}
+}
+
+// REQ-SEC-004: one tenant's refusal does not touch another's publication of the same version, and each keeps its own hash.
+func TestDocumentHashesAreKeptPerTenant(t *testing.T) {
+	w := newWorld(t)
+	a, b := w.login("trust-a", w.trustA), w.login("trust-b", w.trustB)
+	changed := variantPack(t, changeReason)
+	if o := w.run(w.args(tenantA, a, packRoot)...); o.code != 0 {
+		t.Fatalf("A: exit %d %q", o.code, o.err)
+	}
+	if o := w.run(w.args(tenantB, b, changed)...); o.code != 0 || o.rep.Result != "published" {
+		t.Fatalf("B publishes the other document under the same version: exit %d, report %+v, stderr %q", o.code, o.rep, o.err)
+	}
+	if o := w.run(w.args(tenantA, a, changed)...); o.code != 1 || o.rep.Reason != "document_changed" {
+		t.Fatalf("A with B's document: exit %d, report %+v", o.code, o.rep)
+	}
+	if o := w.run(w.args(tenantB, b, changed)...); o.code != 0 || o.rep.Result != "already_published" {
+		t.Fatalf("B again: exit %d, report %+v", o.code, o.rep)
+	}
+	var ha, hb string
+	if err := w.admin.QueryRow(ctx(t), `SELECT (SELECT document_hash FROM policy_publication WHERE tenant_id = $1), (SELECT document_hash FROM policy_publication WHERE tenant_id = $2)`, tenantA, tenantB).Scan(&ha, &hb); err != nil {
+		t.Fatal(err)
+	}
+	if ha != packPolicyHash(t, packRoot) || hb != packPolicyHash(t, changed) || ha == hb {
+		t.Fatalf("hashes A %s, B %s", ha, hb)
+	}
+}
+
+// REQ-TRU-005, INV-21: the active version was published before the hash existed, so there is no hash to compare. The command does not guess: it refuses with its own reason, writes
+// nothing, and a new version publishes as usual.
+func TestALegacyPublicationWithNoHashIsRefusedAsDocumentUnknownAndANewVersionPublishes(t *testing.T) {
+	w := newLegacyWorld(t, "3.1")
+	login := w.login("trust-a", w.trustA)
+	o := w.run(w.args(tenantA, login, packRoot)...)
+	if o.code != 1 || o.rep.Result != "refused" || o.rep.Reason != "document_unknown" || o.err == "" {
+		t.Fatalf("exit %d, report %+v, stderr %q; want 1, refused, document_unknown", o.code, o.rep, o.err)
+	}
+	if n := w.count(`SELECT count(*) FROM record_event WHERE event_type = 'POLICY_PUBLISHED'`); n != 0 {
+		t.Fatalf("%d POLICY_PUBLISHED events, want 0", n)
+	}
+	if n := w.count(`SELECT count(*) FROM policy_publication`); n != 1 {
+		t.Fatalf("%d publications, want 1", n)
+	}
+	if v := w.activeAsExecution(); v != "fin.pol@3.1" {
+		t.Fatalf("active %q, want fin.pol@3.1", v)
+	}
+	newer := variantPack(t, withVersion("3.2"))
+	if o := w.run(w.args(tenantA, login, newer)...); o.code != 0 || o.rep.Result != "published" || o.rep.DocumentHash != packPolicyHash(t, newer) {
+		t.Fatalf("3.2 over a legacy 3.1: exit %d, report %+v, stderr %q", o.code, o.rep, o.err)
+	}
+	if got := w.storedDocumentHash("3.2"); got != packPolicyHash(t, newer) || w.storedDocumentHash("3.1") != "" {
+		t.Fatalf("stored hashes: 3.2 %q, 3.1 %q", got, w.storedDocumentHash("3.1"))
+	}
+	// the older version after the legacy one is still just not newer
+	if o := w.run(w.args(tenantA, login, packRoot)...); o.code != 1 || o.rep.Reason != "not_newer" {
+		t.Fatalf("3.1 after 3.2: exit %d, report %+v", o.code, o.rep)
 	}
 }

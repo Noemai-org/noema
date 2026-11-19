@@ -44,6 +44,7 @@ type Request struct {
 	PolicyID      string
 	Version       string // dotted numeric, two or three components: "3.1"
 	PublishedBy   string // the administrator's principal ID, for example adm_synth01
+	DocumentHash  string // sha256: and 64 lower-case hex digits, the hash of the policy document (policy.DocumentHash)
 }
 
 // Store writes publications. The Appender writes the Record event in the caller's transaction.

@@ -66,13 +66,21 @@ func newWorld(t *testing.T) *world {
 		store: &policystore.Store{Appender: &chain.Appender{Clock: clk, IDs: idg, Signers: recordsig.For(t, admin, "policystore", nil, "core-trust")}}}
 }
 
+// testDocHash is a well-formed SYNTHETIC document hash for the tests that are not about the hash.
+const testDocHash = "sha256:00000000000000000000000000000000000000000000000000000000000000aa"
+
 func (w *world) publish(t *testing.T, p *pgxpool.Pool, tenant, policyID, version string) error {
+	t.Helper()
+	return w.publishWith(t, p, tenant, policyID, version, testDocHash)
+}
+
+func (w *world) publishWith(t *testing.T, p *pgxpool.Pool, tenant, policyID, version, hash string) error {
 	t.Helper()
 	tx, err := p.Begin(ctx(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, PublishedBy: "adm_synth01"})
+	err = w.store.Publish(ctx(t), tx, policystore.Request{TenantID: tenant, CorrelationID: "corr_pub0001", PolicyID: policyID, Version: version, PublishedBy: "adm_synth01", DocumentHash: hash})
 	if err != nil {
 		_ = tx.Rollback(ctx(t))
 		return err
