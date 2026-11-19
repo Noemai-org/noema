@@ -35,12 +35,18 @@ def names_endpoint(rel: str, line: str) -> bool:
         return False
     if rel != DOCS_NOTES_FILE:
         return True
-    rest = line
-    for target in re.findall(r"\]\(([^)\s]+)\)|<(https?://[^>\s]+)>", line):
-        url = next(t for t in target if t)
+    # Remove ONLY the permitted link targets, each by its own position: a bare URL that repeats or extends an allowed target elsewhere on the line stays and is still an endpoint
+    # (Codex P2 on noema#728: removing every occurrence of the text hid a bare copy of it).
+    spans: list[tuple[int, int]] = []
+    for match in re.finditer(r"\]\((?P<md>[^)\s]+)\)|<(?P<angle>https?://[^>\s]+)>", line):
+        group = "md" if match.group("md") else "angle"
+        url = match.group(group)
         m = DOCS_LINK.match(url)
         if m and not (set(m.group("host").lower().split(".")) & ENDPOINT_LABELS) and ":" not in m.group("host"):
-            rest = rest.replace(url, "")
+            spans.append((match.start(group), match.end(group)))
+    rest = line
+    for start, end in reversed(spans):
+        rest = rest[:start] + rest[end:]
     return bool(ENDPOINT.search(rest))
 
 
@@ -126,6 +132,11 @@ class Cases(unittest.TestCase):
         self.assertTrue(in_notes("[x](https://" + "intron" + "health.example/docs?key=abc)"), "a query string")
         self.assertTrue(in_notes("use " + "intron" + "example.org directly"), "a bare host outside a link")
         self.assertTrue(in_notes(f"[ok]({docs}) and https://" + "intron" + "health.example/raw"), "a bare URL beside a link")
+        # Codex P2 on noema#728: only the matched link target is removed, by position; a bare URL that repeats or extends an allowed target stays an endpoint
+        self.assertTrue(in_notes(f"[docs]({docs}) endpoint: {docs}?key=abc"), "a bare URL that extends the allowed target")
+        self.assertTrue(in_notes(f"[docs]({docs}) again: {docs}"), "a bare URL that repeats the allowed target")
+        self.assertTrue(in_notes(f"{docs} then [docs]({docs})"), "the bare copy comes first")
+        self.assertFalse(in_notes(f"[a]({docs}) and [b]({docs}#limits) and <{docs}>"), "the same permitted target linked three times")
 
     def test_the_real_repository_passes(self):
         self.assertEqual(c.violations(ROOT / ".github/workflows", ROOT / ".env.example"), [])
