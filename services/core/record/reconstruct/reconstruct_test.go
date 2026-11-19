@@ -631,7 +631,7 @@ func TestEveryCallThatReachesTheHandlerWritesOneRecordAccessedLineWithItsOutcome
 			if n := strings.Count(line, `"msg":"RECORD_ACCESSED"`); n != 1 {
 				t.Fatalf("%d RECORD_ACCESSED lines, want 1: %s", n, line)
 			}
-			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`} {
+			for _, want := range []string{`"outcome":"` + c.outcome + `"`, `"tenant_id":"` + c.caller.TenantID + `"`, `"principal":"` + c.caller.Principal + `"`, `"role":"audit"`} {
 				if !strings.Contains(line, want) {
 					t.Errorf("access log %s lacks %s", line, want)
 				}
