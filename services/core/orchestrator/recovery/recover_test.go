@@ -43,7 +43,7 @@ func TestRecoverAfterSpendBeforeVerifyNeverDispatchesAgain(t *testing.T) {
 			}
 			w.crashExec, w.crashVerify = false, false
 			decide, execute, _ := w.counts()
-			rep, err := w.activity(t, w).Recover(context.Background(), tenantA) // the recovery process holds a real, counting executor on purpose
+			rep, err := w.activity(t, w).Recover(tctx(), tenantA) // the recovery process holds a real, counting executor on purpose
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +74,7 @@ func TestRecoverUnknownOrCompensatedStopsForAPerson(t *testing.T) {
 			w.crashVerify, w.verdicts = false, []contracts.EnumsV1Verdict{v}
 			a := w.activity(t, recovery.NoDispatch{})
 			for pass := 0; pass < 2; pass++ {
-				rep, err := a.Recover(context.Background(), tenantA)
+				rep, err := a.Recover(tctx(), tenantA)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -98,7 +98,7 @@ func TestRecoverNeverSpendsAnUnspentGrant(t *testing.T) {
 	w := newWorld()
 	w.rows[invID].inv = orchestrator.Investigation{ID: invID, State: "PLANNED", Version: 3}
 	w.rows[invID].decision = orchestrator.Decision{ID: decisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{grantID}, IntentRef: intentRef}
-	rep, err := w.activity(t, w).Recover(context.Background(), tenantA)
+	rep, err := w.activity(t, w).Recover(tctx(), tenantA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestRecoverRecordFirst(t *testing.T) {
 	w.crashExec = true
 	_ = w.firstProcess(t)
 	w.crashExec, w.recordEr = false, errors.New("the Record is down")
-	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(context.Background(), tenantA)
+	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestRecoverIsTenantScoped(t *testing.T) {
 	_ = w.firstProcess(t)
 	w.crashExec, w.batchIgnored = false, true
 	w.rows[invID].tenant = tenantB // the reader now hands back tenant B's row when asked for A
-	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(context.Background(), tenantA)
+	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestRecoverIsTenantScoped(t *testing.T) {
 	if len(w.readerCalls) != 1 || w.readerCalls[0] != (readerCall{tenantA, 60000, 10}) {
 		t.Fatalf("the reader was asked %+v", w.readerCalls)
 	}
-	if _, err := w.activity(t, recovery.NoDispatch{}).Recover(context.Background(), "ten_x'; DROP"); err == nil {
+	if _, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), "ten_x'; DROP"); err == nil {
 		t.Fatal("a malformed tenant must be refused")
 	}
 }
@@ -165,7 +165,7 @@ func TestRecoverBatchIsBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rep, err := a.Recover(context.Background(), tenantA)
+	rep, err := a.Recover(tctx(), tenantA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestRecoverSingleFlightPerCorrelation(t *testing.T) {
 	a := w.activity(t, recovery.NoDispatch{})
 	done := make(chan recovery.Report, 1)
 	go func() {
-		rep, _ := a.Recover(context.Background(), tenantA)
+		rep, _ := a.Recover(tctx(), tenantA)
 		done <- rep
 	}()
 	select {
@@ -192,7 +192,7 @@ func TestRecoverSingleFlightPerCorrelation(t *testing.T) {
 	case rep := <-done:
 		t.Fatalf("the first pass ended without verifying: %+v", rep)
 	}
-	rep2, err := a.Recover(context.Background(), tenantA)
+	rep2, err := a.Recover(tctx(), tenantA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestStartupPassRunsEachTenant(t *testing.T) {
 	w.crashExec = true
 	_ = w.firstProcess(t)
 	w.crashExec = false
-	reps, err := w.activity(t, recovery.NoDispatch{}).StartupPass(context.Background(), []string{tenantB, tenantA})
+	reps, err := w.activity(t, recovery.NoDispatch{}).StartupPass(tctx(), []string{tenantB, tenantA})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,6 +236,8 @@ func TestLoadConfigHasNoDefault(t *testing.T) {
 		"space":            {recovery.EnvIdleMS: "5 ", recovery.EnvBatchSize: "50"},
 		"batch not number": {recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "lots-SECRET"},
 		"overflow":         {recovery.EnvIdleMS: "99999999999999999999999", recovery.EnvBatchSize: "50"},
+		"batch too large":  {recovery.EnvIdleMS: "60000", recovery.EnvBatchSize: "4294967296"},
+		"idle too large":   {recovery.EnvIdleMS: "9223372036854775807", recovery.EnvBatchSize: "50"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := recovery.LoadConfig(get(m))
@@ -274,7 +276,7 @@ func TestNewRefusesAMissingPart(t *testing.T) {
 }
 
 func TestNoDispatchRefuses(t *testing.T) {
-	if _, err := (recovery.NoDispatch{}).Execute(context.Background(), orchestrator.Session{}, grantID); !errors.Is(err, recovery.ErrNoDispatch) {
+	if _, err := (recovery.NoDispatch{}).Execute(tctx(), orchestrator.Session{}, grantID); !errors.Is(err, recovery.ErrNoDispatch) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -310,7 +312,7 @@ func TestNoRequestDerivedValueReachesEitherPath(t *testing.T) {
 		w.rows[invID].inv = orchestrator.Investigation{ID: invID, State: "AWAITING_VERIFICATION", Version: 7}
 		w.rows[invID].principal = rapid.StringMatching(`prn_[0-9A-Za-z]{2,32}`).Draw(t, "principal")
 		w.rows[invID].decision = orchestrator.Decision{ID: decisionID, Outcome: contracts.EnumsV1DecisionOutcomeALLOW, GrantIDs: []string{grantID}, IntentRef: intentRef}
-		rep, err := w.activity2(t).Recover(context.Background(), tenantA)
+		rep, err := w.activity2(t).Recover(tctx(), tenantA)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -349,4 +351,27 @@ func (w *world) activity2(t *rapid.T) *recovery.Activity {
 		t.Fatal(err)
 	}
 	return a
+}
+
+// Another process moved the row after the list was read: the compare-and-swap refuses and the investigation is skipped, never forced.
+func TestRecoverSkipsARowAnotherProcessMoved(t *testing.T) {
+	w := newWorld()
+	w.crashVerify = true
+	_ = w.firstProcess(t)
+	w.crashVerify, w.staleRead = false, true
+	rep, err := w.activity(t, recovery.NoDispatch{}).Recover(tctx(), tenantA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outcomeOf(rep, invID); got != recovery.Skipped {
+		t.Fatalf("outcome %q, want %q", got, recovery.Skipped)
+	}
+}
+
+// Every call to a store or port in this repository carries a deadline; a pass without one is refused before anything is read.
+func TestRecoverNeedsADeadline(t *testing.T) {
+	w := newWorld()
+	if _, err := w.activity(t, recovery.NoDispatch{}).Recover(context.Background(), tenantA); err == nil || len(w.readerCalls) != 0 {
+		t.Fatalf("a pass without a deadline ran: %v", err)
+	}
 }

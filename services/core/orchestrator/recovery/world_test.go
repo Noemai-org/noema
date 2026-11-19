@@ -9,6 +9,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
@@ -55,6 +56,7 @@ type world struct {
 	turns                      []orchestrator.Turn
 	readerCalls                []readerCall
 	batchIgnored               bool // the reader returns more than the limit it was given
+	staleRead                  bool // the reader returns a version older than the row's: another process moved the row after the list was read
 }
 
 type readerCall struct {
@@ -146,6 +148,9 @@ func (w *world) Verify(_ context.Context, s orchestrator.Session, _, _ string) (
 	n := w.nVerify
 	w.nVerify++
 	crash, gate, entered := w.crashVerify, w.verifyGate, w.verifyEntered
+	if n > 0 { // only the first ask waits: a second ask is the defect the single-flight test looks for, and must not hang the test
+		gate, entered = nil, nil
+	}
 	vs := w.verdicts
 	w.mu.Unlock()
 	if crash {
@@ -193,7 +198,11 @@ func (w *world) Idle(_ context.Context, tenant string, idleMS int64, limit int) 
 		if len(tab.Exits(r.inv.State)) == 0 || (r.tenant != tenant && !w.batchIgnored) {
 			continue
 		}
-		out = append(out, recovery.Candidate{Investigation: r.inv, TenantID: r.tenant, CorrelationID: r.corr, InputReceivedRef: r.recev, PrincipalRef: r.principal, Decision: r.decision})
+		inv := r.inv
+		if w.staleRead {
+			inv.Version--
+		}
+		out = append(out, recovery.Candidate{Investigation: inv, TenantID: r.tenant, CorrelationID: r.corr, InputReceivedRef: r.recev, PrincipalRef: r.principal, Decision: r.decision})
 	}
 	return out, nil
 }
@@ -217,7 +226,7 @@ func (w *world) runner(t *testing.T, x orchestrator.Executor) *orchestrator.Writ
 // firstProcess runs the turn as the process that later dies.
 func (w *world) firstProcess(t *testing.T) error {
 	t.Helper()
-	_, err := w.runner(t, w).RunWrite(context.Background(), orchestrator.Session{TenantID: tenantA, PrincipalID: principal, Role: "customer"},
+	_, err := w.runner(t, w).RunWrite(tctx(), orchestrator.Session{TenantID: tenantA, PrincipalID: principal, Role: "customer"},
 		orchestrator.Turn{InvestigationID: invID, CorrelationID: corrID, Text: "escalate my complaint", InputReceivedRef: recevID, RequestID: reqID})
 	return err
 }
@@ -242,4 +251,11 @@ func (w *world) activity(t *testing.T, x orchestrator.Executor) *recovery.Activi
 		t.Fatal(err)
 	}
 	return a
+}
+
+// tctx is a context with a deadline: the activity refuses one without (the stores and ports of this repository all do).
+func tctx() context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	_ = cancel // released by the deadline; a test context lives for one test
+	return ctx
 }
