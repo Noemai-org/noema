@@ -659,14 +659,16 @@ func TestAnAnswerOutsideTheContractIsRefusedWhole(t *testing.T) {
 		"a display with a digit run": func(o *contracts.CandidatesResponseV1) {
 			o.Candidates[0].CounterpartyDisplay = "A. Synthetic 4000123456"
 		},
-		"an empty display":                func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = "" },
-		"a negative amount":               func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = -1 },
-		"an instant that is not UTC":      func(o *contracts.CandidatesResponseV1) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
-		"a currency the contract has not": func(o *contracts.CandidatesResponseV1) { o.Candidates[0].Currency = "USD" },
-		"an answer with no version":       func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "" },
-		"an amount past the contract":     func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = 9007199254740992 },
-		"a display over 64 characters":    func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = strings.Repeat("x", 65) },
-		"a resource ref of another kind":  func(o *contracts.CandidatesResponseV1) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
+		"an empty display":                 func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = "" },
+		"a negative amount":                func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = -1 },
+		"an instant that is not UTC":       func(o *contracts.CandidatesResponseV1) { o.Candidates[0].OccurredAt = "2026-11-18T09:30:00+01:00" },
+		"a currency the contract has not":  func(o *contracts.CandidatesResponseV1) { o.Candidates[0].Currency = "USD" },
+		"an answer with no version":        func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "" },
+		"an answer of another major (2.0)": func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "2.0" },
+		"an answer of an earlier major":    func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "0.9" },
+		"an amount past the contract":      func(o *contracts.CandidatesResponseV1) { o.Candidates[0].AmountMinor = 9007199254740992 },
+		"a display over 64 characters":     func(o *contracts.CandidatesResponseV1) { o.Candidates[0].CounterpartyDisplay = strings.Repeat("x", 65) },
+		"a resource ref of another kind":   func(o *contracts.CandidatesResponseV1) { o.Candidates[0].ResourceRef = "other.kind:TX1" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newCdRig(t)
@@ -696,6 +698,16 @@ func TestAnEmptyAnswerIsAnAnswerWithThePacksDataAndNoCandidates(t *testing.T) {
 	}
 	if r.ranker.calls != 0 {
 		t.Errorf("the ranker was asked to score nothing")
+	}
+}
+
+// Codex's review of noema#741 (P2, schema versions): the adapter implements candidates-response major version 1 only. A later minor of 1 is additive by the contract's own rule
+// (common.v1.json SchemaVersion, "major.minor") and is accepted; another major is refused whole, because its shape is not the one checked here (REQ-CTX-006, INV-16).
+func TestALaterMinorOfVersionOneIsAcceptedAndAnotherMajorIsNot(t *testing.T) {
+	r := newCdRig(t)
+	r.world.answer = func(o *contracts.CandidatesResponseV1) { o.SchemaVersion = "1.3" }
+	if _, err := r.adapter().ScopedCandidates(cdCtx(t), cdTenant, cdAlice, cdAdmitted(cdAlice)); err != nil {
+		t.Fatalf("version 1.3: %v, want it accepted", err)
 	}
 }
 
