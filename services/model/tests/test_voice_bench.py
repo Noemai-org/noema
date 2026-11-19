@@ -71,8 +71,9 @@ class Tts:
     name = "fake-tts"
     capabilities = CAPS
 
-    def __init__(self, clock: Clock, tts_ms: int = 500, empty: bool = False, close_ms: int = 0, hang: str | None = None) -> None:
+    def __init__(self, clock: Clock, tts_ms: int = 500, empty: bool = False, close_ms: int = 0, hang: str | None = None, close_fails: bool = False) -> None:
         self.clock, self.tts_ms, self.empty, self.calls = clock, tts_ms, empty, 0
+        self.close_fails = close_fails  # the stream raises a ProviderError while it is closed, after the audio was heard
         self.close_ms, self.hang = close_ms, hang  # hang: "first" (no audio ever) or "close" (the stream cannot be closed)
 
     async def synthesize(self, request: SynthesisRequest) -> AsyncIterator[AudioChunk]:
@@ -85,6 +86,8 @@ class Tts:
                 yield AudioChunk(0, AudioCodec.PCM_S16LE, 48000, b"\x00\x01" * 100)
         finally:
             self.clock.now += self.close_ms  # cleanup takes time on the clock
+            if self.close_fails:
+                raise ProviderError(ProviderFailure.UNAVAILABLE)
             if self.hang == "close":
                 await asyncio.Event().wait()
 
@@ -243,3 +246,20 @@ def test_a_stream_that_cannot_be_closed_does_not_hold_a_complete_session_past_th
 
     complete, elapsed = run(asyncio.wait_for(go(), timeout=GUARD_S))
     assert complete and elapsed < 1.5  # the first chunk was heard; the close is abandoned at the cleanup bound
+
+
+# ---- Codex P2 on noema#694 at a0b3d82a: a session with a recorded failure is never counted as complete in the batch ------------------------------------------------------------
+
+
+def test_a_session_whose_cleanup_failed_after_the_first_audio_counts_as_a_failure_in_the_batch() -> None:
+    async def go(failing: int) -> tuple[bool, int, int]:
+        results = []
+        for i in range(20):
+            clock = Clock()
+            results.append(await session(clock, Stt(clock), Tts(clock, close_fails=i < failing), FakeCore(clock), utterance(8.0, label=f"u{i}")))
+        assert all(r.failure is ProviderFailure.UNAVAILABLE for r in results[:failing])  # the failure is recorded although the timeline reached its last stage
+        summary = measure_batch(results, target_ms=1800)
+        return summary.meets_target, summary.n_complete, summary.n_incomplete
+
+    assert run(asyncio.wait_for(go(1), timeout=GUARD_S)) == (True, 19, 1)  # one loss in twenty still leaves the 95th percentile on a complete session
+    assert run(asyncio.wait_for(go(2), timeout=GUARD_S)) == (False, 18, 2)  # two losses move it to the worst case, as for any other failure
