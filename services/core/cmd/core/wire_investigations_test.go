@@ -98,7 +98,7 @@ func (w *wireWorld) settings(t *testing.T) envMap {
 	for tenant, p := range w.orch {
 		writeDSN(t, o.dsn, tenant, p)
 	}
-	return envMap{EnvRecordReadDSNDir: recDir, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2"}
+	return envMap{EnvRecordReadDSNDir: recDir, EnvOrchestratorDSNDir: o.dsn, EnvOrchestratorKeyDir: o.keys, EnvOrchestratorKeyMaxActive: "2", EnvReadTimeoutMS: "2000"}
 }
 
 func writeDSN(t *testing.T, dir, tenant string, p *pgxpool.Pool) {
@@ -123,7 +123,10 @@ func (w *wireWorld) reader(t *testing.T) (InvestigationReader, func()) {
 	if err != nil || rec == nil {
 		t.Fatalf("recorder %v, %v", rec, err)
 	}
-	r := newInvestigationReader(rec)
+	r, err := buildInvestigationReader(env, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return r, func() { closeRec(); closeRecords() }
 }
 
