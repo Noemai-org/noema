@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -52,6 +53,9 @@ type Ledger struct {
 	// the first included (noema#714, Architect rulings A317 to A328, relayed). It comes from the environment setting named by EnvSerializationAttempts and has no default
 	// (AGENT-16): a Ledger without a value of at least one refuses to spend.
 	SerializationAttempts int
+	// Log receives the one line of fixed text that Spend writes when the spend lock could not be released cleanly (noema#748, Architect ruling A348 as refined, relayed,
+	// interim). Optional: nil logs nothing. The composition root passes a logger that runs through the mandatory redactor (platform/redaction, PERD 44.2).
+	Log *slog.Logger
 	// Boundary is called at each boundary inside a transaction (see Point). Production leaves it nil; the crash harness returns ErrCrash.
 	Boundary func(Point) error
 }

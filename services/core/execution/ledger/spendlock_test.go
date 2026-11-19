@@ -645,9 +645,10 @@ func TestTheSpendLockIsReleasedOnEveryPath(t *testing.T) {
 		_, probe := w.exec.Exec(ctx(t), `SELECT pg_advisory_unlock(1, 2)`)
 		wantPg(t, probe, "42501")
 		g := w.issue(t, 1)
-		_, err := w.led.Spend(ctx(t), cmdFor(g))
-		if err != nil {
-			wantPg(t, err, "42501")
+		// Ruling A348 as refined: the spend committed and only the unlock failed, so the committed result is returned and no error (this test used to accept either answer).
+		res, err := w.led.Spend(ctx(t), cmdFor(g))
+		if err != nil || !res.Spent {
+			t.Fatalf("Spend = %+v, %v; want the committed result and no error", res, err)
 		}
 		requireReleased(t, w, "an unlock that failed", 5*time.Second)
 		if got := w.count(t, `SELECT count(*) FROM decision_grant WHERE grant_id = $1 AND status = 'SPENT'`, g.GrantID); got != 1 {
