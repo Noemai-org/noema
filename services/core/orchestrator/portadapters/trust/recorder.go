@@ -117,8 +117,11 @@ func NewRecorderAdapter(c RecorderConfig) (*RecorderAdapter, error) {
 
 // Record writes the decision and its grants in one transaction. The checks that need no database run first, so a refused request opens no transaction. If the context ends
 // while the transaction runs, the transaction is rolled back and the context's error is returned: nothing is written (the other choice, returning the stored ALLOW on a retry,
-// is what a failed commit leaves, see ErrCommit). A returned error other than ErrCommit means nothing was written.
+// is what a failed commit leaves, see ErrCommit). A returned error other than ErrCommit means nothing was written. A context with no deadline is refused first (ErrNoDeadline).
 func (a *RecorderAdapter) Record(ctx context.Context, r intake.RecordRequest) (intake.RecordResult, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		return intake.RecordResult{}, ErrNoDeadline
+	}
 	req, err := a.request(ctx, r)
 	if err != nil {
 		return intake.RecordResult{}, err

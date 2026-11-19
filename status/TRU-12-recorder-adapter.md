@@ -23,3 +23,6 @@ Updated 2026-11-19. State: in review (draft PR). Owner: lane agent for EL, STM-0
 - Open questions (EL): where the evidence set hash and target versions come from; whether the intake's 0-based `PlanStep` (`int64(i)`) is what `grants` accepts.
 - Files to read first: `services/core/trust/recorder/recorder.go`, `services/core/trust/intake/ports_t13_t15.go`.
 - Do not touch: `trust/**`, `port.go`, `dispatches.go`.
+
+## Addendum 2026-11-19 (AGENTS section 7)
+- `Record` refuses a context with no deadline with the typed `ErrNoDeadline` before the facts, any transaction or the writer. Tests: `TestARecordWithoutAContextDeadlineIsRefusedBeforeAnyTransaction`; `TestAFailedCommitThenARetryReturnsTheStoredDecision` (ErrCommit wraps the cause; a retry returns the stored ALLOW, A186). DB-backed tests need pgsodium and fail locally for that reason only; they run in CI.
