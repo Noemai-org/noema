@@ -202,13 +202,21 @@ func TestAnAnswerIsStoredOnceAndAReplayReturnsTheSameEvent(t *testing.T) {
 		t.Fatalf("%d answers, %d CONFIRMATION_RECEIVED events after a replay, want 1 and 1", n, len(w.sink.received))
 	}
 	in.Response = confirm.Decline
-	if _, err := w.a.Answer(reqCtx(t), in); !errors.Is(err, trustpg2.ErrRequestConflict) {
-		t.Fatalf("the same approver answering differently: %v, want ErrRequestConflict", err)
+	if _, err := w.a.Answer(reqCtx(t), in); !errors.Is(err, trustpg2.ErrAlreadyAnswered) {
+		t.Fatalf("the same approver answering differently: %v, want ErrAlreadyAnswered", err)
 	}
+	// A341: the first answer wins; another approver's later answer is a typed ErrAlreadyAnswered and records nothing
 	later := in
 	later.ApproverID, later.Response, later.At = "prn_3", confirm.Decline, w.clk.Now().Unix()+60
-	if _, err := w.a.Answer(reqCtx(t), later); err != nil {
-		t.Fatal(err)
+	if _, err := w.a.Answer(reqCtx(t), later); !errors.Is(err, trustpg2.ErrAlreadyAnswered) {
+		t.Fatalf("a second answer by another approver: %v, want ErrAlreadyAnswered", err)
+	}
+	later.Response = confirm.Accept
+	if _, err := w.a.Answer(reqCtx(t), later); !errors.Is(err, trustpg2.ErrAlreadyAnswered) {
+		t.Fatalf("a second ACCEPT by another approver: %v, want ErrAlreadyAnswered", err)
+	}
+	if n := w.rows(t, "confirmation_answer"); n != 1 || len(w.sink.received) != 1 {
+		t.Fatalf("%d answers, %d CONFIRMATION_RECEIVED events, want 1 and 1", n, len(w.sink.received))
 	}
 	got, ok, err := w.a.Latest(reqCtx(t), "ten_aa", "prn_1", "int_1", 1)
 	if err != nil || !ok || got.Answer == nil {
@@ -244,6 +252,39 @@ func TestTwoConcurrentAnswersStoreOne(t *testing.T) {
 	wg.Wait()
 	if errs[0] != nil || errs[1] != nil || evs[0] != evs[1] || w.rows(t, "confirmation_answer") != 1 {
 		t.Fatalf("events %v errors %v rows %d, want one answer and the same event twice", evs, errs, w.rows(t, "confirmation_answer"))
+	}
+}
+
+// Two different approvers answering at once: exactly one wins, the other is ErrAlreadyAnswered, one answer and one event are stored (A341).
+func TestTwoApproversAnsweringAtOnceStoreTheFirstOnly(t *testing.T) {
+	w := newReqWorld(t)
+	id, err := w.a.Open(reqCtx(t), w.newReq("sha256:l1", time.Hour, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvers := []string{"prn_2", "prn_3"}
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := range approvers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = w.a.Answer(reqCtx(t), trustpg2.AnswerInput{TenantID: "ten_aa", RequestID: id, ApproverID: approvers[i], Roles: []string{"reviewer"},
+				Response: confirm.Accept, At: w.clk.Now().Unix()})
+		}()
+	}
+	wg.Wait()
+	won, lost := 0, 0
+	for _, e := range errs {
+		switch {
+		case e == nil:
+			won++
+		case errors.Is(e, trustpg2.ErrAlreadyAnswered):
+			lost++
+		}
+	}
+	if won != 1 || lost != 1 || w.rows(t, "confirmation_answer") != 1 {
+		t.Fatalf("errors %v rows %d, want one winner, one ErrAlreadyAnswered and one answer", errs, w.rows(t, "confirmation_answer"))
 	}
 }
 

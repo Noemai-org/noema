@@ -370,7 +370,7 @@ func TestTwoConcurrentRootRequestsCommitOne(t *testing.T) {
 	}
 }
 
-// One answer per (request, approver); an answer is ACCEPT or DECLINE; the event ID is cfe_...; an answer names an existing request.
+// One answer per request (A341: first answer wins); an answer is ACCEPT or DECLINE; the event ID is cfe_...; an answer names an existing request.
 func TestOneAnswerPerRequestAndApprover(t *testing.T) {
 	w := newCfWorld(t)
 	if err := w.request(t, w.trustA, "ten_a", "cfr_a1", "", cfBinding("tgt_1"), "MAKER_CHECKER", cfBase, time.Hour); err != nil {
@@ -381,14 +381,13 @@ func TestOneAnswerPerRequestAndApprover(t *testing.T) {
 	}
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n2", "cfr_a1", "prn_2", "DECLINE", cfBase), violation) // the same approver again
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n1", "cfr_a1", "prn_3", "ACCEPT", cfBase), violation)  // the same event ID
-	if err := w.answer(w.trustA, "ten_a", "cfe_n3", "cfr_a1", "prn_3", "DECLINE", cfBase); err != nil {
-		t.Errorf("another approver: %v", err)
-	}
+	// A341: the FIRST answer wins, so a second answer by ANOTHER approver is refused too (UNIQUE (tenant_id, confirmation_request_id))
+	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n3", "cfr_a1", "prn_3", "DECLINE", cfBase), violation)
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n4", "cfr_a1", "prn_4", "MAYBE", cfBase), violation)
 	wantState(t, w.answer(w.trustA, "ten_a", "evt_5", "cfr_a1", "prn_4", "ACCEPT", cfBase), violation)
 	wantState(t, w.answer(w.trustA, "ten_a", "cfe_n6", "cfr_zzz", "prn_4", "ACCEPT", cfBase), violation)
-	if n := count(t, w.admin, "confirmation_answer"); n != 2 {
-		t.Errorf("%d answers, want 2", n)
+	if n := count(t, w.admin, "confirmation_answer"); n != 1 {
+		t.Errorf("%d answers, want 1", n)
 	}
 }
 

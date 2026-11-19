@@ -20,6 +20,8 @@ import (
 var (
 	// ErrRequestConflict: the database refused the write because it would break the chain of requests of one action, or answer one request twice differently.
 	ErrRequestConflict = errors.New("trustpg2: the request or answer conflicts with what is stored")
+	// ErrAlreadyAnswered: the request already has an answer other than a replay of this one (A341: the first answer wins).
+	ErrAlreadyAnswered = errors.New("trustpg2: the request was already answered")
 	// ErrRequestForm: a field is not in the contract's form, or the context has no deadline.
 	ErrRequestForm = errors.New("trustpg2: the request or answer is not in the contract's form")
 	// ErrNotExpired: the request has not expired yet, or does not exist.
