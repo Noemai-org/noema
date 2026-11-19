@@ -66,7 +66,9 @@ class RecordingTransport:
             reply = await self._inner.post(url, headers, body, timeout_s, max_bytes)
         except errors.ProviderError as err:
             self._guard.settle(None, projected)
-            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=err.kind.name, projected_micros=projected, cost_micros=projected)
+            # A372: a refusal that came from this service's own full pool (`local`: nothing was sent) is its own label, not a provider outage. Accounting is unchanged (open question in the PR).
+            label = "POOL_REFUSED" if err.local else err.kind.name
+            self._recorder.record_call(url=url, request=body, status=None, reply=None, failure=label, projected_micros=projected, cost_micros=projected)
             self.calls += 1
             raise
         actual = _usage_micros(reply.body, self._in, self._out)
