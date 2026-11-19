@@ -77,12 +77,13 @@ func (s *Service) Evaluate(ctx context.Context, r Request) (Result, error) {
 	return ev.run(ctx, ev.steps()), nil
 }
 
-// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned.
+// run evaluates steps in the fixed order against the evaluated set of this call. An ALLOW carries the decision ID and the grant IDs that T15 wrote before it was returned; a
+// CONFIRM that T13 recorded carries its decision ID and the confirmation request it names.
 func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	d, trace := decide.EvaluateBound(ctx, e.version, steps, e.bb)
 	res := Result{Decision: d, Trace: trace}
-	if d.Outcome() == decide.Allow {
-		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
+	if o := d.Outcome(); o == decide.Allow || o == decide.Confirm {
+		res.DecisionID, res.GrantIDs, res.ConfirmationRequestID = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...), e.late.requestID
 	}
 	return res
 }

@@ -25,7 +25,7 @@ const (
 	// ConfirmationGiven: the profile asks for one and a valid ACCEPT resolved to a fresh evaluation (confirm.Proceed, INV-25), whose event the Confirmation names.
 	ConfirmationGiven
 	// ConfirmationDeclined: the profile asks for one and the approver declined it. In this version T13 does not decide on it: like any status it does not know, it ends the
-	// evaluation in UNKNOWN. A later change turns it into a REJECT.
+	// evaluation in UNKNOWN. SoT 43.2a step 4 makes a decline REJECT DECLINED_BY_APPROVER, but PERD 23.3 gives T13 the terminal result CONFIRM only: awaiting the Architect.
 	ConfirmationDeclined
 )
 
@@ -40,7 +40,8 @@ type FreshBinding struct {
 	PolicyVersion string
 }
 
-// RequestSpec says how to create the confirmation request T13 asks for. Requirement is the approver requirement of the contract: SELF, MAKER_CHECKER or ROLE:<role>. TTL is the
+// RequestSpec says how to create the confirmation request T13 asks for. Requirement is the approver requirement of the contract: SELF, MAKER_CHECKER or ROLE:<role> (the role in
+// lower case, as enums.v1.json writes it); anything else is not a requirement. A TTL under one second is not a TTL (the expiry is in whole Unix seconds). TTL is the
 // request's lifetime, taken from the pack or the configuration and never chosen in Trust (AGENT-16). The requester is not in the spec: Trust takes it from the admitted
 // intent's PrincipalID, which comes only from the authenticated session (INV-12).
 type RequestSpec struct {
@@ -53,10 +54,11 @@ type Confirmation struct {
 	Status   ConfirmationStatus
 	EventID  string
 	PlanHash string // a Given answer: the plan hash the confirmation was given for (A230); the intake compares it with the plan T14 builds and the writer with the steps
-	// RequestID is the confirmation request the answer rests on. Pending: the open, unexpired request, if one exists. Given and Declined: the request that was answered.
+	// RequestID is the confirmation request the answer rests on (a cfr_ ID). Pending: the open, unexpired request, if one exists. Given and Declined: the request that was
+	// answered; a Given answer without one is not an answer. NotRequired carries none.
 	RequestID string
 	// NewRequest is set only on Pending. Non-nil means no open request exists and Trust must create one from the spec; nil with a RequestID means one is already open and no
-	// second request is made.
+	// second request is made. A Pending answer with both, or with neither, is not an answer (UNKNOWN).
 	NewRequest *RequestSpec
 }
 

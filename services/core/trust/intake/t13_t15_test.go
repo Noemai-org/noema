@@ -256,6 +256,7 @@ func wantUnknown(t *testing.T, name string, r Result, reason string, step decide
 func TestT13ConfirmationRequiredAndMissingStopsWithConfirm(t *testing.T) {
 	f := newFake13()
 	f.conf = Confirmation{Status: ConfirmationPending, RequestID: "cfr_synth0001"}
+	f.rec = RecordResult{DecisionID: "dec_synth0001"}
 	ev := newEval13(t, f)
 	res := run13(t, ev)
 	d := res.Decision

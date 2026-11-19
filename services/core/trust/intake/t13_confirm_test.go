@@ -236,6 +236,16 @@ func TestT13ANewRequestNeedsWellFormedBindingValuesAndASafeSpec(t *testing.T) {
 	}
 }
 
+// A plan step whose target or capability holds a character the binding cannot carry is not bindable: UNKNOWN, nothing recorded (the Recorder would refuse it; the evaluation ends first).
+func TestT13AStepWithAnUnbindableValueIsUnknownAndNothingIsRecorded(t *testing.T) {
+	f := pendingNew(newFake13())
+	f.plan = Plan{Hash: tPlanHash, Steps: []PlanStep{{CapabilityID: "fin.cap.create_escalation_case", TargetRef: "txn synth", ParamsHash: tHash}}}
+	ev := confirmEval(t, f)
+	ev.intent.TargetRef = "txn synth"
+	wantUnknown(t, "a target with a space", run13(t, ev), "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+	wantRecordedNothing(t, "a target with a space", f)
+}
+
 // The requirements the contract lists are accepted as they are: SELF, MAKER_CHECKER and ROLE:<role>.
 func TestT13ANewRequestKeepsTheRequirementOfTheSpec(t *testing.T) {
 	for _, req := range []string{"SELF", "MAKER_CHECKER", "ROLE:supervisor", "ROLE:l2_support"} {
@@ -300,13 +310,15 @@ func TestT13AConfirmIsReturnedOnlyWhenTheRecorderWroteIt(t *testing.T) {
 		recErr error
 	}
 	for _, c := range []tc{
-		{"a Recorder error (a request to make)", pendingNew, RecordResult{}, errInjected},
-		{"a Recorder error (an open request)", pendingOpen, RecordResult{}, errInjected},
+		{"a Recorder error that comes with a full answer (a request to make)", pendingNew, RecordResult{DecisionID: "dec_synth0002", ConfirmationRequestID: "cfr_synth0002"}, errInjected},
+		{"a Recorder error that comes with a full answer (an open request)", pendingOpen, RecordResult{DecisionID: "dec_synth0002"}, errInjected},
+		{"a Recorder error with no answer", pendingOpen, RecordResult{}, errInjected},
 		{"no decision ID (a request to make)", pendingNew, RecordResult{ConfirmationRequestID: "cfr_synth0002"}, nil},
 		{"no decision ID (an open request)", pendingOpen, RecordResult{}, nil},
 		{"a decision ID of another kind", pendingOpen, RecordResult{DecisionID: "grt_synth0001"}, nil},
 		{"a grant for a CONFIRM (a request to make)", pendingNew, RecordResult{DecisionID: "dec_synth0002", ConfirmationRequestID: "cfr_synth0002", GrantIDs: []string{"grt_synth0001"}}, nil},
 		{"a grant for a CONFIRM (an open request)", pendingOpen, RecordResult{DecisionID: "dec_synth0002", GrantIDs: []string{"grt_synth0001"}}, nil},
+		{"a request ID for an open request, which asked for none", pendingOpen, RecordResult{DecisionID: "dec_synth0002", ConfirmationRequestID: "cfr_synth0002"}, nil},
 		{"no request ID for a request to make", pendingNew, RecordResult{DecisionID: "dec_synth0002"}, nil},
 		{"a request ID of another kind for a request to make", pendingNew, RecordResult{DecisionID: "dec_synth0002", ConfirmationRequestID: "cfe_synth0002"}, nil},
 	} {
