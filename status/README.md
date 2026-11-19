@@ -10,6 +10,7 @@ One file per task, `status/<task-id>.md`. It is the log of every message a sessi
 - Session notes of other sessions, moved from `docs/sessions/` on 26 Oct 2026 (DEC-2026-10-26-session-notes-in-status): `ENV-08.md` and `ENV-13.md` (two sessions each, one dated section per session) and `T5-T6.3.md`. Each task's file now holds its state, its sessions and its message log.
 - `CON-08.md` (Core Engineer 1, 18 Nov 2026): the new contract `message-request.v1` (the body of a customer's message; "None of these" as `option_id`, ruling A275), its session and the three readings for the Architect.
 - `CON-03-scorecard-ts.md` (Core Engineer 1, 17 Nov 2026): the benchmark-only TypeScript entry point for `scorecard-view.v1` (noema#677), its session and its message.
+- `UI-approver-entry.md` (helper session of Core Engineer 1, 19 Nov 2026): the approver-only TypeScript entry point for `confirmation-answer.v1` (noema#760), its isolation tests and the route and role boundary as the specs state them.
 - `REC-03.md` (Core Engineer 1, 1 Nov 2026): the reconstruction endpoint, its session and its messages.
 - One file per task for Session A's work: `PLT-01`, `PLT-02`, `PLT-03`, `PLT-04`, `CON-01`, `CON-04`, `PCK-01`, `EXE-02`, `EXE-04`, `ENV-03`, `GOV-22` and `OPS-07` (`status/<task-id>.md`). Each has the task's state, what is open and its messages.
 
