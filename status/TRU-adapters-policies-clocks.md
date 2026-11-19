@@ -95,3 +95,27 @@ What exists in the repository and what does not: the target (`AdmittedIntent.Tar
 - Two sites in `intakeadapters` cannot be reached on the real stack and have no mutant that a test kills: `LoadPolicyBook` decoding `policy` rules after `policy.Parse` accepted the same bytes, and `inForce` where `policy.NewSet` refuses the versions (the order check before it refuses first). Both are wrapped for uniformity.
 - Where the code formatted an identifier, it now sits in the cause (`errors.Unwrap`); a log line that prints only `err.Error()` no longer shows it. The package has no logger and none was added.
 - `Published` scan and `rows.Err()` (`policystore`) are provoked through a stub `Querier`, because a two-column result cannot be made to fail mid-stream on a real connection (AGENT-12: say if that is not acceptable).
+
+## Session 2026-11-19 · TRU-02 real-database failure injection for policystore reads (A370 relayed, A347, AGENT-12, REQ-TST-004)
+
+### Session summary
+- What changed (PR links): noema#747, one local test commit, not pushed. `trust/policystore/errors_test.go` only; production code unchanged (the audit showed no site whose text is not fixed).
+- Why: the `Published` scan and `rows.Err()` cases, the `Published` query case and the `Active` scan case used stub types (`leakyQuerier`, `leakyQueryer`, `stubRows`). AGENT-12 says faults come from the real system. The doubt above ("cannot be made to fail mid-stream on a real connection") is closed: they can.
+- How: `world.shadowedPublications` makes a test-owned schema with a view named `policy_publication` (same columns as the table) and a pool of the tenant's real `trust_rw` login (the trust pool's config copied) whose `search_path` puts that schema before `public`. The unchanged queries run on the real connection and the real server answers from the view. Scan failure (`Active` and `Published`): a row whose `version` is NULL; the driver's own scan error. Server error while reading (`Active` and `Published`): a view that divides by zero on its second row; the server's `ErrorResponse` reaches `rows.Err()` (`Published`) or `Scan` (`Active`) as a real `*pgconn.PgError`, SQLSTATE 22012, asserted with `errors.As`. Each asserts the fixed text suffix and package prefix, no tenant, policy ID, version, driver, DSN, path, "division", "null" text, the cause behind `Unwrap`, and the cause's text not in the error's text. The three stub types are deleted. The stub case "Published: a query that fails with a leaky text" is deleted, not replaced: the real cases "the pool is closed" and "the session is terminated" already reach that site (mutants below).
+- Audit of text for every `Published` site: the no-deadline error, the pattern error (`ErrRequest`), the query, the scan and `rows.Err()` all have a fixed text with no tenant, policy ID, version or driver text; no change needed. `Publish` and `Active` likewise.
+- Audit of the rest of `policystore`: `Publish` and `Active` tests are on the real database (closed pool, login without privilege, terminated session, refused signature, duplicate version). One fake remains in `Publish`: `leakySigner`, a `chain.Signer` that fails with a leaky text. It is not a database stub; the real signer failure (a key service that cannot sign) does not exist in the POC, and the database-side failure (a refused signature) has its own real case. Kept, flagged.
+- Audit of `trust/intakeadapters`: no stub of this kind (no `Querier`, `Queryer` or `pgx.Rows` stub). Its faults come from the real pool (closed, terminated, no privilege), the real pack and the real engine. The remaining injected errors are ports that give an error of the case's choosing (`failingFor`, `adm`, `facts`, `anchors`): a dependency that is not the database (the tenant-login lookup, the admission store that has no production implementation, the fact source, the anchor source), so no real database can replace them. Kept as they are.
+- Risks, and how they are contained: test-only; each case makes its own schema in its own throwaway database.
+- Tests added (AGENT-13, A347, AGENT-12): four cases above on a real connection.
+- Regression cases added: none beyond those. Debt entries: none. Conflicts raised: none.
+
+### Mutants (against `go test ./trust/policystore/`, each restored with git checkout)
+`Published` query site: text with the driver's text killed (closed pool, terminated session); cause dropped killed (same two). `Published` scan: text with the driver's text killed (scan case); cause dropped killed (scan case). `Published` `rows.Err()`: text killed (rows case and "login has no privilege", because the privilege error arrives through `rows.Err()`); cause dropped killed (same two). `Active`: text with the driver's text killed (5 cases); cause dropped killed (5 cases). All 8 killed, 0 survived.
+
+### Commands and results
+`go build ./...`, `go vet ./trust/policystore/...`, `gofmt -l .`: clean. `go test -count=1 -p 2 ./trust/policystore/`: ok (12s, real PostgreSQL 16). `python3 tools/lint/run.py`: `lint OK`. `trust/intakeadapters` is untouched and was not re-run.
+
+### Pre-work for the next agent
+- Exact next step: none; the stub doubt in the section above is closed.
+- Files to read first: `trust/policystore/errors_test.go`.
+- Do not touch: the `policystore` error texts.

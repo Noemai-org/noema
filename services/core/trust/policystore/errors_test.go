@@ -7,11 +7,13 @@ package policystore_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Noemai-org/noema/services/core/internal/recordsig"
 	"github.com/Noemai-org/noema/services/core/record/chain"
@@ -171,7 +173,7 @@ func (w *world) publishWith(t *testing.T, s *policystore.Store) error {
 	return s.Publish(ctx(t), tx, request())
 }
 
-// A347: the two reads. Active and Published, on a closed pool, on a login without privilege, on a session that is terminated, and with a source whose result misbehaves.
+// A347: the two reads. Active and Published, on a closed pool, on a login without privilege, on a session that is terminated, and on a result that misbehaves.
 func TestEveryErrorOfTheReadsHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 	reads := map[string]func(q any) error{
 		"Active": func(q any) error {
@@ -229,73 +231,85 @@ func TestEveryErrorOfTheReadsHasAFixedPublicTextAndKeepsItsCause(t *testing.T) {
 			}
 		})
 	}
-	t.Run("Active: a result that cannot be scanned", func(t *testing.T) {
-		err := reads["Active"](leakyQueryer{})
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the scan's error", err)
+	// The remaining sites cannot be reached by closing, refusing or terminating a connection: the query is accepted and the failure is in the result. They are provoked on a real
+	// connection all the same: a pool of the tenant's real Trust login whose search_path puts a test-owned view named policy_publication before the table, so the unchanged query
+	// runs on the real server and the real driver and the failure is a value the destination cannot take, or an error the server raises while the rows are read.
+	const nullVersion = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, NULL::text AS version, ARRAY[1] AS version_key, now() AS published_at`
+	const divides = `SELECT 'ten_aa'::text AS tenant_id, 'fin.pol'::text AS policy_id, (CASE WHEN n = 2 THEN 1 / (n - 2) ELSE n END)::text AS version, ARRAY[n] AS version_key, now() AS published_at FROM generate_series(1, 3) AS n`
+	t.Run("Active: a row cannot be scanned: the server's version is NULL", func(t *testing.T) {
+		w := newWorld(t)
+		err := reads["Active"](w.shadowedPublications(t, nullVersion))
+		if err == nil {
+			t.Fatal("no error")
 		}
-		assertFixedText(t, err, "boom")
+		assertFixedText(t, err, "null")
+		if !strings.HasSuffix(err.Error(), "the active version could not be read") {
+			t.Errorf("the text %q is not the read's fixed text", err.Error())
+		}
+		if cause := errors.Unwrap(err); cause == nil || !strings.Contains(strings.ToLower(cause.Error()), "null") {
+			t.Errorf("the cause is %v, want the driver's own scan error", cause)
+		}
 	})
-	t.Run("Published: a query that fails with a leaky text", func(t *testing.T) {
-		err := reads["Published"](leakyQuerier{})
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the query's error", err)
+	t.Run("Active: the server raises an error while the row is read", func(t *testing.T) {
+		w := newWorld(t)
+		err := reads["Active"](w.shadowedPublications(t, divides))
+		if err == nil {
+			t.Fatal("no error")
 		}
-		assertFixedText(t, err, "boom")
+		assertFixedText(t, err, "division")
+		pgCause(t, err, "22012")
 	})
-	t.Run("Published: the rows end with an error", func(t *testing.T) {
-		err := reads["Published"](leakyQuerier{rows: &stubRows{errAtEnd: errLeaky}})
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the rows' error", err)
+	t.Run("Published: the rows end with an error: the server raises while the rows are read", func(t *testing.T) {
+		w := newWorld(t)
+		err := reads["Published"](w.shadowedPublications(t, divides))
+		if err == nil {
+			t.Fatal("no error")
 		}
-		assertFixedText(t, err, "boom")
+		assertFixedText(t, err, "division")
+		pgCause(t, err, "22012")
+		if !strings.HasSuffix(err.Error(), "the publications could not be read") {
+			t.Errorf("the text %q is not the rows' fixed text", err.Error())
+		}
 	})
-	t.Run("Published: a row cannot be scanned", func(t *testing.T) {
-		err := reads["Published"](leakyQuerier{rows: &stubRows{n: 1, scanErr: errLeaky}})
-		if err == nil || !errors.Is(err, errLeaky) {
-			t.Fatalf("err = %v, want one that holds the scan's error", err)
+	t.Run("Published: a row cannot be scanned: the server's version is NULL", func(t *testing.T) {
+		w := newWorld(t)
+		err := reads["Published"](w.shadowedPublications(t, nullVersion))
+		if err == nil {
+			t.Fatal("no error")
 		}
-		assertFixedText(t, err, "boom")
+		assertFixedText(t, err, "null")
+		if !strings.HasSuffix(err.Error(), "a publication could not be read") {
+			t.Errorf("the text %q is not the scan's fixed text", err.Error())
+		}
+		if cause := errors.Unwrap(err); cause == nil || !strings.Contains(strings.ToLower(cause.Error()), "null") {
+			t.Errorf("the cause is %v, want the driver's own scan error", cause)
+		}
 	})
 }
 
-// leakyQueryer, leakyQuerier and stubRows are a read side whose result misbehaves in the places a real connection cannot be made to for a one-row, two-column result: a scan that
-// fails, and rows that end with an error.
-type leakyQueryer struct{}
+var shadowSeq atomic.Int64
 
-func (leakyQueryer) QueryRow(context.Context, string, ...any) pgx.Row { return errRow{} }
-
-type errRow struct{}
-
-func (errRow) Scan(...any) error { return errLeaky }
-
-type leakyQuerier struct{ rows pgx.Rows }
-
-func (l leakyQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
-	if l.rows == nil {
-		return nil, errLeaky
+// shadowedPublications returns a pool of the tenant's real Trust login whose search_path puts a test-owned schema before public, where a view named policy_publication answers the
+// queries of the reads with the given SELECT.
+func (w *world) shadowedPublications(t *testing.T, selectSQL string) *pgxpool.Pool {
+	t.Helper()
+	schema := fmt.Sprintf("shadow_pub_%d", shadowSeq.Add(1))
+	for _, stmt := range []string{
+		`CREATE SCHEMA ` + schema,
+		`CREATE VIEW ` + schema + `.policy_publication AS ` + selectSQL,
+		`GRANT USAGE ON SCHEMA ` + schema + ` TO trust_rw`,
+		`GRANT SELECT ON ` + schema + `.policy_publication TO trust_rw`,
+	} {
+		if _, err := w.admin.Exec(ctx(t), stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
 	}
-	return l.rows, nil
-}
-
-type stubRows struct {
-	n        int
-	scanErr  error
-	errAtEnd error
-}
-
-func (s *stubRows) Close()                                       {}
-func (s *stubRows) Err() error                                   { return s.errAtEnd }
-func (s *stubRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
-func (s *stubRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
-func (s *stubRows) Next() bool {
-	if s.n > 0 {
-		s.n--
-		return true
+	cfg := w.trustA.Config().Copy()
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema + ", public"
+	pool, err := pgxpool.NewWithConfig(ctx(t), cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return false
+	t.Cleanup(pool.Close)
+	return pool
 }
-func (s *stubRows) Scan(...any) error      { return s.scanErr }
-func (s *stubRows) Values() ([]any, error) { return nil, nil }
-func (s *stubRows) RawValues() [][]byte    { return nil }
-func (s *stubRows) Conn() *pgx.Conn        { return nil }
