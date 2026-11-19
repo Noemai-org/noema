@@ -200,3 +200,32 @@
 ## Pre-work for the next agent
 - Exact next step: the same move for `edge/session` (needs the owner's go-ahead) and for `cmd/core/conversations.go` once noema#617 merges.
 - Files to read first: `inputgateway/handler.go`. Do not touch: the contracts.
+
+# Session 2026-11-16 · EDG-01 · the investigation route's handler and the total stage map (EL, A243 as relayed, noema#601)
+
+## Session summary
+- What changed: `orchestrator/publicstage` (the total map from the 21 internal states to the six public stages; a state outside the machine's table is an error) and `cmd/core/investigation.go` (`InvestigationReader` port, `investigationRoute`: GET /v1/investigations/{id}, customer only, answers `{schema_version, state}`; every not-found reason is one errors.v3 shape; a failing reader is 503; an unmapped state is 500). Red first at `c7c366cf` (the package and the route did not exist).
+- Why: ruling A243 (interim, relayed, not yet committed): read-only store method, `principal_ref` migration, total stage map, errors.v3.
+- Risks, and how they are contained: the production reader is NOT here: it needs the `principal_ref` migration (Tier 1; the number is C1's to assign) and the read-only store method; until then the route is not mounted (and mounting waits for noema#617's `compose.go` change). With no reader the handler refuses (503).
+- Tests added (REQ-API-001, REQ-UI-001, REQ-STM-001, INV-12): the map is total over `transitions.yaml`; unknown states refused; the six stages are all used and none is an internal name; the answer is exactly two members and the reader is asked as the session's tenant and principal; no internal name leaves; one not-found shape equal to the edge's own refusal; customer only; safe failures with the correlation ID; no reader refuses.
+- Regression cases added: the same. Debt entries: none. Conflicts raised: none.
+- Disclosed: the red commit's test file used a constant (`convTenant`) that lives in noema#617's tests and not on `main`; the fix push gives this file its own `invTenant`. The red run therefore failed for two reasons (the missing package and route, and the missing constant).
+
+## Pre-work for the next agent
+- Exact next step: after noema#617 merges, mount `investigationRoute` in `compose.go` (`Components.Investigations`) and add the `GET /v1/investigations/{id}` customer-only row to `edge/authz_matrix_test.go`; then the read-only store method and the migration, then `last_answer` (the answer builder, noema#618) and the events route.
+- Open questions (owner): the migration number (C1).
+- Files to read first: `cmd/core/investigation.go`, `orchestrator/publicstage/publicstage.go`.
+- Do not touch: `orchestrator/transitions.yaml`.
+
+# Session 2026-11-17 · EDG-01 · GET /v1/investigations/{id} is mounted (EL; A246 as relayed; noema#646)
+
+## Session summary
+- What changed: `Components.Investigations` and the mount in `apiRoutes` (customer only, only with a reader); the authz-matrix row `GET /v1/investigations/{id}` (customer only); `TestTheInvestigationRouteIsMountedForACustomerAndOnlyWithAReader` (customer 200, ops/audit/approver 404, no session 401, no reader no route). Merge of `main` (noema#617 merged) into the branch, no conflict. The new test was seen failing locally (`Components.Investigations` did not exist) before the code; one push for this round, as the Founder asked.
+- Risks, and how they are contained: production does not set `Components.Investigations` yet (the production reader needs the `principal_ref` migration), so the route is absent in production: 404 for a customer.
+- Debt entries: none. Conflicts raised: none.
+
+## Pre-work for the next agent
+- Exact next step: the read-only store method and the `principal_ref` migration (number from C1), then set `Components.Investigations`.
+
+# Session 2026-11-17 · EDG-01 · C2's P2 and P3 on noema#646
+- What changed: the body is made from the generated `contracts.InvestigationResponseV1` and `TestTheBodyIsInvestigationResponseV1` decodes every state's answer with the contract's own strict `UnmarshalJSON` (P2); every answer of the route (200 and each error) carries `Cache-Control: no-store`, and `publicError` sets it too (P3, `TestEveryAnswerOfTheRouteIsNoStore`). Seen failing locally (five no-store cases red; the body test pins what was already true), one push. The edge's own refusals (a refused role, no session) are the edge's and do not carry the header: the edge is C1's path.

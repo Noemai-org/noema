@@ -13,7 +13,8 @@ U+00B7, the katakana middle dot U+30FB and the full-width dot, slash, colon and 
 round brackets), so it is never looser than any of them: a string the Record would refuse is a string this module counts as long. A comma, a plus sign, a letter, a multiplication sign and a double vertical line end a run
 (`20,000,000` is groups of three).
 
-Python's `isspace` is wider than the guard's whitespace class (it also takes U+001C to U+001F, U+0085, U+2028 and U+2029): a superset, so stricter. If noema#600 changes its `separators`, this set follows it on the same day.
+Python's `isspace` also takes U+001C to U+001F; since A308 the guard's class has those four too (the file, group, record and unit separators), so the two agree, and the shared vectors of
+`contracts/fixtures/digit_run_vectors.json` hold one vector for each. If the guard changes its `separators`, this set follows it on the same day.
 """
 
 import unicodedata

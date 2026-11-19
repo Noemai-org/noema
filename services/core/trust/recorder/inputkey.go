@@ -52,19 +52,23 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, r Request, b
 	if outcome != string(r.Decision.Outcome()) || !sameVersions || dispositionOf(rec) != r.DispositionDecisionID {
 		return Result{}, false, ErrDecisionConflict
 	}
-	rows, err := tx.Query(ctx, `SELECT json::text FROM decision_grant WHERE tenant_id = $1 AND decision_id = $2 ORDER BY (json ->> 'plan_step')::bigint, grant_id`, k.tenant, string(rec.DecisionId))
+	rows, err := tx.Query(ctx, `SELECT json::text, sig_key_id, sig_value FROM decision_grant WHERE tenant_id = $1 AND decision_id = $2 ORDER BY (json ->> 'plan_step')::bigint, grant_id`, k.tenant, string(rec.DecisionId))
 	if err != nil {
 		return Result{}, false, fmt.Errorf("%sread the stored grants: %w", errPrefix, err)
 	}
 	defer rows.Close()
 	res := Result{Record: rec}
 	for rows.Next() {
-		var graw string
-		if err := rows.Scan(&graw); err != nil {
+		var graw, keyID, sigValue string
+		if err := rows.Scan(&graw, &keyID, &sigValue); err != nil {
 			return Result{}, false, fmt.Errorf("%sread a stored grant: %w", errPrefix, err)
 		}
+		signed, err := withSig(graw, contracts.CommonV1Sig{KeyId: keyID, Value: sigValue})
+		if err != nil {
+			return Result{}, false, fmt.Errorf("%sa stored grant is not a document: %w", errPrefix, err)
+		}
 		var g contracts.DecisionGrantV1
-		if err := g.UnmarshalJSON([]byte(graw)); err != nil {
+		if err := g.UnmarshalJSON(signed); err != nil {
 			return Result{}, false, fmt.Errorf("%sa stored grant is not a decision-grant.v1 document: %w", errPrefix, err)
 		}
 		res.Grants = append(res.Grants, g)
@@ -75,7 +79,32 @@ func (w *Writer) lookup(ctx context.Context, tx pgx.Tx, k inputKey, r Request, b
 	if !sameGrants(res.Grants, r) {
 		return Result{}, false, ErrDecisionConflict
 	}
+	if r.Decision.Outcome() == decide.Allow {
+		// A233: the stored ALLOW followed the confirmation it spent (or none). A retry that names another is not the same input: a typed conflict, nothing spent or written.
+		var spent string
+		err := tx.QueryRow(ctx, `SELECT confirmation_event_id FROM confirmation_spend WHERE tenant_id = $1 AND decision_id = $2`, k.tenant, string(rec.DecisionId)).Scan(&spent)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Result{}, false, fmt.Errorf("%sread the stored confirmation spend: %w", errPrefix, err)
+		}
+		if spent != r.ConfirmationEventID {
+			return Result{}, false, ErrDecisionConflict
+		}
+	}
 	return res, true, nil
+}
+
+// withSig puts the signature the columns hold back into the stored signed part, so the grant that a retry returns is the one that was issued.
+func withSig(stored string, sig contracts.CommonV1Sig) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stored), &doc); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(sig)
+	if err != nil {
+		return nil, err
+	}
+	doc["sig"] = raw
+	return json.Marshal(doc)
 }
 
 // dispositionOf is the disposition decision a record names, or "".

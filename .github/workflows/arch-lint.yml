@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: tools/lint/golint/go.mod
@@ -24,3 +26,4 @@ jobs:
       - run: (cd tools/lint/golint && go vet ./... && go test ./...)
       - run: python3 -I tools/lint/run.py
       - run: python3 -I tools/lint/run.py --canaries
+      - run: python3 -I -m unittest discover -s tools/lint -p 'test_*.py'

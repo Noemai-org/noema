@@ -19,6 +19,18 @@ PACK = json.loads((ROOT / "packs" / "fintech_v1.json").read_text())
 FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.json"
 FORBIDDEN_FILE = ROOT / "packs" / "fintech" / "templates" / "en-NG.forbidden.json"
 FORBIDDEN = json.loads(FORBIDDEN_FILE.read_text())  # pack data (Architect decision A3); one source for this test and for the Go validator
+SLOT = re.compile(r"\{fact:([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\}")
+# The slot inventory of noema#586 as approved (ruling A155): the fact kinds each outcome's templates hold, in the order the sentence holds them. The kinds the inventory marked [REC]
+# (payment.counterparty, case.team, case.clock) are not in the pack yet.
+GROUP_SLOTS = {
+    "fin.outcome.exception.status_explained": ["payment.amount", "account", "payment.time"],
+    "fin.outcome.exception.case_opened": ["case.ref"],
+    "fin.outcome.exception.case_routed": ["case.ref"],
+    "fin.outcome.exception.complaint_logged": ["case.ref"],
+    "fin.outcome.exception.evidence_recorded": ["case.ref"],
+}
+APPROVED_KINDS = {"payment.amount", "account", "payment.time", "case.ref"}
+SAMPLE = {"payment.amount": "NGN 5,000", "account": "ending 0001", "payment.time": "10:42 on 12 Nov", "case.ref": "CASE-AB12"}  # SYNTHETIC masked values
 UNCERTAIN = {"CONTRADICTORY_STATE", "POSSIBLE_DUPLICATE", "EXECUTION_OUTCOME_UNKNOWN", "SETTLEMENT_PENDING", "INSUFFICIENT_EVIDENCE"}
 UNCERTAINTY_MARKERS = ("not yet confirmed", "cannot confirm", "not been confirmed", "could not confirm")
 
@@ -46,10 +58,32 @@ class EnNgTemplates(unittest.TestCase):
         missing = [m for _, m in checks.check_templates(tampered, ROOT / "packs") if m.startswith("xx-XX:")]
         self.assertTrue(missing and "missing" in missing[0])
 
-    def test_a_template_states_no_figure_time_or_name_so_every_one_comes_from_the_facts(self) -> None:
+    def test_a_template_states_no_figure_time_or_name_outside_its_fact_slots(self) -> None:
+        # Ruling A155 (the slot inventory, noema#586): the only braces are well-formed {fact:<kind>} slots of an approved kind; every figure, time, name and reference comes from a fact.
         for key, text in templates().items():
-            self.assertFalse(re.search(r"\d", text), f"{key}: a digit in a fixed template invents a figure or time")
-            self.assertNotIn("{", text, f"{key}: placeholders are not part of this format")
+            outside = SLOT.sub("", text)
+            self.assertFalse(re.search(r"\d", outside), f"{key}: a digit in a fixed template invents a figure or time")
+            self.assertNotRegex(outside, r"[{}]", f"{key}: a brace that is not a well-formed {{fact:<kind>}} slot")
+
+    def test_each_template_holds_exactly_the_slots_of_its_outcome_once_and_in_order(self) -> None:
+        for key, text in templates().items():
+            outcome = key.split("/")[0]
+            self.assertIn(outcome, GROUP_SLOTS, f"{key}: an outcome the slot inventory does not cover")
+            self.assertEqual(GROUP_SLOTS[outcome], SLOT.findall(text), f"{key}: the slots of its outcome, once each, in the inventory's order")
+
+    def test_every_slot_kind_is_one_the_inventory_approves(self) -> None:
+        for key, text in templates().items():
+            for kind in SLOT.findall(text):
+                self.assertIn(kind, APPROVED_KINDS, f"{key}: {kind} is not an approved fact kind")
+
+    def test_a_template_filled_with_masked_facts_passes_the_forbidden_list_and_the_digit_guard(self) -> None:
+        for key, text in templates().items():
+            filled = SLOT.sub(lambda m: SAMPLE[m.group(1)], text)
+            self.assertNotIn("{", filled, key)
+            self.assertIsNone(re.search(r"\d{5,}", filled), f"{key}: a digit run over four in the filled text")
+            self.assertLessEqual(len(filled), 400, key)
+            for pattern in FORBIDDEN:
+                self.assertIsNone(re.search(pattern, filled, re.IGNORECASE), f"{key}: the filled text matches the forbidden claim {pattern}")
 
     def test_no_forbidden_claim_appears_in_any_template(self) -> None:
         for key, text in templates().items():

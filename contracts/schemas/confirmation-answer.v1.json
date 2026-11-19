@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.noema.invalid/confirmation-answer.v1.json",
+  "title": "Confirmation answer",
+  "description": "SoT §43.2a step 2, the body an approver sends to answer a confirmation request (REQ-TRU-009): the request answered and the response. No other member is defined, and none may be added by the caller: the approver's principal, roles, channel and time come from the authenticated session and from the core's clock, never from this body (INV-12; SoT §43.2a: the approver's principal from authentication, never from text), and the tenant comes from the session. The core turns an accepted answer into a confirmation-event.v1. ACCEPT leads to a fresh Trust evaluation, not to a grant (INV-25).",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "https://contracts.noema.invalid/common.v1.json#/$defs/ConfirmationRequestId"
+    },
+    "response": {
+      "$ref": "https://contracts.noema.invalid/enums.v1.json#/$defs/ConfirmationResponse"
+    }
+  },
+  "required": [
+    "request_id",
+    "response"
+  ],
+  "additionalProperties": false
+}
