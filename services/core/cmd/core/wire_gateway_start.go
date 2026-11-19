@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/edge/session"
 	"github.com/Noemai-org/noema/services/core/inputgateway"
 	"github.com/Noemai-org/noema/services/core/orchestrator"
 	"github.com/Noemai-org/noema/services/core/orchestrator/investigations"
@@ -193,8 +194,10 @@ func (s *turnStarter) run(j startJob) {
 // Start is the gateway's seam. It returns nil when the investigation is running, has run, or is being run by this process; an error means the turn is not accepted and the
 // gateway answers 503 (a retry is a redelivery, which Start handles the same way).
 func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
-	if t.PrincipalKind == "" {
-		return fmt.Errorf("%w: no principal kind", ErrStartTurn)
+	if t.PrincipalKind != string(session.RoleCustomer) {
+		// The start route is mounted for customer sessions only (rolesCustomer). The run's role is that constant, never a value derived from the principal type: the pack's roles
+		// (customer, ops, approver, audit) and the principal types (customer, operator, approver, auditor) differ, and Trust's technical authority (T6) reads the role (INV-12, A205 Q5).
+		return fmt.Errorf("%w: the start route takes customer sessions only", ErrStartTurn)
 	}
 	invID, err := investigationIDOf(t.CorrelationID)
 	if err != nil {
@@ -207,7 +210,7 @@ func (s *turnStarter) Start(ctx context.Context, t inputgateway.Turn) error {
 	if err != nil {
 		return err
 	}
-	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: t.PrincipalKind}
+	sess := orchestrator.Session{TenantID: t.TenantID, PrincipalID: t.PrincipalID, Role: string(session.RoleCustomer)}
 	sctx, cancel := context.WithTimeout(ctx, s.cfg.Start)
 	defer cancel()
 	inv, _, err := store.Start(sctx, sess, investigations.StartRequest{InvestigationID: invID, CorrelationID: t.CorrelationID, InputReceivedRef: t.Input.EventID})

@@ -139,7 +139,6 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
 	s := newStarter(t, cfg(2, 4), st, r, f)
 	tn := turnOf(tenA, corrA, "recev_AAA1")
-	tn.PrincipalKind = "ops" // the role is the session's own, whatever it is
 	if err := s.Start(t.Context(), tn); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +150,7 @@ func TestAnAdmittedTurnRunsOnceAsTheIdentitysSession(t *testing.T) {
 	if r.turns[0] != want {
 		t.Fatalf("turn = %+v, want %+v", r.turns[0], want)
 	}
-	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "ops"}) {
+	if r.sess[0] != (orchestrator.Session{TenantID: tenA, PrincipalID: "usr_synth1", Role: "customer"}) {
 		t.Fatalf("session = %+v", r.sess[0])
 	}
 	if st.req.InvestigationID != invA || st.req.CorrelationID != corrA || st.req.InputReceivedRef != "recev_AAA1" {
@@ -558,5 +557,24 @@ func TestThePoolSizeHasAStructuralCeiling(t *testing.T) {
 	e[EnvInvestigationWorkers] = "65537"
 	if _, _, err := parseStartConfig(osEnv(e)); err == nil {
 		t.Fatal("65537 accepted")
+	}
+}
+
+// INV-12, A205 Q5, A255: the start route is mounted for customer sessions only, so the run's role is the constant "customer", never a value derived from the principal type (the
+// pack's roles are customer, ops, approver and audit; the principal types are customer, operator, approver and auditor, which differ). A turn of any other kind is refused before
+// anything is asked: nothing is read, started or run.
+func TestATurnOfAPrincipalThatIsNotACustomerIsRefusedBeforeAnythingIsAsked(t *testing.T) {
+	for _, kind := range []string{"operator", "ops", "approver", "auditor", "audit", "Customer", "customer "} {
+		st, r, f := &fakeStarter{created: true}, &fakeRunner{}, &failures{}
+		s := newStarter(t, cfg(2, 4), st, r, f)
+		tn := turnOf(tenA, corrA, "recev_AAA1")
+		tn.PrincipalKind = kind
+		if err := s.Start(t.Context(), tn); !errors.Is(err, ErrStartTurn) {
+			t.Errorf("kind %q: err = %v, want ErrStartTurn", kind, err)
+		}
+		s.Shutdown()
+		if st.calls != 0 || r.count() != 0 {
+			t.Errorf("kind %q: the store was asked %d times and %d runs happened", kind, st.calls, r.count())
+		}
 	}
 }
