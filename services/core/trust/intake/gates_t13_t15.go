@@ -18,6 +18,7 @@ var (
 
 var (
 	hashRe       = regexp.MustCompile(`\Asha256:[0-9a-f]{64}\z`)
+	requestIDRe  = regexp.MustCompile(`\Acfr_[0-9A-Za-z]+\z`)
 	decisionIDRe = regexp.MustCompile(`\Adec_[0-9A-Za-z]{2,32}\z`)
 	grantIDRe    = regexp.MustCompile(`\Agrt_[0-9A-Za-z]{2,32}\z`)
 )
@@ -78,7 +79,11 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		if d, err = e.withBasis(d); err != nil {
 			return decide.FailStep(err)
 		}
-		e.late.requestID = c.RequestID
+		id, err := e.requestID(ctx, *e.intent, c)
+		if err != nil {
+			return decide.FailStep(err)
+		}
+		e.late.requestID = id
 		return decide.Stop(d)
 	case ConfirmationDeclined:
 		// SoT 43.2a: on DECLINE the decision closes as REJECT with reason DECLINED_BY_APPROVER. No new request is opened and no request id leaves the evaluation.
@@ -100,6 +105,28 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		return decide.Stop(d)
 	}
 	return decide.FailStep(errAnswer)
+}
+
+// requestID gives the id of the confirmation request a CONFIRM rests on. An open request (RequestID, no NewRequest) is named as it is and no second one is made. With a NewRequest
+// the Recorder creates the request (Status is pure) for the session's principal (INV-12), from the spec and the fresh binding, and its id is the one the caller gets; no id, or one
+// that is not a cfr_ id, means no request exists and the evaluation fails closed. An answer that is both open and new, or a spec without a requirement or a positive TTL, is not an
+// answer (INV-16). A bare Pending, which names no request, is passed on as before.
+func (e *evaluation) requestID(ctx context.Context, a AdmittedIntent, c Confirmation) (string, error) {
+	if c.NewRequest == nil {
+		return c.RequestID, nil
+	}
+	if c.RequestID != "" || c.NewRequest.Requirement == "" || c.NewRequest.TTL <= 0 {
+		return "", errAnswer
+	}
+	id, err := e.svc.Ports.Recorder.RequestConfirmation(ctx, ConfirmationRequest{TenantID: a.TenantID, CorrelationID: a.CorrelationID, RequesterID: a.PrincipalID, IntentID: a.IntentID,
+		IntentVersion: a.Version, IntentHash: a.IntentHash, Requirement: c.NewRequest.Requirement, TTL: c.NewRequest.TTL, Binding: e.freshBinding()})
+	if err != nil {
+		return "", err
+	}
+	if !requestIDRe.MatchString(id) {
+		return "", errAnswer
+	}
+	return id, nil
 }
 
 // freshBinding is the two values of the confirmation binding that only this evaluation knows (INV-25): the evidence set hash T9 read and the policy T11 used. The policy is

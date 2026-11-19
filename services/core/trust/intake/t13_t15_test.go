@@ -911,7 +911,10 @@ func TestT13PendingWithANewRequestAsksTheRecorderAndExposesTheNewID(t *testing.T
 	f := newFake13()
 	f.conf = pendingNew(RequestSpec{Requirement: "SELF", TTL: 15 * time.Minute})
 	f.reqID = "cfr_synth0042"
-	res := run13(t, newEval13(t, f))
+	ev := newEval13(t, f)
+	ev.evidenceSetHash = tHash
+	ev.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol_synth01", Version: "1"}}
+	res := run13(t, ev)
 	if res.Decision.Outcome() != decide.Confirm {
 		t.Fatalf("outcome %s %v, want CONFIRM", res.Decision.Outcome(), codes13(res.Decision))
 	}
@@ -924,6 +927,9 @@ func TestT13PendingWithANewRequestAsksTheRecorderAndExposesTheNewID(t *testing.T
 	r := f.reqs[0]
 	want := ConfirmationRequest{TenantID: t13Tenant, CorrelationID: "corr_synth0001", RequesterID: t13Principal, IntentID: tIntent, IntentVersion: t13Version, IntentHash: tHash,
 		Requirement: "SELF", TTL: 15 * time.Minute, Binding: f.bindings[0]}
+	if want.Binding.EvidenceSetHash != tHash || want.Binding.PolicyVersion != "pol_synth01@1" {
+		t.Fatalf("test setup: binding %+v", want.Binding)
+	}
 	if r != want {
 		t.Errorf("request %+v, want %+v", r, want)
 	}
@@ -988,7 +994,11 @@ func TestT13ARequestThatCannotBeRecordedIsUnknownNotConfirm(t *testing.T) {
 		f.conf = pendingNew(RequestSpec{Requirement: "SELF", TTL: time.Minute})
 		set(f)
 		res := run13(t, newEval13(t, f))
-		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		tr := decide.StepFailed
+		if name == "panic" {
+			tr = decide.StepPanicked
+		}
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, tr)
 		if res.ConfirmationRequestID != "" {
 			t.Errorf("%s: request id %q exposed", name, res.ConfirmationRequestID)
 		}
