@@ -84,6 +84,9 @@ func (e *evaluation) run(ctx context.Context, steps decide.Steps) Result {
 	if d.Outcome() == decide.Allow {
 		res.DecisionID, res.GrantIDs = e.late.recorded.DecisionID, append([]string(nil), e.late.recorded.GrantIDs...)
 	}
+	if d.Outcome() == decide.Confirm {
+		res.ConfirmationRequestID = e.late.requestID
+	}
 	return res
 }
 

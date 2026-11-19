@@ -28,6 +28,7 @@ type lateState struct {
 	plan                 *Plan        // T14: the validated plan
 	confirmationID       string       // T13: the event of the confirmation the ALLOW follows
 	confirmationPlanHash string       // T13: the plan hash that confirmation was given for (A230)
+	requestID            string       // T13: the open confirmation request a CONFIRM rests on (TRU-12)
 	recorded             RecordResult // T15: what the Recorder wrote
 }
 
@@ -77,6 +78,7 @@ func (e *evaluation) t13(ctx context.Context) decide.StepResult {
 		if d, err = e.withBasis(d); err != nil {
 			return decide.FailStep(err)
 		}
+		e.late.requestID = c.RequestID
 		return decide.Stop(d)
 	}
 	return decide.FailStep(errAnswer)
