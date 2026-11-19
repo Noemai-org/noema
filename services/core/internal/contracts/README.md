@@ -8,4 +8,4 @@
 
 **Not here.** Benchmark, oracle and fault-plan contracts. `memory-observation.v1` is not generated for Go (see the codegen README); v2 is.
 
-**Tests.** `go test ./internal/contracts/...` from `services/core/`: every valid fixture round-trips, every shape violation is refused, and the candidate-read recordings of the model-service contract are read. Hand-written files allowed here: `doc.go`, `README.md`, `*_test.go`.
+**Tests.** `go test ./internal/contracts/...` from `services/core/`: every valid fixture round-trips, every shape violation is refused, and the candidate-read recordings of the model-service contract are read. Hand-written files allowed here: `doc.go`, `README.md`, `intentref.go` and `*_test.go`. `intentref.go` is `ParseIntentRef`, the one parser of `int_<id>@<version>` (common.v1#IntentRef), beside the generated `CommonV1IntentRef` (ruling A319); `intentref_test.go` also checks it against the contract's pattern and against the Record's typed-ID check (`record/payloadguard`).
