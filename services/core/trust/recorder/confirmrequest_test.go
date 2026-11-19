@@ -387,11 +387,10 @@ func TestTheKillSwitchDoesNotRefuseAConfirmAndItsRequest(t *testing.T) {
 	}
 }
 
-// A186, INV-21, INV-03 (interim pin; the Architect decides, status/TRU-07-confirm-t13.md, flagged item 1): ONE decision exists for an input tuple (tenant, intent, intent hash, evidence
-// snapshot, policy version), and the database says so (decision_record_input_key, migration 0027). After a stored CONFIRM, an ALLOW (the one that follows a given confirmation) or a
-// REJECT DECLINED_BY_APPROVER for the SAME tuple is ErrDecisionConflict and writes nothing; the same decisions on a NEW snapshot are new decisions. So a re-evaluation after an ACCEPT
-// or a DECLINE must build a new sealed snapshot (A186; open point 1 on noema#527), or it cannot record its decision.
-func TestAStoredConfirmAnswersItsTupleOnlyAndAnotherOutcomeOnTheSameTupleIsAConflict(t *testing.T) {
+// A186, INV-21, INV-03, A366: ONE decision exists for an input tuple (tenant, intent, intent hash, evidence snapshot, policy version) AND confirmation state, and the database says so
+// (decision_record_input_state_key, migration 0034). After a stored CONFIRM, an ALLOW or a REJECT that rests on NO confirmation for the SAME tuple is ErrDecisionConflict and writes
+// nothing; one that rests on a resolved or declined confirmation is a second decision (confirmation_state_test.go); the same decisions on a NEW snapshot are new decisions.
+func TestAStoredConfirmAnswersItsTupleAndStateOnlyAndAnotherOutcomeOfNoConfirmationIsAConflict(t *testing.T) {
 	w := newWorld(t)
 	w.confirmed(t, given)
 	first, err := w.write(t, confirmRequest(t, w, "evs_01ABC", true), true)
@@ -402,10 +401,10 @@ func TestAStoredConfirmAnswersItsTupleOnlyAndAnotherOutcomeOnTheSameTupleIsAConf
 	events := func() int { return w.count(t, `SELECT count(*) FROM record_event`) }
 	d0, e0 := decisions(), events()
 
-	allow := allowWith(t, "evs_01ABC", given)
+	allow := allowWith(t, "evs_01ABC", "")                // rests on no confirmation (A366: one that rests on a resolved confirmation is a second decision, confirmation_state_test.go)
 	allow.IntentHash = contracts.CommonV1Hash(letters(0)) // the tuple of the stored CONFIRM
 	if _, err := w.write(t, allow, true); !errors.Is(err, recorder.ErrDecisionConflict) {
-		t.Errorf("an ALLOW on the tuple of a stored CONFIRM: err %v, want ErrDecisionConflict", err)
+		t.Errorf("an ALLOW that rests on no confirmation, on the tuple of a stored CONFIRM: err %v, want ErrDecisionConflict", err)
 	}
 	b := evaluatedWith(t, "evs_01ABC", "3.1")
 	reason, rerr := decide.Core("DECLINED_BY_APPROVER")

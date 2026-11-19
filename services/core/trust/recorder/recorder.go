@@ -116,6 +116,9 @@ type Request struct {
 	// ConfirmationRequest is the request a CONFIRM decision creates, written with the decision in one transaction (EC-E16); nil for a CONFIRM that names an already open request,
 	// and for every other outcome (any other outcome that carries one is ErrRequest).
 	ConfirmationRequest *NewConfirmationRequest
+	// DeclinedRequestID is the confirmation request (cfr_...) a REJECT DECLINED_BY_APPROVER rests on; empty for every other decision, and any other outcome that names one is ErrRequest
+	// (A366). With a confirmation an ALLOW follows, it is the confirmation state of the decision, which the single-decision key of the input tuple includes.
+	DeclinedRequestID string
 }
 
 // Result is what was written.
