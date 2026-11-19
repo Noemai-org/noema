@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"pgregory.net/rapid"
 
+	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	trustport "github.com/Noemai-org/noema/services/core/orchestrator/portadapters/trust"
@@ -34,7 +36,7 @@ const (
 	evdNode   = "fin.payments.exception.investigate"
 	evdLedger = "fin.src.core_ledger"
 	evdSwitch = "fin.src.switch"
-	evdSettle = "fin.src.settlement"
+	evdSettle = "fin.src.destination" // the third source of the fintech evidence mapping (the name is the old one)
 	evdSecret = "SECRETROW"
 )
 
@@ -53,7 +55,7 @@ func evdHash(n int) string { return fmt.Sprintf("sha256:%064x", n) }
 // evdItem is a KNOWN item of one source, read 42 seconds before the evaluation, with a source limit of 600 seconds.
 func evdItem(n int, source string) trustport.SealedItem {
 	return trustport.SealedItem{EvidenceID: fmt.Sprintf("evr_%02d", n), CorrelationID: evdCorr, Source: source, SourceRecordID: fmt.Sprintf("rec-%02d", n), ReadAt: evdNow.Add(-42 * time.Second),
-		EffectiveAt: evdNow.Add(-60 * time.Second), SLASeconds: 600, Status: "KNOWN", PayloadHash: evdHash(n)}
+		PayloadRef: fmt.Sprintf("pay/rec-%02d/evr_%02d", n, n), EffectiveAt: evdNow.Add(-60 * time.Second), SLASeconds: 600, Status: "KNOWN", PayloadHash: evdHash(n)}
 }
 
 // evdSeal is the snapshot as the sealer stores it: the ids sorted, the hash the one the database computes, the intent the correlation's latest, admitted before every read.
@@ -121,9 +123,55 @@ func evdRules() *evdProfiles {
 	return &evdProfiles{rules: trustport.SourceRules{RequiredSources: []string{evdLedger, evdSwitch, evdSettle}, MaxAgeSeconds: 300}}
 }
 
+// evdFacts is the facts port of the unit tests (the real one, the Reconciler's, runs in evidence_db_test.go over the real payloads and the real mapping). By default an item's fact is
+// one row, entity "evd", status KNOWN, with one enum field that names its source record, whatever its payload hash or evidence ID: the raw payload is not what is bound. A test
+// overrides the facts of a source record, or makes an item's facts fail.
+type evdFacts struct {
+	override map[string][]snapshot.Fact // by source record ID
+	fail     map[string]error           // by source record ID
+	empty    bool
+	calls    []evdFactsCall
+}
+
+type evdFactsCall struct {
+	tenant string
+	item   layer.Item
+}
+
+func (f *evdFacts) Facts(_ context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error) {
+	f.calls = append(f.calls, evdFactsCall{tenantID, it})
+	rec := evdRecordOfRef(it.PayloadRef)
+	if err := f.fail[rec]; err != nil {
+		return nil, err
+	}
+	if f.empty {
+		return nil, nil
+	}
+	if o, ok := f.override[rec]; ok {
+		return o, nil
+	}
+	return []snapshot.Fact{{Entity: "evd", Status: "KNOWN", Fields: map[string]snapshot.FactValue{"state": {Kind: snapshot.KindEnum, Text: "S-" + rec}}}}, nil
+}
+
+var _ trustport.ItemFacts = (*evdFacts)(nil)
+
+// evdRecordOfRef is the source record ID of an item of these tests, which evdItem writes into the payload reference as "pay/<record>/<evidence id>" (the port is given the layer item,
+// which does not carry the record ID).
+func evdRecordOfRef(ref string) string {
+	if parts := strings.Split(ref, "/"); len(parts) == 3 {
+		return parts[1]
+	}
+	return ""
+}
+
 func evdAdapter(t testing.TB, s trustport.SnapshotReader, p trustport.SourceProfiles) trustport.Evidence {
 	t.Helper()
-	e, err := trustport.NewEvidence(s, p, clock.NewManual(evdNow))
+	return evdAdapterWith(t, s, p, &evdFacts{})
+}
+
+func evdAdapterWith(t testing.TB, s trustport.SnapshotReader, p trustport.SourceProfiles, f trustport.ItemFacts) trustport.Evidence {
+	t.Helper()
+	e, err := trustport.NewEvidence(s, p, clock.NewManual(evdNow), f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,9 +400,14 @@ func TestEvidenceRefusesACallThatCannotBeAnsweredSafely(t *testing.T) {
 		t.Errorf("a refused call reached a port: store %v, profile %v", s.calls, p.asked)
 	}
 	for name, build := range map[string]func() (trustport.Evidence, error){
-		"no reader":  func() (trustport.Evidence, error) { return trustport.NewEvidence(nil, p, clock.NewManual(evdNow)) },
-		"no profile": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, nil, clock.NewManual(evdNow)) },
-		"no clock":   func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, nil) },
+		"no reader": func() (trustport.Evidence, error) {
+			return trustport.NewEvidence(nil, p, clock.NewManual(evdNow), &evdFacts{})
+		},
+		"no profile": func() (trustport.Evidence, error) {
+			return trustport.NewEvidence(s, nil, clock.NewManual(evdNow), &evdFacts{})
+		},
+		"no clock": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, nil, &evdFacts{}) },
+		"no facts": func() (trustport.Evidence, error) { return trustport.NewEvidence(s, p, clock.NewManual(evdNow), nil) },
 	} {
 		if _, err := build(); !errors.Is(err, trustport.ErrConfig) {
 			t.Errorf("%s: err = %v, want ErrConfig", name, err)
@@ -635,11 +688,13 @@ func TestEvidenceReaderNeedsItsConfiguration(t *testing.T) {
 	}
 }
 
-// evdContentHash is the content hash of the usual three items (evdItem 1 to 3): sorted (source, source record ID, payload hash) triples, computed by an independent Python
-// implementation (SHA-256 over LP("noema.evidence_content_set.v1") and the length-prefixed fields of each triple in sorted order), not by the function under test.
-const evdContentHash = "sha256:06ffcf9a3c7eea41e745ccc930098dff3635ae5dc285eff45dfd075804dfb583"
+// evdContentHash is the content hash of the usual three items (evdItem 1 to 3) with the default facts of evdFacts (entity "evd", KNOWN, state "S-<record>"): the sorted (source, source
+// record ID, facts digest) triples, computed by an independent Python implementation (vectors_r4t13b.py: the digest of each item's facts, then SHA-256 over
+// LP("noema.evidence_content_set.v2") and the length-prefixed fields of each triple in sorted order), not by the code under test.
+const evdContentHash = "sha256:ec82b699624d6a2d952b0c8cce05295af12e894dc078331543191b38485f37e2"
 
-// A365, REQ-TRU-009, INV-25: the evidence value T9 gives for the binding is the CONTENT hash of the sealed items, never the set hash over the evidence IDs the snapshot stores.
+// A365 refined, REQ-TRU-009, INV-25: the evidence value T9 gives for the binding is the CONTENT hash of the sealed items (over the digest of their mapped facts), never the set hash over
+// the evidence IDs the snapshot stores.
 func TestEvidenceGivesTheContentHashAndNotTheSetHashOfTheSnapshot(t *testing.T) {
 	s := evdWorld(t)
 	got, err := evdRead(t, evdStoreOf(s), evdRules())
@@ -654,15 +709,24 @@ func TestEvidenceGivesTheContentHashAndNotTheSetHashOfTheSnapshot(t *testing.T) 
 	}
 }
 
-// A365: the same data read again under other evidence IDs (and another snapshot) is the same value, so an approval of the first binds the re-evaluation over the second. A changed
-// record, source or payload is another value. The sealed set hashes of the two snapshots differ, which is the finding this closes.
-func TestEvidenceTheSameDataUnderNewEvidenceIDsIsTheSameValueAndChangedDataIsNot(t *testing.T) {
-	first := evdWorld(t)
+// evdReRead is the usual three items read again: new evidence IDs, another payload hash for each (the raw payload differs between reads in a volatile or unmapped field), the same
+// source records and the same mapped facts.
+func evdReRead() []trustport.SealedItem {
 	var again []trustport.SealedItem
 	for i, it := range []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)} {
 		it.EvidenceID = fmt.Sprintf("evr_%02d", 40+i) // the evidence layer mints a new ID for every read
+		it.PayloadHash = evdHash(500 + i)             // and the raw payload differs
 		again = append(again, it)
 	}
+	return again
+}
+
+// A365 refined: the same facts read again under other evidence IDs, with other raw payload hashes (another snapshot), is the same value, so an approval of the first binds the
+// re-evaluation over the second. A changed record ID, source or MAPPED FACT is another value; a changed raw payload hash alone is not. The sealed set hashes of the two snapshots
+// differ, which is the finding this closes.
+func TestEvidenceTheSameFactsUnderNewIDsAndPayloadsIsTheSameValueAndChangedFactsAreNot(t *testing.T) {
+	first := evdWorld(t)
+	again := evdReRead()
 	second := evdSeal(t, again...)
 	if first.EvidenceSetHash == second.EvidenceSetHash {
 		t.Fatal("the test is void: the two snapshots have the same set hash")
@@ -670,11 +734,10 @@ func TestEvidenceTheSameDataUnderNewEvidenceIDsIsTheSameValueAndChangedDataIsNot
 	a, errA := evdRead(t, evdStoreOf(first), evdRules())
 	b, errB := evdRead(t, evdStoreOf(second), evdRules())
 	if errA != nil || errB != nil || a.EvidenceSetHash == "" || a.EvidenceSetHash != b.EvidenceSetHash {
-		t.Fatalf("unchanged data: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
+		t.Fatalf("unchanged facts: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
 	}
 	for name, edit := range map[string]func(*trustport.SealedItem){
 		"a record ID": func(it *trustport.SealedItem) { it.SourceRecordID = "rec-changed" },
-		"a payload":   func(it *trustport.SealedItem) { it.PayloadHash = evdHash(777) },
 		"a source":    func(it *trustport.SealedItem) { it.Source = "fin.src.other" },
 	} {
 		items := append([]trustport.SealedItem(nil), again...)
@@ -683,6 +746,86 @@ func TestEvidenceTheSameDataUnderNewEvidenceIDsIsTheSameValueAndChangedDataIsNot
 		if err != nil || c.EvidenceSetHash == "" || c.EvidenceSetHash == a.EvidenceSetHash {
 			t.Errorf("%s changed: %q (%v), the unchanged value is %q", name, c.EvidenceSetHash, err, a.EvidenceSetHash)
 		}
+	}
+	facts := &evdFacts{override: map[string][]snapshot.Fact{"rec-02": {{Entity: "evd", Status: "KNOWN", Fields: map[string]snapshot.FactValue{"state": {Kind: snapshot.KindEnum, Text: "S-changed"}}}}}}
+	c, err := evdAdapterWith(t, evdStoreOf(second), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if err != nil || c.EvidenceSetHash == "" || c.EvidenceSetHash == a.EvidenceSetHash {
+		t.Errorf("a mapped fact changed: %q (%v), the unchanged value is %q", c.EvidenceSetHash, err, a.EvidenceSetHash)
+	}
+}
+
+// A365 refined: the digest the adapter binds is of the FACTS, not of the stored payload hash. Two snapshots whose items differ only in the payload hash give one value; the same
+// payload hashes with other facts give another.
+func TestEvidenceBindsTheFactsAndNotTheStoredPayloadHash(t *testing.T) {
+	base := evdWorld(t)
+	items := []trustport.SealedItem{evdItem(1, evdLedger), evdItem(2, evdSwitch), evdItem(3, evdSettle)}
+	for i := range items {
+		items[i].PayloadHash = evdHash(900 + i)
+	}
+	other := evdSeal(t, items...)
+	a, errA := evdRead(t, evdStoreOf(base), evdRules())
+	b, errB := evdRead(t, evdStoreOf(other), evdRules())
+	if errA != nil || errB != nil || a.EvidenceSetHash != b.EvidenceSetHash {
+		t.Fatalf("payload hashes only: %q (%v) and %q (%v), want one value", a.EvidenceSetHash, errA, b.EvidenceSetHash, errB)
+	}
+}
+
+// A365 refined: the facts port is asked once for each item, as the caller's tenant, with the item's reference and hash as sealed, and only for a snapshot that verified: a tampered
+// snapshot is refused before any payload is read.
+func TestEvidenceAsksForTheFactsOfEachItemAsTheCallersTenantAndOnlyAfterTheSnapshotVerified(t *testing.T) {
+	facts := &evdFacts{}
+	if _, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap); err != nil {
+		t.Fatal(err)
+	}
+	if len(facts.calls) != 3 {
+		t.Fatalf("the facts port was asked %d times, want 3", len(facts.calls))
+	}
+	for _, c := range facts.calls {
+		if c.tenant != evdTenant || c.item.PayloadRef == "" || c.item.PayloadHash == "" || c.item.EvidenceID == "" || c.item.Source == "" || c.item.Status != contracts.EnumsV1FactStatusKNOWN {
+			t.Errorf("a call carried %+v", c)
+		}
+	}
+	tampered := evdWorld(t)
+	tampered.Items[0].PayloadHash = evdHash(998)
+	facts = &evdFacts{}
+	_, err := evdAdapterWith(t, evdStoreOf(tampered), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) || len(facts.calls) != 0 {
+		t.Errorf("a tampered snapshot: err %v, %d payload reads; want ErrSnapshotNotIntact and none", err, len(facts.calls))
+	}
+}
+
+// A365 refined, REQ-NFR-002, INV-19: an item whose payload cannot be read or mapped makes the snapshot not usable as evidence (fail closed): the facts port fails, gives no fact, gives
+// facts that cannot be digested, or refuses the payload. T9 ends UNKNOWN, the answer is empty and the text of the error carries no payload, row or store text (AGENT-13).
+func TestEvidenceAnItemWhoseFactsCannotBeHadIsNotEvidence(t *testing.T) {
+	const leak = "dial postgres://trust_rw:s3cret@db.internal/noema"
+	bad := []snapshot.Fact{{Entity: "", Status: "KNOWN"}}
+	for name, facts := range map[string]*evdFacts{
+		"the payload store failed":       {fail: map[string]error{"rec-02": fmt.Errorf("%w: %s", reconciler.ErrRead, leak)}},
+		"the payload is not the sealed":  {fail: map[string]error{"rec-03": fmt.Errorf("%w: %s", reconciler.ErrPayload, leak)}},
+		"the item cannot be mapped":      {fail: map[string]error{"rec-01": reconciler.ErrItem}},
+		"no fact at all":                 {empty: true},
+		"a fact that cannot be digested": {override: map[string][]snapshot.Fact{"rec-02": bad}},
+	} {
+		got, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+		if !errors.Is(err, trustport.ErrSnapshotNotIntact) {
+			t.Errorf("%s: err = %v, want ErrSnapshotNotIntact", name, err)
+			continue
+		}
+		evdNothing(t, got)
+		for _, l := range []string{"postgres", "s3cret", "db.internal", "rec-0"} {
+			if strings.Contains(err.Error(), l) {
+				t.Errorf("%s: the error carries %q: %v", name, l, err)
+			}
+		}
+	}
+}
+
+// A365 refined: the cause stays reachable behind the fixed text, so an operator can tell an unreadable payload from a payload that is not the sealed one.
+func TestEvidenceKeepsTheCauseOfAnUnusablePayloadBehindTheFixedText(t *testing.T) {
+	facts := &evdFacts{fail: map[string]error{"rec-02": fmt.Errorf("%w: hidden", reconciler.ErrPayload)}}
+	_, err := evdAdapterWith(t, evdStoreOf(evdWorld(t)), evdRules(), facts).SnapshotFreshness(evdCtx(t), evdTenant, evdSnap)
+	if !errors.Is(err, trustport.ErrSnapshotNotIntact) || !errors.Is(err, reconciler.ErrPayload) {
+		t.Errorf("err = %v, want ErrSnapshotNotIntact over reconciler.ErrPayload", err)
 	}
 }
 

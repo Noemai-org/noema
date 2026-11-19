@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/Noemai-org/noema/services/core/evidence/layer"
+	"github.com/Noemai-org/noema/services/core/evidence/reconciler"
 	"github.com/Noemai-org/noema/services/core/evidence/snapshot"
 	"github.com/Noemai-org/noema/services/core/internal/contracts"
 	"github.com/Noemai-org/noema/services/core/platform/clock"
@@ -47,29 +49,38 @@ type SourceProfiles interface {
 	SourceRules(ctx context.Context, tenantID, intentNode string) (SourceRules, error)
 }
 
+// ItemFacts gives the mapped, normalized facts of one evidence item, as the tenant: the facts the decision rests on (A365 refined). evidence/reconciler.Reconciler is the real one, so
+// the mapping is the Reconciler's own and there is no second one.
+type ItemFacts interface {
+	Facts(ctx context.Context, tenantID string, it layer.Item) ([]snapshot.Fact, error)
+}
+
+var _ ItemFacts = (*reconciler.Reconciler)(nil)
+
 // Evidence implements intake.Evidence: the T9 read of the Trust intake. It reports the freshness and the fact status of the items of a sealed snapshot as the Decision Record
 // keeps them, from what was sealed and verified, never from a payload and never from what a caller supplied (REQ-TRU-001, REQ-CTX-003, REQ-CTX-004).
 type Evidence struct {
 	snapshots SnapshotReader
 	profiles  SourceProfiles
 	clock     clock.Clock
+	facts     ItemFacts
 }
 
 var _ intake.Evidence = Evidence{}
 
-// NewEvidence builds the adapter. A missing reader, profile source or clock is ErrConfig.
-func NewEvidence(snapshots SnapshotReader, profiles SourceProfiles, clk clock.Clock) (Evidence, error) {
-	if snapshots == nil || profiles == nil || clk == nil {
+// NewEvidence builds the adapter. A missing reader, profile source, clock or facts source is ErrConfig.
+func NewEvidence(snapshots SnapshotReader, profiles SourceProfiles, clk clock.Clock, facts ItemFacts) (Evidence, error) {
+	if snapshots == nil || profiles == nil || clk == nil || facts == nil {
 		return Evidence{}, ErrConfig
 	}
-	return Evidence{snapshots: snapshots, profiles: profiles, clock: clk}, nil
+	return Evidence{snapshots: snapshots, profiles: profiles, clock: clk, facts: facts}, nil
 }
 
 var snapshotIDRe = regexp.MustCompile(`\Aevs_[0-9A-Za-z]{2,32}\z`) // the shape migration 0020 gives context_snapshot.snapshot_id
 
 // SnapshotFreshness reads the sealed snapshot as the tenant, verifies it, and reports each item. On any error the answer is empty: T9 has nothing to decide on and ends UNKNOWN.
 func (e Evidence) SnapshotFreshness(ctx context.Context, tenantID, snapshotID string) (intake.SnapshotEvidence, error) {
-	if e.snapshots == nil || e.profiles == nil || e.clock == nil {
+	if e.snapshots == nil || e.profiles == nil || e.clock == nil || e.facts == nil {
 		return intake.SnapshotEvidence{}, ErrConfig
 	}
 	if !chain.ValidTenantID(tenantID) {

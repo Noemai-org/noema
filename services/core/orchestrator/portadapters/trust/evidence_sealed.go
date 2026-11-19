@@ -21,8 +21,10 @@ type SealedItem struct {
 	// SourceRecordID is the record of the source the item was read from (`source_record_id`, required by the evidence item contract): with the source and the payload hash it is the
 	// item's content, the part of it that does not depend on the evidence ID minted for the read (A365).
 	SourceRecordID string
-	ReadAt         time.Time
-	EffectiveAt    time.Time
+	// PayloadRef is the reference of the item's stored payload (`payload_ref`), which the facts source reads as the tenant and verifies against PayloadHash (A365 refined).
+	PayloadRef  string
+	ReadAt      time.Time
+	EffectiveAt time.Time
 	// SLASeconds is the source's own freshness limit (`freshness_sla_seconds`); the profile's cap is not stored on the item.
 	SLASeconds  int64
 	Status      string
@@ -98,7 +100,7 @@ func wrapped(kind, cause error) error { return &failure{kind: kind, cause: cause
 
 const (
 	selectSnapshot = `SELECT snapshot_id, tenant_id, correlation_id, evidence_ids, evidence_set_hash FROM context_snapshot WHERE tenant_id = $1 AND snapshot_id = $2`
-	selectItems    = `SELECT evidence_id, correlation_id, source, read_at, effective_at, freshness_sla_seconds::bigint, fact_status, payload_hash, source_record_id
+	selectItems    = `SELECT evidence_id, correlation_id, source, read_at, effective_at, freshness_sla_seconds::bigint, fact_status, payload_hash, source_record_id, payload_ref
 		FROM evidence_item WHERE tenant_id = $1 AND evidence_id = ANY ($2)`
 	selectIntent = `SELECT intent_id, version, intent_node, created_at FROM admitted_intent WHERE tenant_id = $1 AND correlation_id = $2 ORDER BY version DESC LIMIT 1`
 )
@@ -151,7 +153,7 @@ func read(ctx context.Context, tx pgx.Tx, tenantID, snapshotID string) (SealedSn
 	}
 	out.Items, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (SealedItem, error) {
 		var it SealedItem
-		return it, r.Scan(&it.EvidenceID, &it.CorrelationID, &it.Source, &it.ReadAt, &it.EffectiveAt, &it.SLASeconds, &it.Status, &it.PayloadHash, &it.SourceRecordID)
+		return it, r.Scan(&it.EvidenceID, &it.CorrelationID, &it.Source, &it.ReadAt, &it.EffectiveAt, &it.SLASeconds, &it.Status, &it.PayloadHash, &it.SourceRecordID, &it.PayloadRef)
 	})
 	if err != nil {
 		return SealedSnapshot{}, fmt.Errorf("items: %w", err)
