@@ -7,18 +7,10 @@ import (
 	"github.com/Noemai-org/noema/services/core/trust/intake"
 )
 
-// Remedies reads the capability an admitted intent's `requested_remedy` slot names, from the intent store, as the intent's own tenant. present is false when the intent names none
-// (the slot is absent). The value is returned as the store holds it; whether it names a registered capability is this adapter's question, not the store's. The intake's
-// AdmittedIntent carries no slot value, so the composition root implements this over the same store as intake.Intents (EL's lane; not built here).
-type Remedies interface {
-	RequestedRemedy(ctx context.Context, tenantID, intentID string, version int) (capabilityID string, present bool, err error)
-}
-
 // Capabilities implements intake.Capabilities over the pack: the registry answers whether a capability exists and is prohibited, the descriptor's roles answer whether a role may
 // use it (A255), and the pack's action graphs answer which capabilities an intent's capability authorizes (A306). The zero value refuses every call with ErrConfig.
 type Capabilities struct {
-	pack     *Pack
-	remedies Remedies
+	pack *Pack
 	// graphID is the graph the composition root names (the escalation graph); writes is its WRITE capabilities, sorted, read once at construction.
 	graphID string
 	writes  []string
@@ -26,22 +18,22 @@ type Capabilities struct {
 
 var _ intake.Capabilities = Capabilities{}
 
-// NewCapabilities builds the adapter. main.go passes the Pack from LoadPack, a Remedies over the intent store, and the ID of the pack graph whose writes an intent rooting it is
+// NewCapabilities builds the adapter. main.go passes the Pack from LoadPack and the ID of the pack graph whose writes an intent rooting it is
 // authorized (A346): the same configuration value EscalationSetFromPack takes. The pack has no field that names that graph (DEBT-48), so no ID is written here (INV-14). A nil pack
-// or a nil port is ErrConfig; an empty graph ID, a graph the pack does not have and a graph with no WRITE node are ErrEscalationGraph, and no adapter is built.
-func NewCapabilities(p *Pack, r Remedies, graphID string) (Capabilities, error) {
-	if !p.usable() || r == nil {
+// is ErrConfig; an empty graph ID, a graph the pack does not have and a graph with no WRITE node are ErrEscalationGraph, and no adapter is built.
+func NewCapabilities(p *Pack, graphID string) (Capabilities, error) {
+	if !p.usable() {
 		return Capabilities{}, ErrConfig
 	}
 	writes, err := p.writeCapabilities(graphID)
 	if err != nil {
 		return Capabilities{}, err
 	}
-	return Capabilities{pack: p, remedies: r, graphID: graphID, writes: writes}, nil
+	return Capabilities{pack: p, graphID: graphID, writes: writes}, nil
 }
 
 func (c Capabilities) usable(ctx context.Context) error {
-	if !c.pack.usable() || c.remedies == nil {
+	if !c.pack.usable() {
 		return ErrConfig
 	}
 	return ctx.Err()
@@ -59,16 +51,12 @@ func (c Capabilities) describe(id string) intake.Capability {
 	return intake.Capability{ID: id, Registered: known, Prohibited: prohibited}
 }
 
-// requested reads the remedy of the admitted intent from the store, for its own tenant, ID and version and no other.
-func (c Capabilities) requested(ctx context.Context, a intake.AdmittedIntent) (id string, present bool, err error) {
+// requested is the capability the admitted intent asks for. RED STUB: it answers none.
+func (c Capabilities) requested(_ context.Context, a intake.AdmittedIntent) (id string, present bool, err error) {
 	if err := intentUsable(a); err != nil {
 		return "", false, err
 	}
-	id, present, err = c.remedies.RequestedRemedy(ctx, a.TenantID, a.IntentID, a.Version)
-	if err != nil {
-		return "", false, fmt.Errorf("trustpack: read the requested remedy: %w", err)
-	}
-	return id, present, nil
+	return "", false, nil
 }
 
 // Requested answers T4: the capability the intent's `requested_remedy` slot names, with whether the registry knows it and whether it is prohibited. A prohibited capability is
