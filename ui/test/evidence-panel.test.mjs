@@ -1,12 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EvidencePanel } from "../build/js/evidence-panel.js";
 import { scanVisibleText } from "../build/js/privacy.js";
 
 const load = async (name) => JSON.parse(await readFile(new URL(`../../contracts/fixtures/valid/reconstruction.v3/${name}.json`, import.meta.url), "utf8"));
+
+test("REQ-UI-003: every committed synthetic reconstruction renders without exposing references", async () => {
+  const root = new URL("../../contracts/fixtures/valid/reconstruction.v3/", import.meta.url);
+  const files = (await readdir(root)).filter((file) => file.endsWith(".json"));
+  assert.ok(files.length > 0);
+  for (const file of files) {
+    const value = JSON.parse(await readFile(new URL(file, root), "utf8"));
+    const html = renderToStaticMarkup(createElement(EvidencePanel, { reconstruction: value }));
+    assert.match(html, /<h2>Record<\/h2>/, file);
+    assert.doesNotMatch(html, /This evidence is unavailable/, file);
+    assert.ok(!html.includes(value.tenant_id), file);
+    assert.ok(!html.includes(value.correlation_id), file);
+    assert.ok(!html.includes(value.chain.head_hash), file);
+    assert.deepEqual(scanVisibleText(html), [], file);
+  }
+});
 
 test("REQ-UI-003 POC-FR-17: the ops evidence view presents the supplied record-chain status", async () => {
   const value = await load("full_write_case");
