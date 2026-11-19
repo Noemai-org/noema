@@ -1,7 +1,6 @@
 {
  "action-graph.v2/missing_roots.json": "required",
  "action-graph.v2/param_const_an_object.json": "type",
- "action-graph.v2/param_const_null.json": "type",
  "action-graph.v2/param_evidence_packet_false.json": "const",
  "action-graph.v2/param_fact_not_a_string.json": "type",
  "action-graph.v2/param_map_extra_member.json": "additionalProperties",

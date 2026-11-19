@@ -10,7 +10,6 @@
   "param_unknown_kind.json": "additionalProperties",
   "param_slot_not_a_name.json": "pattern",
   "param_const_an_object.json": "type",
-  "param_const_null.json": "type",
   "param_map_without_from.json": "required",
   "param_map_without_values.json": "required",
   "param_map_value_not_a_string.json": "type",
