@@ -373,6 +373,39 @@ class TypeScriptOutput(unittest.TestCase):
             for imported in re.findall(r'from "\./([\w.]+)"', files[base + m + ".ts"]):
                 self.assertIn(imported, {"_runtime.js", "scorecard_view_v1.js"}, f"{m} imports {imported}")
 
+    # -- the approver entry point (noema#760, after #758; REQ-UI-001, REQ-TRU-009, INV-12, INV-25, A258) ------------------------------------------------------
+    def test_ts_json_names_exactly_four_audiences_and_the_approver_one_holds_the_confirmation_answer_only(self):
+        # noema#760: confirmation-answer.v1 (the closed {request_id, response} body an approver sends) is read by no customer page and no operator page; it gets its own audience, `approver`,
+        # as the scorecard view has `benchmark`. The list is that one schema: an operator or a customer contract listed under it would put that contract on the approver's path.
+        cfg = json.loads((HERE / "ts.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(cfg), ["approver", "benchmark", "comment", "customer", "operator"])
+        self.assertEqual(cfg["approver"], ["confirmation-answer.v1.json"])
+        for other in ("customer", "operator", "benchmark"):
+            self.assertNotIn("confirmation-answer.v1.json", cfg[other])
+
+    def test_the_approver_entry_point_reaches_that_schema_and_the_shared_definitions_only(self):
+        files = generate.render_all(generate.load_schemas())
+        base = f"{generate.TS_DIR}/"
+        self.assertTrue(base + "approver.ts" in files, "no approver entry point")
+        self.assertTrue(base + "confirmation_answer_v1.ts" in files, "no confirmation-answer module")
+        self.assertEqual(set(re.findall(r'^  "([^"]+)": parse', files[base + "approver.ts"], re.M)), {"confirmation-answer.v1"})
+        # the answer, the runtime and the two shared definition files it refers to (common.v1: the request id; enums.v1: the response): no entry point, no contract of another audience
+        self.assertEqual(self._closure(files, "approver"), {"approver", "confirmation_answer_v1", "common_v1", "enums_v1", "_runtime"})
+
+    def test_the_four_entry_points_do_not_leak_into_the_approver_one_or_the_other_way_round(self):
+        files = generate.render_all(generate.load_schemas())
+        self.assertTrue(f"{generate.TS_DIR}/approver.ts" in files, "no approver entry point")
+        approver = self._closure(files, "approver")
+        others = {e: self._closure(files, e) for e in ("customer", "operator", "benchmark")}
+        for e, reached in others.items():
+            self.assertFalse(reached & {"approver", "confirmation_answer_v1"}, f"{e} reaches the approver entry point: {reached}")
+        # what the approver shares with the others is the runtime and the two shared definition files, nothing that is a contract of an audience
+        self.assertEqual(approver & set().union(*others.values()), {"_runtime", "common_v1", "enums_v1"})
+        self.assertFalse(approver & {"customer", "operator", "benchmark", "reconstruction_v3", "record_event_v3", "confirmation_request_v1", "noema_resolution_v1", "customer_answer_v1", "errors_v2", "errors_v3",
+                                    "overlay_card_v1", "sse_event_v1", "scorecard_view_v1"}, approver)
+        # the customer path does not reach enums.v1 (the response enum): it is the operator's, and now the approver's
+        self.assertNotIn("enums_v1", others["customer"])
+
     def test_a_union_names_its_type_so_that_the_alternatives_do_not_have_to_agree_by_inference(self):
         # REQ-UI-001: the four public contracts (noema#521) hold a oneOf of different object shapes. `union(v, p, [a, b])` lets TypeScript infer T from the first
         # alternative, so `tsc` refused the second one. The parser names the union's own type: `union<T>(...)`.
