@@ -121,8 +121,8 @@ func TestAConfirmAndTheAllowThatFollowsItsAcceptOnOneTupleAreTwoDecisionsAndARep
 	}
 }
 
-// A366, A233, INV-21: a SECOND confirmation on the tuple that already has a decision resting on one is a typed conflict and writes nothing: a tuple has at most one decision resting on
-// a confirmation, so two accepted confirmations of one binding cannot give two grants on one input. The first ALLOW is untouched.
+// A366, A233, INV-21: a SECOND confirmation on the tuple that already has a decision resting on one is a typed conflict and writes nothing: a tuple has one decision of an outcome, so two
+// accepted confirmations of one binding cannot give two grants on one input. The first ALLOW is untouched.
 func TestADifferentConfirmationOnATupleThatHasAnAllowOnAnotherIsAConflict(t *testing.T) {
 	w := newWorld(t)
 	w.confirmedOnTheTuple(t, given)

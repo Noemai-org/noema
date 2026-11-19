@@ -181,7 +181,18 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 			return Result{}, ErrWritesDisabled
 		}
 	}
-	stored, found, err := w.lookup(ctx, tx, key, r, basis)
+	state, err := resolveState(ctx, tx, r)
+	if errors.Is(err, errUnresolved) {
+		// a confirmation that is not recorded for the tenant: the one answer the spend gives, unless the input already has an ALLOW, which a retry naming it contradicts (A233, INV-21)
+		if err := w.otherState(ctx, tx, key, d.Outcome(), noState); err != nil {
+			return Result{}, err
+		}
+		return Result{}, ErrConfirmationNotValid
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	stored, found, err := w.lookup(ctx, tx, key, state, r, basis)
 	if err != nil {
 		return Result{}, err
 	}
@@ -250,6 +261,8 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	}
 	if requestID != "" {
 		decisionMade["confirmation_request_id"] = requestID
+	} else if state != "" {
+		decisionMade["confirmation_request_id"] = state // the request this decision rests on (A366): an ALLOW's spent confirmation resolved it, a REJECT's was declined
 	}
 	if _, err := w.Appender.Append(ctx, tx, chain.Event{TenantID: r.TenantID, CorrelationID: r.CorrelationID, WrittenBy: emitter, Actor: actor, EventType: "DECISION_MADE", ObjectRef: decisionID,
 		Payload: decisionMade}); err != nil {
@@ -259,9 +272,13 @@ func (w *Writer) Write(ctx context.Context, tx pgx.Tx, r Request) (Result, error
 	if r.DispositionDecisionID != "" {
 		disposition = &r.DispositionDecisionID
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value)
-		VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)`,
-		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value); err != nil {
+	var rests *string // the confirmation state of the key (A366, migration 0034): NULL for a decision that rests on no confirmation
+	if state != "" {
+		rests = &state
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO decision_record (decision_id, tenant_id, json, outcome, disposition_decision_id, intent_hash, policy_versions_json, sig_key_id, sig_value, confirmation_request_id)
+		VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9, $10)`,
+		decisionID, r.TenantID, string(raw), string(d.Outcome()), disposition, string(r.IntentHash), string(versions), rec.Sig.KeyId, rec.Sig.Value, rests); err != nil {
 		var pg *pgconn.PgError
 		if errors.As(err, &pg) && pg.Code == pgForeignKeyViolation && pg.ConstraintName == dispositionKey {
 			return Result{}, ErrDispositionNotValid // the database's own refusal, behind the check above
@@ -341,7 +358,8 @@ func (w *Writer) check(r Request) (decide.Basis, string, error) {
 	switch {
 	case !tenantRe.MatchString(r.TenantID), !correlationRe.MatchString(r.CorrelationID), !intentRe.MatchString(r.IntentID), !hashRe.MatchString(string(r.IntentHash)),
 		r.Evaluated == nil, r.DispositionDecisionID != "" && !decisionRe.MatchString(r.DispositionDecisionID),
-		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID):
+		r.ConfirmationEventID != "" && !confirmRe.MatchString(r.ConfirmationEventID),
+		r.DeclinedRequestID != "" && (r.Decision.Outcome() != decide.Reject || !requestRe.MatchString(r.DeclinedRequestID)):
 		return decide.Basis{}, "", ErrRequest
 	}
 	d := r.Decision

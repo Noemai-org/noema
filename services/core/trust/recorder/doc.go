@@ -50,8 +50,14 @@
 // append fails and so does the write). Not built: the display and the signature of confirmation-request.v1 (the approver's view is the confirmation store's), expiry (CONFIRMATION_EXPIRED)
 // and the answer (CONFIRMATION_RECEIVED, RecordConfirmation).
 //
-// A186 and the second decision of a tuple (flagged to the Architect, status/TRU-07-confirm-t13.md): one decision exists for an input tuple, and migration 0027 enforces it, so after a
-// stored CONFIRM an ALLOW or a REJECT for the SAME tuple is ErrDecisionConflict, not a new decision. A re-evaluation after an ACCEPT or a DECLINE must therefore read a new sealed snapshot.
+// A186 and A366, the confirmation state of the key: one decision exists for an input tuple AND confirmation state, and migration 0034 enforces it (decision_record_input_state_key: the
+// tuple and COALESCE of decision_record.confirmation_request_id). The state is the confirmation request the decision rests on: for an ALLOW that follows a confirmation, the request the
+// spent confirmation resolved (read from confirmation_resolution; a confirmation not recorded for the tenant is ErrConfirmationNotValid); for a REJECT DECLINED_BY_APPROVER, the declined
+// request it names in Request.DeclinedRequestID (shape-checked: the writer cannot verify a decline, which is the confirmation store's); NULL for every other decision. So a stored CONFIRM
+// (NULL) and the ALLOW or the REJECT that rests on its request are two decisions of one snapshot, and a repeated Record of either returns the stored one (INV-21). On top of the key the
+// writer refuses, under the tuple's advisory lock, a decision of an outcome the tuple already has in another state (another confirmation, or none): ErrDecisionConflict, so two accepted
+// confirmations cannot give two grants on one input. An ALLOW or a REJECT that rests on no confirmation, on the tuple of a stored CONFIRM, is still ErrDecisionConflict (same state, other
+// outcome). DECISION_MADE names the state it rests on as confirmation_request_id.
 //
 // Disposition linkage (TRU-10; REQ-TRU-010, INV-25; PERD 23.1; ruling A297, interim). An action decision is the per-write-step decision of an escalation: the decision of one step of the
 // escalation plan, which names its ESCALATE disposition in Request.DispositionDecisionID. Two rules, both refused before anything is written (no row, no Record event; the caller still
