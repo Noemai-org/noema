@@ -84,16 +84,54 @@ func TestT13ThePolicyVersionIsTheCompositeOfEveryPolicyVersionOfT11(t *testing.T
 	}
 }
 
-// INV-25: an empty value is passed through as empty and Trust does not fail T13 for it in this version (the adapter refuses a Given answer for it).
-func TestT13EmptyBindingValuesArePassedThroughAndFailNothing(t *testing.T) {
+// INV-25, INV-16 (fail closed, TRU-07 A341 follow-up): a Given answer is refused by T13 itself when the FreshBinding it passed has an empty EvidenceSetHash or an empty PolicyVersion: the
+// adapter must refuse it, and Trust does not rely on it. UNKNOWN INTERNAL_ERROR at T13, the answer is discarded (no confirmation event is kept, so nothing can follow it), the Planner and
+// the Recorder are never called, and no grant exists.
+func TestT13GivenWithAnEmptyFreshValueIsUnknownAndTheAnswerIsDiscarded(t *testing.T) {
+	for name, mutate := range map[string]func(*evaluation){
+		"an empty evidence set hash": func(e *evaluation) { e.evidenceSetHash = "" },
+		"no policy version":          func(e *evaluation) { e.policyVersions = nil },
+		"a policy version that cannot be bound": func(e *evaluation) {
+			e.policyVersions = []decide.PolicyVersionRef{{PolicyID: "pol synth01", Version: "3"}}
+		},
+		"both empty": func(e *evaluation) { e.evidenceSetHash, e.policyVersions = "", nil },
+	} {
+		f := newFake13()
+		f.conf = given13()
+		ev := newEval13(t, f)
+		mutate(ev)
+		res := run13(t, ev)
+		wantUnknown(t, name, res, "INTERNAL_ERROR", decide.T13Confirmation, decide.StepFailed)
+		if f.called("Confirmations.Status") != 1 || f.called("Planner.Plan") != 0 || f.called("Recorder.Record") != 0 {
+			t.Errorf("%s: calls %v, want Status once and nothing else", name, f.calls)
+		}
+		if ev.late.confirmationID != "" || ev.late.confirmationPlanHash != "" {
+			t.Errorf("%s: the Given answer was kept: event %q, plan hash %q", name, ev.late.confirmationID, ev.late.confirmationPlanHash)
+		}
+		if res.DecisionID != "" || len(res.GrantIDs) != 0 {
+			t.Errorf("%s: the result names decision %q and grants %v", name, res.DecisionID, res.GrantIDs)
+		}
+	}
+}
+
+// INV-25: the refusal is for Given only. Empty values are still passed through to Status (the adapter decides what it needs), NotRequired goes on, and Pending with an open request is
+// recorded as before (the request values were bound when it was created; Pending with a request to make already refuses empty values, see t13_confirm_test.go).
+func TestT13EmptyFreshValuesAreStillPassedAndFailOnlyAGivenAnswer(t *testing.T) {
 	f := newFake13()
-	f.conf = given13()
-	res := run13(t, newEval13(t, f))
+	ev := newEval13(t, f)
+	ev.evidenceSetHash, ev.policyVersions = "", nil
+	res := run13(t, ev)
 	if got := oneBinding(t, f); got != (FreshBinding{}) {
 		t.Errorf("FreshBinding %+v, want the zero value", got)
 	}
 	if res.Decision.Outcome() != decide.Allow {
-		t.Errorf("outcome %s, want ALLOW (Trust does not fail T13 for an empty value)", res.Decision.Outcome())
+		t.Errorf("NotRequired with empty values: outcome %s, want ALLOW", res.Decision.Outcome())
+	}
+	g := pendingOpen(newFake13())
+	ev = confirmEval(t, g)
+	ev.evidenceSetHash, ev.policyVersions = "", nil
+	if res := run13(t, ev); res.Decision.Outcome() != decide.Confirm || g.called("Recorder.Record") != 1 {
+		t.Errorf("Pending with an open request and empty values: outcome %s, calls %v, want CONFIRM recorded once", res.Decision.Outcome(), g.calls)
 	}
 }
 
