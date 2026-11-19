@@ -74,3 +74,32 @@ A339 (second session): red commit `6dca1160` (nine tests fail, for the right rea
 - Purpose: "advisory lock + typed retryable error": per-tenant lock as the first statement of the spend transaction, typed retryable error after the last attempt.
 - Receiver used it for: the lock (as a session lock, see State), the typed error, the tests above.
 - Evidence (PR or commit): local commits `6dca1160` (red), `d981d58f` (green) on `prep/714-serialization-retry`; not pushed.
+
+# Session 2026-11-19 12:00 WAT · EXE-RETRY-714 (A347 and A348 on noema#748)
+
+## Session summary
+- What changed (PR links): local commits on `prep/r6-748` (from `origin/fix/EXE-02-spend-serialization-retry`, main merged without conflict), not pushed. New `execution/ledger/errors.go` (`fixedError`, `publicSpendError`), `spend.go`, `retry.go`, `lock.go`, `ledger.go`; tests `errtext_test.go` (new), `spendlock_test.go` (release suite), `retry_test.go` (one helper), ledger README, this file.
+- Why: A347 (relayed, interim): an error that crosses a package's public boundary has a fixed public text, the cause behind `Unwrap`. A348 (relayed; only the words "conditions on #748 (release test)" were available): the spend lock shown released on every path.
+- A347, what is fixed. Every error that leaves `Spend`: no tenant, grant, key or nonce, no SQLSTATE, `ERROR:` or `FATAL` text, no server or login details; `errors.Is` and `errors.As` still reach the sentinels, `*pgconn.PgError` and the context's errors. `Spend` ends in `publicSpendError`, so a site that was missed gets a generic fixed text instead of leaking. The setting parser names the setting, never the value. The controller's `controller: spend: %w` adds no identifier (test). Tests that asserted on text now assert on the sentinel and the cause (`isDidNotCommit40001`); none deleted.
+- A348, conditions as I read them (for the Architect to compare with the real text): after the call returns, with the real `pg_locks` of this database and `AcquiredConns` of the pool: commit; replay; rolled back by a fault that is not 40001; 40001 on every attempt; a context that expires while the transaction runs; a context already cancelled; a panic inside the spend; an unlock that fails (EXECUTE on `pg_advisory_unlock` revoked, so the connection is destroyed and the lock goes with the backend); a terminated backend (polled with a deadline); a spend that waited and got its turn leaves no waiter; 50 concurrent spends of 5 tenants end with no lock and no connection out. Not covered because the code has no such path: a failing `Release`, a lock timeout.
+- DEFECT of #748 found: a panic inside the spend never released the connection or the tenant's advisory lock (`withSpendLock` had no deferred cleanup), so one panic stalled every later spend of that tenant until the process restarted. Red first (the suite's panic subtest), fixed by `runHeld`. All other paths already released.
+- Risks, and how they are contained: `publicSpendError` wraps instead of replacing, so classification by `pgCode` and the controller's `errors.Is` are unchanged (the whole of ledger, controller and e2e passes under `-race -count=2`).
+- Tests added (REQ, INV, US or EC IDs): REQ-EXE-001, REQ-EXE-002, INV-03, INV-07, AGENT-13, AGENT-16; see the ledger README.
+- Regression cases added: the panic release case; the fixed-text table (21 classes).
+- Debt entries: none.
+- Conflicts raised: none.
+
+## Open (Architect), added this session
+7. **Unlock fails after a commit.** The spend is committed, the connection is destroyed (lock gone), and `Spend` returns the lock error with `Spent` false, so the controller does not dispatch: the grant is SPENT with an attempt and no receipt, which the sweeper turns into an unknown outcome. That is the code as it was written in A339; it is safe (nothing is dispatched) but a clean success becomes an error. Should a committed spend whose unlock failed return its result (the connection is closed either way)? I did not change it. The release test accepts either answer and pins only the release.
+8. **Fifty spends of five tenants.** In one run 33 of 50 committed and 17 got the typed retryable error after three attempts, with each tenant's spends ordered by its lock: SERIALIZABLE transactions of different tenants still refuse one another ("read/write dependencies", on the Record's `lock head`, the insert, the mark-spent and the commit). Release is unaffected (no lock, no connection left). Whether three attempts is enough across tenants, or the Record's reads should not conflict across tenants, is for the Architect (AGENT-16: not mine to change). The test accepts spent or typed-retryable and states the count in its log.
+9. **Other ledger errors.** `Load`, `Void`, `Complete`, `Append`, the binder and `chain.Appender` still print identifiers and driver text (`ledger: grant %s does not exist for tenant %s` in `Load` among them). They are outside #748; a sweep of them needs its own task. Also, `inTx` for those methods has no cleanup for a panic either (same shape as the defect fixed in `withSpendLock`).
+
+## Pre-work for the next agent
+- Exact next step: Architect answers open items 7 to 9; whoever owns the other ledger methods sweeps their errors the same way (`fixed`, never a message assertion in a test).
+- Files to read first: `execution/ledger/errors.go`, `errtext_test.go`, the release suite in `spendlock_test.go`.
+- Do not touch: `deploy/`, `.github/`.
+
+### 2026-11-19 sent/accepted · user → Core Engineer 1 (relayed Architect rulings A347, A348)
+- Purpose: A347 fixed-text errors sweep (interim); A348 conditions on #748 (release test).
+- Receiver used it for: the fixed texts, the release suite, the panic fix.
+- Evidence (PR or commit): local commits on `prep/r6-748`, not pushed.
