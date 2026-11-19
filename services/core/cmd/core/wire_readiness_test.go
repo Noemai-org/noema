@@ -24,7 +24,7 @@ var readinessNameOfField = map[string]string{
 	"Ports.Admissions": "admissions", "Investigations": "investigations", "Records": "record reader", "Gateway": "input gateway",
 }
 
-func notConfigured(names ...string) string { return "not configured: " + strings.Join(names, ", ") }
+func wantReason(names ...string) string { return "not configured: " + strings.Join(names, ", ") }
 
 // zeroField sets one field of Components, named as in readinessNameOfField, to its zero value.
 func zeroField(t *testing.T, c *Components, path string) {
@@ -71,7 +71,7 @@ func TestEveryComponentFieldHasAReadinessName(t *testing.T) {
 
 // Nothing built: every component is named, in the one stable order, however often it is asked.
 func TestReadinessNamesEveryUnbuiltComponentInAStableOrder(t *testing.T) {
-	want := notConfigured(readinessOrder...)
+	want := wantReason(readinessOrder...)
 	for i := 0; i < 3; i++ {
 		ok, reason := composeReadiness(Components{}, nil)()
 		if ok || reason != want {
@@ -98,14 +98,14 @@ func TestReadinessIsGreenOnlyWhenNothingIsMissing(t *testing.T) {
 		c := full()
 		zeroField(t, &c, path)
 		ok, reason := composeReadiness(c, okAPI)()
-		if ok || reason != notConfigured(name) {
-			t.Errorf("%s removed: ready %v, reason %q; want not ready and %q", path, ok, reason, notConfigured(name))
+		if ok || reason != wantReason(name) {
+			t.Errorf("%s removed: ready %v, reason %q; want not ready and %q", path, ok, reason, wantReason(name))
 		}
 		if app, err := compose(c, okAPI); err == nil || app != nil || !strings.Contains(err.Error(), name) {
 			t.Errorf("%s removed: composed (%v); want a refusal that names %s", path, err, name)
 		}
 	}
-	if ok, reason := composeReadiness(full(), nil)(); ok || reason != notConfigured("edge chain") {
+	if ok, reason := composeReadiness(full(), nil)(); ok || reason != wantReason("edge chain") {
 		t.Errorf("no protected handler: ready %v, reason %q", ok, reason)
 	}
 }
@@ -117,7 +117,7 @@ func TestSeveralMissingComponentsAreAllNamedInOrder(t *testing.T) {
 	zeroField(t, &c, "Ports.Explainer")
 	zeroField(t, &c, "Ports.Evidence")
 	ok, reason := composeReadiness(c, nil)()
-	if want := notConfigured("evidence", "explainer", "edge chain", "input gateway"); ok || reason != want {
+	if want := wantReason("evidence", "explainer", "edge chain", "input gateway"); ok || reason != want {
 		t.Fatalf("ready %v, reason %q; want %q", ok, reason, want)
 	}
 }
@@ -144,7 +144,7 @@ func TestReadyzOfTheProductionBuildNamesWhatIsMissingAndLeaksNothing(t *testing.
 	}
 	defer closer()
 	code, body, raw := readyz(t, composeReadiness(c, nil))
-	want := notConfigured("interpreter", "evidence", "trust", "explainer", "edge chain", "input gateway")
+	want := wantReason("interpreter", "evidence", "trust", "explainer", "edge chain", "input gateway")
 	if code != http.StatusServiceUnavailable || body["status"] != "not_ready" || body["reason"] != want || len(body) != 2 {
 		t.Fatalf("status %d, body %s; want 503, not_ready and %q", code, raw, want)
 	}
