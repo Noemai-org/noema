@@ -130,9 +130,10 @@ NETWORKS = {
     "mock-case-credentials": set(),
     "hostility-proxy-credentials": set(),
     "standin-credentials": set(),
+    "grant-keys-init": set(),
     "webhook-relay-credentials": set(),
 }
-SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials"}
+SIDECARS = {"mock-case-credentials", "hostility-proxy-credentials", "webhook-relay-credentials", "standin-credentials", "grant-keys-init"}
 ORACLE_SIDE = {"mock-case", "mock-case-db", "hostility-proxy", "hostility-proxy-anchor", "standin", "standin-anchor", "bench-runner"}
 PROVIDER_SIDE = {"model", "evil-provider"}
 # Provider credentials live only in the model service (INV-29, AGENT-05; A249 as relayed for Intron): an environment variable or a Compose secret whose name is a provider's key or
@@ -152,12 +153,12 @@ EXTERNAL = {"provider_egress", "ui_publish_net", "tushe_egress"}
 # The services each profile must build, written out here (PERD section 65.1). A missing service fails, as does an extra one: a profile
 # that silently loses the core or the model, or gains a service, is a change somebody must make on purpose in this table too.
 EXPECTED_SERVICES = {
-    "dev": {"core", "model", "postgres", "temporal", "ui"},
-    "ci": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "dev": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init"},
+    "ci": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
            "hostility-proxy-anchor", "hostility-proxy-credentials", "webhook-relay", "webhook-relay-credentials", "standin", "standin-anchor", "standin-credentials"},
-    "bench": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
+    "bench": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials", "hostility-proxy",
               "hostility-proxy-anchor", "hostility-proxy-credentials", "evil-provider", "standin", "standin-anchor", "standin-credentials", "bench-runner"},
-    "demo": {"core", "model", "postgres", "temporal", "ui", "mock-case", "mock-case-db", "mock-case-credentials"},
+    "demo": {"core", "model", "postgres", "temporal", "ui", "grant-keys-init", "mock-case", "mock-case-db", "mock-case-credentials"},
 }
 ONLY_IN = {"evil-provider": {"bench"}, "hostility-proxy": {"ci", "bench"}, "hostility-proxy-anchor": {"ci", "bench"},
            "hostility-proxy-credentials": {"ci", "bench"}, "webhook-relay": {"ci"}, "webhook-relay-credentials": {"ci"},
@@ -173,6 +174,11 @@ TLS_REQUIRED = {"core": {"ca.crt", "core-client.crt", "core-client.key"}, "model
 # AGENT-16), so the Compose file must give the core every one. The names are the `Env...` constants of services/core/cmd/core/modelclient.go; main() compares the two when that file exists.
 MODEL_CLIENT_SETTINGS = ("NOEMA_MODEL_URL", "NOEMA_MODEL_TLS_CA_FILE", "NOEMA_MODEL_TLS_CERT_FILE", "NOEMA_MODEL_TLS_KEY_FILE", "NOEMA_MODEL_MAX_RESPONSE_BYTES")
 MODEL_CLIENT_SOURCE = Path(__file__).resolve().parents[3] / "services" / "core" / "cmd" / "core" / "modelclient.go"
+# The Decision Grant HMAC keys (SEC-09; INV-29: the model holds no grant key). Two key files so a rotation has two active keys. Compose cannot set a file secret's mode or owner and the
+# grant-key loader refuses a file that is not 0400 and process-owned, so the two secrets are held by the one-shot `grant-keys-init` step ONLY, under the names the loader reads; it writes
+# them into the `grant_keys` volume, which the CORE mounts read-only and nothing else mounts (Codex and SR on noema#700). Names only.
+GRANT_KEY_SECRETS = {"grant_hmac_key_a": "grant.hmac.1.key", "grant_hmac_key_b": "grant.hmac.2.key"}
+GRANT_INIT, GRANT_VOLUME = "grant-keys-init", "grant_keys"
 # The environment of the auto-setup image that makes the Temporal frontend serve TLS (docker/config_template.yaml of the pinned server release: TEMPORAL_TLS_FRONTEND_CERT and _KEY are the
 # server certificate, TEMPORAL_TLS_SERVER_CA_CERT the CA the in-process worker trusts, TEMPORAL_TLS_FRONTEND_SERVER_NAME the name it verifies) and the settings the image's CLI reads
 # to reach it (TEMPORAL_TLS, TEMPORAL_TLS_CA, TEMPORAL_TLS_SERVER_NAME). In that template TEMPORAL_TLS_SERVER_CA_CERT is ALSO the root of the internode CLIENT, so setting it makes the
@@ -266,6 +272,37 @@ def check(cfg, profile):
             for setting in MODEL_CLIENT_SETTINGS:
                 if not str(env.get(setting, "")).strip():
                     bad.append(f"{profile}: the core does not set {setting}: its model client is built only when all five of {list(MODEL_CLIENT_SETTINGS)} are set (noema#563)")
+        grant_refs = [str(x if isinstance(x, str) else x.get("source", "")) for x in (svc.get("secrets") or [])] + list((svc.get("environment") or {}).keys()) \
+            + [str(v.get("source", "")) + " " + str(v.get("target", "")) for v in (svc.get("volumes") or [])]
+        names_grant = any("grant_hmac" in r.lower() or "grant_key" in r.lower() or "grant.hmac" in r.lower() for r in grant_refs)
+        if name not in (GRANT_INIT, "core") and names_grant:
+            bad.append(f"{profile}: {name} names or mounts a Decision Grant key; only the core (the grant_keys volume) and {GRANT_INIT} may (SEC-09, INV-29)")
+        vols = [v for v in (svc.get("volumes") or []) if isinstance(v, dict)]
+        for v in vols:  # the secrets folder holds the keys: no service may mount the folder itself, only single named files under it
+            src = str(v.get("source", "")).rstrip("/")
+            if v.get("type") == "bind" and src.rsplit("/", 1)[-1] == "secrets":
+                bad.append(f"{profile}: {name} bind-mounts the secrets folder {src!r}, which holds the grant keys; mount single files only (SEC-09, INV-29)")
+        held = {str(x if isinstance(x, str) else x.get("source", "")): (x.get("target") if isinstance(x, dict) else None) for x in (svc.get("secrets") or [])}
+        if name == "core":
+            for key in GRANT_KEY_SECRETS:
+                if key in held:
+                    bad.append(f"{profile}: the core holds the grant key secret {key}; Compose cannot give it the mode the loader needs, so only {GRANT_INIT} holds it (SEC-09)")
+            gv = [v for v in vols if v.get("source") == GRANT_VOLUME]
+            if len(gv) != 1 or not gv[0].get("read_only"):
+                bad.append(f"{profile}: the core must mount the {GRANT_VOLUME} volume exactly once, read-only (SEC-09)")
+            if (svc.get("depends_on") or {}).get(GRANT_INIT, {}).get("condition") != "service_completed_successfully":
+                bad.append(f"{profile}: the core must wait for {GRANT_INIT} to complete successfully, or it starts without keys it can load (SEC-09)")
+        if name == GRANT_INIT:
+            for key, target in GRANT_KEY_SECRETS.items():
+                if held.get(key) != target:
+                    bad.append(f"{profile}: {GRANT_INIT} must hold {key} under the name {target} (the loader reads grant.hmac.<version>.key; SEC-09)")
+            if set(held) - set(GRANT_KEY_SECRETS):
+                bad.append(f"{profile}: {GRANT_INIT} holds a secret other than the two grant keys (SEC-09)")
+            writable = [v for v in vols if v.get("source") == GRANT_VOLUME and not v.get("read_only")]
+            if len(writable) != 1:
+                bad.append(f"{profile}: {GRANT_INIT} must mount {GRANT_VOLUME} writable exactly once (SEC-09)")
+            if str(svc.get("user", "")) not in ("0:0", "0", "root"):
+                bad.append(f"{profile}: {GRANT_INIT} must run as root to set the key file owner (SEC-09)")
         if name == "temporal":
             # Temporal TLS (A296): in the bench profile the frontend presents a certificate and the CLI the healthcheck and the namespace set-up use trusts the stack's CA, so a plain
             # client is refused (EL's "refuse plain" test follows). The server keeps only its own key and the CA certificate.
@@ -400,6 +437,20 @@ def self_test(configs):
         "the core is given the Intron key file": ("dev", lambda c: c["services"]["core"]["environment"].update({"INTRON_API_KEY_FILE": "/run/secrets/intron_api_key"})),
         "the UI mounts the Intron key file": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/intron_api_key", "target": "/run/intron_api_key"})),
         "the ci relay holds its answers": ("ci", lambda c: c["services"]["webhook-relay"]["environment"].update({"WEBHOOK_RELAY_HOLD_SECONDS": "15"})),
+        "the ui lists a grant key as a secret": ("dev", lambda c: c["services"]["ui"].update({"secrets": [{"source": "grant_hmac_key_a"}]})),
+        "the model carries a grant key file setting": ("ci", lambda c: c["services"]["model"].setdefault("environment", {}).update({"NOEMA_GRANT_KEY_FILE": "/x"})),
+        "postgres mounts a grant key file": ("demo", lambda c: c["services"]["postgres"].setdefault("volumes", []).append({"type": "bind", "source": "/h/secrets/grant_hmac_key_b", "target": "/x"})),
+        "the core is given a grant key secret": ("dev", lambda c: c["services"]["core"].update({"secrets": ["noema_core_password", "grant_hmac_key_a"]})),
+        "the core drops the grant_keys volume": ("dev", lambda c: c["services"]["core"].update({"volumes": [v for v in c["services"]["core"]["volumes"] if not (isinstance(v, dict) and v.get("source") == "grant_keys")]})),
+        "the core mounts grant_keys writable": ("ci", lambda c: [v.update({"read_only": False}) for v in c["services"]["core"]["volumes"] if isinstance(v, dict) and v.get("source") == "grant_keys"]),
+        "the core does not wait for the key step": ("dev", lambda c: c["services"]["core"]["depends_on"].pop("grant-keys-init")),
+        "the key step holds one key under the wrong name": ("dev", lambda c: c["services"]["grant-keys-init"].update({"secrets": [{"source": "grant_hmac_key_a", "target": "key.a"}, {"source": "grant_hmac_key_b", "target": "grant.hmac.2.key"}]})),
+        "the key step also holds the core password": ("dev", lambda c: c["services"]["grant-keys-init"]["secrets"].append({"source": "noema_core_password", "target": "noema_core_password"})),
+        "the key step runs as the core's user": ("demo", lambda c: c["services"]["grant-keys-init"].update({"user": "65532:65532"})),
+        "the key step is dropped": ("ci", lambda c: c["services"].pop("grant-keys-init")),
+        "the model mounts the grant_keys volume": ("dev", lambda c: c["services"]["model"].setdefault("volumes", []).append({"type": "volume", "source": "grant_keys", "target": "/k"})),
+        "a service bind-mounts the secrets folder": ("dev", lambda c: c["services"]["ui"].setdefault("volumes", []).append({"type": "bind", "source": "/h/deploy/compose/secrets", "target": "/s"})),
+        "the core bind-mounts the secrets folder": ("bench", lambda c: c["services"]["core"]["volumes"].append({"type": "bind", "source": "/h/deploy/compose/secrets/", "target": "/s", "read_only": True})),
         "the bench model starts uvicorn with --ssl-cert-reqs 0": ("bench", lambda c: c["services"]["model"].update({"entrypoint": list(c["services"]["model"]["entrypoint"]) + ["--ssl-cert-reqs", "0"]})),
         "the dev model's command carries an --ssl-keyfile": ("dev", lambda c: c["services"]["model"].update({"command": ["--ssl-keyfile", "/x"]})),
         "the ci model's command is one string with --ssl-cert-reqs=0": ("ci", lambda c: c["services"]["model"].update({"command": "--port 8081 --ssl-cert-reqs=0"})),
