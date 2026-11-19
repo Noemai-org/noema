@@ -44,6 +44,7 @@ A TypeScript parser refuses what the schema refuses, not only what its shape ref
 | `allOf`, `anyOf`, `oneOf` over constraints | `cAll`, `cAny`, `cOne` |
 | `if` / `then` / `else` | `cIf` (the facts of a section kind, `errors` retryable, `record-event` emitters) |
 | `not`, `contains`, `propertyNames` | `cNot`, `cContains`, `cNames` |
+| `uniqueItems` | `cUnique` |
 | `properties`, `required`, `type`, `const`, `enum`, `$ref` | `cProps`, `cRequired`, `cType`, `cConst`, `cEnum`, `cRef` (a `$ref` parses as the named type, so a conditional may name an enum of another contract) |
 | `pattern`, `minLength`, `maxLength`; `minimum`, `maximum`, `exclusiveMinimum`; `minItems`, `maxItems`; `minProperties`, `maxProperties` | `cStr`, `cNum`, `cCount`, `cSize` |
 
