@@ -564,3 +564,14 @@ func TestSlotParamsNeedASlotName(t *testing.T) {
 		t.Fatalf("slot with no slot name: err = %v, want ErrParamSource", err)
 	}
 }
+
+// A non-string slot value is never coerced to a key, even when the map has an empty key.
+func TestMapNeverCoercesANonStringValue(t *testing.T) {
+	p := plangraphs.ParamSpec{Name: "x", Kind: plangraphs.KindMap, Slot: "question_type", Map: map[string]string{"": "EMPTY_KEY", "7": "SEVEN"}}
+	for _, v := range []any{7, true, nil} {
+		_, a := build(packGraph(p), mapIntent(v, true))
+		if _, err := graph(a, req()); !errors.Is(err, plangraphs.ErrMapValue) {
+			t.Fatalf("value %#v: err = %v, want ErrMapValue", v, err)
+		}
+	}
+}
