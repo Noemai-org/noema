@@ -39,6 +39,32 @@ class G1Leakscan(unittest.TestCase):
         for kind in ("canary", "account_number", "card_number", "named_secret_value", "jwt", "bearer_token"):
             self.assertIn(kind, text)
 
+    def test_the_job_log_mode_ignores_runner_digits_but_proves_and_applies_every_other_rule(self) -> None:
+        # SR's condition 2 on noema#730: the job log holds the runner's own digits (image version, run id, byte counts), which the digit-run rule cannot be applied to. Every other rule
+        # still is, and the probe plants only the kinds that remain: a canary, an api_key value, a JWT-shaped value and a bearer token (no account or card number).
+        (self.art / "joblog.log").write_text("Version: 20251105.1.0 run 44318438906 pulled 123456789 bytes\n", encoding="utf-8")
+        code, text = run(["--workdir", str(self.work), str(self.art)])
+        self.assertEqual(code, 1, text)  # the default scan refuses the runner's digits
+        code, text = run(["--no-digit-rule", "--workdir", str(self.root / "w2"), str(self.art)])
+        self.assertEqual(code, 0, text)
+        self.assertIn("every planted kind was found (canary, named_secret_value, jwt, bearer_token)", text)
+        self.assertNotIn("account_number", text)
+        (self.art / "leak.log").write_text("api_key=" + "ab12cd34ef56ab12cd34" + "\n", encoding="utf-8")
+        self.assertEqual(run(["--no-digit-rule", "--workdir", str(self.root / "w3"), str(self.art)])[0], 1)
+
+    def test_a_scanner_with_a_broken_rule_is_not_run_in_the_job_log_mode_too(self) -> None:
+        real = HERE / "leakscan.py"
+        for kind in ("canary", "named_secret_value", "jwt", "bearer_token"):
+            with self.subTest(kind):
+                wrapper = self.root / f"nodigit_broken_{kind}.py"
+                wrapper.write_text(
+                    "import subprocess, sys\n"
+                    f"r = subprocess.run([sys.executable, '-I', {str(real)!r}, *sys.argv[1:]], capture_output=True, text=True)\n"
+                    f"print(chr(10).join(l for l in (r.stdout + r.stderr).splitlines() if {kind!r} not in l))\n"
+                    "sys.exit(r.returncode)\n", encoding="utf-8")
+                code, text = run(["--no-digit-rule", "--scanner", str(wrapper), "--workdir", str(self.root / f"nd_{kind}"), str(self.art)])
+                self.assertEqual(code, 3, text)
+
     def test_a_digit_run_of_five_or_more_fails(self) -> None:
         (self.art / "b.log").write_text("amount 123456 here\n", encoding="utf-8")
         code, text = run(["--workdir", str(self.work), str(self.art)])
@@ -60,10 +86,10 @@ class G1Leakscan(unittest.TestCase):
         # The canary is made inside the run, so the artifact cannot carry it by accident; plant it the way a leak would: by reading it from the work directory after the probe.
         real_scan = g1_leakscan.scan
 
-        def leaking(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None) -> tuple[int, str]:
+        def leaking(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None, digits: bool = True) -> tuple[int, str]:
             if paths == [self.art.resolve()]:
                 (self.art / "leak.log").write_text(canary_file.read_text(encoding="utf-8"), encoding="utf-8")
-            return real_scan(scanner, canary_file, paths, allow)
+            return real_scan(scanner, canary_file, paths, allow, digits)
 
         g1_leakscan.scan = leaking
         try:

@@ -54,8 +54,8 @@ class G1StackWorkflow(unittest.TestCase):
             self.assertEqual(self.validate(run_id, "16384"), 0, repr(run_id))
         for run_id in ("ok\nGITHUB_OUTPUT_INJECTION=1", "ok\n", "\nok", "a b", "a;b", "$(x)", "a" * 65, "x/y", "x\ry"):
             self.assertEqual(self.validate(run_id, "16384"), 2, repr(run_id))
-        self.assertEqual(self.validate("", "16384", "smoke"), 0)
-        for mode in ("", "FULL", "full\nsmoke", "smoke;x", "other"):
+        self.assertEqual(self.validate("", "16384", "stack-check"), 0)
+        for mode in ("", "FULL", "full\nstack-check", "stack-check;x", "other"):
             self.assertEqual(self.validate("", "16384", mode), 2, repr(mode))
         for body in ("1", "16384", "9" * 16):
             self.assertEqual(self.validate("", body), 0, repr(body))
@@ -85,7 +85,7 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn('exit "$fail"', result.group(0))
 
     def test_the_leak_scan_runs_the_canary_probe_and_covers_every_uploaded_path_and_the_summary(self) -> None:
-        scan = re.search(r"python3 -I tools/ci/g1_leakscan\.py (.*?)\n\s*echo \"scan=", self.script, re.S)
+        scan = re.search(r"(set -- benchmark/out/run .*?)\n\s*echo \"scan=", self.script, re.S)
         assert scan
         scanned = {t.rstrip("/") for t in re.findall(r"benchmark/out/[A-Za-z0-9_./-]+", scan.group(1))}
         self.assertIn("benchmark/out/summary.md", scan.group(1))
@@ -263,18 +263,18 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertNotRegex(self.text, r"secrets\.")
         self.assertNotIn("heldout", self.text.lower().replace("never mounted or read", ""))
 
-    # SR's first-dispatch conditions and the smoke mode (A323, A325 as relayed; noema#436).
-    def test_mode_is_a_choice_of_full_or_smoke_and_defaults_to_full(self) -> None:
+    # SR's first-dispatch conditions and the stack-check mode (A323, A325 as relayed; noema#436).
+    def test_mode_is_a_choice_of_full_or_stack_check_and_defaults_to_full(self) -> None:
         block = re.search(r"(?ms)^      mode:\n(.*?)(?=^      [a-z_]+:\n|^permissions:)", self.text)
         assert block
         self.assertIn("type: choice", block.group(1))
         self.assertIn("default: full", block.group(1))
-        for option in ("- full", "- smoke"):
+        for option in ("- full", "- stack-check"):
             self.assertIn(option, block.group(1))
 
-    def test_smoke_never_runs_the_suite_and_never_counts_as_evidence(self) -> None:
-        self.assertRegex(self.script, r'MODE" = smoke')
-        self.assertIn("SMOKE", self.text)
+    def test_stack_check_never_runs_the_suite_and_never_counts_as_evidence(self) -> None:
+        self.assertRegex(self.script, r'MODE" = stack-check')
+        self.assertIn("STACK-CHECK", self.text)
         self.assertIn("not evidence", self.text.lower())
         evidence = re.search(r"(?ms)- id: evidence\n(.*?)(?=^      - )", self.text)
         assert evidence
@@ -286,6 +286,28 @@ class G1StackWorkflow(unittest.TestCase):
         self.assertIn("--correlations benchmark/out/run/correlations.json", self.script)
         self.assertIn("RECORD_ACCESSED", self.text)
         self.assertIn("steps.access.outputs.record_accessed", self.script)
+
+    def test_a_stack_check_run_scans_only_what_it_produced(self) -> None:
+        # Codex P2 on noema#730: a stack-check run has no access check, so record-accessed.txt never exists; naming it in the scan made a healthy run fail before the Result step.
+        step = re.search(r"(?ms)- id: scan\n(.*?)(?=^      - )", self.text)
+        assert step
+        body = step.group(1)
+        self.assertIn("MODE: ${{ inputs.mode }}", body)
+        self.assertRegex(body, r'\[ "\$MODE" = stack-check \] \|\| set -- "\$@" benchmark/out/record-accessed\.txt')
+        base = re.search(r"set -- (benchmark/out/run [^\n]*)", body)
+        assert base
+        self.assertNotIn("record-accessed", base.group(1), "the base list is what every mode produces")
+
+    def test_the_job_log_scan_turns_off_only_the_digit_rule(self) -> None:
+        # Codex P2 on noema#730: the runner writes its own digits into the log (image version, run id, byte counts, the dispatch inputs it echoes, the seed in the command), which the digit-run
+        # rule cannot be allowed for without a broad exemption. The flag turns that one rule off for that one file; every other rule is still probed (tools/ci/test_g1_leakscan.py).
+        job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)
+        assert job
+        line = re.search(r"python3 -I tools/ci/g1_leakscan\.py ([^\n]*)", job.group(1))
+        assert line
+        self.assertIn("--no-digit-rule", line.group(1))
+        self.assertNotIn("--allow", line.group(1), "no allow rule is used for the job log: the digit rule is off, not worked around")
+        self.assertEqual(len(re.findall(r"python3 -I tools/ci/g1_leakscan\.py --no-digit-rule", self.text)), 1, "only the job log is scanned without the digit rule")
 
     def test_the_job_log_is_scanned_by_a_job_that_starts_after_it_ends(self) -> None:
         job = re.search(r"(?ms)^  joblog-scan:\n(.*)", self.text)

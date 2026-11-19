@@ -183,13 +183,19 @@ Updated 2026-11-06. Plan task ENV-04 (owner IL+AG; REQ-ENV-001, REQ-NFR-006). Ru
 # Session 2026-11-18 · ENV-04
 
 ## Session summary
-- What changed: `bench-g1-stack.yml` gains `mode` (full or smoke), SR's first-dispatch condition 1 (`tools/ci/g1_record_access.py`: exactly one SERVED RECORD_ACCESSED line per case, IDs and outcome only, empty log is NOT RUN) and condition 2 (a `joblog-scan` job that reads the finished job's log through the API and runs the leak scanner with its canary).
+- What changed: `bench-g1-stack.yml` gains `mode` (full or stack-check), SR's first-dispatch condition 1 (`tools/ci/g1_record_access.py`: exactly one SERVED RECORD_ACCESSED line per case, IDs and outcome only, empty log is NOT RUN) and condition 2 (a `joblog-scan` job that reads the finished job's log through the API and runs the leak scanner with its canary).
 - Why: A323 and A325 as relayed by the Founders; the rulings are not yet committed in `docs`, so the exact conditions are my reading of SR's words (see Open questions).
-- Risks, and how they are contained: smoke runs no suite and is labelled NOT EVIDENCE in the summary and the Result step; the new job has `actions: read` only.
+- Risks, and how they are contained: stack-check runs no suite and is labelled NOT EVIDENCE in the summary and the Result step; the new job has `actions: read` only.
 - Tests added: `tools/ci/test_g1_record_access.py` (8), four workflow guards and mode validation cases in `benchmark/runner/test_g1_workflow.py`. Seen failing first.
 - Debt entries: none. Conflicts raised: none.
 
 ## Pre-work for the next agent
-- Exact next step: first live run is the proof; the `joblog-scan` log endpoint and the smoke health rows are unverified (no Docker or Actions here).
+- Exact next step: first live run is the proof; the `joblog-scan` log endpoint and the stack-check health rows are unverified (no Docker or Actions here).
 - Open questions (SR): is "exactly one SERVED per case" the intended count, and is the g1-stack job log the full scope of condition 2?
 - Do not touch: the held-out set.
+
+# Session 2026-11-19 · ENV-04 · the stack-check rename and Codex's two P2s on noema#730 (IL)
+- Renamed the dispatch mode `smoke` to `stack-check` (A354 to A356 as relayed; the text is not yet in `docs`): `full` is the only mode that can be evidence; `stack-check` brings the stack up and checks that every service runs and is healthy, runs no suite, scores nothing and says so.
+- Codex P2 (a healthy stack-check run failed in the scan): the scan list is fixed per mode; `record-accessed.txt` is added only for `full`.
+- Codex P2 (the job log's own digits, among them the seed in the command line, the run id, the image version and the dispatch inputs the runner echoes, would fail the job-log scan): `tools/ci/leakscan.py --no-digit-rule` turns off the digit-run rule and nothing else; the job-log scan uses it, with no allow rule; `g1_leakscan.py --no-digit-rule` probes only the kinds that remain (canary, api key, JWT-shaped, bearer token) and is NOT RUN if one is not reported. Tests: the scanner, the probe (each remaining kind dropped by a wrapper is refused) and two workflow guards (the flag is used once, only for the job log; the scan list per mode).
+- Not verified: the whole job-log path (the API's log endpoint and the real log's content) until the first live run.

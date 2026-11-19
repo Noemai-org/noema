@@ -26,8 +26,8 @@ from pathlib import Path
 FINDING = re.compile(r"^(?P<name>.*?):\d+: (?P<kind>[a-z_]+) \(length")
 
 
-def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None) -> tuple[int, str]:
-    extra = ["--allow", str(allow)] if allow else []
+def scan(scanner: Path, canary_file: Path, paths: list[Path], allow: Path | None = None, digits: bool = True) -> tuple[int, str]:
+    extra = (["--allow", str(allow)] if allow else []) + ([] if digits else ["--no-digit-rule"])
     done = subprocess.run([sys.executable, "-I", str(scanner), "--canary", str(canary_file), *extra, *map(str, paths)], capture_output=True, text=True, check=False)
     return done.returncode, (done.stdout + done.stderr).strip()
 
@@ -41,11 +41,14 @@ def _luhn_complete(body: str) -> str:
     return body + str((10 - total % 10) % 10)
 
 
-def planted_values(canary: str) -> dict[str, str]:
-    """One line per kind the real scan must be able to report, each with a fresh random value. Keys are leakscan's own kind names."""
+DIGIT_KINDS = ("account_number", "card_number")  # found by the digit-run rule, so not planted when that rule is off
+
+
+def planted_values(canary: str, digits: bool = True) -> dict[str, str]:
+    """One line per kind the real scan must be able to report, each with a fresh random value. Keys are leakscan's own kind names. With the digit-run rule off, the kinds that rule finds are not planted."""
     ten = str(secrets.randbelow(9 * 10**9) + 10**9)
     card = _luhn_complete("4" + "".join(secrets.choice("0123456789") for _ in range(14)))
-    return {
+    plants = {
         "canary": f"a planted line that carries {canary} so that the scanner must find it",
         "account_number": f"planted account {ten}",
         "card_number": f"planted card {card}",
@@ -53,9 +56,10 @@ def planted_values(canary: str) -> dict[str, str]:
         "jwt": "planted token eyJ" + secrets.token_hex(6) + "." + secrets.token_hex(6) + "." + secrets.token_hex(6),
         "bearer_token": "Authorization: Bearer " + secrets.token_hex(12),
     }
+    return plants if digits else {k: v for k, v in plants.items() if k not in DIGIT_KINDS}
 
 
-def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = None) -> int:
+def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = None, digits: bool = True) -> int:
     for path in paths:
         if workdir == path or workdir in path.parents or path in workdir.parents:
             print("refused: the work directory must not be, contain or lie inside a scanned path")
@@ -65,17 +69,17 @@ def run(scanner: Path, workdir: Path, paths: list[Path], allow: Path | None = No
     planted.mkdir(parents=True, exist_ok=True)
     canary_file = workdir / "canary.txt"
     canary_file.write_text(canary + "\n", encoding="utf-8")
-    plants = planted_values(canary)
+    plants = planted_values(canary, digits)
     for kind, line in plants.items():
         (planted / f"planted-{kind}.txt").write_text(line + "\n", encoding="utf-8")
-    code, text = scan(scanner, canary_file, [planted], allow)
+    code, text = scan(scanner, canary_file, [planted], allow, digits)
     reported = {(m.group("name"), m.group("kind")) for m in map(FINDING.match, text.splitlines()) if m}  # (the planted file's kind, the kind the scanner named), read separately
     missing = [kind for kind in plants if (f"planted-{kind}.txt", kind) not in {(Path(p).name, k) for p, k in reported}]
     if code != 1 or missing or canary in text:
         print(f"NOT RUN: the scanner did not report every planted kind (exit {code}; not reported: {', '.join(missing) or 'none'}); a scan that finds nothing, or whose rules are broken, cannot be read as clean")
         return 3
     print(f"probe: every planted kind was found ({', '.join(plants)}): the scanner can see")
-    code, text = scan(scanner, canary_file, paths, allow)
+    code, text = scan(scanner, canary_file, paths, allow, digits)
     if canary in text:
         print("refused: the scanner printed the canary")
         return 3
@@ -94,6 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--scanner", type=Path, default=Path(__file__).resolve().parent / "leakscan.py")
     p.add_argument("--workdir", type=Path)
     p.add_argument("--allow", type=Path, help="leakscan's allow file: regular expressions of lines skipped for the digit-run rule only (never for secrets or canaries)")
+    p.add_argument("--no-digit-rule", action="store_true", help="the runner's own job log: the digit-run rule is off (it holds image versions, run ids, byte counts); every other rule is probed and applied")
     p.add_argument("paths", nargs="+", type=Path)
     a = p.parse_args(argv)
     paths = [x.resolve() for x in a.paths]
@@ -103,10 +108,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if a.workdir:
         a.workdir.mkdir(parents=True, exist_ok=True)
-        return run(a.scanner, a.workdir.resolve(), paths, a.allow)
+        return run(a.scanner, a.workdir.resolve(), paths, a.allow, not a.no_digit_rule)
     work = Path(tempfile.mkdtemp(prefix="g1-leakscan-"))
     try:
-        return run(a.scanner, work.resolve(), paths, a.allow)
+        return run(a.scanner, work.resolve(), paths, a.allow, not a.no_digit_rule)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
